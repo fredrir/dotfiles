@@ -1,0 +1,26 @@
+icon = "folder"
+min_score = 15
+
+search_dirs = [
+  "/home/fredrir/Documents",
+  "/home/fredrir/Downloads",
+]
+
+ignored_dirs = [
+  "node_modules",
+  ".git",
+  ".cache",
+  ".local/share/Trash",
+  ".nvm",
+  "go/pkg",
+]
+
+fd_flags = [
+  "--ignore-vcs",
+  "--type", "file",
+  "--type", "directory",
+  "--hidden",
+  "--exclude", ".git"
+]
+
+watch = false
