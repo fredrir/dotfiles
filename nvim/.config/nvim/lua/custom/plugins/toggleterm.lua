@@ -36,5 +36,19 @@ return {
     vim.keymap.set('t', '<C-j>', '<C-\\><C-n><C-w>j', { desc = 'Move to lower window' })
     vim.keymap.set('t', '<C-k>', '<C-\\><C-n><C-w>k', { desc = 'Move to upper window' })
     vim.keymap.set('t', '<C-l>', '<C-\\><C-n><C-w>l', { desc = 'Move to right window' })
+
+    -- Lazygit integration
+    local Terminal = require('toggleterm.terminal').Terminal
+    local lazygit = Terminal:new {
+      cmd = 'lazygit',
+      hidden = true,
+      direction = 'float',
+      float_opts = {
+        border = 'curved',
+        width = function() return math.floor(vim.o.columns * 0.95) end,
+        height = function() return math.floor(vim.o.lines * 0.9) end,
+      },
+    }
+    vim.keymap.set('n', '<leader>gg', function() lazygit:toggle() end, { desc = 'Lazygit' })
   end,
 }
