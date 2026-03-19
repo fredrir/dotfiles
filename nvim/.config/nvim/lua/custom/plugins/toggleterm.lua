@@ -4,6 +4,7 @@ return {
   keys = {
     { '<C-\\>', '<cmd>ToggleTerm<CR>', desc = 'Toggle terminal' },
     { '<C-\\>', '<cmd>ToggleTerm<CR>', mode = 't', desc = 'Toggle terminal' },
+    { '<leader>gg', desc = 'Lazygit' },
   },
   config = function()
     require('toggleterm').setup {
@@ -14,14 +15,13 @@ return {
           return vim.o.columns * 0.4
         end
       end,
-      shade_terminals = true,
-      shading_factor = -30,
+      shade_terminals = false,
       direction = 'float',
       float_opts = {
         border = 'curved',
         width = function() return math.floor(vim.o.columns * 0.85) end,
         height = function() return math.floor(vim.o.lines * 0.8) end,
-        winblend = 8,
+        winblend = 0,
       },
       highlights = {
         FloatBorder = { link = 'FloatBorder' },
