@@ -28,16 +28,12 @@ return {
       },
     }
 
-    -- Easy escape from terminal mode
     vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
-
-    -- Navigation out of the terminal into other windows
     vim.keymap.set('t', '<C-h>', '<C-\\><C-n><C-w>h', { desc = 'Move to left window' })
     vim.keymap.set('t', '<C-j>', '<C-\\><C-n><C-w>j', { desc = 'Move to lower window' })
     vim.keymap.set('t', '<C-k>', '<C-\\><C-n><C-w>k', { desc = 'Move to upper window' })
     vim.keymap.set('t', '<C-l>', '<C-\\><C-n><C-w>l', { desc = 'Move to right window' })
 
-    -- Lazygit integration
     local Terminal = require('toggleterm.terminal').Terminal
     local lazygit = Terminal:new {
       cmd = 'lazygit',
