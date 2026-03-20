@@ -1,11 +1,11 @@
 {
   "layer": "top",
   "position": "top",
-  "height": 30,
+  "height": 24,
   "spacing": 0,
   "modules-left": ["hyprland/workspaces"],
   "modules-center": ["clock"],
-  "modules-right": ["pulseaudio", "network", "tray"],
+  "modules-right": ["custom/weather", "pulseaudio", "network", "tray"],
 
   "hyprland/workspaces": {
     "format": "{id}",
@@ -16,7 +16,8 @@
   "clock": {
     "format": "{:%H:%M}",
     "format-alt": "{:%A, %d %B %Y}",
-    "tooltip-format": "{:%Y-%m-%d | %H:%M}"
+    "tooltip-format": "{:%Y-%m-%d | %H:%M}",
+    "locale": "nb_NO.UTF-8"
   },
 
   "pulseaudio": {
@@ -37,5 +38,12 @@
 
   "tray": {
     "spacing": 8
+  },
+
+  "custom/weather": {
+    "format": "{}",
+    "interval": 900,
+    "exec": "curl -s 'wttr.in/?format=%c+%t' | tr -d '+'",
+    "tooltip-format": "{}"
   }
 }

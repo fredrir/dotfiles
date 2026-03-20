@@ -1,12 +1,14 @@
 * {
-  font-family: "JetBrainsMono Nerd Font";
+  font-family: "Work Sans";
   font-size: 13px;
+  font-weight: 800;
   min-height: 0;
 }
 
 window#waybar {
-  background: rgba(30, 30, 46, 0.8);
+  background: rgba(30, 30, 46, 0.9);
   color: #cdd6f4;
+  padding: 0 10px;
   border-bottom: 1px solid rgba(88, 91, 112, 0.3);
 }
 
