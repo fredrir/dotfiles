@@ -1,12 +1,16 @@
 android-studio
 brave-bin
+catppuccin-gtk-theme-mocha
 fredulator-git
+grimblast-git
+kvantum-theme-catppuccin-git
+kvantum-theme-gruvbox-git
+mpvpaper
 plasma6-wallpapers-smart-video-wallpaper-reborn
 slack-desktop
 spotify
 stremio
 tor-browser-bin
-ttf-work-sans
 ventoy-bin
 visual-studio-code-bin
 yay

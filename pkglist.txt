@@ -10,11 +10,9 @@ brave-bin
 breeze
 breeze-gtk
 breeze-plymouth
+catppuccin-gtk-theme-mocha
 cliphist
 discover
-dkms
-docker
-docker-compose
 dolphin
 dosfstools
 drkonqi
@@ -33,15 +31,15 @@ fzf
 git
 go
 gptfdisk
-greetd
-greetd-tuigreet
 grim
+grimblast-git
 grub
 gtk4
 gvfs
 hypridle
 hyprland
 hyprlock
+hyprpaper
 hyprpolkitagent
 imagemagick
 jdk17-openjdk
@@ -64,7 +62,10 @@ kscreenlocker
 ksshaskpass
 ksystemstats
 kvantum-qt5
+kvantum-theme-catppuccin-git
+kvantum-theme-gruvbox-git
 kwallet-pam
+kwalletmanager
 kwayland
 kwin
 kwrited
@@ -80,6 +81,7 @@ linux
 linux-firmware
 linux-headers
 milou
+mpvpaper
 nano
 neovim
 net-tools
@@ -87,6 +89,7 @@ network-manager-applet
 networkmanager
 nmap
 nodejs
+noto-fonts-cjk
 npm
 nwg-look
 ocean-sound-theme
@@ -122,6 +125,7 @@ print-manager
 pwgen
 qemu-system-riscv
 qqc2-breeze-style
+qt5-wayland
 qt5ct
 qt6ct
 reflector
@@ -150,11 +154,8 @@ tor-browser-bin
 trash-cli
 tree
 tree-sitter-cli
-ttf-dejavu
-ttf-iosevka-nerd
 ttf-jetbrains-mono
 ttf-jetbrains-mono-nerd
-ttf-work-sans
 tumbler
 ueberzugpp
 unzip
