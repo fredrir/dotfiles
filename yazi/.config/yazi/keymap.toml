@@ -254,7 +254,7 @@ keymap = [
   { on = [
     "g",
     "m",
-  ], run = "cd /run/media/r4ppz/", desc = "Go /media" },
+  ], run = "cd /run/media/", desc = "Go /media" },
   { on = [
     "g",
     "M",

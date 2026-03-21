@@ -1,0 +1,5 @@
+# Machine-specific overrides
+# Copy this file to local.conf and adjust for your setup
+
+# Monitor configuration
+# monitor = DP-3, 3840x2160@60, 0x0, 1.5

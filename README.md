@@ -22,20 +22,27 @@
 
 ### What's included
 
-| Config    | Description             |
-| --------- | ----------------------- |
-| `hypr`    | Hyprland window manager |
-| `nvim`    | Neovim editor           |
-| `kitty`   | Kitty terminal          |
-| `waybar`  | Status bar              |
-| `dunst`   | Notification daemon     |
-| `wlogout` | Logout menu             |
-| `zsh`     | Shell config            |
+| Config     | Description             |
+| ---------- | ----------------------- |
+| `hypr`     | Hyprland window manager |
+| `nvim`     | Neovim editor           |
+| `kitty`    | Kitty terminal          |
+| `waybar`   | Status bar              |
+| `dunst`    | Notification daemon     |
+| `wlogout`  | Logout menu             |
+| `zsh`      | Shell config            |
+| `yazi`     | File manager            |
+| `elephant` | File search launcher    |
 
 ### Install
 
 ```bash
 git clone https://github.com/fredrir/dotfiles ~/dotfiles
 cd ~/dotfiles
-stow hypr nvim kitty waybar dunst wlogout zsh
+./setup.sh
 ```
+
+### Post-install
+
+- Place your wallpaper at `~/.config/hypr/wallpaper.png`
+- Edit `~/.config/hypr/conf.d/local.conf` for machine-specific settings (monitors, etc.)
