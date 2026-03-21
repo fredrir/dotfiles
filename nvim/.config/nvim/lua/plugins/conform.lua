@@ -16,9 +16,7 @@ return {
     notify_on_error = false,
     format_on_save = function(bufnr)
       local disable_filetypes = { c = true, cpp = true }
-      if disable_filetypes[vim.bo[bufnr].filetype] then
-        return nil
-      end
+      if disable_filetypes[vim.bo[bufnr].filetype] then return nil end
       return { timeout_ms = 500, lsp_format = 'fallback' }
     end,
     formatters_by_ft = {
@@ -32,6 +30,7 @@ return {
       css = { 'prettierd', 'prettier', stop_after_first = true },
       html = { 'prettierd', 'prettier', stop_after_first = true },
       json = { 'prettierd', 'prettier', stop_after_first = true },
+      jsonc = { 'prettierd', 'prettier', stop_after_first = true },
       yaml = { 'prettierd', 'prettier', stop_after_first = true },
       markdown = { 'prettierd', 'prettier', stop_after_first = true },
     },

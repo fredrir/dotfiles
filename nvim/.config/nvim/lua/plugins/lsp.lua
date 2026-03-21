@@ -64,6 +64,19 @@ return {
         filetypes = { 'html', 'css', 'javascriptreact', 'typescriptreact' },
       },
       pyright = {},
+      jsonls = {
+        settings = {
+          json = {
+            validate = { enable = true },
+          },
+        },
+        filetypes = { 'json', 'jsonc' },
+        capabilities = {
+          textDocument = {
+            diagnostic = vim.NIL,
+          },
+        },
+      },
       gopls = {},
       lua_ls = {
         on_init = function(client)

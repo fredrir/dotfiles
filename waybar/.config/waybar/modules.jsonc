@@ -1,0 +1,53 @@
+{
+  "memory": {
+    "format": "󰍛 {percentage}%",
+    "tooltip-format": "RAM: {used:0.1f}G / {total:0.1f}G",
+    "warning": 70,
+    "critical": 90,
+  },
+
+  "cpu": {
+    "format": " {usage}%",
+    "tooltip-format": "CPU: {usage}%",
+    "interval": 5,
+  },
+
+  "temperature": {
+    "hwmon-path": "/sys/class/hwmon/hwmon2/temp1_input",
+    "format": " {temperatureC}°C",
+    "format-critical": " {temperatureC}°C",
+    "critical-threshold": 80,
+    "tooltip-format": "Temperature: {temperatureC}°C",
+  },
+  "hyprland/workspaces": {
+    "format": "{id}",
+    "on-click": "activate",
+    "sort-by-number": true,
+  },
+
+  "clock": {
+    "format": "{:%H:%M}",
+    "format-alt": "{:%A, %d %B %Y}",
+    "tooltip-format": "{:%Y-%m-%d | %H:%M}",
+  },
+
+  "pulseaudio": {
+    "format": "{icon} {volume}%",
+    "format-muted": "󰝟 muted",
+    "format-icons": {
+      "default": ["󰕿", "󰖀", "󰕾"],
+    },
+    "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+  },
+
+  "network": {
+    "format-wifi": "󰤨 {signalStrength}%",
+    "format-ethernet": "󰈀",
+    "format-disconnected": "󰤭",
+    "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+  },
+
+  "tray": {
+    "spacing": 8,
+  },
+}
