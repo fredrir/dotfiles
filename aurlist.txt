@@ -14,6 +14,5 @@ nvidia-580xx-dkms
 nvidia-580xx-utils
 ttf-work-sans
 walker
-wlogout
 yay
 yay-debug
