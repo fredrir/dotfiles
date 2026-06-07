@@ -7,7 +7,18 @@ vim.o.number = true
 vim.o.relativenumber = false
 vim.o.mouse = 'a'
 vim.o.showmode = false
-vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
+vim.schedule(function()
+  if vim.env.DISPLAY == nil and vim.env.WAYLAND_DISPLAY == nil then
+    local clipfile = vim.fn.stdpath 'cache' .. '/tty-clipboard'
+    vim.g.clipboard = {
+      name = 'tty-file',
+      copy = { ['+'] = { 'tee', clipfile }, ['*'] = { 'tee', clipfile } },
+      paste = { ['+'] = { 'cat', clipfile }, ['*'] = { 'cat', clipfile } },
+      cache_enabled = false,
+    }
+  end
+  vim.o.clipboard = 'unnamedplus'
+end)
 vim.o.breakindent = true
 vim.o.undofile = true
 vim.o.ignorecase = true
@@ -39,7 +50,9 @@ vim.diagnostic.config {
   underline = { severity = { min = vim.diagnostic.severity.WARN } },
   virtual_text = true,
   virtual_lines = false,
-  jump = { float = true },
+  jump = {
+    on_jump = vim.diagnostic.open_float,
+  },
 }
 
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
@@ -90,6 +103,9 @@ end
 ---@type vim.Option
 local rtp = vim.opt.rtp
 rtp:prepend(lazypath)
+
+vim.g.python3_host_prog = vim.fn.expand '~/.local/share/nvim/pynvim-venv/bin/python'
+vim.g.loaded_node_provider = 0
 
 require('lazy').setup({
   { 'NMAC427/guess-indent.nvim', opts = {} },

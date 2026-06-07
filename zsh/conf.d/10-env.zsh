@@ -5,3 +5,7 @@ export LESS="-R -F -X"
 export CONFIG="$HOME/.config"
 export HYPR="$CONFIG/hypr"
 export NVIM="$CONFIG/nvim"
+
+export PATH="$HOME/.local/share/npm-global/bin:$PATH"
+
+eval "$(direnv hook zsh)"

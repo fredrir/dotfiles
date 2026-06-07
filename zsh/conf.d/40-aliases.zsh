@@ -6,6 +6,8 @@ alias vv="nvim ."
 alias la="ls -a"
 alias ll="ls -l"
 
+alias untar="tar -xzf"
+
 alias cp="cp -i"
 alias mv="mv -i"
 alias rm="rm -i"
@@ -26,8 +28,22 @@ alias gd='git diff'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias ....='cd ../../..'
+alias cd..="cd .."
+alias cd...="cd ../.."
 
 alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdhy="cd $HYPR"
 alias cdn="cd $NVIM"
+
+alias cdf="cd ../frontend"
+alias cdb="cd ../backend"
+
+alias docku="docker compose up --build"
+alias dockd="docker compose down -v"
+alias dockseed="docker compose exec backend pnpm db:seed"
+alias dockus="docker compose down -v && docker compose up --build -d && docker compose exec backend pnpm db:seed && docker compose logs -f backend"
+
+alias dockexp="docker exec -e SAMPLES_DIR=/samples/exams llunde-pyparser-worker"
+
+alias penv="python -m venv .venv && source .venv/bin/activate"

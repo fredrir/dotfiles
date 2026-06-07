@@ -1,0 +1,9 @@
+[Daemon]
+Autolock=false
+Timeout=0
+
+[Greeter]
+WallpaperPlugin=luisbocanegra.smart.video.wallpaper.reborn
+
+[Greeter][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
+VideoUrls=[{"filename":"file:///home/fredrir/Downloads/train-station-rainy-day-moewalls-com.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
