@@ -1,0 +1,4 @@
+# laptop — Arch Linux, Hyprland only (no KDE).
+shared
+linux/common
+linux/hyprland

@@ -1,8 +1,0 @@
-beekeeper-studio
-bibata-cursor-theme-bin
-brave-bin
-fredulator-git
-fredulator-git-debug
-ttf-work-sans
-yay
-yay-debug

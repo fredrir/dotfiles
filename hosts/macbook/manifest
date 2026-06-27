@@ -1,0 +1,4 @@
+# macbook — macOS. TEMPLATE: rename this dir to your machine's `hostname -s`
+# (or pass the host explicitly: `./setup.sh macbook`).
+shared
+macos

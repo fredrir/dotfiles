@@ -1,0 +1,6 @@
+# archpc — Arch Linux desktop, NVIDIA, KDE Plasma + Hyprland.
+# One stow group per line. setup.sh stows every package in each group.
+shared
+linux/common
+linux/kde
+linux/hyprland
