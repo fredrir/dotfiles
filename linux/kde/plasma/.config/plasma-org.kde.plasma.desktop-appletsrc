@@ -110,7 +110,7 @@ plugin=org.kde.plasma.vault
 
 [Containments][2][Applets][7][Applets][17]
 immutability=1
-plugin=org.kde.plasma.keyboardindicator
+plugin=org.kde.kdeconnect
 
 [Containments][2][Applets][7][Applets][18]
 immutability=1
@@ -166,8 +166,8 @@ DialogHeight=630
 DialogWidth=810
 
 [Containments][2][Applets][7][General]
-extraItems=org.kde.plasma.brightness,org.kde.plasma.notifications,org.kde.plasma.cameraindicator,org.kde.plasma.keyboardlayout,org.kde.plasma.battery,org.kde.plasma.clipboard,org.kde.plasma.mediacontroller,org.kde.plasma.manage-inputmethod,org.kde.plasma.devicenotifier,org.kde.kscreen,org.kde.plasma.vault,org.kde.plasma.keyboardindicator,org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.weather,org.kde.plasma.volume,org.kde.plasma.printmanager
-knownItems=org.kde.plasma.brightness,org.kde.plasma.notifications,org.kde.plasma.cameraindicator,org.kde.plasma.keyboardlayout,org.kde.plasma.battery,org.kde.plasma.clipboard,org.kde.plasma.mediacontroller,org.kde.plasma.manage-inputmethod,org.kde.plasma.devicenotifier,org.kde.kscreen,org.kde.plasma.vault,org.kde.plasma.keyboardindicator,org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.weather,org.kde.plasma.volume,org.kde.plasma.printmanager
+extraItems=org.kde.plasma.brightness,org.kde.plasma.notifications,org.kde.plasma.cameraindicator,org.kde.plasma.keyboardlayout,org.kde.plasma.battery,org.kde.plasma.clipboard,org.kde.plasma.mediacontroller,org.kde.plasma.manage-inputmethod,org.kde.plasma.devicenotifier,org.kde.kscreen,org.kde.plasma.vault,org.kde.plasma.keyboardindicator,org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.weather,org.kde.plasma.volume,org.kde.plasma.printmanager,org.kde.kdeconnect
+knownItems=org.kde.plasma.brightness,org.kde.plasma.notifications,org.kde.plasma.cameraindicator,org.kde.plasma.keyboardlayout,org.kde.plasma.battery,org.kde.plasma.clipboard,org.kde.plasma.mediacontroller,org.kde.plasma.manage-inputmethod,org.kde.plasma.devicenotifier,org.kde.kscreen,org.kde.plasma.vault,org.kde.plasma.keyboardindicator,org.kde.plasma.networkmanagement,org.kde.plasma.bluetooth,org.kde.plasma.weather,org.kde.plasma.volume,org.kde.plasma.printmanager,org.kde.kdeconnect
 
 [Containments][2][General]
 AppletOrder=3;5;6;7;14;15

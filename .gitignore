@@ -1,10 +1,7 @@
-# --- machine-local / generated ---
-# Wallpaper (binary, per-machine)
 linux/hyprland/hypr/.config/hypr/wallpaper.png
-# Transient local Hyprland override (tracked host overrides live in hosts/)
+**/.config/OpenRGB/logs/
 **/hypr/conf.d/local.conf
 
-# --- secrets / auth: NEVER commit (a past accidental ~/.config dump leaked these) ---
 **/gh/hosts.yml
 **/github-copilot/
 **/.bun/
@@ -15,7 +12,6 @@ linux/hyprland/hypr/.config/hypr/wallpaper.png
 **/*.db-shm
 **/*.db-wal
 
-# nvm install dir (once leaked into nvim/ via a NVM_DIR=~/.config/nvim typo)
 **/.config/nvm/
 **/nvm.sh
 **/nvm-exec
