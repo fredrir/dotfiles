@@ -1,0 +1,13 @@
+# Homebrew bundle for macOS — placeholder.
+#
+# Populate from an existing machine:   brew bundle dump --file macos/Brewfile
+# Install on a new machine:            brew bundle --file macos/Brewfile
+#
+# Examples:
+# brew "git"
+# brew "neovim"
+# brew "stow"
+# brew "zsh"
+# brew "oh-my-posh"
+# cask "wezterm"
+# cask "raycast"
