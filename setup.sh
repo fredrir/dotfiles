@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Per-profile dotfiles installer.
-#
-#   ./setup.sh [profile]
-#
-# `profile` is a path under hosts/ following machine/distro/desktop, e.g.
-#   desktop/arch-linux/kde-hyprland | laptop/arch-linux/hyprland | macbook/macos
-# It defaults to `hostname -s`. The profile must have hosts/<profile>/manifest
-# listing the stow groups to apply (one per line).
-#
-# Each group (shared, linux/common, linux/kde, linux/hyprland, macos) holds GNU
-# Stow packages; every package is stowed into $HOME. A package directory with a
-# `.nostow` marker is skipped (reference-only or generated assets).
+# Per-profile dotfiles installer:  ./setup.sh [profile]
+# profile = path under hosts/ (machine/distro/desktop), defaults to `hostname -s`.
+# Reads hosts/<profile>/manifest for the stow groups; each group holds Stow
+# packages stowed into $HOME. A package with a `.nostow` marker is skipped.
 
 DOTFILES="$(cd "$(dirname "$0")" && pwd)"
 PROFILE="${1:-$(hostname -s)}"
@@ -33,9 +25,8 @@ fi
 
 echo "Setting up profile '$PROFILE' from $DOTFILES"
 
-failed=""   # accumulates "group/pkg" entries that hit stow conflicts
+failed=""   # group/pkg entries that hit conflicts
 
-# Stow every package in each group named by the manifest.
 while IFS= read -r line || [ -n "$line" ]; do
   group="${line%%#*}"                           # strip comments
   group="${group#"${group%%[![:space:]]*}"}"    # ltrim
@@ -55,15 +46,11 @@ while IFS= read -r line || [ -n "$line" ]; do
       echo "  skip (.nostow): $group/$name"
       continue
     fi
-    # zsh is split across groups (shared/zsh + linux/common/zsh + linux/hyprland/zsh
-    # + macos/zsh all co-populate ~/.config/zsh/conf.d). Stow it with --no-folding
-    # so the target subtree is real directories + per-file symlinks; otherwise the
-    # first group folds ~/.config/zsh into one symlink and the next group sees a
-    # foreign target and aborts. Other packages fold normally (single dir symlink).
+    # zsh co-stows from several groups into ~/.config/zsh/conf.d; --no-folding
+    # keeps real dirs + per-file links so a later group doesn't hit a folded symlink.
     fold=""
     [ "$name" = "zsh" ] && fold="--no-folding"
-    # Capture in an `if` so a conflict doesn't trip `set -e` and abort the whole
-    # run — warn, record it, and keep stowing the remaining packages.
+    # Capture in `if` so a conflict doesn't trip `set -e`: warn, record, keep going.
     if out="$( cd "$dir" && stow --target="$HOME" $fold --restow "$name" 2>&1 )"; then
       echo "  stowed: $group/$name"
     else
@@ -74,9 +61,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   done
 done < "$MANIFEST"
 
-# --- Hyprland-only post-steps ---------------------------------------------
+# --- Hyprland-only post-steps ---
 if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
-  # elephant: generate config with $HOME expanded (not stowed).
+  # elephant: generate config with $HOME expanded (not stowed)
   ELEPHANT_SRC="$DOTFILES/linux/hyprland/elephant/.config/elephant/files.toml"
   if [ -f "$ELEPHANT_SRC" ]; then
     mkdir -p "$HOME/.config/elephant"
