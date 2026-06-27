@@ -33,6 +33,8 @@ fi
 
 echo "Setting up profile '$PROFILE' from $DOTFILES"
 
+failed=""   # accumulates "group/pkg" entries that hit stow conflicts
+
 # Stow every package in each group named by the manifest.
 while IFS= read -r line || [ -n "$line" ]; do
   group="${line%%#*}"                           # strip comments
@@ -60,8 +62,15 @@ while IFS= read -r line || [ -n "$line" ]; do
     # foreign target and aborts. Other packages fold normally (single dir symlink).
     fold=""
     [ "$name" = "zsh" ] && fold="--no-folding"
-    ( cd "$dir" && stow --target="$HOME" $fold --restow "$name" )
-    echo "  stowed: $group/$name"
+    # Capture in an `if` so a conflict doesn't trip `set -e` and abort the whole
+    # run — warn, record it, and keep stowing the remaining packages.
+    if out="$( cd "$dir" && stow --target="$HOME" $fold --restow "$name" 2>&1 )"; then
+      echo "  stowed: $group/$name"
+    else
+      echo "  !! CONFLICT — skipped $group/$name:"
+      printf '%s\n' "$out" | sed 's/^/       /'
+      failed="$failed $group/$name"
+    fi
   done
 done < "$MANIFEST"
 
@@ -90,6 +99,18 @@ if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
   fi
 
   command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
+fi
+
+if [ -n "$failed" ]; then
+  echo
+  echo "Finished with conflicts ($PROFILE). Skipped:"
+  for f in $failed; do echo "  - $f"; done
+  echo "Those targets already exist and aren't owned by stow — usually a stale"
+  echo "broken symlink from a previous layout, or a real file. Resolve and re-run:"
+  echo "  rm <broken-symlink>                       # if it's a dead link"
+  echo "  mv ~/.config/<name> ~/config-conflicts/   # if it's a real file/dir"
+  echo "  ./setup.sh $PROFILE"
+  exit 1
 fi
 
 echo "Done ($PROFILE)."
