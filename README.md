@@ -23,31 +23,6 @@
 ```
 
 
-## Layout
-
-```
-shared/          # (zsh core, nvim, kitty, yazi, git)
-linux/
-  common/        # Linux: fontconfig, gtk, flameshot, zsh
-  kde/           # KDE Plasma only: plasma, kate (KDE themes its own Qt)
-  hyprland/      # Hyprland only: hypr, waybar, wofi, wlogout, dunst, elephant, qt5ct, qt6ct, zsh (hypr helpers)
-  packages/      # pacman/AUR package lists (reference, not stowed)
-macos/           # macOS: zsh (macos fragments), wezterm, iterm (ref), Brewfile
-hosts/           # profiles following machine/distro/desktop:
-  desktop/arch-linux/kde/              # archpc, KDE only
-  desktop/arch-linux/kde-hyprland/     # archpc, KDE + Hyprland
-  laptop/arch-linux/hyprland/          # laptop, Hyprland only
-  macbook/macos/                       # mac
-    manifest          #   groups this profile stows
-    hypr-local.conf   #   monitors / GPU env / scale (-> conf.d/local.conf)
-    notes.md
-```
-
-Each entry a manifest names is a *group* of Stow packages; every package uses the
-`<pkg>/.config/<app>/…` layout that Stow symlinks into `$HOME`. A package dir with
-a `.nostow` marker is skipped (e.g. `elephant`, which is generated, and `iterm`,
-which is import-only).
-
 ## Install
 
 ```bash
