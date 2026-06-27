@@ -35,6 +35,7 @@ alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdhy="cd $HYPR"
 alias cdn="cd $NVIM"
+alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate"
 
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"

@@ -8,6 +8,10 @@ Rows=1
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
+[Tiling][0bb301ff-ee7e-4023-a17e-9204f75c014c][e80dd081-f025-42ce-99e5-6f6dcc0a074f]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
 [Tiling][7d62ce5d-5b8c-4daf-8cba-22abd61e3108][]
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
@@ -16,12 +20,16 @@ tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"wi
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
+[Tiling][7d62ce5d-5b8c-4daf-8cba-22abd61e3108][e80dd081-f025-42ce-99e5-6f6dcc0a074f]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
 [Tiling][a34ae731-1417-4da1-aa41-d6a14824f6b2][12965983-b1dc-4f78-8294-688050d822b1]
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
 [Xwayland]
-Scale=1.5
+Scale=1
 
 [org.kde.kdecoration2]
 library=org.kde.breeze

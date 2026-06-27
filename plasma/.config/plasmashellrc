@@ -1,5 +1,9 @@
+[Notification Messages]
+klipperClearHistoryAskAgain=false
+
 [PlasmaViews][Panel 2]
 floating=1
+shell=org.kde.plasma.desktop
 
 [PlasmaViews][Panel 2][Defaults]
 thickness=46

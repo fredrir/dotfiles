@@ -18,7 +18,7 @@ wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4
-LastVideoPosition=13750
+LastVideoPosition=1416
 VideoUrls=[{"filename":"file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][2]
@@ -53,12 +53,22 @@ plugin=org.kde.plasma.kickoff
 popupHeight=509
 popupWidth=647
 
+[Containments][2][Applets][3][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
+
 [Containments][2][Applets][3][Configuration][General]
 favoritesPortedToKAstats=true
+icon=distributor-logo-archlinux
+systemFavorites=suspend\\,hibernate\\,reboot\\,shutdown
 
 [Containments][2][Applets][5]
 immutability=1
 plugin=org.kde.plasma.icontasks
+
+[Containments][2][Applets][5][Configuration][ConfigDialog]
+DialogHeight=630
+DialogWidth=810
 
 [Containments][2][Applets][5][Configuration][General]
 launchers=applications:systemsettings.desktop,applications:org.kde.plasma-systemmonitor.desktop,preferred://filemanager,preferred://browser
