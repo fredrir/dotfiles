@@ -1,6 +1,7 @@
 export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/keyring/ssh"
 export NVM_DIR="$HOME/.config/nvm"
-export LESS="-R -F -X"
+export PAGER=less
+export LESS="-R -F --mouse --wheel-lines=3"
 
 export CONFIG="$HOME/.config"
 export HYPR="$CONFIG/hypr"
