@@ -30,6 +30,7 @@ flatpak-kcm
 git
 git-delta
 github-cli
+gitleaks
 glow
 gradle
 gvim
@@ -67,6 +68,7 @@ nodejs
 npm
 nvidia-open
 nvidia-utils
+openrgb
 openssh
 oxygen
 oxygen-cursors
