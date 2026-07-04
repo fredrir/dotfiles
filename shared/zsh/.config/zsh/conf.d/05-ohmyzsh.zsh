@@ -6,9 +6,6 @@ ZSH_THEME="eastwood"
 export NVM_DIR="$HOME/.config/nvm"
 zstyle ':omz:plugins:nvm' lazy yes
 
-# alias-finder
-zstyle ':omz:plugins:alias-finder' autoload yes
-
 # eza
 zstyle ':omz:plugins:eza' dirs-first yes
 zstyle ':omz:plugins:eza' git-status yes
@@ -19,6 +16,7 @@ plugins=(
   gh
   gitignore
 
+  # on-demand only (no autoload zstyle): `alias-finder "git add"`
   alias-finder
   colored-man-pages
   command-not-found
