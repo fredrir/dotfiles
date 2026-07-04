@@ -2,6 +2,16 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 vim.g.have_nerd_font = true
 
+-- Minimal mode for headless servers. The vps/linux profile exports
+-- NVIM_MINIMAL=1 (see linux/server zsh); it drops the LSP, formatter, linter,
+-- AI, DB and debug plugins — everything that pulls mason / node / Go / a
+-- toolchain — while keeping the editor, treesitter, telescope, git and theme.
+-- Guarded, so it's a no-op anywhere the env var is unset (i.e. every desktop).
+do
+  local m = vim.env.NVIM_MINIMAL
+  vim.g.minimal = m ~= nil and m ~= '' and m ~= '0'
+end
+
 -- [[ Options ]]
 vim.o.number = true
 vim.o.relativenumber = false

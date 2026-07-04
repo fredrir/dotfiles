@@ -1,89 +1,62 @@
 {
   "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
 
-  // ── Catppuccin Mocha palette (hex for keyColor, SGR "38;2;r;g;b" for {#...} in formats) ──
-  //   blue    #89b4fa  38;2;137;180;250   (System accent)
-  //   peach   #fab387  38;2;250;179;135   (Hardware accent)
-  //   mauve   #cba6f7  38;2;203;166;247   (Desktop accent)
-  //   green   #a6e3a1  38;2;166;227;161   (Network accent)
-  //   overlay #6c7086  38;2;108;112;134   (separators / dim rule)
+  "display": {
+    "constants": [
+      "\u001b[1;38;2;137;180;250m", // blue #89b4fa
+      "\u001b[1;38;2;250;179;135m", // peach #fab387
+      "\u001b[1;38;2;203;166;247m", // mauve #cba6f7
+      "\u001b[1;38;2;166;227;161m", // green #a6e3a1
+      "\u001b[38;2;108;112;134m" // overlay #6c7086
+    ],
+    "separator": "  ",
+    "key": { "width": 14 },
+    "color": { "separator": "#6c7086" },
+    "size": { "binaryPrefix": "jedec", "ndigits": 0 },
+    "percent": { "type": 9, "green": 50, "yellow": 80 }
+  },
 
   "logo": {
     "source": "arch",
     "padding": { "top": 2, "left": 2, "right": 4 },
-    "color": { "1": "#89b4fa", "2": "#74c7ec" },
-  },
-
-  "display": {
-    "separator": "  ",
-    "key": { "width": 14 },
-    "color": { "separator": "#6c7086" },
-    // Colored percentage number: green < 50% < yellow < 80% < red.
-    "percent": { "type": 9, "green": 50, "yellow": 80 },
+    "color": { "1": "#89b4fa", "2": "#74c7ec" }
   },
 
   "modules": [
     "break",
 
-    {
-      "type": "title",
-      "format": "{#1;38;2;137;180;250}{user-name}{#38;2;166;227;161} @ {#1;38;2;203;166;247}{host-name}",
-    },
-    {
-      "type": "custom",
-      "format": "{#38;2;108;112;134}───────────────────────────────",
-    },
+    { "type": "title", "format": "{$1}{user-name}{$4} @ {$3}{host-name}" },
+    { "type": "custom", "format": "{$5}───────────────────────────────" },
     "break",
 
-    { "type": "custom", "format": "{#1;38;2;137;180;250}  SYSTEM" },
-    { "type": "os", "key": "󰣇  OS", "keyColor": "#89b4fa" },
-    { "type": "kernel", "key": "󰌽  Kernel", "keyColor": "#89b4fa" },
-    { "type": "uptime", "key": "󰅐  Uptime", "keyColor": "#89b4fa" },
-    { "type": "packages", "key": "󰏗  Packages", "keyColor": "#89b4fa" },
-    { "type": "shell", "key": "󰆍  Shell", "keyColor": "#89b4fa" },
+    { "type": "custom", "format": "{$1}  SYSTEM" },
+    { "type": "os", "key": "{$1}󰣇  OS" },
+    { "type": "kernel", "key": "{$1}󰌽  Kernel" },
+    { "type": "uptime", "key": "{$1}󰅐  Uptime" },
+    { "type": "packages", "key": "{$1}󰏗  Packages" },
+    { "type": "shell", "key": "{$1}󰆍  Shell" },
     "break",
 
-    { "type": "custom", "format": "{#1;38;2;250;179;135}  HARDWARE" },
-    { "type": "cpu", "key": "󰻠  CPU", "keyColor": "#fab387" },
-    {
-      "type": "gpu",
-      "key": "󰢮  GPU",
-      "keyColor": "#fab387",
-      "hideType": "integrated",
-    },
-    {
-      "type": "memory",
-      "key": "󰍛  Memory",
-      "keyColor": "#fab387",
-      "format": "{used} / {total}  {percentage}",
-    },
-    {
-      "type": "disk",
-      "key": "󰋊  Disk",
-      "keyColor": "#fab387",
-      "folders": "/:/home",
-      "format": "{mountpoint}  {size-used} / {size-total}  {size-percentage}",
-    },
+    { "type": "custom", "format": "{$2}  HARDWARE" },
+    { "type": "cpu", "key": "{$2}󰻠  CPU" },
+    { "type": "gpu", "key": "{$2}󰢮  GPU", "hideType": "integrated" },
+    { "type": "memory", "key": "{$2}󰍛  Memory", "format": "{used} / {total} [{percentage}]" },
+    { "type": "disk", "key": "{$2}󰋊  Disk", "folders": "/:/home", "format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]" },
     "break",
 
-    { "type": "custom", "format": "{#1;38;2;203;166;247}  DESKTOP" },
-    { "type": "de", "key": "󰧨  DE", "keyColor": "#cba6f7" },
-    { "type": "wm", "key": "󰖯  WM", "keyColor": "#cba6f7" },
-    { "type": "terminal", "key": "󰆌  Terminal", "keyColor": "#cba6f7" },
-    {
-      "type": "theme",
-      "key": "󰏘  Theme",
-      "keyColor": "#cba6f7",
-      "format": "{theme1}",
-    },
-    { "type": "display", "key": "󰍹  Display", "keyColor": "#cba6f7" },
+    { "type": "custom", "format": "{$3}  DESKTOP" },
+    { "type": "de", "key": "{$3}󰧨  DE" },
+    { "type": "wm", "key": "{$3}󰖯  WM" },
+    { "type": "terminal", "key": "{$3}󰆌  Terminal" },
+    { "type": "theme", "key": "{$3}󰏘  Theme", "format": "{theme1}" },
+    { "type": "display", "key": "{$3}󰍹  Display" },
     "break",
 
-    { "type": "custom", "format": "{#1;38;2;166;227;161}  NETWORK" },
-    { "type": "localip", "key": "󰩟  Local IP", "keyColor": "#a6e3a1" },
-    { "type": "locale", "key": "󰗊  Locale", "keyColor": "#a6e3a1" },
+    { "type": "custom", "format": "{$4}  NETWORK" },
+    { "type": "localip", "key": "{$4}󰩟  Local IP" },
+    { "type": "locale", "key": "{$4}󰗊  Locale" },
     "break",
 
-    { "type": "colors", "symbol": "circle", "paddingLeft": 2 },
-  ],
+    { "type": "colors", "symbol": "circle", "paddingLeft": 2 }
+  ]
 }

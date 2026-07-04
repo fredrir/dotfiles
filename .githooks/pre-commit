@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Regenerate the fastfetch preview in README.md whenever the fastfetch
+# config is part of the commit. Enabled via core.hooksPath (see setup.sh).
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cfg="shared/fastfetch/.config/fastfetch/config.jsonc"
+
+# Nothing to do unless the fastfetch config is staged in this commit.
+if ! git diff --cached --name-only -- "$cfg" | grep -q .; then
+  exit 0
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  exit 0
+fi
+
+if python3 "$root/scripts/update-readme-fastfetch.py"; then
+  git add "$root/README.md"
+else
+  echo "pre-commit: fastfetch README update failed (continuing)" >&2
+fi

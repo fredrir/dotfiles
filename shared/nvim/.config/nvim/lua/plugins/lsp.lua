@@ -1,3 +1,4 @@
+if vim.g.minimal then return {} end -- skipped in minimal (server) mode
 return {
   'neovim/nvim-lspconfig',
   dependencies = {

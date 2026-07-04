@@ -79,3 +79,4 @@ size() {
     du -sh "$1" | cut -f1
   fi
 }
+

@@ -26,6 +26,7 @@ alias gcm='git commit -m'
 alias gp='git push'
 alias gl='git pull'
 alias gd='git diff'
+alias gff="git add . && git commit -m "." && git push"
 
 # Navigation
 alias ..='cd ..'
@@ -49,4 +50,10 @@ alias dockus="docker compose down -v && docker compose up --build -d && docker c
 
 alias dockexp="docker exec -e SAMPLES_DIR=/samples/exams llunde-pyparser-worker"
 
+alias pyparser-restart="ssh leploy 'cd /opt/pyparser && docker compose restart'"
+
 alias penv="python -m venv .venv && source .venv/bin/activate"
+
+
+
+

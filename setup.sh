@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Per-profile dotfiles installer:  ./setup.sh [profile]
-# profile = path under hosts/ (machine/distro/desktop), defaults to `hostname -s`.
-# Reads hosts/<profile>/manifest for the stow groups; each group holds Stow
-# packages stowed into $HOME. A package with a `.nostow` marker is skipped.
-
 DOTFILES="$(cd "$(dirname "$0")" && pwd)"
 PROFILE="${1:-$(hostname -s)}"
 MANIFEST="$DOTFILES/hosts/$PROFILE/manifest"
+
+
+git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || true
 
 if ! command -v stow >/dev/null 2>&1; then
   echo "error: GNU stow is not installed." >&2
@@ -25,7 +23,7 @@ fi
 
 echo "Setting up profile '$PROFILE' from $DOTFILES"
 
-failed=""   # group/pkg entries that hit conflicts
+failed=""   
 
 while IFS= read -r line || [ -n "$line" ]; do
   group="${line%%#*}"                           # strip comments
@@ -46,11 +44,9 @@ while IFS= read -r line || [ -n "$line" ]; do
       echo "  skip (.nostow): $group/$name"
       continue
     fi
-    # zsh co-stows from several groups into ~/.config/zsh/conf.d; --no-folding
-    # keeps real dirs + per-file links so a later group doesn't hit a folded symlink.
+
     fold=""
     [ "$name" = "zsh" ] && fold="--no-folding"
-    # Capture in `if` so a conflict doesn't trip `set -e`: warn, record, keep going.
     if out="$( cd "$dir" && stow --target="$HOME" $fold --restow "$name" 2>&1 )"; then
       echo "  stowed: $group/$name"
     else
