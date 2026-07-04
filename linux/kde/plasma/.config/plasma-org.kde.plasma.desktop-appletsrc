@@ -18,8 +18,8 @@ wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4
-LastVideoPosition=1416
-VideoUrls=[{"filename":"file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
+LastVideoPosition=11550
+VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][2]
 activityId=
@@ -114,42 +114,49 @@ plugin=org.kde.kdeconnect
 
 [Containments][2][Applets][7][Applets][18]
 immutability=1
-plugin=org.kde.kscreen
+plugin=org.kde.plasma.keyboardindicator
 
 [Containments][2][Applets][7][Applets][19]
 immutability=1
-plugin=org.kde.plasma.networkmanagement
+plugin=org.kde.kscreen
 
 [Containments][2][Applets][7][Applets][19][Configuration][General]
 currentDetailsTab=details
 
 [Containments][2][Applets][7][Applets][20]
 immutability=1
-plugin=org.kde.plasma.weather
+plugin=org.kde.plasma.networkmanagement
 
 [Containments][2][Applets][7][Applets][20][Configuration][General]
 migrated=true
 
 [Containments][2][Applets][7][Applets][21]
 immutability=1
-plugin=org.kde.plasma.volume
+plugin=org.kde.plasma.weather
 
 [Containments][2][Applets][7][Applets][21][Configuration][General]
 migrated=true
 
 [Containments][2][Applets][7][Applets][22]
 immutability=1
-plugin=org.kde.plasma.printmanager
+plugin=org.kde.plasma.volume
+
+[Containments][2][Applets][7][Applets][22][Configuration][General]
+migrated=true
 
 [Containments][2][Applets][7][Applets][23]
 immutability=1
-plugin=org.kde.plasma.brightness
+plugin=org.kde.plasma.bluetooth
 
 [Containments][2][Applets][7][Applets][24]
 immutability=1
 plugin=org.kde.plasma.battery
 
 [Containments][2][Applets][7][Applets][25]
+immutability=1
+plugin=org.kde.plasma.brightness
+
+[Containments][2][Applets][7][Applets][26]
 immutability=1
 plugin=org.kde.plasma.mediacontroller
 
@@ -171,6 +178,20 @@ knownItems=org.kde.plasma.brightness,org.kde.plasma.notifications,org.kde.plasma
 
 [Containments][2][General]
 AppletOrder=3;5;6;7;14;15
+
+[Containments][24]
+activityId=d79809f9-a71f-4ed9-84d7-a30aec30bec7
+formfactor=0
+immutability=1
+lastScreen=1
+location=0
+plugin=org.kde.plasma.folder
+wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
+
+[Containments][24][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
+LastVideo=file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4
+LastVideoPosition=11550
+VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [ScreenMapping]
 itemsOnDisabledScreens=

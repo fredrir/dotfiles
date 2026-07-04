@@ -1,9 +1,50 @@
 export ZSH="$HOME/.oh-my-zsh"
+
+# Fallback theme
 ZSH_THEME="eastwood"
 
-# plugins must be set BEFORE `source $ZSH/oh-my-zsh.sh` (which .zshrc does
-# right after sourcing this file), otherwise oh-my-zsh never loads them.
-plugins=(git)
+export NVM_DIR="$HOME/.config/nvm"
+zstyle ':omz:plugins:nvm' lazy yes
+
+# alias-finder
+zstyle ':omz:plugins:alias-finder' autoload yes
+
+# eza
+zstyle ':omz:plugins:eza' dirs-first yes
+zstyle ':omz:plugins:eza' git-status yes
+zstyle ':omz:plugins:eza' icons yes
+
+plugins=(
+  git
+  gh
+  gitignore
+
+  alias-finder
+  colored-man-pages
+  command-not-found
+  copyfile
+  copypath
+
+  npm
+  bun
+  nvm
+
+  docker
+  docker-compose
+  kubectl
+  helm
+
+  postgres
+)
+
+(( $+commands[fzf] ))    && plugins+=(fzf)
+(( $+commands[zoxide] )) && plugins+=(zoxide)
+(( $+commands[eza] ))    && plugins+=(eza)
+
+if [[ -d "$ZSH/custom/plugins/fzf-tab" ]] && (( $+commands[fzf] )); then
+  plugins+=(fzf-tab)
+else
+  COMPLETION_WAITING_DOTS="true"
+fi
 
 zstyle ':omz:update' mode reminder
-COMPLETION_WAITING_DOTS="true"
