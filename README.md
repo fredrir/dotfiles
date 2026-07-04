@@ -56,3 +56,14 @@ config, and links `hosts/<profile>/hypr-local.conf` to
   `linux/common/zsh`; Hyprland-only in `linux/hyprland/zsh`; macOS-only in
   `macos/zsh`. All co-stow into `~/.config/zsh/conf.d/` and load by numeric order.
 - **Wallpaper:** place at `~/.config/hypr/wallpaper.png` (gitignored).
+
+## Jetbrains
+
+```bash
+cd ~/dotfiles/linux/common
+stow --adopt --no-folding --target="$HOME" --restow jetbrains
+git -C ~/dotfiles checkout -- linux/common/jetbrains   # discard any adopted local drift
+/opt/WebStorm/bin/webstorm installPlugins \
+    com.nasller.CodeGlancePro ru.adelf.idea.dotenv com.github.copilot \
+    org.intellij.plugins.hcl "Key Promoter X"
+```

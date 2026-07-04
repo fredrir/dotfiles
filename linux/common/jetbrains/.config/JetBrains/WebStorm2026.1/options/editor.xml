@@ -1,0 +1,67 @@
+<application>
+  <component name="CodeInsightSettings">
+    <option name="AUTO_POPUP_JAVADOC_INFO" value="true" />
+  </component>
+  <component name="CodeVisionSettings">
+    <option name="codeVisionGroupToPosition">
+      <map>
+        <entry key="LspCodeVisionProvider" value="Default" />
+        <entry key="com.github.copilot.mcp.editor.McpConfiguration" value="Default" />
+        <entry key="com.github.copilot.mcp.editor.McpServerActions" value="Default" />
+        <entry key="component.usage" value="Default" />
+        <entry key="copilot.customization.agent" value="Default" />
+        <entry key="inheritors" value="Default" />
+        <entry key="references" value="Default" />
+        <entry key="vcs.code.vision" value="Default" />
+      </map>
+    </option>
+    <option name="defaultPosition" value="Right" />
+  </component>
+  <component name="DeclarativeInlayHintsSettings">
+    <option name="enabledOptions">
+      <map>
+        <entry key="js.type.hints#function.returns" value="false" />
+        <entry key="js.type.hints#non.paren.single.param" value="false" />
+        <entry key="js.type.hints#parameters.in.parens" value="false" />
+        <entry key="js.type.hints#variables.and.fields" value="false" />
+        <entry key="sql.column.names.inlay.hints#sql.show.column.names.for.asterisk" value="false" />
+        <entry key="sql.column.names.inlay.hints#sql.show.column.names.for.set.operations" value="false" />
+        <entry key="sql.column.names.inlay.hints#sql.show.column.names.in.insert.values" value="false" />
+        <entry key="sql.column.names.inlay.hints#sql.show.column.names.in.select" value="false" />
+        <entry key="sql.join.cardinality.hints#full.join" value="false" />
+        <entry key="sql.join.cardinality.hints#inner.join" value="false" />
+        <entry key="sql.join.cardinality.hints#left.join" value="false" />
+        <entry key="sql.join.cardinality.hints#right.join" value="false" />
+        <entry key="ts.type.hints#function.returns" value="false" />
+        <entry key="ts.type.hints#include.when.variable.type.matches.name" value="false" />
+        <entry key="ts.type.hints#non.paren.single.param" value="false" />
+        <entry key="ts.type.hints#parameters.in.parens" value="false" />
+        <entry key="ts.type.hints#variables.and.fields" value="false" />
+      </map>
+    </option>
+    <option name="providerIdToEnabled">
+      <map>
+        <entry key="js.chain.hints" value="false" />
+        <entry key="js.type.hints" value="false" />
+        <entry key="qodana.yaml.inspection.descriptions" value="false" />
+        <entry key="sql.column.names.inlay.hints" value="false" />
+        <entry key="sql.join.cardinality.hints" value="false" />
+        <entry key="ts.chain.hints" value="false" />
+        <entry key="ts.enum.hints" value="false" />
+        <entry key="ts.type.hints" value="false" />
+      </map>
+    </option>
+  </component>
+  <component name="InlayHintsSettings">
+    <option name="disabledHintProviderIds">
+      <set>
+        <option value="Dockerfile.docker.inlay.hints" />
+        <option value="Markdown.MarkdownTableInlayProviderSettingsKey" />
+      </set>
+    </option>
+    <option name="lastViewedProviderKeyId" value="" />
+  </component>
+  <component name="InlineCompletionOnboarding">
+    <option name="onboardingFinished" value="true" />
+  </component>
+</application>

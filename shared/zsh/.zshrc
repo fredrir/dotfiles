@@ -21,3 +21,6 @@ done
 
 # Rust/cargo (or uv) env, if installed.
 [[ -f "$HOME/.local/bin/env" ]] && source "$HOME/.local/bin/env"
+
+# opencode
+export PATH=/home/fredrir/.opencode/bin:$PATH

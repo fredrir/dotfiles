@@ -272,9 +272,6 @@ toggle do not disturb=none,none,Toggle do not disturb
 Capture=Print
 _launch=none
 
-[services][org.kde.kscreen.desktop]
-ShowOSD=\tDisplay
-
 [services][org.kde.plasma.emojier.desktop]
 _launch=Meta++\tMeta+.\tMeta+Ctrl+Alt+Shift+Space
 
@@ -283,7 +280,7 @@ CurrentMonitorScreenShot=
 OpenWithoutScreenshot=
 
 [token_ashpd_4k3VNvLMqB]
-EyedropperColorPick=Meta+P,Ctrl+P,Pick a New Color
+EyedropperColorPick=none,Ctrl+P,Pick a New Color
 _k_friendly_name=token_ashpd_4k3VNvLMqB
 
 [wacomtablet]

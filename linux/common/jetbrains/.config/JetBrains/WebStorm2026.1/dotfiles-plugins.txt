@@ -1,0 +1,18 @@
+# WebStorm third-party plugins tracked by dotfiles (WebStorm ignores this file).
+# Plugin JARs live in ~/.local/share/JetBrains/WebStorm2026.1/ and are NOT tracked
+# (large binaries pinned to a build). Reinstall them on a new machine with:
+#
+#   /opt/WebStorm/bin/webstorm installPlugins \
+#       com.nasller.CodeGlancePro ru.adelf.idea.dotenv com.github.copilot \
+#       org.intellij.plugins.hcl "Key Promoter X"
+#
+# Enabled (marketplace):
+com.nasller.CodeGlancePro      # CodeGlance Pro (minimap)
+ru.adelf.idea.dotenv           # .env files support
+com.github.copilot             # GitHub Copilot
+org.intellij.plugins.hcl       # Terraform and HCL
+Key Promoter X                 # Key Promoter X   (id literally contains spaces -> quote it on the CLI)
+
+# Disabled (JetBrains AI; disabled state is captured in disabled_plugins.txt, also tracked):
+# org.jetbrains.junie          # Junie
+# com.intellij.ml.llm          # AI Assistant / full-line ML completion

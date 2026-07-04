@@ -17,8 +17,8 @@ plugin=org.kde.plasma.folder
 wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
-LastVideo=file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4
-LastVideoPosition=11550
+LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
+LastVideoPosition=8466
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][2]
@@ -146,7 +146,7 @@ migrated=true
 
 [Containments][2][Applets][7][Applets][23]
 immutability=1
-plugin=org.kde.plasma.bluetooth
+plugin=org.kde.plasma.printmanager
 
 [Containments][2][Applets][7][Applets][24]
 immutability=1
@@ -189,8 +189,8 @@ plugin=org.kde.plasma.folder
 wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][24][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
-LastVideo=file:///home/fredrir/Downloads/mylivewallpapers-com-Red-Forest-Torii-4K.mp4
-LastVideoPosition=11550
+LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
+LastVideoPosition=3750
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [ScreenMapping]

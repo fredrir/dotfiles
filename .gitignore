@@ -15,3 +15,17 @@ linux/hyprland/hypr/.config/hypr/wallpaper.png
 **/.config/nvm/
 **/nvm.sh
 **/nvm-exec
+
+# JetBrains — never track license keys, AI/Copilot tokens, DB creds, or per-machine trust/state.
+# (We only curate a portable subset, but keep these out defensively for any future adopt/copy.)
+**/JetBrains/**/*.key
+**/JetBrains/**/github-copilot*.xml
+**/JetBrains/**/copilotAgentUserSettings.xml
+**/JetBrains/**/ConversationToolStoreService.xml
+**/JetBrains/**/databaseSettings.xml
+**/JetBrains/**/databaseDrivers.xml
+**/JetBrains/**/remote-servers.xml
+**/JetBrains/**/trusted-paths.xml
+**/JetBrains/**/recentProjects.xml
+**/JetBrains/**/workspace/
+**/JetBrains/**/window.*.xml

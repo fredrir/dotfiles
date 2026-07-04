@@ -1,18 +1,29 @@
 # Starship prompt (https://starship.rs).
-# Eastwood-style layout: green [branch] + status, cyan [~/path], bold $.
-# Glyphs need a Nerd Font — MesloLGS Nerd Font is set in the Konsole profile.
+# Eastwood-style layout: (.venv) green [ branch] cyan [~/path] bold $.
+# Glyphs need a Nerd Font — Hack Nerd Font is set in the Konsole profile.
 
 add_newline = false
 
 # Explicit module list: anything not named here (aws, nodejs, docker, ...)
 # never appears in the prompt.
-format = '$git_branch$directory$character'
+format = '$python$git_branch$directory$character'
 # Slow-command duration sits at the right edge of the terminal instead of
 # cluttering the prompt itself.
 right_format = '$cmd_duration'
 
+# Shown only inside an activated virtualenv, e.g. " (.venv) ". Detection by
+# .py/pyproject files is disabled so it never appears without a venv.
+[python]
+format = '([$symbol\($virtualenv\)]($style))'
+symbol = ' '
+style = 'yellow'
+detect_extensions = []
+detect_files = []
+detect_folders = []
+
 [git_branch]
-format = '[\[$branch\]]($style)'
+format = '[\[$symbol$branch\]]($style)'
+symbol = ' '
 style = 'green'
 
 [directory]
