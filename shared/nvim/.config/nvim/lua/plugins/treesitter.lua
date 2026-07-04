@@ -1,23 +1,54 @@
 return {
   'nvim-treesitter/nvim-treesitter',
   lazy = false,
-  build = ':TSUpdate',
   branch = 'main',
+  build = ':TSUpdate',
   config = function()
-    local parsers = {
+    local ts = require 'nvim-treesitter'
+
+    local ensure = {
       'bash', 'c', 'css', 'diff', 'go', 'html', 'javascript', 'json',
-      'lua', 'luadoc', 'python', 'query',
+      'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query',
       'tsx', 'typescript', 'vim', 'vimdoc', 'yaml',
     }
-    require('nvim-treesitter').install(parsers)
+    local installed = ts.get_installed()
+    local missing = vim.tbl_filter(function(lang)
+      return not vim.tbl_contains(installed, lang)
+    end, ensure)
+    if #missing > 0 then
+      ts.install(missing)
+    end
+
     vim.api.nvim_create_autocmd('FileType', {
       callback = function(args)
-        local buf, filetype = args.buf, args.match
-        local language = vim.treesitter.language.get_lang(filetype)
-        if not language then return end
-        if not vim.treesitter.language.add(language) then return end
-        vim.treesitter.start(buf, language)
-        vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+        local buf = args.buf
+        local lang = vim.treesitter.language.get_lang(args.match)
+        if not lang then
+          return
+        end
+
+        local function start()
+          if not vim.treesitter.language.add(lang) then
+            return
+          end
+          vim.treesitter.start(buf, lang)
+          vim.bo[buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+        end
+
+        if vim.treesitter.language.add(lang) then
+          start()
+        elseif vim.tbl_contains(ts.get_available(), lang) then
+          ts.install(lang):await(function(err)
+            if err then
+              return
+            end
+            vim.schedule(function()
+              if vim.api.nvim_buf_is_valid(buf) then
+                start()
+              end
+            end)
+          end)
+        end
       end,
     })
   end,
