@@ -48,11 +48,13 @@ immutability=1
 lastScreen=0
 location=4
 plugin=org.kde.panel
+transient=true
 wallpaperplugin=org.kde.image
 
 [Containments][57][Applets][100]
 immutability=1
 plugin=org.kde.plasma.kickoff
+transient=true
 
 [Containments][57][Applets][100][Configuration]
 popupHeight=509
@@ -70,18 +72,22 @@ systemFavorites=suspend\\,hibernate\\,reboot\\,shutdown
 [Containments][57][Applets][106]
 immutability=1
 plugin=org.kde.plasma.marginsseparator
+transient=true
 
 [Containments][57][Applets][108]
 immutability=1
 plugin=org.kde.plasma.marginsseparator
+transient=true
 
 [Containments][57][Applets][109]
 immutability=1
 plugin=org.kde.plasma.marginsseparator
+transient=true
 
 [Containments][57][Applets][112]
 immutability=1
 plugin=org.kde.plasma.weather
+transient=true
 
 [Containments][57][Applets][112][Configuration]
 popupHeight=296
@@ -110,6 +116,7 @@ provider=dwd
 [Containments][57][Applets][114]
 immutability=1
 plugin=org.kde.plasma.volume
+transient=true
 
 [Containments][57][Applets][114][Configuration]
 popupHeight=538
@@ -123,6 +130,7 @@ pin=true
 [Containments][57][Applets][117]
 immutability=1
 plugin=org.kde.plasma.bluetooth
+transient=true
 
 [Containments][57][Applets][117][Configuration]
 popupHeight=433
@@ -131,10 +139,12 @@ popupWidth=432
 [Containments][57][Applets][119]
 immutability=1
 plugin=org.kde.plasma.marginsseparator
+transient=true
 
 [Containments][57][Applets][123]
 immutability=1
 plugin=org.kde.plasma.networkmanagement
+transient=true
 
 [Containments][57][Applets][123][Configuration]
 popupHeight=400
@@ -143,6 +153,7 @@ popupWidth=560
 [Containments][57][Applets][125]
 immutability=1
 plugin=org.kde.plasma.icontasks
+transient=true
 
 [Containments][57][Applets][125][Configuration][ConfigDialog]
 DialogHeight=630
@@ -155,6 +166,7 @@ showOnlyCurrentDesktop=false
 [Containments][57][Applets][127]
 immutability=1
 plugin=org.kde.plasma.kvitals
+transient=true
 
 [Containments][57][Applets][127][Configuration]
 popupHeight=111
@@ -184,6 +196,7 @@ useCustomColors=true
 [Containments][57][Applets][69]
 immutability=1
 plugin=luisbocanegra.panel.colorizer
+transient=true
 
 [Containments][57][Applets][69][Configuration]
 popupHeight=400
@@ -202,13 +215,14 @@ hiddenWidgets={"widgets":[{"name":"org.kde.plasma.marginsseparator","id":106,"hi
 hideWidget=true
 islandSeparatorWidget=org.kde.plasma.marginsseparator
 islandsEnabled=true
-panelWidgets=[{"id":100,"name":"org.kde.plasma.kickoff","title":"Application Launcher","icon":"user-home-symbolic","inTray":false},{"id":106,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":125,"name":"org.kde.plasma.icontasks","title":"Icons-Only Task Manager","icon":"preferences-system-windows","inTray":false},{"id":108,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":72,"name":"org.kde.plasma.panelspacer","title":"Panel Spacer","icon":"distribute-horizontal-x","inTray":false},{"id":69,"name":"luisbocanegra.panel.colorizer","title":"Panel colorizer","icon":"desktop","inTray":false},{"id":109,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":127,"name":"org.kde.plasma.kvitals","title":"KVitals","icon":"utilities-system-monitor","inTray":false},{"id":119,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":117,"name":"org.kde.plasma.bluetooth","title":"Bluetooth","icon":"network-bluetooth-inactive-symbolic","inTray":false},{"id":114,"name":"org.kde.plasma.volume","title":"Audio Volume","icon":"audio-volume-muted-symbolic","inTray":false},{"id":123,"name":"org.kde.plasma.networkmanagement","title":"Networks","icon":"network-wired-activated-symbolic","inTray":false},{"id":71,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":112,"name":"org.kde.plasma.weather","title":"Weather Report","icon":"weather-none-available-symbolic","inTray":false},{"id":70,"name":"org.kde.plasma.digitalclock","title":"Digital Clock","icon":"preferences-system-time","inTray":false}]
+panelWidgets=[{"id":100,"name":"org.kde.plasma.kickoff","title":"Application Launcher","icon":"user-home-symbolic","inTray":false},{"id":106,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":125,"name":"org.kde.plasma.icontasks","title":"Icons-Only Task Manager","icon":"preferences-system-windows","inTray":false},{"id":108,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":72,"name":"org.kde.plasma.panelspacer","title":"Panel Spacer","icon":"distribute-horizontal-x","inTray":false},{"id":69,"name":"luisbocanegra.panel.colorizer","title":"Panel colorizer","icon":"desktop","inTray":false},{"id":109,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":127,"name":"org.kde.plasma.kvitals","title":"KVitals","icon":"utilities-system-monitor","inTray":false},{"id":119,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":117,"name":"org.kde.plasma.bluetooth","title":"Bluetooth","icon":"network-bluetooth-inactive-symbolic","inTray":false},{"id":114,"name":"org.kde.plasma.volume","title":"Audio Volume","icon":"audio-volume-high-symbolic","inTray":false},{"id":123,"name":"org.kde.plasma.networkmanagement","title":"Networks","icon":"network-wired-activated-symbolic","inTray":false},{"id":71,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":112,"name":"org.kde.plasma.weather","title":"Weather Report","icon":"weather-few-clouds-symbolic","inTray":false},{"id":70,"name":"org.kde.plasma.digitalclock","title":"Digital Clock","icon":"preferences-system-time","inTray":false}]
 pluginFound=true
 systemTrayIconsReplacementEnabled=true
 
 [Containments][57][Applets][70]
 immutability=1
 plugin=org.kde.plasma.digitalclock
+transient=true
 
 [Containments][57][Applets][70][Configuration]
 popupHeight=451
@@ -224,10 +238,12 @@ DialogWidth=810
 [Containments][57][Applets][71]
 immutability=1
 plugin=org.kde.plasma.marginsseparator
+transient=true
 
 [Containments][57][Applets][72]
 immutability=1
 plugin=org.kde.plasma.panelspacer
+transient=true
 
 [Containments][57][General]
 AppletOrder=100;106;125;108;72;69;109;127;119;117;114;123;71;112;70

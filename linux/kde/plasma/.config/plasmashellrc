@@ -1,6 +1,10 @@
 [Notification Messages]
 klipperClearHistoryAskAgain=false
 
+[PlasmaTransientsConfig]
+popupHeight=111
+popupWidth=324
+
 [PlasmaViews][Panel 57]
 floating=1
 panelLengthMode=1
