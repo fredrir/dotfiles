@@ -16,7 +16,6 @@ plugins=(
   gh
   gitignore
 
-  # on-demand only (no autoload zstyle): `alias-finder "git add"`
   alias-finder
   colored-man-pages
   command-not-found

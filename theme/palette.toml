@@ -107,7 +107,7 @@ tooltip_alt = "surface1"
 header_bg   = "mantle"
 header_alt  = "base"
 
-selection_bg = "lavender"
+selection_bg = "mauve"
 selection_fg = "base"
 
 foreground = "text"

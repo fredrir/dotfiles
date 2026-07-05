@@ -271,7 +271,7 @@ switch to next activity=none,none,Switch to Next Activity
 switch to previous activity=none,none,Switch to Previous Activity
 toggle do not disturb=none,none,Toggle do not disturb
 
-[services][kde-app-launcher.desktop]
+[services][io.github.fredrir.quicklaunch.desktop]
 _launch=Meta+Space
 
 [services][org.flameshot.Flameshot.desktop]
@@ -288,9 +288,10 @@ _launch=Meta++\tMeta+.\tMeta+Ctrl+Alt+Shift+Space
 CurrentMonitorScreenShot=
 OpenWithoutScreenshot=
 
-[token_ashpd_4k3VNvLMqB]
-EyedropperColorPick=none,Ctrl+P,Pick a New Color
-_k_friendly_name=token_ashpd_4k3VNvLMqB
+[services][org.kde.touchpadshortcuts.desktop]
+DisableTouchpad=none
+EnableTouchpad=none
+ToggleTouchpad=none
 
 [wacomtablet]
 Map to fullscreen=Meta+Ctrl+F,Meta+Ctrl+F,Map to fullscreen

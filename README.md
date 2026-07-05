@@ -55,16 +55,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/fredrir/dotfiles/main/bo
 Already cloned, or re-running
 
 ```bash
-~/dotfiles/bootstrap-vps.sh            # full bootstrap
-./setup.sh vps/linux                   # just re-stow the configs
+~/dotfiles/bootstrap-vps.sh            
+./setup.sh vps/linux
 ```
 
 ## Theme
 
-- **Palette:** `theme/palette.toml` — the single source of truth. `scripts/generate-theme.py`
-  stamps it into kitty, konsole, fastfetch, starship, zsh, the KDE color scheme
-  (`kdeglobals`), the GTK `colors.css`, and the colors embedded in the KDE panel
-  widgets. The `[kde]` table maps color-scheme roles to palette colors.
+- **Palette:** `theme/palette.toml
 
 - **To regenerate theme:**
 
@@ -72,12 +69,8 @@ Already cloned, or re-running
 python3 scripts/generate-theme.py
 ```
 
-- **KDE apply note:** `kdeglobals` and `plasma-org.kde.plasma.desktop-appletsrc`
-  are rewritten live by a running plasmashell, so after regenerating restart it
-  to load and persist the new colors:
-
 ```bash
-systemctl --user restart plasma-plasmashell   # or: kquitapp6 plasmashell && kstart plasmashell
+systemctl --user restart plasma-plasmashell
 ```
 
 ## Adding a config

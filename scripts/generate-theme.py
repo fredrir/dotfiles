@@ -11,6 +11,7 @@ theme/palette.toml is the single source of truth. This renders it into:
   * kde      — kdeglobals color scheme ([Colors:*], [WM], AccentColor) from [kde]
   * gtk      — gtk-3.0/gtk-4.0 colors.css so GTK apps match the KDE scheme
   * widgets  — retags Catppuccin colors in panel-colorizer presets + desktop-appletsrc
+  * quicklaunch — the [theme] hex overrides in linux/common quicklaunch config.toml
 
 In-place edits happen between `theme:<name>` / `theme:<name>:end` markers, or by
 KConfig section, so the rest of those files stays hand-editable. Fully generated
@@ -602,6 +603,23 @@ def gen_kde_widgets(t, changed):
     )
 
 
+def gen_quicklaunch(t, changed):
+    keys = (
+        ("accent", "accent"),
+        ("background", "view_bg"),
+        ("text", "foreground"),
+        ("muted", "inactive"),
+        ("selection", "selection_bg"),
+    )
+    width = max(len(k) for k, _ in keys)
+    lines = [f"# {GEN_HEADER}"]
+    for key, role in keys:
+        lines.append(f'{key.ljust(width)} = "{t.kde(role)}"')
+    path = os.path.join(
+        ROOT, "linux/common/quicklaunch/.config/quicklaunch/config.toml")
+    edit_if_changed(path, lambda text: replace_between(text, "quicklaunch", lines), changed)
+
+
 def main():
     t = Theme(load())
     changed = []
@@ -613,6 +631,7 @@ def main():
     gen_kde_colorscheme(t, changed)
     gen_gtk(t, changed)
     gen_kde_widgets(t, changed)
+    gen_quicklaunch(t, changed)
     if changed:
         print("theme: regenerated")
         for p in changed:

@@ -11,5 +11,9 @@ sudo() {
   branch="$(command git symbolic-ref --short HEAD 2>/dev/null)" \
     && git_seg="${THEME_GIT}[${branch}]${x}"
 
-  command sudo -p "${git_seg}${THEME_DIR}[${dir}]${x}${THEME_SUDO}[sudo]${x}${THEME_CHAR}\$${x} " "$@"
+  local cmd="sudo"
+  (( $# )) && cmd+=" $*"
+  cmd=${cmd//\%/%%}
+
+  command sudo -p "${git_seg}${THEME_DIR}[${dir}]${x}${THEME_SUDO}[${cmd}]${x}${THEME_CHAR}\$${x} " "$@"
 }

@@ -1,3 +1,6 @@
+alias cp="cp -i"
+alias mv="mv -i"
+
 alias n="nvim"
 alias nn="nvim ."
 alias v="nvim"
@@ -8,7 +11,6 @@ alias ll="ls -l"
 
 alias untar="tar -xzf"
 
-# bat: cat with syntax highlighting; -pp keeps plain, pagerless cat behaviour.
 (( $+commands[bat] )) && alias cat='bat -pp'
 
 alias cp="cp -i"
