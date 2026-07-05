@@ -3,35 +3,35 @@
 <!-- fastfetch:start -->
 
 ```
-                                           fredrir @ archpc
-                    -`                     ───────────────────────────────
-                   .o+`
-                  `ooo/                      SYSTEM
-                 `+oooo:                   󰣇  OS        Arch Linux x86_64
-                `+oooooo:                  󰌽  Kernel    Linux 7.0.14-arch1-1
-                -+oooooo+:                 󰅐  Uptime    2 hours, 9 mins
-              `/:-:++oooo+:                󰏗  Packages  1031 (pacman)
-             `/++++/+++++++:               󰆍  Shell     zsh 5.9.1
-            `/++++++++++++++:
-           `/+++ooooooooooooo/`              HARDWARE
-          ./ooosssso++osssssso+`           󰻠  CPU       AMD Ryzen 7 9800X3D (16) @ 5.27 GHz
-         .oossssso-````/ossssss+`          󰢮  GPU       NVIDIA GeForce RTX 5070 Ti [Discrete]
-        -osssssso.      :ssssssso.         󰍛  Memory    14 GB / 31 GB [46%]
-       :osssssss/        osssso+++.        󰋊  Disk      /  57 GB / 78 GB [73%]
-      /ossssssss/        +ssssooo/-        󰋊  Disk      /home  75 GB / 118 GB [63%]
-    `/ossssso+/:-        -:/+osssso+-
-   `+sso+:-`                 `.-/+oso:       DESKTOP
-  `++:.                           `-/+/    󰧨  DE        KDE Plasma 6.7.2
-  .`                                 `/    󰖯  WM        KWin (Wayland)
-                                           󰆌  Terminal  terminal
-                                           󰏘  Theme     Breeze (Dark) [Qt]
-                                           󰍹  Display   2560x1440 in 27", 144 Hz [External] *
-                                           󰍹  Display   2560x1440 in 27", 144 Hz [External]
+                                                fredrir @ archpc
+                                                ───────────────────────────────
 
-                                             NETWORK
-                                           󰗊  Locale    C
+                                                  SYSTEM
+                                                󰣇  OS        Arch Linux x86_64
+                        -`                      󰌽  Kernel    Linux 7.0.14-arch1-1
+                       .o+`                     󰅐  Uptime    6 hours, 45 mins
+                      `ooo/                     󰏗  Packages  1059 (pacman)
+                     `+oooo:                    󰆍  Shell     zsh 5.9.1
+                    `+oooooo:
+                    -+oooooo+:                    HARDWARE
+                  `/:-:++oooo+:                 󰻠  CPU       AMD Ryzen 7 9800X3D (16) @ 5.27 GHz
+                 `/++++/+++++++:                󰢮  GPU       NVIDIA GeForce RTX 5070 Ti [Discrete]
+                `/++++++++++++++:               󰍛  Memory    17 GB / 31 GB [54%]
+               `/+++ooooooooooooo/`             󰋊  Disk      /  58 GB / 78 GB [75%]
+              ./ooosssso++osssssso+`            󰋊  Disk      /home  75 GB / 118 GB [64%]
+             .oossssso-````/ossssss+`
+            -osssssso.      :ssssssso.            DESKTOP
+           :osssssss/        osssso+++.         󰧨  DE        KDE Plasma 6.7.2
+          /ossssssss/        +ssssooo/-         󰖯  WM        KWin (Wayland)
+        `/ossssso+/:-        -:/+osssso+-       󰆌  Terminal  konsole 26.04.3
+       `+sso+:-`                 `.-/+oso:      󰏘  Theme     Breeze (Dark) [Qt]
+      `++:.                           `-/+/     󰍹  Display   2560x1440 in 27", 144 Hz [External] *
+      .`                                 `/     󰍹  Display   2560x1440 in 27", 144 Hz [External]
 
-                                             ● ● ● ● ● ● ● ●
+                                                  NETWORK
+                                                󰗊  Locale    en_US.UTF-8
+
+                                                  ● ● ● ● ● ● ● ●
 ```
 
 <!-- fastfetch:end -->
@@ -59,12 +59,15 @@ Already cloned, or re-running
 ./setup.sh vps/linux                   # just re-stow the configs
 ```
 
-Stows `shared` + `linux/server` only. The profile exports `NVIM_MINIMAL=1`, so
-nvim runs in minimal mode — same editor, treesitter, telescope, git and theme,
-but no LSP/mason/formatter/AI/DB/debug plugins, so nothing pulls node, Go or a
-language-server toolchain (~400 MB instead of >1 GB). Everything is env-gated in
-`shared/nvim`; unset `NVIM_MINIMAL` for the full IDE. Knobs: `NO_CHSH=1`,
-`NO_NVIM_SYNC=1`, `DOTFILES_DIR` / `DOTFILES_REPO`.
+## Theme
+
+- **Palette:** `theme/palette.toml`
+
+- **To regenerate theme:**
+
+```bash
+python3 scripts/generate-theme.py
+```
 
 ## Adding a config
 
@@ -74,7 +77,8 @@ Placeholders:
 - `<profile>` → `desktop/arch-linux/kde`
 - `<machine>` → `desktop`
 
-```bash
+
+ ```bash
 cd ~/dotfiles
 mkdir -p <group>/<app>/.config/<app>
 mv ~/.config/<app> <group>/<app>/.config/
@@ -85,21 +89,7 @@ grep -q '<group>' hosts/<profile>/manifest || echo '<group>' >> hosts/<profile>/
 ## Adding a machine
 
 1. Pick the matching profile under `hosts/<machine>/<distro>/<desktop>`
-
-2. (Hyprland) put its monitors / GPU env / scale in
-   `hosts/<profile>/hypr-local.conf`. See
-   `hosts/desktop/arch-linux/kde-hyprland` (archpc) and
-   `hosts/laptop/arch-linux/hyprland` (laptop).
-3. `./setup.sh <profile>`
-
-## Per-machine settings
-
-- **Monitors / GPU / scale (Hyprland):** `hosts/<profile>/hypr-local.conf`
-  (sourced last, overrides shared `conf.d/env.conf`).
-- **Shell:** shared zsh fragments in `shared/zsh`; Linux-only in
-  `linux/common/zsh`; Hyprland-only in `linux/hyprland/zsh`; macOS-only in
-  `macos/zsh`. All co-stow into `~/.config/zsh/conf.d/` and load by numeric order.
-- **Wallpaper:** place at `~/.config/hypr/wallpaper.png`
+2. `./setup.sh <profile>`
 
 ## Jetbrains
 

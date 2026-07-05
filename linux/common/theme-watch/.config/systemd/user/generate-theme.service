@@ -1,0 +1,6 @@
+[Unit]
+Description=Regenerate terminal theme from theme/palette.toml
+
+[Service]
+Type=oneshot
+ExecStart=%h/dotfiles/scripts/generate-theme.py

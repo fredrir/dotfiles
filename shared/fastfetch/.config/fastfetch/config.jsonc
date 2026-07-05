@@ -3,23 +3,25 @@
 
   "display": {
     "constants": [
-      "\u001b[1;38;2;137;180;250m", // blue #89b4fa
+      // theme:constants
+      "\u001b[1;38;2;61;174;233m", // blue #3daee9
       "\u001b[1;38;2;250;179;135m", // peach #fab387
       "\u001b[1;38;2;203;166;247m", // mauve #cba6f7
-      "\u001b[1;38;2;166;227;161m", // green #a6e3a1
+      "\u001b[1;38;2;124;255;107m", // green #7cff6b
       "\u001b[38;2;108;112;134m" // overlay #6c7086
+      // theme:constants:end
     ],
     "separator": "  ",
     "key": { "width": 14 },
-    "color": { "separator": "#6c7086" },
+    "color": { "separator": "#6c7086" }, // theme:separator
     "size": { "binaryPrefix": "jedec", "ndigits": 0 },
     "percent": { "type": 9, "green": 50, "yellow": 80 }
   },
 
   "logo": {
-    "source": "arch",
-    "padding": { "top": 2, "left": 2, "right": 4 },
-    "color": { "1": "#89b4fa", "2": "#74c7ec" }
+    "type": "file-raw",
+    "source": "~/.config/fastfetch/arch.txt",
+    "padding": { "top": 6, "left": 3, "right": 5 }
   },
 
   "modules": [

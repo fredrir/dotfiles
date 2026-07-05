@@ -1,3 +1,5 @@
 [Layout]
-LayoutList=no
+DisplayNames=cus,
+LayoutList=custom,no
 Use=true
+VariantList=,

@@ -57,6 +57,14 @@ while IFS= read -r line || [ -n "$line" ]; do
   done
 done < "$MANIFEST"
 
+# --- Theme watcher: regenerate the theme whenever theme/palette.toml changes ---
+if command -v systemctl >/dev/null 2>&1 && [ -f "$HOME/.config/systemd/user/generate-theme.path" ]; then
+  systemctl --user daemon-reload 2>/dev/null || true
+  if systemctl --user enable --now generate-theme.path 2>/dev/null; then
+    echo "  enabled theme auto-regenerate watcher"
+  fi
+fi
+
 # --- Hyprland-only post-steps ---
 if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
   # elephant: generate config with $HOME expanded (not stowed)

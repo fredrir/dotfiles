@@ -1,0 +1,16 @@
+MenuBar=Disabled
+
+[Desktop Entry]
+DefaultProfile=main.profile
+
+[General]
+ConfigVersion=1
+
+[Notification Messages]
+CloseAllTabs=true
+
+[TabBar]
+SearchTabsButton=HideSearchTabsButton
+
+[UiSettings]
+ColorScheme=

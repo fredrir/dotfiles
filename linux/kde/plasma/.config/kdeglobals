@@ -133,13 +133,14 @@ ForegroundPositive=39,174,96
 ForegroundVisited=155,89,182
 
 [General]
-AccentColor=85,0,127
+AccentColor=180,190,254
 BrowserApplication=brave-browser.desktop
 ColorSchemeHash=9d38eb71ded8ff549da26d57d7cbab9164da243a
 LastUsedCustomAccentColor=85,0,127
 XftAntialias=true
 XftHintStyle=hintslight
 XftSubPixel=none
+accentColorFromWallpaper=false
 
 [Icons]
 Theme=Breeze Chameleon Dark

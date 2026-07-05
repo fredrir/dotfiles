@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch theme/palette.toml and regenerate the theme on change
+
+[Path]
+PathModified=%h/dotfiles/theme/palette.toml
+Unit=generate-theme.service
+
+[Install]
+WantedBy=default.target

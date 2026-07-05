@@ -250,6 +250,8 @@ activate task manager entry 6=Meta+6,Meta+6,Activate Task Manager Entry 6
 activate task manager entry 7=Meta+7,Meta+7,Activate Task Manager Entry 7
 activate task manager entry 8=Meta+8,Meta+8,Activate Task Manager Entry 8
 activate task manager entry 9=Meta+9,Meta+9,Activate Task Manager Entry 9
+activate widget 100=none,none,Activate Application Launcher Widget
+activate widget 101=none,none,Activate Icons-Only Task Manager Widget
 clear history=none,none,Clear Notification History
 clear-history=none,none,Clear Clipboard History
 clipboard_action=Meta+Ctrl+X,Meta+Ctrl+X,Automatic Action Popup Menu
@@ -271,6 +273,9 @@ toggle do not disturb=none,none,Toggle do not disturb
 [services][org.flameshot.Flameshot.desktop]
 Capture=Print
 _launch=none
+
+[services][org.kde.krunner.desktop]
+_launch=Search\tMeta+Space
 
 [services][org.kde.plasma.emojier.desktop]
 _launch=Meta++\tMeta+.\tMeta+Ctrl+Alt+Shift+Space

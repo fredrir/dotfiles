@@ -1,0 +1,78 @@
+name = "Catppuccin Mocha"
+
+[palette]
+flamingo = "#f2cdcd"
+pink     = "#f5c2e7"
+mauve    = "#cba6f7"
+red      = "#f38ba8"  # sudo
+peach    = "#fab387"
+yellow   = "#f9e2af"
+orange   = "#fdbc4b" # (.venv), .toml,md...
+green    = "#7cff6b"
+teal     = "#1abc9c"  # dir
+blue     = "#3daee9"  # system
+text     = "#cdd6f4"
+subtext  = "#bac2de"
+overlay  = "#6c7086"  # separator
+surface2 = "#585b70"
+surface1 = "#45475a"
+base     = "#1e1e2e"
+
+[roles]
+
+# fastfetch
+section_system   = "blue"
+section_hardware = "peach"
+section_desktop  = "mauve"
+section_network  = "green"
+separator        = "overlay"
+
+# starship
+prompt_python   = "orange"
+prompt_git      = "green"
+prompt_dir      = "teal"
+prompt_duration = "yellow"
+prompt_char     = "blue"
+
+sudo = "red"  # shell
+
+[terminal]
+foreground           = "text" 
+background           = "base"
+cursor               = "flamingo"
+cursor_text          = "base"
+selection_foreground = "base"
+selection_background = "flamingo"
+url                  = "flamingo"
+
+[terminal.ansi]
+black          = "surface1"
+red            = "red"
+green          = "green"
+yellow         = "yellow"
+blue           = "blue"
+magenta        = "pink"
+cyan           = "teal"
+white          = "subtext"
+bright_black   = "surface2"
+bright_red     = "red"
+bright_green   = "green"
+bright_yellow  = "yellow"
+bright_blue    = "blue"
+bright_magenta = "pink"
+bright_cyan    = "teal"
+bright_white   = "subtext"
+
+# ls (eza) colors. Keys are eza codes or *.ext globs; values are palette
+# colors. di/ex/ln = directories/executables/symlinks. Emitted non-bold.
+[eza]
+di       = "blue"
+ex       = "green"
+ln       = "teal"
+"*.md"   = "orange"
+"*.toml" = "orange"
+"*.json" = "yellow"
+"*.yml"  = "peach"
+"*.yaml" = "peach"
+"*.lock" = "overlay"
+"*.sh"   = "green"
