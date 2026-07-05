@@ -80,3 +80,11 @@ size() {
   fi
 }
 
+git() {
+  if [[ "$1" == "diff" && $# -eq 1 ]]; then
+    command lazygit
+  else
+    command git "$@"
+  fi
+}
+

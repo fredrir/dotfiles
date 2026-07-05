@@ -11,12 +11,17 @@ orange   = "#fdbc4b" # (.venv), .toml,md...
 green    = "#7cff6b"
 teal     = "#1abc9c"  # dir
 blue     = "#3daee9"  # system
+lavender = "#b4befe"  # kde accent
 text     = "#cdd6f4"
 subtext  = "#bac2de"
 overlay  = "#6c7086"  # separator
+overlay2 = "#9399b2"  # kde inactive / disabled text
 surface2 = "#585b70"
 surface1 = "#45475a"
+surface0 = "#313244"
 base     = "#1e1e2e"
+mantle   = "#181825"
+crust    = "#11111b"
 
 [roles]
 
@@ -63,16 +68,62 @@ bright_magenta = "pink"
 bright_cyan    = "teal"
 bright_white   = "subtext"
 
-# ls (eza) colors. Keys are eza codes or *.ext globs; values are palette
-# colors. di/ex/ln = directories/executables/symlinks. Emitted non-bold.
 [eza]
-di       = "blue"
-ex       = "green"
-ln       = "teal"
-"*.md"   = "orange"
+fi       = "subtext"   # fallback
+di       = "blue"      # directories
+ex       = "green"     # executables
+ln       = "teal"      # symlinks
+
 "*.toml" = "orange"
 "*.json" = "yellow"
-"*.yml"  = "peach"
-"*.yaml" = "peach"
 "*.lock" = "overlay"
 "*.sh"   = "green"
+
+[eza.categories]
+image    = "mauve"
+video    = "pink"
+audio    = "teal"
+archive  = "red"
+document = "orange"
+source   = "yellow"
+config   = "peach"
+markup   = "orange"
+data     = "flamingo"
+web      = "peach"
+temp     = "overlay"
+compiled = "overlay"
+
+[kde]
+accent = "lavender"
+
+window_bg   = "base"
+window_alt  = "mantle"
+button_bg   = "surface0"
+button_alt  = "surface1"
+view_bg     = "base"
+view_alt    = "mantle"
+tooltip_bg  = "surface0"
+tooltip_alt = "surface1"
+header_bg   = "mantle"
+header_alt  = "base"
+
+selection_bg = "lavender"
+selection_fg = "base"
+
+foreground = "text"
+inactive   = "overlay2"
+active     = "lavender"
+link       = "blue"
+visited    = "mauve"
+negative   = "red"
+neutral    = "peach"
+positive   = "green"
+decoration = "lavender"
+
+# window manager titlebar
+wm_active_bg      = "base"
+wm_active_fg      = "text"
+wm_active_blend   = "text"
+wm_inactive_bg    = "mantle"
+wm_inactive_fg    = "overlay2"
+wm_inactive_blend = "overlay2"

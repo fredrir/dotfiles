@@ -27,6 +27,8 @@ TerminalRows=64
 AllowEscapedLinks=true
 EscapedLinksSchema=http://;https://
 OpenLinksByDirectClickEnabled=true
+TrimLeadingSpacesInSelectedText=true
+TrimTrailingSpacesInSelectedText=true
 UnderlineFilesEnabled=true
 
 [Scrolling]
@@ -35,3 +37,4 @@ ScrollBarPosition=2
 
 [Terminal Features]
 AnimatingCursorEnabled=false
+UrlHintsModifiers=67108864

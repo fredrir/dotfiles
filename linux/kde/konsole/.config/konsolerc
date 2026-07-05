@@ -6,11 +6,29 @@ DefaultProfile=main.profile
 [General]
 ConfigVersion=1
 
+[MainWindow]
+MenuBar=Disabled
+
+[MainWindow][Toolbar mainToolBar]
+ToolButtonStyle=IconOnly
+
+[MainWindow][Toolbar sessionToolbar]
+ToolButtonStyle=IconOnly
+
 [Notification Messages]
 CloseAllTabs=true
 
 [TabBar]
 SearchTabsButton=HideSearchTabsButton
+
+[ThumbnailsSettings]
+ThumbnailCtrl=true
+
+[Toolbar mainToolBar]
+ToolButtonStyle=IconOnly
+
+[Toolbar sessionToolbar]
+ToolButtonStyle=IconOnly
 
 [UiSettings]
 ColorScheme=

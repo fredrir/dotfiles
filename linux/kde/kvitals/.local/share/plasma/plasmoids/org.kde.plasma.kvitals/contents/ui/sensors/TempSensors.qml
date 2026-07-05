@@ -1,0 +1,31 @@
+import QtQuick
+import org.kde.ksysguard.sensors as Sensors
+
+Item {
+    id: root
+    property bool _dbg: { console.warn("[KVitals] TempSensors: constructing..."); return true; }
+
+    property int updateInterval: 2000
+    property string tempUnit: "C"
+
+    readonly property real tempNumericValue: {
+        if (tempSensor.status !== Sensors.Sensor.Ready)
+            return NaN;
+        return tempSensor.value;
+    }
+
+    readonly property string tempValue: {
+        if (isNaN(tempNumericValue)) return "--";
+        return Utils.formatTemp(tempNumericValue, tempUnit);
+    }
+
+    Sensors.Sensor {
+        id: tempSensor
+        sensorId: "cpu/all/averageTemperature"
+        updateRateLimit: root.updateInterval
+    }
+
+    Component.onCompleted: {
+        console.warn("[KVitals] TempSensors: ready.");
+    }
+}

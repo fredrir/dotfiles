@@ -61,12 +61,23 @@ Already cloned, or re-running
 
 ## Theme
 
-- **Palette:** `theme/palette.toml`
+- **Palette:** `theme/palette.toml` — the single source of truth. `scripts/generate-theme.py`
+  stamps it into kitty, konsole, fastfetch, starship, zsh, the KDE color scheme
+  (`kdeglobals`), the GTK `colors.css`, and the colors embedded in the KDE panel
+  widgets. The `[kde]` table maps color-scheme roles to palette colors.
 
 - **To regenerate theme:**
 
 ```bash
 python3 scripts/generate-theme.py
+```
+
+- **KDE apply note:** `kdeglobals` and `plasma-org.kde.plasma.desktop-appletsrc`
+  are rewritten live by a running plasmashell, so after regenerating restart it
+  to load and persist the new colors:
+
+```bash
+systemctl --user restart plasma-plasmashell   # or: kquitapp6 plasmashell && kstart plasmashell
 ```
 
 ## Adding a config
