@@ -8,6 +8,6 @@
 # brew "neovim"
 # brew "stow"
 # brew "zsh"
-# brew "oh-my-posh"
+brew "starship"
 # cask "wezterm"
 # cask "raycast"
