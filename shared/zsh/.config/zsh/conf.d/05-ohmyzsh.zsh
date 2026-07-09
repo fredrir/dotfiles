@@ -44,4 +44,7 @@ else
   COMPLETION_WAITING_DOTS="true"
 fi
 
+[[ -d "$ZSH/custom/plugins/zsh-autosuggestions" ]]     && plugins+=(zsh-autosuggestions)
+[[ -d "$ZSH/custom/plugins/zsh-syntax-highlighting" ]] && plugins+=(zsh-syntax-highlighting)
+
 zstyle ':omz:update' mode reminder

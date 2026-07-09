@@ -8,7 +8,7 @@ config.macos_window_background_blur = 10
 config.initial_cols = 150
 config.initial_rows = 40
 
-config.font = wezterm.font("Cascadia Code")
+config.font = wezterm.font("Hack Nerd Font Mono")
 config.font_size = 12
 config.enable_scroll_bar = false
 config.use_fancy_tab_bar = false

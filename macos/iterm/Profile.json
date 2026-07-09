@@ -95,7 +95,7 @@
   },
   "Custom Command" : "No",
   "ASCII Anti Aliased" : true,
-  "Non Ascii Font" : "Monaco 12",
+  "Non Ascii Font" : "Hack Nerd Font Mono 12",
   "Vertical Spacing" : 1,
   "Use Bold Font" : true,
   "Option Key Sends" : 2,
@@ -346,7 +346,7 @@
     "Red Component" : 0,
     "Blue Component" : 0.73333334922790527
   },
-  "Normal Font" : "Monaco 12",
+  "Normal Font" : "Hack Nerd Font Mono 12",
   "Ansi 3 Color" : {
     "Green Component" : 0.53240483999252319,
     "Red Component" : 0.92393732070922852,
