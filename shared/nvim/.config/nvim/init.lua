@@ -18,7 +18,10 @@ vim.o.relativenumber = false
 vim.o.mouse = 'a'
 vim.o.showmode = false
 vim.schedule(function()
-  if vim.env.DISPLAY == nil and vim.env.WAYLAND_DISPLAY == nil then
+  -- macOS has no DISPLAY/WAYLAND_DISPLAY but does have a real clipboard via
+  -- pbcopy/pbpaste, which Neovim auto-detects — so only fall back to the
+  -- file-based provider on a genuinely headless (Linux/tty) session.
+  if vim.fn.has 'mac' == 0 and vim.env.DISPLAY == nil and vim.env.WAYLAND_DISPLAY == nil then
     local clipfile = vim.fn.stdpath 'cache' .. '/tty-clipboard'
     vim.g.clipboard = {
       name = 'tty-file',
