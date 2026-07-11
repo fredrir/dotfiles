@@ -7,3 +7,8 @@ if command -v pnpm >/dev/null; then
   source "$_pnpm_comp_cache"
   unset _pnpm_comp_cache
 fi
+
+autoload -Uz compinit
+compinit
+
+zstyle ':completion:*' matcher-list '' 'm:{a-zA-Z}={A-Za-z}'

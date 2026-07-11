@@ -22,11 +22,12 @@ alias fgrep="fgrep --color=auto"
 alias f='find . -type f -name'
 # Git
 alias gs='git status'
-alias ga='git add'
-alias gc='git commit'
+alias ga='git add .'
+alias gc='git commit -m'
 alias gcm='git commit -m'
 alias gp='git push'
-alias gl='git pull'
+alias gl='git fetch && git pull'
+alias git pull='git fetch && git pull'
 alias gd='git diff'
 alias gff="git add . && git commit -m "." && git push"
 
