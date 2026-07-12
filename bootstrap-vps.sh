@@ -58,7 +58,7 @@ install_packages() {
   say "Installing packages via $PM"
   pm_refresh || true
 
-  local core=(zsh git stow curl ca-certificates)
+  local core=(zsh git curl ca-certificates)
   [ "$PM" = apk ] && core+=(bash)
   pm_install "${core[@]}"
 
@@ -123,7 +123,7 @@ install_nvim_tarball() {
 install_ohmyzsh() {
   [ -d "$HOME/.oh-my-zsh" ] && return 0
   say "Installing oh-my-zsh"
-  # KEEP_ZSHRC so it never clobbers the stowed ~/.zshrc; CHSH/RUNZSH off — we do those.
+  # KEEP_ZSHRC so it never clobbers the linked ~/.zshrc; CHSH/RUNZSH off — we do those.
   RUNZSH=no KEEP_ZSHRC=yes CHSH=no \
     sh -c "$(fetch_stdout https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
     || warn "oh-my-zsh install failed; the prompt will fall back to a basic theme."
@@ -150,15 +150,15 @@ ensure_repo() {
   fi
 }
 
-# --- stow ------------------------------------------------------------------
-run_stow() {
-  # A distro-provided ~/.zshrc would block stow; move it aside once.
+# --- link dotfiles -----------------------------------------------------------
+run_setup() {
+  # A distro-provided ~/.zshrc would conflict with the linker; move it aside once.
   if [ -e "$HOME/.zshrc" ] && [ ! -L "$HOME/.zshrc" ]; then
     warn "backing up existing ~/.zshrc -> ~/.zshrc.pre-dotfiles"
     mv "$HOME/.zshrc" "$HOME/.zshrc.pre-dotfiles"
   fi
-  say "Stowing profile '$PROFILE'"
-  set +e; "$DOTFILES_DIR/setup.sh" "$PROFILE"; STOW_RC=$?; set -e
+  say "Linking profile '$PROFILE'"
+  set +e; "$DOTFILES_DIR/setup.sh" "$PROFILE"; SETUP_RC=$?; set -e
 }
 
 # --- login shell -----------------------------------------------------------
@@ -180,25 +180,25 @@ sync_nvim() {
   [ -n "${NO_NVIM_SYNC:-}" ] && return 0
   have nvim || return 0
   say "Installing Neovim plugins (headless, minimal profile)"
-  # NVIM_MINIMAL here too: this bash process doesn't source the stowed zsh
+  # NVIM_MINIMAL here too: this bash process doesn't source the linked zsh
   # fragment, and without it the sync would pull the full mason/LSP stack.
   NVIM_MINIMAL=1 nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1 \
     || warn "plugin sync incomplete — just open nvim to finish."
 }
 
 # ---------------------------------------------------------------------------
-STOW_RC=0
+SETUP_RC=0
 install_packages
 nvim_recent || install_nvim_tarball
 install_ohmyzsh
 install_starship
 ensure_repo
-run_stow
+run_setup
 set_login_shell
 sync_nvim
 
 echo
-if [ "${STOW_RC:-0}" -ne 0 ]; then
-  warn "stow reported conflicts (see above) — resolve and re-run: $DOTFILES_DIR/setup.sh $PROFILE"
+if [ "${SETUP_RC:-0}" -ne 0 ]; then
+  warn "dotfile link reported conflicts (see above) — resolve and re-run: $DOTFILES_DIR/setup.sh $PROFILE"
 fi
 say "Done. Start a new session (or run: exec zsh) to pick up the new shell."

@@ -100,7 +100,6 @@ s-nail
 sddm
 sddm-kcm
 speedtest-cli
-stow
 sudo
 terraform
 tesseract-data-eng

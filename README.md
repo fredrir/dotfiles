@@ -8,17 +8,17 @@
 
                                                   SYSTEM
                                                 󰣇  OS        Arch Linux x86_64
-                        -`                      󰌽  Kernel    Linux 7.0.14-arch1-1
-                       .o+`                     󰅐  Uptime    6 hours, 45 mins
-                      `ooo/                     󰏗  Packages  1059 (pacman)
+                        -`                      󰌽  Kernel    Linux 7.1.3-arch1-2
+                       .o+`                     󰅐  Uptime    31 mins
+                      `ooo/                     󰏗  Packages  1087 (pacman)
                      `+oooo:                    󰆍  Shell     zsh 5.9.1
                     `+oooooo:
                     -+oooooo+:                    HARDWARE
                   `/:-:++oooo+:                 󰻠  CPU       AMD Ryzen 7 9800X3D (16) @ 5.27 GHz
                  `/++++/+++++++:                󰢮  GPU       NVIDIA GeForce RTX 5070 Ti [Discrete]
-                `/++++++++++++++:               󰍛  Memory    17 GB / 31 GB [54%]
-               `/+++ooooooooooooo/`             󰋊  Disk      /  58 GB / 78 GB [75%]
-              ./ooosssso++osssssso+`            󰋊  Disk      /home  75 GB / 118 GB [64%]
+                `/++++++++++++++:               󰍛  Memory    9 GB / 31 GB [29%]
+               `/+++ooooooooooooo/`             󰋊  Disk      /  63 GB / 78 GB [81%]
+              ./ooosssso++osssssso+`            󰋊  Disk      /home  108 GB / 118 GB [92%]
              .oossssso-````/ossssss+`
             -osssssso.      :ssssssso.            DESKTOP
            :osssssss/        osssso+++.         󰧨  DE        KDE Plasma 6.7.2
@@ -73,21 +73,19 @@ python3 scripts/generate-theme.py
 systemctl --user restart plasma-plasmashell
 ```
 
-## Adding a config
+## The dotfile command
 
-Placeholders:
-- `<group>` → `linux/common`
-- `<app>` → `nvim`
-- `<profile>` → `desktop/arch-linux/kde`
-- `<machine>` → `desktop`
+```bash
+dotfile add waybar
+dotfile add --linux zsh/conf.d/11-linux-env
+dotfile add --kde konsolerc
+dotfile add --pkg zsh ~/.zshrc
 
+dotfile link
+dotfile link desktop/arch-linux/kde
+dotfile link -n
 
- ```bash
-cd ~/dotfiles
-mkdir -p <group>/<app>/.config/<app>
-mv ~/.config/<app> <group>/<app>/.config/
-grep -q '<group>' hosts/<profile>/manifest || echo '<group>' >> hosts/<profile>/manifest
-./setup.sh <profile>
+dotfile status
 ```
 
 ## Adding a machine
@@ -97,10 +95,9 @@ grep -q '<group>' hosts/<profile>/manifest || echo '<group>' >> hosts/<profile>/
 
 ## Jetbrains
 
+New files WebStorm creates stay in `~/.config/JetBrains`
 ```bash
-cd ~/dotfiles/linux/common
-stow --adopt --no-folding --target="$HOME" --restow jetbrains
-git -C ~/dotfiles checkout -- linux/common/jetbrains
+dotfile add --linux --pkg jetbrains JetBrains/WebStorm2026.1/options/editor.xml
 /opt/WebStorm/bin/webstorm installPlugins \
     com.nasller.CodeGlancePro ru.adelf.idea.dotenv com.github.copilot \
     org.intellij.plugins.hcl "Key Promoter X"

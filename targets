@@ -1,0 +1,10 @@
+shared/starship = ~/.config
+shared/zsh/.zshrc = ~/.zshrc
+linux/common/gtk = ~/.config
+linux/common/jetbrains = ~/.config/JetBrains
+linux/common/theme-watch = ~/.config/systemd/user
+linux/kde/plasma = ~/.config
+linux/kde/krunnerrc = ~/.config
+linux/kde/konsole/konsolerc = ~/.config/konsolerc
+linux/kde/konsole/share = ~/.local/share/konsole
+linux/kde/kvitals = ~/.local/share/plasma/plasmoids/org.kde.plasma.kvitals

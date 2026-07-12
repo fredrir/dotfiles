@@ -3,11 +3,11 @@
 
 theme/palette.toml is the single source of truth. This renders it into:
 
-  * kitty    — shared/kitty/.config/kitty/colors-mocha.conf   (included by kitty.conf)
-  * konsole  — linux/kde/konsole/.local/share/konsole/Catppuccin-Mocha.colorscheme
+  * kitty    — shared/kitty/colors-mocha.conf   (included by kitty.conf)
+  * konsole  — linux/kde/konsole/share/Catppuccin-Mocha.colorscheme
   * fastfetch— config.jsonc $1..$5 constants + separator, and the arch.txt logo gradient
   * starship — the [palettes.mocha] block in starship.toml
-  * zsh      — shared/zsh/.config/zsh/conf.d/03-theme.zsh (THEME_* prompt escapes)
+  * zsh      — shared/zsh/conf.d/03-theme.zsh (THEME_* prompt escapes)
   * kde      — kdeglobals color scheme ([Colors:*], [WM], AccentColor) from [kde]
   * gtk      — gtk-3.0/gtk-4.0 colors.css so GTK apps match the KDE scheme
   * widgets  — retags Catppuccin colors in panel-colorizer presets + desktop-appletsrc
@@ -212,7 +212,7 @@ def gen_kitty(t, changed):
         lines.append(f"color{idx:<2} {t.hex(ansi[name])}")
     content = "\n".join(lines) + "\n"
     write_if_changed(
-        os.path.join(ROOT, "shared/kitty/.config/kitty/colors-mocha.conf"),
+        os.path.join(ROOT, "shared/kitty/colors-mocha.conf"),
         content, changed,
     )
 
@@ -252,7 +252,7 @@ def gen_konsole(t, changed):
     content = header + "\n".join(out) + "\n"
     write_if_changed(
         os.path.join(
-            ROOT, "linux/kde/konsole/.local/share/konsole/Catppuccin-Mocha.colorscheme"
+            ROOT, "linux/kde/konsole/share/Catppuccin-Mocha.colorscheme"
         ),
         content, changed,
     )
@@ -274,7 +274,7 @@ def gen_fastfetch(t, changed):
     sep_name = t.data["roles"]["separator"]
     const_lines.append(f'"{t.truecolor(sep_hex)}" // {sep_name} {sep_hex}')
 
-    path = os.path.join(ROOT, "shared/fastfetch/.config/fastfetch/config.jsonc")
+    path = os.path.join(ROOT, "shared/fastfetch/config.jsonc")
 
     def transform(text):
         text = replace_between(text, "constants", const_lines, indent=" " * 6)
@@ -297,7 +297,7 @@ def gen_fastfetch_logo(t, changed):
         t.rgb(t.role("section_network")),
     ]
     segments = len(stops) - 1
-    path = os.path.join(ROOT, "shared/fastfetch/.config/fastfetch/arch.txt")
+    path = os.path.join(ROOT, "shared/fastfetch/arch.txt")
     with open(path, encoding="utf-8") as f:
         raw = f.read().split("\n")
     # Drop a trailing empty element from a final newline; re-add it at the end.
@@ -334,7 +334,7 @@ def gen_starship(t, changed):
     for role in prompt_roles:
         lines.append(f"{role.ljust(width)} = '{t.role(role)}'")
 
-    path = os.path.join(ROOT, "shared/starship/.config/starship.toml")
+    path = os.path.join(ROOT, "shared/starship/starship.toml")
     edit_if_changed(path, lambda text: replace_between(text, "palette", lines), changed)
 
 
@@ -380,7 +380,7 @@ def gen_zsh(t, changed):
         lines.append(f'export EZA_COLORS="{":".join(parts)}"')
     content = "\n".join(lines) + "\n"
     write_if_changed(
-        os.path.join(ROOT, "shared/zsh/.config/zsh/conf.d/03-theme.zsh"),
+        os.path.join(ROOT, "shared/zsh/conf.d/03-theme.zsh"),
         content, changed,
     )
 
@@ -523,7 +523,7 @@ def gen_kde_colorscheme(t, changed):
         f"inactiveForeground={rgb_str('wm_inactive_fg')}",
     ]
 
-    path = os.path.join(ROOT, "linux/kde/plasma/.config/kdeglobals")
+    path = os.path.join(ROOT, "linux/kde/plasma/kdeglobals")
 
     def transform(text):
         for header, body in sections.items():
@@ -556,7 +556,7 @@ def gen_gtk(t, changed):
 
     for ver in ("gtk-3.0", "gtk-4.0"):
         edit_if_changed(
-            os.path.join(ROOT, f"linux/common/gtk/.config/{ver}/colors.css"),
+            os.path.join(ROOT, f"linux/common/gtk/{ver}/colors.css"),
             transform, changed,
         )
 
@@ -580,7 +580,7 @@ def gen_kde_widgets(t, changed):
         return hex_re.sub(repl, text)
 
     presets = os.path.join(
-        ROOT, "linux/kde/panel-colorizer/.config/panel-colorizer/presets")
+        ROOT, "linux/kde/panel-colorizer/presets")
     if os.path.isdir(presets):
         for name in sorted(os.listdir(presets)):
             p = os.path.join(presets, name, "settings.json")
@@ -598,7 +598,7 @@ def gen_kde_widgets(t, changed):
         return "\n".join(out)
 
     edit_if_changed(
-        os.path.join(ROOT, "linux/kde/plasma/.config/plasma-org.kde.plasma.desktop-appletsrc"),
+        os.path.join(ROOT, "linux/kde/plasma/plasma-org.kde.plasma.desktop-appletsrc"),
         remap_appletsrc, changed,
     )
 
@@ -616,7 +616,7 @@ def gen_quicklaunch(t, changed):
     for key, role in keys:
         lines.append(f'{key.ljust(width)} = "{t.kde(role)}"')
     path = os.path.join(
-        ROOT, "linux/common/quicklaunch/.config/quicklaunch/config.toml")
+        ROOT, "linux/common/quicklaunch/config.toml")
     edit_if_changed(path, lambda text: replace_between(text, "quicklaunch", lines), changed)
 
 

@@ -1,0 +1,490 @@
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s dotglob nullglob
+
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  SELF_T="$(readlink "$SELF")"
+  case "$SELF_T" in
+    /*) SELF="$SELF_T" ;;
+    *) SELF="$(dirname "$SELF")/$SELF_T" ;;
+  esac
+done
+DOTFILES="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+TARGETS_FILE="$DOTFILES/targets"
+STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
+DRY=0
+CONFLICTS=()
+MAP_KEYS=()
+MAP_VALS=()
+
+usage() {
+  cat <<'EOF'
+usage: dotfile <command> [args]
+
+commands:
+  link [profile] [-n]   symlink every package in the profile manifest into $HOME
+  add [flags] <path>    move a live config into the repo and symlink it back
+  status [profile]      show link state for every file in the profile
+  help                  show this help
+
+add flags:
+  --shared (default)  --linux  --kde  --hyprland  --server  --macos
+  --pkg <name>        override the package name
+
+examples:
+  dotfile link desktop/arch-linux/kde
+  dotfile add waybar
+  dotfile add --linux zsh/conf.d/11-linux-env
+  dotfile add --pkg zsh ~/.zshrc
+EOF
+}
+
+die() { printf 'dotfile: %s\n' "$*" >&2; exit 1; }
+log() { printf '%s\n' "$*"; }
+
+run() {
+  if [ "$DRY" = 1 ]; then
+    log "  would: $*"
+  else
+    "$@"
+  fi
+}
+
+canon() {
+  local p="$1" seg out="" IFS=/
+  for seg in $p; do
+    case "$seg" in
+      ""|".") ;;
+      "..") out="${out%/*}" ;;
+      *) out="$out/$seg" ;;
+    esac
+  done
+  printf '%s\n' "${out:-/}"
+}
+
+resolve_link() {
+  local l="$1" t
+  t="$(readlink "$l")"
+  case "$t" in
+    /*) canon "$t" ;;
+    *) canon "$(dirname "$l")/$t" ;;
+  esac
+}
+
+realpath_m() {
+  local d b p
+  d="$(dirname "$1")"
+  b="$(basename "$1")"
+  d="$(cd -P "$d" 2>/dev/null && pwd -P)" || { printf '%s\n' "$1"; return 0; }
+  p="$d/$b"
+  if [ -L "$p" ]; then resolve_link "$p"; else printf '%s\n' "$p"; fi
+}
+
+load_targets() {
+  MAP_KEYS=()
+  MAP_VALS=()
+  [ -f "$TARGETS_FILE" ] || return 0
+  local line key val
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *=*) ;; *) continue ;; esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    val="${val/#\~/$HOME}"
+    MAP_KEYS+=("$key")
+    MAP_VALS+=("$val")
+  done < "$TARGETS_FILE"
+}
+
+map_dst() {
+  local full="$1" pkg="$2" rel="$3"
+  local i key best=-1 bestlen=-1
+  for i in ${MAP_KEYS[@]+"${!MAP_KEYS[@]}"}; do
+    key="${MAP_KEYS[$i]}"
+    if [ "$full" = "$key" ] || [ "${full#"$key"/}" != "$full" ]; then
+      if [ "${#key}" -gt "$bestlen" ]; then
+        best=$i
+        bestlen=${#key}
+      fi
+    fi
+  done
+  if [ "$best" -ge 0 ]; then
+    key="${MAP_KEYS[$best]}"
+    if [ "$full" = "$key" ]; then
+      printf '%s\n' "${MAP_VALS[$best]}"
+    else
+      printf '%s\n' "${MAP_VALS[$best]}/${full#"$key"/}"
+    fi
+  else
+    printf '%s\n' "$HOME/.config/$pkg${rel:+/$rel}"
+  fi
+}
+
+has_key_under() {
+  local prefix="$1" key
+  for key in ${MAP_KEYS[@]+"${MAP_KEYS[@]}"}; do
+    if [ "${key#"$prefix"/}" != "$key" ]; then return 0; fi
+  done
+  return 1
+}
+
+no_fold() {
+  case "$1" in
+    "$HOME"|"$HOME/.config"|"$HOME/.local"|"$HOME/.local/share"|"$HOME/.local/bin"|"$HOME/.config/systemd"|"$HOME/.config/systemd/user") return 0 ;;
+  esac
+  return 1
+}
+
+conflict() { CONFLICTS+=("$1"); }
+
+link_file() {
+  local src="$1" dst="$2" cur
+  if [ -L "$dst" ]; then
+    cur="$(resolve_link "$dst")"
+    [ "$cur" = "$src" ] && return 0
+    case "$cur" in
+      "$DOTFILES"/*) run rm "$dst" ;;
+      *) conflict "$dst"; return 0 ;;
+    esac
+  elif [ -e "$dst" ]; then
+    conflict "$dst"
+    return 0
+  fi
+  run mkdir -p "$(dirname "$dst")"
+  run ln -s "$src" "$dst"
+  log "  link ${dst/#$HOME/\~}"
+}
+
+unfold() {
+  local dst="$1" cur="$2" entry
+  run rm "$dst"
+  run mkdir -p "$dst"
+  for entry in "$cur"/*; do
+    run ln -s "$entry" "$dst/$(basename "$entry")"
+  done
+  log "  split ${dst/#$HOME/\~}"
+}
+
+link_dir() {
+  local src="$1" dst="$2" full="$3" pkg="$4" rel="$5" cur entry name
+  if [ -L "$dst" ]; then
+    cur="$(resolve_link "$dst")"
+    if [ "$cur" = "$src" ]; then
+      if has_key_under "$full"; then
+        unfold "$dst" "$cur"
+      else
+        return 0
+      fi
+    else
+      case "$cur" in
+        "$DOTFILES"/*)
+          if [ -d "$cur" ]; then
+            unfold "$dst" "$cur"
+          else
+            run rm "$dst"
+          fi
+          ;;
+        *) conflict "$dst"; return 0 ;;
+      esac
+    fi
+  fi
+  if [ ! -e "$dst" ]; then
+    if has_key_under "$full" || no_fold "$dst"; then
+      run mkdir -p "$dst"
+    else
+      run mkdir -p "$(dirname "$dst")"
+      run ln -s "$src" "$dst"
+      log "  link ${dst/#$HOME/\~}"
+      return 0
+    fi
+  elif [ ! -d "$dst" ]; then
+    conflict "$dst"
+    return 0
+  fi
+  for entry in "$src"/*; do
+    name="$(basename "$entry")"
+    walk_node "$pkg" "${rel:+$rel/}$name" "$entry" "$full/$name"
+  done
+}
+
+walk_node() {
+  local pkg="$1" rel="$2" src="$3" full="$4" dst
+  [ "$(basename "$src")" = ".nolink" ] && return 0
+  dst="$(map_dst "$full" "$pkg" "$rel")"
+  if [ -d "$src" ] && [ ! -L "$src" ]; then
+    link_dir "$src" "$dst" "$full" "$pkg" "$rel"
+  else
+    link_file "$src" "$dst"
+  fi
+}
+
+link_package() {
+  local pkgdir="$1" grouppkg="$2"
+  walk_node "$(basename "$pkgdir")" "" "$pkgdir" "$grouppkg"
+}
+
+prune() {
+  local l cur
+  while IFS= read -rd '' l; do
+    cur="$(resolve_link "$l")"
+    case "$cur" in
+      "$DOTFILES"/*) ;;
+      *) continue ;;
+    esac
+    [ -e "$l" ] && continue
+    run rm "$l"
+    log "  prune ${l/#$HOME/\~}"
+  done < <(
+    find "$HOME" -maxdepth 1 -type l -print0 2>/dev/null
+    find "$HOME/.config" "$HOME/.local" -maxdepth 6 -type l -print0 2>/dev/null
+  )
+}
+
+saved_profile() {
+  if [ -f "$STATE_DIR/profile" ]; then cat "$STATE_DIR/profile"; fi
+}
+
+resolve_profile() {
+  local p="${1:-}"
+  [ -n "$p" ] || p="$(saved_profile)"
+  [ -n "$p" ] || p="$(uname -n)"
+  printf '%s\n' "$p"
+}
+
+manifest_groups() {
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] && printf '%s\n' "$line"
+  done < "$1"
+  return 0
+}
+
+list_profiles() {
+  ( cd "$DOTFILES/hosts" && find . -name manifest | sed 's|^\./||; s|/manifest$||' | sort )
+}
+
+require_manifest() {
+  local profile="$1"
+  local manifest="$DOTFILES/hosts/$profile/manifest"
+  if [ ! -f "$manifest" ]; then
+    {
+      echo "dotfile: no manifest for profile '$profile'"
+      echo "available profiles:"
+      list_profiles | sed 's/^/  /'
+    } >&2
+    exit 1
+  fi
+  printf '%s\n' "$manifest"
+}
+
+cmd_link() {
+  local profile="" arg
+  for arg in "$@"; do
+    case "$arg" in
+      -n|--dry-run) DRY=1 ;;
+      *) profile="$arg" ;;
+    esac
+  done
+  profile="$(resolve_profile "$profile")"
+  local manifest
+  manifest="$(require_manifest "$profile")"
+  load_targets
+  log "linking profile '$profile'"
+  prune
+  local group dir pkgdir
+  while IFS= read -r group; do
+    dir="$DOTFILES/$group"
+    if [ ! -d "$dir" ]; then
+      log "  skip missing group: $group"
+      continue
+    fi
+    for pkgdir in "$dir"/*/; do
+      pkgdir="${pkgdir%/}"
+      if [ -e "$pkgdir/.nolink" ]; then
+        log "  skip (.nolink): $group/$(basename "$pkgdir")"
+        continue
+      fi
+      link_package "$pkgdir" "$group/$(basename "$pkgdir")"
+    done
+  done < <(manifest_groups "$manifest")
+  if [ "$DRY" = 0 ]; then
+    mkdir -p "$STATE_DIR"
+    printf '%s\n' "$profile" > "$STATE_DIR/profile"
+  fi
+  if [ "${#CONFLICTS[@]}" -gt 0 ]; then
+    echo
+    echo "conflicts (existing files not owned by dotfiles):"
+    printf '  %s\n' "${CONFLICTS[@]}"
+    echo "move each aside and re-run: mv <file> <file>.bak && dotfile link $profile"
+    exit 1
+  fi
+  log "done"
+}
+
+cmd_status() {
+  local profile
+  profile="$(resolve_profile "${1:-}")"
+  local manifest
+  manifest="$(require_manifest "$profile")"
+  load_targets
+  local group dir pkgdir pkg f rel full dst ok=0 missing=0 bad=0
+  while IFS= read -r group; do
+    dir="$DOTFILES/$group"
+    [ -d "$dir" ] || continue
+    for pkgdir in "$dir"/*/; do
+      pkgdir="${pkgdir%/}"
+      pkg="$(basename "$pkgdir")"
+      [ -e "$pkgdir/.nolink" ] && continue
+      while IFS= read -rd '' f; do
+        [ "$(basename "$f")" = ".nolink" ] && continue
+        rel="${f#"$pkgdir"/}"
+        full="$group/$pkg/$rel"
+        dst="$(map_dst "$full" "$pkg" "$rel")"
+        if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+          log "missing  ${dst/#$HOME/\~}"
+          missing=$((missing + 1))
+        elif [ "$(realpath_m "$dst")" = "$f" ]; then
+          ok=$((ok + 1))
+        else
+          log "differs  ${dst/#$HOME/\~}"
+          bad=$((bad + 1))
+        fi
+      done < <(find "$pkgdir" \( -type f -o -type l \) -print0)
+    done
+  done < <(manifest_groups "$manifest")
+  log "profile '$profile': $ok linked, $missing missing, $bad differing"
+  [ $((missing + bad)) -eq 0 ]
+}
+
+cmd_add() {
+  local group="shared" pkgflag="" path=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --shared) group="shared" ;;
+      --linux) group="linux/common" ;;
+      --kde) group="linux/kde" ;;
+      --hyprland) group="linux/hyprland" ;;
+      --server) group="linux/server" ;;
+      --macos) group="macos" ;;
+      --pkg)
+        shift
+        pkgflag="${1:-}"
+        [ -n "$pkgflag" ] || die "--pkg needs a name"
+        ;;
+      -*) die "unknown flag: $1" ;;
+      *)
+        [ -z "$path" ] || die "expected a single path"
+        path="$1"
+        ;;
+    esac
+    shift
+  done
+  [ -n "$path" ] || die "usage: dotfile add [flags] <path>"
+  path="${path/#\~/$HOME}"
+
+  local src=""
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    case "$path" in
+      /*) src="$path" ;;
+      *) src="$PWD/$path" ;;
+    esac
+  elif [ -e "$HOME/.config/$path" ]; then
+    src="$HOME/.config/$path"
+  else
+    local matches=("$HOME/.config/$path"*)
+    if [ "${#matches[@]}" -eq 1 ]; then
+      src="${matches[0]}"
+    elif [ "${#matches[@]}" -gt 1 ]; then
+      die "ambiguous, matches: ${matches[*]#"$HOME/.config/"}"
+    fi
+  fi
+  [ -n "$src" ] || die "not found: $path (looked in ~/.config)"
+  src="$(canon "$src")"
+
+  if [ -L "$src" ]; then
+    case "$(resolve_link "$src")" in
+      "$DOTFILES"/*) die "already managed: ${src/#$HOME/\~}" ;;
+      *) die "refusing to adopt a foreign symlink: ${src/#$HOME/\~}" ;;
+    esac
+  fi
+  if [ -d "$src" ]; then
+    local l
+    while IFS= read -rd '' l; do
+      case "$(resolve_link "$l")" in
+        "$DOTFILES"/*) die "already partially managed (${l/#$HOME/\~}), add individual files instead" ;;
+      esac
+    done < <(find "$src" -type l -print0)
+  fi
+
+  load_targets
+  local rel pkg destrel mapline=""
+  case "$src" in
+    "$HOME/.config/"*)
+      rel="${src#"$HOME/.config/"}"
+      case "$rel" in
+        */*)
+          pkg="${pkgflag:-${rel%%/*}}"
+          destrel="$group/$pkg/${rel#*/}"
+          ;;
+        *)
+          if [ -d "$src" ]; then
+            pkg="${pkgflag:-$rel}"
+            destrel="$group/$pkg"
+            [ -e "$DOTFILES/$destrel" ] && die "package exists: $destrel (add files inside it individually)"
+          else
+            pkg="${pkgflag:-${rel%%.*}}"
+            destrel="$group/$pkg/$rel"
+            mapline="$group/$pkg = ~/.config"
+          fi
+          ;;
+      esac
+      ;;
+    "$HOME/"*)
+      [ -n "$pkgflag" ] || die "files outside ~/.config need --pkg <name>"
+      pkg="$pkgflag"
+      destrel="$group/$pkg/$(basename "$src")"
+      mapline="$destrel = ${src/#$HOME/\~}"
+      ;;
+    *) die "source must live under \$HOME" ;;
+  esac
+
+  local dest="$DOTFILES/$destrel"
+  [ -e "$dest" ] && die "destination exists: $destrel"
+  mkdir -p "$(dirname "$dest")"
+  mv "$src" "$dest"
+  ln -s "$dest" "$src"
+  log "moved  ${src/#$HOME/\~} -> $destrel"
+  log "linked ${src/#$HOME/\~}"
+  if [ -n "$mapline" ] && ! grep -qxF "$mapline" "$TARGETS_FILE" 2>/dev/null; then
+    printf '%s\n' "$mapline" >> "$TARGETS_FILE"
+    log "mapped $mapline"
+  fi
+  git -C "$DOTFILES" add "$dest" "$TARGETS_FILE" 2>/dev/null || true
+
+  local profile manifest
+  profile="$(resolve_profile "")"
+  manifest="$DOTFILES/hosts/$profile/manifest"
+  if [ -f "$manifest" ] && ! manifest_groups "$manifest" | grep -qxF "$group"; then
+    log "note: group '$group' is not in hosts/$profile/manifest, it will not be linked by 'dotfile link' on this machine"
+  fi
+}
+
+cmd="${1:-help}"
+shift || true
+case "$cmd" in
+  link) cmd_link "$@" ;;
+  add) cmd_add "$@" ;;
+  status) cmd_status "$@" ;;
+  help|-h|--help) usage ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

@@ -33,7 +33,7 @@ END = "<!-- fastfetch:end -->"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-CONFIG = os.path.join(ROOT, "shared", "fastfetch", ".config", "fastfetch", "config.jsonc")
+CONFIG = os.path.join(ROOT, "shared", "fastfetch", "config.jsonc")
 README = os.path.join(ROOT, "README.md")
 
 DROP = ("Local IP",)

@@ -26,24 +26,24 @@ if staged theme/palette.toml scripts/generate-theme.py; then
     # restarting plasmashell) to avoid sweeping unrelated widget state into a
     # theme commit.
     git add \
-      "$root/shared/kitty/.config/kitty/colors-mocha.conf" \
-      "$root/linux/kde/konsole/.local/share/konsole/Catppuccin-Mocha.colorscheme" \
-      "$root/shared/fastfetch/.config/fastfetch/config.jsonc" \
-      "$root/shared/fastfetch/.config/fastfetch/arch.txt" \
-      "$root/shared/starship/.config/starship.toml" \
-      "$root/shared/zsh/.config/zsh/conf.d/03-theme.zsh" \
-      "$root/linux/common/gtk/.config/gtk-3.0/colors.css" \
-      "$root/linux/common/gtk/.config/gtk-4.0/colors.css" \
-      "$root/linux/kde/panel-colorizer/.config/panel-colorizer/presets/Mocha Bar/settings.json" \
-      "$root/linux/kde/panel-colorizer/.config/panel-colorizer/presets/Mocha Islands/settings.json" \
-      "$root/linux/kde/panel-colorizer/.config/panel-colorizer/presets/Fusion Backup/settings.json"
+      "$root/shared/kitty/colors-mocha.conf" \
+      "$root/linux/kde/konsole/share/Catppuccin-Mocha.colorscheme" \
+      "$root/shared/fastfetch/config.jsonc" \
+      "$root/shared/fastfetch/arch.txt" \
+      "$root/shared/starship/starship.toml" \
+      "$root/shared/zsh/conf.d/03-theme.zsh" \
+      "$root/linux/common/gtk/gtk-3.0/colors.css" \
+      "$root/linux/common/gtk/gtk-4.0/colors.css" \
+      "$root/linux/kde/panel-colorizer/presets/Mocha Bar/settings.json" \
+      "$root/linux/kde/panel-colorizer/presets/Mocha Islands/settings.json" \
+      "$root/linux/kde/panel-colorizer/presets/Fusion Backup/settings.json"
   else
     echo "pre-commit: theme generation failed (continuing)" >&2
   fi
 fi
 
 # 2. Fastfetch README preview: regenerate when the fastfetch config is staged.
-if staged shared/fastfetch/.config/fastfetch/config.jsonc; then
+if staged shared/fastfetch/config.jsonc; then
   if python3 "$root/scripts/update-readme-fastfetch.py"; then
     git add "$root/README.md"
   else

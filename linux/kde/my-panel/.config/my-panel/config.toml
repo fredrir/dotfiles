@@ -1,6 +1,0 @@
-[bar]
-layer = "top"
-
-[theme]
-follow_kde = true
-opacity = 0.85

@@ -6,7 +6,6 @@
 # Examples:
 # brew "git"
 # brew "neovim"
-# brew "stow"
 # brew "zsh"
 brew "starship"
 brew "eza"

@@ -1,0 +1,49 @@
+[bar]
+height = 40
+edge = "bottom"
+layer = "top"
+outputs = []
+spacing = 6
+margin = 0
+exclusive = true
+
+[icons]
+search_paths = []
+fallback = "application-x-executable"
+
+[icons.names]
+
+[icons.apps]
+
+[hardware]
+poll_interval_ms = 1500
+gpu_index = 0
+
+[hardware.cpu]
+source = "hwmon"
+hwmon_name = "k10temp"
+temp_label = "Tctl"
+
+[volume]
+scroll_step = 0.05
+
+[network]
+poll_interval_ms = 3000
+
+[clock]
+format = "%a %d %b  %H:%M:%S"
+
+[theme]
+follow_kde = true
+opacity = 0.85
+
+[tasks]
+filter_activity = true
+filter_desktop = true
+filter_screen = false
+show_minimized = true
+
+[weather]
+enabled = true
+units = "metric"
+refresh_minutes = 15
