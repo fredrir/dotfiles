@@ -22,7 +22,7 @@ DialogWidth=810
 
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=1566
+LastVideoPosition=7450
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][24]
@@ -38,7 +38,7 @@ wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][24][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=9783
+LastVideoPosition=12933
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][27]

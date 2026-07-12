@@ -115,3 +115,14 @@ cd() {
 
 alias cd='nocorrect cd'
 
+
+oc() {
+  ss -Htln 'sport = :18789' 2>/dev/null | grep -q . \
+    || ssh -f -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+         -L 18789:127.0.0.1:18789 hetzner
+  if [ $# -gt 0 ]; then
+    openclaw agent --agent main --message "$*"
+  else
+    openclaw tui
+  fi
+}
