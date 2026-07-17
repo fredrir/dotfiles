@@ -5,6 +5,8 @@ BorderWhenActive=false
 ColorScheme=Catppuccin-Mocha
 FocusBorderColor=0,0,0
 Font=Hack Nerd Font,10,-1,5,50,0,0,0,0,0
+TabActivityColor=255,255,255
+TabColor=30,30,46,0
 UseFontBrailleChararacters=true
 UseFontLineChararacters=false
 
@@ -12,24 +14,28 @@ UseFontLineChararacters=false
 CursorShape=0
 
 [General]
-AlternatingBackground=2
-AlternatingBars=2
+AlternatingBackground=1
+AlternatingBars=1
 DimWhenInactive=false
-ErrorBackground=2
-ErrorBars=2
+ErrorBackground=1
+ErrorBars=1
+LocalTabTitleFormat=%D
 Name=main
 Parent=FALLBACK/
-SemanticHints=2
+SemanticHints=1
 TerminalColumns=300
 TerminalRows=64
 
 [Interaction Options]
-AllowEscapedLinks=true
+AllowEscapedLinks=false
 EscapedLinksSchema=http://;https://
 OpenLinksByDirectClickEnabled=true
 TrimLeadingSpacesInSelectedText=true
 TrimTrailingSpacesInSelectedText=true
 UnderlineFilesEnabled=true
+
+[Keyboard]
+KeyBindings=default
 
 [Scrolling]
 HistorySize=15000
