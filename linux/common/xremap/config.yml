@@ -4,5 +4,5 @@ keymap:
       only: /(?i)^(org\.kde\.konsole|kitty)$/
     exact_match: true
     remap:
-      Ctrl-C: Ctrl-Insert
+      Ctrl-C: Ctrl-Shift-C
       Ctrl-X: Ctrl-C
