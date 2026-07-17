@@ -88,6 +88,7 @@ git() {
   fi
 }
 
+unalias cd 2>/dev/null
 cd() {
   if (( $# != 1 )) || [[ "$1" == -* ]] || [[ -d "$1" ]]; then
     builtin cd "$@"
@@ -125,25 +126,4 @@ oc() {
   else
     openclaw tui
   fi
-}
-
-
-unalias gdd 2>/dev/null
-unfunction gdd 2>/dev/null
-
-gdd() {
-  if (( $# == 0 )); then
-    echo "Usage: gdd <commit message>"
-    return 1
-  fi
-
-  git add . || return 1
-
-  if ! git diff --cached --quiet; then
-    git commit -m "$*" || return 1
-  else
-    echo "Nothing new to commit; pushing existing commits."
-  fi
-
-  git push
 }

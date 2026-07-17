@@ -1,7 +1,7 @@
 keymap:
-  - name: Konsole copy and interrupt
+  - name: Konsole and kitty copy and interrupt
     application:
-      only: /(?i)konsole/
+      only: /(?i)^(org\.kde\.konsole|kitty)$/
     exact_match: true
     remap:
       Ctrl-C: Ctrl-Insert
