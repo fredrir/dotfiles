@@ -35,7 +35,7 @@ TrimTrailingSpacesInSelectedText=true
 UnderlineFilesEnabled=true
 
 [Keyboard]
-KeyBindings=default
+KeyBindings=main
 
 [Scrolling]
 HistorySize=15000

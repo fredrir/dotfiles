@@ -33,6 +33,14 @@ return {
       json = { 'prettierd', 'prettier', stop_after_first = true },
       jsonc = { 'prettierd', 'prettier', stop_after_first = true },
       yaml = { 'prettierd', 'prettier', stop_after_first = true },
+      ['*'] = { 'dotfile_conf' },
+    },
+    formatters = {
+      dotfile_conf = {
+        command = 'dotfile',
+        args = { 'format', '--stdin', '$FILENAME' },
+        condition = function(_, ctx) return ctx.filename:match '%.conf$' ~= nil end,
+      },
     },
   },
 }

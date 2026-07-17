@@ -1,3 +1,4 @@
+keypress_delay_ms: 20
 keymap:
   - name: Konsole and kitty copy and interrupt
     application:

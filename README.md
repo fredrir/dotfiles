@@ -86,6 +86,7 @@ dotfile link desktop/arch-linux/kde
 dotfile link -n
 
 dotfile status
+dotfile format
 ```
 
 ## Adding a machine
