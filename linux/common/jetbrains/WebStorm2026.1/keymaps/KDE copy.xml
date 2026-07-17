@@ -30,4 +30,7 @@
   <action id="SurroundWithEmmet">
     <keyboard-shortcut first-keystroke="ctrl less" />
   </action>
+  <action id="TW.CloseOtherTabs">
+    <keyboard-shortcut first-keystroke="ctrl #100007c" />
+  </action>
 </keymap>

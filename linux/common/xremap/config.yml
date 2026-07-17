@@ -1,0 +1,8 @@
+keymap:
+  - name: Konsole copy and interrupt
+    application:
+      only: /(?i)konsole/
+    exact_match: true
+    remap:
+      Ctrl-C: Ctrl-Insert
+      Ctrl-X: Ctrl-C

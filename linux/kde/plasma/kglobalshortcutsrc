@@ -3,6 +3,7 @@ _k_friendly_name=Activity Manager
 switch-to-activity-d79809f9-a71f-4ed9-84d7-a30aec30bec7=none,none,Switch to activity "Default"
 
 [KDE Keyboard Layout Switcher]
+Switch keyboard layout to A user-defined custom Layout=none,none,Switch keyboard layout to A user-defined custom Layout
 Switch keyboard layout to Norwegian=none,none,Switch keyboard layout to Norwegian
 Switch to Last-Used Keyboard Layout=none,Meta+Alt+L,Switch to Last-Used Keyboard Layout
 Switch to Next Keyboard Layout=none,Meta+Alt+K,Switch to Next Keyboard Layout
@@ -270,9 +271,6 @@ show-on-mouse-pos=Meta+V,Meta+V,Show Clipboard Items at Mouse Position
 switch to next activity=none,none,Switch to Next Activity
 switch to previous activity=none,none,Switch to Previous Activity
 toggle do not disturb=none,none,Toggle do not disturb
-
-[services][io.github.fredrir.quicklaunch.desktop]
-_launch=Meta+Space
 
 [services][org.flameshot.Flameshot.desktop]
 Capture=Print
