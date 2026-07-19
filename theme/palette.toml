@@ -68,6 +68,13 @@ bright_magenta = "pink"
 bright_cyan    = "teal"
 bright_white   = "subtext"
 
+[kitty.tabs]
+active_foreground   = "base"
+active_background   = "mauve"
+inactive_foreground = "subtext"
+inactive_background = "surface0"
+bar_background      = "mantle"
+
 [eza]
 fi       = "subtext"   # fallback
 di       = "blue"      # directories

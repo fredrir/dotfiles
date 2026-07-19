@@ -189,6 +189,7 @@ def set_ini_key(text, header, key, value):
 def gen_kitty(t, changed):
     term = t.data["terminal"]
     ansi = t.data["terminal"]["ansi"]
+    tabs = t.data["kitty"]["tabs"]
     slot = {  # ANSI role name -> kitty colorNN index
         "black": 0, "red": 1, "green": 2, "yellow": 3, "blue": 4, "magenta": 5,
         "cyan": 6, "white": 7, "bright_black": 8, "bright_red": 9,
@@ -210,6 +211,14 @@ def gen_kitty(t, changed):
     ]
     for name, idx in slot.items():
         lines.append(f"color{idx:<2} {t.hex(ansi[name])}")
+    lines += [
+        "",
+        f"active_tab_foreground   {t.hex(tabs['active_foreground'])}",
+        f"active_tab_background   {t.hex(tabs['active_background'])}",
+        f"inactive_tab_foreground {t.hex(tabs['inactive_foreground'])}",
+        f"inactive_tab_background {t.hex(tabs['inactive_background'])}",
+        f"tab_bar_background      {t.hex(tabs['bar_background'])}",
+    ]
     content = "\n".join(lines) + "\n"
     write_if_changed(
         os.path.join(ROOT, "shared/kitty/colors-mocha.conf"),

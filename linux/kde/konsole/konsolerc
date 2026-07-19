@@ -16,6 +16,7 @@ ToolButtonStyle=IconOnly
 ToolButtonStyle=IconOnly
 
 [Notification Messages]
+CloseAllEmptyTabs=true
 CloseAllTabs=true
 
 [TabBar]
