@@ -1,6 +1,7 @@
 linux/hyprland/hypr/.config/hypr/wallpaper.png
 **/.config/OpenRGB/logs/
 **/hypr/conf.d/local.conf
+**/kitty/local.d/overrides.conf
 
 **/gh/hosts.yml
 **/github-copilot/
