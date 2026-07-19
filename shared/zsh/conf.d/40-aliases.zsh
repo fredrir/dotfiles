@@ -62,7 +62,7 @@ alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdd="cd $HOME/dotfiles"
 alias cdn="cd $NVIM"
-alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate"
+alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate && direnv allow"
 alias cdz="cd $CONFIG/zsh/conf.d"
 
 alias cdf="cd ../frontend"
