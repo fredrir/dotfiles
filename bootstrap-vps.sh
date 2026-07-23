@@ -3,7 +3,7 @@ set -euo pipefail
 
 DOTFILES_REPO="${DOTFILES_REPO:-https://github.com/fredrir/dotfiles}"
 DOTFILES_DIR="${DOTFILES_DIR:-$HOME/dotfiles}"
-PROFILE="vps/linux"
+PROFILE="ubuntu/server"
 USER_NAME="$(id -un)"
 
 # Per-user tool dirs must be visible to this script *and* the resulting shell.

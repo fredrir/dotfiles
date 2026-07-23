@@ -12,11 +12,21 @@ while [ -L "$SELF" ]; do
 done
 DOTFILES="$(cd "$(dirname "$SELF")/.." && pwd -P)"
 TARGETS_FILE="$DOTFILES/targets"
+PACKAGES_CONFIG="$DOTFILES/packages.dotfile"
+PACKAGES_DOC="$DOTFILES/PACKAGES.md"
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
+OVERRIDES_FILE="$STATE_DIR/overrides"
 DRY=0
+OVR_KEYS=()
+OVR_VALS=()
+LINK_GROUPS=()
+ACTIVE_OVERRIDE_DIRS=()
 CONFLICTS=()
 MAP_KEYS=()
 MAP_VALS=()
+PACKAGE_META_KEYS=()
+PACKAGE_META_VALS=()
+PACKAGE_FILES_CHANGED=0
 
 usage() {
   cat <<'EOF'
@@ -25,19 +35,28 @@ usage: dotfile <command> [args]
 commands:
   link [profile] [-n]   symlink every package in the profile manifest into $HOME
   add [flags] <path>    move a live config into the repo and symlink it back
+  packages              regenerate packages.dotfile and PACKAGES.md
   format [path ...]     format tracked .conf files or the selected files
   status [profile]      show link state for every file in the profile
   help                  show this help
 
+link flags:
+  -n, --dry-run                   print actions without changing anything
+  --override <group>=<name|none>  pick a machine override set for a group
+
 add flags:
   --shared (default)  --linux  --kde  --hyprland  --server  --macos
   --pkg <name>        override the package name
+  --description <text>  describe the package in PACKAGES.md
 
 examples:
-  dotfile link desktop/arch-linux/kde
+  dotfile link arch-linux/kde
+  dotfile link --override linux/hyprland=laptop
   dotfile add waybar
+  dotfile add --description "Status bar" waybar
   dotfile add --linux zsh/conf.d/11-linux-env
   dotfile add --pkg zsh ~/.zshrc
+  dotfile packages
   dotfile format
 EOF
 }
@@ -229,6 +248,20 @@ link_package() {
   walk_node "$(basename "$pkgdir")" "" "$pkgdir" "$grouppkg"
 }
 
+stale_override_link() {
+  local cur="$1" base active
+  case "$cur" in
+    */overrides/*) ;;
+    *) return 1 ;;
+  esac
+  base="${cur%%/overrides/*}"
+  [ -d "$base/overrides" ] || return 1
+  for active in ${ACTIVE_OVERRIDE_DIRS[@]+"${ACTIVE_OVERRIDE_DIRS[@]}"}; do
+    case "$cur" in "$active"/*) return 1 ;; esac
+  done
+  return 0
+}
+
 prune() {
   local l cur
   while IFS= read -rd '' l; do
@@ -237,12 +270,14 @@ prune() {
       "$DOTFILES"/*) ;;
       *) continue ;;
     esac
-    [ -e "$l" ] && continue
+    if ! stale_override_link "$cur"; then
+      [ -e "$l" ] && continue
+    fi
     run rm "$l"
     log "  prune ${l/#$HOME/\~}"
   done < <(
-    find "$HOME" -maxdepth 1 -type l -print0 2>/dev/null
-    find "$HOME/.config" "$HOME/.local" -maxdepth 6 -type l -print0 2>/dev/null
+    find "$HOME" -maxdepth 1 -type l -lname "$DOTFILES/*" -print0 2>/dev/null
+    find "$HOME/.config" "$HOME/.local" -maxdepth 6 -type l -lname "$DOTFILES/*" -print0 2>/dev/null
   )
 }
 
@@ -250,11 +285,21 @@ saved_profile() {
   if [ -f "$STATE_DIR/profile" ]; then cat "$STATE_DIR/profile"; fi
 }
 
+migrate_profile() {
+  case "$1" in
+    desktop/arch-linux/kde) printf 'arch-linux/kde\n' ;;
+    desktop/arch-linux/kde-hyprland) printf 'arch-linux/kde-hyprland\n' ;;
+    laptop/arch-linux/hyprland) printf 'arch-linux/hyprland\n' ;;
+    macbook/macos) printf 'macos\n' ;;
+    vps/linux) printf 'ubuntu/server\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
 resolve_profile() {
   local p="${1:-}"
   [ -n "$p" ] || p="$(saved_profile)"
-  [ -n "$p" ] || p="$(uname -n)"
-  printf '%s\n' "$p"
+  migrate_profile "$p"
 }
 
 manifest_groups() {
@@ -268,16 +313,266 @@ manifest_groups() {
   return 0
 }
 
+load_overrides() {
+  OVR_KEYS=()
+  OVR_VALS=()
+  [ -f "$OVERRIDES_FILE" ] || return 0
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *=*) ;; *) continue ;; esac
+    OVR_KEYS+=("${line%%=*}")
+    OVR_VALS+=("${line#*=}")
+  done < "$OVERRIDES_FILE"
+}
+
+override_for() {
+  local group="$1" i
+  for i in ${OVR_KEYS[@]+"${!OVR_KEYS[@]}"}; do
+    if [ "${OVR_KEYS[$i]}" = "$group" ]; then
+      printf '%s\n' "${OVR_VALS[$i]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+set_override() {
+  local group="$1" name="$2" i
+  for i in ${OVR_KEYS[@]+"${!OVR_KEYS[@]}"}; do
+    if [ "${OVR_KEYS[$i]}" = "$group" ]; then
+      OVR_VALS[$i]="$name"
+      return 0
+    fi
+  done
+  OVR_KEYS+=("$group")
+  OVR_VALS+=("$name")
+}
+
+save_overrides() {
+  [ "$DRY" = 1 ] && return 0
+  mkdir -p "$STATE_DIR"
+  local i
+  : > "$OVERRIDES_FILE"
+  for i in ${OVR_KEYS[@]+"${!OVR_KEYS[@]}"}; do
+    printf '%s=%s\n' "${OVR_KEYS[$i]}" "${OVR_VALS[$i]}" >> "$OVERRIDES_FILE"
+  done
+}
+
+overrides_list() {
+  local d out=""
+  for d in "$DOTFILES/$1/overrides"/*/; do
+    out="$out${out:+ }$(basename "${d%/}")"
+  done
+  printf '%s\n' "$out"
+}
+
+collect_groups() {
+  local manifest="$1" group name
+  LINK_GROUPS=()
+  ACTIVE_OVERRIDE_DIRS=()
+  while IFS= read -r group; do
+    LINK_GROUPS+=("$group")
+    [ -d "$DOTFILES/$group/overrides" ] || continue
+    if name="$(override_for "$group")"; then
+      [ "$name" = "none" ] && continue
+      if [ -d "$DOTFILES/$group/overrides/$name" ]; then
+        LINK_GROUPS+=("$group/overrides/$name")
+        ACTIVE_OVERRIDE_DIRS+=("$DOTFILES/$group/overrides/$name")
+      else
+        log "  skip missing override: $group/overrides/$name"
+      fi
+    else
+      log "  note: '$group' has machine overrides ($(overrides_list "$group")), none selected"
+      log "        select one: dotfile link --override $group=<name>  (or =none)"
+    fi
+  done < <(manifest_groups "$manifest")
+}
+
+trim_value() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s\n' "$value"
+}
+
+package_metadata_index() {
+  local key="$1" i
+  for i in ${PACKAGE_META_KEYS[@]+"${!PACKAGE_META_KEYS[@]}"}; do
+    if [ "${PACKAGE_META_KEYS[$i]}" = "$key" ]; then
+      printf '%s\n' "$i"
+      return 0
+    fi
+  done
+  return 1
+}
+
+set_package_description() {
+  local key="$1" description="$2" index
+  if index="$(package_metadata_index "$key")"; then
+    PACKAGE_META_VALS[$index]="$description"
+  else
+    PACKAGE_META_KEYS+=("$key")
+    PACKAGE_META_VALS+=("$description")
+  fi
+}
+
+package_description() {
+  local key="$1" index
+  if index="$(package_metadata_index "$key")"; then
+    printf '%s\n' "${PACKAGE_META_VALS[$index]}"
+  else
+    printf '\n'
+  fi
+}
+
+load_package_metadata() {
+  PACKAGE_META_KEYS=()
+  PACKAGE_META_VALS=()
+  [ -f "$PACKAGES_CONFIG" ] || return 0
+  local raw line current="" group name description key line_number=0
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    line_number=$((line_number + 1))
+    line="$(trim_value "$raw")"
+    [ -n "$line" ] || continue
+    if [ "$line" = "}" ]; then
+      [ -n "$current" ] || die "packages.dotfile:$line_number: unexpected }"
+      current=""
+      continue
+    fi
+    case "$line" in
+      *" {")
+        [ -z "$current" ] || die "packages.dotfile:$line_number: nested group"
+        group="$(trim_value "${line% \{}")"
+        [ -n "$group" ] || die "packages.dotfile:$line_number: empty group"
+        case "$group" in
+          *[!A-Za-z0-9._/-]*) die "packages.dotfile:$line_number: invalid group: $group" ;;
+        esac
+        current="$group"
+        continue
+        ;;
+    esac
+    [ -n "$current" ] || die "packages.dotfile:$line_number: package outside a group"
+    case "$line" in
+      *" = "*)
+        name="$(trim_value "${line%% = *}")"
+        description="$(trim_value "${line#* = }")"
+        ;;
+      *)
+        name="$line"
+        description=""
+        ;;
+    esac
+    [ -n "$name" ] || die "packages.dotfile:$line_number: empty package"
+    case "$name" in
+      *[!A-Za-z0-9._+@-]*) die "packages.dotfile:$line_number: invalid package: $name" ;;
+    esac
+    key="$current/$name"
+    if package_metadata_index "$key" >/dev/null; then
+      die "packages.dotfile:$line_number: duplicate package: $key"
+    fi
+    PACKAGE_META_KEYS+=("$key")
+    PACKAGE_META_VALS+=("$description")
+  done < "$PACKAGES_CONFIG"
+  [ -z "$current" ] || die "packages.dotfile:$line_number: missing } for $current"
+}
+
+package_groups() {
+  {
+    printf '%s\n' shared linux/common linux/kde linux/hyprland linux/server macos
+    if [ -d "$DOTFILES/environment" ]; then
+      local manifest
+      while IFS= read -r manifest; do
+        manifest_groups "$manifest"
+      done < <(find "$DOTFILES/environment" -type f -name manifest -print | LC_ALL=C sort)
+    fi
+  } | awk 'NF && !seen[$0]++'
+}
+
+replace_package_file() {
+  local source="$1" destination="$2" label="$3"
+  if [ -f "$destination" ] && cmp -s "$source" "$destination"; then
+    rm "$source"
+    return
+  fi
+  mv "$source" "$destination"
+  PACKAGE_FILES_CHANGED=$((PACKAGE_FILES_CHANGED + 1))
+  log "updated $label"
+}
+
+sync_packages() {
+  local config_temp doc_temp group group_dir pkg_path pkg description
+  local packages=()
+  config_temp="$(mktemp "${TMPDIR:-/tmp}/packages.dotfile.XXXXXX")"
+  doc_temp="$(mktemp "${TMPDIR:-/tmp}/PACKAGES.md.XXXXXX")"
+  local wrote_group=0
+  while IFS= read -r group; do
+    group_dir="$DOTFILES/$group"
+    [ -d "$group_dir" ] || continue
+    packages=()
+    while IFS= read -r pkg_path; do
+      pkg="$(basename "$pkg_path")"
+      if [ "$pkg" = "overrides" ]; then
+        continue
+      fi
+      case "$pkg" in
+        *[!A-Za-z0-9._+@-]*)
+          rm "$config_temp" "$doc_temp"
+          die "package directory has an unsupported name: $group/$pkg"
+          ;;
+      esac
+      packages+=("$pkg")
+    done < <(
+      for pkg_path in "$group_dir"/*/; do
+        printf '%s\n' "${pkg_path%/}"
+      done | LC_ALL=C sort
+    )
+    [ "${#packages[@]}" -gt 0 ] || continue
+    if [ "$wrote_group" = 1 ]; then
+      printf '\n' >> "$config_temp"
+    fi
+    printf '%s {\n' "$group" >> "$config_temp"
+    printf '\n## `%s`\n\n' "$group" >> "$doc_temp"
+    for pkg in "${packages[@]}"; do
+      description="$(package_description "$group/$pkg")"
+      if [ -n "$description" ]; then
+        printf '  %s = %s\n' "$pkg" "$description" >> "$config_temp"
+        printf -- '- `%s` — %s\n' "$pkg" "$description" >> "$doc_temp"
+      else
+        printf '  %s\n' "$pkg" >> "$config_temp"
+        printf -- '- `%s`\n' "$pkg" >> "$doc_temp"
+      fi
+    done
+    printf '}\n' >> "$config_temp"
+    wrote_group=1
+  done < <(package_groups)
+  replace_package_file "$config_temp" "$PACKAGES_CONFIG" packages.dotfile
+  replace_package_file "$doc_temp" "$PACKAGES_DOC" PACKAGES.md
+}
+
+cmd_packages() {
+  [ "$#" -eq 0 ] || die "usage: dotfile packages"
+  PACKAGE_FILES_CHANGED=0
+  load_package_metadata
+  sync_packages
+  if [ "$PACKAGE_FILES_CHANGED" = 0 ]; then
+    log "packages are current"
+  fi
+}
+
 list_profiles() {
-  ( cd "$DOTFILES/hosts" && find . -name manifest | sed 's|^\./||; s|/manifest$||' | sort )
+  ( cd "$DOTFILES/environment" && find . -name manifest | sed 's|^\./||; s|/manifest$||' | sort )
 }
 
 require_manifest() {
   local profile="$1"
-  local manifest="$DOTFILES/hosts/$profile/manifest"
-  if [ ! -f "$manifest" ]; then
+  local manifest="$DOTFILES/environment/$profile/manifest"
+  if [ -z "$profile" ] || [ ! -f "$manifest" ]; then
     {
-      echo "dotfile: no manifest for profile '$profile'"
+      if [ -z "$profile" ]; then
+        echo "dotfile: no profile selected (run ./setup.sh or pass one)"
+      else
+        echo "dotfile: no manifest for profile '$profile'"
+      fi
       echo "available profiles:"
       list_profiles | sed 's/^/  /'
     } >&2
@@ -287,21 +582,52 @@ require_manifest() {
 }
 
 cmd_link() {
-  local profile="" arg
-  for arg in "$@"; do
-    case "$arg" in
+  local profile="" spec group name
+  local link_overrides=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
       -n|--dry-run) DRY=1 ;;
-      *) profile="$arg" ;;
+      --override)
+        shift
+        spec="${1:-}"
+        case "$spec" in
+          *=*) link_overrides+=("$spec") ;;
+          *) die "--override needs <group>=<name|none>" ;;
+        esac
+        ;;
+      *) profile="$1" ;;
     esac
+    shift
   done
+  local saved
+  saved="$(saved_profile)"
   profile="$(resolve_profile "$profile")"
   local manifest
   manifest="$(require_manifest "$profile")"
   load_targets
+  load_overrides
+  case "$saved" in
+    desktop/arch-linux/kde-hyprland)
+      override_for linux/hyprland >/dev/null || set_override linux/hyprland desktop
+      ;;
+    laptop/arch-linux/hyprland)
+      override_for linux/hyprland >/dev/null || set_override linux/hyprland laptop
+      ;;
+  esac
+  for spec in ${link_overrides[@]+"${link_overrides[@]}"}; do
+    group="${spec%%=*}"
+    name="${spec#*=}"
+    [ -d "$DOTFILES/$group/overrides" ] || die "group has no overrides: $group"
+    if [ "$name" != "none" ] && [ ! -d "$DOTFILES/$group/overrides/$name" ]; then
+      die "unknown override '$name' for $group (available: $(overrides_list "$group"))"
+    fi
+    set_override "$group" "$name"
+  done
   log "linking profile '$profile'"
+  collect_groups "$manifest"
   prune
-  local group dir pkgdir
-  while IFS= read -r group; do
+  local dir pkgdir
+  for group in ${LINK_GROUPS[@]+"${LINK_GROUPS[@]}"}; do
     dir="$DOTFILES/$group"
     if [ ! -d "$dir" ]; then
       log "  skip missing group: $group"
@@ -309,16 +635,18 @@ cmd_link() {
     fi
     for pkgdir in "$dir"/*/; do
       pkgdir="${pkgdir%/}"
+      [ "$(basename "$pkgdir")" = "overrides" ] && continue
       if [ -e "$pkgdir/.nolink" ]; then
         log "  skip (.nolink): $group/$(basename "$pkgdir")"
         continue
       fi
       link_package "$pkgdir" "$group/$(basename "$pkgdir")"
     done
-  done < <(manifest_groups "$manifest")
+  done
   if [ "$DRY" = 0 ]; then
     mkdir -p "$STATE_DIR"
     printf '%s\n' "$profile" > "$STATE_DIR/profile"
+    save_overrides
   fi
   if [ "${#CONFLICTS[@]}" -gt 0 ]; then
     echo
@@ -336,13 +664,16 @@ cmd_status() {
   local manifest
   manifest="$(require_manifest "$profile")"
   load_targets
+  load_overrides
+  collect_groups "$manifest"
   local group dir pkgdir pkg f rel full dst ok=0 missing=0 bad=0
-  while IFS= read -r group; do
+  for group in ${LINK_GROUPS[@]+"${LINK_GROUPS[@]}"}; do
     dir="$DOTFILES/$group"
     [ -d "$dir" ] || continue
     for pkgdir in "$dir"/*/; do
       pkgdir="${pkgdir%/}"
       pkg="$(basename "$pkgdir")"
+      [ "$pkg" = "overrides" ] && continue
       [ -e "$pkgdir/.nolink" ] && continue
       while IFS= read -rd '' f; do
         [ "$(basename "$f")" = ".nolink" ] && continue
@@ -360,7 +691,7 @@ cmd_status() {
         fi
       done < <(find "$pkgdir" \( -type f -o -type l \) -print0)
     done
-  done < <(manifest_groups "$manifest")
+  done
   log "profile '$profile': $ok linked, $missing missing, $bad differing"
   [ $((missing + bad)) -eq 0 ]
 }
@@ -558,7 +889,7 @@ cmd_format() {
 }
 
 cmd_add() {
-  local group="shared" pkgflag="" path=""
+  local group="shared" pkgflag="" description="" path=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --shared) group="shared" ;;
@@ -571,6 +902,11 @@ cmd_add() {
         shift
         pkgflag="${1:-}"
         [ -n "$pkgflag" ] || die "--pkg needs a name"
+        ;;
+      --description|--desc)
+        shift
+        description="${1:-}"
+        [ -n "$description" ] || die "--description needs text"
         ;;
       -*) die "unknown flag: $1" ;;
       *)
@@ -651,6 +987,13 @@ cmd_add() {
 
   local dest="$DOTFILES/$destrel"
   [ -e "$dest" ] && die "destination exists: $destrel"
+  case "$description" in
+    *$'\n'*|*$'\r'*) die "description must be a single line" ;;
+  esac
+  load_package_metadata
+  if [ -n "$description" ]; then
+    set_package_description "$group/$pkg" "$description"
+  fi
   mkdir -p "$(dirname "$dest")"
   mv "$src" "$dest"
   ln -s "$dest" "$src"
@@ -661,12 +1004,15 @@ cmd_add() {
     log "mapped $mapline"
   fi
   git -C "$DOTFILES" add "$dest" "$TARGETS_FILE" 2>/dev/null || true
+  PACKAGE_FILES_CHANGED=0
+  sync_packages
+  git -C "$DOTFILES" add "$PACKAGES_CONFIG" "$PACKAGES_DOC" 2>/dev/null || true
 
   local profile manifest
   profile="$(resolve_profile "")"
-  manifest="$DOTFILES/hosts/$profile/manifest"
+  manifest="$DOTFILES/environment/$profile/manifest"
   if [ -f "$manifest" ] && ! manifest_groups "$manifest" | grep -qxF "$group"; then
-    log "note: group '$group' is not in hosts/$profile/manifest, it will not be linked by 'dotfile link' on this machine"
+    log "note: group '$group' is not in environment/$profile/manifest, it will not be linked by 'dotfile link' on this machine"
   fi
 }
 
@@ -675,6 +1021,7 @@ shift || true
 case "$cmd" in
   link) cmd_link "$@" ;;
   add) cmd_add "$@" ;;
+  packages) cmd_packages "$@" ;;
   format) cmd_format "$@" ;;
   status) cmd_status "$@" ;;
   help|-h|--help) usage ;;

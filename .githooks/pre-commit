@@ -13,6 +13,11 @@ root="$(git rev-parse --show-toplevel)"
 
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
+if staged packages.dotfile PACKAGES.md scripts/dotfile environment shared linux/common linux/kde linux/hyprland linux/server macos; then
+  "$root/scripts/dotfile" packages
+  git add "$root/packages.dotfile" "$root/PACKAGES.md"
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
