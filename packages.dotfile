@@ -1,0 +1,52 @@
+shared {
+  fastfetch = System information display
+  git = Git configuration and global ignore rules
+  kitty = Terminal emulator configuration
+  nvim = Neovim editor configuration
+  starship = Cross-shell prompt configuration
+  yazi = Terminal file manager configuration
+  zsh = Shared Z shell configuration
+}
+
+linux/common {
+  flameshot = Screenshot tool configuration
+  fontconfig = Font rendering configuration
+  gtk = GTK theme settings
+  jetbrains = Shared JetBrains IDE settings
+  quicklaunch = Quicklaunch application configuration
+  theme-watch = Automatic theme generation service
+  xremap = Keyboard remapping configuration
+  zsh = Linux-specific Z shell configuration
+}
+
+linux/kde {
+  kate = Kate editor settings and external tools
+  konsole = Konsole terminal configuration
+  krunnerrc = KRunner configuration
+  kvitals = Plasma system monitor widget
+  my-panel = Plasma panel configuration
+  panel-colorizer = Plasma panel color presets
+  plasma = Plasma desktop and window manager settings
+}
+
+linux/hyprland {
+  dunst = Notification daemon configuration
+  elephant = Application search provider configuration
+  hypr = Hyprland desktop configuration
+  qt5ct = Qt 5 appearance configuration
+  qt6ct = Qt 6 appearance configuration
+  waybar = Status bar configuration
+  wlogout = Logout menu configuration
+  wofi = Application launcher configuration
+  zsh = Hyprland-specific Z shell configuration
+}
+
+linux/server {
+  zsh = Server-specific Z shell configuration
+}
+
+macos {
+  iterm = iTerm2 terminal profile
+  wezterm = WezTerm terminal configuration
+  zsh = macOS-specific Z shell configuration
+}

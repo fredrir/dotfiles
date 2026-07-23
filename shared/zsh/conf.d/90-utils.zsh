@@ -127,3 +127,43 @@ oc() {
     openclaw tui
   fi
 }
+
+path() {
+  if (( $# > 1 )); then
+    print -u2 "Usage: path [target]"
+    return 2
+  fi
+
+  local target="${1:-.}"
+  local resolved probe git_root relative
+
+  resolved="$(command realpath -m -- "$target")" || return 1
+
+  probe="$resolved"
+  [[ -d "$probe" ]] || probe="${probe:h}"
+
+  while [[ ! -d "$probe" && "$probe" != "/" ]]; do
+    probe="${probe:h}"
+  done
+
+  if git_root="$(command git -C "$probe" rev-parse --show-toplevel 2>/dev/null)"; then
+    git_root="$(command realpath -- "$git_root")"
+
+    if [[ "$resolved" == "$git_root" ]]; then
+      print -r -- "/"
+      return
+    elif [[ "$resolved" == "$git_root/"* ]]; then
+      relative="${resolved#"$git_root"/}"
+      print -r -- "/$relative"
+      return
+    fi
+  fi
+
+  if [[ "$resolved" == "$HOME" ]]; then
+    print -r -- "~"
+  elif [[ "$resolved" == "$HOME/"* ]]; then
+    print -r -- "~/${resolved#"$HOME"/}"
+  else
+    print -r -- "$resolved"
+  fi
+}
