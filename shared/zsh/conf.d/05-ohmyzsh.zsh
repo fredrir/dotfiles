@@ -18,7 +18,6 @@ plugins=(
 
   alias-finder
   colored-man-pages
-  command-not-found
   copyfile
   copypath
 

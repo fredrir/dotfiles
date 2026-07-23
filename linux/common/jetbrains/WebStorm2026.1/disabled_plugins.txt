@@ -1,3 +1,4 @@
 Key Promoter X
 com.intellij.ml.llm
 org.jetbrains.junie
+tanvd.grazi
