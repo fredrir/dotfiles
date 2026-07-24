@@ -78,8 +78,6 @@ def real_terminal() -> str:
         return f"kitty {version_of('kitty', '--version')}".strip()
     if e.get("ALACRITTY_WINDOW_ID") or e.get("ALACRITTY_SOCKET"):
         return f"alacritty {version_of('alacritty', '--version')}".strip()
-    if e.get("WEZTERM_EXECUTABLE") or e.get("TERM_PROGRAM") == "WezTerm":
-        return "wezterm"
     if (e.get("TERM") or "").startswith("foot"):
         return f"foot {version_of('foot', '--version')}".strip()
     if e.get("TERM_PROGRAM"):

@@ -49,5 +49,4 @@
 ## `macos`
 
 - `iterm` — iTerm2 terminal profile
-- `wezterm` — WezTerm terminal configuration
 - `zsh` — macOS-specific Z shell configuration

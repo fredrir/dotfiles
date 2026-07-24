@@ -9,5 +9,4 @@
 # brew "zsh"
 brew "starship"
 brew "eza"
-# cask "wezterm"
 # cask "raycast"
