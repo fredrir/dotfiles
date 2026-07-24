@@ -1,6 +1,7 @@
 return {
   'nvim-telescope/telescope.nvim',
   event = 'VimEnter',
+  cmd = { 'Telescope', 'TerminalSearch' },
   dependencies = {
     'nvim-lua/plenary.nvim',
     {
@@ -22,12 +23,80 @@ return {
     pcall(require('telescope').load_extension, 'ui-select')
 
     local builtin = require 'telescope.builtin'
+    local actions = require 'telescope.actions'
+    local action_state = require 'telescope.actions.state'
+    local search_files
+    local search_grep
+
+    local function switch_to(search, terminal)
+      return function(prompt_bufnr)
+        local prompt = action_state.get_current_line()
+        actions.close(prompt_bufnr)
+        vim.schedule(function() search { default_text = prompt, terminal = terminal } end)
+      end
+    end
+
+    local function search_mappings(terminal)
+      return function(prompt_bufnr, map)
+        map('i', '<C-f>', switch_to(search_files, terminal))
+        map('n', '<C-f>', switch_to(search_files, terminal))
+        map('i', '<C-g>', switch_to(search_grep, terminal))
+        map('n', '<C-g>', switch_to(search_grep, terminal))
+
+        if terminal then
+          local function quit()
+            actions.close(prompt_bufnr)
+            vim.schedule(function() vim.cmd 'qall!' end)
+          end
+
+          local picker = action_state.get_current_picker(prompt_bufnr)
+
+          for _, bufnr in ipairs { picker.prompt_bufnr, picker.results_bufnr, picker.preview_bufnr } do
+            if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+              vim.keymap.set({ 'i', 'n' }, '<Esc>', quit, { buffer = bufnr, nowait = true })
+              vim.keymap.set('i', '<C-c>', quit, { buffer = bufnr, nowait = true })
+              vim.keymap.set('n', 'q', quit, { buffer = bufnr, nowait = true })
+            end
+          end
+
+          vim.schedule(function()
+            if vim.api.nvim_win_is_valid(picker.prompt_win) then
+              vim.api.nvim_set_current_win(picker.prompt_win)
+            end
+          end)
+        end
+
+        return true
+      end
+    end
+
+    local function picker_options(opts, prompt_title)
+      local terminal = opts and opts.terminal
+      local options = vim.tbl_deep_extend('force', {
+        prompt_title = prompt_title,
+        attach_mappings = search_mappings(terminal),
+      }, opts or {})
+      options.terminal = nil
+      return options
+    end
+
+    search_files = function(opts)
+      builtin.find_files(picker_options(opts, 'Files  <C-g> Grep'))
+    end
+
+    search_grep = function(opts)
+      builtin.live_grep(picker_options(opts, 'Grep  <C-f> Files'))
+    end
+
+    vim.api.nvim_create_user_command('TerminalSearch', function()
+      vim.schedule(function() search_files { terminal = true } end)
+    end, {})
     vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
     vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
-    vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
+    vim.keymap.set('n', '<leader>sf', search_files, { desc = '[S]earch [F]iles' })
     vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
     vim.keymap.set({ 'n', 'v' }, '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
-    vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
+    vim.keymap.set('n', '<leader>sg', search_grep, { desc = '[S]earch by [G]rep' })
     vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
     vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
     vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })

@@ -1,3 +1,16 @@
+if command -v nvim >/dev/null; then
+  _terminal_telescope_widget() {
+    zle -I
+    command nvim +TerminalSearch
+    zle reset-prompt
+  }
+
+  zle -N terminal-telescope-widget _terminal_telescope_widget
+  bindkey -M emacs '^F' terminal-telescope-widget
+  bindkey -M vicmd '^F' terminal-telescope-widget
+  bindkey -M viins '^F' terminal-telescope-widget
+fi
+
 command -v fzf >/dev/null || return 0
 
 export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"
@@ -5,9 +18,12 @@ export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"
 bindkey -M emacs -r '^T'
 bindkey -M vicmd -r '^T'
 bindkey -M viins -r '^T'
-bindkey -M emacs '^F' fzf-file-widget
-bindkey -M vicmd '^F' fzf-file-widget
-bindkey -M viins '^F' fzf-file-widget
+
+if ! command -v nvim >/dev/null; then
+  bindkey -M emacs '^F' fzf-file-widget
+  bindkey -M vicmd '^F' fzf-file-widget
+  bindkey -M viins '^F' fzf-file-widget
+fi
 
 if command -v bat >/dev/null; then
   export FZF_CTRL_T_OPTS="--preview 'bat --color=always --style=numbers --line-range=:200 {} 2>/dev/null || ls --color=always {}'"

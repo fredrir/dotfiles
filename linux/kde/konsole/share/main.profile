@@ -29,7 +29,7 @@ TerminalRows=64
 [Interaction Options]
 AllowEscapedLinks=false
 EscapedLinksSchema=http://;https://
-OpenLinksByDirectClickEnabled=true
+OpenLinksByDirectClickEnabled=false
 TrimLeadingSpacesInSelectedText=true
 TrimTrailingSpacesInSelectedText=true
 UnderlineFilesEnabled=true

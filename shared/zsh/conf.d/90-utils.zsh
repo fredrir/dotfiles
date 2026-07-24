@@ -81,11 +81,11 @@ size() {
 }
 
 git() {
-  if [[ "$1" == "diff" && $# -eq 1 ]]; then
-    command lazygit
-  else
-    command git "$@"
-  fi
+  case "$1:$#" in
+    diff:1) command lazygit ;;
+    log:1) command lazygit log ;;
+    *) command git "$@" ;;
+  esac
 }
 
 unalias cd 2>/dev/null
