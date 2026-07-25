@@ -30,15 +30,15 @@ TerminalRows=64
 AllowEscapedLinks=false
 EscapedLinksSchema=http://;https://
 OpenLinksByDirectClickEnabled=false
-TrimLeadingSpacesInSelectedText=true
-TrimTrailingSpacesInSelectedText=true
+TrimLeadingSpacesInSelectedText=false
+TrimTrailingSpacesInSelectedText=false
 UnderlineFilesEnabled=true
 
 [Keyboard]
 KeyBindings=main
 
 [Scrolling]
-HistorySize=15000
+HistorySize=50000
 ScrollBarPosition=2
 
 [Terminal Features]

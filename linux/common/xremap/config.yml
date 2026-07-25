@@ -1,5 +1,12 @@
 keypress_delay_ms: 20
 keymap:
+  - name: Konsole terminal blocks
+    application:
+      only: org.kde.konsole
+    exact_match: true
+    remap:
+      Ctrl-Shift-Y: [Ctrl-Shift-F11, F13]
+      Ctrl-Alt-Shift-Y: [Ctrl-Shift-F11, F14]
   - name: Konsole and kitty copy and interrupt
     application:
       only: /(?i)^(org\.kde\.konsole|kitty)$/

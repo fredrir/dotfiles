@@ -6,6 +6,7 @@
 - `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
 - `starship` — Cross-shell prompt configuration
+- `terminal_blocks`
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
 
