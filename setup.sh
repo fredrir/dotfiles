@@ -5,6 +5,7 @@ shopt -s nullglob
 DOTFILES="$(cd "$(dirname "$0")" && pwd)"
 ENVDIR="$DOTFILES/environment"
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
+source "$DOTFILES/scripts/lib/profiles.sh"
 
 BOLD=$'\033[1m'
 DIM=$'\033[2m'
@@ -13,10 +14,6 @@ RESET=$'\033[0m'
 PICKED=""
 
 interactive() { [ -t 0 ] && [ -t 1 ]; }
-
-list_profiles() {
-  ( cd "$ENVDIR" && find . -name manifest | sed 's|^\./||; s|/manifest$||' | LC_ALL=C sort )
-}
 
 saved_profile() {
   if [ -f "$STATE_DIR/profile" ]; then
@@ -95,14 +92,21 @@ git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || tr
 mkdir -p "$HOME/.local/bin"
 ln -sf "$DOTFILES/scripts/dotfile" "$HOME/.local/bin/dotfile"
 
-PROFILE="${1:-}"
+PROFILE="$(normalize_profile_arg "${1:-}")"
 
 if [ -z "$PROFILE" ]; then
   if interactive; then
     profiles=()
     while IFS= read -r p; do
       profiles+=("$p")
-    done < <(list_profiles)
+    done < <(list_relevant_profiles)
+    if [ "${#profiles[@]}" -eq 0 ]; then
+      echo "setup: no relevant installed environment found" >&2
+      echo "override detection with ./setup.sh --<environment>" >&2
+      echo "available environments:" >&2
+      list_profiles | sed 's/^/  --/' >&2
+      exit 1
+    fi
     default="$(saved_profile)"
     if [ -z "$default" ]; then
       case "$(uname -s)" in
@@ -114,7 +118,7 @@ if [ -z "$PROFILE" ]; then
   else
     PROFILE="$(saved_profile)"
     if [ -z "$PROFILE" ]; then
-      echo "usage: ./setup.sh [profile]" >&2
+      echo "usage: ./setup.sh [--<environment>]" >&2
       echo "available profiles:" >&2
       list_profiles | sed 's/^/  /' >&2
       exit 1
