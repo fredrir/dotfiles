@@ -92,7 +92,8 @@ are tracked for reference but must not be installed on this machine.
 `dotfile remove <path>` stops tracking exactly the requested repository path and
 keeps its contents at the live destination. A package path removes the package;
 a path inside a package removes only that file or directory. A leading slash is
-treated as the root of the dotfiles repository.
+treated as the root of the dotfiles repository. When a real live path already
+exists, it is kept unchanged instead of being overwritten by the tracked copy.
 
 ### Conflicts
 

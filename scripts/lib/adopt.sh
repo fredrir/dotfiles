@@ -97,7 +97,7 @@ warn_if_group_unlinked() {
   profile="$(resolve_profile "")"
   manifest="$DOTFILES/environment/$profile/manifest"
   [ -f "$manifest" ] || return 0
-  if ! manifest_groups "$manifest" | grep -qxF "$group"; then
+  if ! manifest_groups "$manifest" | grep -xF "$group" >/dev/null; then
     log "note: group '$group' is not in environment/$profile/manifest, it will not be linked by 'dotfile link' on this machine"
   fi
 }

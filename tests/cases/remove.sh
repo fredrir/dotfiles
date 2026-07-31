@@ -77,14 +77,27 @@ test_honours_a_target_added_after_a_package_was_folded() {
   assert_file_is "$HOME/.config/zsh/conf.d/10-paths.zsh" "paths"
 }
 
-test_refuses_to_overwrite_a_live_config() {
+test_keeps_an_existing_live_config() {
+  mkpkg shared/alpha/config "tracked"
+  mkpkg shared/alpha/extra "extra"
+  mkdir -p "$HOME/.config/alpha"
+  printf 'live\n' > "$HOME/.config/alpha/config"
+
+  dotfile remove shared/alpha
+  assert_ok
+  assert_absent "$REPO/shared/alpha"
+  assert_file_is "$HOME/.config/alpha/config" "live"
+  assert_file_is "$HOME/.config/alpha/extra" "extra"
+  assert_output_has "kept   existing ~/.config/alpha/config"
+}
+
+test_keeps_a_live_path_that_blocks_the_tracked_structure() {
   mkpkg shared/alpha/config "tracked"
   printf 'live\n' > "$HOME/.config/alpha"
 
   dotfile remove shared/alpha/config
-  assert_fails
-  assert_output_has "live path conflicts"
-  assert_file_is "$REPO/shared/alpha/config" "tracked"
+  assert_ok
+  assert_absent "$REPO/shared/alpha"
   assert_file_is "$HOME/.config/alpha" "live"
 }
 

@@ -28,6 +28,28 @@ test_places_into_the_requested_group() {
   assert_symlink "$HOME/.config/waybar" "$REPO/linux/hyprland/waybar"
 }
 
+test_does_not_warn_when_the_group_is_in_the_profile() {
+  mkdir -p "$HOME/.config/waybar" "$HOME/.config/dotfile"
+  printf 'bar\n' > "$HOME/.config/waybar/config"
+  printf 'test\n' > "$HOME/.config/dotfile/profile"
+  mkprofile test shared linux/common linux/kde
+
+  dotfile add --linux waybar
+  assert_ok
+  assert_output_lacks "is not in environment/test/manifest"
+}
+
+test_warns_when_the_group_is_not_in_the_profile() {
+  mkdir -p "$HOME/.config/waybar" "$HOME/.config/dotfile"
+  printf 'bar\n' > "$HOME/.config/waybar/config"
+  printf 'test\n' > "$HOME/.config/dotfile/profile"
+  mkprofile test shared
+
+  dotfile add --linux waybar
+  assert_ok
+  assert_output_has "group 'linux/common' is not in environment/test/manifest"
+}
+
 test_honours_an_explicit_package_name() {
   printf 'rc\n' > "$HOME/.zshrc"
   dotfile add --pkg zsh "$HOME/.zshrc"

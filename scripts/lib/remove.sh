@@ -49,48 +49,34 @@ remove_destination() {
   printf '%s\n' "$destination"
 }
 
-validate_remove_parent() {
+existing_remove_parent() {
   local destination="$1" parent
   parent="$(dirname "$destination")"
   while [ ! -e "$parent" ] && [ ! -L "$parent" ]; do
     [ "$parent" != "/" ] || break
     parent="$(dirname "$parent")"
   done
-  [ -d "$parent" ] || die "live path conflicts: $(tilde "$parent")"
+  printf '%s\n' "$parent"
 }
 
 validate_remove_node() {
-  local source="$1" full="$2" pkg="$3" rel="$4" destination entry name
-  destination="$(remove_destination "$full" "$pkg" "$rel")"
-  validate_remove_parent "$destination"
-
-  if [ -e "$destination" ] || [ -L "$destination" ]; then
-    if [ "$(resolve_path "$destination")" = "$source" ]; then
-      if [ -d "$source" ] && [ ! -L "$source" ] && { has_target_under "$full" || never_fold "$destination"; }; then
-        for entry in "$source"/*; do
-          name="$(basename "$entry")"
-          validate_remove_node "$entry" "$full/$name" "$pkg" "${rel:+$rel/}$name"
-        done
-      fi
-      return 0
-    fi
-    if [ ! -d "$source" ] || [ -L "$source" ] || [ ! -d "$destination" ] || [ -L "$destination" ]; then
-      die "live path conflicts: $(tilde "$destination")"
-    fi
-  elif [ -d "$source" ] && [ ! -L "$source" ] && has_target_under "$full"; then
-    for entry in "$source"/*; do
-      name="$(basename "$entry")"
-      validate_remove_node "$entry" "$full/$name" "$pkg" "${rel:+$rel/}$name"
-    done
-    return 0
-  else
-    return 0
-  fi
-
+  local source="$1" full="$2" pkg="$3" rel="$4" entry name
+  remove_destination "$full" "$pkg" "$rel" >/dev/null
+  if [ ! -d "$source" ] || [ -L "$source" ]; then return 0; fi
   for entry in "$source"/*; do
     name="$(basename "$entry")"
     validate_remove_node "$entry" "$full/$name" "$pkg" "${rel:+$rel/}$name"
   done
+}
+
+discard_remove_source() {
+  local source="$1" destination="$2"
+  if [ -d "$source" ] && [ ! -L "$source" ]; then
+    rm -r "$source"
+  else
+    rm "$source"
+  fi
+  log "kept   existing $(tilde "$destination")"
 }
 
 unfold_remove_ancestors() {
@@ -113,15 +99,17 @@ unfold_remove_ancestors() {
 }
 
 materialize_remove_node() {
-  local source="$1" full="$2" pkg="$3" rel="$4" destination current entry name
+  local source="$1" full="$2" pkg="$3" rel="$4" destination current entry name parent
   destination="$(remove_destination "$full" "$pkg" "$rel")"
   unfold_remove_ancestors "$source" "$destination"
 
   if [ -d "$source" ] && [ ! -L "$source" ]; then
     if [ -L "$destination" ]; then
       current="$(resolve_link "$destination")"
-      [ "$current" = "$source" ] || die "live path conflicts: $(tilde "$destination")"
-      if has_target_under "$full" || never_fold "$destination"; then
+      if [ "$current" != "$source" ]; then
+        discard_remove_source "$source" "$destination"
+        return 0
+      elif has_target_under "$full" || never_fold "$destination"; then
         unfold "$destination" "$source"
       else
         rm "$destination"
@@ -129,8 +117,16 @@ materialize_remove_node() {
         log "kept   $(tilde "$destination")"
         return 0
       fi
+    elif [ -e "$destination" ] && [ ! -d "$destination" ]; then
+      discard_remove_source "$source" "$destination"
+      return 0
     fi
     if [ ! -e "$destination" ]; then
+      parent="$(existing_remove_parent "$destination")"
+      if [ ! -d "$parent" ]; then
+        discard_remove_source "$source" "$parent"
+        return 0
+      fi
       if ! has_target_under "$full" && ! never_fold "$destination"; then
         mkdir -p "$(dirname "$destination")"
         mv "$source" "$destination"
@@ -149,10 +145,21 @@ materialize_remove_node() {
 
   if [ -L "$destination" ]; then
     current="$(resolve_link "$destination")"
-    [ "$current" = "$source" ] || die "live path conflicts: $(tilde "$destination")"
-    rm "$destination"
+    if [ "$current" = "$source" ]; then
+      rm "$destination"
+    else
+      discard_remove_source "$source" "$destination"
+      return 0
+    fi
   elif [ -e "$destination" ]; then
-    die "live path conflicts: $(tilde "$destination")"
+    discard_remove_source "$source" "$destination"
+    return 0
+  else
+    parent="$(existing_remove_parent "$destination")"
+    if [ ! -d "$parent" ]; then
+      discard_remove_source "$source" "$parent"
+      return 0
+    fi
   fi
   mkdir -p "$(dirname "$destination")"
   mv "$source" "$destination"

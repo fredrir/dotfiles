@@ -11,7 +11,7 @@ shared {
 
 linux/common {
   flameshot = Screenshot tool configuration
-  fontconfig = Font rendering configuration
+  fontconfig
   gtk = GTK theme settings
   jetbrains = Shared JetBrains IDE settings
   quicklaunch = Quicklaunch application configuration
