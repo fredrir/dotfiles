@@ -27,10 +27,7 @@ EMITTERS = [
     Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, ["shared/fastfetch/arch.txt"]),
     Emitter("starship", emitters.emit_starship, ["shared/starship/starship.toml"]),
     Emitter("zsh", emitters.emit_zsh, ["shared/zsh/conf.d/03-theme.zsh"]),
-    Emitter("obsidian", emitters.emit_obsidian, [
-        f"{emitters.OBSIDIAN_DIR}/theme.css",
-        f"{emitters.OBSIDIAN_DIR}/manifest.json",
-    ]),
+    Emitter("obsidian", emitters.emit_obsidian, [f"{emitters.OBSIDIAN_DIR}/theme.css"]),
     Emitter("gtk", emitters.emit_gtk, [
         "linux/common/gtk/gtk-3.0/colors.css",
         "linux/common/gtk/gtk-4.0/colors.css",

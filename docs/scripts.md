@@ -36,12 +36,16 @@ Data that used to be embedded in the programs now sits next to the palette:
 theme/
   palette.toml               colours, roles, terminal and app sections
   fonts.toml                 font roles and per-application opt-in
-  templates/obsidian.css     Obsidian theme template
   maps/gtk.toml              GTK @define-color name -> role
   maps/kde.toml              KColorScheme groups, foregrounds, selection
   maps/eza.toml              file-type category -> extensions
   maps/catppuccin.toml       upstream Catppuccin hex -> palette name
+  maps/obsidian.toml         Obsidian CSS custom property -> colour
 ```
+
+`theme/` holds colour and font data only. Every config that carries colour is a
+normal tracked dotfile in its own package; the generator stamps values into it
+rather than rendering it from a template.
 
 ---
 
@@ -165,6 +169,50 @@ unrelated widget state. Auto-staging them would sweep that churn into every
 theme commit. They are staged by hand, after restarting plasmashell. This is
 expressed in the emitter registry as `stageable = False`, and the pre-commit
 hook stages exactly the emitters that declare themselves stage-safe.
+
+### The Obsidian theme
+
+`shared/obsidian` is a normal package linked to `~/Documents/main/.obsidian`.
+`themes/Fredrir/theme.css` is a hand-editable stylesheet; the generator replaces
+only the block between the `theme:variables` markers, the same way it stamps the
+palette into `starship.toml` and the fastfetch config.
+
+```
+theme/palette.toml         the colours
+theme/maps/obsidian.toml   which colour each CSS custom property takes
+        -> the theme:variables block inside shared/obsidian/themes/Fredrir/theme.css
+```
+
+Everything outside those markers is authored by hand: radii, spacing,
+transitions, selectors. Rules that need a colour reference the theme's own
+custom properties (`var(--interactive-accent)`, `var(--color-blue-rgb)`) rather
+than naming a palette colour, so the whole file stays valid CSS with no
+placeholder syntax and no build step to read it.
+
+`manifest.json` beside it is a plain tracked file. Obsidian needs it to load the
+theme, but its contents are static and have nothing to do with the palette.
+
+`[variables]` is a single ordered table rather than separate colour and alpha
+sections, because the entries are interleaved and CSS output order follows the
+table. Four value forms:
+
+```toml
+"--color-base-00"             = "crust"
+"--color-red-rgb"             = { rgb = "red" }
+"--background-modifier-cover" = { color = "crust", alpha = "0.72" }
+"--accent-h"                  = { derived = "mauve_h" }
+"--scrollbar-bg"              = { literal = "transparent" }
+```
+
+`rgb` emits the `r, g, b` triple Obsidian expects for its `-rgb` properties.
+`derived` reads a value computed from the palette rather than a palette entry —
+the accent hue, saturation and lightness are converted from `mauve` via HLS.
+`alpha` is stored as a string so the rendered decimal is exactly what was
+written, with no float formatting in between.
+
+Colours used by the structural CSS outside that block (callout tints,
+`::selection`, tab shadows) stay as `@name@` placeholders in the template,
+because they are part of a rule rather than a custom property.
 
 ### fastfetch logo gradient
 

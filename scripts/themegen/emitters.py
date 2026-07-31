@@ -4,7 +4,7 @@ import os
 import re
 import sys
 
-from .model import GENERATED_HEADER, load_map, load_template, path
+from .model import GENERATED_HEADER, load_map, path
 from .render import replace_between, replace_ini_section, set_ini_key
 
 KITTY_SLOTS = {
@@ -22,12 +22,7 @@ PROMPT_ROLES = ("prompt_python", "prompt_git", "prompt_dir", "prompt_duration", 
 
 EZA_KINDS = ("fi", "di", "ex", "ln", "pi", "so", "bd", "cd")
 
-OBSIDIAN_DIR = "linux/common/obsidian/themes/Fredrir"
-
-OBSIDIAN_RGB_ROLES = (
-    "crust", "overlay", "mauve", "red", "peach", "orange",
-    "yellow", "green", "teal", "blue", "pink",
-)
+OBSIDIAN_DIR = "shared/obsidian/themes/Fredrir"
 
 PANEL_PRESETS_DIR = "linux/kde/panel-colorizer/presets"
 
@@ -197,39 +192,52 @@ def emit_zsh(theme, out):
     out.write(path("shared/zsh/conf.d/03-theme.zsh"), "\n".join(lines) + "\n")
 
 
-def emit_obsidian(theme, out):
-    values = dict(theme.palette)
-    for name in OBSIDIAN_RGB_ROLES:
-        values[f"{name}_rgb"] = ", ".join(str(channel) for channel in theme.rgb(theme.hex(name)))
+def obsidian_derived(theme):
     red, green, blue = (channel / 255 for channel in theme.rgb(theme.hex("mauve")))
     hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
-    values["mauve_h"] = str(round(hue * 360))
-    values["mauve_s"] = f"{round(saturation * 100)}%"
-    values["mauve_l"] = f"{round(lightness * 100)}%"
-    values["mauve_hsl"] = f"{round(hue * 360)}, {round(saturation * 100)}%, {round(lightness * 100)}%"
+    degrees = round(hue * 360)
+    percent_s = round(saturation * 100)
+    percent_l = round(lightness * 100)
+    return {
+        "mauve_h": str(degrees),
+        "mauve_s": f"{percent_s}%",
+        "mauve_l": f"{percent_l}%",
+        "mauve_hsl": f"{degrees}, {percent_s}%, {percent_l}%",
+    }
 
-    overrides = []
+
+def obsidian_variables(theme, derived):
+    lines = []
+    for name, value in load_map("obsidian")["variables"].items():
+        if isinstance(value, str):
+            lines.append(f"  {name}: {theme.hex(value)};")
+        elif "literal" in value:
+            lines.append(f"  {name}: {value['literal']};")
+        elif "derived" in value:
+            lines.append(f"  {name}: {derived[value['derived']]};")
+        elif "rgb" in value:
+            channels = ", ".join(str(channel) for channel in theme.rgb(theme.hex(value["rgb"])))
+            lines.append(f"  {name}: {channels};")
+        else:
+            channels = ", ".join(str(channel) for channel in theme.rgb(theme.hex(value["color"])))
+            lines.append(f"  {name}: rgba({channels}, {value['alpha']});")
+    return lines
+
+
+def emit_obsidian(theme, out):
+    lines = obsidian_variables(theme, obsidian_derived(theme))
     if theme.uses_fonts("obsidian"):
         general = theme.font("general").replace("\\", "\\\\").replace('"', '\\"')
         nerd = theme.font("nerd").replace("\\", "\\\\").replace('"', '\\"')
-        overrides = [
+        lines += [
             f'  --font-interface-theme: "{general}", sans-serif;',
             f'  --font-text-theme: "{general}", sans-serif;',
             f'  --font-monospace-theme: "{nerd}", ui-monospace, monospace;',
         ]
-    values["font_overrides"] = "\n".join(overrides)
-    if overrides:
-        values["font_overrides"] += "\n"
-
-    css = load_template("obsidian.css")
-    for name, value in values.items():
-        css = css.replace(f"@{name}@", value)
-    unresolved = re.findall(r"@[a-z0-9_]+@", css)
-    if unresolved:
-        raise SystemExit(f"unresolved Obsidian theme values: {', '.join(unresolved)}")
-
-    out.write(path(OBSIDIAN_DIR, "theme.css"), css)
-    out.write(path(OBSIDIAN_DIR, "manifest.json"), load_template("obsidian-manifest.json"))
+    out.edit(
+        path(OBSIDIAN_DIR, "theme.css"),
+        lambda text: replace_between(text, "variables", lines),
+    )
 
 
 def emit_kde_colorscheme(theme, out):

@@ -1,6 +1,7 @@
 .theme-dark,
 .theme-light {
   color-scheme: dark;
+  /* theme:variables */
   --color-base-00: #11111b;
   --color-base-05: #181825;
   --color-base-10: #1e1e2e;
@@ -29,6 +30,7 @@
   --color-purple-rgb: 203, 166, 247;
   --color-pink: #f5c2e7;
   --color-pink-rgb: 245, 194, 231;
+  --color-overlay-rgb: 108, 112, 134;
   --background-primary: #1e1e2e;
   --background-primary-alt: #181825;
   --background-secondary: #181825;
@@ -45,6 +47,8 @@
   --background-modifier-border-focus: #cba6f7;
   --background-modifier-hover: rgba(203, 166, 247, 0.1);
   --background-modifier-active-hover: rgba(203, 166, 247, 0.16);
+  --selection-background: rgba(203, 166, 247, 0.3);
+  --code-block-shadow: rgba(17, 17, 27, 0.2);
   --text-normal: #cdd6f4;
   --text-muted: #bac2de;
   --text-faint: #9399b2;
@@ -164,6 +168,7 @@
   --font-interface-theme: "Noto Sans", sans-serif;
   --font-text-theme: "Noto Sans", sans-serif;
   --font-monospace-theme: "Hack Nerd Font Mono", ui-monospace, monospace;
+  /* theme:variables:end */
   --radius-s: 6px;
   --radius-m: 10px;
   --radius-l: 14px;
@@ -180,21 +185,21 @@ body {
 }
 
 ::selection {
-  background: rgba(203, 166, 247, 0.3);
-  color: #cdd6f4;
+  background: var(--selection-background);
+  color: var(--text-normal);
 }
 
 .workspace,
 .workspace-split.mod-root .view-content {
-  background: #1e1e2e;
+  background: var(--background-primary);
 }
 
 .workspace-tab-header-container {
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .workspace-tab-header.is-active {
-  box-shadow: inset 0 -2px #cba6f7;
+  box-shadow: inset 0 -2px var(--interactive-accent);
 }
 
 .workspace-tab-header.is-active::before,
@@ -225,12 +230,12 @@ body {
 }
 
 .markdown-rendered h1 {
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--background-modifier-border);
   padding-bottom: 0.35em;
 }
 
 .markdown-rendered blockquote {
-  background: #181825;
+  background: var(--background-secondary);
   border-radius: 0 var(--radius-m) var(--radius-m) 0;
   margin-inline: 0;
   padding: 0.5em 1em;
@@ -238,15 +243,15 @@ body {
 
 .markdown-rendered code,
 .cm-s-obsidian span.cm-inline-code {
-  border: 1px solid #313244;
+  border: 1px solid var(--background-modifier-border);
   border-radius: 5px;
   padding: 0.1em 0.35em;
 }
 
 .markdown-rendered pre {
-  border: 1px solid #313244;
+  border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  box-shadow: 0 8px 24px rgba(17, 17, 27, 0.2);
+  box-shadow: 0 8px 24px var(--code-block-shadow);
 }
 
 .markdown-rendered pre code {
@@ -281,7 +286,7 @@ body {
 .callout[data-callout="note"],
 .callout[data-callout="info"],
 .callout[data-callout="todo"] {
-  --callout-color: 61, 174, 233;
+  --callout-color: var(--color-blue-rgb);
 }
 
 .callout[data-callout="abstract"],
@@ -290,13 +295,13 @@ body {
 .callout[data-callout="tip"],
 .callout[data-callout="hint"],
 .callout[data-callout="important"] {
-  --callout-color: 26, 188, 156;
+  --callout-color: var(--color-cyan-rgb);
 }
 
 .callout[data-callout="success"],
 .callout[data-callout="check"],
 .callout[data-callout="done"] {
-  --callout-color: 124, 255, 107;
+  --callout-color: var(--color-green-rgb);
 }
 
 .callout[data-callout="question"],
@@ -305,7 +310,7 @@ body {
 .callout[data-callout="warning"],
 .callout[data-callout="caution"],
 .callout[data-callout="attention"] {
-  --callout-color: 249, 226, 175;
+  --callout-color: var(--color-yellow-rgb);
 }
 
 .callout[data-callout="failure"],
@@ -314,16 +319,16 @@ body {
 .callout[data-callout="danger"],
 .callout[data-callout="error"],
 .callout[data-callout="bug"] {
-  --callout-color: 243, 139, 168;
+  --callout-color: var(--color-red-rgb);
 }
 
 .callout[data-callout="example"] {
-  --callout-color: 203, 166, 247;
+  --callout-color: var(--color-purple-rgb);
 }
 
 .callout[data-callout="quote"],
 .callout[data-callout="cite"] {
-  --callout-color: 108, 112, 134;
+  --callout-color: var(--color-overlay-rgb);
 }
 
 .tag {
@@ -347,7 +352,7 @@ textarea {
 }
 
 button.mod-cta {
-  color: #11111b;
+  color: var(--text-on-accent);
   font-weight: 650;
 }
 

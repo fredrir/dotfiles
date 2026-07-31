@@ -5,6 +5,7 @@
 - `git` — Git configuration and global ignore rules
 - `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
+- `obsidian` — Obsidian theme generated from theme/palette.toml
 - `starship` — Cross-shell prompt configuration
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
@@ -15,7 +16,6 @@
 - `fontconfig` — Font rendering configuration
 - `gtk` — GTK theme settings
 - `jetbrains` — Shared JetBrains IDE settings
-- `obsidian` — Obsidian themes
 - `quicklaunch` — Quicklaunch application configuration
 - `theme-watch` — Automatic theme generation service
 - `xremap` — Keyboard remapping configuration
