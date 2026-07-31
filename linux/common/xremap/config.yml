@@ -1,5 +1,8 @@
 keypress_delay_ms: 20
 keymap:
+  - name: Literal backtick
+    remap:
+      Shift-Equal: [Shift-Equal, Space]
   - name: Konsole and kitty copy and interrupt
     application:
       only: /(?i)^(org\.kde\.konsole|kitty)$/
