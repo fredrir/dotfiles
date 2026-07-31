@@ -80,6 +80,8 @@ dotfile add --description "Status bar" waybar
 dotfile add --linux zsh/conf.d/11-linux-env
 dotfile add --kde konsolerc
 dotfile add --pkg zsh ~/.zshrc
+dotfile remove linux/common/fontconfig
+dotfile remove /linux/server/zsh/conf.d/10-nvim.server.zsh
 
 dotfile link
 dotfile link arch-linux/kde

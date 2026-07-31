@@ -87,6 +87,13 @@ beats the package entry containing it.
 A package containing a `.nolink` file is skipped entirely. Used for configs that
 are tracked for reference but must not be installed on this machine.
 
+### remove
+
+`dotfile remove <path>` stops tracking exactly the requested repository path and
+keeps its contents at the live destination. A package path removes the package;
+a path inside a package removes only that file or directory. A leading slash is
+treated as the root of the dotfiles repository.
+
 ### Conflicts
 
 An existing file that is not a symlink into this repo is never touched. It is

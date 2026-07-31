@@ -38,6 +38,7 @@ source "$LIB/link.sh"
 source "$LIB/packages.sh"
 source "$LIB/format.sh"
 source "$LIB/adopt.sh"
+source "$LIB/remove.sh"
 
 usage() {
   cat <<'EOF'
@@ -46,6 +47,7 @@ usage: dotfile <command> [args]
 commands:
   link [profile] [-n]   symlink every package in the profile manifest into $HOME
   add [flags] <path>    move a live config into the repo and symlink it back
+  remove <path>         move a tracked path out of the repo and keep it live
   packages              regenerate packages.dotfile and PACKAGES.md
   format [path ...]     format tracked .conf files or the selected files
   status [profile]      show link state for every file in the profile
@@ -67,6 +69,8 @@ examples:
   dotfile add --description "Status bar" waybar
   dotfile add --linux zsh/conf.d/11-linux-env
   dotfile add --pkg zsh ~/.zshrc
+  dotfile remove linux/common/fontconfig
+  dotfile remove /linux/server/zsh/conf.d/10-nvim.server.zsh
   dotfile packages
   dotfile format
 EOF
@@ -77,6 +81,7 @@ shift || true
 case "$command" in
   link) cmd_link "$@" ;;
   add) cmd_add "$@" ;;
+  remove) cmd_remove "$@" ;;
   packages) cmd_packages "$@" ;;
   format) cmd_format "$@" ;;
   status) cmd_status "$@" ;;
