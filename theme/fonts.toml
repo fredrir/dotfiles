@@ -1,0 +1,6 @@
+[fonts]
+general = "Noto Sans"
+nerd = "Hack Nerd Font Mono"
+
+[applications]
+obsidian = true

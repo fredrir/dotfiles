@@ -15,6 +15,7 @@
 - `fontconfig` — Font rendering configuration
 - `gtk` — GTK theme settings
 - `jetbrains` — Shared JetBrains IDE settings
+- `obsidian` — Obsidian themes
 - `quicklaunch` — Quicklaunch application configuration
 - `theme-watch` — Automatic theme generation service
 - `xremap` — Keyboard remapping configuration

@@ -23,7 +23,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # 1. Theme: regenerate when the palette or the generator itself is staged.
-if staged theme/palette.toml scripts/generate-theme.py; then
+if staged theme/palette.toml theme/fonts.toml scripts/generate-theme.py; then
   if python3 "$root/scripts/generate-theme.py"; then
     # Only the deterministic, low-churn generated files are auto-staged.
     # kdeglobals and the desktop-appletsrc are also regenerated, but a running
@@ -37,6 +37,8 @@ if staged theme/palette.toml scripts/generate-theme.py; then
       "$root/shared/fastfetch/arch.txt" \
       "$root/shared/starship/starship.toml" \
       "$root/shared/zsh/conf.d/03-theme.zsh" \
+      "$root/linux/common/obsidian/themes/Fredrir/theme.css" \
+      "$root/linux/common/obsidian/themes/Fredrir/manifest.json" \
       "$root/linux/common/gtk/gtk-3.0/colors.css" \
       "$root/linux/common/gtk/gtk-4.0/colors.css" \
       "$root/linux/kde/panel-colorizer/presets/Mocha Bar/settings.json" \

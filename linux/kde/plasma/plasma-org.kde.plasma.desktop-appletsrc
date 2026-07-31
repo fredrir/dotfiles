@@ -22,7 +22,7 @@ DialogWidth=810
 
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=6766
+LastVideoPosition=12983
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][24]
@@ -38,7 +38,7 @@ wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][24][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=1050
+LastVideoPosition=3300
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][27]
@@ -173,7 +173,7 @@ hideWidget=true
 islandSeparatorWidget=org.kde.plasma.marginsseparator
 islandsEnabled=true
 lastPreset=/home/fredrir/.config/panel-colorizer/presets/Mocha Islands
-panelWidgets=[{"id":43,"name":"luisbocanegra.panel.colorizer","title":"Panel colorizer","icon":"desktop","inTray":false},{"id":45,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":28,"name":"org.kde.plasma.kickoff","title":"Application Launcher","icon":"distributor-logo-archlinux","inTray":false},{"id":44,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":34,"name":"org.kde.plasma.icontasks","title":"Icons-Only Task Manager","icon":"preferences-system-windows","inTray":false},{"id":33,"name":"org.kde.plasma.panelspacer","title":"Panel Spacer","icon":"distribute-horizontal-x","inTray":false},{"id":50,"name":"com.fredrir.claudeusage","title":"Claude Usage","icon":"office-chart-pie","inTray":false},{"id":40,"name":"org.kde.plasma.weather","title":"Weather Report","icon":"weather-none-available-symbolic","inTray":false},{"id":39,"name":"org.kde.plasma.networkmanagement","title":"Networks","icon":"network-wireless-80-symbolic","inTray":false},{"id":36,"name":"org.kde.plasma.bluetooth","title":"Bluetooth","icon":"network-bluetooth-inactive-symbolic","inTray":false},{"id":35,"name":"org.kde.plasma.volume","title":"Audio Volume","icon":"audio-volume-muted-symbolic","inTray":false},{"id":32,"name":"org.kde.plasma.digitalclock","title":"Digital Clock","icon":"preferences-system-time","inTray":false}]
+panelWidgets=[{"id":43,"name":"luisbocanegra.panel.colorizer","title":"Panel colorizer","icon":"desktop","inTray":false},{"id":45,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":28,"name":"org.kde.plasma.kickoff","title":"Application Launcher","icon":"distributor-logo-archlinux","inTray":false},{"id":44,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":34,"name":"org.kde.plasma.icontasks","title":"Icons-Only Task Manager","icon":"preferences-system-windows","inTray":false},{"id":33,"name":"org.kde.plasma.panelspacer","title":"Panel Spacer","icon":"distribute-horizontal-x","inTray":false},{"id":50,"name":"com.fredrir.claudeusage","title":"Claude Usage","icon":"office-chart-pie","inTray":false},{"id":40,"name":"org.kde.plasma.weather","title":"Weather Report","icon":"weather-none-available-symbolic","inTray":false},{"id":39,"name":"org.kde.plasma.networkmanagement","title":"Networks","icon":"network-wireless-80-symbolic","inTray":false},{"id":63,"name":"org.kde.plasma.clipboard","title":"Clipboard","icon":"klipper-symbolic","inTray":false},{"id":36,"name":"org.kde.plasma.bluetooth","title":"Bluetooth","icon":"network-bluetooth-inactive-symbolic","inTray":false},{"id":35,"name":"org.kde.plasma.volume","title":"Audio Volume","icon":"audio-volume-muted-symbolic","inTray":false},{"id":32,"name":"org.kde.plasma.digitalclock","title":"Digital Clock","icon":"preferences-system-time","inTray":false}]
 pluginFound=true
 
 [Containments][27][Applets][44]
@@ -196,8 +196,16 @@ popupWidth=342
 DialogHeight=630
 DialogWidth=810
 
+[Containments][27][Applets][63]
+immutability=1
+plugin=org.kde.plasma.clipboard
+
+[Containments][27][Applets][63][Configuration]
+popupHeight=433
+popupWidth=432
+
 [Containments][27][General]
-AppletOrder=43;45;28;44;34;33;50;40;39;36;35;32
+AppletOrder=43;45;28;44;34;33;50;40;39;63;36;35;32
 
 [Containments][51]
 activityId=
