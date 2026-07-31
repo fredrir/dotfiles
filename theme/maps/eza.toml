@@ -1,0 +1,13 @@
+[categories]
+"image"    = "png jpg jpeg gif bmp tiff tif webp svg ico heic heif avif psd xcf cr2 nef dng raw"
+"video"    = "mp4 mkv mov avi wmv flv webm m4v mpg mpeg m2ts vob ogv 3gp f4v"
+"audio"    = "mp3 aac ogg oga opus m4a wma flac wav alac aiff aif ape wv mid midi"
+"archive"  = "zip tar gz tgz bz2 tbz xz txz zst 7z rar lz lzma lz4 lzo br cab cpio ar iso dmg deb rpm pkg apk jar war"
+"document" = "pdf doc docx xls xlsx ppt pptx odt ods odp rtf epub mobi azw3 djvu tex ps eps"
+"source"   = "py pyi js mjs cjs ts tsx jsx rs go c h cpp cxx cc hpp hxx java kt kts rb php swift scala clj cljs hs ml mli lua pl pm r dart ex exs erl zig nim jl fs vb cs groovy gradle asm"
+"config"   = "toml yml yaml ini cfg conf config properties env editorconfig xml plist"
+"markup"   = "md markdown mdx rst adoc org txt text typ"
+"data"     = "json csv tsv parquet arrow db sqlite sqlite3 sql h5 hdf5 npy npz pkl feather proto graphql gql"
+"web"      = "html htm xhtml css scss sass less styl vue svelte astro"
+"temp"     = "tmp temp swp swo bak old orig cache log pid"
+"compiled" = "o obj a so dylib dll lib class pyc pyo pyd beam elc wasm bc out exe"

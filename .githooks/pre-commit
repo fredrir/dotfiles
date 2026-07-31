@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
-# Keep generated files in sync when their sources are part of a commit.
-# Enabled via core.hooksPath (see setup.sh).
-#
-#   1. theme/palette.toml  -> stamps colors into every terminal config.
-#   2. fastfetch config    -> regenerates the preview block in README.md.
-#
-# Runs the theme step first, since it can rewrite the fastfetch config that
-# the README step then renders.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
-if staged packages.dotfile PACKAGES.md scripts/dotfile environment shared linux/common linux/kde linux/hyprland linux/server macos; then
+if staged packages.dotfile PACKAGES.md scripts/dotfile scripts/lib \
+          environment shared linux/common linux/kde linux/hyprland linux/server macos; then
   "$root/scripts/dotfile" packages
   git add "$root/packages.dotfile" "$root/PACKAGES.md"
 fi
@@ -22,34 +15,18 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 0
 fi
 
-# 1. Theme: regenerate when the palette or the generator itself is staged.
-if staged theme/palette.toml theme/fonts.toml scripts/generate-theme.py; then
+if staged theme scripts/generate-theme.py scripts/themegen; then
   if python3 "$root/scripts/generate-theme.py"; then
-    # Only the deterministic, low-churn generated files are auto-staged.
-    # kdeglobals and the desktop-appletsrc are also regenerated, but a running
-    # plasmashell rewrites them continuously, so stage those by hand (after
-    # restarting plasmashell) to avoid sweeping unrelated widget state into a
-    # theme commit.
-    git add \
-      "$root/shared/kitty/colors-mocha.conf" \
-      "$root/linux/kde/konsole/share/Catppuccin-Mocha.colorscheme" \
-      "$root/shared/fastfetch/config.jsonc" \
-      "$root/shared/fastfetch/arch.txt" \
-      "$root/shared/starship/starship.toml" \
-      "$root/shared/zsh/conf.d/03-theme.zsh" \
-      "$root/linux/common/obsidian/themes/Fredrir/theme.css" \
-      "$root/linux/common/obsidian/themes/Fredrir/manifest.json" \
-      "$root/linux/common/gtk/gtk-3.0/colors.css" \
-      "$root/linux/common/gtk/gtk-4.0/colors.css" \
-      "$root/linux/kde/panel-colorizer/presets/Mocha Bar/settings.json" \
-      "$root/linux/kde/panel-colorizer/presets/Mocha Islands/settings.json" \
-      "$root/linux/kde/panel-colorizer/presets/Fusion Backup/settings.json"
+    while IFS= read -r path; do
+      if [ -e "$root/$path" ]; then
+        git add "$root/$path"
+      fi
+    done < <(python3 "$root/scripts/generate-theme.py" --list-outputs --stageable)
   else
     echo "pre-commit: theme generation failed (continuing)" >&2
   fi
 fi
 
-# 2. Fastfetch README preview: regenerate when the fastfetch config is staged.
 if staged shared/fastfetch/config.jsonc; then
   if python3 "$root/scripts/update-readme-fastfetch.py"; then
     git add "$root/README.md"

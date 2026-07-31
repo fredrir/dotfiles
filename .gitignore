@@ -30,3 +30,6 @@ linux/hyprland/hypr/conf.d/local.conf
 **/JetBrains/**/recentProjects.xml
 **/JetBrains/**/workspace/
 **/JetBrains/**/window.*.xml
+
+__pycache__/
+*.pyc

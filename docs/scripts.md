@@ -1,0 +1,216 @@
+# scripts
+
+Reference for the three programs in `scripts/`. Code files carry no comments, so
+the reasoning behind the non-obvious behaviour lives here.
+
+## Layout
+
+```
+scripts/
+  dotfile                    dispatcher
+  lib/
+    common.sh                logging, dry-run, path canonicalisation, repo root
+    targets.sh               targets file -> destination mapping
+    state.sh                 saved profile and machine overrides
+    link.sh                  link / unlink / prune engine
+    packages.sh              packages.dotfile and PACKAGES.md
+    format.sh                .conf formatter driver
+    format.awk               .conf formatter
+  generate-theme.py          entry point for the theme generator
+  themegen/
+    model.py                 palette, roles, fonts, colour conversion
+    render.py                file writing and in-place editing
+    emitters.py              one function per generated config
+    registry.py              emitter list and their declared outputs
+    cli.py                   argument handling
+  update-readme-fastfetch.py fastfetch preview block in README.md
+tests/
+  run.sh                     test runner
+  lib.sh                     sandbox and assertions
+  cases/                     one file per test group
+```
+
+Data that used to be embedded in the programs now sits next to the palette:
+
+```
+theme/
+  palette.toml               colours, roles, terminal and app sections
+  fonts.toml                 font roles and per-application opt-in
+  templates/obsidian.css     Obsidian theme template
+  maps/gtk.toml              GTK @define-color name -> role
+  maps/kde.toml              KColorScheme groups, foregrounds, selection
+  maps/eza.toml              file-type category -> extensions
+  maps/catppuccin.toml       upstream Catppuccin hex -> palette name
+```
+
+---
+
+## dotfile
+
+Symlinks the configs tracked in this repo into `$HOME`, and maintains the
+package manifest.
+
+### The linking model
+
+A *group* is a top-level directory of packages (`shared`, `linux/kde`, ...). A
+*package* is one directory inside a group. `environment/<profile>/manifest`
+lists the groups a machine links.
+
+Each package is linked as a whole directory symlink when possible, because one
+symlink is cheaper to reason about than a tree of them. That folding is skipped
+in two cases:
+
+- **A `targets` entry points inside the package.** The entry has to be able to
+  land somewhere else, so the parent must be a real directory.
+- **The destination is a directory that must never itself become a symlink** —
+  `$HOME`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/bin`,
+  `~/.config/systemd`, `~/.config/systemd/user`. Replacing any of these with a
+  symlink into the repo would capture every unrelated file the system later
+  writes there.
+
+When a directory that was previously folded stops qualifying, it is *unfolded*:
+the directory symlink is replaced by a real directory containing one symlink per
+entry. This is why `link` is safe to re-run after adding a `targets` entry.
+
+### targets
+
+`targets` maps a repo path to a destination. Without an entry, a package lands
+at `~/.config/<package>`. Matching is longest-prefix, so a specific file entry
+beats the package entry containing it.
+
+### .nolink
+
+A package containing a `.nolink` file is skipped entirely. Used for configs that
+are tracked for reference but must not be installed on this machine.
+
+### Conflicts
+
+An existing file that is not a symlink into this repo is never touched. It is
+collected and reported at the end, and `link` exits non-zero. Foreign symlinks
+are treated the same way. The user resolves each one by hand — silently moving
+real configs aside is how people lose data.
+
+### Pruning
+
+Before linking, symlinks under `$HOME`, `~/.config` and `~/.local` that point
+into the repo are removed when they are broken, or when they point at an
+override set that is no longer selected. The second case matters because a
+stale override link is not broken — it points at a file that still exists — so
+a plain dangling-link check would leave it behind and the machine would keep
+using the wrong override.
+
+### Overrides
+
+A group may contain `overrides/<name>/` directories holding machine-specific
+variants. The selection is per group, stored in `~/.config/dotfile/overrides`,
+and persists across runs. `--override <group>=none` opts out. When a group has
+overrides and none is selected, `link` prints a note rather than guessing.
+
+### Profiles
+
+The active profile is stored in `~/.config/dotfile/profile` and reused when
+`link` is called with no argument.
+
+Profile names were renamed once (`desktop/arch-linux/kde` -> `arch-linux/kde`
+and friends). The compatibility shim that translated the old names has been
+removed. A machine whose saved profile predates the rename will report
+"no manifest for profile" and list the available ones; pass the new name once
+and it is saved.
+
+### format
+
+Normalises tracked `.conf` files. Three modes, chosen by path:
+
+- **hypr** — reindents blocks four spaces per level and normalises `key = value`
+  spacing. A `}` that closes a block absorbs a preceding blank line.
+- **kitty** — aligns values into a column, and aligns `map` bindings into a
+  second column keyed on the shortcut, so keybindings stay readable as a table.
+  Requires buffering the whole file to measure the widest key first.
+- **plain** — collapses runs of blank lines and strips trailing whitespace.
+
+Generated colour files (`colors-*.conf`) are formatted as plain so the
+generator's own column alignment survives.
+
+---
+
+## generate-theme.py
+
+`theme/palette.toml` is the single source of truth for colour. This stamps it
+into every config that carries colours.
+
+```
+generate-theme.py                        regenerate everything
+generate-theme.py --check                report what would change, exit 1 if anything would
+generate-theme.py --list-outputs         every file the generator owns
+generate-theme.py --list-outputs --stageable   only the ones safe to auto-stage
+```
+
+### Colour indirection
+
+Three layers. `[palette]` holds named colours (`mauve`, `base`). `[roles]` maps
+a semantic name to a palette name (`prompt_git = "green"`). `[kde]` does the
+same for the KDE/Qt scheme roles. Configs reference roles, so recolouring means
+editing one role rather than hunting hex values.
+
+### In-place edits vs generated files
+
+Files that are fully generated carry a "do not edit" header. Files that are
+partly hand-maintained are edited between `theme:<name>` and `theme:<name>:end`
+markers, or by KConfig section, so the rest stays hand-editable.
+
+### Why kdeglobals and desktop-appletsrc are not auto-staged
+
+Both are regenerated, but a running plasmashell rewrites them continuously with
+unrelated widget state. Auto-staging them would sweep that churn into every
+theme commit. They are staged by hand, after restarting plasmashell. This is
+expressed in the emitter registry as `stageable = False`, and the pre-commit
+hook stages exactly the emitters that declare themselves stage-safe.
+
+### fastfetch logo gradient
+
+`arch.txt` is recoloured with a linear gradient interpolated across the four
+section accent colours, one step per line of ASCII art. Existing escape codes
+are stripped before recolouring so the operation is idempotent.
+
+### eza colours
+
+`EZA_COLORS` matches by `*.ext`, not by file type, so each category in
+`[eza.categories]` is expanded into one glob per extension. Categories are
+emitted first and explicit `*.ext` entries last, so an explicit entry wins.
+`LS_COLORS` is unset because eza prefers it when both are set.
+
+### Retagging Catppuccin colours in KDE widget config
+
+panel-colorizer presets and `desktop-appletsrc` embed literal hex and `r,g,b`
+colours written by the widgets themselves. Only values that exactly match a
+known upstream Catppuccin colour (Mocha or Macchiato) are rewritten. Anything
+else is left alone, because widget placeholders and gradient defaults share the
+same syntax and rewriting them would corrupt unrelated settings.
+
+---
+
+## update-readme-fastfetch.py
+
+Regenerates the preview block between the `fastfetch:start` / `fastfetch:end`
+markers in `README.md`. No-ops when fastfetch is not installed.
+
+### Shell and Terminal are recomputed
+
+fastfetch identifies the shell and terminal by walking the process tree. Run
+from a git hook, that tree is `git` -> `bash` -> `fastfetch`, so it reports
+"bash" and "git" instead of the real values. Both are recomputed — the shell
+from the login shell in the passwd entry, the terminal from environment markers
+— so the preview is correct however it was generated.
+
+### Column alignment
+
+fastfetch marks the value column with an `ESC[<n>G` cursor-move, which a
+terminal resolves but plain text cannot. The script uses that escape only as a
+split point and then realigns the columns itself.
+
+Widths are measured in terminal cells, not characters. Nerd Font glyphs live in
+the Unicode Private Use Areas and render double-width, and East Asian wide and
+fullwidth characters do the same, so both count as two cells. Combining marks
+count as zero. Getting this wrong shifts the whole value column.
+
+The `Local IP` line is dropped so a local network address is not committed.

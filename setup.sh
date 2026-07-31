@@ -18,20 +18,9 @@ list_profiles() {
   ( cd "$ENVDIR" && find . -name manifest | sed 's|^\./||; s|/manifest$||' | LC_ALL=C sort )
 }
 
-migrate_profile() {
-  case "$1" in
-    desktop/arch-linux/kde) printf 'arch-linux/kde\n' ;;
-    desktop/arch-linux/kde-hyprland) printf 'arch-linux/kde-hyprland\n' ;;
-    laptop/arch-linux/hyprland) printf 'arch-linux/hyprland\n' ;;
-    macbook/macos) printf 'macos\n' ;;
-    vps/linux) printf 'ubuntu/server\n' ;;
-    *) printf '%s\n' "$1" ;;
-  esac
-}
-
 saved_profile() {
   if [ -f "$STATE_DIR/profile" ]; then
-    migrate_profile "$(cat "$STATE_DIR/profile")"
+    cat "$STATE_DIR/profile"
   fi
 }
 
