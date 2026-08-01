@@ -102,7 +102,7 @@ test_keeps_a_live_path_that_blocks_the_tracked_structure() {
 }
 
 test_rejects_a_path_outside_a_package() {
-  dotfile remove scripts/dotfile
+  dotfile remove docs/notes.md
   assert_fails
   assert_output_has "not a package path"
 }

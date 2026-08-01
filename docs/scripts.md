@@ -1,31 +1,61 @@
 # scripts
 
-Reference for the three programs in `scripts/`. Code files carry no comments, so
-the reasoning behind the non-obvious behaviour lives here.
+Reference for the workstation command-line tools in `scripts/`. Code files
+carry no comments, so the reasoning behind the non-obvious behaviour lives
+here.
+
+`scripts/` is a uv-managed Python project (Typer + Rich, package name
+`tools`). `uv sync --project scripts --locked` installs it into
+`scripts/.venv`, whose `bin` directory the workstation zsh profiles put on
+PATH. Each command is a console entry point declared in
+`scripts/pyproject.toml`; there is no umbrella command. The project is
+workstation-only: the Ubuntu server profile never syncs, imports, or invokes
+it, and `bootstrap-vps.sh` links the server profile with its own standalone
+shell linker.
 
 ## Layout
 
 ```
 scripts/
-  dotfile                    dispatcher
-  lib/
-    common.sh                logging, dry-run, path canonicalisation, repo root
-    targets.sh               targets file -> destination mapping
-    state.sh                 saved profile and machine overrides
-    link.sh                  link / unlink / prune engine
-    packages.sh              packages.dotfile and PACKAGES.md
-    format.sh                .conf formatter driver
-    format.awk               .conf formatter
-  generate-theme.py          entry point for the theme generator
-  themegen/
-    model.py                 palette, roles, fonts, colour conversion
-    render.py                file writing and in-place editing
-    emitters.py              one function per generated config
-    registry.py              emitter list and their declared outputs
-    cli.py                   argument handling
-  update-readme-fastfetch.py fastfetch preview block in README.md
+  pyproject.toml             project, dependencies, console entry points
+  uv.lock                    locked dependency versions
+  src/tools/
+    core/
+      console.py             shared output, errors, color gating
+      paths.py               repository root discovery, ~ shortening
+      process.py             subprocess helpers
+    utils/
+      count.py               count items inside a directory
+      size.py                du-backed size summary
+      path.py                repo-relative or home-relative path of a target
+      tardirs.py             tar archive directory tree with entry counts
+      gpp.py                 git add + commit + push
+      oc.py                  openclaw over an SSH tunnel
+      sysinfo.py             environment and hardware summary via fastfetch
+    desktop/
+      power_menu.py          wofi power menu (Hyprland)
+      confirm_exit.py        wofi exit confirmation (Hyprland)
+    readme/
+      fastfetch.py           fastfetch preview block in README.md
+    theme/
+      model.py               palette, roles, fonts, colour conversion
+      render.py              file writing and in-place editing
+      emitters.py            one function per generated config
+      registry.py            emitter list and their declared outputs
+      cli.py                 argument handling
+    dotfile/
+      cli.py                 command dispatch
+      state.py               repo context, profiles, overrides, manifests
+      targets.py             targets file -> destination mapping
+      link.py                link / unlink / prune engine
+      packages.py            packages.dotfile and PACKAGES.md
+      add.py                 adopt a live config into the repo
+      remove.py              stop tracking a path, keep it live
+      format.py              .conf formatter
+      profiles.py            host platform and desktop detection
+  tests/                     pytest suites per area
 tests/
-  run.sh                     test runner
+  run.sh                     black-box test runner
   lib.sh                     sandbox and assertions
   cases/                     one file per test group
 ```
@@ -145,16 +175,16 @@ generator's own column alignment survives.
 
 ---
 
-## generate-theme.py
+## generate-theme
 
 `theme/palette.toml` is the single source of truth for colour. This stamps it
 into every config that carries colours.
 
 ```
-generate-theme.py                        regenerate everything
-generate-theme.py --check                report what would change, exit 1 if anything would
-generate-theme.py --list-outputs         every file the generator owns
-generate-theme.py --list-outputs --stageable   only the ones safe to auto-stage
+generate-theme                        regenerate everything
+generate-theme --check                report what would change, exit 1 if anything would
+generate-theme --list-outputs         every file the generator owns
+generate-theme --list-outputs --stageable   only the ones safe to auto-stage
 ```
 
 ### Colour indirection
@@ -245,7 +275,7 @@ same syntax and rewriting them would corrupt unrelated settings.
 
 ---
 
-## update-readme-fastfetch.py
+## update-readme-fastfetch
 
 Regenerates the preview block between the `fastfetch:start` / `fastfetch:end`
 markers in `README.md`. No-ops when fastfetch is not installed.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 generator() {
-  OUTPUT="$(cd "$SOURCE_ROOT" && python3 scripts/generate-theme.py "$@" 2>&1)"
+  OUTPUT="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/generate-theme" "$@" 2>&1)"
   STATUS=$?
   return 0
 }
@@ -35,7 +35,7 @@ test_stageable_excludes_files_plasma_rewrites() {
 
 test_hook_stages_exactly_what_the_registry_declares() {
   local declared hook_paths
-  declared="$(cd "$SOURCE_ROOT" && python3 scripts/generate-theme.py --list-outputs --stageable | LC_ALL=C sort)"
+  declared="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/generate-theme" --list-outputs --stageable | LC_ALL=C sort)"
   hook_paths="$(grep -c 'list-outputs --stageable' "$SOURCE_ROOT/.githooks/pre-commit")"
   [ "$hook_paths" -eq 1 ] || fail "pre-commit hook no longer queries the registry"
   [ -n "$declared" ] || fail "registry declared no stageable outputs"

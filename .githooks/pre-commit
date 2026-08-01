@@ -2,33 +2,35 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
+bin="$root/scripts/.venv/bin"
 
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
-if staged packages.dotfile PACKAGES.md scripts/dotfile scripts/lib \
-          environment shared linux/common linux/kde linux/hyprland linux/server macos; then
-  "$root/scripts/dotfile" packages
-  git add "$root/packages.dotfile" "$root/PACKAGES.md"
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
+if [ ! -x "$bin/dotfile" ]; then
+  echo "pre-commit: scripts/.venv missing; run: uv sync --project scripts --locked" >&2
   exit 0
 fi
 
-if staged theme scripts/generate-theme.py scripts/themegen; then
-  if python3 "$root/scripts/generate-theme.py"; then
+if staged packages.dotfile PACKAGES.md scripts/src/tools/dotfile \
+          environment shared linux/common linux/kde linux/hyprland linux/server macos; then
+  "$bin/dotfile" packages
+  git add "$root/packages.dotfile" "$root/PACKAGES.md"
+fi
+
+if staged theme scripts/src/tools/theme; then
+  if "$bin/generate-theme"; then
     while IFS= read -r path; do
       if [ -e "$root/$path" ]; then
         git add "$root/$path"
       fi
-    done < <(python3 "$root/scripts/generate-theme.py" --list-outputs --stageable)
+    done < <("$bin/generate-theme" --list-outputs --stageable)
   else
     echo "pre-commit: theme generation failed (continuing)" >&2
   fi
 fi
 
 if staged shared/fastfetch/config.jsonc; then
-  if python3 "$root/scripts/update-readme-fastfetch.py"; then
+  if "$bin/update-readme-fastfetch"; then
     git add "$root/README.md"
   else
     echo "pre-commit: fastfetch README update failed (continuing)" >&2

@@ -3,9 +3,8 @@ set -euo pipefail
 shopt -s nullglob
 
 DOTFILES="$(cd "$(dirname "$0")" && pwd)"
-ENVDIR="$DOTFILES/environment"
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
-source "$DOTFILES/scripts/lib/profiles.sh"
+DOTFILE_BIN="$DOTFILES/scripts/.venv/bin/dotfile"
 
 BOLD=$'\033[1m'
 DIM=$'\033[2m'
@@ -89,17 +88,27 @@ fi
 
 git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || true
 
-mkdir -p "$HOME/.local/bin"
-ln -sf "$DOTFILES/scripts/dotfile" "$HOME/.local/bin/dotfile"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "setup: uv is required (https://docs.astral.sh/uv/) to install the workstation tools" >&2
+  exit 1
+fi
 
-PROFILE="$(normalize_profile_arg "${1:-}")"
+echo "syncing workstation tools (scripts/.venv)"
+uv sync --project "$DOTFILES/scripts" --locked --quiet
+
+PROFILE="${1:-}"
+case "$PROFILE" in
+  --?*) PROFILE="${PROFILE#--}" ;;
+esac
+
+list_profiles() { "$DOTFILE_BIN" profiles; }
 
 if [ -z "$PROFILE" ]; then
   if interactive; then
     profiles=()
     while IFS= read -r p; do
       profiles+=("$p")
-    done < <(list_relevant_profiles)
+    done < <("$DOTFILE_BIN" profiles --relevant)
     if [ "${#profiles[@]}" -eq 0 ]; then
       echo "setup: no relevant installed environment found" >&2
       echo "override detection with ./setup.sh --<environment>" >&2
@@ -126,7 +135,7 @@ if [ -z "$PROFILE" ]; then
   fi
 fi
 
-MANIFEST="$ENVDIR/$PROFILE/manifest"
+MANIFEST="$DOTFILES/environment/$PROFILE/manifest"
 if [ ! -f "$MANIFEST" ]; then
   echo "setup: no manifest for profile '$PROFILE'" >&2
   echo "available profiles:" >&2
@@ -154,7 +163,7 @@ fi
 
 echo
 link_failed=0
-"$DOTFILES/scripts/dotfile" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} || link_failed=1
+"$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} || link_failed=1
 
 if command -v systemctl >/dev/null 2>&1 && [ -f "$HOME/.config/systemd/user/generate-theme.path" ]; then
   systemctl --user daemon-reload 2>/dev/null || true

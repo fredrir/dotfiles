@@ -55,7 +55,6 @@ Already cloned, or re-running
 
 ```bash
 ~/dotfiles/bootstrap-vps.sh
-./setup.sh ubuntu/server
 ```
 
 ## Theme
@@ -65,7 +64,7 @@ Already cloned, or re-running
 - **To regenerate theme:**
 
 ```bash
-python3 scripts/generate-theme.py
+generate-theme
 ```
 
 ```bash
@@ -93,11 +92,26 @@ dotfile packages
 dotfile format
 ```
 
-## Scripts
+## Command-line tools
+
+Workstation commands live in a uv-managed Python project under `scripts/` and
+are installed by `./setup.sh`:
 
 ```bash
-tests/run.sh          # everything
-tests/run.sh link     # one group
+uv sync --project scripts --locked
+```
+
+`scripts/.venv/bin` is added to PATH by the workstation zsh profiles and
+provides `count`, `size`, `path`, `tardirs`, `gpp`, `oc`, `sysinfo`,
+`power-menu`, `confirm-exit`, `generate-theme`, `update-readme-fastfetch`,
+and `dotfile`.
+
+## Tests
+
+```bash
+tests/run.sh
+tests/run.sh link
+uv run --project scripts pytest
 ```
 
 ## Adding a machine

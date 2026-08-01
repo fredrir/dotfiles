@@ -4,7 +4,6 @@ linux/common/gtk = ~/.config
 linux/common/jetbrains = ~/.config/JetBrains
 shared/obsidian = ~/Documents/main/.obsidian
 linux/common/theme-watch = ~/.config/systemd/user
-linux/common/bin = ~/.local/bin
 linux/kde/plasma = ~/.config
 linux/kde/krunnerrc = ~/.config
 linux/kde/konsole/konsolerc = ~/.config/konsolerc

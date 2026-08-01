@@ -31,26 +31,6 @@ alias git pull='git fetch && git pull'
 alias gd='git diff'
 alias gff="git add . && git commit -m "." && git push"
 
-gpp() {
-  if (( $# == 0 )); then
-    print -u2 "Usage: gpp <commit message>"
-    return 1
-  fi
-
-  git add . || return 1
-
-  if git diff --cached --quiet; then
-    print -u2 "gpp: nothing to commit"
-    return 1
-  else
-    local diff_status=$?
-    (( diff_status == 1 )) || return "$diff_status"
-  fi
-
-  git commit -m "$*" || return 1
-  git push
-}
-
 # Navigation
 alias ..='cd ..'
 alias ...='cd ../..'

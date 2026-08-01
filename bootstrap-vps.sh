@@ -151,14 +151,158 @@ ensure_repo() {
 }
 
 # --- link dotfiles -----------------------------------------------------------
-run_setup() {
+# Standalone per-file linker for the server profile: no dependency on the
+# workstation Python tooling. Every tracked file gets its own symlink at the
+# destination mapped by the targets file (default ~/.config/<package>/...).
+declare -A LINK_TARGETS=()
+LINK_CONFLICTS=0
+
+load_link_targets() {
+  LINK_TARGETS=()
+  [ -f "$DOTFILES_DIR/targets" ] || return 0
+  local line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *=*) ;; *) continue ;; esac
+    key="${line%%=*}"; key="${key#"${key%%[![:space:]]*}"}"; key="${key%"${key##*[![:space:]]}"}"
+    value="${line#*=}"; value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"
+    LINK_TARGETS["$key"]="${value/#\~/$HOME}"
+  done < "$DOTFILES_DIR/targets"
+}
+
+map_link_dst() { # repo-relative path, package name, path inside package
+  local full="$1" pkg="$2" rel="$3" key best=""
+  for key in "${!LINK_TARGETS[@]}"; do
+    if [ "$full" = "$key" ] || [ "${full#"$key"/}" != "$full" ]; then
+      if [ "${#key}" -gt "${#best}" ]; then best="$key"; fi
+    fi
+  done
+  if [ -z "$best" ]; then
+    printf '%s\n' "$HOME/.config/$pkg${rel:+/$rel}"
+  elif [ "$full" = "$best" ]; then
+    printf '%s\n' "${LINK_TARGETS[$best]}"
+  else
+    printf '%s\n' "${LINK_TARGETS[$best]}/${full#"$best"/}"
+  fi
+}
+
+dismantle_folded_ancestors() { # destination path
+  local rest="${1#"$HOME"/}" current="$HOME" segment target
+  while [ "$rest" != "${rest#*/}" ]; do
+    segment="${rest%%/*}"
+    rest="${rest#*/}"
+    current="$current/$segment"
+    [ -L "$current" ] || continue
+    target="$(readlink "$current")"
+    case "$target" in
+      "$DOTFILES_DIR"/*)
+        [ -d "$target" ] || return 0
+        rm "$current"
+        mkdir -p "$current"
+        link_file_tree "$target" "$current"
+        ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+link_one_file() { # source file, destination path
+  local src="$1" dst="$2" current
+  dismantle_folded_ancestors "$dst"
+  if [ -L "$dst" ]; then
+    current="$(readlink "$dst")"
+    if [ "$current" = "$src" ]; then return 0; fi
+    case "$current" in
+      "$DOTFILES_DIR"/*) rm "$dst" ;;
+      *)
+        warn "conflict: $dst is a foreign symlink — move it aside and re-run"
+        LINK_CONFLICTS=$((LINK_CONFLICTS + 1))
+        return 0
+        ;;
+    esac
+  elif [ -e "$dst" ]; then
+    warn "conflict: $dst exists — move it aside and re-run"
+    LINK_CONFLICTS=$((LINK_CONFLICTS + 1))
+    return 0
+  fi
+  mkdir -p "$(dirname "$dst")"
+  ln -s "$src" "$dst"
+}
+
+link_file_tree() { # source directory, destination directory
+  local srcdir="$1" dstdir="$2" entry name
+  shopt -s dotglob nullglob
+  for entry in "$srcdir"/*; do
+    name="$(basename "$entry")"
+    [ "$name" = ".nolink" ] && continue
+    if [ -d "$entry" ] && [ ! -L "$entry" ]; then
+      link_file_tree "$entry" "$dstdir/$name"
+    else
+      link_one_file "$entry" "$dstdir/$name"
+    fi
+  done
+}
+
+link_package_files() { # group, package directory
+  local group="$1" pkgdir="$2" pkg entry name rel full dst
+  pkg="$(basename "$pkgdir")"
+  while IFS= read -r entry; do
+    name="$(basename "$entry")"
+    [ "$name" = ".nolink" ] && continue
+    rel="${entry#"$pkgdir"/}"
+    full="$group/$pkg/$rel"
+    dst="$(map_link_dst "$full" "$pkg" "$rel")"
+    link_one_file "$entry" "$dst"
+  done < <(find "$pkgdir" \( -type f -o -type l \) ! -name .nolink | LC_ALL=C sort)
+}
+
+prune_dead_repo_links() {
+  local link
+  while IFS= read -r link; do
+    case "$(readlink "$link")" in
+      "$DOTFILES_DIR"/*) [ -e "$link" ] || rm "$link" ;;
+    esac
+  done < <(
+    find "$HOME" -maxdepth 1 -type l 2>/dev/null
+    find "$HOME/.config" "$HOME/.local" -maxdepth 6 -type l 2>/dev/null
+  )
+}
+
+link_dotfiles() {
   # A distro-provided ~/.zshrc would conflict with the linker; move it aside once.
   if [ -e "$HOME/.zshrc" ] && [ ! -L "$HOME/.zshrc" ]; then
     warn "backing up existing ~/.zshrc -> ~/.zshrc.pre-dotfiles"
     mv "$HOME/.zshrc" "$HOME/.zshrc.pre-dotfiles"
   fi
   say "Linking profile '$PROFILE'"
-  set +e; "$DOTFILES_DIR/setup.sh" "$PROFILE"; SETUP_RC=$?; set -e
+
+  local manifest="$DOTFILES_DIR/environment/$PROFILE/manifest" group pkgdir
+  if [ ! -f "$manifest" ]; then
+    warn "no manifest for profile '$PROFILE' — skipping dotfile links."
+    SETUP_RC=1
+    return
+  fi
+
+  load_link_targets
+  prune_dead_repo_links
+
+  while IFS= read -r group || [ -n "$group" ]; do
+    group="${group%%#*}"
+    group="${group#"${group%%[![:space:]]*}"}"
+    group="${group%"${group##*[![:space:]]}"}"
+    [ -n "$group" ] || continue
+    if [ ! -d "$DOTFILES_DIR/$group" ]; then
+      warn "skip missing group: $group"
+      continue
+    fi
+    for pkgdir in "$DOTFILES_DIR/$group"/*/; do
+      pkgdir="${pkgdir%/}"
+      [ "$(basename "$pkgdir")" = "overrides" ] && continue
+      [ -e "$pkgdir/.nolink" ] && continue
+      link_package_files "$group" "$pkgdir"
+    done
+  done < "$manifest"
+
+  SETUP_RC="$LINK_CONFLICTS"
 }
 
 # --- login shell -----------------------------------------------------------
@@ -193,12 +337,12 @@ nvim_recent || install_nvim_tarball
 install_ohmyzsh
 install_starship
 ensure_repo
-run_setup
+link_dotfiles
 set_login_shell
 sync_nvim
 
 echo
 if [ "${SETUP_RC:-0}" -ne 0 ]; then
-  warn "dotfile link reported conflicts (see above) — resolve and re-run: $DOTFILES_DIR/setup.sh $PROFILE"
+  warn "dotfile linking reported conflicts (see above) — resolve and re-run: $DOTFILES_DIR/bootstrap-vps.sh"
 fi
 say "Done. Start a new session (or run: exec zsh) to pick up the new shell."

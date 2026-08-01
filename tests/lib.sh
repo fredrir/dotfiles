@@ -33,7 +33,7 @@ require_sandboxed_home() {
 
 dotfile() {
   require_sandboxed_home
-  OUTPUT="$(bash "$SOURCE_ROOT/scripts/dotfile" "$@" 2>&1)"
+  OUTPUT="$("$SOURCE_ROOT/scripts/.venv/bin/dotfile" "$@" 2>&1)"
   STATUS=$?
   return 0
 }

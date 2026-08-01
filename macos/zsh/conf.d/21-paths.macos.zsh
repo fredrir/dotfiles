@@ -1,5 +1,6 @@
 path=(
   "$HOME/.local/bin"
+  "$HOME/dotfiles/scripts/.venv/bin"
   $path
 )
 
