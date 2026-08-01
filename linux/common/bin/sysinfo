@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'sysinfo: %s\n' "$1" >&2
+  exit 1
+}
+
+command -v fastfetch >/dev/null 2>&1 || fail "fastfetch is required"
+command -v jq >/dev/null 2>&1 || fail "jq is required"
+
+hardware_gpu=""
+hardware_cpu=""
+cpu_cooler="not set"
+motherboard=""
+hardware_memory=""
+storage=""
+computer_case="not set"
+power_supply="not set"
+self="${BASH_SOURCE[0]}"
+while [ -L "$self" ]; do
+  target="$(readlink "$self")"
+  case "$target" in
+    /*) self="$target" ;;
+    *) self="$(dirname "$self")/$target" ;;
+  esac
+done
+bin="$(cd "$(dirname "$self")" && pwd -P)"
+dotfiles="$(cd "$bin/../../.." && pwd -P)"
+config="${SYSINFO_CONFIG:-$dotfiles/hardware.dotfile}"
+hardware_profile="${SYSINFO_HARDWARE:-desktop}"
+
+if [ -r "$config" ]; then
+  active=0
+  while IFS= read -r line || [ -n "${line:-}" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if [ "$active" -eq 0 ]; then
+      if [ "$line" = "$hardware_profile {" ]; then
+        active=1
+      fi
+      continue
+    fi
+    [ "$line" = "}" ] && break
+    case "$line" in
+      *=*) ;;
+      *) continue ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key//[[:space:]]/}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$key" in
+      GPU) hardware_gpu="$value" ;;
+      CPU) hardware_cpu="$value" ;;
+      CPU_COOLER) cpu_cooler="$value" ;;
+      MOTHERBOARD) motherboard="$value" ;;
+      MEMORY) hardware_memory="$value" ;;
+      STORAGE) storage="$value" ;;
+      CASE) computer_case="$value" ;;
+      POWER_SUPPLY) power_supply="$value" ;;
+    esac
+  done < "$config"
+fi
+
+gpu_vram=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+  gpu_mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null || true)"
+  gpu_mib="${gpu_mib%%$'\n'*}"
+  gpu_mib="${gpu_mib//[[:space:]]/}"
+  case "$gpu_mib" in
+    ''|*[!0-9]*) ;;
+    *) gpu_vram="$(( (gpu_mib + 512) / 1024 )) GB" ;;
+  esac
+fi
+
+shell_path="${SHELL:-}"
+shell_name="${shell_path##*/}"
+shell_version=""
+if [ -x "$shell_path" ]; then
+  case "$shell_name" in
+    zsh) shell_version="$("$shell_path" -c 'printf %s "$ZSH_VERSION"')" ;;
+    bash) shell_version="$("$shell_path" -c 'printf %s "$BASH_VERSION"')" ;;
+    fish) shell_version="$("$shell_path" -c 'printf %s "$version"')" ;;
+  esac
+fi
+
+terminal_name=""
+terminal_version=""
+terminal_executable=""
+ancestor="$PPID"
+while [ -n "$ancestor" ] && [ "$ancestor" -gt 1 ] 2>/dev/null; do
+  process="$(ps -o comm= -p "$ancestor" 2>/dev/null || true)"
+  process="${process#"${process%%[![:space:]]*}"}"
+  process="${process%"${process##*[![:space:]]}"}"
+  case "$process" in
+    konsole) terminal_name="Konsole"; terminal_executable="konsole" ;;
+    kitty) terminal_name="kitty"; terminal_executable="kitty" ;;
+    alacritty) terminal_name="Alacritty"; terminal_executable="alacritty" ;;
+    wezterm|wezterm-gui) terminal_name="WezTerm"; terminal_executable="wezterm" ;;
+    ghostty) terminal_name="Ghostty"; terminal_executable="ghostty" ;;
+    foot|footclient) terminal_name="foot"; terminal_executable="foot" ;;
+    gnome-terminal*) terminal_name="GNOME Terminal"; terminal_executable="gnome-terminal" ;;
+    tilix) terminal_name="Tilix"; terminal_executable="tilix" ;;
+    xfce4-terminal) terminal_name="Xfce Terminal"; terminal_executable="xfce4-terminal" ;;
+  esac
+  [ -z "$terminal_name" ] || break
+  ancestor="$(ps -o ppid= -p "$ancestor" 2>/dev/null || true)"
+  ancestor="${ancestor//[[:space:]]/}"
+done
+
+if [ -n "$terminal_executable" ] && command -v "$terminal_executable" >/dev/null 2>&1; then
+  terminal_version="$("$terminal_executable" --version 2>/dev/null || true)"
+  terminal_version="${terminal_version%%$'\n'*}"
+  read -r _ terminal_version _ <<< "$terminal_version"
+fi
+
+if ! data="$(fastfetch -c none --format json --structure OS:Kernel:Shell:CPU:GPU:Memory:Disk:DE:WM:Terminal:Board:PhysicalDisk 2>/dev/null)"; then
+  fail "fastfetch could not collect system information"
+fi
+
+jq -r \
+  --arg gpuVram "$gpu_vram" \
+  --arg shellName "$shell_name" \
+  --arg shellVersion "$shell_version" \
+  --arg terminalName "$terminal_name" \
+  --arg terminalVersion "$terminal_version" \
+  --arg hardwareGpu "$hardware_gpu" \
+  --arg hardwareCpu "$hardware_cpu" \
+  --arg cpuCooler "$cpu_cooler" \
+  --arg motherboard "$motherboard" \
+  --arg hardwareMemory "$hardware_memory" \
+  --arg storage "$storage" \
+  --arg computerCase "$computer_case" \
+  --arg powerSupply "$power_supply" '
+def result($type): [ .[] | select(.type == $type and .result != null) | .result ][0] // {};
+def capacity:
+  if . >= 1000000000000 then "\(((. / 100000000000) | round) / 10) TB"
+  elif . >= 1000000000 then "\(((. / 100000000) | round) / 10) GB"
+  elif . > 0 then "\(((. / 100000) | round) / 10) MB"
+  else "unknown"
+  end;
+def memory_capacity:
+  if . > 0 then "\((((. / 1073741824 / 8) | ceil) * 8)) GB" else "unknown" end;
+def named_gpu:
+  (.vendor // "") as $vendor
+  | if ($vendor != "" and ((.name // "") | startswith($vendor) | not))
+    then "\($vendor) \(.name)"
+    else (.name // "unknown")
+    end;
+def present($value; $fallback): if ($value | length) > 0 then $value else $fallback end;
+result("OS") as $os
+| result("Kernel") as $kernel
+| result("Shell") as $shell
+| result("CPU") as $cpu
+| result("GPU") as $allGpus
+| result("Memory") as $memory
+| result("Disk") as $logicalDisks
+| result("DE") as $de
+| result("WM") as $wm
+| result("Terminal") as $terminal
+| result("Board") as $board
+| result("PhysicalDisk") as $physicalDisks
+| (($allGpus | map(select((.type // "") == "Discrete"))) as $discrete | if ($discrete | length) > 0 then $discrete else $allGpus end) as $gpus
+| ($gpus | map(named_gpu) | join(" + ")) as $gpuName
+| ($physicalDisks | map("\(.name) \(.size | capacity)\(if (.interconnect // "") != "" then " " + .interconnect else "" end)") | join(" + ")) as $disks
+| (($physicalDisks | map(.size) | add // 0) as $physicalSize | if $physicalSize > 0 then $physicalSize else ($logicalDisks | map(.bytes.total) | add // 0) end | capacity) as $diskCapacity
+| (if ($board.vendor // "") == "ASUSTeK COMPUTER INC." then "ASUS" else ($board.vendor // "") end) as $boardVendor
+| ([$boardVendor, ($board.name // "")] | map(select(length > 0)) | join(" ")) as $boardName
+| ($memory.total // 0 | memory_capacity) as $memoryCapacity
+| (present($gpuName; "unknown")) as $gpu
+| (present($hardwareGpu; ($gpu + (if ($gpuVram | length) > 0 then " " + $gpuVram else "" end)))) as $hardwareGpuName
+| (present($hardwareCpu; ($cpu.cpu // "unknown"))) as $hardwareCpuName
+| (present($motherboard; present($boardName; "unknown"))) as $motherboardName
+| (present($hardwareMemory; $memoryCapacity)) as $hardwareMemoryName
+| (present($storage; present($disks; "unknown"))) as $storageName
+| "Environment: OS=\($os.prettyName // "unknown"), Kernel=\($kernel.release // "unknown"), Shell=\(present($shellName; $shell.prettyName // "unknown"))\(if ($shellVersion | length) > 0 then " " + $shellVersion elif ($shell.version // "") != "" then " " + $shell.version else "" end), CPU=\($cpu.cpu // "unknown"), GPU=\($gpu), Memory=\($memoryCapacity), Disk=\($diskCapacity), DE=\($de.prettyName // "unknown")\(if ($de.version // "") != "" then " " + $de.version else "" end), WM=\($wm.prettyName // "unknown")\(if ($wm.protocolName // "") != "" then " (" + $wm.protocolName + ")" else "" end), Terminal=\(present($terminalName; $terminal.prettyName // "unknown"))\(if ($terminalVersion | length) > 0 then " " + $terminalVersion elif ($terminal.version // "") != "" then " " + $terminal.version else "" end)",
+"Hardware: GPU=\($hardwareGpuName), CPU=\($hardwareCpuName), CPU cooler=\($cpuCooler), Motherboard=\($motherboardName), Memory=\($hardwareMemoryName), Storage=\($storageName), Case=\($computerCase), Power supply=\($powerSupply)"
+' <<< "$data"

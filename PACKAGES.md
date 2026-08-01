@@ -12,6 +12,7 @@
 
 ## `linux/common`
 
+- `bin` — Command-line utilities
 - `flameshot` — Screenshot tool configuration
 - `fontconfig`
 - `gtk` — GTK theme settings
