@@ -3,16 +3,21 @@ keymap:
   - name: Literal backtick
     remap:
       Shift-Equal: [Shift-Equal, Space]
-  - name: Konsole and kitty copy and interrupt
+  - name: Konsole clean copy and interrupt
     application:
-      only: /(?i)^(org\.kde\.konsole|kitty)$/
+      only: /(?i)^org\.kde\.konsole$/
     exact_match: true
     remap:
       Ctrl-C: Ctrl-Shift-C
       Ctrl-X: Ctrl-C
-  - name: Clean paste
-    remap:
-      Ctrl-Shift-V:
-        - launch: ["/bin/sh", "-c", "$HOME/dotfiles/scripts/.venv/bin/clean-paste"]
+      Ctrl-Shift-C:
+        - Ctrl-Shift-C
         - sleep: 200
-        - Ctrl-Shift-V
+        - launch: ["/bin/sh", "-c", "$HOME/dotfiles/scripts/.venv/bin/clean-copy"]
+  - name: kitty copy and interrupt
+    application:
+      only: /(?i)^kitty$/
+    exact_match: true
+    remap:
+      Ctrl-C: Ctrl-Shift-C
+      Ctrl-X: Ctrl-C

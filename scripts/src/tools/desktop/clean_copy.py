@@ -1,5 +1,8 @@
 import re
 import subprocess
+import sys
+from textwrap import dedent
+from typing import Annotated
 
 import typer
 
@@ -18,25 +21,6 @@ SPACE_LIKE = dict.fromkeys(map(ord, "\u00a0\u202f\u2007"), " ")
 TRANSLATIONS = {**CONTROL_CHARS, **ZERO_WIDTH, **SPACE_LIKE}
 
 
-def common_indent(lines):
-    prefix = None
-    for line in lines:
-        if not line:
-            continue
-        indent = line[: len(line) - len(line.lstrip(" \t"))]
-        if prefix is None:
-            prefix = indent
-            continue
-        limit = min(len(prefix), len(indent))
-        matched = 0
-        while matched < limit and prefix[matched] == indent[matched]:
-            matched += 1
-        prefix = prefix[:matched]
-        if not prefix:
-            return ""
-    return prefix or ""
-
-
 def clean_text(text):
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = ESCAPES.sub("", text)
@@ -46,10 +30,7 @@ def clean_text(text):
         lines.pop(0)
     while lines and not lines[-1]:
         lines.pop()
-    prefix = common_indent(lines)
-    if prefix:
-        lines = [line[len(prefix) :] if line else line for line in lines]
-    return "\n".join(lines)
+    return dedent("\n".join(lines))
 
 
 def read_clipboard():
@@ -73,9 +54,11 @@ def write_clipboard(text):
     subprocess.run(["wl-copy"], input=text.encode("utf-8"), check=False)
 
 
-@app.command(help="Rewrite the clipboard as clean plain text: strip escapes, dedent, trim.")
-def clean_paste():
-    text = read_clipboard()
+@app.command(help="Clean selected text and write it to the clipboard.")
+def clean_copy(
+    stdin: Annotated[bool, typer.Option("--stdin", help="Read selected text from stdin.")] = False,
+):
+    text = sys.stdin.read() if stdin else read_clipboard()
     if text is None:
         return
     cleaned = clean_text(text)
