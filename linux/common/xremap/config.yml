@@ -10,3 +10,9 @@ keymap:
     remap:
       Ctrl-C: Ctrl-Shift-C
       Ctrl-X: Ctrl-C
+  - name: Clean paste
+    remap:
+      Ctrl-Shift-V:
+        - launch: ["/bin/sh", "-c", "$HOME/dotfiles/scripts/.venv/bin/clean-paste"]
+        - sleep: 200
+        - Ctrl-Shift-V

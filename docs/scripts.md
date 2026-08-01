@@ -35,6 +35,7 @@ scripts/
     desktop/
       power_menu.py          wofi power menu (Hyprland)
       confirm_exit.py        wofi exit confirmation (Hyprland)
+      clean_paste.py         clipboard normaliser behind Ctrl+Shift+V
     readme/
       fastfetch.py           fastfetch preview block in README.md
     theme/
@@ -274,6 +275,30 @@ else is left alone, because widget placeholders and gradient defaults share the
 same syntax and rewriting them would corrupt unrelated settings.
 
 ---
+
+## clean-paste
+
+Rewrites the clipboard as clean plain text: CRLF to LF, ANSI/OSC escapes
+stripped, non-breaking and zero-width spaces normalised, stray control
+characters dropped (tabs kept), trailing whitespace removed, leading and
+trailing blank lines trimmed, and the longest whitespace prefix common to
+every non-blank line removed, so relative nesting survives while the
+terminal-UI indentation that tools like codex leave behind does not. Because
+the cleaned text is re-copied, only `text/plain` is offered afterwards, which
+is what strips rich-text formatting.
+
+The desktop-wide binding lives in `linux/common/xremap/config.yml`, not in any
+one application: xremap intercepts Ctrl+Shift+V, launches `clean-paste`,
+sleeps 200ms (the command runs in ~50ms; the margin covers large clipboards),
+then re-emits Ctrl+Shift+V. Re-emitting the same combination is what keeps the
+binding application-neutral — terminals still see their native paste, GUI apps
+still see paste-without-formatting — and it cannot loop because xremap never
+watches its own virtual output device (the existing `Shift-Equal` rule relies
+on the same property). If the venv is missing the launch fails silently and
+the key degrades to a plain paste.
+
+A non-text clipboard (an image), invalid UTF-8, or whitespace-only content is
+left untouched.
 
 ## update-readme-fastfetch
 

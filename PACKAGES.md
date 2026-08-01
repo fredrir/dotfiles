@@ -6,6 +6,7 @@
 - `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from theme/palette.toml
+- `skills`
 - `starship` — Cross-shell prompt configuration
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration

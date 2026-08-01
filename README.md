@@ -103,8 +103,8 @@ uv sync --project scripts --locked
 
 `scripts/.venv/bin` is added to PATH by the workstation zsh profiles and
 provides `count`, `size`, `path`, `tardirs`, `gpp`, `oc`, `sysinfo`,
-`power-menu`, `confirm-exit`, `generate-theme`, `update-readme-fastfetch`,
-and `dotfile`.
+`power-menu`, `confirm-exit`, `clean-paste`, `generate-theme`,
+`update-readme-fastfetch`, and `dotfile`.
 
 ## Tests
 
