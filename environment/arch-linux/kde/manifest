@@ -1,3 +1,4 @@
 shared
 linux/common
+linux/arch
 linux/kde

@@ -25,8 +25,8 @@ EMITTERS = [
     Emitter(
         "konsole", emitters.emit_konsole, ["linux/kde/konsole/share/Catppuccin-Mocha.colorscheme"]
     ),
-    Emitter("fastfetch-config", emitters.emit_fastfetch_config, ["shared/fastfetch/config.jsonc"]),
-    Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, ["shared/fastfetch/arch.txt"]),
+    Emitter("fastfetch-config", emitters.emit_fastfetch_config, emitters.FASTFETCH_CONFIGS),
+    Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, emitters.FASTFETCH_LOGOS),
     Emitter("starship", emitters.emit_starship, ["shared/starship/starship.toml"]),
     Emitter("zsh", emitters.emit_zsh, ["shared/zsh/conf.d/03-theme.zsh"]),
     Emitter("obsidian", emitters.emit_obsidian, [f"{emitters.OBSIDIAN_DIR}/theme.css"]),

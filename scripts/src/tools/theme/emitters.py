@@ -30,6 +30,19 @@ ANSI_NORMAL = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "wh
 
 FASTFETCH_SECTIONS = ["section_system", "section_hardware", "section_desktop", "section_network"]
 
+FASTFETCH_CONFIGS = [
+    "shared/fastfetch/config.jsonc",
+    "linux/arch/fastfetch/config.jsonc",
+    "linux/ubuntu/fastfetch/config.jsonc",
+    "macos/fastfetch/config.jsonc",
+]
+
+FASTFETCH_LOGOS = [
+    "linux/arch/fastfetch/arch.txt",
+    "linux/ubuntu/fastfetch/ubuntu.txt",
+    "macos/fastfetch/apple.txt",
+]
+
 PROMPT_ROLES = ("prompt_python", "prompt_git", "prompt_dir", "prompt_duration", "prompt_char")
 
 EZA_KINDS = ("fi", "di", "ex", "ln", "pi", "so", "bd", "cd")
@@ -128,35 +141,38 @@ def emit_fastfetch_config(theme, out):
                 updated[index] = re.sub(r"#[0-9a-fA-F]{6}", separator, line)
         return "\n".join(updated)
 
-    out.edit(path("shared/fastfetch/config.jsonc"), transform)
+    for config in FASTFETCH_CONFIGS:
+        out.edit(path(config), transform)
 
 
 def emit_fastfetch_logo(theme, out):
     stops = [theme.rgb(theme.role(role)) for role in FASTFETCH_SECTIONS]
     segments = len(stops) - 1
-    target = path("shared/fastfetch/arch.txt")
-    with open(target, encoding="utf-8") as handle:
-        raw = handle.read().split("\n")
-    trailing_newline = bool(raw) and raw[-1] == ""
-    if trailing_newline:
-        raw = raw[:-1]
-
-    art = [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in raw]
-    count = len(art)
 
     def lerp(start, end, ratio):
         return tuple(round(start[i] + (end[i] - start[i]) * ratio) for i in range(3))
 
-    body = []
-    for index, line in enumerate(art):
-        position = (index / (count - 1)) * segments if count > 1 else 0
-        segment = min(int(position), segments - 1)
-        red, green, blue = lerp(stops[segment], stops[segment + 1], position - segment)
-        body.append(f"\x1b[1;38;2;{red};{green};{blue}m{line}")
-    content = "\n".join(body) + "\x1b[0m"
-    if trailing_newline:
-        content += "\n"
-    out.write(target, content)
+    for logo in FASTFETCH_LOGOS:
+        target = path(logo)
+        with open(target, encoding="utf-8") as handle:
+            raw = handle.read().split("\n")
+        trailing_newline = bool(raw) and raw[-1] == ""
+        if trailing_newline:
+            raw = raw[:-1]
+
+        art = [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in raw]
+        count = len(art)
+
+        body = []
+        for index, line in enumerate(art):
+            position = (index / (count - 1)) * segments if count > 1 else 0
+            segment = min(int(position), segments - 1)
+            red, green, blue = lerp(stops[segment], stops[segment + 1], position - segment)
+            body.append(f"\x1b[1;38;2;{red};{green};{blue}m{line}")
+        content = "\n".join(body) + "\x1b[0m"
+        if trailing_newline:
+            content += "\n"
+        out.write(target, content)
 
 
 def emit_starship(theme, out):

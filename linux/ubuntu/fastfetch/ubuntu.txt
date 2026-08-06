@@ -1,0 +1,20 @@
+[1;38;2;61;174;233m                                ....
+[1;38;2;91;175;218m                 .',:clooo:  .:looooo:.
+[1;38;2;121;176;202m              .;looooooooc  .oooooooooo'
+[1;38;2;151;176;187m           .;looooool:,''.  :ooooooooooc
+[1;38;2;180;177;171m          ;looool;.         'oooooooooo,
+[1;38;2;210;178;156m         ;clool'             .cooooooc.  ,,
+[1;38;2;240;179;140m            ...                ......  .:oo,
+[1;38;2;245;178;147m     .;clol:,.                        .loooo'
+[1;38;2;238;176;164m    :ooooooooo,                        'ooool
+[1;38;2;230;174;182m   'ooooooooooo.                        loooo.
+[1;38;2;223;171;200m   'ooooooooool                         coooo.
+[1;38;2;215;169;218m    ,loooooooc.                        .loooo.
+[1;38;2;208;167;235m      .,;;;'.                          ;ooooc
+[1;38;2;199;171;240m          ...                         ,ooool.
+[1;38;2;186;185;218m       .cooooc.              ..',,'.  .cooo.
+[1;38;2;174;199;195m         ;ooooo:.           ;oooooooc.  :l.
+[1;38;2;161;213;173m          .coooooc,..      coooooooooo.
+[1;38;2;149;227;151m            .:ooooooolc:. .ooooooooooo'
+[1;38;2;136;241;129m              .':loooooo;  ,oooooooooc
+[1;38;2;124;255;107m                  ..';::c'  .;loooo:'[0m

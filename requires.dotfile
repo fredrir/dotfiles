@@ -1,0 +1,72 @@
+# What the configs in each group expect to find on the machine. `dotfile check`
+# keeps the blocks the selected profile links and reports what is missing.
+#
+#   name                a command that has to be on PATH
+#   name = package      ... installed under a different package name
+#   font <family>       a font family the configs ask for by name
+#   file <path>         a path that has to exist but is not tracked here
+#   ?name               wanted but not required: reported, never a failure
+
+shared {
+  git
+  zsh
+  uv
+  nvim = neovim
+  kitty
+  yazi
+  starship
+  fastfetch
+  lazygit
+  fzf
+  eza
+  bat
+  fd
+  rg = ripgrep
+  zoxide
+  direnv
+  ?gh = github-cli
+  ?docker
+  font Hack Nerd Font Mono
+  font Noto Sans
+}
+
+macos {
+  brew = homebrew
+}
+
+linux/common {
+  flameshot
+  xremap
+  fc-cache = fontconfig
+}
+
+linux/kde {
+  plasmashell = plasma-desktop
+  konsole
+  kate
+  ?dolphin
+  font Hack Nerd Font
+}
+
+linux/hyprland {
+  Hyprland = hyprland
+  hyprlock
+  hypridle
+  waybar
+  dunst
+  wofi
+  wlogout
+  walker
+  elephant
+  swaybg
+  wl-copy = wl-clipboard
+  qt5ct
+  qt6ct
+  ?cliphist
+  ?grimblast
+  ?brightnessctl
+  ?playerctl
+  ?hyprsunset
+  font JetBrainsMono Nerd Font
+  file ~/.config/hypr/wallpaper.png
+}

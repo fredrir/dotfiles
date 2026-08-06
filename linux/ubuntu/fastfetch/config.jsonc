@@ -18,14 +18,15 @@
     "percent": { "type": 9, "green": 50, "yellow": 80 }
   },
 
-  // No logo of our own: a platform group that styles fastfetch ships its own
-  // config, so this one only ever runs on a platform we have not styled. Let
-  // fastfetch draw whatever it detects rather than mislabel the machine.
   "logo": {
-    "type": "builtin",
-    "padding": { "top": 6, "left": 3, "right": 5 }
+    "type": "file-raw",
+    "source": "~/.config/fastfetch/ubuntu.txt",
+    "padding": { "top": 1, "left": 3, "right": 5 }
   },
 
+  // No DESKTOP section: the only profile that links this group is
+  // ubuntu/server, where DE, WM, theme and display detect nothing and would
+  // leave the heading standing on its own.
   "modules": [
     "break",
 
@@ -34,26 +35,18 @@
     "break",
 
     { "type": "custom", "format": "{$1}  SYSTEM" },
-    { "type": "os", "key": "{$1}󰌽  OS" },
-    { "type": "kernel", "key": "{$1}󰒓  Kernel" },
+    { "type": "os", "key": "{$1}󰕈  OS" },
+    { "type": "kernel", "key": "{$1}󰌽  Kernel" },
     { "type": "uptime", "key": "{$1}󰅐  Uptime" },
     { "type": "packages", "key": "{$1}󰏗  Packages" },
     { "type": "shell", "key": "{$1}󰆍  Shell" },
+    { "type": "terminal", "key": "{$1}󰆌  Terminal" },
     "break",
 
     { "type": "custom", "format": "{$2}  HARDWARE" },
     { "type": "cpu", "key": "{$2}󰻠  CPU" },
-    { "type": "gpu", "key": "{$2}󰢮  GPU" },
     { "type": "memory", "key": "{$2}󰍛  Memory", "format": "{used} / {total} [{percentage}]" },
-    { "type": "disk", "key": "{$2}󰋊  Disk", "folders": "/:/home", "format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]" },
-    "break",
-
-    { "type": "custom", "format": "{$3}  DESKTOP" },
-    { "type": "de", "key": "{$3}󰧨  DE" },
-    { "type": "wm", "key": "{$3}󰖯  WM" },
-    { "type": "terminal", "key": "{$3}󰆌  Terminal" },
-    { "type": "theme", "key": "{$3}󰏘  Theme", "format": "{theme1}" },
-    { "type": "display", "key": "{$3}󰍹  Display" },
+    { "type": "disk", "key": "{$2}󰋊  Disk", "folders": "/", "format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]" },
     "break",
 
     { "type": "custom", "format": "{$4}  NETWORK" },

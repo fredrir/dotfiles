@@ -219,14 +219,19 @@ def status_files(pkgdir):
     return sorted(found)
 
 
-def cmd_status(ctx, profile):
-    profile = resolve_profile(ctx, profile or "")
-    manifest = require_manifest(ctx, profile)
-    load_targets(ctx)
-    load_overrides(ctx)
-    collect_groups(ctx, manifest)
+def link_detail(ctx, dst):
+    if os.path.islink(dst):
+        return "→ " + shorten(ctx, resolve_link(dst))
+    if os.path.isdir(dst):
+        return "untracked directory"
+    return "untracked file"
 
-    ok = missing = differing = 0
+
+def claimed_destinations(ctx):
+    # Groups link in manifest order and a later one overwrites the link an
+    # earlier one made, so the last claim on a destination is the one that ends
+    # up there. Shadowed files are not missing, they are outranked.
+    claims = {}
     for state, pkgdir, name in each_package(ctx):
         if state != "link":
             continue
@@ -235,16 +240,39 @@ def cmd_status(ctx, profile):
             if os.path.basename(file) == ".nolink":
                 continue
             rel = file[len(pkgdir) + 1 :]
-            full = f"{name}/{rel}"
-            dst = map_dst(ctx, full, pkg, rel)
-            if not os.path.exists(dst) and not os.path.islink(dst):
-                log(f"missing  {shorten(ctx, dst)}")
-                missing += 1
-            elif resolve_path(dst) == file:
-                ok += 1
-            else:
-                log(f"differs  {shorten(ctx, dst)}")
-                differing += 1
+            claims[map_dst(ctx, f"{name}/{rel}", pkg, rel)] = file
+    return claims
+
+
+def scan_links(ctx):
+    found = []
+    for dst, file in claimed_destinations(ctx).items():
+        if not os.path.exists(dst) and not os.path.islink(dst):
+            found.append(("missing", dst, ""))
+        elif resolve_path(dst) == file:
+            found.append(("ok", dst, ""))
+        else:
+            found.append(("differs", dst, link_detail(ctx, dst)))
+    return found
+
+
+def cmd_status(ctx, profile):
+    profile = resolve_profile(ctx, profile or "")
+    manifest = require_manifest(ctx, profile)
+    load_targets(ctx)
+    load_overrides(ctx)
+    collect_groups(ctx, manifest)
+
+    ok = missing = differing = 0
+    for state, dst, _detail in scan_links(ctx):
+        if state == "ok":
+            ok += 1
+            continue
+        log(f"{state:8} {shorten(ctx, dst)}")
+        if state == "missing":
+            missing += 1
+        else:
+            differing += 1
 
     log(f"profile '{profile}': {ok} linked, {missing} missing, {differing} differing")
     if missing + differing:

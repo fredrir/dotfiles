@@ -1,7 +1,7 @@
 
 ## `shared`
 
-- `fastfetch` — System information display
+- `fastfetch` — System information display, and the fallback for unstyled platforms
 - `git` — Git configuration and global ignore rules
 - `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
@@ -21,6 +21,14 @@
 - `theme-watch` — Automatic theme generation service
 - `xremap` — Keyboard remapping configuration
 - `zsh` — Linux-specific Z shell configuration
+
+## `linux/arch`
+
+- `fastfetch` — Arch fastfetch logo and configuration
+
+## `linux/ubuntu`
+
+- `fastfetch` — Ubuntu fastfetch logo and configuration
 
 ## `linux/kde`
 
@@ -50,5 +58,6 @@
 
 ## `macos`
 
+- `fastfetch` — macOS-specific fastfetch configuration
 - `iterm` — iTerm2 terminal profile
 - `zsh` — macOS-specific Z shell configuration

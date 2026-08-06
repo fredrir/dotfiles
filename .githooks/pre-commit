@@ -12,7 +12,8 @@ if [ ! -x "$bin/dotfile" ]; then
 fi
 
 if staged packages.dotfile PACKAGES.md scripts/src/tools/dotfile \
-          environment shared linux/common linux/kde linux/hyprland linux/server macos; then
+          environment shared linux/common linux/arch linux/ubuntu linux/kde \
+          linux/hyprland linux/server macos; then
   "$bin/dotfile" packages
   git add "$root/packages.dotfile" "$root/PACKAGES.md"
 fi
@@ -29,7 +30,7 @@ if staged theme scripts/src/tools/theme; then
   fi
 fi
 
-if staged shared/fastfetch/config.jsonc; then
+if staged linux/arch/fastfetch/config.jsonc; then
   if "$bin/update-readme-fastfetch"; then
     git add "$root/README.md"
   else

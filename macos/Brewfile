@@ -9,4 +9,8 @@
 # brew "zsh"
 brew "starship"
 brew "eza"
+brew "fastfetch"
+brew "fzf-tab"
+brew "zsh-autosuggestions"
+brew "zsh-syntax-highlighting"
 # cask "raycast"

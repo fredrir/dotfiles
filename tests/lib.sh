@@ -7,7 +7,8 @@ setup_sandbox() {
   REPO="$SANDBOX/repo"
   HOME="$SANDBOX/home"
   XDG_CONFIG_HOME="$HOME/.config"
-  export HOME XDG_CONFIG_HOME
+  ZSH="$HOME/.oh-my-zsh"
+  export HOME XDG_CONFIG_HOME ZSH
   export DOTFILE_ROOT="$REPO"
   mkdir -p "$REPO" "$HOME/.config" "$HOME/.local/share" "$HOME/.local/bin"
   : > "$REPO/targets"

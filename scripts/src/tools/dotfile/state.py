@@ -14,6 +14,7 @@ class Context:
         self.state_dir = os.path.join(config_home, "dotfile")
         self.targets_file = os.path.join(self.root, "targets")
         self.packages_config = os.path.join(self.root, "packages.dotfile")
+        self.requires_file = os.path.join(self.root, "requires.dotfile")
         self.packages_doc = os.path.join(self.root, "PACKAGES.md")
         self.overrides_file = os.path.join(self.state_dir, "overrides")
         self.environment_dir = os.path.join(self.root, "environment")
@@ -183,7 +184,16 @@ def select_override(ctx, group, name):
     ctx.overrides[group] = name
 
 
-def collect_groups(ctx, manifest):
+def pending_overrides(ctx, manifest):
+    return [
+        group
+        for group in manifest_groups(manifest)
+        if os.path.isdir(os.path.join(ctx.root, group, "overrides"))
+        and not ctx.overrides.get(group, "")
+    ]
+
+
+def collect_groups(ctx, manifest, notes=True):
     ctx.link_groups = []
     ctx.active_override_dirs = []
     for group in manifest_groups(manifest):
@@ -193,10 +203,11 @@ def collect_groups(ctx, manifest):
             continue
         name = ctx.overrides.get(group, "")
         if not name:
-            log(
-                f"  note: '{group}' has machine overrides ({available_overrides(ctx, group)}), none selected"
-            )
-            log(f"        select one: dotfile link --override {group}=<name>  (or =none)")
+            if notes:
+                log(
+                    f"  note: '{group}' has machine overrides ({available_overrides(ctx, group)}), none selected"
+                )
+                log(f"        select one: dotfile link --override {group}=<name>  (or =none)")
             continue
         if name == "none":
             continue
@@ -204,7 +215,7 @@ def collect_groups(ctx, manifest):
         if os.path.isdir(override_dir):
             ctx.link_groups.append(f"{group}/overrides/{name}")
             ctx.active_override_dirs.append(override_dir)
-        else:
+        elif notes:
             log(f"  skip missing override: {group}/overrides/{name}")
 
 

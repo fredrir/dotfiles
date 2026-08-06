@@ -8,7 +8,11 @@ if command -v pnpm >/dev/null; then
   unset _pnpm_comp_cache
 fi
 
-autoload -Uz compinit
-compinit
+# oh-my-zsh already runs compinit; running it a second time re-dumps the
+# completion cache on every shell start.
+if ! (( $+functions[compdef] )); then
+  autoload -Uz compinit
+  compinit
+fi
 
 zstyle ':completion:*' matcher-list '' 'm:{a-zA-Z}={A-Za-z}'

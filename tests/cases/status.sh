@@ -34,6 +34,17 @@ test_reports_destinations_owned_by_something_else() {
   assert_output_has "1 linked, 0 missing, 1 differing"
 }
 
+test_counts_a_file_a_later_group_overrides_once() {
+  mkpkg shared/alpha/alpha.conf "shared"
+  mkpkg macos/alpha/alpha.conf "macos"
+  mkprofile test shared macos
+  dotfile link test
+  dotfile status test
+  assert_ok
+  assert_output_has "1 linked, 0 missing, 0 differing"
+  assert_output_lacks "differs"
+}
+
 test_uses_the_saved_profile() {
   status_repo
   dotfile link test

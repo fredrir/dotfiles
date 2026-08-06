@@ -1,6 +1,7 @@
 import typer
 
 from tools.dotfile import add as add_command
+from tools.dotfile import check as check_command
 from tools.dotfile import format as format_command
 from tools.dotfile import link as link_command
 from tools.dotfile import packages as packages_command
@@ -26,6 +27,8 @@ GROUP_FLAGS = (
     ("server", "linux/server"),
     ("hyprland", "linux/hyprland"),
     ("kde", "linux/kde"),
+    ("arch", "linux/arch"),
+    ("ubuntu", "linux/ubuntu"),
     ("linux", "linux/common"),
     ("shared", "shared"),
 )
@@ -49,6 +52,8 @@ def add(
     path: str = typer.Argument(...),
     shared: bool = typer.Option(False, "--shared", help="place into shared (default)"),
     linux: bool = typer.Option(False, "--linux", help="place into linux/common"),
+    arch: bool = typer.Option(False, "--arch", help="place into linux/arch"),
+    ubuntu: bool = typer.Option(False, "--ubuntu", help="place into linux/ubuntu"),
     kde: bool = typer.Option(False, "--kde", help="place into linux/kde"),
     hyprland: bool = typer.Option(False, "--hyprland", help="place into linux/hyprland"),
     server: bool = typer.Option(False, "--server", help="place into linux/server"),
@@ -67,6 +72,8 @@ def add(
         "server": server,
         "hyprland": hyprland,
         "kde": kde,
+        "arch": arch,
+        "ubuntu": ubuntu,
         "linux": linux,
         "shared": shared,
     }
@@ -101,6 +108,16 @@ def format_conf(
 @app.command(help="Show link state for every file in the profile.")
 def status(profile: str | None = typer.Argument(None)):
     link_command.cmd_status(Context(), profile)
+
+
+@app.command(help="Check the profile's links, required tools, and packages.")
+def check(
+    profile: str | None = typer.Argument(None),
+    show_all: bool = typer.Option(
+        False, "--all", help="list every finding instead of the first few"
+    ),
+):
+    check_command.cmd_check(Context(), profile, show_all)
 
 
 @app.command(hidden=True)

@@ -49,6 +49,7 @@ scripts/
       state.py               repo context, profiles, overrides, manifests
       targets.py             targets file -> destination mapping
       link.py                link / unlink / prune engine
+      check.py               health of the installed environment
       packages.py            packages.dotfile and PACKAGES.md
       add.py                 adopt a live config into the repo
       remove.py              stop tracking a path, keep it live
@@ -107,6 +108,12 @@ When a directory that was previously folded stops qualifying, it is *unfolded*:
 the directory symlink is replaced by a real directory containing one symlink per
 entry. This is why `link` is safe to re-run after adding a `targets` entry.
 
+Groups are linked in manifest order, and a later group may hold a package of the
+same name as an earlier one. The shared copy is linked first, then unfolded file
+by file, and each file the later group also carries replaces its link. So a
+platform group overrides individual files of a shared package while inheriting
+the rest — how `shared/fastfetch` is specialised per platform.
+
 ### targets
 
 `targets` maps a repo path to a destination. Without an entry, a package lands
@@ -148,6 +155,77 @@ A group may contain `overrides/<name>/` directories holding machine-specific
 variants. The selection is per group, stored in `~/.config/dotfile/overrides`,
 and persists across runs. `--override <group>=none` opts out. When a group has
 overrides and none is selected, `link` prints a note rather than guessing.
+
+### check
+
+`link` reports what it did and `status` only looks at symlinks, so neither
+notices a profile linked onto a machine where the programs, fonts and plugins
+those configs need were never installed. That is the whole subject of `check`:
+symlink state stays in `status`, which already reports it destination by
+destination. One row per subject, the misses listed underneath it:
+
+```
+  check  macos
+
+  ✗ tools      2 missing
+      yazi
+      rg    ripgrep
+  ✗ fonts      1 missing
+      Noto Sans
+  ✗ plugins    1 missing
+      zsh-autosuggestions
+  ✓ brewfile   5 installed
+```
+
+`✓` and `·` pass, `✗` and `!` fail. The rows are:
+
+- **profile, venv, overrides, shell** — the profile belongs to this platform
+  (only judged when `environment/<platform>/` exists, so an unrelated profile
+  name is not guessed at), `scripts/.venv/bin` exists and is on PATH, every
+  group with `overrides/` has a selection, and the login shell is zsh.
+- **tools, fonts, files, optional** — the entries in `requires.dotfile` for the
+  groups this profile links. Fonts are matched against `fc-list` families, or
+  against the font directories when fontconfig is not installed; a family
+  matches its own weights (`HackNerdFontMono-BoldItalic`) but not a longer name
+  (`Noto Sans` is not `NotoSansAdlam`).
+- **plugins** — the zsh plugins the linked configs name, looked for in every
+  directory those configs load from: `$ZSH/custom/plugins`, the `/usr/share`
+  paths the Linux fragments use, and Homebrew's `share`.
+- **package lists** — `macos/Brewfile` through `brew list` when the profile
+  links `macos`, `pkglist.txt` and `aurlist.txt` through `pacman -Qq`. A list
+  whose package manager is missing is skipped rather than reported as hundreds
+  of missing packages.
+
+Lists stop at twelve entries; `--all` prints every one.
+
+### requires.dotfile
+
+Hand-maintained, one block per group, in the same grammar as
+`packages.dotfile`:
+
+```
+shared {
+  git                       a command that has to be on PATH
+  nvim = neovim             ... installed under a different package name
+  ?docker                   wanted but not required: reported, never a failure
+  font Hack Nerd Font Mono  a font family the configs ask for by name
+  file ~/.config/hypr/wallpaper.png    a path that has to exist, tracked elsewhere
+}
+```
+
+Keyed by group rather than by profile, so each requirement is stated once and a
+profile picks up exactly the groups its manifest links. A group that is not a
+directory in the repository is an error, so a typo cannot silently check
+nothing. Font entries carry no package name because it differs too much between
+Homebrew and pacman to be worth printing; the family name is what you search
+for either way.
+
+Requirements are declared rather than derived from the package directories,
+because the two do not line up in either direction: `shared/zsh` needs `fzf`,
+`eza` and `bat` that own no config here, and `shared/skills` needs no program
+at all. Zsh plugins are the exception — they are read out of the linked configs
+(`$ZSH/custom/plugins/<name>`, and any `<dir>/<name>/<name>.zsh` a fragment
+sources), so the list cannot drift from what the shell actually loads.
 
 ### Profiles
 
@@ -253,11 +331,45 @@ Colours used by the structural CSS outside that block (callout tints,
 `::selection`, tab shadows) stay as `@name@` placeholders in the template,
 because they are part of a rule rather than a custom property.
 
+### fastfetch per platform
+
+fastfetch reads one config, `~/.config/fastfetch/config.jsonc`, so the layout
+cannot branch on the host at runtime. The branch happens at link time instead:
+each styled platform owns a group holding its own `config.jsonc` and logo, and
+because that group is linked after `shared`, its config replaces the shared one.
+
+```
+shared/fastfetch/config.jsonc         the fallback: no logo of its own
+linux/arch/fastfetch/{arch,config}    󰣇  arch.txt
+linux/ubuntu/fastfetch/{ubuntu,config} 󰕈  ubuntu.txt, no DESKTOP section
+macos/fastfetch/{apple,config}        󰀵  apple.txt
+```
+
+The branding lives in the platform groups rather than in `shared`, `linux/common`
+or `linux/server`, because those are linked by machines the logo would be wrong
+for: `shared` reaches every host, `linux/common` would put an Arch logo on any
+Linux desktop added later, and `linux/server` would put an Ubuntu one on any VPS.
+An unstyled platform therefore links only `shared`, whose logo is
+`{"type": "builtin"}` — fastfetch draws the distro it detects, in its own
+colours, rather than a logo we picked for a different machine.
+
+The configs differ only where the platform forces it: the OS and kernel key
+icons, `hideType` on GPU (an Apple Silicon GPU reports as integrated, so hiding
+integrated GPUs there hides the only one), the disk folders, and modules that
+detect nothing on that platform — `de` on macOS, the whole desktop section on a
+headless server. Everything else is deliberately identical.
+
 ### fastfetch logo gradient
 
-`arch.txt` is recoloured with a linear gradient interpolated across the four
-section accent colours, one step per line of ASCII art. Existing escape codes
-are stripped before recolouring so the operation is idempotent.
+Every logo in `FASTFETCH_LOGOS` is recoloured with a linear gradient
+interpolated across the four section accent colours, one step per line of ASCII
+art. The logos have different line counts, so the gradient is spread over each
+file's own height and all of them end on the same four stops. Existing escape
+codes are stripped before recolouring so the operation is idempotent.
+
+The same applies to the configs in `FASTFETCH_CONFIGS`: each carries the
+`theme:constants` markers and all are stamped with the same palette, so no
+platform's config drifts from the others.
 
 ### eza colours
 

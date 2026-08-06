@@ -2,37 +2,34 @@
 
 <!-- fastfetch:start -->
 
-`````
-                                                fredrir @ archpc
-                                                ───────────────────────────────
+```
+                                      fredrir @ 173
+                                      ───────────────────────────────
 
-                                                  SYSTEM
-                                                󰣇  OS        Arch Linux x86_64
-                        -`                      󰌽  Kernel    Linux 7.1.3-arch1-2
-                       .o+`                     󰅐  Uptime    31 mins
-                      `ooo/                     󰏗  Packages  1087 (pacman)
-                     `+oooo:                    󰆍  Shell     zsh 5.9.1
-                    `+oooooo:
-                    -+oooooo+:                    HARDWARE
-                  `/:-:++oooo+:                 󰻠  CPU       AMD Ryzen 7 9800X3D (16) @ 5.27 GHz
-                 `/++++/+++++++:                󰢮  GPU       NVIDIA GeForce RTX 5070 Ti [Discrete]
-                `/++++++++++++++:               󰍛  Memory    9 GB / 31 GB [29%]
-               `/+++ooooooooooooo/`             󰋊  Disk      /  63 GB / 78 GB [81%]
-              ./ooosssso++osssssso+`            󰋊  Disk      /home  108 GB / 118 GB [92%]
-             .oossssso-````/ossssss+`
-            -osssssso.      :ssssssso.            DESKTOP
-           :osssssss/        osssso+++.         󰧨  DE        KDE Plasma 6.7.2
-          /ossssssss/        +ssssooo/-         󰖯  WM        KWin (Wayland)
-        `/ossssso+/:-        -:/+osssso+-       󰆌  Terminal  konsole 26.04.3
-       `+sso+:-`                 `.-/+oso:      󰏘  Theme     Breeze (Dark) [Qt]
-      `++:.                           `-/+/     󰍹  Display   2560x1440 in 27", 144 Hz [External] *
-      .`                                 `/     󰍹  Display   2560x1440 in 27", 144 Hz [External]
+                                        SYSTEM
+                                      󰌽  OS        macOS Tahoe 26.5.1 (25F80) arm64
+                        ..'           󰒓  Kernel    Darwin 25.5.0
+                    ,xNMM.            󰅐  Uptime    3 days, 1 hour, 24 mins
+                  .OMMMMo             󰏗  Packages  61 (brew), 5 (brew-cask)
+                  lMM"                󰆍  Shell     zsh 5.9
+        .;loddo:.  .olloddol;.
+      cKMMMMMMMMMMNWMMMMMMMMMM0:        HARDWARE
+    .KMMMMMMMMMMMMMMMMMMMMMMMWd.      󰻠  CPU       Apple M5 Pro (5+10) @ 4.61 GHz
+    XMMMMMMMMMMMMMMMMMMMMMMMX.        󰢮  GPU       Apple M5 Pro (16) @ 1.62 GHz [Integrated]
+   ;MMMMMMMMMMMMMMMMMMMMMMMM:         󰍛  Memory    18 GB / 24 GB [76%]
+   :MMMMMMMMMMMMMMMMMMMMMMMM:         󰋊  Disk      /  127 GB / 926 GB [14%]
+   .MMMMMMMMMMMMMMMMMMMMMMMMX.
+    kMMMMMMMMMMMMMMMMMMMMMMMMWd.        DESKTOP
+    'XMMMMMMMMMMMMMMMMMMMMMMMMMMk     󰖯  WM        Quartz Compositor 1.600.0
+     'XMMMMMMMMMMMMMMMMMMMMMMMMK.     󰆌  Terminal  kitty 0.48.2
+       kMMMMMMMMMMMMMMMMMMMMMMd       󰏘  Theme     Liquid Glass
+        ;KMMMMMMMWXXWMMMMMMMk.        󰍹  Display   3024x1964 @ 2x in 14", 120 Hz [Built-in]
+          "cooc*"    "*coo'"
+                                        NETWORK
+                                      󰗊  Locale    en_US.UTF-8
 
-                                                  NETWORK
-                                                󰗊  Locale    en_US.UTF-8
-
-                                                  ● ● ● ● ● ● ● ●
-`````
+                                        ● ● ● ● ● ● ● ●
+```
 
 <!-- fastfetch:end -->
 
@@ -88,23 +85,17 @@ dotfile link --override linux/hyprland=laptop
 dotfile link -n
 
 dotfile status
+dotfile check
+dotfile check --all
 dotfile packages
 dotfile format
 ```
 
 ## Command-line tools
 
-Workstation commands live in a uv-managed Python project under `scripts/` and
-are installed by `./setup.sh`:
-
 ```bash
 uv sync --project scripts --locked
 ```
-
-`scripts/.venv/bin` is added to PATH by the workstation zsh profiles and
-provides `count`, `size`, `path`, `tardirs`, `gpp`, `oc`, `sysinfo`,
-`power-menu`, `confirm-exit`, `clean-copy`, `generate-theme`,
-`update-readme-fastfetch`, and `dotfile`.
 
 ## Tests
 

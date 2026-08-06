@@ -1,4 +1,5 @@
 shared
 linux/common
+linux/arch
 linux/kde
 linux/hyprland

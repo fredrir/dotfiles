@@ -18,11 +18,9 @@
     "percent": { "type": 9, "green": 50, "yellow": 80 }
   },
 
-  // No logo of our own: a platform group that styles fastfetch ships its own
-  // config, so this one only ever runs on a platform we have not styled. Let
-  // fastfetch draw whatever it detects rather than mislabel the machine.
   "logo": {
-    "type": "builtin",
+    "type": "file-raw",
+    "source": "~/.config/fastfetch/arch.txt",
     "padding": { "top": 6, "left": 3, "right": 5 }
   },
 
@@ -34,8 +32,8 @@
     "break",
 
     { "type": "custom", "format": "{$1}  SYSTEM" },
-    { "type": "os", "key": "{$1}󰌽  OS" },
-    { "type": "kernel", "key": "{$1}󰒓  Kernel" },
+    { "type": "os", "key": "{$1}󰣇  OS" },
+    { "type": "kernel", "key": "{$1}󰌽  Kernel" },
     { "type": "uptime", "key": "{$1}󰅐  Uptime" },
     { "type": "packages", "key": "{$1}󰏗  Packages" },
     { "type": "shell", "key": "{$1}󰆍  Shell" },
@@ -43,7 +41,7 @@
 
     { "type": "custom", "format": "{$2}  HARDWARE" },
     { "type": "cpu", "key": "{$2}󰻠  CPU" },
-    { "type": "gpu", "key": "{$2}󰢮  GPU" },
+    { "type": "gpu", "key": "{$2}󰢮  GPU", "hideType": "integrated" },
     { "type": "memory", "key": "{$2}󰍛  Memory", "format": "{used} / {total} [{percentage}]" },
     { "type": "disk", "key": "{$2}󰋊  Disk", "folders": "/:/home", "format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]" },
     "break",

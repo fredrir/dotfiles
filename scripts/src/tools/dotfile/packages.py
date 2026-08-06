@@ -2,7 +2,16 @@ import os
 
 from tools.dotfile.state import die, log, manifest_groups, sorted_entries, trim
 
-DEFAULT_GROUPS = ["shared", "linux/common", "linux/kde", "linux/hyprland", "linux/server", "macos"]
+DEFAULT_GROUPS = [
+    "shared",
+    "linux/common",
+    "linux/arch",
+    "linux/ubuntu",
+    "linux/kde",
+    "linux/hyprland",
+    "linux/server",
+    "macos",
+]
 
 GROUP_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-")
 PACKAGE_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@-")
