@@ -7,6 +7,10 @@ Id_5=3bb9f93c-e9a7-43ef-8c19-41c7f789a479
 Number=5
 Rows=1
 
+[Tiling][0bb301ff-ee7e-4023-a17e-9204f75c014c][]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
 [Tiling][0bb301ff-ee7e-4023-a17e-9204f75c014c][04a07f12-c0c2-44e9-b699-a639bdbcafbe]
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
@@ -55,11 +59,27 @@ tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"wi
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
+[Tiling][2f6efc11-c6fa-42de-86c5-121a1ef96660][]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
+[Tiling][2f6efc11-c6fa-42de-86c5-121a1ef96660][12965983-b1dc-4f78-8294-688050d822b1]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
 [Tiling][2f6efc11-c6fa-42de-86c5-121a1ef96660][a084f91e-769f-4817-b012-f2cba1fdadc1]
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
 [Tiling][2f6efc11-c6fa-42de-86c5-121a1ef96660][b7620aac-1eb6-4650-b5f3-c0518a38de2d]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
+[Tiling][3bb9f93c-e9a7-43ef-8c19-41c7f789a479][]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
+[Tiling][3bb9f93c-e9a7-43ef-8c19-41c7f789a479][12965983-b1dc-4f78-8294-688050d822b1]
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
@@ -127,6 +147,14 @@ tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"wi
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
+[Tiling][af73d2d8-b25d-439f-ae9c-5affd1e1a104][]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
+[Tiling][af73d2d8-b25d-439f-ae9c-5affd1e1a104][12965983-b1dc-4f78-8294-688050d822b1]
+padding=4
+tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
+
 [Tiling][af73d2d8-b25d-439f-ae9c-5affd1e1a104][a084f91e-769f-4817-b012-f2cba1fdadc1]
 padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
@@ -136,7 +164,7 @@ padding=4
 tiles={"layoutDirection":"horizontal","tiles":[{"width":0.25},{"width":0.5},{"width":0.25}]}
 
 [Xwayland]
-Scale=1
+Scale=1.5
 
 [org.kde.kdecoration2]
 library=org.kde.breeze

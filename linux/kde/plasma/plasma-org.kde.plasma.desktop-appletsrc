@@ -22,7 +22,7 @@ DialogWidth=810
 
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=12983
+LastVideoPosition=5900
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][24]
@@ -36,18 +36,9 @@ location=0
 plugin=org.kde.plasma.folder
 wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
-[Containments][24][Applets][64]
-immutability=1
-plugin=org.kde.plasma.notes
-transient=true
-
-[Containments][24][Applets][64][Configuration][General]
-fontSize=10
-noteId=f4628809-8260-4dfd-85e5-3d7d1754e2
-
 [Containments][24][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
 LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=3300
+LastVideoPosition=10200
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][27]
