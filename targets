@@ -9,3 +9,4 @@ linux/kde/krunnerrc = ~/.config
 linux/kde/konsole/konsolerc = ~/.config/konsolerc
 linux/kde/konsole/share = ~/.local/share/konsole
 linux/kde/kvitals = ~/.local/share/plasma/plasmoids/org.kde.plasma.kvitals
+shared/git/.gitconfig = ~/.gitconfig
