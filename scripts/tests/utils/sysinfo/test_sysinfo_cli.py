@@ -141,3 +141,40 @@ def test_snapshot_rejects_process_wrappers_as_terminals(monkeypatch):
     snapshot = collect.collect_snapshot()
 
     assert snapshot.terminal_display == "unknown"
+
+
+def test_darwin_selects_macos_hardware_profile(monkeypatch, tmp_path):
+    config = tmp_path / "hardware.dotfile"
+    config.write_text(
+        "desktop {\n"
+        "  MEMORY=Corsair 32 GB DDR5\n"
+        "  CPU_COOLER=Noctua NH-D15\n"
+        "}\n"
+        "macos {\n"
+        "  MEMORY=Apple unified memory\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SYSINFO_CONFIG", str(config))
+    monkeypatch.delenv("SYSINFO_HARDWARE", raising=False)
+    monkeypatch.setattr(collect.sys, "platform", "darwin")
+
+    hardware = collect.load_hardware_config()
+
+    assert hardware["memory"] == "Apple unified memory"
+    assert hardware["cpu_cooler"] == "not set"
+
+
+def test_explicit_hardware_profile_overrides_platform(monkeypatch, tmp_path):
+    config = tmp_path / "hardware.dotfile"
+    config.write_text(
+        "desktop {\n  MEMORY=Corsair 32 GB DDR5\n}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SYSINFO_CONFIG", str(config))
+    monkeypatch.setenv("SYSINFO_HARDWARE", "desktop")
+    monkeypatch.setattr(collect.sys, "platform", "darwin")
+
+    hardware = collect.load_hardware_config()
+
+    assert hardware["memory"] == "Corsair 32 GB DDR5"

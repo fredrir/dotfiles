@@ -94,3 +94,26 @@ def test_low_battery_is_only_reported_when_discharging(workstation_snapshot):
 
     assert any(issue.title == "Battery charge is low" for issue in health_issues(discharging))
     assert not any(issue.title == "Battery charge is low" for issue in health_issues(charging))
+
+
+def test_macos_view_rejects_desktop_profile_and_virtual_devices(macos_snapshot):
+    view = build_view(macos_snapshot)
+    components = {component.label: [] for component in view.components}
+    for component in view.components:
+        components[component.label].append(component)
+
+    assert view.platform.label == "macOS 26.0"
+    assert view.machine_type == "WORKSTATION"
+    assert components["MEMORY"][0].vendor == "APPLE"
+    assert components["MEMORY"][0].model == "24 GB"
+    assert len(components["STORAGE"]) == 1
+    assert components["STORAGE"][0].model == "SSD AP1024Z Media  1 TB  SSD"
+    assert components["BATTERY"][0].model == "Internal battery"
+    assert components["BATTERY"][0].facts[1].value == "AC Connected"
+    assert components["POWER ADAPTER"][0].model == "70 W"
+    assert components["POWER ADAPTER"][0].facts == ()
+    assert not any(
+        component.label in {"CPU COOLING", "CHASSIS", "POWER SUPPLY"}
+        for component in view.components
+    )
+    assert health_issues(macos_snapshot) == ()

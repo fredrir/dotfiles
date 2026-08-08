@@ -123,3 +123,109 @@ def workstation_snapshot():
             },
         ),
     )
+
+
+@pytest.fixture
+def macos_snapshot():
+    return Snapshot(
+        hardware={
+            "cpu_cooler": "not set",
+            "case": "not set",
+            "power_supply": "not set",
+        },
+        modules={
+            "OS": {"id": "macos", "name": "macOS", "prettyName": "macOS 26.0"},
+            "Kernel": {"release": "25.0.0", "architecture": "arm64"},
+            "CPU": {
+                "cpu": "Apple M5 Pro",
+                "vendor": "Apple",
+                "cores": {"physical": 15, "logical": 15},
+                "frequency": {"max": 4610},
+                "temperature": 40.5,
+                "march": "ARMv9.3-A",
+            },
+            "CPUUsage": [8.0] * 15,
+            "GPU": [
+                {
+                    "name": "Apple M5 Pro",
+                    "vendor": "Apple",
+                    "type": "Integrated",
+                    "coreUsage": 21.0,
+                    "temperature": 41.0,
+                    "frequency": 1620,
+                    "driver": "com.apple.AGXG17X 351.2",
+                }
+            ],
+            "Memory": {"used": int(18.4 * 1024**3), "total": 24 * 1024**3},
+            "PhysicalMemory": [
+                {
+                    "manufacturer": "Apple",
+                    "type": "LPDDR5X",
+                }
+            ],
+            "Swap": [],
+            "Disk": [
+                {
+                    "mountpoint": "/",
+                    "filesystem": "apfs",
+                    "bytes": {"used": 180 * 1024**3, "total": 994 * 1024**3},
+                },
+                {
+                    "mountpoint": "/System/Volumes/Preboot",
+                    "filesystem": "apfs",
+                    "bytes": {"used": 9.9 * 1024**3, "total": 10 * 1024**3},
+                },
+                {
+                    "name": "Apple Disk Image Media",
+                    "mountpoint": "/Volumes/Installer",
+                    "filesystem": "apfs",
+                    "volumeType": ["Virtual", "Read-only"],
+                    "bytes": {"used": 18 * 1024**3, "total": 18 * 1024**3},
+                },
+            ],
+            "PhysicalDisk": [
+                {
+                    "name": "APPLE SSD AP1024Z Media",
+                    "size": 1000555581440,
+                    "interconnect": "Apple Fabric",
+                    "kind": "SSD",
+                    "temperature": 35.0,
+                },
+                {
+                    "name": "Apple Disk Image Media",
+                    "size": 18100000000,
+                    "interconnect": "Virtual Interface - File",
+                    "kind": "Virtual",
+                },
+                {
+                    "name": "Apple Disk Image Media",
+                    "size": 9100000000,
+                    "interconnect": "Virtual Interface - File",
+                    "kind": "Virtual",
+                },
+            ],
+            "Board": {"vendor": "Apple", "name": "J714sAP"},
+            "WM": {"prettyName": "Quartz Compositor"},
+            "Battery": [
+                {
+                    "modelName": "bq40z651",
+                    "manufacturer": "Apple",
+                    "capacity": 100.0,
+                    "status": ["AC Connected"],
+                    "cycleCount": 3,
+                }
+            ],
+            "PowerAdapter": [
+                {
+                    "name": "0",
+                    "manufacturer": "Apple",
+                    "watts": 70,
+                }
+            ],
+        },
+        shell_display="zsh 5.9.2",
+        terminal_display="unknown",
+        de_display="unknown",
+        wm_display="Quartz Compositor",
+        nvidia=(),
+    )

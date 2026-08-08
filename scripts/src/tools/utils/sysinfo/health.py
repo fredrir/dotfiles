@@ -11,6 +11,12 @@ from tools.utils.sysinfo.formatting import (
     percentage,
 )
 from tools.utils.sysinfo.models import HealthIssue
+from tools.utils.sysinfo.normalization import (
+    is_actionable_filesystem,
+    is_macos,
+    is_virtual_disk,
+    text_value,
+)
 from tools.utils.sysinfo.profiles import (
     CPU_PROFILES,
     DISK_PROFILES,
@@ -65,7 +71,7 @@ def health_issues(snapshot):
             )
         )
     memory_use = percentage(memory.get("used") or 0, detected)
-    if memory_use >= 90 and not as_list(snapshot.result("Swap", [])):
+    if memory_use >= 90 and not as_list(snapshot.result("Swap", [])) and not is_macos(snapshot):
         issues.append(
             HealthIssue(
                 "error",
@@ -105,6 +111,8 @@ def health_issues(snapshot):
             )
 
     for disk in as_list(snapshot.result("Disk", [])):
+        if not is_actionable_filesystem(disk):
+            continue
         values = as_dict(disk.get("bytes"))
         disk_use = percentage(values.get("used") or 0, values.get("total") or 0)
         if disk_use >= 90:
@@ -119,6 +127,8 @@ def health_issues(snapshot):
             )
 
     for disk in as_list(snapshot.result("PhysicalDisk", [])):
+        if is_virtual_disk(disk):
+            continue
         name = disk.get("name") or "Disk"
         disk_profile = profile_for(name, DISK_PROFILES)
         issue = temperature_issue(
@@ -131,8 +141,13 @@ def health_issues(snapshot):
 
     for battery in as_list(snapshot.result("Battery", [])):
         capacity = battery.get("capacity")
-        status = str(battery.get("status") or "").lower()
-        charging = status.startswith("charging") or status in {"full", "fully charged"}
+        status = text_value(battery.get("status")).lower()
+        charging = status.startswith("charging") or status in {
+            "ac connected",
+            "connected",
+            "full",
+            "fully charged",
+        }
         if isinstance(capacity, (int, float)) and capacity <= 15 and not charging:
             severity = "error" if capacity <= 5 else "warning"
             issues.append(

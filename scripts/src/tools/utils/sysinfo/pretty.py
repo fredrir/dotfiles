@@ -1,6 +1,4 @@
-import getpass
 import re
-import socket
 from dataclasses import dataclass
 
 from rich.console import Console, Group
@@ -11,6 +9,7 @@ from tools.core.console import colors_enabled
 from tools.theme.model import Theme
 from tools.utils.sysinfo.branding import header_illustration, illustration, resolve_brand
 from tools.utils.sysinfo.health import health_summary
+from tools.utils.sysinfo.identity import display_hostname, display_username
 from tools.utils.sysinfo.models import Component, HealthIssue, RenderOptions, SystemView
 from tools.utils.sysinfo.typography import block_text
 
@@ -71,8 +70,8 @@ def identity_header(view, issues, colors, width):
         view.platform.label,
         *view.platform.identifiers,
     )
-    username = getpass.getuser().upper()
-    hostname = socket.gethostname().split(".", 1)[0].upper()
+    username = display_username().upper()
+    hostname = display_hostname().upper()
     identity = Table.grid(expand=False)
     identity.add_column()
     owner = Text()
@@ -87,8 +86,12 @@ def identity_header(view, issues, colors, width):
     identity.add_row(Text(hostname, style=f"bold {colors.subtext}"))
     identity.add_row(Text())
     platform = Text()
-    platform.append(f"{brand.mark}  ", style=f"bold {brand.accent}")
-    platform.append(brand.name, style=f"bold {brand.accent}")
+    if brand.mark:
+        platform.append(f"{brand.mark}  ", style=f"bold {brand.accent}")
+    platform.append(
+        compact_software_label(view.platform.label).upper(),
+        style=f"bold {brand.accent}",
+    )
     identity.add_row(platform)
     environment = header_environment(view, colors)
     if environment:
@@ -120,9 +123,15 @@ def component_card(component: Component, width, colors):
     body = Table.grid(expand=False)
     body.add_column()
     title = Text()
-    title.append(f"{brand.mark}  ", style=f"bold {brand.accent}")
-    title.append(brand.name, style=f"bold {brand.accent}")
-    title.append(f"  {component.label}", style=colors.overlay)
+    generic = brand.key == component.kind
+    if brand.mark and not generic:
+        title.append(f"{brand.mark}  ", style=f"bold {brand.accent}")
+    if generic:
+        title.append(component.label, style=f"bold {brand.accent}")
+    else:
+        title.append(brand.name, style=f"bold {brand.accent}")
+        if component.label.casefold() != brand.name.casefold():
+            title.append(f"  {component.label}", style=colors.overlay)
     body.add_row(title)
     body.add_row(Text(component.model, style=f"bold {colors.text}"))
     if component.facts:
@@ -132,7 +141,7 @@ def component_card(component: Component, width, colors):
         for item in component.facts:
             details.add_row(item.label, item.value)
         body.add_row(details)
-    art = illustration(brand, component.kind)
+    art = illustration(brand, component.art_kind or component.kind)
     if width < 46 or not art:
         return body
     card = Table.grid(expand=False, padding=(0, 2))

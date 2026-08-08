@@ -8,6 +8,7 @@ from tools.utils.sysinfo.formatting import (
     percentage,
 )
 from tools.utils.sysinfo.models import SoftwareBadge
+from tools.utils.sysinfo.normalization import is_actionable_filesystem
 
 
 def package_text(packages):
@@ -69,6 +70,8 @@ def system_facts(snapshot):
 def filesystem_facts(snapshot):
     values = []
     for disk in as_list(snapshot.result("Disk", [])):
+        if not is_actionable_filesystem(disk):
+            continue
         byte_values = as_dict(disk.get("bytes"))
         total = byte_values.get("total") or 0
         used = byte_values.get("used") or 0

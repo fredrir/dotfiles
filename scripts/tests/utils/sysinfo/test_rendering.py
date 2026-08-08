@@ -8,9 +8,17 @@ from tools.utils.sysinfo.pretty import render_pretty
 from tools.utils.sysinfo.view import build_view
 
 
-def pretty_output(monkeypatch, snapshot, width=120, full=False, health=False, issues=()):
-    monkeypatch.setattr("tools.utils.sysinfo.pretty.getpass.getuser", lambda: "fredrir")
-    monkeypatch.setattr("tools.utils.sysinfo.pretty.socket.gethostname", lambda: "archpc")
+def pretty_output(
+    monkeypatch,
+    snapshot,
+    width=120,
+    full=False,
+    health=False,
+    issues=(),
+    hostname="archpc",
+):
+    monkeypatch.setattr("tools.utils.sysinfo.pretty.display_username", lambda: "fredrir")
+    monkeypatch.setattr("tools.utils.sysinfo.pretty.display_hostname", lambda: hostname)
     stream = StringIO()
     console = Console(
         file=stream,
@@ -153,9 +161,56 @@ def test_narrow_pretty_stacks_without_overflow(monkeypatch, workstation_snapshot
     assert max(len(line) for line in output.splitlines()) <= 52
 
 
+def test_macos_pretty_uses_native_hardware_and_clean_power_details(
+    monkeypatch,
+    macos_snapshot,
+):
+    output = pretty_output(
+        monkeypatch,
+        macos_snapshot,
+        hostname="fredrirs-macbook-pro",
+    )
+
+    for expected in (
+        "FREDRIR   WORKSTATION",
+        "FREDRIRS-MACBOOK-PRO",
+        "MACOS",
+        "APPLE  CPU",
+        "APPLE  INTEGRATED GPU",
+        "APPLE  MEMORY",
+        "APPLE  MOTHERBOARD",
+        "APPLE  STORAGE",
+        "APPLE  BATTERY",
+        "APPLE  POWER ADAPTER",
+        "24 GB",
+        "Internal battery",
+        "AC Connected",
+        "70 W",
+    ):
+        assert expected in output
+    for rejected in (
+        "bq40z651",
+        "['AC Connected']",
+        "Apple Disk Image Media",
+        "CORSAIR",
+        "NOCTUA",
+        "ARCTIC",
+        "RM1000e",
+        "STORAGE  STORAGE",
+        "POWER  POWER ADAPTER",
+        "warning",
+    ):
+        assert rejected not in output
+    assert "▄██████▄" in output
+    assert "MACBOOK-PRO" not in output.splitlines()[2]
+    assert "█" in output.splitlines()[2]
+    assert output.count("APPLE  STORAGE") == 1
+    assert max(len(line) for line in output.splitlines()) <= 120
+
+
 def test_truecolor_uses_brand_accents(monkeypatch, workstation_snapshot):
-    monkeypatch.setattr("tools.utils.sysinfo.pretty.getpass.getuser", lambda: "fredrir")
-    monkeypatch.setattr("tools.utils.sysinfo.pretty.socket.gethostname", lambda: "archpc")
+    monkeypatch.setattr("tools.utils.sysinfo.pretty.display_username", lambda: "fredrir")
+    monkeypatch.setattr("tools.utils.sysinfo.pretty.display_hostname", lambda: "archpc")
     stream = StringIO()
     console = Console(
         file=stream,

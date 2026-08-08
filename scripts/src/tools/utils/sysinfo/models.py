@@ -32,6 +32,7 @@ class Component:
     label: str
     vendor: str
     model: str
+    art_kind: str = ""
     identifiers: tuple[str, ...] = ()
     facts: tuple[Fact, ...] = ()
     compact: bool = True

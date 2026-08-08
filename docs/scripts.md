@@ -39,6 +39,8 @@ scripts/
         devices.py           shared device normalization and telemetry helpers
         facts.py             shared normalized fact construction
         formatting.py        shared units, percentages and text formatting
+        identity.py          platform-aware username and hostname resolution
+        normalization.py     platform and device sanitation helpers
         typography.py        terminal-safe block lettering
         hardware.py          normalized hardware components
         software.py          normalized software and system facts
@@ -114,7 +116,9 @@ matching devices with live VRAM, utilization, clock and power readings from
 `nvidia-smi`. Optional probe failures become health findings and never prevent
 the remaining snapshot from rendering. Static components such as the cooler,
 memory kit, case and power supply come from `hardware.dotfile` when firmware
-interfaces cannot expose them without elevated privileges.
+interfaces cannot expose them without elevated privileges. The active profile
+defaults to `desktop` on Linux, `macos` on Darwin and `windows` on Windows;
+`SYSINFO_HARDWARE` can select an explicit profile.
 
 Brand detection has three layers: exact-model profiles for verified limits,
 vendor and product-family profiles for presentation, then device-class

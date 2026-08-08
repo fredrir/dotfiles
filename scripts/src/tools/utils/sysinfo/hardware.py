@@ -17,6 +17,12 @@ from tools.utils.sysinfo.formatting import (
     percentage,
 )
 from tools.utils.sysinfo.models import Component
+from tools.utils.sysinfo.normalization import (
+    is_macos,
+    is_virtual_disk,
+    text_value,
+    useful_device_name,
+)
 from tools.utils.sysinfo.profiles import (
     CPU_PROFILES,
     DISK_PROFILES,
@@ -136,11 +142,17 @@ def memory_component(snapshot):
     description = snapshot.hardware.get("memory", "")
     detected = memory.get("total") or 0
     hints = physical_memory_hints(snapshot)
-    brand = resolve_brand("memory", description, *hints)
+    macos = is_macos(snapshot)
+    brand = resolve_brand("memory", description, *hints, "Apple" if macos else "")
     kit_match = re.search(r"\b[A-Z0-9]{8,}\b", description)
     used = memory.get("used") or 0
     swap_used, swap_total = swap_totals(snapshot.result("Swap", []))
-    module_count = len(as_list(snapshot.result("PhysicalMemory", [])))
+    module_count = 0 if macos else len(as_list(snapshot.result("PhysicalMemory", [])))
+    swap = ""
+    if swap_total:
+        swap = f"{format_bytes(swap_used)} / {format_bytes(swap_total)}"
+    elif not macos:
+        swap = "Disabled"
     return Component(
         kind="memory",
         label="MEMORY",
@@ -153,12 +165,7 @@ def memory_component(snapshot):
             fact("Detected", memory_capacity(detected)),
             fact("Usage", f"{format_bytes(used)} / {format_bytes(detected)}" if detected else ""),
             fact("Load", f"{percentage(used, detected):.0f}%" if detected else ""),
-            fact(
-                "Swap",
-                f"{format_bytes(swap_used)} / {format_bytes(swap_total)}"
-                if swap_total
-                else "Disabled",
-            ),
+            fact("Swap", swap),
         ),
     )
 
@@ -184,6 +191,8 @@ def motherboard_component(snapshot):
 def disk_components(snapshot):
     components = []
     for disk in as_list(snapshot.result("PhysicalDisk", [])):
+        if is_virtual_disk(disk):
+            continue
         name = disk.get("name") or "Unknown disk"
         profile = profile_for(name, DISK_PROFILES)
         brand = resolve_brand("storage", name)
@@ -249,15 +258,18 @@ def configured_components(snapshot):
 
 def portable_power_components(snapshot):
     components = []
+    macos = is_macos(snapshot)
     for battery in as_list(snapshot.result("Battery", [])):
-        name = battery.get("modelName") or battery.get("name") or "Internal battery"
-        vendor = battery.get("manufacturer") or ""
+        raw_name = battery.get("modelName") or battery.get("name")
+        name = useful_device_name(raw_name, "Internal battery", ("bq", "smc"))
+        vendor = battery.get("manufacturer") or ("Apple" if macos else "")
         components.append(
             Component(
                 kind="power",
                 label="BATTERY",
                 vendor=vendor,
                 model=name,
+                art_kind="battery",
                 identifiers=(vendor, name),
                 facts=facts(
                     fact(
@@ -266,7 +278,7 @@ def portable_power_components(snapshot):
                         if isinstance(battery.get("capacity"), (int, float))
                         else "",
                     ),
-                    fact("Status", battery.get("status") or ""),
+                    fact("Status", text_value(battery.get("status"))),
                     fact("Temperature", format_temperature(battery.get("temperature"))),
                     fact(
                         "Cycles",
@@ -276,17 +288,21 @@ def portable_power_components(snapshot):
             )
         )
     for adapter in as_list(snapshot.result("PowerAdapter", [])):
-        name = adapter.get("modelName") or adapter.get("name") or "Power adapter"
-        vendor = adapter.get("manufacturer") or ""
+        watts = adapter.get("watts")
+        fallback = f"{watts} W" if watts else "Connected"
+        name = useful_device_name(adapter.get("modelName") or adapter.get("name"), fallback)
+        vendor = adapter.get("manufacturer") or ("Apple" if macos else "")
+        output = f"{watts} W" if watts and name != f"{watts} W" else ""
         components.append(
             Component(
                 kind="power",
                 label="POWER ADAPTER",
                 vendor=vendor,
                 model=name,
+                art_kind="adapter",
                 identifiers=(vendor, name),
                 facts=facts(
-                    fact("Output", f"{adapter.get('watts')} W" if adapter.get("watts") else ""),
+                    fact("Output", output),
                 ),
                 compact=False,
             )

@@ -1,3 +1,5 @@
+import re
+
 FONT = {
     "A": ("01110", "10001", "11111", "10001", "10001"),
     "B": ("11110", "10001", "11110", "10001", "11110"),
@@ -44,7 +46,14 @@ FONT = {
 def block_text(value, maximum=12):
     value = value.upper()
     if len(value) > maximum:
-        return (value,)
+        parts = [part for part in re.split(r"[^A-Z0-9]+", value) if part]
+        selected = []
+        for part in reversed(parts):
+            candidate = "-".join(reversed([*selected, part]))
+            if len(candidate) > maximum:
+                break
+            selected.append(part)
+        value = "-".join(reversed(selected)) or value[-maximum:]
     glyphs = [FONT.get(character, FONT["?"]) for character in value]
     return tuple(
         " ".join(

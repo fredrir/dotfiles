@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 
 from tools.core.console import die
 from tools.core.paths import repo_root
@@ -80,7 +81,9 @@ FULL_MODULES = [
 def load_hardware_config():
     values = {"cpu_cooler": "not set", "case": "not set", "power_supply": "not set"}
     config = os.environ.get("SYSINFO_CONFIG") or str(repo_root() / "hardware.dotfile")
-    profile = os.environ.get("SYSINFO_HARDWARE", "desktop")
+    profile = os.environ.get("SYSINFO_HARDWARE")
+    if not profile:
+        profile = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "desktop")
     try:
         with open(config, encoding="utf-8") as handle:
             lines = handle.read().splitlines()
