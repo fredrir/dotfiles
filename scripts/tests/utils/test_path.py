@@ -27,6 +27,11 @@ def test_nonexistent_target_inside_repo(tool, repo):
     assert result.stdout == "/missing/deep.txt\n"
 
 
+def test_full_path(tool, repo):
+    result = tool("path", "-f", "sub/file.txt", cwd=str(repo))
+    assert result.stdout == f"{repo}/sub/file.txt\n"
+
+
 def test_home_relative_outside_repo(tool, tmp_path):
     home = tmp_path / "home"
     (home / "docs").mkdir(parents=True)

@@ -68,7 +68,6 @@ nodejs
 npm
 nvidia-open
 nvidia-utils
-openrgb
 openssh
 oxygen
 oxygen-cursors

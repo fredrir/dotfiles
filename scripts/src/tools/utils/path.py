@@ -41,5 +41,11 @@ def describe(target):
 
 
 @app.command(help="Print the repository-relative or home-relative path of a target.")
-def path(target: str = typer.Argument(".")):
-    out(describe(target))
+def path(
+    target: str = typer.Argument("."),
+    full: bool = typer.Option(False, "-f", "--full", help="Print the full path."),
+):
+    if full:
+        out(os.path.realpath(os.path.abspath(target)))
+    else:
+        out(describe(target))

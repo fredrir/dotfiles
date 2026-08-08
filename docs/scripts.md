@@ -30,8 +30,22 @@ scripts/
       path.py                repo-relative or home-relative path of a target
       tardirs.py             tar archive directory tree with entry counts
       gpp.py                 git add + commit + push
-      oc.py                  openclaw over an SSH tunnel
-      sysinfo.py             environment and hardware summary via fastfetch
+      sysinfo/               modular hardware and software summary
+        cli.py               pretty, full and health command flags
+        collect.py           Fastfetch, process and NVIDIA probes
+        models.py            shared snapshots, components and render options
+        branding.py          vendor registry, marks, colours and fallbacks
+        profiles.py          exact-model facts and operating limits
+        devices.py           shared device normalization and telemetry helpers
+        facts.py             shared normalized fact construction
+        formatting.py        shared units, percentages and text formatting
+        typography.py        terminal-safe block lettering
+        hardware.py          normalized hardware components
+        software.py          normalized software and system facts
+        view.py              compact orchestration of the shared view
+        health.py            error and warning evaluation
+        plain.py             compact and full plain-text rendering
+        pretty.py            responsive borderless Rich rendering
     desktop/
       power_menu.py          wofi power menu (Hyprland)
       confirm_exit.py        wofi exit confirmation (Hyprland)
@@ -78,6 +92,44 @@ theme/
 `theme/` holds colour and font data only. Every config that carries colour is a
 normal tracked dotfile in its own package; the generator stamps values into it
 rather than rendering it from a template.
+
+## sysinfo
+
+`sysinfo` prints a compact, uncoloured hardware and software identity. `-p` and
+`--pretty` select the branded terminal presentation with the complete hardware
+inventory, including clocks, caches, thermals and utilization. In plain mode,
+`-f` and `--full` expand the entire inventory. Combined with pretty mode, full
+adds the software and system inventories beneath the hardware presentation.
+`-hh` and `--health` reveal diagnostic explanations and actions. The switches
+are independent and may be combined.
+
+The main view reports only the number of active errors and warnings. A healthy
+machine has no health line or empty health section. Diagnostic prose is never
+shown unless health mode is requested. Swap status is factual in full mode and
+becomes a warning only when high memory pressure makes the missing fallback
+actionable.
+
+Fastfetch remains the primary detector. Targeted NVIDIA telemetry enriches
+matching devices with live VRAM, utilization, clock and power readings from
+`nvidia-smi`. Optional probe failures become health findings and never prevent
+the remaining snapshot from rendering. Static components such as the cooler,
+memory kit, case and power supply come from `hardware.dotfile` when firmware
+interfaces cannot expose them without elevated privileges.
+
+Brand detection has three layers: exact-model profiles for verified limits,
+vendor and product-family profiles for presentation, then device-class
+fallbacks. Replacing a known GPU or CPU with a future model retains its vendor
+identity without requiring an exact model entry. Unknown manufacturers remain
+readable and never stop rendering.
+
+Pretty output is left aligned and borderless. Wide terminals use an invisible
+two-column hardware grid, narrow terminals stack the same components, and
+limited terminals retain text labels when an icon is unavailable. Colours
+honour `NO_COLOR` and disappear when stdout is redirected.
+
+Device serials, display identifiers, network addresses and Wi-Fi names are
+never copied into the normalized view or rendered. The title retains the local
+username and hostname, matching the existing Fastfetch presentation.
 
 ---
 
