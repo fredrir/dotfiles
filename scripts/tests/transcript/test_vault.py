@@ -58,6 +58,7 @@ def test_save_creates_note_with_frontmatter(tmp_path, monkeypatch):
     assert "session: abc-123" in text
     assert "status: inbox" in text
     assert "obsidianUIMode: preview" in text
+    assert "cssclasses: transcript" in text
     assert "### 16:32 — fix it" in text
 
 

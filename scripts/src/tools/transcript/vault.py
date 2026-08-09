@@ -18,6 +18,7 @@ MANAGED_KEYS = {
     "import",
     "tags",
     "obsidianUIMode",
+    "cssclasses",
 }
 
 SESSION_KEY_RE = re.compile(r"^session:\s*(\S+)\s*$", re.MULTILINE)
@@ -147,6 +148,7 @@ def save_session(session, source, redactor, index=None, include_tools=False):
         "import": "degraded" if session.degraded else "",
         "tags": old.get("tags") or "[transcript]",
         "obsidianUIMode": "preview",
+        "cssclasses": "transcript",
     }
     preserved = {key: value for key, value in old.items() if key not in MANAGED_KEYS}
     body = redactor(render.render_session(session, include_tools))
@@ -169,6 +171,7 @@ def save_capture(provider, text, redactor):
         "status": "inbox",
         "tags": "[transcript]",
         "obsidianUIMode": "preview",
+        "cssclasses": "transcript",
     }
     body = redactor(render.render_capture(provider, now, text))
     atomic_write(path, compose(fields, {}, body))

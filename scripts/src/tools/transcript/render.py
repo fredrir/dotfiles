@@ -1,3 +1,4 @@
+import json
 import re
 
 from tools.transcript.model import Turn
@@ -9,6 +10,32 @@ TOOL_LINE_LIMIT = 30
 TOC_MIN_ROUNDS = 5
 
 PROVIDER_NAMES = {"claude": "Claude", "codex": "Codex"}
+
+
+FENCE_ZSH_RE = re.compile(r"^(`{3,})\s*zsh\s*$", re.MULTILINE)
+
+
+def retag_fences(text):
+    return FENCE_ZSH_RE.sub(r"\1bash", text)
+
+
+def sniff_language(text):
+    stripped = text.strip()
+    if stripped.startswith(("{", "[")):
+        try:
+            json.loads(stripped)
+            return "json"
+        except ValueError:
+            pass
+    lines = stripped.splitlines()
+    if any(line.startswith("@@ ") for line in lines):
+        return "diff"
+    has_markers = any(line.startswith(("--- ", "+++ ")) for line in lines)
+    if has_markers and any(line.startswith("+") for line in lines):
+        return "diff"
+    if any(line.startswith("$ ") for line in lines):
+        return "console"
+    return ""
 
 
 def prefix_quote(text):
@@ -39,16 +66,16 @@ def clean_inline(text, limit=64):
 
 def render_turn(turn, provider):
     if turn.kind == "me":
-        return "> [!me]+ You\n" + prefix_quote(turn.body.strip())
+        return "> [!me]+ You\n" + prefix_quote(retag_fences(turn.body.strip()))
     if turn.kind == "tool":
         header = f"> [!tool]- {clean_inline(turn.title, 90)}"
         body = cap_lines(turn.body.strip())
         if not body:
             return header
         fence = fence_for(body)
-        return header + "\n" + prefix_quote(f"{fence}\n{body}\n{fence}")
+        return header + "\n" + prefix_quote(f"{fence}{sniff_language(body)}\n{body}\n{fence}")
     name = PROVIDER_NAMES.get(provider, "Agent")
-    return f"> [!turn|{provider}]- {name}\n" + prefix_quote(turn.body.strip())
+    return f"> [!turn|{provider}]- {name}\n" + prefix_quote(retag_fences(turn.body.strip()))
 
 
 def _round_turns(round_, include_tools):

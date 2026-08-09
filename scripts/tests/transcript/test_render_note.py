@@ -80,6 +80,42 @@ def test_degraded_session_renders_raw():
     assert "some raw junk" in body
 
 
+def test_zsh_fences_retagged_to_bash():
+    stamp = datetime(2026, 8, 9, 16, 32, tzinfo=UTC)
+    session = Session(provider="claude", session_id="s", source_path="x")
+    session.rounds = [
+        Round(
+            timestamp=stamp,
+            label="q",
+            turns=[Turn("turn", "Response", "run this:\n```zsh\nls -la\n```")],
+        ),
+    ]
+    body = render.render_session(session)
+    assert "> ```bash" in body
+    assert "```zsh" not in body
+
+
+def test_sniff_language():
+    assert render.sniff_language('{"key": "value"}') == "json"
+    assert render.sniff_language("--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-old\n+new") == "diff"
+    assert render.sniff_language("$ ls -la\ntotal 42") == "console"
+    assert render.sniff_language("plain output text") == ""
+
+
+def test_tool_fences_get_sniffed_language():
+    stamp = datetime(2026, 8, 9, 16, 32, tzinfo=UTC)
+    session = Session(provider="codex", session_id="s", source_path="x")
+    session.rounds = [
+        Round(
+            timestamp=stamp,
+            label="q",
+            turns=[Turn("tool", "exec · cat data.json", '{"key": "value"}')],
+        ),
+    ]
+    body = render.render_session(session, include_tools=True)
+    assert "> ```json" in body
+
+
 def test_capture_uses_provider_callout():
     stamp = datetime(2026, 8, 9, 16, 32, tzinfo=UTC)
     body = render.render_capture("codex", stamp, "hello world")

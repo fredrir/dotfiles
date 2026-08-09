@@ -331,3 +331,53 @@
     line-height: 1.55;
   }
 }
+
+.transcript.markdown-rendered h3,
+.transcript .markdown-rendered h3 {
+  margin-top: 2.4rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: 0.98rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.transcript .callout-content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1rem 0 0.35rem;
+  padding: 0;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95em;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.transcript .callout-content :not(pre) > code {
+  padding: 0.09em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--turn-accent, var(--text-accent)) 9%, transparent);
+  color: color-mix(in srgb, var(--turn-accent, var(--text-accent)) 72%, var(--text-normal));
+  font-size: 0.88em;
+}
+
+.transcript .callout-content pre {
+  max-height: 30rem;
+  overflow: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  scrollbar-gutter: stable;
+}
+
+.transcript .callout-content p {
+  margin-block: 0.55em;
+}
+
+.transcript .callout-content :is(ul, ol) {
+  margin-block: 0.45em;
+}
+
+.transcript .callout[data-callout="me"] > .callout-content {
+  color: var(--text-muted);
+  font-size: 0.92em;
+}
