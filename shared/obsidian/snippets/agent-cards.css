@@ -51,8 +51,8 @@
     }
 
     & .callout-fold {
-      order: 9;
-      margin-left: 0.55rem;
+      order: 10;
+      margin-left: 0.25rem;
       color: var(--text-faint);
     }
   }
@@ -179,10 +179,18 @@
     }
 
     & .callout-fold {
-      order: 9;
-      margin-left: auto;
+      order: 10;
+      margin-left: 0.25rem;
       color: var(--text-faint);
     }
+
+    & .agent-copy-button {
+      margin-left: auto;
+    }
+  }
+
+  &:not(:has(.agent-copy-button)) > .callout-title .callout-fold {
+    margin-left: auto;
   }
 
   & > .callout-content {
@@ -279,15 +287,15 @@
 }
 
 .agent-copy-button {
-  order: 10;
+  order: 9;
   display: grid;
   place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1.4rem;
+  height: 1.4rem;
   margin-left: 0.4rem;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   box-shadow: none;
   color: var(--text-faint);
@@ -299,8 +307,8 @@
   }
 
   & svg {
-    width: 0.85rem;
-    height: 0.85rem;
+    width: var(--icon-size);
+    height: var(--icon-size);
   }
 }
 
