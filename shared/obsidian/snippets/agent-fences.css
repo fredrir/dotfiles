@@ -1,10 +1,10 @@
 .markdown-rendered pre:has(> code.language-claude) {
-  --agent-accent: #d97757;
+  --agent-accent: #c47a5e;
   --agent-block-label: "claude";
 }
 
 .markdown-rendered pre:has(> code.language-codex) {
-  --agent-accent: #10a37f;
+  --agent-accent: #3d6fb4;
   --agent-block-label: "codex";
 }
 
