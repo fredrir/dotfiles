@@ -1,0 +1,6 @@
+[Unit]
+Description=Sync AI agent sessions into the Obsidian vault
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/transcript sync --quiet

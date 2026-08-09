@@ -18,6 +18,7 @@
 - `gtk` — GTK theme settings
 - `jetbrains` — Shared JetBrains IDE settings
 - `quicklaunch` — Quicklaunch application configuration
+- `systemd`
 - `theme-watch` — Automatic theme generation service
 - `xremap` — Keyboard remapping configuration
 - `zsh` — Linux-specific Z shell configuration
@@ -63,4 +64,6 @@
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
 - `iterm` — iTerm2 terminal profile
+- `launchd`
+- `skhd`
 - `zsh` — macOS-specific Z shell configuration
