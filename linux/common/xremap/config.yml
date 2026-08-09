@@ -32,6 +32,8 @@ keymap:
   - name: Global agent capture
     remap:
       Ctrl-Alt-C:
+        - launch: ["/bin/sh", "-c", "wl-paste --no-newline -t text > \"${XDG_RUNTIME_DIR:-/tmp}/transcript-clip\" 2>/dev/null || true"]
+        - sleep: 150
         - Ctrl-C
-        - sleep: 200
-        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet"]
+        - sleep: 250
+        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet --fallback \"${XDG_RUNTIME_DIR:-/tmp}/transcript-clip\""]

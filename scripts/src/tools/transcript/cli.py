@@ -7,6 +7,7 @@ from rich.table import Table
 
 from tools.core import clipboard
 from tools.core.console import die, out, stdout
+from tools.desktop.clean_copy import clean_text
 from tools.transcript import config, detect, redact, store, vault
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
@@ -63,8 +64,19 @@ def capture(
     ] = "",
     raw: Annotated[bool, typer.Option("--raw", help="Skip secret redaction.")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", help="Print nothing on success.")] = False,
+    fallback: Annotated[
+        str, typer.Option("--fallback", help="Snapshot file used when the clipboard is empty.")
+    ] = "",
 ):
     text = clipboard.read_text()
+    if (text is None or not text.strip()) and fallback:
+        snapshot = Path(fallback)
+        try:
+            text = clean_text(snapshot.read_text(errors="replace"))
+        except OSError:
+            text = None
+        else:
+            snapshot.unlink(missing_ok=True)
     if text is None or not text.strip():
         die("transcript", "clipboard is empty")
     name = provider or detect.provider_of(text)

@@ -340,6 +340,45 @@
   }
 }
 
+.agent-provider-button {
+  order: 9;
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-left: 0.15rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+
+  &:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
+
+  & svg {
+    width: var(--icon-size);
+    height: var(--icon-size);
+  }
+}
+
+.callout-title:hover .agent-provider-button,
+.agent-provider-button:focus-visible {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-provider-button {
+    transition: none;
+  }
+}
+
 .callout[data-callout="tool"] {
   --callout-icon: lucide-wrench;
   border: 1px solid var(--background-modifier-border);
