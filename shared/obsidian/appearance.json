@@ -1,0 +1,9 @@
+{
+  "theme": "system",
+  "cssTheme": "",
+  "enabledCssSnippets": [
+    "agent",
+    "agent-cards",
+    "agent-fences"
+  ]
+}
