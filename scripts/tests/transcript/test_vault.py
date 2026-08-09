@@ -44,12 +44,27 @@ def test_save_creates_note_with_frontmatter(tmp_path, monkeypatch):
     session = make_session(tmp_path)
     path, existed = vault.save_session(session, "import", redact.redact)
     assert not existed
-    assert path.name == "2026-08-09 1632 claude fix-the-sync-script.md"
-    assert path.parent.name == "dotfiles"
+    assert path.name == "09-01-fix-the-sync-script.md"
+    assert path.parent.name == "claude"
+    assert path.parent.parent.name == "2026-08"
+    assert path.parent.parent.parent.name == "dotfiles"
     text = path.read_text()
     assert "session: abc-123" in text
     assert "status: inbox" in text
+    assert "obsidianUIMode: preview" in text
     assert "### 16:32 — fix it" in text
+
+
+def test_index_increments_per_day(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
+    first = make_session(tmp_path)
+    path1, _ = vault.save_session(first, "import", redact.redact)
+    second = make_session(tmp_path)
+    second.session_id = "def-456"
+    second.title = "Another thing"
+    path2, _ = vault.save_session(second, "import", redact.redact)
+    assert path1.name.startswith("09-01-")
+    assert path2.name.startswith("09-02-")
 
 
 def test_resave_updates_in_place_and_preserves_edits(tmp_path, monkeypatch):
@@ -71,7 +86,8 @@ def test_resave_updates_in_place_and_preserves_edits(tmp_path, monkeypatch):
 def test_capture_and_daily_link(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     path = vault.save_capture("claude", "hello from the terminal", redact.redact)
-    assert path.parent.name == "Captures"
+    assert path.parent.name == "claude"
+    assert "Captures" in path.parts
     vault.add_daily_link(path, "test capture")
     daily = next((tmp_path / "vault").glob("*.md"))
     assert "test capture" in daily.read_text()

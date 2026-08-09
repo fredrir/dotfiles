@@ -82,6 +82,7 @@ def import_(
     latest: Annotated[bool, typer.Option("--latest", help="Import the newest session.")] = False,
     limit: Annotated[int, typer.Option(help="Sessions listed in the picker.")] = 15,
     raw: Annotated[bool, typer.Option("--raw", help="Skip secret redaction.")] = False,
+    tools: Annotated[bool, typer.Option("--tools", help="Include tool calls in the note.")] = False,
 ):
     if target:
         path = Path(target).expanduser()
@@ -106,7 +107,7 @@ def import_(
         provider, path, session = rows[choice - 1]
     if not session.rounds and not session.degraded:
         die("transcript", "session contains no conversation")
-    note, updated = vault.save_session(session, "import", _redactor(raw))
+    note, updated = vault.save_session(session, "import", _redactor(raw), include_tools=tools)
     out(f"{'updated' if updated else 'created'} {note}")
 
 
@@ -125,6 +126,7 @@ def sync(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Report without writing.")] = False,
     raw: Annotated[bool, typer.Option("--raw", help="Skip secret redaction.")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", help="Print nothing on success.")] = False,
+    tools: Annotated[bool, typer.Option("--tools", help="Include tool calls in the notes.")] = False,
 ):
     allowed = config.allowed_projects()
     threshold = config.min_rounds()
@@ -152,7 +154,9 @@ def sync(
         if dry_run:
             out(f"would sync {provider} {path.name} ({vault.project_of(session.cwd)})")
             continue
-        _, existed = vault.save_session(session, "sync", _redactor(raw), index=index)
+        _, existed = vault.save_session(
+            session, "sync", _redactor(raw), index=index, include_tools=tools
+        )
         if existed:
             updated += 1
         else:

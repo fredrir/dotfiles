@@ -135,7 +135,7 @@
   }
 }
 
-.callout:is([data-callout="me"], [data-callout="turn"], [data-callout="tool"]) {
+.callout:is([data-callout="me"], [data-callout="turn"], [data-callout="tool"], [data-callout="toc"]) {
   --callout-color: 128, 128, 128;
   margin-block: 0.6rem;
   padding: 0;
@@ -193,13 +193,51 @@
 
 .callout[data-callout="me"] {
   --callout-icon: lucide-user;
-  background: color-mix(in srgb, var(--text-normal) 5%, transparent);
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--text-normal) 4%, transparent);
 }
 
 .callout[data-callout="turn"] {
-  --callout-icon: lucide-corner-down-right;
-  border-inline-start: 2px solid color-mix(in srgb, var(--agent-accent, var(--text-faint)) 40%, transparent);
-  border-radius: 0;
+  --turn-accent: var(--text-muted);
+  --callout-icon: lucide-bot;
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
+
+  & > .callout-title .callout-icon {
+    color: var(--turn-accent);
+  }
+
+  & > .callout-title .callout-title-inner {
+    color: color-mix(in srgb, var(--turn-accent) 65%, var(--text-muted));
+  }
+}
+
+.callout[data-callout="turn"][data-callout-metadata*="claude"] {
+  --callout-icon: lucide-asterisk;
+  --turn-accent: #d97757;
+}
+
+.callout[data-callout="turn"][data-callout-metadata*="codex"] {
+  --callout-icon: lucide-terminal;
+  --turn-accent: #10a37f;
+}
+
+.callout[data-callout="toc"] {
+  --callout-icon: lucide-list;
+  border: 1px dashed var(--background-modifier-border);
+  background: transparent;
+
+  & > .callout-content {
+    font-size: 0.85em;
+
+    & ul {
+      margin: 0.2rem 0;
+    }
+
+    & li {
+      margin: 0.1rem 0;
+    }
+  }
 }
 
 .callout[data-callout="tool"] {

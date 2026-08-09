@@ -32,7 +32,43 @@ def test_render_session_headings_and_turns():
     assert "### 16:32 — fix the thing" in body
     assert "### 16:32 — fix the thing (2)" in body
     assert "> [!me] You" in body
-    assert "> [!turn]- Response" in body
+    assert "> [!turn|claude]- Claude" in body
+
+
+def test_tool_turns_dropped_by_default_and_responses_merged():
+    stamp = datetime(2026, 8, 9, 16, 32, tzinfo=UTC)
+    session = Session(provider="codex", session_id="s", source_path="x")
+    session.rounds = [
+        Round(
+            timestamp=stamp,
+            label="do it",
+            turns=[
+                Turn("me", "You", "do it"),
+                Turn("turn", "Response", "first part"),
+                Turn("tool", "Bash · ls", "output"),
+                Turn("turn", "Response", "second part"),
+            ],
+        ),
+    ]
+    body = render.render_session(session)
+    assert "[!tool]" not in body
+    assert body.count("[!turn|codex]- Codex") == 1
+    assert "first part\n>\n> second part" in body
+    with_tools = render.render_session(session, include_tools=True)
+    assert "[!tool]- Bash · ls" in with_tools
+    assert with_tools.count("[!turn|codex]- Codex") == 2
+
+
+def test_toc_added_for_long_sessions():
+    stamp = datetime(2026, 8, 9, 16, 32, tzinfo=UTC)
+    session = Session(provider="claude", session_id="s", source_path="x")
+    session.rounds = [
+        Round(timestamp=stamp, label=f"question {n}", turns=[Turn("me", "You", f"question {n}")])
+        for n in range(5)
+    ]
+    body = render.render_session(session)
+    assert body.startswith("> [!toc]- Contents")
+    assert "> - [[#16:32 — question 0|16:32 — question 0]]" in body
 
 
 def test_degraded_session_renders_raw():

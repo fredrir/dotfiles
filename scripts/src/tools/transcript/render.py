@@ -1,8 +1,14 @@
 import re
 
+from tools.transcript.model import Turn
+
 TOOL_HEAD_LINES = 20
 TOOL_TAIL_LINES = 5
 TOOL_LINE_LIMIT = 30
+
+TOC_MIN_ROUNDS = 5
+
+PROVIDER_NAMES = {"claude": "Claude", "codex": "Codex"}
 
 
 def prefix_quote(text):
@@ -31,7 +37,7 @@ def clean_inline(text, limit=64):
     return text
 
 
-def render_turn(turn):
+def render_turn(turn, provider):
     if turn.kind == "me":
         return "> [!me] You\n" + prefix_quote(turn.body.strip())
     if turn.kind == "tool":
@@ -41,30 +47,51 @@ def render_turn(turn):
             return header
         fence = fence_for(body)
         return header + "\n" + prefix_quote(f"{fence}\n{body}\n{fence}")
-    return "> [!turn]- Response\n" + prefix_quote(turn.body.strip())
+    name = PROVIDER_NAMES.get(provider, "Agent")
+    return f"> [!turn|{provider}]- {name}\n" + prefix_quote(turn.body.strip())
 
 
-def render_session(session):
+def _round_turns(round_, include_tools):
+    if include_tools:
+        return round_.turns
+    turns = [turn for turn in round_.turns if turn.kind == "me"]
+    responses = [turn.body.strip() for turn in round_.turns if turn.kind == "turn" and turn.body.strip()]
+    if responses:
+        turns.append(Turn("turn", "Response", "\n\n".join(responses)))
+    return turns
+
+
+def render_session(session, include_tools=False):
     if session.degraded and not session.rounds:
         fence = fence_for(session.raw_text)
         return (
             "> [!agent]- Degraded import — format not recognized\n"
             + prefix_quote(f"{fence}\n{session.raw_text.strip()}\n{fence}")
         )
-    parts = []
+    headings = []
+    blocks = []
     used = {}
     for round_ in session.rounds:
+        turns = _round_turns(round_, include_tools)
+        if not turns:
+            continue
         label = clean_inline(round_.label or "Response")
         if round_.timestamp is not None:
-            heading = f"### {round_.timestamp:%H:%M} — {label}"
+            text = f"{round_.timestamp:%H:%M} — {label}"
         else:
-            heading = f"### {label}"
-        count = used.get(heading, 0)
-        used[heading] = count + 1
+            text = label
+        count = used.get(text, 0)
+        used[text] = count + 1
         if count:
-            heading = f"{heading} ({count + 1})"
-        parts.append(heading)
-        parts.extend(render_turn(turn) for turn in round_.turns)
+            text = f"{text} ({count + 1})"
+        headings.append(text)
+        blocks.append(f"### {text}")
+        blocks.extend(render_turn(turn, session.provider) for turn in turns)
+    parts = []
+    if len(headings) >= TOC_MIN_ROUNDS:
+        toc_lines = "\n".join(f"> - [[#{text}|{text}]]" for text in headings)
+        parts.append("> [!toc]- Contents\n" + toc_lines)
+    parts.extend(blocks)
     return "\n\n".join(parts)
 
 

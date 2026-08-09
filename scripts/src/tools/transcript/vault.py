@@ -17,6 +17,7 @@ MANAGED_KEYS = {
     "status",
     "import",
     "tags",
+    "obsidianUIMode",
 }
 
 SESSION_KEY_RE = re.compile(r"^session:\s*(\S+)\s*$", re.MULTILINE)
@@ -96,14 +97,25 @@ def compose(fields, preserved, body):
     return "\n".join(lines) + "\n\n" + body.rstrip("\n") + "\n"
 
 
+def next_index(directory, day):
+    highest = 0
+    if directory.is_dir():
+        for path in directory.glob(f"{day}-*.md"):
+            match = re.match(rf"{day}-(\d+)-", path.name)
+            if match:
+                highest = max(highest, int(match.group(1)))
+    return highest + 1
+
+
 def note_path_for(session, project):
     stamp = session.started or datetime.now().astimezone()
+    directory = config.transcripts_dir() / project / f"{stamp:%Y-%m}" / session.provider
+    day = f"{stamp:%d}"
     slug = slugify(session.title or "session")
-    name = f"{stamp:%Y-%m-%d %H%M} {session.provider} {slug}.md"
-    return config.transcripts_dir() / project / name
+    return directory / f"{day}-{next_index(directory, day):02d}-{slug}.md"
 
 
-def save_session(session, source, redactor, index=None):
+def save_session(session, source, redactor, index=None, include_tools=False):
     project = project_of(session.cwd)
     if index is None:
         index = existing_notes()
@@ -126,9 +138,10 @@ def save_session(session, source, redactor, index=None):
         "status": old.get("status") or "inbox",
         "import": "degraded" if session.degraded else "",
         "tags": old.get("tags") or "[transcript]",
+        "obsidianUIMode": "preview",
     }
     preserved = {key: value for key, value in old.items() if key not in MANAGED_KEYS}
-    body = redactor(render.render_session(session))
+    body = redactor(render.render_session(session, include_tools))
     atomic_write(path, compose(fields, preserved, body))
     index[session.session_id] = path
     return path, existing is not None
@@ -138,12 +151,9 @@ def save_capture(provider, text, redactor):
     now = datetime.now().astimezone()
     first_line = next((line for line in text.strip().splitlines() if line.strip()), "capture")
     slug = slugify(render.clean_inline(first_line, 60))
-    directory = config.transcripts_dir() / CAPTURES_PROJECT
-    path = directory / f"{now:%Y-%m-%d %H%M} {provider} {slug}.md"
-    counter = 2
-    while path.exists():
-        path = directory / f"{now:%Y-%m-%d %H%M} {provider} {slug} {counter}.md"
-        counter += 1
+    directory = config.transcripts_dir() / CAPTURES_PROJECT / f"{now:%Y-%m}" / provider
+    day = f"{now:%d}"
+    path = directory / f"{day}-{next_index(directory, day):02d}-{slug}.md"
     fields = {
         "provider": provider,
         "project": CAPTURES_PROJECT,
@@ -151,6 +161,7 @@ def save_capture(provider, text, redactor):
         "source": "capture",
         "status": "inbox",
         "tags": "[transcript]",
+        "obsidianUIMode": "preview",
     }
     body = redactor(render.render_capture(provider, now, text))
     atomic_write(path, compose(fields, {}, body))
