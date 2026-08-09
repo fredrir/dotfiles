@@ -4,7 +4,14 @@ shopt -s nullglob
 
 DOTFILES="$(cd "$(dirname "$0")" && pwd)"
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
-DOTFILE_BIN="$DOTFILES/scripts/.venv/bin/dotfile"
+TOOL_BIN_DIR="$HOME/.local/bin"
+TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
+DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
+COMMANDS_ONLY=0
+
+if [ "${1:-}" = "--commands-only" ]; then
+  COMMANDS_ONLY=1
+fi
 
 BOLD=$'\033[1m'
 DIM=$'\033[2m'
@@ -93,8 +100,25 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "syncing workstation tools (scripts/.venv)"
-uv sync --project "$DOTFILES/scripts" --locked --quiet
+if [ "$COMMANDS_ONLY" = 0 ]; then
+  echo "syncing workstation tools (scripts/.venv)"
+  uv sync --project "$DOTFILES/scripts" --locked --compile-bytecode --quiet
+fi
+
+echo "installing workstation commands (~/.local/bin)"
+mkdir -p "$TOOL_BIN_DIR"
+UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
+  uv tool install \
+    --compile-bytecode \
+    --constraints <(
+      uv export --project "$DOTFILES/scripts" --locked --no-dev --no-emit-project \
+        --no-header --no-annotate --no-hashes --quiet
+    ) \
+    --editable --reinstall --quiet "$DOTFILES/scripts"
+
+if [ "$COMMANDS_ONLY" = 1 ]; then
+  exit 0
+fi
 
 PROFILE="${1:-}"
 case "$PROFILE" in

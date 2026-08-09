@@ -5,13 +5,17 @@ carry no comments, so the reasoning behind the non-obvious behaviour lives
 here.
 
 `scripts/` is a uv-managed Python project (Typer + Rich, package name
-`tools`). `uv sync --project scripts --locked` installs it into
-`scripts/.venv`, whose `bin` directory the workstation zsh profiles put on
-PATH. Each command is a console entry point declared in
-`scripts/pyproject.toml`; there is no umbrella command. The project is
-workstation-only: the Ubuntu server profile never syncs, imports, or invokes
-it, and `bootstrap-vps.sh` links the server profile with its own standalone
-shell linker.
+`tools`). `uv sync --project scripts --locked` installs its development
+environment into `scripts/.venv`. Setup also installs the project as an
+editable uv tool and exposes only the console entry points declared in
+`scripts/pyproject.toml` through `~/.local/bin`, with runtime dependencies
+constrained by `scripts/uv.lock`. Setup enables install-time bytecode
+compilation for both environments. Re-running setup reconciles that directory
+with the declaration, including pruning removed entry points. The Linux,
+macOS, and Ubuntu zsh profiles put `~/.local/bin` on PATH without exposing the
+project environment's Python or dependency commands. The Ubuntu VPS bootstrap
+uses `./setup.sh --commands-only` to install the same entry points without a
+development environment.
 
 ## Layout
 
@@ -235,10 +239,11 @@ destination. One row per subject, the misses listed underneath it:
 
 `✓` and `·` pass, `✗` and `!` fail. The rows are:
 
-- **profile, venv, overrides, shell** — the profile belongs to this platform
+- **profile, commands, overrides, shell** — the profile belongs to this platform
   (only judged when `environment/<platform>/` exists, so an unrelated profile
-  name is not guessed at), `scripts/.venv/bin` exists and is on PATH, every
-  group with `overrides/` has a selection, and the login shell is zsh.
+  name is not guessed at), every declared command is installed through uv into
+  `~/.local/bin` and resolves there, every group with `overrides/` has a
+  selection, and the login shell is zsh.
 - **tools, fonts, files, optional** — the entries in `requires.dotfile` for the
   groups this profile links. Fonts are matched against `fc-list` families, or
   against the font directories when fontconfig is not installed; a family

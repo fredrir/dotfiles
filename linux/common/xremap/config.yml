@@ -13,7 +13,7 @@ keymap:
       Ctrl-Shift-C:
         - Ctrl-Shift-C
         - sleep: 200
-        - launch: ["/bin/sh", "-c", "$HOME/dotfiles/scripts/.venv/bin/clean-copy"]
+        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy"]
   - name: kitty copy and interrupt
     application:
       only: /(?i)^kitty$/

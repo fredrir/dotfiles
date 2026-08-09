@@ -2,6 +2,7 @@ import os
 import pwd
 import re
 import shutil
+import tomllib
 
 from tools.core.console import colors_enabled
 from tools.core.process import capture
@@ -247,16 +248,45 @@ def wrong_platform(ctx, profile, platform):
     return f"not a {platform} profile"
 
 
-def venv_problem(ctx):
-    if not os.path.isfile(os.path.join(ctx.root, "scripts", "pyproject.toml")):
+def project_commands(ctx):
+    project = os.path.join(ctx.root, "scripts", "pyproject.toml")
+    if not os.path.isfile(project):
+        return []
+    with open(project, "rb") as handle:
+        data = tomllib.load(handle)
+    return sorted(data.get("project", {}).get("scripts", {}))
+
+
+def commands_problem(ctx):
+    commands = project_commands(ctx)
+    if not commands:
         return ""
-    bindir = os.path.join(ctx.root, "scripts", ".venv", "bin")
-    if not os.path.isdir(bindir):
-        return "scripts/.venv is missing, run ./setup.sh"
+    bindir = os.path.join(ctx.home, ".local", "bin")
     entries = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry]
-    if os.path.realpath(bindir) in [os.path.realpath(entry) for entry in entries]:
-        return ""
-    return "scripts/.venv/bin is not on PATH"
+    if os.path.realpath(bindir) not in [os.path.realpath(entry) for entry in entries]:
+        return "~/.local/bin is not on PATH"
+    missing = [name for name in commands if not os.path.isfile(os.path.join(bindir, name))]
+    if missing:
+        return "missing from ~/.local/bin: " + ", ".join(missing)
+    data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(ctx.home, ".local", "share")
+    tool_dir = os.environ.get("UV_TOOL_DIR") or os.path.join(data_home, "uv", "tools")
+    tool_root = os.path.realpath(tool_dir) + os.sep
+    unmanaged = [
+        name
+        for name in commands
+        if not os.path.realpath(os.path.join(bindir, name)).startswith(tool_root)
+    ]
+    if unmanaged:
+        return "not installed by uv: " + ", ".join(unmanaged)
+    shadowed = [
+        name
+        for name in commands
+        if os.path.realpath(shutil.which(name) or "")
+        != os.path.realpath(os.path.join(bindir, name))
+    ]
+    if shadowed:
+        return "shadowed on PATH: " + ", ".join(shadowed)
+    return ""
 
 
 def login_shell():
@@ -271,9 +301,9 @@ def environment_rows(ctx, profile, manifest, platform):
     warning = wrong_platform(ctx, profile, platform)
     if warning:
         rows.append(row("warn", "profile", f"{warning} (host {platform})"))
-    problem = venv_problem(ctx)
+    problem = commands_problem(ctx)
     if problem:
-        rows.append(row("warn", "venv", problem))
+        rows.append(row("warn", "commands", problem))
     pending = pending_overrides(ctx, manifest)
     if pending:
         rows.append(row("warn", "overrides", "unselected for " + " ".join(pending)))

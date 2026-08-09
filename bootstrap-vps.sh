@@ -135,6 +135,15 @@ install_starship() {
     || warn "starship install failed; zsh will use the fallback prompt."
 }
 
+install_uv() {
+  have uv && return 0
+  say "Installing uv"
+  if ! fetch_stdout https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh; then
+    warn "uv install failed; dotfile commands will be unavailable."
+  fi
+  hash -r
+}
+
 # --- get the repo ----------------------------------------------------------
 ensure_repo() {
   local self="${BASH_SOURCE[0]:-}"
@@ -148,6 +157,16 @@ ensure_repo() {
   else
     say "Cloning $DOTFILES_REPO -> $DOTFILES_DIR"; git clone "$DOTFILES_REPO" "$DOTFILES_DIR"
   fi
+}
+
+install_dotfile_commands() {
+  if ! have uv; then
+    warn "uv unavailable; skipping dotfile commands."
+    return 0
+  fi
+  say "Installing dotfile commands"
+  "$DOTFILES_DIR/setup.sh" --commands-only \
+    || warn "dotfile command installation failed."
 }
 
 # --- link dotfiles -----------------------------------------------------------
@@ -336,7 +355,9 @@ install_packages
 nvim_recent || install_nvim_tarball
 install_ohmyzsh
 install_starship
+install_uv
 ensure_repo
+install_dotfile_commands
 link_dotfiles
 set_login_shell
 sync_nvim

@@ -94,8 +94,12 @@ dotfile format
 ## Command-line tools
 
 ```bash
-uv sync --project scripts --locked
+./setup.sh --commands-only
 ```
+
+The public commands are declared in `scripts/pyproject.toml` and installed as
+an editable uv tool in `~/.local/bin`. The project environment remains
+isolated from the shell PATH.
 
 ## Tests
 

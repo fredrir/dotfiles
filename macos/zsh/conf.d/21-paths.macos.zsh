@@ -1,6 +1,8 @@
+typeset -U path PATH
+path=("${(@)path:#$HOME/dotfiles/scripts/.venv/bin}")
+
 path=(
   "$HOME/.local/bin"
-  "$HOME/dotfiles/scripts/.venv/bin"
   $path
 )
 

@@ -3,4 +3,4 @@ Description=Regenerate terminal theme from theme/palette.toml
 
 [Service]
 Type=oneshot
-ExecStart=%h/dotfiles/scripts/.venv/bin/generate-theme
+ExecStart=%h/.local/bin/generate-theme

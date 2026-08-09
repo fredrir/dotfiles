@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import typer
 
@@ -7,6 +9,7 @@ from tools.dotfile import check
 class FakeContext:
     def __init__(self, root):
         self.root = str(root)
+        self.home = str(root / "home")
         self.environment_dir = str(root / "environment")
         self.requires_file = str(root / "requires.dotfile")
 
@@ -21,6 +24,28 @@ def ctx(tmp_path):
 def write_requires(ctx, text):
     with open(ctx.requires_file, "w", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def write_project(ctx, *commands):
+    scripts = os.path.join(ctx.root, "scripts")
+    os.makedirs(scripts, exist_ok=True)
+    entries = "".join(f'{name} = "tools.commands:{name}"\n' for name in commands)
+    with open(os.path.join(scripts, "pyproject.toml"), "w", encoding="utf-8") as handle:
+        handle.write(f'[project]\nname = "tools"\nversion = "0.1.0"\n[project.scripts]\n{entries}')
+
+
+def install_commands(ctx, *commands):
+    bindir = os.path.join(ctx.home, ".local", "bin")
+    tool_bindir = os.path.join(ctx.home, ".local", "share", "uv", "tools", "tools", "bin")
+    os.makedirs(bindir, exist_ok=True)
+    os.makedirs(tool_bindir, exist_ok=True)
+    for name in commands:
+        source = os.path.join(tool_bindir, name)
+        with open(source, "w", encoding="utf-8") as handle:
+            handle.write("exit 0\n")
+        os.chmod(source, 0o755)
+        os.symlink(source, os.path.join(bindir, name))
+    return bindir
 
 
 def test_reads_every_entry_kind(ctx):
@@ -66,6 +91,50 @@ def test_warns_about_a_profile_from_another_platform(ctx):
 
 def test_stays_quiet_when_the_platform_has_no_profiles_in_the_repository(ctx):
     assert check.wrong_platform(ctx, "ubuntu/server", "ubuntu") == ""
+
+
+def test_reads_declared_project_commands(ctx):
+    write_project(ctx, "size", "count")
+    assert check.project_commands(ctx) == ["count", "size"]
+
+
+def test_accepts_commands_installed_as_uv_tools(ctx, monkeypatch):
+    write_project(ctx, "count", "size")
+    bindir = install_commands(ctx, "count", "size")
+    monkeypatch.setenv("PATH", bindir + os.pathsep + "/usr/bin")
+    assert check.commands_problem(ctx) == ""
+
+
+def test_reports_a_missing_public_command(ctx, monkeypatch):
+    write_project(ctx, "count", "size")
+    bindir = install_commands(ctx, "count")
+    monkeypatch.setenv("PATH", bindir + os.pathsep + "/usr/bin")
+    assert check.commands_problem(ctx) == "missing from ~/.local/bin: size"
+
+
+def test_rejects_a_public_command_outside_the_uv_tool_directory(ctx, monkeypatch):
+    write_project(ctx, "count")
+    bindir = os.path.join(ctx.home, ".local", "bin")
+    os.makedirs(bindir, exist_ok=True)
+    command = os.path.join(bindir, "count")
+    with open(command, "w", encoding="utf-8") as handle:
+        handle.write("exit 0\n")
+    os.chmod(command, 0o755)
+    monkeypatch.setenv("PATH", bindir + os.pathsep + "/usr/bin")
+    assert check.commands_problem(ctx) == "not installed by uv: count"
+
+
+def test_reports_a_uv_command_shadowed_earlier_on_path(ctx, monkeypatch):
+    write_project(ctx, "count")
+    bindir = install_commands(ctx, "count")
+    earlier = os.path.join(ctx.home, "earlier")
+    os.makedirs(earlier)
+    command = os.path.join(earlier, "count")
+    with open(command, "w", encoding="utf-8") as handle:
+        handle.write("exit 0\n")
+    os.chmod(command, 0o755)
+    monkeypatch.setenv("PATH", earlier + os.pathsep + bindir + os.pathsep + "/usr/bin")
+    assert check.commands_problem(ctx) == "shadowed on PATH: count"
 
 
 def test_font_matches_a_family_and_its_weights():
