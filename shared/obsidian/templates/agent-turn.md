@@ -10,7 +10,7 @@ if (!pick || !sel) {
   tR += sel ?? "";
 } else {
   const titles = { me: "You", turn: "Response", tool: "Tool" };
-  const fold = pick === "me" ? "" : "-";
+  const fold = pick === "me" ? "+" : "-";
   const body = sel
     .replace(/\r\n/g, "\n")
     .split("\n")

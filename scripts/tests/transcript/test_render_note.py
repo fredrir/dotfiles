@@ -31,7 +31,7 @@ def test_render_session_headings_and_turns():
     body = render.render_session(session)
     assert "### 16:32 — fix the thing" in body
     assert "### 16:32 — fix the thing (2)" in body
-    assert "> [!me] You" in body
+    assert "> [!me]+ You" in body
     assert "> [!turn|claude]- Claude" in body
 
 

@@ -8,6 +8,7 @@
 - `obsidian` — Obsidian theme generated from theme/palette.toml
 - `skills`
 - `starship` — Cross-shell prompt configuration
+- `transcript`
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
 

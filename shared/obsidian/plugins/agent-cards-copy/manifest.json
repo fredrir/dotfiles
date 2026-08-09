@@ -1,0 +1,9 @@
+{
+  "id": "agent-cards-copy",
+  "name": "Agent Cards Copy",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Adds a copy button to agent transcript callouts.",
+  "author": "fredrir",
+  "isDesktopOnly": false
+}

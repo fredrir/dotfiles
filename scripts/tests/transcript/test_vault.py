@@ -39,12 +39,18 @@ def test_project_of():
     assert vault.project_of("") == "Unsorted"
 
 
+def test_project_of_home_directory():
+    from pathlib import Path
+
+    assert vault.project_of(str(Path.home())) == "Home"
+
+
 def test_save_creates_note_with_frontmatter(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     session = make_session(tmp_path)
     path, existed = vault.save_session(session, "import", redact.redact)
     assert not existed
-    assert path.name == "09-01-fix-the-sync-script.md"
+    assert path.name == "09-fix-the-sync-script.md"
     assert path.parent.name == "claude"
     assert path.parent.parent.name == "2026-08"
     assert path.parent.parent.parent.name == "dotfiles"
@@ -55,16 +61,26 @@ def test_save_creates_note_with_frontmatter(tmp_path, monkeypatch):
     assert "### 16:32 — fix it" in text
 
 
-def test_index_increments_per_day(tmp_path, monkeypatch):
+def test_filename_conflicts_get_suffix(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     first = make_session(tmp_path)
     path1, _ = vault.save_session(first, "import", redact.redact)
     second = make_session(tmp_path)
     second.session_id = "def-456"
-    second.title = "Another thing"
     path2, _ = vault.save_session(second, "import", redact.redact)
-    assert path1.name.startswith("09-01-")
-    assert path2.name.startswith("09-02-")
+    assert path1.name == "09-fix-the-sync-script.md"
+    assert path2.name == "09-fix-the-sync-script (1).md"
+
+
+def test_groups_nest_projects(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[groups]\nRice = ["dotfiles", "theme"]\n')
+    monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
+    session = make_session(tmp_path)
+    path, _ = vault.save_session(session, "import", redact.redact)
+    assert path.parent.parent.parent.name == "Rice"
+    assert "project: dotfiles" in path.read_text()
 
 
 def test_resave_updates_in_place_and_preserves_edits(tmp_path, monkeypatch):

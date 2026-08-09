@@ -1,4 +1,4 @@
-.callout:is([data-callout="claude"], [data-callout="codex"], [data-callout="agent"]) {
+.callout:is([data-callout="claude"], [data-callout="codex"], [data-callout="agent"], [data-callout="chatgpt"]) {
   --agent-accent: var(--text-accent);
   --agent-label: "agent";
   --agent-surface: color-mix(in srgb, var(--agent-accent) 3%, var(--background-primary));
@@ -135,6 +135,14 @@
   }
 }
 
+.callout[data-callout="chatgpt"] {
+  --agent-accent: #10a37f;
+  --agent-label: "chatgpt";
+  --agent-surface: color-mix(in srgb, #10a37f 3%, var(--background-primary));
+  --callout-color: 16, 163, 127;
+  --callout-icon: lucide-message-square;
+}
+
 .callout:is([data-callout="me"], [data-callout="turn"], [data-callout="tool"], [data-callout="toc"]) {
   --callout-color: 128, 128, 128;
   margin-block: 0.6rem;
@@ -146,8 +154,8 @@
 
   & > .callout-title {
     align-items: center;
-    gap: 0.45rem;
-    padding: 0.4rem 0.65rem 0.1rem;
+    gap: 0.5rem;
+    padding: 0.45rem 0.65rem;
     background: transparent;
     color: var(--text-muted);
 
@@ -178,7 +186,7 @@
   }
 
   & > .callout-content {
-    padding: 0.2rem 0.65rem 0.6rem;
+    padding: 0.05rem 0.7rem 0.65rem;
     font-size: 0.95em;
 
     & > :first-child {
@@ -195,6 +203,23 @@
   --callout-icon: lucide-user;
   border: 1px solid var(--background-modifier-border);
   background: color-mix(in srgb, var(--text-normal) 4%, transparent);
+
+  & > .callout-title .callout-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 1.7rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-normal) 9%, transparent);
+    color: var(--text-muted);
+
+    & svg {
+      width: 0.95rem;
+      height: 0.95rem;
+    }
+  }
 }
 
 .callout[data-callout="turn"] {
@@ -204,7 +229,20 @@
   background: color-mix(in srgb, var(--text-normal) 2%, transparent);
 
   & > .callout-title .callout-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 1.7rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border: 1px solid color-mix(in srgb, var(--turn-accent) 30%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--turn-accent) 12%, transparent);
     color: var(--turn-accent);
+
+    & svg {
+      width: 0.95rem;
+      height: 0.95rem;
+    }
   }
 
   & > .callout-title .callout-title-inner {
@@ -237,6 +275,32 @@
     & li {
       margin: 0.1rem 0;
     }
+  }
+}
+
+.agent-copy-button {
+  order: 10;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: 0.4rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
+
+  & svg {
+    width: 0.85rem;
+    height: 0.85rem;
   }
 }
 

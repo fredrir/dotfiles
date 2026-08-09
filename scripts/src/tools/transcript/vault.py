@@ -28,12 +28,22 @@ CAPTURES_PROJECT = "Captures"
 def project_of(cwd):
     if not cwd:
         return "Unsorted"
+    path = Path(cwd)
     allowed = config.allowed_projects()
-    for part in Path(cwd).parts:
+    for part in path.parts:
         if part.lower() in allowed:
             return part
-    name = Path(cwd).name.strip()
+    if path == Path.home():
+        return "Home"
+    name = path.name.strip()
     return name or "Unsorted"
+
+
+def folder_for(project):
+    for group, members in config.project_groups().items():
+        if project.lower() in members:
+            return group
+    return project
 
 
 def slugify(text, limit=40):
@@ -97,22 +107,20 @@ def compose(fields, preserved, body):
     return "\n".join(lines) + "\n\n" + body.rstrip("\n") + "\n"
 
 
-def next_index(directory, day):
-    highest = 0
-    if directory.is_dir():
-        for path in directory.glob(f"{day}-*.md"):
-            match = re.match(rf"{day}-(\d+)-", path.name)
-            if match:
-                highest = max(highest, int(match.group(1)))
-    return highest + 1
+def dedupe_path(directory, base):
+    path = directory / f"{base}.md"
+    counter = 1
+    while path.exists():
+        path = directory / f"{base} ({counter}).md"
+        counter += 1
+    return path
 
 
 def note_path_for(session, project):
     stamp = session.started or datetime.now().astimezone()
-    directory = config.transcripts_dir() / project / f"{stamp:%Y-%m}" / session.provider
-    day = f"{stamp:%d}"
+    directory = config.transcripts_dir() / folder_for(project) / f"{stamp:%Y-%m}" / session.provider
     slug = slugify(session.title or "session")
-    return directory / f"{day}-{next_index(directory, day):02d}-{slug}.md"
+    return dedupe_path(directory, f"{stamp:%d}-{slug}")
 
 
 def save_session(session, source, redactor, index=None, include_tools=False):
@@ -152,8 +160,7 @@ def save_capture(provider, text, redactor):
     first_line = next((line for line in text.strip().splitlines() if line.strip()), "capture")
     slug = slugify(render.clean_inline(first_line, 60))
     directory = config.transcripts_dir() / CAPTURES_PROJECT / f"{now:%Y-%m}" / provider
-    day = f"{now:%d}"
-    path = directory / f"{day}-{next_index(directory, day):02d}-{slug}.md"
+    path = dedupe_path(directory, f"{now:%d}-{slug}")
     fields = {
         "provider": provider,
         "project": CAPTURES_PROJECT,

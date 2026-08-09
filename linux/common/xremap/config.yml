@@ -29,3 +29,9 @@ keymap:
         - Ctrl-Shift-C
         - sleep: 200
         - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet"]
+  - name: Global agent capture
+    remap:
+      Ctrl-Alt-C:
+        - Ctrl-C
+        - sleep: 200
+        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet"]

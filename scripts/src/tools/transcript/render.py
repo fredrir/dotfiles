@@ -39,7 +39,7 @@ def clean_inline(text, limit=64):
 
 def render_turn(turn, provider):
     if turn.kind == "me":
-        return "> [!me] You\n" + prefix_quote(turn.body.strip())
+        return "> [!me]+ You\n" + prefix_quote(turn.body.strip())
     if turn.kind == "tool":
         header = f"> [!tool]- {clean_inline(turn.title, 90)}"
         body = cap_lines(turn.body.strip())
