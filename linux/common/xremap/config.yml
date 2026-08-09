@@ -14,6 +14,10 @@ keymap:
         - Ctrl-Shift-C
         - sleep: 200
         - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy"]
+      Ctrl-Alt-C:
+        - Ctrl-Shift-C
+        - sleep: 200
+        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet"]
   - name: kitty copy and interrupt
     application:
       only: /(?i)^kitty$/
@@ -21,3 +25,13 @@ keymap:
     remap:
       Ctrl-C: Ctrl-Shift-C
       Ctrl-X: Ctrl-C
+      Ctrl-Alt-C:
+        - Ctrl-Shift-C
+        - sleep: 200
+        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet"]
+  - name: Global agent capture
+    remap:
+      Ctrl-Alt-C:
+        - Ctrl-C
+        - sleep: 200
+        - launch: ["/bin/sh", "-c", "$HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet"]

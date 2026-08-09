@@ -1,4 +1,6 @@
 [
   "table-editor-obsidian",
-  "templater-obsidian"
+  "templater-obsidian",
+  "obsidian-view-mode-by-frontmatter",
+  "agent-cards-copy"
 ]

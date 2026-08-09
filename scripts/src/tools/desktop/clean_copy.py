@@ -1,10 +1,11 @@
 import re
-import subprocess
 import sys
 from textwrap import dedent
 from typing import Annotated
 
 import typer
+
+from tools.core import clipboard
 
 app = typer.Typer(add_completion=False)
 
@@ -34,24 +35,11 @@ def clean_text(text):
 
 
 def read_clipboard():
-    try:
-        result = subprocess.run(
-            ["wl-paste", "--no-newline", "-t", "text"],
-            capture_output=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        return None
-    if result.returncode != 0:
-        return None
-    try:
-        return result.stdout.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
+    return clipboard.read_text()
 
 
 def write_clipboard(text):
-    subprocess.run(["wl-copy"], input=text.encode("utf-8"), check=False)
+    clipboard.write_text(text)
 
 
 @app.command(help="Clean selected text and write it to the clipboard.")

@@ -1,0 +1,5 @@
+vault = "~/Documents/main"
+projects = ["dotfiles", "ArchTeX"]
+min_rounds = 2
+
+[groups]

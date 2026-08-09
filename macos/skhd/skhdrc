@@ -1,0 +1,1 @@
+cmd + alt - c : $HOME/.local/bin/clean-copy && $HOME/.local/bin/transcript capture --quiet
