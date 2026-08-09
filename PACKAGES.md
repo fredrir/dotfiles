@@ -25,10 +25,12 @@
 ## `linux/arch`
 
 - `fastfetch` — Arch fastfetch logo and configuration
+- `git` — Arch-specific Git configuration
 
 ## `linux/ubuntu`
 
 - `fastfetch` — Ubuntu fastfetch logo and configuration
+- `git` — Ubuntu-specific Git configuration
 
 ## `linux/kde`
 
@@ -59,5 +61,6 @@
 ## `macos`
 
 - `fastfetch` — macOS-specific fastfetch configuration
+- `git` — macOS-specific Git configuration
 - `iterm` — iTerm2 terminal profile
 - `zsh` — macOS-specific Z shell configuration
