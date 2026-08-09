@@ -13,3 +13,4 @@ shared/git/.gitconfig = ~/.gitconfig
 macos/git/.gitconfig = ~/.gitconfig
 linux/arch/git/.gitconfig = ~/.gitconfig
 linux/ubuntu/git/.gitconfig = ~/.gitconfig
+shared/obsidian/snippets = ~/Documents/main/.obsidian/snippets
