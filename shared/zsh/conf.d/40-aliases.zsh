@@ -1,5 +1,10 @@
 alias cp="cp -i"
 alias mv="mv -i"
+alias rm="rm -i"
+
+alias grep="grep --color=auto"
+alias fgrep="fgrep --color=auto"
+alias f='find . -type f -name'
 
 alias n="nvim"
 alias nn="nvim ."
@@ -13,13 +18,7 @@ alias untar="tar -xzf"
 
 (( $+commands[bat] )) && alias cat='bat -pp'
 
-alias cp="cp -i"
-alias mv="mv -i"
-alias rm="rm -i"
 
-alias grep="grep --color=auto"
-alias fgrep="fgrep --color=auto"
-alias f='find . -type f -name'
 # Git
 alias gs='git status'
 alias ga='git add .'
@@ -27,7 +26,6 @@ alias gc='git commit -m'
 alias gcm='git commit -m'
 alias gp='git push'
 alias gl='git log'
-alias git pull='git fetch && git pull'
 alias gd='git diff'
 alias gff="git add . && git commit -m "." && git push"
 
@@ -42,7 +40,7 @@ alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdd="cd $HOME/dotfiles"
 alias cdn="cd $NVIM"
-alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate && direnv allow"
+alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate"
 alias cdz="cd $CONFIG/zsh/conf.d"
 
 alias cdf="cd ../frontend"

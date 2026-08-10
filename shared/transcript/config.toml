@@ -6,6 +6,7 @@ projects = [
     "llunde-backend",
     "llunde-frontend",
     "llunde-pyparser",
+    "sndbx",
 ]
 
 min_rounds = 2
@@ -23,3 +24,4 @@ llunde = [
     "llunde-frontend",
     "llunde-pyparser",
 ]
+other = ["sndbx"]
