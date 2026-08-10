@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -5,12 +6,129 @@ from typing import Annotated
 import typer
 from rich.table import Table
 
-from tools.core import clipboard
+from tools.core import clipboard, menu
 from tools.core.console import die, out, stdout
 from tools.desktop.clean_copy import clean_text
-from tools.transcript import config, detect, redact, store, vault
+from tools.transcript import config, detect, manage, redact, store, vault
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
+
+MENU = (
+    ("capture", "wrap the clipboard into a transcript note"),
+    ("import", "pick a recent session to import"),
+    ("list", "list recent sessions"),
+    ("add", "track a project for sync"),
+    ("rm", "stop tracking a project"),
+    ("sync", "sync allowlisted sessions now"),
+)
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    if ctx.invoked_subcommand is not None:
+        return
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        out(ctx.get_help())
+        return
+    choice = menu.pick("transcript", [name for name, _ in MENU], [text for _, text in MENU])
+    if choice is None:
+        return
+    name = MENU[choice][0]
+    if name == "capture":
+        capture(provider="", raw=False, quiet=False, fallback="")
+    elif name == "import":
+        _interactive_import(15, False, False)
+    elif name == "list":
+        list_(limit=15)
+    elif name == "add":
+        _interactive_add()
+    elif name == "rm":
+        _interactive_rm()
+    elif name == "sync":
+        sync(dry_run=False, raw=False, quiet=False, tools=False)
+
+
+def _untracked_candidates():
+    allowed = config.allowed_projects()
+    home = Path.home()
+    cwds = [str(Path.cwd())]
+    seen_cwds = set(cwds)
+    for provider, path in store.all_sessions():
+        cwd = store.peek_cwd(provider, path)
+        if cwd and cwd not in seen_cwds:
+            seen_cwds.add(cwd)
+            cwds.append(cwd)
+    candidates = []
+    roots = set()
+    for cwd in cwds:
+        root = manage.resolve_repo(cwd)
+        key = str(root).lower()
+        if key in roots:
+            continue
+        roots.add(key)
+        name = vault.project_of(str(root))
+        if name.lower() in allowed or name in ("Home", "Unsorted"):
+            continue
+        try:
+            hidden = any(part.startswith(".") for part in root.relative_to(home).parts)
+        except ValueError:
+            hidden = False
+        if hidden:
+            continue
+        candidates.append((name, root))
+    return candidates
+
+
+def _interactive_add():
+    page = 10
+    candidates = _untracked_candidates()
+    shown = page
+    cursor = 0
+    while True:
+        visible = candidates[:shown]
+        options = [name for name, _ in visible]
+        descriptions = [str(root) for _, root in visible]
+        remaining = len(candidates) - len(visible)
+        if remaining:
+            options.append(f"show {min(remaining, page)} more…")
+            descriptions.append(f"{remaining} more from session history")
+        options.append("enter a path…")
+        descriptions.append("type a directory yourself")
+        choice = menu.pick("track which project?", options, descriptions, default=cursor)
+        if choice is None:
+            return
+        if remaining and choice == len(visible):
+            menu.erase(len(options))
+            cursor = len(visible)
+            shown += page
+            continue
+        if choice == len(options) - 1:
+            raw = typer.prompt("directory", default=".")
+            directory = Path(raw).expanduser().resolve()
+            if not directory.is_dir():
+                die("transcript", f"no such directory: {directory}")
+        else:
+            directory = visible[choice][1]
+        break
+    default_name = manage.resolve_repo(directory).name
+    name = typer.prompt("project name", default=default_name)
+    group = typer.prompt("group (empty for none)", default="")
+    project, added = manage.track(directory, name.strip(), group.strip())
+    out(f"tracking {project}" if added else f"{project} is already tracked")
+
+
+def _interactive_rm():
+    projects = config.project_list()
+    if not projects:
+        die("transcript", "no tracked projects")
+    choice = menu.pick("stop tracking which project?", projects)
+    if choice is None:
+        return
+    name = projects[choice]
+    if manage.untrack(name):
+        out(f"stopped tracking {name}")
+    else:
+        die("transcript", f"{name} is not tracked")
 
 
 def _redactor(raw):
@@ -57,6 +175,24 @@ def _print_table(rows):
     stdout.print(table)
 
 
+def _save_import(session, raw, tools):
+    if not session.rounds and not session.degraded:
+        die("transcript", "session contains no conversation")
+    note, updated = vault.save_session(session, "import", _redactor(raw), include_tools=tools)
+    out(f"{'updated' if updated else 'created'} {note}")
+
+
+def _interactive_import(limit, raw, tools):
+    rows = _recent(limit)
+    if not rows:
+        die("transcript", "no sessions found")
+    _print_table(rows)
+    choice = typer.prompt("Import which session?", type=int, default=1)
+    if choice < 1 or choice > len(rows):
+        die("transcript", f"pick a number between 1 and {len(rows)}")
+    _save_import(rows[choice - 1][2], raw, tools)
+
+
 @app.command(help="Wrap clipboard text as a transcript note in the vault.")
 def capture(
     provider: Annotated[
@@ -100,8 +236,7 @@ def import_(
         path = Path(target).expanduser()
         if not path.is_file():
             die("transcript", f"no such session file: {path}")
-        provider = store.provider_of_path(path)
-        session = _parse(provider, path)
+        session = _parse(store.provider_of_path(path), path)
     elif latest:
         sessions = store.all_sessions()
         if not sessions:
@@ -109,18 +244,9 @@ def import_(
         provider, path = sessions[0]
         session = _parse(provider, path)
     else:
-        rows = _recent(limit)
-        if not rows:
-            die("transcript", "no sessions found")
-        _print_table(rows)
-        choice = typer.prompt("Import which session?", type=int, default=1)
-        if choice < 1 or choice > len(rows):
-            die("transcript", f"pick a number between 1 and {len(rows)}")
-        provider, path, session = rows[choice - 1]
-    if not session.rounds and not session.degraded:
-        die("transcript", "session contains no conversation")
-    note, updated = vault.save_session(session, "import", _redactor(raw), include_tools=tools)
-    out(f"{'updated' if updated else 'created'} {note}")
+        _interactive_import(limit, raw, tools)
+        return
+    _save_import(session, raw, tools)
 
 
 @app.command("list", help="List recent Claude Code and Codex sessions.")
@@ -131,6 +257,39 @@ def list_(
     if not rows:
         die("transcript", "no sessions found")
     _print_table(rows)
+
+
+@app.command(help="Track a project for transcript sync (defaults to the current repo).")
+def add(
+    path: Annotated[str, typer.Argument(help="Project directory.")] = ".",
+    name: Annotated[
+        str, typer.Option(help="Project name; defaults to the repo directory name.")
+    ] = "",
+    group: Annotated[str, typer.Option(help="Group to file the project under.")] = "",
+):
+    directory = Path(path).expanduser().resolve()
+    if not directory.is_dir():
+        die("transcript", f"no such directory: {directory}")
+    project, added = manage.track(directory, name, group)
+    if added:
+        out(f"tracking {project}")
+    else:
+        out(f"{project} is already tracked")
+
+
+@app.command(help="Stop tracking a project; existing notes stay in the vault.")
+def rm(
+    target: Annotated[str, typer.Argument(help="Project name or directory.")],
+):
+    candidate = Path(target).expanduser()
+    if candidate.exists():
+        name = vault.project_of(str(manage.resolve_repo(candidate.resolve())))
+    else:
+        name = target.strip().strip("/")
+    if manage.untrack(name):
+        out(f"stopped tracking {name}")
+    else:
+        die("transcript", f"{name} is not tracked")
 
 
 @app.command(help="Sync allowlisted Claude Code and Codex sessions into the vault.")

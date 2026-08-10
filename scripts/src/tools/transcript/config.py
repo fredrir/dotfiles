@@ -43,13 +43,17 @@ def codex_store():
     return Path(os.path.expanduser("~/.codex/sessions"))
 
 
-def allowed_projects():
+def project_list():
     raw = os.environ.get("TRANSCRIPT_PROJECTS")
     if raw:
         names = raw.split(",")
     else:
         names = _file_config().get("projects") or list(DEFAULT_PROJECTS)
-    return {str(name).strip().lower() for name in names if str(name).strip()}
+    return [str(name).strip() for name in names if str(name).strip()]
+
+
+def allowed_projects():
+    return {name.lower() for name in project_list()}
 
 
 def min_rounds():
