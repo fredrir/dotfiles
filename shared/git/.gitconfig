@@ -2,6 +2,12 @@
 	name = fredrir
 	email = fhansteen@gmail.com
 	signingkey = ~/.ssh/id_ed25519.pub
+
+[fetch]
+	prune = true
+
+[rerere]
+	enabled = true
 	
 [core]
 	editor = nvim
