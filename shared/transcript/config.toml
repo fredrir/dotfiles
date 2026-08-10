@@ -1,5 +1,6 @@
 vault = "~/Documents/main"
-projects = ["dotfiles", "ArchTeX"]
+projects = ["dotfiles", "ArchTeX", "llunde-infra", "llunde-backend", "llunde-frontend", "llunde-pyparser"]
 min_rounds = 2
 
 [groups]
+llunde = ["llunde"]

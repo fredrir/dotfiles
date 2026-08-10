@@ -6,3 +6,6 @@ if [ -x /opt/homebrew/bin/brew ]; then
 elif [ -x /usr/local/bin/brew ]; then
   eval "$(/usr/local/bin/brew shellenv)"
 fi
+
+# Python
+export PATH="$(brew --prefix python)/libexec/bin:$PATH"
