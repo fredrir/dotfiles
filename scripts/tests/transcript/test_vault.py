@@ -91,6 +91,44 @@ def test_aliases_map_paths_to_project_names(tmp_path, monkeypatch):
     assert vault.folder_for("llunde-backend") == "llunde"
 
 
+def test_nested_groups_add_subfolder(tmp_path, monkeypatch):
+    config_file = tmp_path / "nested-config.toml"
+    config_file.write_text(
+        'nested_groups = ["llunde"]\n'
+        "\n"
+        "[groups]\n"
+        'llunde = ["llunde-backend", "special"]\n'
+        'other = ["sndbx"]\n'
+    )
+    monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
+    assert vault.folder_for("llunde-backend") == "llunde/backend"
+    assert vault.folder_for("special") == "llunde/special"
+    assert vault.folder_for("sndbx") == "other"
+    assert vault.folder_for("dotfiles") == "dotfiles"
+
+
+def test_nested_group_note_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
+    config_file = tmp_path / "nested-path-config.toml"
+    config_file.write_text(
+        'projects = ["llunde-backend"]\n'
+        'nested_groups = ["llunde"]\n'
+        "\n"
+        "[aliases]\n"
+        '"llunde-new/backend" = "llunde-backend"\n'
+        "\n"
+        "[groups]\n"
+        'llunde = ["llunde-backend"]\n'
+    )
+    monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
+    session = make_session(tmp_path)
+    session.cwd = "/Users/fredrir/llunde-new/backend"
+    path, _ = vault.save_session(session, "sync", redact.redact)
+    relative = path.relative_to(tmp_path / "vault" / "Transcripts")
+    assert str(relative) == "llunde/backend/2026-08/claude/09-fix-the-sync-script.md"
+    assert "project: llunde-backend" in path.read_text()
+
+
 def test_groups_nest_projects(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     config_file = tmp_path / "config.toml"

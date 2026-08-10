@@ -11,6 +11,8 @@ projects = [
 
 min_rounds = 2
 
+nested_groups = ["llunde"]
+
 [aliases]
 "llunde-new/infra" = "llunde-infra"
 "llunde-new/backend" = "llunde-backend"

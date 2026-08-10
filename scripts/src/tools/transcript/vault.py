@@ -46,9 +46,19 @@ def project_of(cwd):
     return name or "Unsorted"
 
 
+def group_subfolder(group, project):
+    if project.lower().startswith(group.lower()):
+        rest = project[len(group) :].lstrip("-_ ")
+        if rest:
+            return rest
+    return project
+
+
 def folder_for(project):
     for group, members in config.project_groups().items():
         if project.lower() in members:
+            if group.lower() in config.nested_groups():
+                return f"{group}/{group_subfolder(group, project)}"
             return group
     return project
 

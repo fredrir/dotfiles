@@ -72,6 +72,13 @@ def project_aliases():
     return result
 
 
+def nested_groups():
+    raw = _file_config().get("nested_groups")
+    if not isinstance(raw, list):
+        return set()
+    return {str(name).strip().lower() for name in raw if str(name).strip()}
+
+
 def project_groups():
     groups = _file_config().get("groups")
     if not isinstance(groups, dict):
