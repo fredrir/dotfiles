@@ -146,7 +146,7 @@ def sync(
     created = updated = 0
     for provider, path in store.all_sessions():
         cwd = store.peek_cwd(provider, path)
-        if not cwd or not ({part.lower() for part in Path(cwd).parts} & allowed):
+        if not cwd or vault.project_of(cwd).lower() not in allowed:
             continue
         note = index.get(store.guess_session_id(provider, path))
         try:
@@ -160,8 +160,8 @@ def sync(
             continue
         if session.user_rounds < threshold:
             continue
-        parts = {part.lower() for part in Path(session.cwd).parts} if session.cwd else set()
-        if not parts & allowed:
+        project = vault.project_of(session.cwd) if session.cwd else ""
+        if project.lower() not in allowed:
             continue
         if dry_run:
             out(f"would sync {provider} {path.name} ({vault.project_of(session.cwd)})")

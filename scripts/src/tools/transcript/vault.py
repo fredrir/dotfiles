@@ -30,6 +30,12 @@ def project_of(cwd):
     if not cwd:
         return "Unsorted"
     path = Path(cwd)
+    lowered = [part.lower() for part in path.parts]
+    for pattern, name in config.project_aliases().items():
+        width = len(pattern)
+        for start in range(len(lowered) - width + 1):
+            if tuple(lowered[start : start + width]) == pattern:
+                return name
     allowed = config.allowed_projects()
     for part in path.parts:
         if part.lower() in allowed:

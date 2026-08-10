@@ -73,6 +73,24 @@ def test_filename_conflicts_get_suffix(tmp_path, monkeypatch):
     assert path2.name == "09-fix-the-sync-script (1).md"
 
 
+def test_aliases_map_paths_to_project_names(tmp_path, monkeypatch):
+    config_file = tmp_path / "alias-config.toml"
+    config_file.write_text(
+        'projects = ["llunde-backend"]\n'
+        "\n"
+        "[aliases]\n"
+        '"llunde-new/backend" = "llunde-backend"\n'
+        "\n"
+        "[groups]\n"
+        'llunde = ["llunde-backend"]\n'
+    )
+    monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
+    assert vault.project_of("/Users/fredrir/llunde-new/backend") == "llunde-backend"
+    assert vault.project_of("/Users/fredrir/llunde-new/backend/src/main") == "llunde-backend"
+    assert vault.project_of("/Users/fredrir/llunde-new") == "llunde-new"
+    assert vault.folder_for("llunde-backend") == "llunde"
+
+
 def test_groups_nest_projects(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     config_file = tmp_path / "config.toml"

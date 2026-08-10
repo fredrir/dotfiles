@@ -60,6 +60,18 @@ def min_rounds():
         return 2
 
 
+def project_aliases():
+    aliases = _file_config().get("aliases")
+    if not isinstance(aliases, dict):
+        return {}
+    result = {}
+    for pattern, name in aliases.items():
+        parts = tuple(part.lower() for part in str(pattern).split("/") if part)
+        if parts and str(name).strip():
+            result[parts] = str(name).strip()
+    return result
+
+
 def project_groups():
     groups = _file_config().get("groups")
     if not isinstance(groups, dict):
