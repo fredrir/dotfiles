@@ -1,0 +1,58 @@
+autoload -Uz add-zsh-hook
+
+typeset -ga PYTHON_VENV_AUTO_ROOTS=(
+  "$HOME/projects"
+  "$HOME/sndbx"
+  "$HOME/llunde-new"
+)
+
+_find_python_project_venv() {
+  local current_dir=${PWD:A}
+  local trusted_root search_dir
+
+  for trusted_root in "${PYTHON_VENV_AUTO_ROOTS[@]}"; do
+    [[ -d $trusted_root ]] || continue
+    trusted_root=${trusted_root:A}
+
+    [[ $current_dir == $trusted_root || $current_dir == $trusted_root/* ]] || continue
+    search_dir=$current_dir
+
+    while true; do
+      if [[ -f "$search_dir/pyproject.toml" && -f "$search_dir/.venv/bin/activate" ]]; then
+        print -r -- "$search_dir/.venv"
+        return 0
+      fi
+
+      [[ $search_dir == $trusted_root ]] && break
+      search_dir=${search_dir:h}
+    done
+  done
+
+  return 1
+}
+
+_sync_python_project_venv() {
+  local wanted_venv=""
+  local active_venv=${VIRTUAL_ENV:-}
+
+  wanted_venv=$(_find_python_project_venv) || wanted_venv=""
+  [[ -n $wanted_venv ]] && wanted_venv=${wanted_venv:A}
+  [[ -n $active_venv ]] && active_venv=${active_venv:A}
+
+  [[ $active_venv == $wanted_venv ]] && return 0
+
+  if [[ -n $active_venv ]]; then
+    (( $+functions[deactivate] )) || return 0
+    deactivate
+  fi
+
+  [[ -n $wanted_venv ]] || return 0
+  source "$wanted_venv/bin/activate"
+}
+
+add-zsh-hook -d chpwd _auto_deactivate_project_venv 2>/dev/null
+unfunction _auto_deactivate_project_venv 2>/dev/null
+
+add-zsh-hook -d chpwd _sync_python_project_venv 2>/dev/null
+add-zsh-hook chpwd _sync_python_project_venv
+_sync_python_project_venv
