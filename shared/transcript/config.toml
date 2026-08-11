@@ -9,7 +9,7 @@ projects = [
     "sndbx",
 ]
 
-min_rounds = 2
+min_rounds = 1
 
 nested_groups = ["llunde"]
 
