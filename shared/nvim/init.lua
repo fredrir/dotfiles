@@ -17,10 +17,16 @@ vim.o.number = true
 vim.o.relativenumber = false
 vim.o.mouse = 'a'
 vim.o.showmode = false
-vim.schedule(function()
-  -- macOS has no DISPLAY/WAYLAND_DISPLAY but does have a real clipboard via
-  -- pbcopy/pbpaste, which Neovim auto-detects — so only fall back to the
-  -- file-based provider on a genuinely headless (Linux/tty) session.
+local is_ssh = vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_TTY ~= nil
+local osc52_copy = is_ssh and require('vim.ui.clipboard.osc52').copy('+') or nil
+
+-- GUI sessions use the native clipboard provider with unnamedplus. SSH keeps
+-- normal registers internal and sends only unnamed yanks through OSC 52 in the
+-- TextYankPost hook below, so puts never need permission to read the terminal's
+-- clipboard. The cache file remains a last resort for a genuine local Linux TTY.
+if is_ssh then
+  vim.o.clipboard = ''
+else
   if vim.fn.has 'mac' == 0 and vim.env.DISPLAY == nil and vim.env.WAYLAND_DISPLAY == nil then
     local clipfile = vim.fn.stdpath 'cache' .. '/tty-clipboard'
     vim.g.clipboard = {
@@ -31,7 +37,7 @@ vim.schedule(function()
     }
   end
   vim.o.clipboard = 'unnamedplus'
-end)
+end
 vim.o.breakindent = true
 vim.o.undofile = true
 vim.o.ignorecase = true
@@ -100,9 +106,14 @@ vim.api.nvim_create_user_command('Wq', 'wq', {})
 
 -- [[ Autocommands ]]
 vim.api.nvim_create_autocmd('TextYankPost', {
-  desc = 'Highlight when yanking text',
+  desc = 'Highlight yanks and copy unnamed SSH yanks through OSC 52',
   group = vim.api.nvim_create_augroup('highlight-yank', { clear = true }),
-  callback = function() vim.hl.on_yank() end,
+  callback = function()
+    vim.hl.on_yank()
+    if osc52_copy and vim.v.event.operator == 'y' and vim.v.event.regname == '' then
+      osc52_copy(vim.v.event.regcontents)
+    end
+  end,
 })
 
 -- [[ Lazy.nvim ]]
