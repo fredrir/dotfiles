@@ -56,3 +56,26 @@ unfunction _auto_deactivate_project_venv 2>/dev/null
 add-zsh-hook -d chpwd _sync_python_project_venv 2>/dev/null
 add-zsh-hook chpwd _sync_python_project_venv
 _sync_python_project_venv
+
+_cdg_to_root() {
+  local root
+
+  root=$(command git rev-parse --show-toplevel 2>/dev/null) || return 0
+  root=${root:A}
+
+  [[ ${PWD:A} == $root ]] && return 0
+  builtin cd -- "$root"
+}
+
+_sync_cdg_command() {
+  if command git rev-parse --show-toplevel >/dev/null 2>&1; then
+    alias cdg=_cdg_to_root
+  else
+    unalias cdg 2>/dev/null
+  fi
+}
+
+unalias cdg 2>/dev/null
+add-zsh-hook -d chpwd _sync_cdg_command 2>/dev/null
+add-zsh-hook chpwd _sync_cdg_command
+_sync_cdg_command

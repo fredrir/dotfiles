@@ -48,6 +48,8 @@ alias cdz="cd $CONFIG/zsh/conf.d"
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"
 
+alias cdj='cd "$OLDPWD"' # cd jump to last directory
+
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"
 alias dockseed="docker compose exec backend pnpm db:seed"
@@ -58,5 +60,4 @@ alias dockexp="docker exec -e SAMPLES_DIR=/samples/exams llunde-pyparser-worker"
 alias pyparser-restart="ssh leploy 'cd /opt/pyparser && docker compose restart'"
 
 alias penv="python -m venv .venv && source .venv/bin/activate"
-
 
