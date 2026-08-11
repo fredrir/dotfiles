@@ -67,15 +67,38 @@ _cdg_to_root() {
   builtin cd -- "$root"
 }
 
-_sync_cdg_command() {
+_git_from_root() {
+  local root
+
+  root=$(command git rev-parse --show-toplevel 2>/dev/null) || return 1
+  command git -C "$root" "$@"
+}
+
+_git_finish_from_root() {
+  _git_from_root add . &&
+    _git_from_root commit -m "." &&
+    _git_from_root push
+}
+
+_sync_git_repo_commands() {
   if command git rev-parse --show-toplevel >/dev/null 2>&1; then
     alias cdg=_cdg_to_root
+    alias gs='_git_from_root status'
+    alias ga='_git_from_root add .'
+    alias gc='_git_from_root commit -m'
+    alias gcm='_git_from_root commit -m'
+    alias gp='_git_from_root push'
+    alias gl='_git_from_root log'
+    alias gd='_git_from_root diff'
+    alias gff=_git_finish_from_root
   else
-    unalias cdg 2>/dev/null
+    unalias cdg gs ga gc gcm gp gl gd gff 2>/dev/null
   fi
 }
 
-unalias cdg 2>/dev/null
+unalias cdg gs ga gc gcm gp gl gd gff 2>/dev/null
 add-zsh-hook -d chpwd _sync_cdg_command 2>/dev/null
-add-zsh-hook chpwd _sync_cdg_command
-_sync_cdg_command
+unfunction _sync_cdg_command 2>/dev/null
+add-zsh-hook -d chpwd _sync_git_repo_commands 2>/dev/null
+add-zsh-hook chpwd _sync_git_repo_commands
+_sync_git_repo_commands

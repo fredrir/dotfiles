@@ -21,16 +21,6 @@ alias untar="tar -xzf"
 (( $+commands[bat] )) && alias cat='bat -pp'
 
 
-# Git
-alias gs='git status'
-alias ga='git add .'
-alias gc='git commit -m'
-alias gcm='git commit -m'
-alias gp='git push'
-alias gl='git log'
-alias gd='git diff'
-alias gff="git add . && git commit -m "." && git push"
-
 # Navigation
 alias ..='cd ..'
 alias ...='cd ../..'
@@ -60,4 +50,3 @@ alias dockexp="docker exec -e SAMPLES_DIR=/samples/exams llunde-pyparser-worker"
 alias pyparser-restart="ssh leploy 'cd /opt/pyparser && docker compose restart'"
 
 alias penv="python -m venv .venv && source .venv/bin/activate"
-
