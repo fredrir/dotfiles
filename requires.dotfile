@@ -24,6 +24,7 @@ shared {
   rg = ripgrep
   zoxide
   direnv
+  ?ncdu
   ?gh = github-cli
   ?docker
   font Hack Nerd Font Mono

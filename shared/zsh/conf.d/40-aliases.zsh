@@ -6,6 +6,8 @@ alias grep="grep --color=auto"
 alias fgrep="fgrep --color=auto"
 alias f='find . -type f -name'
 
+alias disk="ncdu"
+
 alias n="nvim"
 alias nn="nvim ."
 alias v="nvim"
