@@ -63,7 +63,7 @@ install_packages() {
   pm_install "${core[@]}"
 
   local fd=fd; case "$PM" in apt-get|dnf) fd=fd-find ;; esac
-  local extras=(neovim fzf ripgrep "$fd" bat eza zoxide fastfetch jq \
+  local extras=(neovim fzf ripgrep "$fd" bat eza zoxide fastfetch jq rsync \
                 zsh-autosuggestions zsh-syntax-highlighting less tar unzip)
 
   if ! pm_install "${extras[@]}" >/dev/null 2>&1; then

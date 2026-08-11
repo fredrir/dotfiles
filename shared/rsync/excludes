@@ -1,0 +1,6 @@
+.git/
+
+__pycache__/
+*.py[co]
+
+.DS_Store

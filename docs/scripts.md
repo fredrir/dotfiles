@@ -34,6 +34,7 @@ scripts/
       path.py                repo-relative or home-relative path of a target
       tardirs.py             tar archive directory tree with entry counts
       gpp.py                 git add + commit + push
+      remote_clipboard.py    text clipboard transfer between macOS and Archie
       sysinfo/               modular hardware and software summary
         cli.py               pretty, full and health command flags
         collect.py           Fastfetch, process and NVIDIA probes
@@ -470,6 +471,33 @@ silently.
 
 A non-text clipboard (an image), invalid UTF-8, or whitespace-only content is
 left untouched.
+
+## cpa, cpas and acp
+
+Transfer the plain-text clipboard between macOS and the KDE Wayland session on
+Archie over SSH:
+
+```bash
+cpa                 # macOS clipboard -> Archie
+cpa --sensitive     # same, with the sensitive clipboard hint
+cpas                # shorthand for cpa --sensitive
+acp                 # Archie clipboard -> macOS
+```
+
+The commands preserve the text bytes, including Unicode and trailing newlines,
+and pass them only over SSH standard input or output. Clipboard contents never
+become command-line or remote-shell arguments and are never printed. Empty,
+whitespace-only, non-text and invalid UTF-8 clipboards fail without changing
+the destination clipboard.
+
+Non-interactive SSH sessions do not inherit Archie's graphical environment.
+The commands therefore resolve `WAYLAND_DISPLAY` from the active user systemd
+environment and set `XDG_RUNTIME_DIR` before launching `wl-copy` or `wl-paste`.
+An active Wayland session and the `wl-clipboard` package are required.
+
+`--sensitive` asks compatible clipboard managers not to retain the copy in
+history. It is a hint rather than a guarantee; secrets should still be handled
+as if the destination clipboard manager may retain them.
 
 ## update-readme-fastfetch
 

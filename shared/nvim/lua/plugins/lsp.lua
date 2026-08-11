@@ -78,7 +78,6 @@ return {
           },
         },
       },
-      gopls = {},
       lua_ls = {
         on_init = function(client)
           if client.workspace_folders then
@@ -104,14 +103,17 @@ return {
       },
     }
 
+    local has_go = vim.fn.executable 'go' == 1
+    if has_go then servers.gopls = {} end
+
     local ensure_installed = vim.tbl_keys(servers or {})
     vim.list_extend(ensure_installed, {
       'stylua',
       'prettierd',
-      'goimports',
       'ruff',
       'eslint_d',
     })
+    if has_go then table.insert(ensure_installed, 'goimports') end
 
     require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 

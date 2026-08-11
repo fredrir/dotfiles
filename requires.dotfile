@@ -22,6 +22,7 @@ shared {
   bat
   fd
   rg = ripgrep
+  rsync
   zoxide
   direnv
   ?ncdu
@@ -39,6 +40,8 @@ linux/common {
   flameshot
   xremap
   fc-cache = fontconfig
+  wl-copy = wl-clipboard
+  wl-paste = wl-clipboard
 }
 
 linux/kde {
@@ -60,7 +63,6 @@ linux/hyprland {
   walker
   elephant
   swaybg
-  wl-copy = wl-clipboard
   qt5ct
   qt6ct
   ?cliphist
