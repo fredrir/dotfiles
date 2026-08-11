@@ -71,7 +71,13 @@ _git_from_root() {
   local root
 
   root=$(command git rev-parse --show-toplevel 2>/dev/null) || return 1
-  command git -C "$root" "$@"
+
+  if [[ $2 == -p ]]; then
+    (builtin cd -- "$root" && command git "$@")
+    return
+  fi
+
+  (builtin cd -- "$root" && git "$@")
 }
 
 _git_finish_from_root() {
