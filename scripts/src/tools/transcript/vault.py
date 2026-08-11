@@ -58,7 +58,9 @@ def folder_for(project):
     for group, members in config.project_groups().items():
         if project.lower() in members:
             if group.lower() in config.nested_groups():
-                return f"{group}/{group_subfolder(group, project)}"
+                sub = group_subfolder(group, project)
+                if sub and sub.lower() != group.lower():
+                    return f"{group}/{sub}"
             return group
     return project
 
