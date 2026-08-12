@@ -233,5 +233,7 @@ def each_package(ctx):
                 continue
             if os.path.exists(os.path.join(pkgdir, ".nolink")):
                 yield ("nolink", pkgdir, f"{group}/{name}")
+            elif os.path.exists(os.path.join(pkgdir, ".secret")):
+                yield ("secret", pkgdir, f"{group}/{name}")
             else:
                 yield ("link", pkgdir, f"{group}/{name}")

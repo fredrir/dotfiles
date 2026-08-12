@@ -210,6 +210,93 @@ decryptable here, the canaries file present and 600, both hooks active, and no
 stray identity where sops would find it first. It exits non-zero when any of
 those fail, so it works as a post-setup check on a new machine.
 
+## The vault
+
+Secrets are decrypted to their destination as real files. They are never
+symlinked, because a symlink into the repository requires the plaintext to live
+in the working tree, where one `git add -A` ends the whole exercise. This is
+the one place the repository gives up its edit-in-place model, and everything
+below is the cost of that trade.
+
+### Naming
+
+A package containing a `.secret` marker is materialised rather than linked, and
+nothing inside it may be unencrypted. A single `*.enc` file inside an ordinary
+public package is materialised on its own, leaving the rest of the package
+linked as usual.
+
+The suffix also selects how sops treats the file:
+
+    config.enc        binary, whole file opaque    ->  ~/.ssh/config
+    facts.enc.yaml    structured, keys readable    ->  facts.yaml
+
+Use the plain `.enc` form for anything opaque: ssh configs, private keys,
+WireGuard. Use the `.enc.<ext>` form when the keys are worth reading in a diff
+and only the values are secret, which is what phase 3 builds on.
+
+### States
+
+`dotfile secret status` reports one state per destination.
+
+    current     matches the repository
+    wrote       decrypted and written
+    remoded     content matched, permissions corrected
+    absent      not present on this machine
+    sealed      encrypted here, no age identity to open it
+    drifted     exists but differs from the repository
+    failed      no recipient on this machine can decrypt it
+    plaintext   unencrypted file inside a .secret package
+
+`drifted`, `failed` and `plaintext` are blocking: they make `apply`, `clean`
+and `link` exit non-zero. `sealed` never blocks, so an unenrolled machine still
+links everything public.
+
+### Local edits are never discarded silently
+
+The symlink model makes an edit to a destination an edit to the repository.
+Materialised files break that, so a destination that differs from its encrypted
+source is reported as `drifted` and left alone. `apply` will not overwrite it,
+`clean` will not delete it, and `link` fails rather than proceeding.
+
+`dotfile secret edit <path>` is the way through: it opens the decrypted content
+in `$EDITOR`, re-encrypts on save, and re-applies. Quitting without a change is
+not an error. `apply --force` is the other way, and it discards the local edit.
+
+### Permissions
+
+Materialised files are 0600, written through `os.open` with the mode set at
+creation so the content never exists at a laxer mode, even briefly. Directories
+created along the way are 0700.
+
+Existing directories are left alone, with one exception: the destination of a
+`.secret` package is corrected to 0700, because ssh refuses to use a key under
+a group readable directory and the whole point of the marker is that everything
+below it is private. The protected paths that `link` will never fold — `$HOME`,
+`~/.config`, `~/.local` and friends — are never chmodded.
+
+### Working with it
+
+    dotfile secret add ~/.ssh/config --pkg ssh
+    dotfile secret edit shared/ssh/config.enc
+    dotfile secret status
+    dotfile secret apply
+    dotfile secret clean
+
+`add` encrypts a live file into the repository and leaves the original where it
+is, at 0600 — the live file is already the materialised form, so there is
+nothing to move and nothing to link. It writes the `.secret` marker when it
+creates a new package, and maps the package to the source directory in
+`targets` when that is not already the default.
+
+The plaintext never passes through the repository: sops reads the live path
+directly and the ciphertext is written to the repository path, with `--config`
+pointing at `.sops.yaml` so the recipients resolve from outside the tree.
+
+`edit` accepts either the repository path or the destination path. `clean`
+removes materialised files, which is what to run before handing a machine on.
+`dotfile link` runs `apply` as its last phase, so the normal setup path needs
+none of these directly.
+
 ## The vault is a second surface
 
 `~/Documents/main` is an Obsidian vault kept in Obsidian Sync, and the

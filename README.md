@@ -99,6 +99,12 @@ dotfile secret enroll archpc
 dotfile secret keys
 dotfile secret sync --rewrap
 dotfile secret doctor
+
+dotfile secret add ~/.ssh/config --pkg ssh
+dotfile secret edit shared/ssh/config.enc
+dotfile secret status
+dotfile secret apply
+dotfile secret clean
 ```
 
 ## Command-line tools

@@ -2,7 +2,7 @@ import os
 
 from tools.core.console import colors_enabled
 from tools.core.process import capture, silent
-from tools.dotfile.report import emit, heading, row
+from tools.dotfile.report import emit, heading, plural, row
 from tools.dotfile.secret.canaries import canaries_file
 from tools.dotfile.secret.identity import (
     have,
@@ -20,7 +20,7 @@ from tools.dotfile.secret.keys import (
     sops_drifted,
     sops_file,
 )
-from tools.dotfile.secret.scan import encrypted_paths, plural
+from tools.dotfile.secret.scan import encrypted_paths
 from tools.dotfile.state import log, shorten
 
 HOOKS = ("pre-commit", "pre-push")

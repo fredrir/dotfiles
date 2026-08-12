@@ -19,6 +19,10 @@ def paint(text, color, color_on):
     return f"{color}{text}{RESET}" if color_on else text
 
 
+def plural(count, noun, many=""):
+    return f"{count} {noun}" if count == 1 else f"{count} {many or noun + 's'}"
+
+
 def clip(items, show_all):
     if show_all or len(items) <= ITEM_LIMIT:
         return items

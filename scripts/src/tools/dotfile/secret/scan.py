@@ -12,8 +12,10 @@ from tools.core.patterns import (
     token_findings,
 )
 from tools.core.process import capture, capture_bytes
+from tools.dotfile.report import plural
 from tools.dotfile.secret.allow import allowed, load_allow
 from tools.dotfile.secret.canaries import load_canaries
+from tools.dotfile.secret.vault import is_encrypted_name
 from tools.dotfile.state import die, log
 
 MAX_BYTES = 2 * 1024 * 1024
@@ -115,11 +117,6 @@ def inside_secret(dirs, path):
     return any(path == directory or path.startswith(directory + "/") for directory in dirs)
 
 
-def is_encrypted_name(path):
-    base = os.path.basename(path)
-    return base.endswith(".enc") or ".enc." in base
-
-
 def encrypted_paths(ctx):
     return [path for path in tracked_paths(ctx) if is_encrypted_name(path)]
 
@@ -171,10 +168,6 @@ def select_source(ctx, paths, staged, commits):
 
 def paint(text, color, on):
     return f"{color}{text}{RESET}" if on else text
-
-
-def plural(count, noun, many=""):
-    return f"{count} {noun}" if count == 1 else f"{count} {many or noun + 's'}"
 
 
 def report(findings, scanned, skipped, canaries, notes, show_all):

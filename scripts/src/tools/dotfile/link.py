@@ -1,5 +1,7 @@
 import os
 
+from tools.dotfile.secret.apply import run_apply
+from tools.dotfile.secret.vault import is_encrypted_name
 from tools.dotfile.state import (
     collect_groups,
     die,
@@ -98,7 +100,9 @@ def link_dir(ctx, src, dst, full, pkg, rel):
 
 
 def walk_node(ctx, pkg, rel, src, full):
-    if os.path.basename(src) == ".nolink":
+    if os.path.basename(src) in (".nolink", ".secret"):
+        return
+    if is_encrypted_name(src):
         return
     dst = map_dst(ctx, full, pkg, rel)
     if os.path.isdir(src) and not os.path.islink(src):
@@ -201,9 +205,13 @@ def cmd_link(ctx, profile, dry_run, override_specs):
         elif state == "no-group":
             log(f"  skip missing group: {name}")
 
+    blocked = run_apply(ctx, dry_run, False, True)
+
     save_profile(ctx, profile)
     save_overrides(ctx)
     report_conflicts(ctx, profile)
+    if blocked:
+        raise SystemExit(1)
     log("done")
 
 
@@ -237,7 +245,7 @@ def claimed_destinations(ctx):
             continue
         pkg = os.path.basename(pkgdir)
         for file in status_files(pkgdir):
-            if os.path.basename(file) == ".nolink":
+            if os.path.basename(file) in (".nolink", ".secret") or is_encrypted_name(file):
                 continue
             rel = file[len(pkgdir) + 1 :]
             claims[map_dst(ctx, f"{name}/{rel}", pkg, rel)] = file

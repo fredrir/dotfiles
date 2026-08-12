@@ -310,13 +310,30 @@ a later commit removed. Both fail closed when `scripts/.venv` is missing.
 Allowed false positives live in `scan.dotfile`; canary and invariant findings
 cannot be allowed.
 
-The remaining subcommands manage age recipients. `init` writes this machine's
-identity, `enroll` and `revoke` edit `keys.dotfile`, `sync` regenerates
-`.sops.yaml` from it (`--rewrap` also runs `sops updatekeys` over every
-encrypted file), `keys` lists what is enrolled, and `doctor` checks the whole
-chain from binaries through hooks. `keys.dotfile` is the source of truth and
-`.sops.yaml` is generated and staged by `pre-commit`, the same relationship
-`packages.dotfile` has with `PACKAGES.md`.
+`init` writes this machine's identity, `enroll` and `revoke` edit
+`keys.dotfile`, `sync` regenerates `.sops.yaml` from it (`--rewrap` also runs
+`sops updatekeys` over every encrypted file), `keys` lists what is enrolled,
+and `doctor` checks the whole chain from binaries through hooks.
+`keys.dotfile` is the source of truth and `.sops.yaml` is generated and staged
+by `pre-commit`, the same relationship `packages.dotfile` has with
+`PACKAGES.md`.
+
+`add`, `edit`, `apply`, `status` and `clean` work the vault. Encrypted material
+is written to its destination as a real file rather than symlinked, so that no
+plaintext ever exists inside the repository. A package carrying a `.secret`
+marker is materialised whole and may contain nothing unencrypted; a lone
+`*.enc` file inside an ordinary package is materialised on its own while the
+rest of that package links normally.
+
+Because destinations are copies rather than symlinks, an edit made directly to
+one is real work that the repository does not know about. Those are reported as
+`drifted` and never overwritten: `apply`, `clean` and `link` all refuse and
+exit non-zero. `edit` is the supported way to change a secret, and
+`apply --force` is the way to throw the local edit away.
+
+`link` runs `apply` as its final phase. A machine with no age identity reports
+its secrets as `sealed` and links everything else, so an unenrolled machine is
+still usable.
 
 See `docs/secrets.md` for the threat model behind all of it.
 
