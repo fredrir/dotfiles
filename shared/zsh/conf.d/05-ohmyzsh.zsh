@@ -1,5 +1,7 @@
 export ZSH="$HOME/.oh-my-zsh"
 
+DISABLE_MAGIC_FUNCTIONS=true
+
 # Fallback theme
 ZSH_THEME="eastwood"
 
