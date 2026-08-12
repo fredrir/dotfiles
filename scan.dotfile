@@ -1,0 +1,6 @@
+allow {
+  scripts/tests/transcript/test_redact.py
+  scripts/tests/dotfile/test_secret_scan.py
+  shared/obsidian/plugins/** value
+  shared/skills/durable-objects/references/workers.md value
+}

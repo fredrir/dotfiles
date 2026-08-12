@@ -9,7 +9,7 @@ projects = [
     "sndbx",
 ]
 
-min_rounds = 2
+min_rounds = 1
 
 nested_groups = ["llunde"]
 
@@ -27,3 +27,4 @@ llunde = [
     "llunde-pyparser",
 ]
 other = ["sndbx"]
+dotfiles = ["dotfiles"]

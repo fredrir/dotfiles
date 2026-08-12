@@ -89,6 +89,10 @@ dotfile check
 dotfile check --all
 dotfile packages
 dotfile format
+
+dotfile secret scan
+dotfile secret scan --staged
+dotfile secret scan --commits origin/main..HEAD
 ```
 
 ## Command-line tools

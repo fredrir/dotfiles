@@ -7,8 +7,9 @@ bin="$root/scripts/.venv/bin"
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
 if [ ! -x "$bin/dotfile" ]; then
-  echo "pre-commit: scripts/.venv missing; run: uv sync --project scripts --locked" >&2
-  exit 0
+  echo "pre-commit: scripts/.venv missing, the secret scan cannot run" >&2
+  echo "pre-commit: run ./setup.sh (or: uv sync --project scripts --locked)" >&2
+  exit 1
 fi
 
 if staged packages.dotfile PACKAGES.md scripts/src/tools/dotfile \
@@ -37,3 +38,5 @@ if staged linux/arch/fastfetch/config.jsonc; then
     echo "pre-commit: fastfetch README update failed (continuing)" >&2
   fi
 fi
+
+"$bin/dotfile" secret scan --staged

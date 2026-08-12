@@ -7,12 +7,15 @@ from tools.dotfile import link as link_command
 from tools.dotfile import packages as packages_command
 from tools.dotfile import profiles as profiles_command
 from tools.dotfile import remove as remove_command
+from tools.dotfile.secret import cli as secret_cli
 from tools.dotfile.state import Context, die, log
 
 app = typer.Typer(
     add_completion=False,
     help="Manage dotfile symlinks, packages, and formatting for this repository.",
 )
+
+app.add_typer(secret_cli.app, name="secret")
 
 
 @app.callback(invoke_without_command=True)

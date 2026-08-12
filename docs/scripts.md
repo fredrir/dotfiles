@@ -289,6 +289,25 @@ at all. Zsh plugins are the exception — they are read out of the linked config
 (`$ZSH/custom/plugins/<name>`, and any `<dir>/<name>/<name>.zsh` a fragment
 sources), so the list cannot drift from what the shell actually loads.
 
+### secret scan
+
+`dotfile secret scan` looks for three things at once: token and key shapes,
+literal private values read from `~/.config/dotfile/canaries`, and structural
+rules about encrypted files. It scans tracked files by default, `--staged` for
+what a commit is about to record, and `--commits <range>` for every blob a set
+of commits adds. `--no-canaries` drops the middle tier for CI, which has no
+business holding the list.
+
+The pattern set is shared with the transcript archiver rather than duplicated,
+so `redact()` and the scanner cannot disagree about what a secret looks like.
+Matches are printed masked and canaries are printed by label only, because the
+output lands in scrollback, CI logs and transcripts.
+
+`pre-commit` runs it staged, `pre-push` runs it over the commits being pushed,
+and both fail closed when `scripts/.venv` is missing. Allowed false positives
+live in `scan.dotfile`; canary and invariant findings cannot be allowed. See
+`docs/secrets.md` for the threat model behind all of it.
+
 ### Profiles
 
 The active profile is stored in `~/.config/dotfile/profile` and reused when
