@@ -140,6 +140,13 @@ def status():
     apply_command.cmd_status(Context())
 
 
+@app.command(help="List the fact names templates can reference.")
+def facts(
+    unused: bool = typer.Option(False, "--unused", help="only names no template references"),
+):
+    store_command.cmd_facts(Context(), unused)
+
+
 @app.command(help="Remove materialised secrets from their destinations.")
 def clean(
     dry_run: bool = typer.Option(

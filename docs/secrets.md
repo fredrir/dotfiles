@@ -24,9 +24,10 @@ can land. Detection has to be independent of remembering to encrypt.
 
 ## Three classes
 
-**Secret.** Material that grants access: private keys, signing keys, backup
-repository keys, WireGuard configuration, licence keys. Encrypted at rest,
-never present in the working tree as plaintext. Phase 2.
+**Secret.** Material that grants access and that every machine must hold the
+same copy of: an apt signing key, a licence key, a token that cannot be
+duplicated. Encrypted at rest, never present in the working tree as plaintext.
+Phase 2. The list is shorter than it looks, and the section below explains why.
 
 **Private.** Values that are not credentials but should not be published:
 origin addresses behind a proxy, machine identifiers, hardware serials, MAC
@@ -39,13 +40,60 @@ in it names a host is a bad trade; the line becomes a reference instead.
 
 ## What to track
 
-Track a secret only when it is long lived, painful to regenerate, and needed on
-more than one machine. SSH keys, signing keys, backup repository keys and
-WireGuard qualify.
+Four tests, all of which have to pass. A secret belongs here only when it is
+long lived, painful to regenerate, needed on more than one machine, and **cannot
+simply be different on each machine**.
 
-Credentials that refresh do not. `gh`'s `hosts.yml` holds an OAuth token that
-rotates; tracking it buys a commit per rotation and nothing else, when
-`gh auth login` regenerates it in seconds. Those stay in `.gitignore`.
+That fourth test is the one that does the work, and it disqualifies most of
+what looks like an obvious candidate.
+
+Credentials that refresh fail the first test. `gh`'s `hosts.yml` holds an OAuth
+token that rotates; tracking it buys a commit per rotation and nothing else,
+when `gh auth login` regenerates it in seconds. Those stay in `.gitignore`.
+
+### SSH keys do not belong here
+
+They fail the fourth test, and it is worth writing down why, because they look
+like the strongest candidate right up until you think about it.
+
+Give each machine its own keypair instead. Add each *public* key to GitHub,
+which accepts many, and to each server's `authorized_keys`, which also accepts
+many. Then no private key ever leaves the machine that generated it, nothing
+key-shaped is published anywhere in any form, a lost machine costs you one
+public key deleted from a few places rather than a rotation of everything, and
+the server logs tell you which machine connected.
+
+The cost is enrolling a new machine's public key in a handful of places, once,
+at setup. That is an afternoon every few years.
+
+### Why a public repository raises the bar
+
+Everything here is world readable the moment it is pushed, and permanently.
+Three consequences shape the rule above.
+
+Publication cannot be undone, and rotation does not reach backwards. Rotating a
+key leaves the old encrypted copy in history, still readable by the same age
+identity. A future compromise of `~/.config/dotfile/age/keys.txt` therefore
+exposes every secret ever committed, including the ones already rotated, and an
+attacker with a clone already holds all the ciphertext they will ever need.
+
+An offline attack has no ceiling: no rate limit, no lockout, no revocation, and
+nothing that tells you it is being attempted.
+
+Ciphertext archived today can be decrypted later. age uses X25519, which a
+sufficiently large quantum computer breaks. Weight this lowest — nobody is
+stockpiling these files — but it costs nothing to keep long lived key material
+out of a public repository, so keep it out.
+
+None of this is a statement about the cryptography, which is sound. sops and
+age do all of it; the code in this repository only decides which files to hand
+them, where to put the output, and what mode to set. It is a statement about
+publishing ciphertext irrevocably, which is a deployment choice rather than a
+code quality one.
+
+If something genuinely must be synchronised and genuinely cannot be
+per-machine, a private repository is the better home: an attacker then needs
+both a GitHub credential and the age identity, instead of the identity alone.
 
 ## dotfile secret scan
 
@@ -227,12 +275,12 @@ linked as usual.
 
 The suffix also selects how sops treats the file:
 
-    config.enc        binary, whole file opaque    ->  ~/.ssh/config
-    facts.enc.yaml    structured, keys readable    ->  facts.yaml
+    apt-signing.asc.enc   binary, whole file opaque   ->  apt-signing.asc
+    facts.enc.yaml        structured, keys readable   ->  facts.yaml
 
-Use the plain `.enc` form for anything opaque: ssh configs, private keys,
-WireGuard. Use the `.enc.<ext>` form when the keys are worth reading in a diff
-and only the values are secret, which is what phase 3 builds on.
+Use the plain `.enc` form for anything opaque: signing keys, licence files.
+Use the `.enc.<ext>` form when the keys are worth reading in a diff and only
+the values are secret, which is what phase 3 builds on.
 
 ### States
 
@@ -269,15 +317,14 @@ creation so the content never exists at a laxer mode, even briefly. Directories
 created along the way are 0700.
 
 Existing directories are left alone, with one exception: the destination of a
-`.secret` package is corrected to 0700, because ssh refuses to use a key under
-a group readable directory and the whole point of the marker is that everything
-below it is private. The protected paths that `link` will never fold — `$HOME`,
-`~/.config`, `~/.local` and friends — are never chmodded.
+`.secret` package is corrected to 0700, since the whole point of the marker is
+that everything below it is private. The protected paths that `link` will never
+fold — `$HOME`, `~/.config`, `~/.local` and friends — are never chmodded.
 
 ### Working with it
 
-    dotfile secret add ~/.ssh/config --pkg ssh
-    dotfile secret edit shared/ssh/config.enc
+    dotfile secret add ~/.local/share/keyring/apt-signing.asc --pkg apt
+    dotfile secret edit shared/apt/apt-signing.asc.enc
     dotfile secret status
     dotfile secret apply
     dotfile secret clean
@@ -296,6 +343,86 @@ pointing at `.sops.yaml` so the recipients resolve from outside the tree.
 removes materialised files, which is what to run before handing a machine on.
 `dotfile link` runs `apply` as its last phase, so the normal setup path needs
 none of these directly.
+
+## Facts
+
+Encryption answers "this whole file is secret". Most of what leaks is not a
+whole file: it is one address inside a config that is otherwise entirely public
+and worth reading in a diff. Encrypting `40-aliases.zsh` because one line names
+a host trades a reviewable config for an opaque blob, and you would do it a
+dozen more times.
+
+So the second layer keeps the config public and moves the value out of it.
+
+    Host parser
+      HostName {{ hosts.parser.origin }}
+      User {{ open.user }}
+
+`facts.enc.yaml` at the repository root holds the values. It is encrypted
+structurally rather than as a blob, so the key names stay readable in a diff
+and only the values are ciphertext. Adding a fact is a one line change you can
+review; what it is worth stays hidden.
+
+Templates carry a `.tmpl` suffix and render to the name without it, so
+`shared/ssh/config.tmpl` becomes `~/.ssh/config`. A template inside a `.secret`
+package is allowed, because a template holds placeholders rather than values —
+and if one ever holds a real value instead, the canary tier catches it.
+
+An ssh *config* is a fair template: its shape is public and only the addresses
+are not. An ssh *key* is still not tracked at all, per the rule above, and the
+two decisions are unrelated. Anything genuinely per-machine belongs in the
+`Include`d `~/.ssh/config.d`, which stays local for the same reason
+`kitty/local.d` and `hypr/conf.d/local.conf` do.
+
+Rendered files go through exactly the same path as decrypted ones: same drift
+rule, same 0600, never symlinked, never written into the repository.
+
+### Values
+
+Nesting flattens to dotted names, and scalars render the way a config file
+wants them: `port: 22` becomes `22`, `enabled: true` becomes `true`. Lists and
+empty values are rejected, because a config file needs one string.
+
+A template naming a fact that does not exist is `unresolved`, which blocks
+`apply` and `link` and reports the missing names. A half rendered config is
+worse than no config, so nothing is written.
+
+`dotfile secret facts` lists the names and which destination uses each, never
+the values. `--unused` narrows it to the ones nothing references.
+
+### Every fact is a canary
+
+The values feed the scanner automatically, labelled by their dotted name. Put
+an address in `facts.enc.yaml` and any commit that carries it in plaintext is
+refused from that moment on, with no separate list to maintain. This is the
+control that would have caught the original leak, and it now arrives as a side
+effect of using the value rather than as a thing to remember.
+
+They also feed the transcript redactor, so an archived agent session that
+mentions a host gets it stripped on the way into the vault.
+
+`~/.config/dotfile/canaries` still works for values that are not template
+inputs. Facts and the file are merged, and duplicates collapse.
+
+### open.
+
+Anything under a top level `open:` key renders like any other fact but is not
+canaried and is not redacted.
+
+    open:
+      user: someone
+    hosts:
+      parser:
+        origin: 203.0.113.77
+
+That distinction matters more than it looks. A fact is matched literally
+everywhere, so putting a common string like your username under `hosts:` would
+refuse every commit that happens to contain it, including files that have
+nothing to do with secrets. `open.` is for values that vary per machine and
+belong in one place, but are not private: usernames, paths, display names.
+
+Values shorter than six characters never become canaries either, since a short
+string matches everywhere and trains you to ignore the output.
 
 ## The vault is a second surface
 

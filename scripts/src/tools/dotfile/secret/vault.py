@@ -1,7 +1,9 @@
 import os
 import stat
+import tempfile
 
 from tools.core.process import capture_bytes
+from tools.dotfile.secret.facts import references, render
 from tools.dotfile.secret.identity import identity_path, sops_env
 from tools.dotfile.secret.keys import sops_file
 from tools.dotfile.state import each_package
@@ -12,6 +14,11 @@ DIR_MODE = 0o700
 
 MARKER = ".secret"
 SUFFIX = ".enc"
+TEMPLATE = ".tmpl"
+
+ENC = "enc"
+TMPL = "tmpl"
+PLAIN = "plain"
 
 SEALED = "sealed"
 CURRENT = "current"
@@ -22,16 +29,18 @@ FAILED = "failed"
 PLAINTEXT = "plaintext"
 CLEANED = "cleaned"
 ABSENT = "absent"
+UNRESOLVED = "unresolved"
 
-BLOCKING = (DRIFTED, FAILED, PLAINTEXT)
+BLOCKING = (DRIFTED, FAILED, PLAINTEXT, UNRESOLVED)
 
 
 class Entry:
-    def __init__(self, src, dst, rel, encrypted):
+    def __init__(self, src, dst, rel, kind):
         self.src = src
         self.dst = dst
         self.rel = rel
-        self.encrypted = encrypted
+        self.kind = kind
+        self.detail = ""
 
 
 def is_encrypted_name(path):
@@ -39,7 +48,24 @@ def is_encrypted_name(path):
     return base.endswith(SUFFIX) or f"{SUFFIX}." in base
 
 
+def is_template_name(path):
+    return os.path.basename(path).endswith(TEMPLATE)
+
+
+def vault_owned(path):
+    return is_encrypted_name(path) or is_template_name(path)
+
+
+def kind_of(path):
+    if is_encrypted_name(path):
+        return ENC
+    if is_template_name(path):
+        return TMPL
+    return PLAIN
+
+
 def plain_name(base):
+    base = base.removesuffix(TEMPLATE)
     if base.endswith(SUFFIX):
         return base[: -len(SUFFIX)]
     return base.replace(f"{SUFFIX}.", ".", 1)
@@ -72,6 +98,17 @@ def encrypt(ctx, src, dst):
     with open(dst, "wb") as handle:
         handle.write(result.stdout)
     return ""
+
+
+def encrypt_text(ctx, dst, text):
+    base = plain_name(os.path.basename(dst))
+    descriptor, temp = tempfile.mkstemp(suffix=os.path.splitext(base)[1] or ".txt")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return encrypt(ctx, temp, dst)
+    finally:
+        os.remove(temp)
 
 
 def make_private_dirs(path):
@@ -107,13 +144,13 @@ def package_entries(ctx, pkgdir, name, whole):
             if base in (MARKER, ".nolink"):
                 continue
             src = os.path.join(parent, base)
-            encrypted = is_encrypted_name(src)
-            if not whole and not encrypted:
+            kind = kind_of(src)
+            if not whole and kind == PLAIN:
                 continue
             rel = src[len(pkgdir) + 1 :]
             dst = map_dst(ctx, f"{name}/{rel}", pkg, rel)
             dst = os.path.join(os.path.dirname(dst), plain_name(os.path.basename(dst)))
-            found.append(Entry(src, dst, rel, encrypted))
+            found.append(Entry(src, dst, rel, kind))
     return found
 
 
@@ -155,14 +192,32 @@ def secure_package_dirs(ctx, dry):
     return fixed
 
 
-def materialise(ctx, entry, dry, force):
-    if not entry.encrypted:
-        return PLAINTEXT
-    if not have_key(ctx):
-        return SEALED
-    plain = decrypt(ctx, entry.src)
-    if plain is None:
-        return FAILED
+def produce(ctx, entry, facts):
+    if entry.kind == PLAIN:
+        return None, PLAINTEXT
+    if entry.kind == ENC:
+        if not have_key(ctx):
+            return None, SEALED
+        plain = decrypt(ctx, entry.src)
+        return (plain, "") if plain is not None else (None, FAILED)
+    with open(entry.src, "rb") as handle:
+        raw = handle.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        entry.detail = "template is not text"
+        return None, FAILED
+    used = references(text)
+    if used and not facts.ok:
+        return None, SEALED
+    rendered, missing = render(text, facts.values)
+    if missing:
+        entry.detail = "unknown: " + " ".join(missing)
+        return None, UNRESOLVED
+    return rendered.encode("utf-8"), ""
+
+
+def settle(ctx, entry, plain, dry, force):
     if os.path.islink(entry.dst):
         return DRIFTED
     if os.path.exists(entry.dst):
@@ -184,14 +239,19 @@ def materialise(ctx, entry, dry, force):
     return WROTE
 
 
-def unmaterialise(ctx, entry, dry):
+def materialise(ctx, entry, facts, dry, force):
+    plain, problem = produce(ctx, entry, facts)
+    if problem:
+        return problem
+    return settle(ctx, entry, plain, dry, force)
+
+
+def unmaterialise(ctx, entry, facts, dry):
     if not os.path.exists(entry.dst) and not os.path.islink(entry.dst):
         return ABSENT
-    if not have_key(ctx):
-        return SEALED
-    plain = decrypt(ctx, entry.src)
-    if plain is None:
-        return FAILED
+    plain, problem = produce(ctx, entry, facts)
+    if problem:
+        return problem
     if os.path.islink(entry.dst):
         return DRIFTED
     with open(entry.dst, "rb") as handle:
@@ -202,14 +262,10 @@ def unmaterialise(ctx, entry, dry):
     return CLEANED
 
 
-def inspect(ctx, entry):
-    if not entry.encrypted:
-        return PLAINTEXT
-    if not have_key(ctx):
-        return SEALED
-    plain = decrypt(ctx, entry.src)
-    if plain is None:
-        return FAILED
+def inspect(ctx, entry, facts):
+    plain, problem = produce(ctx, entry, facts)
+    if problem:
+        return problem
     if os.path.islink(entry.dst):
         return DRIFTED
     if not os.path.exists(entry.dst):

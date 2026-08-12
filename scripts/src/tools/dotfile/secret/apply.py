@@ -1,5 +1,6 @@
 from tools.core.console import colors_enabled
 from tools.dotfile.report import DIM, GREEN, RED, YELLOW, paint
+from tools.dotfile.secret import facts as facts_module
 from tools.dotfile.secret.vault import (
     ABSENT,
     BLOCKING,
@@ -10,6 +11,7 @@ from tools.dotfile.secret.vault import (
     PLAINTEXT,
     REMODED,
     SEALED,
+    UNRESOLVED,
     WROTE,
     inspect,
     materialise,
@@ -37,6 +39,7 @@ MARKS = {
     DRIFTED: ("drifted", RED),
     FAILED: ("failed", RED),
     PLAINTEXT: ("plaintext", RED),
+    UNRESOLVED: ("unresolved", RED),
 }
 
 ADVICE = {
@@ -44,6 +47,7 @@ ADVICE = {
     FAILED: "no recipient here can decrypt it",
     PLAINTEXT: "unencrypted file inside a .secret package",
     SEALED: "no age identity on this machine",
+    UNRESOLVED: "a template names a fact that facts.enc.yaml does not define",
 }
 
 QUIET = (CURRENT,)
@@ -59,7 +63,12 @@ def prepare(ctx):
 
 def show(ctx, state, entry, color_on):
     label, color = MARKS[state]
-    log(f"  {paint(label, color, color_on):<{len('plaintext') + 12}}{shorten(ctx, entry.dst)}")
+    detail = f"  {paint(entry.detail, DIM, color_on)}" if entry.detail else ""
+    log(
+        f"  {paint(label, color, color_on):<{len('unresolved') + 12}}"
+        + shorten(ctx, entry.dst)
+        + detail
+    )
 
 
 def summarise(ctx, results, color_on, verb):
@@ -91,7 +100,10 @@ def run_apply(ctx, dry, force, quiet):
             log("no secrets to apply")
         return False
     color_on = colors_enabled()
-    results = [(materialise(ctx, entry, dry, force), entry) for entry in entries]
+    facts = facts_module.load(ctx)
+    if facts.note:
+        log(f"  {facts.note}")
+    results = [(materialise(ctx, entry, facts, dry, force), entry) for entry in entries]
     for path in secure_package_dirs(ctx, dry):
         log(f"  {paint('remoded', GREEN, color_on):<{len('plaintext') + 12}}{shorten(ctx, path)}")
     return summarise(ctx, results, color_on, "would apply" if dry else "applied")
@@ -111,7 +123,10 @@ def cmd_status(ctx):
         log("no secrets tracked")
         return
     color_on = colors_enabled()
-    results = [(inspect(ctx, entry), entry) for entry in entries]
+    facts = facts_module.load(ctx)
+    if facts.note:
+        log(f"  {facts.note}")
+    results = [(inspect(ctx, entry, facts), entry) for entry in entries]
     for state, entry in results:
         show(ctx, state, entry, color_on)
     counts = {}
@@ -129,6 +144,7 @@ def cmd_clean(ctx, dry):
         log("no secrets tracked")
         return
     color_on = colors_enabled()
-    results = [(unmaterialise(ctx, entry, dry), entry) for entry in entries]
+    facts = facts_module.load(ctx)
+    results = [(unmaterialise(ctx, entry, facts, dry), entry) for entry in entries]
     if summarise(ctx, results, color_on, "would clean" if dry else "cleaned"):
         raise SystemExit(1)

@@ -1,9 +1,9 @@
 import os
 import shutil
 import stat
-import subprocess
 
 import pytest
+from conftest import run_git
 
 pytestmark = pytest.mark.skipif(
     not (shutil.which("sops") and shutil.which("age-keygen")),
@@ -11,43 +11,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def run_git(cwd, *args):
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
-
-
 def mode_of(path):
     return stat.S_IMODE(os.stat(path).st_mode)
-
-
-@pytest.fixture
-def vault(tool, tmp_path):
-    root = tmp_path / "repo"
-    home = tmp_path / "home"
-    root.mkdir()
-    (home / ".config" / "dotfile").mkdir(parents=True)
-    (home / ".ssh").mkdir()
-    (root / "environment" / "test").mkdir(parents=True)
-    (root / "environment" / "test" / "manifest").write_text("shared\n")
-    (root / "targets").write_text("")
-    (root / "shared").mkdir()
-    run_git(tmp_path, "init", "-q", str(root))
-    run_git(root, "config", "user.email", "test@example.com")
-    run_git(root, "config", "user.name", "test")
-    (home / ".config" / "dotfile" / "profile").write_text("test\n")
-
-    env = {
-        "DOTFILE_ROOT": str(root),
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(home / ".config"),
-    }
-
-    def secret(*args, editor=None):
-        merged = dict(env, EDITOR=editor) if editor else env
-        return tool("dotfile", "secret", *args, env=merged)
-
-    assert secret("init").returncode == 0
-    assert secret("enroll", "box").returncode == 0
-    return root, home, env, secret
 
 
 def add_config(home, secret, text="Host box\n  Port 2222\n"):

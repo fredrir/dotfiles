@@ -14,8 +14,8 @@ from tools.core.patterns import (
 from tools.core.process import capture, capture_bytes
 from tools.dotfile.report import plural
 from tools.dotfile.secret.allow import allowed, load_allow
-from tools.dotfile.secret.canaries import load_canaries
-from tools.dotfile.secret.vault import is_encrypted_name
+from tools.dotfile.secret.canaries import all_canaries
+from tools.dotfile.secret.vault import is_encrypted_name, is_template_name
 from tools.dotfile.state import die, log
 
 MAX_BYTES = 2 * 1024 * 1024
@@ -149,7 +149,12 @@ def invariant_tier(dirs, path, encrypted):
     if is_encrypted_name(path) and not encrypted:
         yield Finding("invariant", "not-encrypted", path, 0, "named .enc, carries no sops metadata")
         return
-    if inside_secret(dirs, path) and base != ".secret" and not encrypted:
+    if (
+        inside_secret(dirs, path)
+        and base != ".secret"
+        and not encrypted
+        and not is_template_name(path)
+    ):
         yield Finding("invariant", "plaintext", path, 0, "unencrypted inside a .secret package")
         return
     if looks_like_key(path) and not inside_secret(dirs, path):
@@ -199,7 +204,7 @@ def report(findings, scanned, skipped, canaries, notes, show_all):
 
 def cmd_scan(ctx, paths, staged, commits, use_canaries, show_all):
     rules = load_allow(ctx)
-    canaries, notes = load_canaries(ctx) if use_canaries else ([], [])
+    canaries, notes = all_canaries(ctx) if use_canaries else ([], [])
     dirs = secret_dirs(ctx)
 
     findings = []

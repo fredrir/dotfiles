@@ -105,6 +105,10 @@ dotfile secret edit shared/ssh/config.enc
 dotfile secret status
 dotfile secret apply
 dotfile secret clean
+
+dotfile secret edit facts.enc.yaml
+dotfile secret facts
+dotfile secret facts --unused
 ```
 
 ## Command-line tools

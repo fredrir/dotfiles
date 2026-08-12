@@ -7,8 +7,10 @@ import typer
 from rich.table import Table
 
 from tools.core import clipboard, menu
-from tools.core.console import die, out, stdout
+from tools.core.console import die, err, out, stdout
 from tools.desktop.clean_copy import clean_text
+from tools.dotfile.secret.canaries import private_values
+from tools.dotfile.state import Context
 from tools.transcript import config, detect, manage, redact, store, vault
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
@@ -132,7 +134,15 @@ def _interactive_rm():
 
 
 def _redactor(raw):
-    return redact.passthrough if raw else redact.redact
+    if raw:
+        return redact.passthrough
+    try:
+        values, notes = private_values(Context())
+    except SystemExit:
+        return redact.redact
+    for note in notes:
+        err(f"transcript: {note}")
+    return redact.redactor(values)
 
 
 def _parse(provider, path):
@@ -161,7 +171,9 @@ def _print_table(rows):
     table.add_column("title")
     for index, (provider, path, session) in enumerate(rows, start=1):
         try:
-            modified = datetime.fromtimestamp(path.stat().st_mtime).astimezone().strftime("%m-%d %H:%M")
+            modified = (
+                datetime.fromtimestamp(path.stat().st_mtime).astimezone().strftime("%m-%d %H:%M")
+            )
         except OSError:
             modified = "?"
         table.add_row(
@@ -297,7 +309,9 @@ def sync(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Report without writing.")] = False,
     raw: Annotated[bool, typer.Option("--raw", help="Skip secret redaction.")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", help="Print nothing on success.")] = False,
-    tools: Annotated[bool, typer.Option("--tools", help="Include tool calls in the notes.")] = False,
+    tools: Annotated[
+        bool, typer.Option("--tools", help="Include tool calls in the notes.")
+    ] = False,
 ):
     allowed = config.allowed_projects()
     threshold = config.min_rounds()

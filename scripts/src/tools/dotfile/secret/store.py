@@ -3,14 +3,19 @@ import subprocess
 
 from tools.core.paths import tilde
 from tools.core.process import run
+from tools.dotfile.secret import facts as facts_module
 from tools.dotfile.secret.apply import prepare
 from tools.dotfile.secret.identity import sops_env
 from tools.dotfile.secret.keys import load_recipients
 from tools.dotfile.secret.vault import (
+    ENC,
     FILE_MODE,
     MARKER,
     SUFFIX,
+    TMPL,
+    Entry,
     encrypt,
+    encrypt_text,
     have_key,
     materialise,
     plan,
@@ -19,6 +24,7 @@ from tools.dotfile.state import canon, die, log, shorten
 from tools.dotfile.targets import load_targets
 
 UNCHANGED = 200
+EMPTY_MAPPING = "{}\n"
 
 
 def git_add(ctx, *paths):
@@ -104,8 +110,43 @@ def cmd_add(ctx, path, group, pkg, marker):
     git_add(ctx, dest, ctx.targets_file)
 
 
+def cmd_facts(ctx, unused_only):
+    prepare(ctx)
+    loaded = facts_module.load(ctx)
+    if loaded.note:
+        die(loaded.note)
+    if not loaded.values:
+        log(f"no facts in {facts_module.FACTS}")
+        return
+    used = {}
+    for entry in plan(ctx):
+        if entry.kind != TMPL:
+            continue
+        with open(entry.src, encoding="utf-8", errors="replace") as handle:
+            for name in facts_module.references(handle.read()):
+                used.setdefault(name, []).append(shorten(ctx, entry.dst))
+    names = sorted(loaded.values)
+    if unused_only:
+        names = [name for name in names if name not in used]
+    if not names:
+        log("every fact is referenced")
+        return
+    width = max(len(name) for name in names)
+    for name in names:
+        where = " ".join(used.get(name, [])) or "unused"
+        log(f"  {name:<{width}}  {where}")
+    missing = sorted(set(used) - set(loaded.values))
+    for name in missing:
+        log(f"  {name}  referenced by {' '.join(used[name])} but not defined")
+    if missing:
+        raise SystemExit(1)
+
+
 def matching_entries(ctx, path):
     expanded = ctx.home + path[1:] if path.startswith("~") else path
+    facts_path = facts_module.facts_file(ctx)
+    if expanded == facts_path or path in (facts_module.FACTS, "facts"):
+        return [Entry(facts_path, "", facts_module.FACTS, ENC)]
     entries = plan(ctx)
     exact = [entry for entry in entries if entry.dst == expanded or entry.src == expanded]
     if exact:
@@ -128,13 +169,30 @@ def cmd_edit(ctx, path):
         die(f"'{path}' matches several: {names}")
 
     entry = found[0]
+    fresh = not os.path.exists(entry.src)
+    if fresh:
+        seed_facts(ctx, entry.src)
     result = run(["sops", entry.src], cwd=ctx.root, env=sops_env(ctx))
     if result.returncode == UNCHANGED:
         log(f"unchanged {shorten(ctx, entry.src)}")
+        git_add(ctx, entry.src)
         return
     if result.returncode != 0:
+        if fresh:
+            os.remove(entry.src)
         raise SystemExit(result.returncode)
 
-    state = materialise(ctx, entry, False, True)
-    log(f"{state} {shorten(ctx, entry.dst)}")
     git_add(ctx, entry.src)
+    if not entry.dst:
+        log(f"saved {entry.src[len(ctx.root) + 1 :]}")
+        return
+    state = materialise(ctx, entry, facts_module.load(ctx), False, True)
+    log(f"{state} {shorten(ctx, entry.dst)}")
+
+
+def seed_facts(ctx, path):
+    if os.path.basename(path) != facts_module.FACTS:
+        die(f"nothing to edit: {shorten(ctx, path)}")
+    problem = encrypt_text(ctx, path, EMPTY_MAPPING)
+    if problem:
+        die(problem)

@@ -331,6 +331,21 @@ one is real work that the repository does not know about. Those are reported as
 exit non-zero. `edit` is the supported way to change a secret, and
 `apply --force` is the way to throw the local edit away.
 
+A `*.tmpl` file renders to the name without the suffix, substituting
+`{{ dotted.name }}` from `facts.enc.yaml`, which is encrypted structurally so
+its keys stay readable in a diff and only the values are ciphertext. Templates
+follow the same path as decrypted files: same drift rule, same 0600, never
+symlinked, never written back into the repository. A template naming a fact
+that does not exist is `unresolved` and nothing is written, because a half
+rendered config is worse than none. `secret facts` lists the names and their
+consumers, never the values.
+
+Every fact value also becomes a canary for the scanner and a redaction for the
+transcript archiver, labelled by its dotted name, so a value in
+`facts.enc.yaml` cannot be committed in plaintext from the moment it exists.
+Names under a top level `open:` key are exempt, for per-machine values that are
+not private.
+
 `link` runs `apply` as its final phase. A machine with no age identity reports
 its secrets as `sealed` and links everything else, so an unenrolled machine is
 still usable.

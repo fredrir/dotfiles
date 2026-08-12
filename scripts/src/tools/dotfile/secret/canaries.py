@@ -2,6 +2,8 @@ import os
 import stat
 
 from tools.core.patterns import mask
+from tools.dotfile.secret.facts import OPEN
+from tools.dotfile.secret.facts import load as load_facts
 from tools.dotfile.state import trim
 
 MIN_LENGTH = 6
@@ -56,3 +58,22 @@ def load_canaries(ctx):
             continue
         found.append(Canary(label, value))
     return found, notes
+
+
+def all_canaries(ctx):
+    found, notes = load_canaries(ctx)
+    facts = load_facts(ctx)
+    if facts.note:
+        notes.append(facts.note)
+    seen = {canary.needle for canary in found}
+    for name, value in sorted(facts.values.items()):
+        if name.startswith(OPEN) or len(value) < MIN_LENGTH or value.lower() in seen:
+            continue
+        seen.add(value.lower())
+        found.append(Canary(name, value))
+    return found, notes
+
+
+def private_values(ctx):
+    found, notes = all_canaries(ctx)
+    return [canary.value for canary in found], notes
