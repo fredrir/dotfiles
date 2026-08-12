@@ -120,6 +120,10 @@ def is_encrypted_name(path):
     return base.endswith(".enc") or ".enc." in base
 
 
+def encrypted_paths(ctx):
+    return [path for path in tracked_paths(ctx) if is_encrypted_name(path)]
+
+
 def looks_like_key(path):
     base = os.path.basename(path)
     return base in KEY_FILENAMES or base.endswith(KEY_SUFFIXES)

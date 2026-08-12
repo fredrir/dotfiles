@@ -11,6 +11,8 @@ shared {
   git
   zsh
   uv
+  age
+  sops
   nvim = neovim
   kitty
   yazi

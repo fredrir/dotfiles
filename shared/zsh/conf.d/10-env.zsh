@@ -6,3 +6,5 @@ export MANWIDTH=999
 
 export CONFIG="$HOME/.config"
 export NVIM="$CONFIG/nvim"
+
+export SOPS_AGE_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/age/keys.txt"

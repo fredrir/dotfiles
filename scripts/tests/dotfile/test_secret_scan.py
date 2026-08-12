@@ -63,6 +63,28 @@ def test_pattern_tier_reports_without_printing_the_secret(tool, repo):
     assert TOKEN not in result.stdout
 
 
+def test_an_identifier_named_like_a_key_is_not_a_finding(tool, repo):
+    root, _home, env = repo
+    stage(root, "shared/lib/keys.py", 'AGE_KEY = re.compile(r"^age1[02-9ac-hj-np-z]{58}$")\n')
+    assert scan(tool, env).returncode == 0
+
+
+def test_an_age_private_key_is_a_finding_however_it_is_named(tool, repo):
+    root, _home, env = repo
+    identity = "AGE-SECRET-KEY-1" + "Q" * 58
+    stage(root, "shared/lib/leak.py", f"HARMLESS_NAME = '{identity}'\n")
+    result = scan(tool, env)
+    assert result.returncode == 1
+    assert "age-identity" in result.stdout
+    assert identity not in result.stdout
+
+
+def test_an_age_public_key_is_not_a_finding(tool, repo):
+    root, _home, env = repo
+    stage(root, "keys.dotfile", "recipients {\n  archpc = age1" + "q" * 58 + "\n}\n")
+    assert scan(tool, env).returncode == 0
+
+
 def test_allowlist_suppresses_a_pattern(tool, repo):
     root, _home, env = repo
     write(root, "scan.dotfile", "allow {\n  vendor/** github-token\n}\n")

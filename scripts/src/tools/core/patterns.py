@@ -22,7 +22,7 @@ TOKEN_PATTERNS = (
 
 VALUE_PATTERN = re.compile(
     r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret"
-    r"|secret[_-]?key|age[_-]?key|password|passwd)\b(\s*[:=]\s*)(\"[^\"]{8,}\"|'[^']{8,}'|\S{8,})"
+    r"|secret[_-]?key|password|passwd)\b(\s*[:=]\s*)(\"[^\"]{8,}\"|'[^']{8,}'|\S{8,})"
 )
 
 SOPS_MARKER = "ENC[AES256_GCM"

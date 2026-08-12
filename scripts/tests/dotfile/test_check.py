@@ -3,7 +3,7 @@ import os
 import pytest
 import typer
 
-from tools.dotfile import check
+from tools.dotfile import check, report
 
 
 class FakeContext:
@@ -164,16 +164,16 @@ def test_pkglist_drops_comments_and_blank_lines(tmp_path):
 
 
 def test_row_lists_items_under_the_label(capsys):
-    check.emit(check.row("bad", "tools", "2 missing", [("yazi", ""), ("rg", "ripgrep")]), False)
+    report.emit(report.row("bad", "tools", "2 missing", [("yazi", ""), ("rg", "ripgrep")]), False)
     assert capsys.readouterr().out == "  ✗ tools      2 missing\n      yazi\n      rg  ripgrep\n"
 
 
 def test_items_align_on_the_widest_name_that_carries_a_note():
-    assert check.align([("short", "note"), ("much-longer-name", "")]) == [
+    assert report.align([("short", "note"), ("much-longer-name", "")]) == [
         ("short", "note"),
         ("much-longer-name", ""),
     ]
-    assert check.align([("short", "note"), ("much-longer-name", "other")])[0] == (
+    assert report.align([("short", "note"), ("much-longer-name", "other")])[0] == (
         "short           ",
         "note",
     )
@@ -181,8 +181,8 @@ def test_items_align_on_the_widest_name_that_carries_a_note():
 
 def test_clips_items_and_says_how_many_were_dropped():
     items = [(f"tool{index}", "") for index in range(15)]
-    assert check.clip(items, False)[-1] == ("+3 more", "")
-    assert check.clip(items, True) == items
+    assert report.clip(items, False)[-1] == ("+3 more", "")
+    assert report.clip(items, True) == items
 
 
 def test_a_requirement_in_two_groups_is_checked_once():

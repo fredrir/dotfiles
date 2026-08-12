@@ -93,6 +93,12 @@ dotfile format
 dotfile secret scan
 dotfile secret scan --staged
 dotfile secret scan --commits origin/main..HEAD
+
+dotfile secret init
+dotfile secret enroll archpc
+dotfile secret keys
+dotfile secret sync --rewrap
+dotfile secret doctor
 ```
 
 ## Command-line tools

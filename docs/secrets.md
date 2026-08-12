@@ -70,22 +70,24 @@ package. These rules do nothing yet and become load bearing in phase 2.
 
 Findings are reported by label and location. The matched text is masked, and a
 canary's value is never printed at all, only its label, because scanner output
-ends up in terminal scrollback, in CI logs, and in agent transcripts.
+ends up in terminal scrollback and in agent transcripts.
 
 Encrypted files are checked for their invariants and then skipped, since
 ciphertext is the protected form.
 
 ### Where it runs
 
-`pre-commit` scans staged content. `pre-push` scans every blob added by the
+`pre-commit` scans staged content, as the last step, after the regeneration
+steps that stage generated files. `pre-push` scans every blob added by the
 commits being pushed, which catches a value that was committed and then edited
-out before the push, exactly the case that happened. CI scans the tree on every
-push and pull request with `--no-canaries`, because the canary list must never
-leave this machine.
+out before the push, exactly the case that happened, and which still fires when
+`--no-verify` skipped the commit hook.
 
-Both hooks fail closed. If `scripts/.venv` is missing they refuse rather than
-skipping, since a scanner that silently disables itself is worse than none.
-Run `./setup.sh` on a new machine before committing.
+There is no CI. Both hooks fail closed instead: if `scripts/.venv` is missing
+they refuse rather than skipping, since a scanner that silently disables itself
+is worse than none. Run `./setup.sh` on a new machine before committing.
+
+`--no-canaries` exists for any context that must not hold the value list.
 
 ### Canaries
 
@@ -126,6 +128,87 @@ The current list is short and deliberately so: two vendored files whose
 minified or documentation content trips the value pattern, and the two test
 files that carry fixtures by design. Widening it to whole trees would have
 allowed exactly the directory the address leaked from.
+
+## Keys
+
+Encryption is age, driven by sops. Every machine holds its own identity and
+nobody shares a private key.
+
+### The machine identity
+
+`dotfile secret init` writes one to `~/.config/dotfile/age/keys.txt`, mode 600
+in a 700 directory, and prints only the public half. The private key is never
+printed, never copied, and never leaves the machine that generated it.
+
+It sits in the dotfile state directory rather than at sops' own default path so
+that one location holds everything dotfile owns and the path is the same on
+Linux and macOS. `SOPS_AGE_KEY_FILE` is exported from
+`shared/zsh/conf.d/10-env.zsh` so a bare `sops` call finds it, and every
+`dotfile secret` command sets it explicitly so hooks and scripts do not depend
+on the shell. `doctor` reports an identity left at sops' default path, since
+that is the confusing failure to catch early.
+
+### keys.dotfile and .sops.yaml
+
+`keys.dotfile` is the source of truth: a label and a public key per recipient.
+`.sops.yaml` is generated from it, sorted, and staged by `pre-commit`, in the
+same way `packages.dotfile` generates `PACKAGES.md`. Never edit `.sops.yaml`
+directly; `doctor` reports the drift if you do.
+
+    recipients {
+      archpc = age1...
+      recovery = age1...
+    }
+
+Every recipient can read every encrypted file. Per-path scoping is a sops
+feature worth reaching for only when there is something one machine should not
+read, and on a workstation-only repository there is nothing yet.
+
+### Adding a machine
+
+On the new machine, `dotfile secret init` and copy the printed public key. On a
+machine that already has access, `dotfile secret enroll <label> <key>`, then
+`dotfile secret sync --rewrap` to re-wrap the existing files, then commit. The
+new machine pulls and can read them.
+
+The handshake needs a machine that already has access, by construction: no
+shared secret ever travels, and there is no path by which a stranger with the
+repository can grant themselves one.
+
+### The recovery key
+
+Because adding a machine needs an existing machine, a single dead disk would
+otherwise be permanent loss. One recipient labelled `recovery` fixes that, and
+`doctor` fails until it exists.
+
+Generate it somewhere temporary, put the private key in a password manager, and
+destroy the file:
+
+    age-keygen -o /tmp/recovery.txt
+    age-keygen -y /tmp/recovery.txt
+    dotfile secret enroll recovery <the public key>
+    shred -u /tmp/recovery.txt
+
+The private half must never land in this repository, in the state directory, or
+in a terminal that is being recorded.
+
+### Revoking
+
+`dotfile secret revoke <label>` drops a recipient and regenerates `.sops.yaml`;
+`dotfile secret sync --rewrap` re-wraps every encrypted file so the removed key
+can no longer open new copies. That is all it does. The old key already read
+whatever it read, and a copy of the repository from before the revoke is still
+readable with it, so a retired or lost machine means rotating the secrets
+themselves.
+
+### doctor
+
+`dotfile secret doctor` checks the whole chain: age and sops on PATH, the
+identity present and correctly moded, this machine enrolled, a recovery
+recipient present, `.sops.yaml` matching `keys.dotfile`, every encrypted file
+decryptable here, the canaries file present and 600, both hooks active, and no
+stray identity where sops would find it first. It exits non-zero when any of
+those fail, so it works as a post-setup check on a new machine.
 
 ## The vault is a second surface
 

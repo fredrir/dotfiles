@@ -19,6 +19,13 @@ if staged packages.dotfile PACKAGES.md scripts/src/tools/dotfile \
   git add "$root/packages.dotfile" "$root/PACKAGES.md"
 fi
 
+if staged keys.dotfile; then
+  "$bin/dotfile" secret sync
+  if [ -e "$root/.sops.yaml" ]; then
+    git add "$root/.sops.yaml"
+  fi
+fi
+
 if staged theme scripts/src/tools/theme; then
   if "$bin/generate-theme"; then
     while IFS= read -r path; do
