@@ -1,9 +1,10 @@
 import os
+import platform
 
 from tools.core.console import colors_enabled
 from tools.core.process import capture, silent
 from tools.dotfile.report import emit, heading, plural, row
-from tools.dotfile.secret.canaries import canaries_file
+from tools.dotfile.secret.canaries import all_canaries, canaries_file
 from tools.dotfile.secret.identity import (
     have,
     identity_path,
@@ -62,9 +63,20 @@ def enrolled_row(ctx, recipients):
     return row(
         "bad",
         "enrolled",
-        "this machine is not a recipient",
-        [("dotfile secret enroll <label>", "")],
+        "this machine is not a recipient yet",
+        [
+            ("on a machine that already decrypts, then push:", ""),
+            (f"dotfile secret enroll {suggested_label()} {key}", ""),
+            ("or here, with the recovery key:", ""),
+            (f"dotfile secret enroll {suggested_label()} --using <recovery>", ""),
+        ],
     )
+
+
+def suggested_label():
+    name = platform.node().split(".")[0].lower()
+    cleaned = "".join(char for char in name if char.isalnum() or char in "._-")
+    return cleaned or "<label>"
 
 
 def recipients_row(ctx, recipients):
@@ -96,19 +108,30 @@ def sops_row(ctx, recipients):
 
 def canaries_row(ctx):
     path = canaries_file(ctx)
-    if not os.path.isfile(path):
-        return row("warn", "canaries", "none configured", [(shorten(ctx, path), "")])
-    mode = mode_of(path)
-    if mode & 0o077:
+    local = os.path.isfile(path)
+    if local:
+        mode = mode_of(path)
+        if mode & 0o077:
+            return row(
+                "bad",
+                "canaries",
+                f"readable beyond you ({mode:04o})",
+                [(f"chmod 600 {shorten(ctx, path)}", "")],
+            )
+    active, _notes = all_canaries(ctx)
+    if not active:
         return row(
-            "bad",
+            "warn",
             "canaries",
-            f"readable beyond you ({mode:04o})",
-            [(f"chmod 600 {shorten(ctx, path)}", "")],
+            "no private values to match against",
+            [("dotfile secret edit vars.enc.yaml", "")],
         )
-    with open(path, encoding="utf-8") as handle:
-        count = len([line for line in handle.read().splitlines() if line.strip()])
-    return row("ok", "canaries", f"{count} configured (0600)")
+    items = []
+    if local:
+        items.append(
+            (shorten(ctx, path), "local only; this machine, not the others"),
+        )
+    return row("ok", "canaries", f"{plural(len(active), 'value')} guarded", items)
 
 
 def hooks_row(ctx):

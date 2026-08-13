@@ -1,7 +1,17 @@
+import subprocess
+
 from tools.core.console import colors_enabled
 from tools.core.process import run
-from tools.dotfile.report import DIM, paint
-from tools.dotfile.secret.identity import generate, have, identity_path, public_key, sops_env
+from tools.dotfile.report import DIM, paint, plural
+from tools.dotfile.secret.doctor import suggested_label
+from tools.dotfile.secret.identity import (
+    generate,
+    have,
+    identity_path,
+    public_key,
+    require_identity,
+    sops_env,
+)
 from tools.dotfile.secret.keys import (
     AGE_KEY,
     LABEL,
@@ -9,11 +19,10 @@ from tools.dotfile.secret.keys import (
     label_for,
     load_recipients,
     save_recipients,
+    sops_file,
 )
 from tools.dotfile.secret.scan import encrypted_paths
 from tools.dotfile.state import die, log, shorten
-
-REWRAP_HINT = "re-wrap every encrypted file:  dotfile secret sync --rewrap"
 
 
 def cmd_init(ctx):
@@ -23,11 +32,21 @@ def cmd_init(ctx):
     log("")
     log(f"public key  {key}")
     log("")
-    log("enroll it on this machine:  dotfile secret enroll <label>")
-    log(f"enroll it from another:     dotfile secret enroll <label> {key}")
+    label = suggested_label()
+    log("enrolling needs a key that already decrypts. run this on a machine")
+    log("that has one, then push:")
+    log("")
+    log(f"    dotfile secret enroll {label} {key}")
+    log("")
+    log("no machine reachable? the recovery key counts. put it somewhere")
+    log("readable and run it here instead:")
+    log("")
+    log(f"    dotfile secret enroll {label} --using /path/to/recovery.txt")
+    log("")
+    log("then:  git commit -am 'enrol' && git push && dotfile secret apply")
 
 
-def cmd_enroll(ctx, label, key):
+def cmd_enroll(ctx, label, key, using=""):
     if not LABEL.match(label):
         die(f"bad label '{label}'")
     recipients = load_recipients(ctx)
@@ -45,11 +64,14 @@ def cmd_enroll(ctx, label, key):
     if recipients.get(label) == key:
         log(f"{label} is already enrolled")
         return
+    identity = require_identity(using) if using else ""
     recipients[label] = key
     save_recipients(ctx, recipients)
     log(f"enrolled {label} in {shorten(ctx, keys_file(ctx))}")
-    if encrypted_paths(ctx):
-        log(REWRAP_HINT)
+    if rewrap_all(ctx, identity):
+        raise SystemExit(1)
+    stage(ctx)
+    log("staged; commit and push so the new machine can read them")
 
 
 def cmd_revoke(ctx, label):
@@ -61,10 +83,41 @@ def cmd_revoke(ctx, label):
     del recipients[label]
     save_recipients(ctx, recipients)
     log(f"revoked {label}")
+    failed = rewrap_all(ctx)
+    stage(ctx)
     log("")
-    log(REWRAP_HINT)
-    log("re-wrapping does not un-see what that key already read")
-    log("rotate the secrets themselves as well")
+    log("re-wrapping does not un-see what that key already read, and an older")
+    log("clone still opens with it; rotate the secrets themselves as well")
+    if failed:
+        raise SystemExit(1)
+
+
+def stage(ctx):
+    paths = [keys_file(ctx), sops_file(ctx), *encrypted_paths(ctx)]
+    subprocess.run(
+        ["git", "-C", ctx.root, "add", *paths],
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def rewrap_all(ctx, identity=""):
+    paths = encrypted_paths(ctx)
+    if not paths:
+        log("no encrypted files tracked, so nothing was re-wrapped")
+        return False
+    if not have("sops"):
+        log("  sops is not on PATH; re-wrap manually with: dotfile secret sync --rewrap")
+        return True
+    failed = []
+    for path in paths:
+        env = sops_env(ctx, identity)
+        if run(["sops", "updatekeys", "-y", path], cwd=ctx.root, env=env).returncode != 0:
+            failed.append(path)
+    log(f"re-wrapped {len(paths) - len(failed)} of {plural(len(paths), 'file')}")
+    for path in failed:
+        log(f"  failed {path}")
+    return bool(failed)
 
 
 def cmd_keys(ctx):
@@ -80,7 +133,7 @@ def cmd_keys(ctx):
         log(f"  {label:<{width}}  {recipients[label]}" + paint(here, DIM, color_on))
 
 
-def cmd_sync(ctx, rewrap):
+def cmd_sync(ctx, rewrap, using=""):
     recipients = load_recipients(ctx)
     if not recipients:
         die("no recipients enrolled (run: dotfile secret enroll <label>)")
@@ -88,19 +141,9 @@ def cmd_sync(ctx, rewrap):
     log("wrote .sops.yaml" if changed else ".sops.yaml already current")
     if not rewrap:
         return
-    paths = encrypted_paths(ctx)
-    if not paths:
+    if not encrypted_paths(ctx):
         log("no encrypted files to re-wrap")
         return
-    if not have("sops"):
-        die("sops is not on PATH")
-    failed = []
-    for path in paths:
-        result = run(["sops", "updatekeys", "-y", path], cwd=ctx.root, env=sops_env(ctx))
-        if result.returncode != 0:
-            failed.append(path)
-    log(f"re-wrapped {len(paths) - len(failed)} of {len(paths)} files")
-    if failed:
-        for path in failed:
-            log(f"  failed {path}")
+    if rewrap_all(ctx, require_identity(using) if using else ""):
         raise SystemExit(1)
+    stage(ctx)

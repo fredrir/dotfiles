@@ -242,14 +242,45 @@ read, and on a workstation-only repository there is nothing yet.
 
 ### Adding a machine
 
-On the new machine, `dotfile secret init` and copy the printed public key. On a
-machine that already has access, `dotfile secret enroll <label> <key>`, then
-`dotfile secret sync --rewrap` to re-wrap the existing files, then commit. The
-new machine pulls and can read them.
+`./setup.sh` does everything the new machine can do for itself: it generates
+the identity, configures the hooks and the diff driver, links the profile, and
+then prints the one command it cannot run.
 
-The handshake needs a machine that already has access, by construction: no
-shared secret ever travels, and there is no path by which a stranger with the
-repository can grant themselves one.
+    dotfile secret enroll <thishost> age1...
+
+Run that where the repository already decrypts. `enroll` re-wraps every
+encrypted file for the new recipient and stages the result, so all that is left
+is to commit and push. Back on the new machine, `git pull` and it reads
+everything. `doctor` repeats the same command until it is done, so nothing has
+to be remembered between the two terminals.
+
+### Why the last step needs a key you already have
+
+Each encrypted file holds a random data key, encrypted separately to every
+recipient's public key. Opening it needs one of the matching private keys. A
+new machine's keypair is not among them, so nothing in the repository opens for
+it yet.
+
+Enrolling means decrypting that data key and re-encrypting it to the new public
+key as well, and the first half needs a private key that already works. It is
+arithmetic rather than a policy check, which is the point: the repository is
+public, so a machine that could enrol itself would let anyone who cloned it
+grant themselves access.
+
+### No other machine reachable
+
+The requirement is a *key* that already decrypts, not another *machine*, and
+the recovery key is one. Fetch it from wherever it is kept and enrol from the
+new machine itself:
+
+    dotfile secret enroll <thishost> --using /path/to/recovery.txt
+
+That re-wraps every encrypted file with the recovery identity, adds the new
+machine as a recipient, and stages the result. Commit, push, and destroy the
+copy of the recovery key; from then on the machine reads with its own.
+
+This is the situation the recovery key exists for — a new laptop, nothing else
+in reach — and it is worth confirming it works before the day you need it.
 
 ### The recovery key
 

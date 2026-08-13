@@ -190,6 +190,11 @@ if interactive; then
   done < "$MANIFEST"
 fi
 
+if [ ! -f "$AGE_KEY_FILE" ]; then
+  echo
+  "$DOTFILE_BIN" secret init || true
+fi
+
 echo
 link_failed=0
 "$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} || link_failed=1
@@ -220,5 +225,8 @@ if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
 
   command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
 fi
+
+echo
+"$DOTFILE_BIN" secret doctor || true
 
 exit "$link_failed"

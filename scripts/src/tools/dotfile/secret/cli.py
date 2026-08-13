@@ -54,8 +54,11 @@ def init():
 def enroll(
     label: str = typer.Argument(...),
     key: str | None = typer.Argument(None),
+    using: str | None = typer.Option(
+        None, "--using", help="re-wrap with this identity file instead of this machine's"
+    ),
 ):
-    manage_command.cmd_enroll(Context(), label, key or "")
+    manage_command.cmd_enroll(Context(), label, key or "", using or "")
 
 
 @app.command(help="Remove a recipient and re-wrap what it could read.")
@@ -73,8 +76,11 @@ def sync(
     rewrap: bool = typer.Option(
         False, "--rewrap", help="also run sops updatekeys over every encrypted file"
     ),
+    using: str | None = typer.Option(
+        None, "--using", help="re-wrap with this identity file instead of this machine's"
+    ),
 ):
-    manage_command.cmd_sync(Context(), rewrap)
+    manage_command.cmd_sync(Context(), rewrap, using or "")
 
 
 @app.command(help="Check identities, recipients, hooks, and encrypted files.")

@@ -57,7 +57,16 @@ def generate(ctx):
     return path
 
 
-def sops_env(ctx):
+def sops_env(ctx, identity=""):
     merged = dict(os.environ)
-    merged["SOPS_AGE_KEY_FILE"] = identity_path(ctx)
+    merged["SOPS_AGE_KEY_FILE"] = identity or identity_path(ctx)
     return merged
+
+
+def require_identity(path):
+    resolved = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isfile(resolved):
+        die(f"no such identity file: {resolved}")
+    if not public_key(resolved):
+        die(f"not readable as an age identity: {resolved}")
+    return resolved
