@@ -51,6 +51,33 @@ Credentials that refresh fail the first test. `gh`'s `hosts.yml` holds an OAuth
 token that rotates; tracking it buys a commit per rotation and nothing else,
 when `gh auth login` regenerates it in seconds. Those stay in `.gitignore`.
 
+### An application directory holds three things
+
+Preferences you authored, identity the application generated, and state it
+maintains while running. Only the first belongs here. The second regenerates —
+re-pair, re-authenticate — and the third churns.
+
+Sort by file, never by filtering inside one. An application that keeps the
+three apart is trackable: Sunshine's `apps.json` and `sunshine.conf` are pure
+preference, while `credentials/`, `sunshine_state.json` and the log are not, so
+two files are tracked and three are ignored.
+
+An application that mixes them into one file is not trackable at all, and the
+reason is the restore rather than the secret. Everything here installs by
+overwriting its destination. A filtered copy of Moonlight's config would put
+back the preferences and destroy the client key, the certificate and every
+paired host along with them. Filtering would only be safe with a format-aware
+merge that writes back the managed keys and leaves the rest — a third install
+mode, to preserve settings that take two minutes to re-enter.
+
+The same applies to a macOS `defaults` domain: restoring means `defaults
+import`, which replaces the whole domain, so a hand-pruned plist deletes
+whatever it omits, licence keys included.
+
+Those files are listed in `.gitignore` so the decision is enforced rather than
+remembered. A Moonlight config would also be caught by the scanner on its way
+in, since the key is stored as PEM.
+
 ### SSH keys do not belong here
 
 They fail the fourth test, and it is worth writing down why, because they look

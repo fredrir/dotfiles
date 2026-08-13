@@ -79,8 +79,14 @@ def plan_destination(ctx, src, group, pkgflag):
         if not pkgflag:
             die("files outside ~/.config need --pkg <name>")
         pkg = pkgflag
-        destrel = f"{group}/{pkg}/{os.path.basename(src)}"
-        mapline = f"{destrel} = {shorten(ctx, src)}"
+        rel = src[len(ctx.home) + 1 :]
+        head = rel.split("/", 1)[0]
+        if "/" in rel and head.lstrip(".") == pkg:
+            destrel = f"{group}/{pkg}/{rel.split('/', 1)[1]}"
+            mapline = f"{group}/{pkg} = ~/{head}"
+        else:
+            destrel = f"{group}/{pkg}/{os.path.basename(src)}"
+            mapline = f"{destrel} = {shorten(ctx, src)}"
     else:
         die("source must live under $HOME")
     return pkg, destrel, mapline

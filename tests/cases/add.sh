@@ -59,6 +59,25 @@ test_honours_an_explicit_package_name() {
   grep -qxF "shared/zsh/.zshrc = ~/.zshrc" "$REPO/targets" || fail "targets entry not written"
 }
 
+test_keeps_subdirectories_when_the_package_names_the_dotdir() {
+  mkdir -p "$HOME/.ssh/config.d"
+  printf 'cabled\n' > "$HOME/.ssh/config.d/40-cabled"
+  dotfile add --pkg ssh "$HOME/.ssh/config.d/40-cabled"
+  assert_ok
+  assert_file_is "$REPO/shared/ssh/config.d/40-cabled" "cabled"
+  assert_symlink "$HOME/.ssh/config.d/40-cabled" "$REPO/shared/ssh/config.d/40-cabled"
+  grep -qxF "shared/ssh = ~/.ssh" "$REPO/targets" || fail "directory targets entry not written"
+}
+
+test_flattens_when_the_package_does_not_name_the_dotdir() {
+  mkdir -p "$HOME/.ssh"
+  printf 'signers\n' > "$HOME/.ssh/allowed"
+  dotfile add --pkg git "$HOME/.ssh/allowed"
+  assert_ok
+  assert_file_is "$REPO/shared/git/allowed" "signers"
+  grep -qxF "shared/git/allowed = ~/.ssh/allowed" "$REPO/targets" || fail "file targets entry not written"
+}
+
 test_requires_a_package_name_outside_config() {
   printf 'rc\n' > "$HOME/.zshrc"
   dotfile add "$HOME/.zshrc"
