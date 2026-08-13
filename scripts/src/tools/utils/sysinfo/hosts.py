@@ -21,12 +21,6 @@ HARDWARE_KEYS = {
 
 DEFAULT_HARDWARE = {"cpu_cooler": "not set", "case": "not set", "power_supply": "not set"}
 
-STRUCTURE_ERRORS = {
-    blocks.UNEXPECTED_CLOSE: "unexpected }",
-    blocks.NESTED: "nested host",
-    blocks.OUTSIDE: "entry outside a host",
-}
-
 ROLES = ("desktop", "laptop", "server")
 
 
@@ -51,13 +45,14 @@ def hosts_file():
 
 
 def describe_error(error):
-    if error.kind == blocks.UNTERMINATED:
-        return f"hosts.dotfile:{error.number}: missing }} for {error.block}"
-    return f"hosts.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}"
+    return blocks.describe(error, "hosts.dotfile", "host")
 
 
 def load_hosts(path=None):
-    entries = blocks.read(path or hosts_file())
+    # Whole-line comments only: this file carries a header, but '#' also appears
+    # inside hardware values as part numbers and revisions. Stripping it there
+    # silently truncated the value into every benchmark record that followed.
+    entries = blocks.read(path or hosts_file(), comments=blocks.LINE)
     order = []
     fields = {}
     for entry in entries:

@@ -21,9 +21,13 @@ fi
 
 if staged benchmarks scripts/src/tools/utils/sysinfo/bench; then
   if "$bin/sysinfo" bench document >/dev/null; then
-    if [ -e "$root/benchmarks/BENCHMARKS.md" ]; then
-      git add "$root/benchmarks/BENCHMARKS.md"
-    fi
+    # -A over the whole directory, for two reasons. BENCHMARKS.md is generated
+    # from every run file on disk regardless of staging, so staging the document
+    # without its inputs commits a table describing runs that are not in the
+    # repository. And `document` deletes the file when no host directory
+    # remains, which a plain `git add <path>` cannot stage, leaving the tree
+    # permanently dirty.
+    git add -A -- "$root/benchmarks"
   else
     echo "pre-commit: benchmark document generation failed (continuing)" >&2
   fi

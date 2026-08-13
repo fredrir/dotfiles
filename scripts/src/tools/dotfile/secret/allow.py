@@ -4,12 +4,6 @@ import os
 from tools.core import blocks
 from tools.dotfile.state import die
 
-STRUCTURE_ERRORS = {
-    blocks.UNEXPECTED_CLOSE: "unexpected }",
-    blocks.NESTED: "nested block",
-    blocks.OUTSIDE: "line outside an 'allow {' block",
-}
-
 
 def allow_file(ctx):
     return os.path.join(ctx.root, "scan.dotfile")
@@ -23,9 +17,7 @@ def load_allow(ctx):
     try:
         entries = blocks.read(path)
     except blocks.BlockError as error:
-        if error.kind == blocks.UNTERMINATED:
-            die("scan.dotfile: unterminated block")
-        die(f"scan.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        die(blocks.describe(error, "scan.dotfile", "'allow {' block"))
         return rules
     for entry in entries:
         if entry.opens:

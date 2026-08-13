@@ -46,6 +46,14 @@ def known_hosts():
         return {}
 
 
+def current_host(explicit=""):
+    try:
+        return explicit or hosts.resolve()
+    except blocks.BlockError as error:
+        die(PROG, hosts.describe_error(error))
+        return ""
+
+
 def adopt(known):
     detected = hosts.local_hostnames()
     primary = detected[0] if detected else "unknown"
@@ -87,9 +95,18 @@ def resolve_host(explicit="", allow_adopt=True):
     return adopt(known)
 
 
+def require_terminal(what):
+    # menu.pick returns None when stdout is not a terminal, which every caller
+    # read as "the user quit" -- so piping these commands printed nothing and
+    # exited 0, as though the work had been done.
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        die(PROG, f"{what} needs a terminal; pass the arguments instead")
+
+
 def pick_run(title, runs):
     if not runs:
         die(PROG, "no runs recorded")
+    require_terminal("choosing a run")
     options = [run.run_id for run in runs]
     details = [report.describe_run(run) for run in runs]
     choice = menu.pick(title, options, details)
@@ -104,6 +121,7 @@ def pick_host(title):
         die(PROG, "no runs recorded")
     if len(names) == 1:
         return names[0]
+    require_terminal("choosing a machine")
     choice = menu.pick(title, names)
     if choice is None:
         raise typer.Exit(0)
@@ -144,10 +162,13 @@ def main(ctx: typer.Context):
     elif name == "baseline":
         interactive_baseline()
     elif name == "prune":
-        prune(host="", keep=12, dry_run=True)
+        # Not forced to --dry-run any more: the menu entry says "thin old runs",
+        # and the confirmation below is what makes actually doing so safe.
+        prune(host="", keep=12, dry_run=False, yes=False)
 
 
 def interactive_compare():
+    require_terminal("compare without both selectors")
     choice = menu.pick("compare what?", [name for name, _ in COMPARISONS], [t for _, t in COMPARISONS])
     if choice is None:
         return
@@ -201,6 +222,7 @@ def interactive_compare():
 
 
 def interactive_trend():
+    require_terminal("trend without a metric")
     host = pick_host("which machine?")
     runs = store.list_runs(host, grades=select.CLEAN)
     keys = sorted({metric.key for run in runs for metric in run.metrics})
@@ -213,6 +235,7 @@ def interactive_trend():
 
 
 def interactive_baseline():
+    require_terminal("baseline set without a selector")
     host = pick_host("which machine?")
     runs = store.list_runs(host, grades=select.CLEAN)
     chosen = pick_run("use which run as the baseline?", runs)
@@ -266,6 +289,9 @@ def run(
             err(f"  {job} done in {detail}")
         elif kind == "skip":
             err(f"  {job} skipped: {detail}")
+    # Everything that writes to the store stays inside the lock. Storing the run
+    # and pinning the baseline used to happen after it was released, so a second
+    # benchmark could interleave with either.
     try:
         with store.exclusive():
             try:
@@ -283,12 +309,14 @@ def run(
                 for reason in error.reasons:
                     err(f"{PROG}: {reason}")
                 die(PROG, "conditions are not suitable; pass --force to measure anyway")
+            if not measured.metrics:
+                die(PROG, "no benchmark produced a result")
+            if persist:
+                store.save_run(measured)
+            if baseline and persist:
+                store.set_baseline(measured.host, measured.epoch, measured.run_id)
     except store.LockedError:
         die(PROG, "another benchmark is already running")
-    if not measured.metrics:
-        die(PROG, "no benchmark produced a result")
-    if persist:
-        store.save_run(measured)
     if as_json:
         out(json.dumps(measured.to_json(), indent=2))
     else:
@@ -296,7 +324,6 @@ def run(
         if not persist:
             out("  not stored")
     if baseline and persist:
-        store.set_baseline(measured.host, measured.epoch, measured.run_id)
         out(f"  baseline for {measured.host}@{measured.epoch} is now this run")
     reference = store.baseline_run(measured.host, measured.epoch)
     if reference and reference.run_id != measured.run_id:
@@ -343,7 +370,7 @@ def list_(
 def health(
     host: Annotated[str, typer.Option("--host", help="Machine to judge.")] = "",
 ):
-    name = host or hosts.resolve()
+    name = current_host(host)
     issues = benchmark_issues(name)
     if not issues:
         out(f"  no benchmark findings for {name or 'this machine'}")
@@ -429,16 +456,28 @@ def prune(
     host: Annotated[str, typer.Option("--host", help="Only this machine.")] = "",
     keep: Annotated[int, typer.Option("--keep", help="Runs to keep per configuration.")] = 12,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Report without deleting.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Delete without confirming.")] = False,
 ):
     dropped = store.prunable(host or None, keep=keep)
     if not dropped:
         out("  nothing to prune")
         return
     for run in dropped:
-        out(f"  {'would remove' if dry_run else 'removed'} {run.host}/{run.run_id}")
+        out(f"  {'would remove' if dry_run else 'remove'} {run.host}/{run.run_id}")
     if dry_run:
         out(f"  {len(dropped)} runs would be removed; re-run without --dry-run")
         return
-    for run in dropped:
-        store.run_path(run.host, run.run_id).unlink(missing_ok=True)
+    # The only irreversible operation here, and it used to delete on sight.
+    if not yes:
+        if not sys.stdin.isatty():
+            die(PROG, f"refusing to remove {len(dropped)} runs unattended; pass --yes")
+        if not typer.confirm(f"Remove {len(dropped)} runs?", default=False):
+            out("  nothing removed")
+            return
+    try:
+        with store.exclusive():
+            for run in dropped:
+                store.run_path(run.host, run.run_id).unlink(missing_ok=True)
+    except store.LockedError:
+        die(PROG, "another benchmark is already running")
     out(f"  removed {len(dropped)} runs")

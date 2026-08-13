@@ -1,7 +1,7 @@
 import shutil
 
 import pytest
-from conftest import run_git
+from gitrepo import run_git
 
 from tools.dotfile.secret import variables
 

@@ -1,3 +1,5 @@
+import types
+
 from tools.utils.sysinfo.bench import runner
 from tools.utils.sysinfo.bench.limits import MAX_RUNS, MIN_RUNS
 from tools.utils.sysinfo.bench.record import HIB, WORLD
@@ -99,19 +101,86 @@ def test_an_empty_collection_never_counts_as_converged():
     assert runner.converged({}) is False
 
 
+def fake_suite(name, jobs_or_error):
+    def jobs(_setting):
+        if isinstance(jobs_or_error, Exception):
+            raise jobs_or_error
+        return list(jobs_or_error)
+
+    return types.SimpleNamespace(__name__=f"suites.{name}", jobs=jobs)
+
+
 def test_a_family_filter_keeps_only_matching_jobs(monkeypatch):
+    # Drives the real collect_jobs. Reimplementing the comprehension in the test
+    # body meant deleting the production filter changed nothing here.
     cpu_job, _ = build_job([{"cpu.value": 1.0}], outputs=(Output("cpu.value", "u", HIB, WORLD),))
     disk_job, _ = build_job([{"disk.value": 1.0}], outputs=(Output("disk.value", "u", HIB, WORLD),))
-    monkeypatch.setattr(runner, "SUITES", ())
+    monkeypatch.setattr(runner, "SUITES", (fake_suite("both", (cpu_job, disk_job)),))
     setting = runner.Setting(tier="quick", workdir="/tmp", families=("cpu",))
 
-    kept = [job for job in (cpu_job, disk_job) if runner.family_of(job) in setting.families]
+    kept, failures = runner.collect_jobs(setting)
 
     assert kept == [cpu_job]
+    assert failures == ()
 
 
-def test_a_measurement_error_names_the_family_it_came_from():
-    job, _calls = build_job([{"test.value": 100.0}])
+def test_no_family_filter_keeps_every_job(monkeypatch):
+    cpu_job, _ = build_job([{"cpu.value": 1.0}], outputs=(Output("cpu.value", "u", HIB, WORLD),))
+    disk_job, _ = build_job([{"disk.value": 1.0}], outputs=(Output("disk.value", "u", HIB, WORLD),))
+    monkeypatch.setattr(runner, "SUITES", (fake_suite("both", (cpu_job, disk_job)),))
 
-    assert runner.family_of(job) == "test"
-    assert issubclass(MeasurementError, Exception)
+    kept, _failures = runner.collect_jobs(runner.Setting(tier="quick", workdir="/tmp"))
+
+    assert kept == [cpu_job, disk_job]
+
+
+def test_a_suite_that_fails_to_build_is_recorded_not_fatal(monkeypatch):
+    # gpu.jobs() called systemctl unconditionally, so on any non-systemd host
+    # collect_jobs raised FileNotFoundError before a single job could run.
+    good, _ = build_job([{"cpu.value": 1.0}], outputs=(Output("cpu.value", "u", HIB, WORLD),))
+    monkeypatch.setattr(
+        runner,
+        "SUITES",
+        (
+            fake_suite("gpu", FileNotFoundError(2, "No such file or directory", "systemctl")),
+            fake_suite("cpu", (good,)),
+        ),
+    )
+
+    kept, failures = runner.collect_jobs(runner.Setting(tier="quick", workdir="/tmp"))
+
+    assert kept == [good]
+    assert len(failures) == 1
+    assert failures[0].startswith("gpu: ")
+    assert "systemctl" in failures[0]
+
+
+def test_a_measurement_error_is_caught_and_names_its_job(monkeypatch):
+    def explode():
+        raise MeasurementError("sysbench reported no read throughput")
+
+    job = Job(
+        name="mem.bandwidth",
+        tool="sysbench",
+        version="1.0",
+        method="mem.bandwidth/2.0.0",
+        outputs=(Output("mem.read", "MiB/s", HIB, WORLD),),
+        measure=explode,
+        repeat=False,
+    )
+    good, _ = build_job([{"cpu.value": 1.0}], outputs=(Output("cpu.value", "u", HIB, WORLD),))
+    monkeypatch.setattr(runner, "SUITES", (fake_suite("mixed", (job, good)),))
+    monkeypatch.setattr(runner, "capture_conditions", lambda *_a: {})
+    monkeypatch.setattr(runner, "collect_snapshot", lambda full=False: object())
+    monkeypatch.setattr(runner, "filesystem_of", lambda _path: {})
+    monkeypatch.setattr(runner.environment, "describe_snapshot", lambda _s: {})
+    monkeypatch.setattr(runner.environment, "describe_install", lambda _s: {})
+    monkeypatch.setattr(runner.environment, "dotfiles_sha", lambda: "abc1234")
+
+    measured = runner.execute(host="archie", tier="quick", workdir="/tmp")
+
+    assert [metric.key for metric in measured.metrics] == ["cpu.value"]
+    assert any("mem.bandwidth: " in reason for reason in measured.gate_reasons)
+    # A run that lost a suite is not clean, which is what kept it out of the
+    # baseline picker and stopped it resetting the staleness clock.
+    assert measured.grade == "noisy"

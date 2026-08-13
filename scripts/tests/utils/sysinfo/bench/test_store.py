@@ -1,9 +1,20 @@
 import os
+import subprocess
+import sys
 
 import pytest
-from conftest import build_run, metric
+from builders import build_run, metric
 
 from tools.utils.sysinfo.bench import store
+
+HOLD_LOCK = """
+import fcntl, os, sys
+
+handle = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o644)
+fcntl.flock(handle, fcntl.LOCK_EX)
+print("held", flush=True)
+sys.stdin.read()
+"""
 
 
 def test_a_saved_run_reads_back_identically(benchmarks, sample_run):
@@ -92,12 +103,38 @@ def test_a_lock_left_by_a_dead_process_is_taken_over(benchmarks):
         assert stale.read_text(encoding="utf-8").strip() == str(os.getpid())
 
 
-def test_a_lock_held_by_a_live_process_is_respected(benchmarks):
+def test_a_lock_held_by_another_process_is_respected(benchmarks):
+    benchmarks.mkdir(parents=True, exist_ok=True)
+    path = benchmarks / store.LOCK
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            HOLD_LOCK,
+            str(path),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(store.LockedError), store.exclusive():
+            pass
+    finally:
+        holder.stdin.close()
+        holder.wait(timeout=30)
+
+
+def test_a_pid_file_without_a_live_lock_does_not_block(benchmarks):
+    # The pid in the file names the holder; it is not what excludes anyone.
+    # Treating it as authoritative is what let a recycled pid wedge the tool and
+    # let a racing reader judge a freshly created lock stale and steal it.
     benchmarks.mkdir(parents=True, exist_ok=True)
     (benchmarks / store.LOCK).write_text(f"{os.getppid()}\n", encoding="utf-8")
 
-    with pytest.raises(store.LockedError), store.exclusive():
-        pass
+    with store.exclusive():
+        assert (benchmarks / store.LOCK).read_text(encoding="utf-8").strip() == str(os.getpid())
 
 
 def test_pruning_keeps_the_newest_the_oldest_and_the_baseline(benchmarks):

@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 
-from tools.utils.sysinfo.bench.limits import NOISE_FLOOR_PCT, NOISE_MAD_FACTOR
+from tools.utils.sysinfo.bench.limits import (
+    NOISE_FLOOR_PCT,
+    NOISE_MAD_FACTOR,
+    NOISE_SINGLE_PCT,
+)
 from tools.utils.sysinfo.bench.record import (
     HOST,
     LIB,
@@ -35,14 +39,18 @@ class Delta:
 
 def noise_band(left, right):
     values = []
+    unreplicated = False
     for metric in (left, right):
+        if metric.times_to_run < 2:
+            unreplicated = True
         median = metric.median
         deviation = metric.mad
         if median and deviation is not None:
             values.append(abs(deviation / median) * 100)
+    floor = NOISE_SINGLE_PCT if unreplicated else NOISE_FLOOR_PCT
     if not values:
-        return NOISE_FLOOR_PCT
-    return max(NOISE_FLOOR_PCT, NOISE_MAD_FACTOR * max(values))
+        return floor
+    return max(floor, NOISE_MAD_FACTOR * max(values))
 
 
 def configuration_reason(left_run, right_run):

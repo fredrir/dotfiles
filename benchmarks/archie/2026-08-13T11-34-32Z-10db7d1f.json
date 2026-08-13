@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "run_id": "2026-08-13T11-34-32Z-90959c28",
+  "run_id": "2026-08-13T11-34-32Z-10db7d1f",
   "host": "archie",
-  "epoch": "90959c28",
+  "epoch": "10db7d1f",
   "started": "2026-08-13T11:34:32Z",
   "tier": "quick",
   "grade": "clean",
-  "note": "first baseline",
+  "note": "mem.* here came from mem.bandwidth/1.0.0, which measured a 1 MiB single-threaded block -- cache, not DRAM. Superseded by 2.0.0; compare blocks these against newer runs. Re-record on archie to refresh.",
   "tags": [],
   "dotfiles_sha": "eea48be-dirty",
   "gate_reasons": [],
@@ -302,7 +302,7 @@
       "mad": 0.0552100000000002,
       "rsd_pct": 3.503634440866526,
       "detail": {
-        "command": "git -C /home/fredrir/dotfiles status --porcelain",
+        "command": "git -C . status --porcelain",
         "runs": "5",
         "warmup": "2"
       }
@@ -327,7 +327,7 @@
       "mad": 0.031420000000000003,
       "rsd_pct": 3.135253637821785,
       "detail": {
-        "command": "git -C /home/fredrir/dotfiles log --oneline -n 200",
+        "command": "git -C . log --oneline -n 200",
         "runs": "5",
         "warmup": "2"
       }

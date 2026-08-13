@@ -31,9 +31,13 @@ def format_value(value, scale):
 
 
 def regression_issue(delta, baseline, latest):
+    # Lower-is-better metrics regress by going up, so a hardcoded "below" told
+    # the opposite story for thermal.* and every latency metric: a 20ms to 30ms
+    # startup regression read as "50% below its baseline".
+    direction = "above" if delta.change_pct > 0 else "below"
     return HealthIssue(
         "warning",
-        f"{delta.key} is {abs(delta.change_pct):.0f}% below its baseline",
+        f"{delta.key} is {abs(delta.change_pct):.0f}% {direction} its baseline",
         f"{format_value(delta.left, delta.scale)} at the baseline of {baseline.started[:10]}, "
         f"{format_value(delta.right, delta.scale)} on {latest.started[:10]}",
         f"Re-run sysinfo bench run --only {delta.key.split('.', 1)[0]} to confirm, "

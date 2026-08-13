@@ -34,6 +34,7 @@ def test_all_flag_combinations(monkeypatch, arguments, pretty, full, health):
     monkeypatch.setattr(cli, "build_view", lambda value: view if value is snapshot else None)
     monkeypatch.setattr(cli, "health_issues", lambda value: issues if value is snapshot else ())
     monkeypatch.setattr(cli, "benchmark_issues", lambda host: ())
+    monkeypatch.setattr(cli, "current_host", lambda: "archie")
     monkeypatch.setattr(cli, "render_plain", lambda *values: plain_calls.append(values))
     monkeypatch.setattr(cli, "render_pretty", lambda *values: pretty_calls.append(values))
 
@@ -58,6 +59,7 @@ def test_benchmark_findings_join_the_hardware_findings(monkeypatch):
     monkeypatch.setattr(cli, "build_view", lambda value: object())
     monkeypatch.setattr(cli, "health_issues", lambda value: hardware)
     monkeypatch.setattr(cli, "benchmark_issues", lambda host: benchmark)
+    monkeypatch.setattr(cli, "current_host", lambda: "archie")
     monkeypatch.setattr(cli, "render_plain", lambda *values: plain_calls.append(values))
 
     result = CliRunner().invoke(cli.app, [])

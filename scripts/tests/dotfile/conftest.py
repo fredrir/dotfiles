@@ -1,10 +1,5 @@
-import subprocess
-
 import pytest
-
-
-def run_git(cwd, *args):
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+from gitrepo import run_git
 
 
 @pytest.fixture

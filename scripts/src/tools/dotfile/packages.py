@@ -17,20 +17,12 @@ DEFAULT_GROUPS = [
 GROUP_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-")
 PACKAGE_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@-")
 
-STRUCTURE_ERRORS = {
-    blocks.UNEXPECTED_CLOSE: "unexpected }",
-    blocks.NESTED: "nested group",
-    blocks.OUTSIDE: "package outside a group",
-}
-
 
 def read_package_entries(ctx):
     try:
         return blocks.read(ctx.packages_config, comments=False, open_suffix=" {")
     except blocks.BlockError as error:
-        if error.kind == blocks.UNTERMINATED:
-            die(f"packages.dotfile:{error.number}: missing }} for {error.block}")
-        die(f"packages.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        die(blocks.describe(error, "packages.dotfile", "group"))
         return []
 
 

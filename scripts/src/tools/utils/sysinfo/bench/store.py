@@ -1,22 +1,19 @@
+import fcntl
 import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
 
 from tools.core import blocks
+from tools.core.console import die
 from tools.core.paths import repo_root
 from tools.utils.sysinfo.bench.record import Run
+
+PROG = "sysinfo bench"
 
 BASELINES = "baselines.dotfile"
 DOCUMENT = "BENCHMARKS.md"
 LOCK = ".lock"
-
-STRUCTURE_ERRORS = {
-    blocks.UNEXPECTED_CLOSE: "unexpected }",
-    blocks.NESTED: "nested host",
-    blocks.OUTSIDE: "entry outside a host",
-}
-
 
 class LockedError(Exception):
     pass
@@ -51,10 +48,14 @@ def save_run(run):
 
 
 def load_run(path):
+    # ValueError covers JSONDecodeError and UnicodeDecodeError; AttributeError
+    # and TypeError cover a file holding a JSON scalar rather than an object.
+    # One corrupt byte in one run used to take down list, show, compare, trend,
+    # health, prune and dotfile check alike.
     try:
         with open(path, encoding="utf-8") as handle:
             return Run.from_json(json.load(handle))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError, AttributeError, TypeError):
         return None
 
 
@@ -90,7 +91,11 @@ def load_baselines():
     path = baselines_path()
     if not path.is_file():
         return {}
-    entries = blocks.read(str(path))
+    try:
+        entries = blocks.read(str(path))
+    except blocks.BlockError as error:
+        die(PROG, blocks.describe(error, BASELINES, "host"))
+        return {}
     found = {}
     for entry in entries:
         if entry.opens:
@@ -125,8 +130,14 @@ def save_baselines(baselines):
             path.unlink()
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
+    # Written the way save_run writes: this is a read-modify-write of every
+    # host's pins, so a crash mid-truncate lost every baseline on the machine.
+    temporary = path.with_suffix(".dotfile.partial")
+    with open(temporary, "w", encoding="utf-8") as handle:
         handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
     return path
 
 
@@ -154,41 +165,38 @@ def baseline_run(host, epoch):
     return load_run(run_path(host, run_id))
 
 
-def holder_alive(path):
+def holder_pid(path):
     try:
         with open(path, encoding="utf-8") as handle:
-            pid = int(handle.read().strip())
-    except (OSError, ValueError):
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+            return handle.read().strip()
+    except OSError:
+        return ""
 
 
 @contextmanager
 def exclusive():
+    """Hold the benchmark lock for the duration of the block.
+
+    flock rather than an O_EXCL pid file, because the pid file admitted two
+    holders two ways: a stale lock was unlinked by both racers, and the pid was
+    written after the create, so a reader catching that window judged a live
+    lock stale and stole it. The kernel arbitrates this correctly; the pid in
+    the file is now only there to name the holder. The lock file is left in
+    place on release -- unlinking it would let two processes lock two inodes.
+    """
     path = benchmarks_dir() / LOCK
     path.parent.mkdir(parents=True, exist_ok=True)
+    handle = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
     try:
-        handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as error:
-        if holder_alive(path):
-            raise LockedError(str(path)) from error
-        path.unlink(missing_ok=True)
         try:
-            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as second:
-            raise LockedError(str(path)) from second
-    try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise LockedError(holder_pid(path) or str(path)) from error
+        os.ftruncate(handle, 0)
         os.write(handle, f"{os.getpid()}\n".encode())
-        os.close(handle)
         yield
     finally:
-        path.unlink(missing_ok=True)
+        os.close(handle)
 
 
 def total_bytes_written(host=None):

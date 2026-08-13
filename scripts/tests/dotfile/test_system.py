@@ -2,7 +2,7 @@ import os
 import shutil
 
 import pytest
-from conftest import run_git
+from gitrepo import run_git
 
 needs_sops = pytest.mark.skipif(
     not (shutil.which("sops") and shutil.which("age-keygen")),

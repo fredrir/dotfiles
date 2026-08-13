@@ -7,7 +7,7 @@ import time
 
 from tools.core.process import capture as run
 from tools.utils.sysinfo.bench.limits import SUSTAINED_SECONDS
-from tools.utils.sysinfo.bench.record import HIB, LIB, PLATFORM
+from tools.utils.sysinfo.bench.record import HIB, HOST, LIB
 from tools.utils.sysinfo.bench.suites import Job, MeasurementError, Output, tool_path, version_of
 from tools.utils.sysinfo.formatting import as_dict
 
@@ -50,18 +50,29 @@ def package_clock():
     return sum(values) / len(values) if values else None
 
 
+def complaint(text):
+    for line in reversed((text or "").splitlines()):
+        if line.strip():
+            return line.strip()
+    return ""
+
+
 def sustained(path, seconds):
     workers = str(max(1, os.cpu_count() or 2))
     process = subprocess.Popen(
         [path, "--matrix", workers, "--timeout", f"{seconds}s", "--metrics-brief"],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
     temperatures = []
     clocks = []
     deadline = time.monotonic() + seconds
+    stopped_early = False
     try:
-        while time.monotonic() < deadline and process.poll() is None:
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                stopped_early = True
+                break
             time.sleep(SAMPLE_INTERVAL)
             reading = sensor_temperature()
             if reading is not None:
@@ -72,7 +83,20 @@ def sustained(path, seconds):
     finally:
         if process.poll() is None:
             process.terminate()
-            process.wait(timeout=30)
+        try:
+            _output, refused = process.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            # stress-ng ignores SIGTERM on some platforms.
+            process.kill()
+            _output, refused = process.communicate()
+    # Popen returns before the child can fail to exec, so a stressor that rejects
+    # its arguments still leaves poll() as None for the first pass. Without this
+    # the single idle sample taken in that pass was published as the peak
+    # temperature under sustained load, with no error.
+    if stopped_early and process.returncode:
+        raise MeasurementError(
+            f"stress-ng exited {process.returncode}: {complaint(refused)}".rstrip(": ")
+        )
     if not temperatures and not clocks:
         raise MeasurementError("no thermal telemetry was available during the load")
     values = {}
@@ -99,10 +123,13 @@ def jobs(setting):
             tool="stress-ng",
             version=version_of(path, args=("--version",), pattern=r"(\d[\d.]*)"),
             method="thermal/1.0.0",
+            # Host scoped: these depend on the cooler and the case, not the OS.
+            # Under platform scope two unrelated machines running the same
+            # distro had their temperatures compared and labelled better/worse.
             outputs=(
-                Output("thermal.peak", "°C", LIB, PLATFORM),
-                Output("thermal.steady", "°C", LIB, PLATFORM),
-                Output("cpu.sustained_clock", "MHz", HIB, PLATFORM),
+                Output("thermal.peak", "°C", LIB, HOST),
+                Output("thermal.steady", "°C", LIB, HOST),
+                Output("cpu.sustained_clock", "MHz", HIB, HOST),
             ),
             measure=lambda: sustained(path, seconds),
             repeat=False,

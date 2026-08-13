@@ -6,11 +6,11 @@
 
 1 clean run  ·  arch
 
-### `90959c28`
+### `10db7d1f`
 
 AMD Ryzen 7 9800X3D, NVIDIA GeForce RTX 5070 Ti, 32 GB
 
-Baseline: `2026-08-13T11-34-32Z-90959c28`
+Baseline: `2026-08-13T11-34-32Z-10db7d1f`
 
 | metric | unit | latest | runs | best |
 | --- | --- | --- | --- | --- |
@@ -25,4 +25,29 @@ Baseline: `2026-08-13T11-34-32Z-90959c28`
 | `workload.git_status` | ms | 2.07 | 1 | 2.07 |
 | `workload.nvim_startup` | ms | 23.8 | 1 | 23.8 |
 | `workload.tar_repo` | ms | 0.84 | 1 | 0.84 |
+
+
+## `macie`
+
+1 clean run  ·  macos
+
+### `31c0c4e0`
+
+Apple M5 Pro, 24 GB
+
+| metric | unit | latest | runs | best |
+| --- | --- | --- | --- | --- |
+| `cache.read` | MiB/s | 461 172 | 1 | 461 172 |
+| `cache.write` | MiB/s | 209 567 | 1 | 209 567 |
+| `cpu.crypto` | MB/s | 8 726 | 1 | 8 726 |
+| `cpu.multi` | MIPS | 147 859 | 1 | 147 859 |
+| `cpu.single` | MIPS | 12 092 | 1 | 12 092 |
+| `gpu.compute` | GFLOPS | 4 462 | 1 | 4 462 |
+| `mem.random` | MiB/s | 10 366 | 1 | 10 366 |
+| `mem.read` | MiB/s | 286 675 | 1 | 286 675 |
+| `mem.write` | MiB/s | 224 114 | 1 | 224 114 |
+| `workload.git_log` | ms | 20.6 | 1 | 20.6 |
+| `workload.git_status` | ms | 24.2 | 1 | 24.2 |
+| `workload.nvim_startup` | ms | 41.9 | 1 | 41.9 |
+| `workload.tar_repo` | ms | 77.2 | 1 | 77.2 |
 

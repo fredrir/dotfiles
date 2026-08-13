@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 import sys
 
 from tools.core.paths import repo_root
@@ -9,10 +10,22 @@ from tools.utils.sysinfo.formatting import as_dict, as_list
 from tools.utils.sysinfo.normalization import is_virtual_disk
 
 
+def probe(command, timeout=15):
+    """Run a setup-phase command that must never take the run down with it.
+
+    These run outside the job loop's error handler, so an untimed call to a
+    blocked tool hangs the benchmark with no exit but Ctrl-C.
+    """
+    try:
+        return run(command, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def detect_virtualized():
     if shutil.which("systemd-detect-virt"):
-        result = run(["systemd-detect-virt"])
-        detected = result.stdout.strip()
+        result = probe(["systemd-detect-virt"], timeout=10)
+        detected = result.stdout.strip() if result else ""
         if detected and detected != "none":
             return True
     try:
@@ -42,7 +55,9 @@ def describe_snapshot(snapshot):
         )
     disks = []
     for disk in as_list(snapshot.result("PhysicalDisk", [])):
-        if is_virtual_disk(disk):
+        # Removable media is not part of the machine's identity. A USB stick
+        # left plugged in used to change the epoch and orphan the baseline.
+        if is_virtual_disk(disk) or disk.get("removable"):
             continue
         disks.append(
             {
@@ -98,11 +113,11 @@ def describe_install(snapshot):
 
 def dotfiles_sha():
     root = str(repo_root())
-    result = run(["git", "-C", root, "rev-parse", "--short", "HEAD"])
-    if result.returncode != 0:
+    result = probe(["git", "-C", root, "rev-parse", "--short", "HEAD"])
+    if result is None or result.returncode != 0:
         return ""
     sha = result.stdout.strip()
-    dirty = run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"])
-    if dirty.returncode == 0 and dirty.stdout.strip():
+    dirty = probe(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"])
+    if dirty is not None and dirty.returncode == 0 and dirty.stdout.strip():
         return f"{sha}-dirty"
     return sha

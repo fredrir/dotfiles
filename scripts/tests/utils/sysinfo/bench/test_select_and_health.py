@@ -1,4 +1,4 @@
-from conftest import build_run, metric
+from builders import build_run, metric, recent
 
 from tools.utils.sysinfo.bench import select, store
 from tools.utils.sysinfo.bench.health import benchmark_issues
@@ -85,7 +85,7 @@ def test_a_drop_against_the_baseline_becomes_a_warning(benchmarks, sample_run, s
 def test_a_change_within_the_noise_band_is_not_reported(benchmarks, sample_run):
     steady = build_run(
         run_id="2026-08-14T09-00-00Z-abcd1234",
-        started="2026-08-14T09:00:00Z",
+        started=recent(0),
         metrics=(metric("cpu.multi", [100.0, 101.0, 99.0]),),
     )
     store.save_run(sample_run)

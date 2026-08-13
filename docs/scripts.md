@@ -212,12 +212,18 @@ and across machines. Bare `sysinfo bench` opens the same arrow-key menu the
 `transcript` command uses; every entry has a non-interactive equivalent.
 
 ```
-sysinfo bench run [--tier quick|standard|heavy] [--only cpu,disk] [--note "..."]
+sysinfo bench run [--tier quick|standard|heavy] [--only cpu,mem] [--note "..."]
 sysinfo bench show [<selector>]          sysinfo bench compare <left> <right>
 sysinfo bench list [--host archie]       sysinfo bench trend archie cpu.multi
 sysinfo bench health                     sysinfo bench baseline set|clear|show
-sysinfo bench prune [--dry-run]          sysinfo bench document
+sysinfo bench prune [--dry-run] [--yes]  sysinfo bench document
 ```
+
+`disk` and `thermal` produce no jobs at the default `quick` tier, so
+`--only disk` needs `--tier standard` or it measures nothing. The menu entries
+that pick interactively — `compare`, `show`, `trend`, `baseline set` — need a
+terminal; piped, they say so and exit non-zero rather than printing nothing.
+`prune` deletes, so it confirms first, and needs `--yes` when unattended.
 
 ### What a run is pinned to
 
@@ -232,10 +238,20 @@ hardware revision numbers to maintain, `compare` can diff two embedded snapshots
 and report "GPU changed: RTX 3080 → RTX 5070 Ti" on its own, and a run taken
 inside a VM is self-evident from its own record.
 
-The **epoch** (`90959c28`) is a derived index key, not stored state: a blake2s
+The **epoch** (`10db7d1f`) is a derived index key, not stored state: a blake2s
 digest over the identity-bearing snapshot fields. Swap a part and it changes by
 itself, while older runs keep their old parts. `git log -p -- hosts.dotfile` is
 the upgrade log; nothing else records it.
+
+Which fields count is a deliberately narrow question, because anything that
+drifts on its own silently orphans the pinned baseline — after which a real
+regression is reported as "no findings", quietly. So capacities are compared at
+whole-GiB resolution rather than raw (`nvidia-smi` reports VRAM as a float and
+the fastfetch fallback as an int, and the two disagree by a few hundred MiB);
+device lists are sorted, because enumeration order is not identity; removable
+media is excluded at capture; and memory *module count* is excluded entirely,
+since it reads 0 without root and 2 with, so a single `sudo` run would otherwise
+change the machine's identity.
 
 ### Why runs are stored one file per run
 
@@ -272,10 +288,49 @@ same tool version), `platform` (one OS family), or `host` (this machine's own
 history only). GPU results are always `host` — a CUDA score and a Metal score
 are not the same measurement, and `compare` refuses to present them as one.
 
+`disk.*` and `thermal.*` are `host` too. They were `platform`, but `platform`
+only blocks when `install["os"]` differs, and that is a distro id, not a piece
+of hardware: two Arch machines with entirely different SSDs and coolers had
+their numbers compared head to head and labelled better or worse.
+
 This answers "has archie changed relative to archie?" It cannot answer "is my
 9800X3D performing like other 9800X3Ds?", because there is no population to
 compare against. There is deliberately no composite score: a single number
 spanning x86-64/CUDA and arm64/Metal would be numerology.
+
+Metrics that run once — `disk.*`, `gpu.*`, `thermal.*` — get a wider noise band
+than replicated ones. A single sample has no spread, so its band would otherwise
+collapse onto the 2% floor, and `fio` and `glmark2` do not repeat to 2%. The
+unreplicated metrics would have produced the most false verdicts.
+
+### What the memory metrics actually measure
+
+`mem.*` and `cache.*` are the same tool pointed at two different things, and the
+split exists because conflating them is easy and produces a number that cannot
+be true.
+
+sysbench sizes its working set from `--memory-block-size`; `--memory-total-size`
+only sets how many times that buffer is traversed. At a 1 MiB block the buffer
+sits inside L2 on essentially every current part, so what comes back is cache
+bandwidth. Published as `mem.read` and scoped `world`, that invites comparison
+against machines where the same figure means something else entirely — and on a
+wide x86 core it can exceed what the memory bus can physically carry.
+
+So `mem.*` uses a 256 MiB block, past the last-level cache of current desktop
+parts, and `cache.*` keeps the 1 MiB block under a name that says what it is.
+`cache.*` is `host`-scoped: where a 1 MiB buffer lands depends on a particular
+cache hierarchy, so the number says nothing held against a different design.
+
+Both run `--threads` equal to the core count, capped so the working set stays
+under a quarter of RAM. One thread cannot saturate a memory controller — on
+Apple Silicon a single scalar load loop is issue-bound at about 34 GiB/s, below
+*both* cache and DRAM, so single-threaded numbers show no cache cliff at all and
+understate the machine by roughly eight times. Measured here, the split is
+visible and large: 452 649 MiB/s for `cache.read` against 265 249 MiB/s for
+`mem.read`.
+
+Because the measurement changed, `method` moved to `mem.bandwidth/2.0.0` and
+`compare` refuses to hold the old numbers against the new ones.
 
 ### Conditions and gating
 
@@ -292,29 +347,49 @@ battery.
 | tier | contents | written |
 | --- | --- | --- |
 | `quick` (default) | cpu, memory, gpu, workload — read-only | 0 |
-| `standard` | adds `fio` at `size=1g` and a 60 s sustained load | ~26 GiB |
-| `heavy` | adds `fio` at `size=8g` and a 120 s sustained load | substantially more |
+| `standard` | adds `fio` at `size=1g` and a 60 s sustained load | 12 GiB, capped at 30 |
+| `heavy` | adds `fio` at `size=8g` and a 120 s sustained load | 58 GiB, capped at 70 |
 
 The `fio` job starts from the Phoronix Test Suite's tuned parameters rather than
-invented ones: `direct=1`, `time_based`, `runtime=20`, `ramp_time=5`,
-`iodepth=64`, `stonewall` between stages and `disk_util=0`.
+invented ones: `direct=1`, `runtime=20`, `ramp_time=5`, `iodepth=64`, `stonewall`
+between stages and, on Linux, `disk_util=0` — which fio on Darwin rejects
+outright, taking the whole job file with it, so it is omitted there.
 
-`time_based` is why the written figure is what it is. `size=1g` bounds the
-*working set*, not the volume: a write stage writes continuously for its whole
-runtime, so at ~900 MB/s a single `standard` run puts roughly 26 GiB through the
-drive. Every run therefore reports its own measured `written:` total, taken from
-fio's own `io_bytes` rather than estimated, and `store.total_bytes_written()`
-accumulates it. Weekly `standard` runs cost on the order of 1.3 TB a year, which
-is a fraction of a percent of a modern TLC drive's rating but is emphatically not
-free.
+**Read stages are time based; write stages are size based.** That asymmetry is
+deliberate. Reads cost no endurance, so they run for a fixed `runtime` and the
+volume does not matter. Writes do, so each write stage carries an explicit
+`io_size` from `FIO_WRITE_SIZE` and the cost of a run is known before it starts
+rather than discovered afterwards.
+
+Under `time_based` writes the cost was whatever the drive could absorb in 25
+seconds a stage — measured at 11.5 GB/s on an Apple NVMe, which is roughly 275
+GiB for one `standard` run against a nominal 30 GiB cap. `WRITE_BUDGET` is now
+enforced: `runner.execute` accumulates each job's predicted writes and refuses
+any job that would cross the tier's budget, recording the refusal as a job
+failure so the run grades `noisy` rather than silently measuring less.
+
+Note that fio's own `io_bytes` excludes the ramp period, so it under-reports by
+roughly the ramp's share; the recorded `written:` total is the larger of fio's
+figure and the predicted bound. `store.total_bytes_written()` sums the stored
+totals on demand — nothing calls it automatically.
 
 That is why disk tiers are opt-in, why `quick` is the default and writes nothing
-at all, and why none of this is wired to a timer. The layout files are removed
-after every run so the work directory does not accumulate gigabytes.
+at all, and why none of this is wired to a timer. The layout files are removed on
+every exit path — success, a parse failure, the 900 s timeout and Ctrl-C alike —
+so the work directory does not accumulate gigabytes.
 
 The work directory defaults to `~/.cache/dotfile/bench/work`, **not** `/tmp`,
 which is tmpfs on this workstation — benchmarking it would measure RAM and report
-it as disk. The filesystem actually measured is recorded in every run.
+it as disk. The filesystem actually measured is recorded in every run, and a
+`--workdir` that lands on `tmpfs`, `ramfs`, `devtmpfs` or `hugetlbfs` is now
+refused rather than merely recorded.
+
+`direct=1` is not the safety net it looks like here. It is advisory on macOS,
+where it maps to `F_NOCACHE`: the same job file run against a RAM-backed APFS
+volume reported 18 024 MB/s as `disk.seq_read` without complaint. The fstype
+gate catches the obvious case; a RAM block device carrying a real filesystem, a
+network mount, or simply the wrong physical drive will still be measured as
+whatever it is, which is why the filesystem and source are recorded.
 
 ### workload metrics
 
@@ -334,8 +409,16 @@ many minutes; without the preflight that hang lands inside the measurement.
 so `sysinfo -hh` reports a drifting machine with no new rendering code:
 
 ```
-Disk write is 34% below baseline (2410 → 1580 MB/s)
+Warning: disk.seq_write is 34% below its baseline
+  2 410 MB/s at the baseline of 2026-08-01, 1 580 MB/s on 2026-08-13
+  Re-run sysinfo bench run --only disk to confirm, then look for thermal or
+  configuration causes
 ```
+
+The direction follows the metric rather than the sign: throughput that fell
+reads *below* its baseline, while a latency that rose reads *above* it. Saying
+"below" for both meant a 20 ms → 30 ms startup regression was reported as
+"50% below", which is the opposite of what happened.
 
 It is composed at the CLI rather than inside `health_issues()`, so the snapshot
 health function stays pure and reads no files. It is silent when no baseline

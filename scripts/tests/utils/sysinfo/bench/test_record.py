@@ -1,4 +1,4 @@
-from conftest import SNAPSHOT, build_run, metric
+from builders import SNAPSHOT, build_run, metric
 
 from tools.utils.sysinfo.bench.record import (
     HIB,

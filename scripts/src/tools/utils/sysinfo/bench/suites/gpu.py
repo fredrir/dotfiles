@@ -1,5 +1,7 @@
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 from tools.core.process import capture as run
@@ -24,11 +26,17 @@ def session_environment():
     values = dict(os.environ)
     if values.get("WAYLAND_DISPLAY") or values.get("DISPLAY"):
         return values
+    if not shutil.which("systemctl"):
+        return values
     runtime = values.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    result = run(
-        ["systemctl", "--user", "show-environment"],
-        env={**values, "XDG_RUNTIME_DIR": runtime},
-    )
+    try:
+        result = run(
+            ["systemctl", "--user", "show-environment"],
+            env={**values, "XDG_RUNTIME_DIR": runtime},
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return values
     if result.returncode != 0:
         return values
     for line in result.stdout.splitlines():

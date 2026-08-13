@@ -1,41 +1,7 @@
 import pytest
+from builders import build_run, metric, recent
 
-from tools.utils.sysinfo.bench.record import HIB, LIB, WORLD, Metric, Run
-
-SNAPSHOT = {
-    "cpu": {"model": "AMD Ryzen 7 9800X3D", "cores_physical": 8, "cores_logical": 16},
-    "gpu": [{"name": "NVIDIA GeForce RTX 5070 Ti", "memory_total": 17094934528}],
-    "memory": {"total": 34359738368, "modules": 2},
-    "disks": [{"name": "KINGSTON SNVS2000G", "size": 2000398934016}],
-}
-
-
-def metric(key, samples, proportion=HIB, comparable=WORLD, method=None, version="26.02"):
-    return Metric(
-        key=key,
-        method=method or f"{key}/1.0.0",
-        scale="MIPS",
-        proportion=proportion,
-        comparable=comparable,
-        tool="7z",
-        tool_version=version,
-        samples=tuple(samples),
-    )
-
-
-def build_run(run_id="2026-08-13T09-00-00Z-abcd1234", host="archie", metrics=(), **fields):
-    payload = {
-        "run_id": run_id,
-        "host": host,
-        "started": fields.pop("started", "2026-08-13T09:00:00Z"),
-        "tier": fields.pop("tier", "quick"),
-        "grade": fields.pop("grade", "clean"),
-        "snapshot": fields.pop("snapshot", dict(SNAPSHOT)),
-        "install": fields.pop("install", {"os": "arch", "kernel": "7.1.8"}),
-        "metrics": tuple(metrics),
-    }
-    payload.update(fields)
-    return Run(**payload)
+from tools.utils.sysinfo.bench.record import LIB
 
 
 @pytest.fixture
@@ -53,7 +19,7 @@ def sample_run():
 def slower_run():
     return build_run(
         run_id="2026-08-14T09-00-00Z-abcd1234",
-        started="2026-08-14T09:00:00Z",
+        started=recent(0),
         metrics=(metric("cpu.multi", [70.0, 71.0, 69.0]),),
     )
 

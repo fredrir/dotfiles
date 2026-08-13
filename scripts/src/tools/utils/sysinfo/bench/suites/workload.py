@@ -37,6 +37,12 @@ def candidates():
     return found
 
 
+def displayed(command, directory):
+    # The repository root carries the username, and these records are committed
+    # to a public repository. Record the command without it.
+    return " ".join("." if part == directory else part for part in command)
+
+
 def responsive(command, directory):
     try:
         result = run(command, cwd=directory, timeout=PROBE_SECONDS, stdin=subprocess.DEVNULL)
@@ -104,7 +110,11 @@ def jobs(setting):
                     key: timings(path, command, directory)
                 },
                 repeat=False,
-                detail={"command": " ".join(command), "runs": RUNS, "warmup": WARMUP},
+                detail={
+                    "command": displayed(command, directory),
+                    "runs": RUNS,
+                    "warmup": WARMUP,
+                },
             )
         )
     return found

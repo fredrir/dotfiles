@@ -1,11 +1,11 @@
 import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from tools.core.process import capture as run
 from tools.utils.sysinfo.bench import capture as environment
 from tools.utils.sysinfo.bench.conditions import capture_conditions, gate_reasons, grade_for
 from tools.utils.sysinfo.bench.limits import (
@@ -29,9 +29,12 @@ from tools.utils.sysinfo.bench.suites import (
 )
 from tools.utils.sysinfo.collect import collect_snapshot
 
-SUITES = (cpu, memory, disk, gpu, thermal, workload)
+# thermal runs last because it saturates every core for up to two minutes.
+# Ahead of workload it meant nvim startup and git status were timed on a hot,
+# potentially clock-limited CPU -- the metrics most sensitive to thermal state.
+SUITES = (cpu, memory, disk, gpu, workload, thermal)
 
-FAMILIES = ("cpu", "mem", "disk", "gpu", "thermal", "workload")
+FAMILIES = ("cpu", "mem", "cache", "disk", "gpu", "thermal", "workload")
 
 
 class GateError(Exception):
@@ -54,11 +57,40 @@ def default_workdir():
     return path
 
 
+def under(target, mount):
+    return target == mount or target.startswith(mount.rstrip("/") + "/")
+
+
+def darwin_filesystem(path):
+    result = environment.probe(["/sbin/mount"], timeout=10)
+    if result is None or result.returncode != 0:
+        return {}
+    target = os.path.realpath(path)
+    found = {}
+    longest = -1
+    for line in result.stdout.splitlines():
+        source, separator, rest = line.partition(" on ")
+        mount, _, options = rest.partition(" (")
+        mount = mount.strip()
+        if not separator or not mount or not under(target, mount):
+            continue
+        if len(mount) > longest:
+            longest = len(mount)
+            found = {
+                "fstype": options.split(",")[0].strip(" )"),
+                "source": source.strip(),
+                "target": mount,
+            }
+    return found
+
+
 def filesystem_of(path):
+    if sys.platform == "darwin":
+        return darwin_filesystem(path)
     if not shutil.which("findmnt"):
         return {}
-    result = run(["findmnt", "-no", "FSTYPE,SOURCE,TARGET", "--target", path])
-    if result.returncode != 0:
+    result = environment.probe(["findmnt", "-no", "FSTYPE,SOURCE,TARGET", "--target", path], 10)
+    if result is None or result.returncode != 0:
         return {}
     fields = result.stdout.split()
     if len(fields) < 3:
@@ -66,13 +98,21 @@ def filesystem_of(path):
     return {"fstype": fields[0], "source": fields[1], "target": fields[2]}
 
 
+def suite_name(module):
+    return module.__name__.rsplit(".", 1)[-1]
+
+
 def collect_jobs(setting):
     found = []
+    failures = []
     for module in SUITES:
-        found.extend(module.jobs(setting))
+        try:
+            found.extend(module.jobs(setting))
+        except (MeasurementError, OSError, subprocess.SubprocessError, ValueError) as error:
+            failures.append(f"{suite_name(module)}: {error}")
     if setting.families:
         found = [job for job in found if job.outputs and family_of(job) in setting.families]
-    return found
+    return found, tuple(failures)
 
 
 def family_of(job):
@@ -169,13 +209,21 @@ def execute(host, tier, families=(), note="", tags=(), force=False, workdir="", 
         raise GateError(reasons)
     described = environment.describe_snapshot(snapshot)
     started = timestamp()
-    jobs = collect_jobs(setting)
+    jobs, failures = collect_jobs(setting)
+    failures = list(failures)
+    budget = WRITE_BUDGET.get(tier, 0)
     metrics = []
-    failures = []
     written = 0
     interrupted = False
     try:
         for position, job in enumerate(jobs, start=1):
+            if job.writes and written + job.writes > budget:
+                over = (written + job.writes) / 1024**3
+                refused = f"would write {over:.1f} GiB, past the {tier} budget"
+                failures.append(f"{job.name}: {refused}")
+                if report:
+                    report("skip", job.name, refused)
+                continue
             if report:
                 report("start", job.name, f"{position} of {len(jobs)}")
             began = time.monotonic()
@@ -186,7 +234,10 @@ def execute(host, tier, families=(), note="", tags=(), force=False, workdir="", 
                 if report:
                     report("skip", job.name, str(error))
                 continue
-            written += job.writes + int(max(collected.pop(WRITTEN, [0.0]), default=0.0))
+            # fio's own io_bytes excludes the ramp, so it under-reports; the
+            # predicted figure is exact now that the write stages are size bounded.
+            measured = int(max(collected.pop(WRITTEN, [0.0]), default=0.0))
+            written += max(job.writes, measured)
             produced = metrics_for(job, collected)
             metrics.extend(produced)
             if report:
@@ -194,7 +245,7 @@ def execute(host, tier, families=(), note="", tags=(), force=False, workdir="", 
                 report("done", job.name, f"{time.monotonic() - began:.0f}s, n={samples}")
     except KeyboardInterrupt:
         interrupted = True
-    grade = "aborted" if interrupted else grade_for(reasons, metrics)
+    grade = "aborted" if interrupted else grade_for(reasons, metrics, failures)
     return Run(
         run_id=run_id_for(started, described),
         host=host,

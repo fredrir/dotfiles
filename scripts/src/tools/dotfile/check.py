@@ -32,12 +32,6 @@ KINDS = ("command", "font", "file")
 
 STALE_BENCHMARK_DAYS = 120
 
-STRUCTURE_ERRORS = {
-    blocks.UNEXPECTED_CLOSE: "unexpected }",
-    blocks.NESTED: "nested group",
-    blocks.OUTSIDE: "entry outside a group",
-}
-
 FONT_DIRS = (
     "~/Library/Fonts",
     "/Library/Fonts",
@@ -81,9 +75,7 @@ def read_requirement_entries(ctx):
     try:
         return blocks.read(ctx.requires_file)
     except blocks.BlockError as error:
-        if error.kind == blocks.UNTERMINATED:
-            die(f"requires.dotfile:{error.number}: missing }} for {error.block}")
-        die(f"requires.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        die(blocks.describe(error, "requires.dotfile", "group"))
         return []
 
 
@@ -406,7 +398,10 @@ def benchmark_rows(ctx):
         from tools.utils.sysinfo.hosts import resolve
     except ImportError:
         return [], 0
-    host = resolve()
+    try:
+        host = resolve()
+    except blocks.BlockError as error:
+        return [row("bad", "benchmark", blocks.describe(error, "hosts.dotfile", "host"))], 1
     if not host:
         return [], 0
     runs = store.list_runs(host, grades=("clean",))

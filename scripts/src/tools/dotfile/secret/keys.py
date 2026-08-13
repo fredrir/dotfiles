@@ -8,12 +8,6 @@ AGE_KEY = re.compile(r"^age1[02-9ac-hj-np-z]{58}$")
 LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RECOVERY = "recovery"
 
-STRUCTURE_ERRORS = {
-    blocks.UNEXPECTED_CLOSE: "unexpected }",
-    blocks.NESTED: "nested block",
-    blocks.OUTSIDE: "line outside a 'recipients {' block",
-}
-
 
 def is_recovery(label):
     return label.lower().startswith(RECOVERY)
@@ -39,9 +33,7 @@ def load_recipients(ctx):
     try:
         entries = blocks.read(path)
     except blocks.BlockError as error:
-        if error.kind == blocks.UNTERMINATED:
-            die("keys.dotfile: unterminated block")
-        die(f"keys.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        die(blocks.describe(error, "keys.dotfile", "'recipients {' block"))
         return found
     for entry in entries:
         if entry.opens:

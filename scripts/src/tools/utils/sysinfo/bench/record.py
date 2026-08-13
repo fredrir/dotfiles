@@ -193,6 +193,24 @@ def comparable_methods(left, right):
     return method_series(left.method) == method_series(right.method)
 
 
+GIB = 1024**3
+
+
+def whole_gib(value):
+    """Capacity rounded down to GiB, as a string.
+
+    Capacities arrive from several sources at several precisions -- VRAM comes
+    from nvidia-smi as a float and from fastfetch as an int, and the two differ
+    by a few hundred MiB for the same card. Comparing the raw values meant a
+    three second nvidia-smi timeout silently changed the machine's identity and
+    orphaned its pinned baseline, after which real regressions went unreported.
+    """
+    try:
+        return str(int(float(value) // GIB))
+    except (TypeError, ValueError):
+        return ""
+
+
 def identity_fields(snapshot):
     cpu = as_dict(snapshot.get("cpu"))
     memory = as_dict(snapshot.get("memory"))
@@ -200,13 +218,24 @@ def identity_fields(snapshot):
         cpu.get("model", ""),
         str(cpu.get("cores_physical") or ""),
         str(cpu.get("cores_logical") or ""),
-        str(memory.get("total") or ""),
-        str(memory.get("modules") or ""),
+        whole_gib(memory.get("total")),
     ]
-    for gpu in as_list(snapshot.get("gpu")):
-        values.append(f"{gpu.get('name', '')}:{gpu.get('memory_total') or ''}")
-    for disk in as_list(snapshot.get("disks")):
-        values.append(f"{disk.get('name', '')}:{disk.get('size') or ''}")
+    # Sorted, because device enumeration order is not identity: the same two
+    # drives reported in the other order used to read as a different machine.
+    # memory.modules is deliberately absent -- it reads 0 without root and 2
+    # with, so one sudo run was enough to orphan the baseline.
+    values.extend(
+        sorted(
+            f"{gpu.get('name', '')}:{whole_gib(gpu.get('memory_total'))}"
+            for gpu in as_list(snapshot.get("gpu"))
+        )
+    )
+    values.extend(
+        sorted(
+            f"{disk.get('name', '')}:{whole_gib(disk.get('size'))}"
+            for disk in as_list(snapshot.get("disks"))
+        )
+    )
     return values
 
 

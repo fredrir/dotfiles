@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 
 from tools.core.process import capture as run
 from tools.utils.sysinfo.bench.record import HIB, WORLD
@@ -20,6 +21,11 @@ BLOCK = "16384"
 
 TOTAL = re.compile(r"^Tot:\s+(.*)$", re.MULTILINE)
 
+# p7zip announces itself as "7-Zip [64] 16.02"; the bracketed word size is not
+# the version, and recording it as one defeated the version guard that keeps
+# world-comparable ratings from being compared across incompatible tools.
+SEVEN_ZIP_VERSION = r"7-Zip\s*(?:\([^)]*\)|\[[^\]]*\])?\s*(\d[\d.]*)"
+
 BREW_OPENSSL = (
     "/opt/homebrew/opt/openssl@3/bin/openssl",
     "/usr/local/opt/openssl@3/bin/openssl",
@@ -34,7 +40,10 @@ def openssl_path():
 
 
 def openssl_implementation(path):
-    result = run([path, "version"])
+    try:
+        result = run([path, "version"], timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
     return result.stdout.strip().split(" ", 1)[0] or "unknown"
 
 
@@ -72,11 +81,12 @@ def jobs(setting):
     found = []
     seven = tool_path("7z", "7zz")
     if seven:
-        version = version_of(seven, args=(), pattern=r"7-Zip[^\d]*(\d[\d.]*)")
+        version = version_of(seven, args=(), pattern=SEVEN_ZIP_VERSION)
+        name = os.path.basename(seven)
         found.append(
             Job(
                 name="cpu.single",
-                tool="7z",
+                tool=name,
                 version=version,
                 method="cpu.single/1.0.0",
                 outputs=(Output("cpu.single", "MIPS", HIB, WORLD),),
@@ -87,7 +97,7 @@ def jobs(setting):
         found.append(
             Job(
                 name="cpu.multi",
-                tool="7z",
+                tool=name,
                 version=version,
                 method="cpu.multi/1.0.0",
                 outputs=(Output("cpu.multi", "MIPS", HIB, WORLD),),

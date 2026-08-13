@@ -1,10 +1,16 @@
 import os
 import shutil
+import subprocess
 import sys
 
 from tools.core.process import capture as run
 from tools.utils.sysinfo.bench.capture import detect_virtualized
-from tools.utils.sysinfo.bench.limits import LOAD_LIMIT, MIN_FREE_DISK, THROTTLE_MARGIN
+from tools.utils.sysinfo.bench.limits import (
+    LOAD_LIMIT,
+    MEMORY_FILESYSTEMS,
+    MIN_FREE_DISK,
+    THROTTLE_MARGIN,
+)
 from tools.utils.sysinfo.formatting import as_dict, as_list
 from tools.utils.sysinfo.profiles import CPU_PROFILES, profile_for
 
@@ -79,10 +85,16 @@ THROTTLE_QUERIES = (
 def nvidia_throttled():
     if not shutil.which("nvidia-smi"):
         return False
-    result = run(
-        ["nvidia-smi", f"--query-gpu={','.join(THROTTLE_QUERIES)}", "--format=csv,noheader"],
-        timeout=3,
-    )
+    # The timeout exists for a wedged driver, so the wedged driver must not then
+    # surface as a traceback. capture_conditions runs before the job loop's
+    # handler, and cool_down calls it again every 15s.
+    try:
+        result = run(
+            ["nvidia-smi", f"--query-gpu={','.join(THROTTLE_QUERIES)}", "--format=csv,noheader"],
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
     if result.returncode != 0:
         return False
     for line in result.stdout.strip().splitlines():
@@ -125,12 +137,17 @@ def gate_reasons(conditions, writes_disk=False):
     ratio = conditions.get("free_disk_ratio")
     if writes_disk and ratio is not None and ratio < MIN_FREE_DISK:
         reasons.append(f"only {ratio * 100:.0f}% of the filesystem is free")
+    fstype = as_dict(conditions.get("filesystem")).get("fstype", "")
+    if writes_disk and fstype in MEMORY_FILESYSTEMS:
+        reasons.append(f"the work directory is on {fstype}, which measures memory and not disk")
     return tuple(reasons)
 
 
-def grade_for(reasons, metrics):
+def grade_for(reasons, metrics, failures=()):
     if not metrics:
         return "aborted"
-    if reasons:
+    # A run where suites crashed is degraded, not clean. Grading it clean made it
+    # baseline-eligible and reset the staleness clock while measuring nothing.
+    if reasons or failures:
         return "noisy"
     return "clean"
