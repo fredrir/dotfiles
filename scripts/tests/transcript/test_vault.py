@@ -110,10 +110,7 @@ def test_nested_groups_add_subfolder(tmp_path, monkeypatch):
 def test_group_named_member_files_at_group_root(tmp_path, monkeypatch):
     config_file = tmp_path / "root-config.toml"
     config_file.write_text(
-        'nested_groups = ["llunde"]\n'
-        "\n"
-        "[groups]\n"
-        'llunde = ["llunde", "llunde-backend"]\n'
+        'nested_groups = ["llunde"]\n\n[groups]\nllunde = ["llunde", "llunde-backend"]\n'
     )
     monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
     assert vault.folder_for("llunde") == "llunde"

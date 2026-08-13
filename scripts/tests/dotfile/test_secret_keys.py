@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 
@@ -141,7 +142,7 @@ def test_revoke_warns_that_rewrapping_is_not_rotation(tool, repo):
     secret(tool, env, "enroll", "archpc", KEY_A)
     secret(tool, env, "enroll", "recovery", KEY_B)
     result = secret(tool, env, "revoke", "archpc")
-    assert "rotate the secrets themselves" in result.stdout
+    assert "rotate anything that key actually protected" in result.stdout
 
 
 def test_sync_rewrites_a_drifted_sops_file(tool, repo):
@@ -338,3 +339,153 @@ def test_recovery_labels_are_matched_by_prefix():
     assert keys.recovery_labels({"recovery2": "x"}) == ["recovery2"]
     assert keys.recovery_labels({"Recovery-yubikey": "x"}) == ["Recovery-yubikey"]
     assert keys.recovery_labels({"archpc": "x", "macie": "x"}) == []
+
+
+needs_both = pytest.mark.skipif(
+    not (shutil.which("sops") and shutil.which("age-keygen")), reason="needs age and sops"
+)
+
+
+def sealed_repo(tool, repo, tmp_path):
+    root, home, env = repo
+    (root / "environment" / "test").mkdir(parents=True)
+    (root / "environment" / "test" / "manifest").write_text("shared\n")
+    (root / "shared").mkdir()
+    (root / "targets").write_text("")
+    (home / ".config" / "dotfile" / "profile").write_text("test\n")
+    assert secret(tool, env, "init").returncode == 0
+    assert secret(tool, env, "enroll", "archie").returncode == 0
+    recovery = tmp_path / "recovery.txt"
+    subprocess.run(["age-keygen", "-o", str(recovery)], check=True, capture_output=True)
+    pub = subprocess.run(
+        ["age-keygen", "-y", str(recovery)], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    assert secret(tool, env, "enroll", "recovery", pub).returncode == 0
+    plain = tmp_path / "plain.yaml"
+    plain.write_text("hosts:\n  demo: 203.0.113.55\n")
+    sealed = subprocess.run(
+        ["sops", "--config", str(root / ".sops.yaml"), "-e", str(plain)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    (root / "vars.enc.yaml").write_text(sealed)
+    run_git(root, "add", "-A")
+    return root, home, env, recovery
+
+
+def ciphertext(root):
+    return (root / "vars.enc.yaml").read_text().split("data:")[1].split(",")[0]
+
+
+def opens(path, root):
+    return (
+        subprocess.run(
+            ["sops", "-d", str(root / "vars.enc.yaml")],
+            env=dict(os.environ, SOPS_AGE_KEY_FILE=str(path)),
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+@needs_both
+def test_revoke_gives_a_new_data_key(tool, repo, tmp_path):
+    root, _home, env, recovery = sealed_repo(tool, repo, tmp_path)
+    before = ciphertext(root)
+    assert secret(tool, env, "revoke", "recovery").returncode == 0
+    assert ciphertext(root) != before
+    assert not opens(recovery, root)
+
+
+@needs_both
+def test_rolling_this_machine_swaps_the_identity_and_keeps_the_label(tool, repo, tmp_path):
+    root, home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    identity = home / ".config" / "dotfile" / "age" / "keys.txt"
+    kept = tmp_path / "old-identity.txt"
+    shutil.copy(identity, kept)
+    before = ciphertext(root)
+
+    result = secret(tool, env, "roll", "archie")
+    assert result.returncode == 0, result.stderr
+
+    assert not opens(kept, root)
+    assert opens(identity, root)
+    assert ciphertext(root) != before
+    assert "archie" in (root / "keys.dotfile").read_text()
+    assert sorted(p.name for p in identity.parent.iterdir()) == ["keys.txt"]
+
+
+@needs_both
+def test_rolling_another_recipient_locks_the_old_key_out(tool, repo, tmp_path):
+    root, _home, env, recovery = sealed_repo(tool, repo, tmp_path)
+    replacement = tmp_path / "recovery2.txt"
+    subprocess.run(["age-keygen", "-o", str(replacement)], check=True, capture_output=True)
+    pub = subprocess.run(
+        ["age-keygen", "-y", str(replacement)], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert secret(tool, env, "roll", "recovery", pub).returncode == 0
+    assert not opens(recovery, root)
+    assert opens(replacement, root)
+    assert "recovery" in (root / "keys.dotfile").read_text()
+
+
+@needs_both
+def test_rekey_changes_the_data_key_and_keeps_recipients(tool, repo, tmp_path):
+    root, _home, env, recovery = sealed_repo(tool, repo, tmp_path)
+    before = ciphertext(root)
+    assert secret(tool, env, "rekey").returncode == 0
+    assert ciphertext(root) != before
+    assert opens(recovery, root)
+    assert len((root / "keys.dotfile").read_text().splitlines()) == 4
+
+
+@needs_both
+def test_an_unreadable_file_aborts_the_roll_before_anything_changes(tool, repo, tmp_path):
+    root, home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    identity = home / ".config" / "dotfile" / "age" / "keys.txt"
+    before_identity = identity.read_bytes()
+    before_keys = (root / "keys.dotfile").read_text()
+
+    stranger = tmp_path / "stranger.txt"
+    subprocess.run(["age-keygen", "-o", str(stranger)], check=True, capture_output=True)
+    pub = subprocess.run(
+        ["age-keygen", "-y", str(stranger)], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    rules = tmp_path / "other.yaml"
+    rules.write_text(f"creation_rules:\n  - age: {pub}\n")
+    plain = tmp_path / "p.yaml"
+    plain.write_text("x: y\n")
+    foreign = subprocess.run(
+        ["sops", "--config", str(rules), "-e", str(plain)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    (root / "foreign.enc.yaml").write_text(foreign)
+    run_git(root, "add", "-A")
+
+    result = secret(tool, env, "roll", "archie")
+    assert result.returncode == 1
+    assert "cannot read" in result.stderr
+    assert identity.read_bytes() == before_identity
+    assert (root / "keys.dotfile").read_text() == before_keys
+    assert sorted(p.name for p in identity.parent.iterdir()) == ["keys.txt"]
+
+
+@needs_both
+def test_roll_refuses_a_label_that_is_not_this_machine(tool, repo, tmp_path):
+    _root, _home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    result = secret(tool, env, "roll", "recovery")
+    assert result.returncode == 1
+    assert "not this machine's key" in result.stderr
+
+
+def test_roll_refuses_an_unknown_label(tool, repo):
+    _root, _home, env = repo
+    secret(tool, env, "enroll", "archie", KEY_A)
+    result = secret(tool, env, "roll", "nosuch", KEY_B)
+    assert result.returncode == 1
+    assert "not enrolled" in result.stderr

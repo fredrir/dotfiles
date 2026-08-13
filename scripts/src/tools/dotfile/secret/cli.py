@@ -61,9 +61,29 @@ def enroll(
     manage_command.cmd_enroll(Context(), label, key or "", using or "")
 
 
-@app.command(help="Remove a recipient and re-wrap what it could read.")
+@app.command(help="Remove a recipient and give every file a new data key.")
 def revoke(label: str = typer.Argument(...)):
     manage_command.cmd_revoke(Context(), label)
+
+
+@app.command(help="Replace a recipient's key, keeping its label.")
+def roll(
+    label: str = typer.Argument(...),
+    key: str | None = typer.Argument(None),
+    using: str | None = typer.Option(
+        None, "--using", help="act with this identity file instead of this machine's"
+    ),
+):
+    manage_command.cmd_roll(Context(), label, key or "", using or "")
+
+
+@app.command(help="Give every encrypted file a new data key, same recipients.")
+def rekey(
+    using: str | None = typer.Option(
+        None, "--using", help="act with this identity file instead of this machine's"
+    ),
+):
+    manage_command.cmd_rekey(Context(), using or "")
 
 
 @app.command(help="List the enrolled recipients.")

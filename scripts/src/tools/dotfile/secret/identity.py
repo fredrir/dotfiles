@@ -42,19 +42,24 @@ def public_key(path):
     return result.stdout.strip()
 
 
-def generate(ctx):
-    path = identity_path(ctx)
-    if os.path.exists(path):
-        die(f"identity already exists: {path}")
+def generate_at(path):
     if not have("age-keygen"):
         die("age-keygen is not on PATH (install age)")
-    os.makedirs(identity_dir(ctx), exist_ok=True)
-    os.chmod(identity_dir(ctx), 0o700)
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    os.chmod(parent, 0o700)
     result = capture(["age-keygen", "-o", path])
     if result.returncode != 0:
         die(f"age-keygen failed: {result.stderr.strip()}")
     os.chmod(path, 0o600)
     return path
+
+
+def generate(ctx):
+    path = identity_path(ctx)
+    if os.path.exists(path):
+        die(f"identity already exists: {path}")
+    return generate_at(path)
 
 
 def sops_env(ctx, identity=""):

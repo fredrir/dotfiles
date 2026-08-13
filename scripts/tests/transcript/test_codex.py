@@ -28,7 +28,10 @@ def test_parses_meta_rounds_and_tools(tmp_path):
                     "type": "message",
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": "<user_instructions>rules</user_instructions>"},
+                        {
+                            "type": "input_text",
+                            "text": "<user_instructions>rules</user_instructions>",
+                        },
                         {"type": "input_text", "text": "tighten the layout"},
                     ],
                 },

@@ -38,7 +38,12 @@ def test_parses_rounds_and_tools(tmp_path):
             assistant(
                 [
                     {"type": "text", "text": "Looking at it now."},
-                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "rg -n sync"}},
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "Bash",
+                        "input": {"command": "rg -n sync"},
+                    },
                 ]
             ),
             user(
@@ -68,8 +73,7 @@ def test_skips_meta_and_sidechain(tmp_path):
         [
             user("<local-command-caveat>noise</local-command-caveat>", isMeta=True),
             user("real question"),
-            assistant([{"type": "text", "text": "sidechain"}], model="m")
-            | {"isSidechain": True},
+            assistant([{"type": "text", "text": "sidechain"}], model="m") | {"isSidechain": True},
             assistant([{"type": "text", "text": "answer"}]),
         ],
     )
@@ -88,7 +92,7 @@ def test_command_messages_reduced(tmp_path):
 
 def test_degrades_on_garbage(tmp_path):
     path = tmp_path / "junk.jsonl"
-    path.write_text("not json at all\nstill not json\n{\"type\": \"unknown-thing\"}\n")
+    path.write_text('not json at all\nstill not json\n{"type": "unknown-thing"}\n')
     session = claude.parse(path)
     assert session.degraded
     assert "not json at all" in session.raw_text
