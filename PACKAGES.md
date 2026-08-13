@@ -70,4 +70,6 @@
 - `iterm` — iTerm2 terminal profile
 - `launchd`
 - `skhd`
+- `ssh`
+- `sunshine`
 - `zsh` — macOS-specific Z shell configuration

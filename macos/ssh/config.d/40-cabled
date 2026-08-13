@@ -1,0 +1,5 @@
+Host cabled-archie
+    HostName 10.77.77.2
+    User fredrir
+    HostKeyAlias archie
+    BindInterface en3
