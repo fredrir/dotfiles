@@ -76,7 +76,8 @@ scripts/
     readme/
       fastfetch.py           fastfetch preview block in README.md
     theme/
-      model.py               palette, roles, fonts, colour conversion
+      model.py               profile loading, merging, colour conversion
+      validate.py            what a profile must define to be usable
       render.py              file writing and in-place editing
       emitters.py            one function per generated config
       registry.py            emitter list and their declared outputs
@@ -118,8 +119,10 @@ Data that used to be embedded in the programs now sits next to the palette:
 
 ```
 theme/
-  palette.toml               colours, roles, terminal and app sections
-  fonts.toml                 font roles and per-application opt-in
+  active                     the profile in force
+  profiles/<name>.toml       one profile: colours and what it overrides
+  roles.toml                 semantic colour layers every profile inherits
+  fonts.toml                 font roles, sizes and per-application opt-in
   maps/gtk.toml              GTK @define-color name -> role
   maps/kde.toml              KColorScheme groups, foregrounds, selection
   maps/eza.toml              file-type category -> extensions
@@ -604,29 +607,84 @@ Normalises tracked `.conf` files. Three modes, chosen by path:
   Requires buffering the whole file to measure the widest key first.
 - **plain** — collapses runs of blank lines and strips trailing whitespace.
 
-Generated colour files (`colors-*.conf`) are formatted as plain so the
+Generated colour and font files (`colors*.conf`, `kitty/conf.d/fonts.conf`) are formatted as plain so the
 generator's own column alignment survives.
 
 ---
 
 ## generate-theme
 
-`theme/palette.toml` is the single source of truth for colour. This stamps it
-into every config that carries colours.
+A *theme profile* is a colour palette plus fonts. One profile is active at a
+time, named in `theme/active`, and this stamps it into every config that
+carries colour or a font.
 
 ```
-generate-theme                        regenerate everything
+generate-theme                        regenerate from the active profile
+generate-theme --profile latte        switch to latte, then regenerate
+generate-theme --profile latte --check  what switching would change, writes nothing
+generate-theme --list-profiles        the profiles available, active marked
 generate-theme --check                report what would change, exit 1 if anything would
 generate-theme --list-outputs         every file the generator owns
 generate-theme --list-outputs --stageable   only the ones safe to auto-stage
 ```
 
+### Why one profile at a time
+
+kdeglobals, the GTK stylesheets, the Obsidian theme and `starship.toml` can
+each hold one scheme. Emitting every profile side by side would only work for
+the terminals, so switching regenerates in place instead. Every output is
+tracked, so the repo always encodes exactly one look and a switch is an
+ordinary ~25-file commit. Two machines cannot run different profiles from the
+same checkout — that is the price of the outputs being tracked at all.
+
 ### Colour indirection
 
-Three layers. `[palette]` holds named colours (`mauve`, `base`). `[roles]` maps
-a semantic name to a palette name (`prompt_git = "green"`). `[kde]` does the
-same for the KDE/Qt scheme roles. Configs reference roles, so recolouring means
-editing one role rather than hunting hex values.
+Four layers now. `[palette]` in the profile holds named colours (`mauve`,
+`base`). `theme/roles.toml` maps a semantic name to a palette name
+(`prompt_git = "green"`) and holds `[terminal]`, `[eza]`, `[kde]` and
+`[konsole]` the same way. Configs reference roles, so recolouring means editing
+one role rather than hunting hex values.
+
+`roles.toml` is shared because a well-named palette makes it portable: swap
+every colour for its light counterpart and `prompt_git = "green"` still means
+the right thing. Where that breaks, a profile overrides the individual key —
+`theme/profiles/latte.toml` restates four `[terminal.ansi]` slots because the
+shared mapping picks the greys for a dark background, and on a light `base`
+that inverts.
+
+Overrides deep-merge key by key, so a profile states only what differs. A
+profile may override any table in `roles.toml` or `fonts.toml`.
+
+### Adding a profile
+
+One file, `theme/profiles/<name>.toml`, with `name`, `dark`, `icons`,
+`[nvim] flavour` and a `[palette]` holding every colour name the shared layers
+reference. `generate-theme` validates that up front and reports everything
+missing at once, rather than dying on the first unknown name partway through
+the emitter list. It also rejects two palette entries sharing a hex, and a
+`[kde]` role shadowing a palette name — both silently corrupt the retagging
+described below.
+
+### Fonts
+
+`theme/fonts.toml` carries the families (`general`, `nerd`), the sizes
+(`terminal`, `terminal_mac`, `interface`) and the per-application opt-in. It is
+shared rather than per-profile so `[applications] obsidian` cannot drift
+between profiles and silently switch Obsidian's font block off.
+
+The sizes exist because the generator now owns font settings that used to be
+hand-maintained copies of the theme: `shared/kitty/conf.d/fonts.conf`, the
+`Font=` line in the Konsole profile, `gtk-font-name` in both GTK
+`settings.ini`, and the `sizes` table wezterm reads. Konsole's `Font=` is a
+`QFont::toString()` value, so only the family and point-size fields are
+replaced and the rest of the record is left as Qt wrote it.
+
+### What `dark` drives
+
+`dark` is not decoration. It selects `color-scheme` in the Obsidian theme and
+`gtk-application-prefer-dark-theme` in both GTK `settings.ini`; `icons` picks
+the matching icon theme, which is not derivable from the colours. Without
+these a light profile would render dark chrome around light content.
 
 ### In-place edits vs generated files
 
@@ -650,7 +708,7 @@ only the block between the `theme:variables` markers, the same way it stamps the
 palette into `starship.toml` and the fastfetch config.
 
 ```
-theme/palette.toml         the colours
+theme/profiles/<name>.toml the colours
 theme/maps/obsidian.toml   which colour each CSS custom property takes
         -> the theme:variables block inside shared/obsidian/themes/Fredrir/theme.css
 ```
@@ -682,9 +740,12 @@ the accent hue, saturation and lightness are converted from `mauve` via HLS.
 `alpha` is stored as a string so the rendered decimal is exactly what was
 written, with no float formatting in between.
 
-Colours used by the structural CSS outside that block (callout tints,
-`::selection`, tab shadows) stay as `@name@` placeholders in the template,
-because they are part of a rule rather than a custom property.
+Structural CSS outside that block (callout tints, `::selection`, tab shadows)
+reaches colour only through the custom properties the block defines, so it
+needs no substitution of its own.
+
+`color-scheme` is emitted as the first line of the block rather than written by
+hand above it, because it has to follow the profile's `dark` flag.
 
 ### fastfetch per platform
 
@@ -737,9 +798,21 @@ emitted first and explicit `*.ext` entries last, so an explicit entry wins.
 
 panel-colorizer presets and `desktop-appletsrc` embed literal hex and `r,g,b`
 colours written by the widgets themselves. Only values that exactly match a
-known upstream Catppuccin colour (Mocha or Macchiato) are rewritten. Anything
-else is left alone, because widget placeholders and gradient defaults share the
-same syntax and rewriting them would corrupt unrelated settings.
+colour the generator recognises are rewritten. Anything else is left alone,
+because widget placeholders and gradient defaults share the same syntax and
+rewriting them would corrupt unrelated settings.
+
+The recognised set is every profile's palette, plus the upstream Catppuccin
+hexes in `maps/catppuccin.toml`. Every profile matters, not just the active
+one: after switching to latte these files hold latte literals, and switching
+back has to recognise them to undo it. Restricting the set to one profile would
+make each switch lossy and the files would decay. Two profiles may not give the
+same hex two different role names — the generator refuses to run rather than
+guess which one wrote a literal.
+
+The cost is that the set of hexes a human can hardcode in those files shrinks
+with every profile added. Eight-digit hex is never rewritten, because
+`#RRGGBBAA` and `#AARRGGBB` are not distinguishable here.
 
 ---
 

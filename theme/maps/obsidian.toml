@@ -1,3 +1,6 @@
+[derived]
+source = "mauve"
+
 [variables]
 "--color-base-00"                              = "crust"
 "--color-base-05"                              = "mantle"
@@ -60,10 +63,10 @@
 "--interactive-hover"                          = "surface1"
 "--interactive-accent"                         = "mauve"
 "--interactive-accent-hover"                   = "lavender"
-"--accent-h"                                   = { derived = "mauve_h" }
-"--accent-s"                                   = { derived = "mauve_s" }
-"--accent-l"                                   = { derived = "mauve_l" }
-"--interactive-accent-hsl"                     = { derived = "mauve_hsl" }
+"--accent-h"                                   = { derived = "accent_h" }
+"--accent-s"                                   = { derived = "accent_s" }
+"--accent-l"                                   = { derived = "accent_l" }
+"--interactive-accent-hsl"                     = { derived = "accent_hsl" }
 "--scrollbar-bg"                               = { literal = "transparent" }
 "--scrollbar-thumb-bg"                         = "surface1"
 "--scrollbar-active-thumb-bg"                  = "surface2"

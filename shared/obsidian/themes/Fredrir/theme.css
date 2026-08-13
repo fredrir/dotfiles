@@ -1,7 +1,7 @@
 .theme-dark,
 .theme-light {
-  color-scheme: dark;
   /* theme:variables */
+  color-scheme: dark;
   --color-base-00: #11111b;
   --color-base-05: #181825;
   --color-base-10: #1e1e2e;

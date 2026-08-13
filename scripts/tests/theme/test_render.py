@@ -37,3 +37,11 @@ def test_registry_marks_plasma_owned_files_unstageable():
 def test_every_emitter_declares_outputs():
     for emitter in registry.EMITTERS:
         assert emitter.outputs()
+
+
+def test_generate_theme_stays_a_bare_command():
+    import typer.main
+
+    from tools.theme.cli import app
+
+    assert getattr(typer.main.get_command(app), "commands", None) is None

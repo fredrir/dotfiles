@@ -5,7 +5,7 @@
 - `git` — Git configuration and global ignore rules
 - `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
-- `obsidian` — Obsidian theme generated from theme/palette.toml
+- `obsidian` — Obsidian theme generated from the active theme profile
 - `rsync` — Shared exclusion rules for home-directory transfers
 - `skills`
 - `starship` — Cross-shell prompt configuration

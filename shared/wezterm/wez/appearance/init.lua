@@ -25,7 +25,10 @@ function M.apply(config)
     theme.fonts.nerd,
     'Noto Color Emoji',
   }
-  config.font_size = platform.pick { mac = 13.0, default = 12.0 }
+  config.font_size = platform.pick {
+    mac = theme.sizes.terminal_mac,
+    default = theme.sizes.terminal,
+  }
   config.adjust_window_size_when_changing_font_size = false
 
   config.window_padding = { left = 8, right = 8, top = 8, bottom = 8 }

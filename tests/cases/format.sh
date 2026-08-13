@@ -55,13 +55,23 @@ map ctrl+shift+b  baz'
 }
 
 test_treats_generated_colour_files_as_plain() {
-  write_conf shared/kitty/colors-mocha.conf 'foreground              #cdd6f4
+  write_conf shared/kitty/colors.conf 'foreground              #cdd6f4
 background   #1e1e2e
 '
-  dotfile format "$REPO/shared/kitty/colors-mocha.conf"
+  dotfile format "$REPO/shared/kitty/colors.conf"
   assert_ok
-  assert_file_is "$REPO/shared/kitty/colors-mocha.conf" 'foreground              #cdd6f4
+  assert_file_is "$REPO/shared/kitty/colors.conf" 'foreground              #cdd6f4
 background   #1e1e2e'
+}
+
+test_treats_the_generated_kitty_font_file_as_plain() {
+  write_conf shared/kitty/conf.d/fonts.conf 'font_family  Hack Nerd Font Mono
+font_size    12
+'
+  dotfile format "$REPO/shared/kitty/conf.d/fonts.conf"
+  assert_ok
+  assert_file_is "$REPO/shared/kitty/conf.d/fonts.conf" 'font_family  Hack Nerd Font Mono
+font_size    12'
 }
 
 test_collapses_blank_runs_and_trailing_whitespace() {

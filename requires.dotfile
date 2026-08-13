@@ -64,7 +64,6 @@ linux/kde {
   konsole
   kate
   ?dolphin
-  font Hack Nerd Font
 }
 
 linux/hyprland {

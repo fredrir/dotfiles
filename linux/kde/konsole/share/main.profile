@@ -2,10 +2,10 @@
 AntiAliasFonts=true
 BoldIntense=true
 BorderWhenActive=false
-ColorScheme=Catppuccin-Mocha
-FocusBorderColor=0,0,0
-Font=Hack Nerd Font,10,-1,5,50,0,0,0,0,0
-TabActivityColor=255,255,255
+ColorScheme=Theme
+FocusBorderColor=17,17,27
+Font=Hack Nerd Font Mono,12,-1,5,50,0,0,0,0,0
+TabActivityColor=205,214,244
 TabColor=30,30,46,0
 UseFontBrailleChararacters=true
 UseFontLineChararacters=false

@@ -4,8 +4,13 @@ import os
 import re
 import sys
 
-from tools.theme.model import GENERATED_HEADER, load_map, path
-from tools.theme.render import replace_between, replace_ini_section, set_ini_key
+from tools.theme.model import list_profiles, load_map, path, profile_palette
+from tools.theme.render import (
+    get_ini_key,
+    replace_between,
+    replace_ini_section,
+    set_ini_key,
+)
 
 KITTY_SLOTS = {
     "black": 0,
@@ -51,6 +56,14 @@ OBSIDIAN_DIR = "shared/obsidian/themes/Fredrir"
 
 PANEL_PRESETS_DIR = "linux/kde/panel-colorizer/presets"
 
+KITTY_COLORS = "shared/kitty/colors.conf"
+KITTY_FONTS = "shared/kitty/conf.d/fonts.conf"
+KONSOLE_SCHEME = "linux/kde/konsole/share/Theme.colorscheme"
+KONSOLE_PROFILE = "linux/kde/konsole/share/main.profile"
+NVIM_CATPPUCCIN = "shared/nvim/lua/plugins/catppuccin.lua"
+
+GTK_VERSIONS = ("gtk-3.0", "gtk-4.0")
+
 QUICKLAUNCH_KEYS = (
     ("accent", "accent"),
     ("background", "view_bg"),
@@ -65,8 +78,8 @@ def emit_kitty(theme, out):
     ansi = terminal["ansi"]
     tabs = terminal["tabs"]
     lines = [
-        f"# {GENERATED_HEADER}",
-        f"# {theme.data['name']}",
+        f"# {theme.header}",
+        f"# {theme.name}",
         "",
         f"foreground              {theme.hex(terminal['foreground'])}",
         f"background              {theme.hex(terminal['background'])}",
@@ -87,7 +100,18 @@ def emit_kitty(theme, out):
         f"inactive_tab_background {theme.hex(tabs['inactive_background'])}",
         f"tab_bar_background      {theme.hex(tabs['bar_background'])}",
     ]
-    out.write(path("shared/kitty/colors-mocha.conf"), "\n".join(lines) + "\n")
+    out.write(path(KITTY_COLORS), "\n".join(lines) + "\n")
+
+
+def emit_kitty_fonts(theme, out):
+    nerd = theme.font("nerd")
+    lines = [
+        f"# {theme.header}",
+        f"font_family  {nerd}",
+        f"font_size    {theme.size('terminal')}",
+        f"symbol_map   U+E000-U+F8FF {nerd}",
+    ]
+    out.write(path(KITTY_FONTS), "\n".join(lines) + "\n")
 
 
 def emit_wezterm(theme, out):
@@ -106,9 +130,10 @@ def emit_wezterm(theme, out):
         return "{ " + ", ".join(quoted(theme.hex(ansi[name])) for name in names) + " }"
 
     lines = [
-        f"-- {GENERATED_HEADER}",
+        f"-- {theme.header}",
         "return {",
-        f'  name = {quoted(theme.data["name"])},',
+        f"  name = {quoted(theme.name)},",
+        f"  dark = {'true' if theme.dark else 'false'},",
         "  colors = {",
         f'    foreground = {quoted(theme.hex(terminal["foreground"]))},',
         f'    background = {quoted(theme.hex(terminal["background"]))},',
@@ -132,6 +157,10 @@ def emit_wezterm(theme, out):
     lines.append("  fonts = {")
     for name in sorted(theme.fonts):
         lines.append(entry(name, theme.fonts[name]))
+    lines.append("  },")
+    lines.append("  sizes = {")
+    for name in sorted(theme.sizes):
+        lines.append(f"    [{quoted(name)}] = {theme.sizes[name]},")
     lines.append("  },")
     lines.append("}")
     out.write(path("shared/wezterm/wez/theme.lua"), "\n".join(lines) + "\n")
@@ -160,12 +189,46 @@ def emit_konsole(theme, out):
         "[General]",
         "Blur=false",
         "ColorRandomization=false",
-        f"Description={theme.data['name']}",
+        f"Description={theme.name}",
         "Opacity=1",
         "Wallpaper=",
     ]
-    content = f"# {GENERATED_HEADER}\n" + "\n".join(body) + "\n"
-    out.write(path("linux/kde/konsole/share/Catppuccin-Mocha.colorscheme"), content)
+    content = f"# {theme.header}\n" + "\n".join(body) + "\n"
+    out.write(path(KONSOLE_SCHEME), content)
+
+
+def _replace_leading_fields(previous, values):
+    fields = previous.split(",")
+    if len(fields) < len(values):
+        return ",".join(values)
+    fields[: len(values)] = values
+    return ",".join(fields)
+
+
+def emit_konsole_profile(theme, out):
+    family = theme.font("nerd")
+    size = theme.size("terminal")
+
+    def transform(text):
+        where = KONSOLE_PROFILE
+        font = get_ini_key(text, "Appearance", "Font", where) or ""
+        text = set_ini_key(
+            text, "Appearance", "Font", _replace_leading_fields(font, [family, str(size)]), where
+        )
+        text = set_ini_key(text, "Appearance", "ColorScheme", os.path.basename(KONSOLE_SCHEME).removesuffix(".colorscheme"), where)
+        for key, role in (
+            ("TabColor", "tab"),
+            ("FocusBorderColor", "focus_border"),
+            ("TabActivityColor", "tab_activity"),
+        ):
+            previous = get_ini_key(text, "Appearance", key, where) or ""
+            channels = theme.rgb_csv(theme.konsole(role)).split(",")
+            text = set_ini_key(
+                text, "Appearance", key, _replace_leading_fields(previous, channels), where
+            )
+        return text
+
+    out.edit(path(KONSOLE_PROFILE), transform)
 
 
 def emit_fastfetch_config(theme, out):
@@ -225,7 +288,7 @@ def emit_fastfetch_logo(theme, out):
 def emit_starship(theme, out):
     names = list(theme.palette.keys())
     width = max(len(name) for name in names + list(PROMPT_ROLES))
-    lines = [f"# {GENERATED_HEADER}", "[palettes.mocha]"]
+    lines = [f"# {theme.header}", "[palettes.theme]"]
     for name in names:
         lines.append(f"{name.ljust(width)} = '{theme.hex(name)}'")
     lines.append("")
@@ -242,7 +305,7 @@ def emit_zsh(theme, out):
         return f"$'\\e[{theme.ansi(theme.role(role))}m'"
 
     lines = [
-        f"# {GENERATED_HEADER}",
+        f"# {theme.header}",
         "export THEME_RESET=$'\\e[0m'",
         f"export THEME_SUDO={escape('sudo')}",
         f"export THEME_GIT={escape('prompt_git')}",
@@ -258,9 +321,6 @@ def emit_zsh(theme, out):
             if kind in eza:
                 parts.append(f"{kind}={theme.ansi(theme.hex(eza[kind]))}")
         for category, color in categories.items():
-            if category not in extensions:
-                sys.stderr.write(f"theme: unknown [eza.categories] group '{category}'\n")
-                continue
             for extension in extensions[category].split():
                 parts.append(f"*.{extension}={theme.ansi(theme.hex(color))}")
         for key, color in eza.items():
@@ -272,16 +332,17 @@ def emit_zsh(theme, out):
 
 
 def obsidian_derived(theme):
-    red, green, blue = (channel / 255 for channel in theme.rgb(theme.hex("mauve")))
+    source = load_map("obsidian")["derived"]["source"]
+    red, green, blue = (channel / 255 for channel in theme.rgb(theme.hex(source)))
     hue, lightness, saturation = colorsys.rgb_to_hls(red, green, blue)
     degrees = round(hue * 360)
     percent_s = round(saturation * 100)
     percent_l = round(lightness * 100)
     return {
-        "mauve_h": str(degrees),
-        "mauve_s": f"{percent_s}%",
-        "mauve_l": f"{percent_l}%",
-        "mauve_hsl": f"{degrees}, {percent_s}%, {percent_l}%",
+        "accent_h": str(degrees),
+        "accent_s": f"{percent_s}%",
+        "accent_l": f"{percent_l}%",
+        "accent_hsl": f"{degrees}, {percent_s}%, {percent_l}%",
     }
 
 
@@ -304,7 +365,8 @@ def obsidian_variables(theme, derived):
 
 
 def emit_obsidian(theme, out):
-    lines = obsidian_variables(theme, obsidian_derived(theme))
+    lines = [f"  color-scheme: {'dark' if theme.dark else 'light'};"]
+    lines += obsidian_variables(theme, obsidian_derived(theme))
     if theme.uses_fonts("obsidian"):
         general = theme.font("general").replace("\\", "\\\\").replace('"', '\\"')
         nerd = theme.font("nerd").replace("\\", "\\\\").replace('"', '\\"')
@@ -316,6 +378,16 @@ def emit_obsidian(theme, out):
     out.edit(
         path(OBSIDIAN_DIR, "theme.css"),
         lambda text: replace_between(text, "variables", lines),
+    )
+
+
+def emit_nvim(theme, out):
+    flavour = theme.data.get("nvim", {}).get("flavour")
+    if not flavour:
+        raise SystemExit(f"theme: profile '{theme.profile}' has no [nvim] flavour")
+    out.edit(
+        path(NVIM_CATPPUCCIN),
+        lambda text: replace_between(text, "flavour", [f"flavour = '{flavour}',"], indent=" " * 6),
     )
 
 
@@ -374,21 +446,55 @@ def emit_gtk(theme, out):
             lines.append(line)
         return "\n".join(lines)
 
-    for version in ("gtk-3.0", "gtk-4.0"):
+    for version in GTK_VERSIONS:
         out.edit(path(f"linux/common/gtk/{version}/colors.css"), transform)
 
 
-def _catppuccin_hex_map(theme):
-    return {source: theme.hex(role) for source, role in load_map("catppuccin")["colors"].items()}
+def emit_gtk_settings(theme, out):
+    font = f"{theme.font('general')},  {theme.size('interface')}"
+    prefer_dark = "true" if theme.dark else "false"
+
+    for version in GTK_VERSIONS:
+        target = f"linux/common/gtk/{version}/settings.ini"
+
+        def transform(text, where=target):
+            text = set_ini_key(text, "Settings", "gtk-font-name", font, where)
+            text = set_ini_key(
+                text, "Settings", "gtk-application-prefer-dark-theme", prefer_dark, where
+            )
+            return set_ini_key(text, "Settings", "gtk-icon-theme-name", theme.icons, where)
+
+        out.edit(path(target), transform)
 
 
-def _remap_hex(theme, text):
-    mapping = _catppuccin_hex_map(theme)
+def _hex_to_name(theme):
+    mapping = {}
+    owner = {}
+    active = theme.profile
+    ordered = [active] + [name for name in list_profiles() if name != active]
+    for profile in ordered:
+        for name, value in profile_palette(profile).items():
+            key = value.lstrip("#").lower()
+            if key in mapping and mapping[key] != name:
+                raise SystemExit(
+                    f"theme: {key} is '{mapping[key]}' in profile '{owner[key]}' but"
+                    f" '{name}' in profile '{profile}'; a shared hex cannot be remapped"
+                )
+            mapping.setdefault(key, name)
+            owner.setdefault(key, profile)
+    for key, name in load_map("catppuccin")["colors"].items():
+        mapping.setdefault(key.lower(), name)
+    return mapping
+
+
+def _remap_hex(theme, text, mapping):
     pattern = re.compile(r"#([0-9a-fA-F]{8}|[0-9a-fA-F]{6})")
 
     def replace(match):
         token = match.group(1).lower()
-        return mapping[token] if len(token) == 6 and token in mapping else match.group(0)
+        if len(token) == 6 and token in mapping:
+            return theme.hex(mapping[token])
+        return match.group(0)
 
     return pattern.sub(replace, text)
 
@@ -399,19 +505,21 @@ def panel_preset_files():
 
 
 def emit_panel_presets(theme, out):
+    mapping = _hex_to_name(theme)
     for target in panel_preset_files():
-        out.edit(target, lambda text: _remap_hex(theme, text))
+        out.edit(target, lambda text: _remap_hex(theme, text, mapping))
 
 
 def emit_desktop_appletsrc(theme, out):
+    mapping = _hex_to_name(theme)
     rgb_map = {}
-    for source, role in load_map("catppuccin")["colors"].items():
-        rgb_map[theme.rgb_csv("#" + source)] = theme.rgb_csv(theme.hex(role))
+    for token, name in mapping.items():
+        rgb_map[theme.rgb_csv("#" + token)] = theme.rgb_csv(theme.hex(name))
     pattern = re.compile(r"^([^=\[]+)=(\d{1,3},\d{1,3},\d{1,3})$")
 
     def transform(text):
         lines = []
-        for line in _remap_hex(theme, text).split("\n"):
+        for line in _remap_hex(theme, text, mapping).split("\n"):
             match = pattern.match(line)
             if match and match.group(2) in rgb_map:
                 lines.append(f"{match.group(1)}={rgb_map[match.group(2)]}")
@@ -424,7 +532,7 @@ def emit_desktop_appletsrc(theme, out):
 
 def emit_quicklaunch(theme, out):
     width = max(len(key) for key, _ in QUICKLAUNCH_KEYS)
-    lines = [f"# {GENERATED_HEADER}"]
+    lines = [f"# {theme.header}"]
     for key, role in QUICKLAUNCH_KEYS:
         lines.append(f'{key.ljust(width)} = "{theme.kde(role)}"')
     out.edit(

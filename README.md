@@ -59,12 +59,19 @@ Already cloned, or re-running
 
 ## Theme
 
-- **Palette:** `theme/palette.toml
+- **Profiles:** `theme/profiles/*.toml`, active one named in `theme/active`
 
 - **To regenerate theme:**
 
 ```bash
 generate-theme
+```
+
+- **To switch profile:**
+
+```bash
+generate-theme --list-profiles
+generate-theme --profile latte
 ```
 
 ```bash

@@ -1,9 +1,10 @@
 [Unit]
-Description=Watch theme/palette.toml and regenerate the theme on change
+Description=Watch the theme sources and regenerate the theme on change
 
 [Path]
-PathModified=%h/dotfiles/theme/palette.toml
-PathModified=%h/dotfiles/theme/fonts.toml
+PathModified=%h/dotfiles/theme
+PathModified=%h/dotfiles/theme/profiles
+PathModified=%h/dotfiles/theme/maps
 Unit=generate-theme.service
 
 [Install]

@@ -29,8 +29,36 @@ test_stageable_excludes_files_plasma_rewrites() {
   assert_ok
   assert_output_lacks "kdeglobals"
   assert_output_lacks "desktop-appletsrc"
-  assert_output_has "shared/kitty/colors-mocha.conf"
+  assert_output_has "shared/kitty/colors.conf"
   assert_output_has "linux/common/quicklaunch/config.toml"
+}
+
+test_list_profiles_marks_the_active_one() {
+  generator --list-profiles
+  assert_ok
+  assert_output_has "mocha"
+  assert_output_has "latte"
+  local marked
+  marked="$(printf '%s\n' "$OUTPUT" | grep -c '(active)')"
+  [ "$marked" -eq 1 ] || fail "expected exactly one profile marked active, got $marked"
+}
+
+test_switching_profile_is_reported_but_not_written() {
+  local before
+  before="$(cat "$SOURCE_ROOT/theme/active")"
+
+  generator --profile latte --check
+  [ "$STATUS" -ne 0 ] || fail "switching to a different profile should report changes"
+  assert_output_has "latte"
+
+  [ "$(cat "$SOURCE_ROOT/theme/active")" = "$before" ] ||
+    fail "--check wrote theme/active"
+}
+
+test_unknown_profile_is_rejected() {
+  generator --profile nope --check
+  [ "$STATUS" -ne 0 ] || fail "an unknown profile should fail"
+  assert_output_has "unknown profile"
 }
 
 test_hook_stages_exactly_what_the_registry_declares() {

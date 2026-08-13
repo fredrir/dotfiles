@@ -1,5 +1,5 @@
 [Unit]
-Description=Regenerate terminal theme from theme/palette.toml
+Description=Regenerate the theme from the active profile in theme/
 
 [Service]
 Type=oneshot

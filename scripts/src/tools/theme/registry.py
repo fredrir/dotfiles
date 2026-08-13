@@ -21,23 +21,26 @@ def _panel_preset_outputs():
 
 
 EMITTERS = [
-    Emitter("kitty", emitters.emit_kitty, ["shared/kitty/colors-mocha.conf"]),
+    Emitter("kitty", emitters.emit_kitty, [emitters.KITTY_COLORS]),
+    Emitter("kitty-fonts", emitters.emit_kitty_fonts, [emitters.KITTY_FONTS]),
     Emitter("wezterm", emitters.emit_wezterm, ["shared/wezterm/wez/theme.lua"]),
-    Emitter(
-        "konsole", emitters.emit_konsole, ["linux/kde/konsole/share/Catppuccin-Mocha.colorscheme"]
-    ),
+    Emitter("konsole", emitters.emit_konsole, [emitters.KONSOLE_SCHEME]),
+    Emitter("konsole-profile", emitters.emit_konsole_profile, [emitters.KONSOLE_PROFILE]),
     Emitter("fastfetch-config", emitters.emit_fastfetch_config, emitters.FASTFETCH_CONFIGS),
     Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, emitters.FASTFETCH_LOGOS),
     Emitter("starship", emitters.emit_starship, ["shared/starship/starship.toml"]),
     Emitter("zsh", emitters.emit_zsh, ["shared/zsh/conf.d/03-theme.zsh"]),
     Emitter("obsidian", emitters.emit_obsidian, [f"{emitters.OBSIDIAN_DIR}/theme.css"]),
+    Emitter("nvim", emitters.emit_nvim, [emitters.NVIM_CATPPUCCIN]),
     Emitter(
         "gtk",
         emitters.emit_gtk,
-        [
-            "linux/common/gtk/gtk-3.0/colors.css",
-            "linux/common/gtk/gtk-4.0/colors.css",
-        ],
+        [f"linux/common/gtk/{version}/colors.css" for version in emitters.GTK_VERSIONS],
+    ),
+    Emitter(
+        "gtk-settings",
+        emitters.emit_gtk_settings,
+        [f"linux/common/gtk/{version}/settings.ini" for version in emitters.GTK_VERSIONS],
     ),
     Emitter("quicklaunch", emitters.emit_quicklaunch, ["linux/common/quicklaunch/config.toml"]),
     Emitter("panel-presets", emitters.emit_panel_presets, _panel_preset_outputs),

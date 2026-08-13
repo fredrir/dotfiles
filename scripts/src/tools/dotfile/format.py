@@ -7,7 +7,7 @@ from tools.core.process import capture
 from tools.dotfile.state import die, log
 
 HYPR_PATTERNS = ("*/hypr/*", "*/hypr-local.conf", "hypr*.conf")
-PLAIN_PATTERNS = ("*/kitty/colors-*.conf", "*/colors-*.conf")
+PLAIN_PATTERNS = ("*/kitty/colors*.conf", "*/colors*.conf", "*/kitty/conf.d/fonts.conf")
 KITTY_PATTERNS = ("*/kitty/*.conf", "*/kitty.conf")
 
 HYPR_KEY = re.compile(r"^[$A-Za-z0-9_.:-]+$")

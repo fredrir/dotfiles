@@ -1,6 +1,31 @@
 import os
+import tempfile
 
 from tools.theme.model import ROOT
+
+
+def write_atomic(target, content):
+    directory = os.path.dirname(target)
+    os.makedirs(directory, exist_ok=True)
+    try:
+        mode = os.stat(target).st_mode & 0o7777
+    except FileNotFoundError:
+        mode = 0o644 & ~_umask()
+    descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".generate-theme.")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.chmod(temporary, mode)
+        os.replace(temporary, target)
+    except BaseException:
+        os.unlink(temporary)
+        raise
+
+
+def _umask():
+    current = os.umask(0)
+    os.umask(current)
+    return current
 
 
 class Output:
@@ -19,20 +44,20 @@ class Output:
         if previous == content:
             return
         if not self.check:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with open(target, "w", encoding="utf-8") as handle:
-                handle.write(content)
+            write_atomic(target, content)
         self._record(target)
 
     def edit(self, target, transform):
-        with open(target, encoding="utf-8") as handle:
-            previous = handle.read()
+        try:
+            with open(target, encoding="utf-8") as handle:
+                previous = handle.read()
+        except FileNotFoundError:
+            raise SystemExit(f"theme: {os.path.relpath(target, ROOT)} is missing")
         updated = transform(previous)
         if updated == previous:
             return
         if not self.check:
-            with open(target, "w", encoding="utf-8") as handle:
-                handle.write(updated)
+            write_atomic(target, updated)
         self._record(target)
 
 
@@ -48,20 +73,20 @@ def replace_between(text, name, new_lines, indent=""):
     return "\n".join(lines[: first + 1] + body + lines[last:])
 
 
-def _ini_section_bounds(lines, header):
+def _ini_section_bounds(lines, header, where):
     marker = f"[{header}]"
     start = next((i for i, line in enumerate(lines) if line == marker), None)
     if start is None:
-        raise SystemExit(f"kdeglobals: section '{marker}' not found")
+        raise SystemExit(f"{where}: section '{marker}' not found")
     end = start + 1
     while end < len(lines) and not lines[end].startswith("["):
         end += 1
     return start, end
 
 
-def replace_ini_section(text, header, body_lines):
+def replace_ini_section(text, header, body_lines, where="kdeglobals"):
     lines = text.split("\n")
-    start, end = _ini_section_bounds(lines, header)
+    start, end = _ini_section_bounds(lines, header, where)
     old_body = lines[start + 1 : end]
     blanks = 0
     while old_body and old_body[-1] == "":
@@ -71,9 +96,19 @@ def replace_ini_section(text, header, body_lines):
     return "\n".join(lines[: start + 1] + new_body + lines[end:])
 
 
-def set_ini_key(text, header, key, value):
+def get_ini_key(text, header, key, where="config"):
     lines = text.split("\n")
-    start, end = _ini_section_bounds(lines, header)
+    start, end = _ini_section_bounds(lines, header, where)
+    for index in range(start + 1, end):
+        name, sep, value = lines[index].partition("=")
+        if sep and name == key:
+            return value
+    return None
+
+
+def set_ini_key(text, header, key, value, where="kdeglobals"):
+    lines = text.split("\n")
+    start, end = _ini_section_bounds(lines, header, where)
     for index in range(start + 1, end):
         if lines[index].split("=", 1)[0] == key:
             lines[index] = f"{key}={value}"

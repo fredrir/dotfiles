@@ -4,7 +4,9 @@ return {
   priority = 1000,
   config = function()
     require('catppuccin').setup {
+      -- theme:flavour
       flavour = 'mocha',
+      -- theme:flavour:end
       no_italic = true,
       integrations = {
         gitsigns = true,
