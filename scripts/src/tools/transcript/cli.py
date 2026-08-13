@@ -11,7 +11,7 @@ from tools.core.console import die, err, out, stdout
 from tools.desktop.clean_copy import clean_text
 from tools.dotfile.secret.canaries import private_values
 from tools.dotfile.state import Context
-from tools.transcript import config, detect, manage, redact, store, vault
+from tools.transcript import config, detect, manage, migration, redact, store, vault
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
 
@@ -21,6 +21,7 @@ MENU = (
     ("list", "list recent sessions"),
     ("add", "track a project for sync"),
     ("rm", "stop tracking a project"),
+    ("migrate", "move groups to their configured destinations"),
     ("sync", "sync allowlisted sessions now"),
 )
 
@@ -46,6 +47,8 @@ def main(ctx: typer.Context):
         _interactive_add()
     elif name == "rm":
         _interactive_rm()
+    elif name == "migrate":
+        migrate()
     elif name == "sync":
         sync(dry_run=False, raw=False, quiet=False, tools=False)
 
@@ -302,6 +305,50 @@ def rm(
         out(f"stopped tracking {name}")
     else:
         die("transcript", f"{name} is not tracked")
+
+
+def _vault_relative(path):
+    try:
+        return str(path.relative_to(config.vault_root()))
+    except ValueError:
+        return str(path)
+
+
+@app.command(help="Move existing transcript groups to their configured destinations.")
+def migrate():
+    try:
+        moves = migration.plan()
+    except ValueError as error:
+        die("transcript", str(error))
+    if not moves:
+        out("transcript migrate: nothing to migrate")
+        return
+    blocked = migration.conflicts(moves)
+    blocked_destinations = {move.destination for move in blocked}
+    table = Table(title="Transcript migration", header_style="bold")
+    table.add_column("group")
+    table.add_column("from")
+    table.add_column("to")
+    table.add_column("status")
+    for move in moves:
+        table.add_row(
+            move.group,
+            _vault_relative(move.source),
+            _vault_relative(move.destination),
+            "conflict" if move.destination in blocked_destinations else "move",
+        )
+    stdout.print(table)
+    if blocked:
+        die("transcript", "migration has destination conflicts; no files were moved")
+    noun = "file" if len(moves) == 1 else "files"
+    if not typer.confirm(f"Migrate {len(moves)} {noun}?", default=True):
+        out("transcript migrate: cancelled")
+        return
+    try:
+        moved = migration.apply(moves)
+    except OSError as error:
+        die("transcript", f"migration failed: {error}")
+    out(f"transcript migrate: moved {moved} {noun}")
 
 
 @app.command(help="Sync allowlisted Claude Code and Codex sessions into the vault.")

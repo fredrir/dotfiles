@@ -153,6 +153,37 @@ def test_groups_nest_projects(tmp_path, monkeypatch):
     assert "project: dotfiles" in path.read_text()
 
 
+def test_group_destination_replaces_transcripts_group_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
+    config_file = tmp_path / "destination-config.toml"
+    config_file.write_text(
+        '[groups]\ndotfiles = ["dotfiles"]\n\n[destinations]\ndotfiles = "Dotfiles/Agents"\n'
+    )
+    monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
+    session = make_session(tmp_path)
+    path, existed = vault.save_session(session, "sync", redact.redact)
+    assert not existed
+    relative = path.relative_to(tmp_path / "vault")
+    assert str(relative) == "Dotfiles/Agents/2026-08/claude/09-fix-the-sync-script.md"
+
+    path_again, existed = vault.save_session(session, "sync", redact.redact)
+    assert existed
+    assert path_again == path
+
+
+def test_group_destination_must_stay_inside_vault(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
+    config_file = tmp_path / "unsafe-destination-config.toml"
+    config_file.write_text('[destinations]\ndotfiles = "../outside"\n')
+    monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
+    try:
+        vault.directory_for("dotfiles")
+    except ValueError as error:
+        assert "must stay inside the vault" in str(error)
+    else:
+        raise AssertionError("unsafe destination was accepted")
+
+
 def test_resave_updates_in_place_and_preserves_edits(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     session = make_session(tmp_path)

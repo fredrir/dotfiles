@@ -28,3 +28,8 @@ llunde = [
 ]
 other = ["sndbx"]
 dotfiles = ["dotfiles"]
+
+# Replace Transcripts/<group> 
+# Relative to the vault root.
+[destinations]
+dotfiles = "Dotfiles/Agents"

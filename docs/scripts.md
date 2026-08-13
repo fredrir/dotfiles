@@ -584,6 +584,27 @@ silently.
 A non-text clipboard (an image), invalid UTF-8, or whitespace-only content is
 left untouched.
 
+## transcript
+
+`transcript` archives Claude Code and Codex sessions as monthly Obsidian notes.
+Projects can share a transcript group through `[groups]`. A group normally lives
+at `Transcripts/<group>`, but `[destinations]` can replace that root with a path
+relative to the configured vault:
+
+```toml
+[groups]
+dotfiles = ["dotfiles"]
+
+[destinations]
+dotfiles = "Dotfiles/Agents"
+```
+
+With that configuration, a July Codex session is written to
+`Dotfiles/Agents/2026-07/codex/<note>.md`. Groups without an override retain the
+normal `Transcripts/<group>` layout. `transcript migrate` previews every file
+move from the old group roots, refuses destination conflicts, and asks for
+confirmation with `[Y/n]` before changing anything.
+
 ## cpa, cpas and acp
 
 Transfer the plain-text clipboard between macOS and the KDE Wayland session on

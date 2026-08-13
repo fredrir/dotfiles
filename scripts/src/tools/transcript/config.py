@@ -35,6 +35,34 @@ def transcripts_dir():
     return vault_root() / "Transcripts"
 
 
+def group_destinations():
+    destinations = _file_config().get("destinations")
+    if not isinstance(destinations, dict):
+        return {}
+    return {
+        str(name).strip(): str(path).strip()
+        for name, path in destinations.items()
+        if str(name).strip() and str(path).strip()
+    }
+
+
+def destination_dir(group):
+    value = next(
+        (path for name, path in group_destinations().items() if name.lower() == group.lower()),
+        None,
+    )
+    if value is None:
+        return None
+    relative = Path(value)
+    if relative.is_absolute():
+        raise ValueError(f"destination for {group} must be relative to the vault")
+    root = vault_root()
+    destination = root / relative
+    if not destination.resolve().is_relative_to(root.resolve()):
+        raise ValueError(f"destination for {group} must stay inside the vault")
+    return destination
+
+
 def claude_store():
     return Path(os.path.expanduser("~/.claude/projects"))
 

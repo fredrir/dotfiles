@@ -65,6 +65,23 @@ def folder_for(project):
     return project
 
 
+def directory_for(project):
+    relative = Path(folder_for(project))
+    destination = config.destination_dir(relative.parts[0])
+    if destination is None:
+        return config.transcripts_dir() / relative
+    return destination.joinpath(*relative.parts[1:])
+
+
+def note_roots():
+    roots = [config.transcripts_dir()]
+    for group in config.group_destinations():
+        destination = config.destination_dir(group)
+        if destination is not None and destination not in roots:
+            roots.append(destination)
+    return roots
+
+
 def slugify(text, limit=40):
     text = re.sub(r"[^a-z0-9æøå]+", "-", text.lower()).strip("-")
     if len(text) > limit:
@@ -100,19 +117,19 @@ def read_frontmatter(path):
 
 def existing_notes():
     mapping = {}
-    root = config.transcripts_dir()
-    if not root.is_dir():
-        return mapping
-    for path in root.rglob("*.md"):
-        try:
-            head = path.read_text(errors="replace")[:2000]
-        except OSError:
+    for root in note_roots():
+        if not root.is_dir():
             continue
-        if not head.startswith("---"):
-            continue
-        match = SESSION_KEY_RE.search(head.split("\n---", 1)[0])
-        if match:
-            mapping[match.group(1)] = path
+        for path in root.rglob("*.md"):
+            try:
+                head = path.read_text(errors="replace")[:2000]
+            except OSError:
+                continue
+            if not head.startswith("---"):
+                continue
+            match = SESSION_KEY_RE.search(head.split("\n---", 1)[0])
+            if match:
+                mapping[match.group(1)] = path
     return mapping
 
 
@@ -137,7 +154,7 @@ def dedupe_path(directory, base):
 
 def note_path_for(session, project):
     stamp = session.started or datetime.now().astimezone()
-    directory = config.transcripts_dir() / folder_for(project) / f"{stamp:%Y-%m}" / session.provider
+    directory = directory_for(project) / f"{stamp:%Y-%m}" / session.provider
     slug = slugify(session.title or "session")
     return dedupe_path(directory, f"{stamp:%d}-{slug}")
 
@@ -179,7 +196,7 @@ def save_capture(provider, text, redactor):
     now = datetime.now().astimezone()
     first_line = next((line for line in text.strip().splitlines() if line.strip()), "capture")
     slug = slugify(render.clean_inline(first_line, 60))
-    directory = config.transcripts_dir() / CAPTURES_PROJECT / f"{now:%Y-%m}" / provider
+    directory = directory_for(CAPTURES_PROJECT) / f"{now:%Y-%m}" / provider
     path = dedupe_path(directory, f"{now:%d}-{slug}")
     fields = {
         "provider": provider,
