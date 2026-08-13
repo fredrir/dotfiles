@@ -316,21 +316,39 @@ bandwidth. Published as `mem.read` and scoped `world`, that invites comparison
 against machines where the same figure means something else entirely — and on a
 wide x86 core it can exceed what the memory bus can physically carry.
 
-So `mem.*` uses a 256 MiB block, past the last-level cache of current desktop
-parts, and `cache.*` keeps the 1 MiB block under a name that says what it is.
-`cache.*` is `host`-scoped: where a 1 MiB buffer lands depends on a particular
-cache hierarchy, so the number says nothing held against a different design.
+So `mem.*` uses a 1 GiB block — ten times the largest current L3, because a
+buffer only a couple of times the cache still reads partly out of it: on the
+96 MiB X3D part a 256 MiB block measures 15% faster than a 1 GiB one. `cache.*`
+keeps the 1 MiB block under a name that says what it is, and is `host`-scoped:
+where a 1 MiB buffer lands depends on a particular cache hierarchy, so the
+number says nothing held against a different design.
 
-Both run `--threads` equal to the core count, capped so the working set stays
-under a quarter of RAM. One thread cannot saturate a memory controller — on
-Apple Silicon a single scalar load loop is issue-bound at about 34 GiB/s, below
-*both* cache and DRAM, so single-threaded numbers show no cache cliff at all and
-understate the machine by roughly eight times. Measured here, the split is
-visible and large: 452 649 MiB/s for `cache.read` against 265 249 MiB/s for
-`mem.read`.
+**Both are single threaded, and that is the interesting decision.** Threading
+looks obviously right — one core cannot saturate a memory controller, and on
+Apple Silicon a single scalar load loop is issue-bound around 34 GB/s, well
+below both cache and DRAM. But measured on the 9800X3D, 16 threads at a 1 GiB
+block reports 196% of what dual-channel DDR5-6000 can physically carry, and at
+256 MiB it reports 241%. A buffer that is never written maps every page to the
+shared zero page, so the threads read one cached page and the aggregate scales
+past the bus.
 
-Because the measurement changed, `method` moved to `mem.bandwidth/2.0.0` and
-`compare` refuses to hold the old numbers against the new ones.
+Publishing a figure that exceeds the bus is the exact defect this split exists
+to remove, so threading was rejected. `mem.*` measures what one core can pull:
+an understatement on a machine with more bandwidth than one core can use, but
+always a floor, never an impossibility. Measured single threaded:
+
+| | `cache.read` | `mem.read` | DDR5-6000 peak |
+| --- | --- | --- | --- |
+| archie (9800X3D) | 111.3 GB/s | 58.8 GB/s (61%) | 96 GB/s |
+| macie (M5 Pro) | 36.3 GB/s | 35.5 GB/s | ~265 GB/s |
+
+`cache.read` sitting at 116% of the DRAM peak on archie is the point rather than
+a problem — it is cache, and it is `host`-scoped, so it claims nothing about any
+other machine. macie shows no cliff at all, which is itself the finding: that
+core is issue-bound rather than bandwidth-bound.
+
+Because the measurement changed twice, `method` is at `mem.bandwidth/3.0.0` and
+`compare` refuses to hold either older series against it.
 
 ### Conditions and gating
 

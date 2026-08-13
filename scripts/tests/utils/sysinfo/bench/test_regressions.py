@@ -217,7 +217,7 @@ class TestMemorySuite:
 
         assert set(jobs) == {"mem.bandwidth", "mem.random", "cache.bandwidth"}
         # The DRAM job must escape cache; the cache job must sit inside it.
-        assert jobs["mem.bandwidth"].detail["block"] == memory.DRAM_BLOCK
+        assert jobs["mem.bandwidth"].detail["block"] == memory.dram_block()
         assert jobs["cache.bandwidth"].detail["block"] == memory.CACHE_BLOCK
         assert memory.parse_size(memory.DRAM_BLOCK) > memory.parse_size(memory.CACHE_BLOCK) * 64
 
@@ -229,13 +229,14 @@ class TestMemorySuite:
         assert {out.comparable for out in jobs["mem.bandwidth"].outputs} == {"world"}
         assert {out.comparable for out in jobs["cache.bandwidth"].outputs} == {"host"}
 
-    def test_more_than_one_thread_is_used_where_the_machine_allows(self):
-        assert memory.threads_for(memory.DRAM_BLOCK) >= 1
-        assert memory.threads_for("1M") == (memory.os.cpu_count() or 1)
+    def test_the_dram_block_is_chosen_for_the_machine(self):
+        assert memory.dram_block() in (memory.DRAM_BLOCK, memory.SMALL_DRAM_BLOCK)
+        # Single threaded on purpose: threading reports above the physical bus.
+        assert memory.THREADS == "1"
 
     def test_the_method_changed_so_old_numbers_are_not_compared_to_new(self):
         old = metric("mem.read", [101315.0], method="mem.bandwidth/1.0.0")
-        new = metric("mem.read", [62138.0], method="mem.bandwidth/2.0.0")
+        new = metric("mem.read", [62138.0], method="mem.bandwidth/3.0.0")
         left, right = build_run(metrics=(old,)), build_run(metrics=(new,))
 
         delta = compare_metric(left, right, old, new)
