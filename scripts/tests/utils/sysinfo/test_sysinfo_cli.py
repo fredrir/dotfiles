@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from tools.utils.sysinfo import cli, collect
+from tools.utils.sysinfo import cli, collect, hosts
 from tools.utils.sysinfo.formatting import capacity, memory_capacity
 
 
@@ -33,6 +33,7 @@ def test_all_flag_combinations(monkeypatch, arguments, pretty, full, health):
     )
     monkeypatch.setattr(cli, "build_view", lambda value: view if value is snapshot else None)
     monkeypatch.setattr(cli, "health_issues", lambda value: issues if value is snapshot else ())
+    monkeypatch.setattr(cli, "benchmark_issues", lambda host: ())
     monkeypatch.setattr(cli, "render_plain", lambda *values: plain_calls.append(values))
     monkeypatch.setattr(cli, "render_pretty", lambda *values: pretty_calls.append(values))
 
@@ -46,6 +47,31 @@ def test_all_flag_combinations(monkeypatch, arguments, pretty, full, health):
     assert calls[0][2].full is full
     assert calls[0][2].health is health
     assert not (plain_calls and pretty_calls)
+
+
+def test_benchmark_findings_join_the_hardware_findings(monkeypatch):
+    snapshot = object()
+    hardware = (object(),)
+    benchmark = (object(),)
+    plain_calls = []
+    monkeypatch.setattr(cli, "collect_snapshot", lambda full=False: snapshot)
+    monkeypatch.setattr(cli, "build_view", lambda value: object())
+    monkeypatch.setattr(cli, "health_issues", lambda value: hardware)
+    monkeypatch.setattr(cli, "benchmark_issues", lambda host: benchmark)
+    monkeypatch.setattr(cli, "render_plain", lambda *values: plain_calls.append(values))
+
+    result = CliRunner().invoke(cli.app, [])
+
+    assert result.exit_code == 0
+    assert plain_calls[0][1] == hardware + benchmark
+
+
+def test_bench_is_reachable_as_a_subcommand():
+    result = CliRunner().invoke(cli.app, ["bench", "--help"])
+
+    assert result.exit_code == 0
+    for name in ("run", "show", "list", "compare", "trend", "baseline", "prune"):
+        assert name in result.output
 
 
 def test_help_lists_every_alias():
@@ -143,21 +169,24 @@ def test_snapshot_rejects_process_wrappers_as_terminals(monkeypatch):
     assert snapshot.terminal_display == "unknown"
 
 
-def test_darwin_selects_macos_hardware_profile(monkeypatch, tmp_path):
-    config = tmp_path / "hardware.dotfile"
+def test_hostname_selects_the_matching_host(monkeypatch, tmp_path):
+    config = tmp_path / "hosts.dotfile"
     config.write_text(
-        "desktop {\n"
-        "  MEMORY=Corsair 32 GB DDR5\n"
-        "  CPU_COOLER=Noctua NH-D15\n"
+        "archie {\n"
+        "  hostnames = archpc, archie\n"
+        "  MEMORY = Corsair 32 GB DDR5\n"
+        "  CPU_COOLER = Noctua NH-D15\n"
         "}\n"
-        "macos {\n"
-        "  MEMORY=Apple unified memory\n"
+        "macie {\n"
+        "  hostnames = macie\n"
+        "  MEMORY = Apple unified memory\n"
         "}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("SYSINFO_CONFIG", str(config))
-    monkeypatch.delenv("SYSINFO_HARDWARE", raising=False)
-    monkeypatch.setattr(collect.sys, "platform", "darwin")
+    monkeypatch.delenv("SYSINFO_HOST", raising=False)
+    monkeypatch.setattr(hosts, "saved_host", lambda: "")
+    monkeypatch.setattr(hosts, "local_hostnames", lambda: ("macie",))
 
     hardware = collect.load_hardware_config()
 
@@ -165,16 +194,29 @@ def test_darwin_selects_macos_hardware_profile(monkeypatch, tmp_path):
     assert hardware["cpu_cooler"] == "not set"
 
 
-def test_explicit_hardware_profile_overrides_platform(monkeypatch, tmp_path):
-    config = tmp_path / "hardware.dotfile"
+def test_explicit_host_overrides_the_hostname(monkeypatch, tmp_path):
+    config = tmp_path / "hosts.dotfile"
     config.write_text(
-        "desktop {\n  MEMORY=Corsair 32 GB DDR5\n}\n",
+        "archie {\n  hostnames = archpc\n  MEMORY = Corsair 32 GB DDR5\n}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("SYSINFO_CONFIG", str(config))
-    monkeypatch.setenv("SYSINFO_HARDWARE", "desktop")
-    monkeypatch.setattr(collect.sys, "platform", "darwin")
+    monkeypatch.setenv("SYSINFO_HOST", "archie")
+    monkeypatch.setattr(hosts, "local_hostnames", lambda: ("macie",))
 
     hardware = collect.load_hardware_config()
 
     assert hardware["memory"] == "Corsair 32 GB DDR5"
+
+
+def test_an_unknown_machine_reports_no_configured_hardware(monkeypatch, tmp_path):
+    config = tmp_path / "hosts.dotfile"
+    config.write_text("archie {\n  hostnames = archpc\n  CASE = ARCTIC Xtender\n}\n", "utf-8")
+    monkeypatch.setenv("SYSINFO_CONFIG", str(config))
+    monkeypatch.delenv("SYSINFO_HOST", raising=False)
+    monkeypatch.setattr(hosts, "saved_host", lambda: "")
+    monkeypatch.setattr(hosts, "local_hostnames", lambda: ("thinkpad-x1",))
+
+    hardware = collect.load_hardware_config()
+
+    assert hardware == hosts.DEFAULT_HARDWARE

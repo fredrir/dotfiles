@@ -1,6 +1,7 @@
 import os
 
-from tools.dotfile.state import die, log, manifest_groups, sorted_entries, trim
+from tools.core import blocks
+from tools.dotfile.state import die, log, manifest_groups, sorted_entries
 
 DEFAULT_GROUPS = [
     "shared",
@@ -16,52 +17,43 @@ DEFAULT_GROUPS = [
 GROUP_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-")
 PACKAGE_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+@-")
 
+STRUCTURE_ERRORS = {
+    blocks.UNEXPECTED_CLOSE: "unexpected }",
+    blocks.NESTED: "nested group",
+    blocks.OUTSIDE: "package outside a group",
+}
+
+
+def read_package_entries(ctx):
+    try:
+        return blocks.read(ctx.packages_config, comments=False, open_suffix=" {")
+    except blocks.BlockError as error:
+        if error.kind == blocks.UNTERMINATED:
+            die(f"packages.dotfile:{error.number}: missing }} for {error.block}")
+        die(f"packages.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        return []
+
 
 def load_package_metadata(ctx):
     ctx.package_descriptions = {}
     if not os.path.isfile(ctx.packages_config):
         return
-    group = ""
-    number = 0
-    with open(ctx.packages_config, encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-    for raw in lines:
-        number += 1
-        line = trim(raw)
-        if not line:
+    for entry in read_package_entries(ctx):
+        if entry.opens:
+            if not entry.block:
+                die(f"packages.dotfile:{entry.number}: empty group")
+            if set(entry.block) - GROUP_CHARS:
+                die(f"packages.dotfile:{entry.number}: invalid group: {entry.block}")
             continue
-        if line == "}":
-            if not group:
-                die(f"packages.dotfile:{number}: unexpected }}")
-            group = ""
-            continue
-        if line.endswith(" {"):
-            if group:
-                die(f"packages.dotfile:{number}: nested group")
-            group = trim(line[:-2])
-            if not group:
-                die(f"packages.dotfile:{number}: empty group")
-            if set(group) - GROUP_CHARS:
-                die(f"packages.dotfile:{number}: invalid group: {group}")
-            continue
-        if not group:
-            die(f"packages.dotfile:{number}: package outside a group")
-        if " = " in line:
-            name = trim(line.split(" = ", 1)[0])
-            description = trim(line.split(" = ", 1)[1])
-        else:
-            name = line
-            description = ""
+        name, description = entry.split(" = ")
         if not name:
-            die(f"packages.dotfile:{number}: empty package")
+            die(f"packages.dotfile:{entry.number}: empty package")
         if set(name) - PACKAGE_CHARS:
-            die(f"packages.dotfile:{number}: invalid package: {name}")
-        key = f"{group}/{name}"
+            die(f"packages.dotfile:{entry.number}: invalid package: {name}")
+        key = f"{entry.block}/{name}"
         if key in ctx.package_descriptions:
-            die(f"packages.dotfile:{number}: duplicate package: {key}")
+            die(f"packages.dotfile:{entry.number}: duplicate package: {key}")
         ctx.package_descriptions[key] = description
-    if group:
-        die(f"packages.dotfile:{number}: missing }} for {group}")
 
 
 def package_groups(ctx):

@@ -1,11 +1,18 @@
 import os
 import re
 
-from tools.dotfile.state import die, trim
+from tools.core import blocks
+from tools.dotfile.state import die
 
 AGE_KEY = re.compile(r"^age1[02-9ac-hj-np-z]{58}$")
 LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RECOVERY = "recovery"
+
+STRUCTURE_ERRORS = {
+    blocks.UNEXPECTED_CLOSE: "unexpected }",
+    blocks.NESTED: "nested block",
+    blocks.OUTSIDE: "line outside a 'recipients {' block",
+}
 
 
 def is_recovery(label):
@@ -29,42 +36,28 @@ def load_recipients(ctx):
     found = {}
     if not os.path.isfile(path):
         return found
-    with open(path, encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-    block = ""
-    number = 0
-    for raw in lines:
-        number += 1
-        line = trim(raw.split("#", 1)[0])
-        if not line:
+    try:
+        entries = blocks.read(path)
+    except blocks.BlockError as error:
+        if error.kind == blocks.UNTERMINATED:
+            die("keys.dotfile: unterminated block")
+        die(f"keys.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        return found
+    for entry in entries:
+        if entry.opens:
+            if entry.block != "recipients":
+                die(f"keys.dotfile:{entry.number}: unknown block '{entry.block}'")
             continue
-        if line == "}":
-            if not block:
-                die(f"keys.dotfile:{number}: unexpected }}")
-            block = ""
-            continue
-        if line.endswith("{"):
-            if block:
-                die(f"keys.dotfile:{number}: nested block")
-            block = trim(line[:-1])
-            if block != "recipients":
-                die(f"keys.dotfile:{number}: unknown block '{block}'")
-            continue
-        if not block:
-            die(f"keys.dotfile:{number}: line outside a 'recipients {{' block")
-        if "=" not in line:
-            die(f"keys.dotfile:{number}: expected <label> = <age public key>")
-        label, _, key = line.partition("=")
-        label, key = trim(label), trim(key)
+        if "=" not in entry.text:
+            die(f"keys.dotfile:{entry.number}: expected <label> = <age public key>")
+        label, key = entry.split("=")
         if not LABEL.match(label):
-            die(f"keys.dotfile:{number}: bad label '{label}'")
+            die(f"keys.dotfile:{entry.number}: bad label '{label}'")
         if not AGE_KEY.match(key):
-            die(f"keys.dotfile:{number}: '{label}' is not an age public key")
+            die(f"keys.dotfile:{entry.number}: '{label}' is not an age public key")
         if label in found:
-            die(f"keys.dotfile:{number}: duplicate label '{label}'")
+            die(f"keys.dotfile:{entry.number}: duplicate label '{label}'")
         found[label] = key
-    if block:
-        die("keys.dotfile: unterminated block")
     return found
 
 

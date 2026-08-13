@@ -1,0 +1,24 @@
+MIN_RUNS = 3
+MAX_RUNS = 6
+RSD_THRESHOLD = 2.5
+
+LOAD_LIMIT = 0.30
+MIN_FREE_DISK = 0.20
+THROTTLE_MARGIN = 5.0
+
+COOLDOWN_SECONDS = 240
+COOLDOWN_INTERVAL = 15
+
+NOISE_FLOOR_PCT = 2.0
+NOISE_MAD_FACTOR = 3.0
+
+REGRESSION_PCT = 10.0
+
+FIO_RAMP_SECONDS = 5
+FIO_RUNTIME_SECONDS = 20
+FIO_IODEPTH = 64
+
+SUSTAINED_SECONDS = {"quick": 0, "standard": 60, "heavy": 120}
+FIO_SIZE = {"quick": "", "standard": "1g", "heavy": "8g"}
+
+WRITE_BUDGET = {"quick": 0, "standard": 30 * 1024**3, "heavy": 70 * 1024**3}

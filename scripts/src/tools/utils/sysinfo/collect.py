@@ -3,24 +3,13 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 
+from tools.core import blocks
 from tools.core.console import die
-from tools.core.paths import repo_root
 from tools.core.process import capture
+from tools.utils.sysinfo import hosts
 from tools.utils.sysinfo.formatting import as_list
 from tools.utils.sysinfo.models import Snapshot
-
-CONFIG_KEYS = {
-    "GPU": "gpu",
-    "CPU": "cpu",
-    "CPU_COOLER": "cpu_cooler",
-    "MOTHERBOARD": "motherboard",
-    "MEMORY": "memory",
-    "STORAGE": "storage",
-    "CASE": "case",
-    "POWER_SUPPLY": "power_supply",
-}
 
 TERMINALS = {
     "konsole": ("Konsole", "konsole"),
@@ -79,31 +68,14 @@ FULL_MODULES = [
 
 
 def load_hardware_config():
-    values = {"cpu_cooler": "not set", "case": "not set", "power_supply": "not set"}
-    config = os.environ.get("SYSINFO_CONFIG") or str(repo_root() / "hardware.dotfile")
-    profile = os.environ.get("SYSINFO_HARDWARE")
-    if not profile:
-        profile = {"darwin": "macos", "win32": "windows"}.get(sys.platform, "desktop")
     try:
-        with open(config, encoding="utf-8") as handle:
-            lines = handle.read().splitlines()
-    except OSError:
-        return values
-    active = False
-    for raw in lines:
-        line = raw.strip()
-        if not active:
-            active = line == f"{profile} {{"
-            continue
-        if line == "}":
-            break
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = "".join(key.split())
-        if key in CONFIG_KEYS:
-            values[CONFIG_KEYS[key]] = value.strip()
-    return values
+        known = hosts.load_hosts()
+    except blocks.BlockError:
+        return dict(hosts.DEFAULT_HARDWARE)
+    host = known.get(hosts.resolve(hosts=known))
+    if host is None:
+        return dict(hosts.DEFAULT_HARDWARE)
+    return host.resolved_hardware()
 
 
 def shell_info():

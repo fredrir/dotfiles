@@ -30,6 +30,12 @@ shared {
   ?ncdu
   ?gh = github-cli
   ?docker
+  ?fio
+  ?sysbench
+  ?hyperfine
+  ?stress-ng
+  ?7z = 7zip
+  ?openssl
   font Hack Nerd Font Mono
   font Noto Sans
 }
@@ -41,6 +47,9 @@ macos {
 linux/common {
   flameshot
   xremap
+  ?glmark2
+  ?vkmark
+  ?sensors = lm_sensors
   fc-cache = fontconfig
   wl-copy = wl-clipboard
   wl-paste = wl-clipboard

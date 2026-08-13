@@ -1,0 +1,26 @@
+# The machines this repository knows about. One block per physical machine.
+#
+#   hostnames = a, b, c    names this machine answers to, matched case-insensitively
+#   role                   desktop, laptop or server
+#
+# The remaining keys describe parts that firmware cannot report without elevated
+# privileges. `sysinfo` reads them for the machine it resolves to, and
+# `sysinfo bench` records them alongside every benchmark run.
+#
+# Distro, kernel and drivers are deliberately absent: they change without anyone
+# editing this file and are detected at run time.
+
+archie {
+  hostnames = archpc, archie, archie.local
+  role = desktop
+
+  CPU_COOLER = Noctua NH-D15
+  MEMORY = Corsair CMK32GX5M2B6000Z30 32 GB (2×16 GB) DDR5-6000 CL30
+  CASE = ARCTIC Xtender ATX Mid Tower
+  POWER_SUPPLY = Corsair RM1000e (2025) 1000 W
+}
+
+macie {
+  hostnames = macie, macie.local
+  role = laptop
+}

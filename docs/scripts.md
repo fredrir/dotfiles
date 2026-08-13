@@ -25,7 +25,9 @@ scripts/
   uv.lock                    locked dependency versions
   src/tools/
     core/
+      blocks.py              shared `.dotfile` block grammar scanner
       console.py             shared output, errors, color gating
+      menu.py                arrow-key picker
       paths.py               repository root discovery, ~ shortening
       process.py             subprocess helpers
     utils/
@@ -45,6 +47,20 @@ scripts/
         facts.py             shared normalized fact construction
         formatting.py        shared units, percentages and text formatting
         identity.py          platform-aware username and hostname resolution
+        hosts.py             hosts.dotfile parsing and host resolution
+        bench/
+          cli.py             bench subcommands and their menus
+          record.py          run and metric schema, epoch derivation
+          store.py           run files, baselines, lock, retention
+          capture.py         embedded hardware snapshot and install facts
+          conditions.py      confounders, gating and run grading
+          runner.py          orchestration and dynamic run counts
+          suites/            one module per measurement family
+          select.py          host[/os][@epoch][:run] selectors
+          compare.py         deltas, noise bands, snapshot diffs
+          health.py          benchmark findings as HealthIssues
+          report.py          run, list, comparison and trend rendering
+          document.py        benchmarks/BENCHMARKS.md generation
         normalization.py     platform and device sanitation helpers
         typography.py        terminal-safe block lettering
         hardware.py          normalized hardware components
@@ -135,10 +151,38 @@ Fastfetch remains the primary detector. Targeted NVIDIA telemetry enriches
 matching devices with live VRAM, utilization, clock and power readings from
 `nvidia-smi`. Optional probe failures become health findings and never prevent
 the remaining snapshot from rendering. Static components such as the cooler,
-memory kit, case and power supply come from `hardware.dotfile` when firmware
-interfaces cannot expose them without elevated privileges. The active profile
-defaults to `desktop` on Linux, `macos` on Darwin and `windows` on Windows;
-`SYSINFO_HARDWARE` can select an explicit profile.
+memory kit, case and power supply come from `hosts.dotfile` when firmware
+interfaces cannot expose them without elevated privileges.
+
+### hosts.dotfile
+
+One block per physical machine, in the same grammar as `packages.dotfile`:
+
+```
+archie {
+  hostnames = archpc, archie, archie.local
+  role = desktop
+
+  CPU_COOLER = Noctua NH-D15
+  MEMORY = Corsair CMK32GX5M2B6000Z30 32 GB (2×16 GB) DDR5-6000 CL30
+}
+```
+
+This replaced `hardware.dotfile`, which was keyed by *platform* and defaulted to
+`desktop` for any Linux machine. That meant the Ubuntu VPS reported the
+workstation's cooler, memory kit, case and power supply as its own. Keying by
+host fixes it: a machine that matches no block gets no configured hardware
+rather than someone else's.
+
+Identity resolves in order — `--host`, `$SYSINFO_HOST`,
+`~/.config/dotfile/host`, then a `hostnames` match — because the hostname is not
+the name we use for a machine (this workstation answers to `archpc` but is
+called `archie` everywhere else). `hostnames` is a list so a reinstall under a
+different name still maps to the same lineage. `$SYSINFO_CONFIG` overrides the
+file location for tests.
+
+Distro, kernel and driver are deliberately not declared. They change without
+anyone editing the file and are already detected at run time.
 
 Brand detection has three layers: exact-model profiles for verified limits,
 vendor and product-family profiles for presentation, then device-class
@@ -154,6 +198,143 @@ honour `NO_COLOR` and disappear when stdout is redirected.
 Device serials, display identifiers, network addresses and Wi-Fi names are
 never copied into the normalized view or rendered. The title retains the local
 username and hostname, matching the existing Fastfetch presentation.
+
+## sysinfo bench
+
+Measures this machine and persists each run so they can be compared over time
+and across machines. Bare `sysinfo bench` opens the same arrow-key menu the
+`transcript` command uses; every entry has a non-interactive equivalent.
+
+```
+sysinfo bench run [--tier quick|standard|heavy] [--only cpu,disk] [--note "..."]
+sysinfo bench show [<selector>]          sysinfo bench compare <left> <right>
+sysinfo bench list [--host archie]       sysinfo bench trend archie cpu.multi
+sysinfo bench health                     sysinfo bench baseline set|clear|show
+sysinfo bench prune [--dry-run]          sysinfo bench document
+```
+
+### What a run is pinned to
+
+Four independent dimensions, because each question holds a different set fixed:
+the **host** (declared in `hosts.dotfile`), the **hardware snapshot** embedded in
+the run, the **install** (distro, kernel, driver) captured automatically, and the
+**run** itself (time, tier, note, conditions).
+
+Every run embeds its resolved hardware snapshot rather than pointing at one.
+`hosts.dotfile` describes *now*; a run describes *then*. So there are no
+hardware revision numbers to maintain, `compare` can diff two embedded snapshots
+and report "GPU changed: RTX 3080 → RTX 5070 Ti" on its own, and a run taken
+inside a VM is self-evident from its own record.
+
+The **epoch** (`90959c28`) is a derived index key, not stored state: a blake2s
+digest over the identity-bearing snapshot fields. Swap a part and it changes by
+itself, while older runs keep their old parts. `git log -p -- hosts.dotfile` is
+the upgrade log; nothing else records it.
+
+### Why runs are stored one file per run
+
+`benchmarks/<host>/<timestamp>-<epoch>.json`, committed. Committing is what makes
+cross-machine comparison work at all, since git already syncs the two machines.
+One file per run means two machines can record independently and merge without
+ever touching the same bytes. `baselines.dotfile` pins the reference run per host
+and epoch, and `BENCHMARKS.md` is generated from the set by `sysinfo bench
+document`, staged by `pre-commit` — the same relationship `packages.dotfile` has
+with `PACKAGES.md`.
+
+Records carry the declared host alias only. Serials, `machine-id`, disk WWNs,
+MAC addresses and usernames are never written, because these files are public.
+
+### Samples, not a score
+
+Every metric stores its samples and reports median and MAD. That is what lets a
+comparison say **"within noise"**, which is the honest answer most of the time
+and one a single number can never give. Repetition follows the Phoronix Test
+Suite's DynamicRunCount: three runs, continuing to six while relative standard
+deviation stays above 2.5%.
+
+Tools that already average internally — `glmark2`, `vkmark`, `fio`, `hyperfine` —
+are run once and not repeated, because external repetition of an internally
+averaged result buys nothing and costs minutes.
+
+Metrics are self-describing in the PTS vocabulary: `scale` (`ResultScale`),
+`proportion` (`Proportion`, `HIB` or `LIB`) and `times_to_run`. `method` carries
+`name/X.Y.Z` semantics where a major or minor bump means results are **not**
+comparable.
+
+`comparable` records how far a number travels: `world` (any machine running the
+same tool version), `platform` (one OS family), or `host` (this machine's own
+history only). GPU results are always `host` — a CUDA score and a Metal score
+are not the same measurement, and `compare` refuses to present them as one.
+
+This answers "has archie changed relative to archie?" It cannot answer "is my
+9800X3D performing like other 9800X3Ds?", because there is no population to
+compare against. There is deliberately no composite score: a single number
+spanning x86-64/CUDA and arm64/Metal would be numerology.
+
+### Conditions and gating
+
+Battery, governor, load average, idle temperature, free memory, free disk and
+thermal-throttle state are captured at the start of every run and stored with it.
+A run is graded `clean`, `noisy` or `aborted`, and `compare` and `trend` use
+clean runs only. Running on battery, under load, already throttling, or with a
+nearly full disk refuses to measure unless `--force` is passed — an ungated
+laptop series is pure noise, since macOS drops sustained power sharply on
+battery.
+
+### Tiers and SSD wear
+
+| tier | contents | written |
+| --- | --- | --- |
+| `quick` (default) | cpu, memory, gpu, workload — read-only | 0 |
+| `standard` | adds `fio` at `size=1g` and a 60 s sustained load | ~26 GiB |
+| `heavy` | adds `fio` at `size=8g` and a 120 s sustained load | substantially more |
+
+The `fio` job starts from the Phoronix Test Suite's tuned parameters rather than
+invented ones: `direct=1`, `time_based`, `runtime=20`, `ramp_time=5`,
+`iodepth=64`, `stonewall` between stages and `disk_util=0`.
+
+`time_based` is why the written figure is what it is. `size=1g` bounds the
+*working set*, not the volume: a write stage writes continuously for its whole
+runtime, so at ~900 MB/s a single `standard` run puts roughly 26 GiB through the
+drive. Every run therefore reports its own measured `written:` total, taken from
+fio's own `io_bytes` rather than estimated, and `store.total_bytes_written()`
+accumulates it. Weekly `standard` runs cost on the order of 1.3 TB a year, which
+is a fraction of a percent of a modern TLC drive's rating but is emphatically not
+free.
+
+That is why disk tiers are opt-in, why `quick` is the default and writes nothing
+at all, and why none of this is wired to a timer. The layout files are removed
+after every run so the work directory does not accumulate gigabytes.
+
+The work directory defaults to `~/.cache/dotfile/bench/work`, **not** `/tmp`,
+which is tmpfs on this workstation — benchmarking it would measure RAM and report
+it as disk. The filesystem actually measured is recorded in every run.
+
+### workload metrics
+
+`workload.*` measures what is actually felt — nvim startup, `git status`,
+`git log`, a `tar` of the source tree — through `hyperfine`, and records the
+`dotfiles_sha` alongside. That makes a regression attributable to a config change
+rather than to the hardware, which is why these live in their own namespace and
+never feed the hardware baseline.
+
+Each workload is preflighted once with a 20 second budget and dropped if it does
+not finish. A cold `nvim --headless` can trigger a plugin manager sync that takes
+many minutes; without the preflight that hang lands inside the measurement.
+
+### Health integration
+
+`benchmark_issues()` returns the same `HealthIssue` tuples `health.py` produces,
+so `sysinfo -hh` reports a drifting machine with no new rendering code:
+
+```
+Disk write is 34% below baseline (2410 → 1580 MB/s)
+```
+
+It is composed at the CLI rather than inside `health_issues()`, so the snapshot
+health function stays pure and reads no files. It is silent when no baseline
+exists or the change is within the noise band. `dotfile check` grows a
+`benchmark` row that reports a stale series.
 
 ---
 

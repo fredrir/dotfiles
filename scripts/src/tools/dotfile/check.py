@@ -4,6 +4,7 @@ import re
 import shutil
 import tomllib
 
+from tools.core import blocks
 from tools.core.console import colors_enabled
 from tools.core.process import capture
 from tools.dotfile.profiles import detect_platform
@@ -28,6 +29,14 @@ from tools.dotfile.state import (
 )
 
 KINDS = ("command", "font", "file")
+
+STALE_BENCHMARK_DAYS = 120
+
+STRUCTURE_ERRORS = {
+    blocks.UNEXPECTED_CLOSE: "unexpected }",
+    blocks.NESTED: "nested group",
+    blocks.OUTSIDE: "entry outside a group",
+}
 
 FONT_DIRS = (
     "~/Library/Fonts",
@@ -68,39 +77,29 @@ PLUGIN_PATTERNS = (
 PLUGIN_DIRS = ("/usr/share/zsh/plugins", "/usr/share", "/usr/local/share")
 
 
+def read_requirement_entries(ctx):
+    try:
+        return blocks.read(ctx.requires_file)
+    except blocks.BlockError as error:
+        if error.kind == blocks.UNTERMINATED:
+            die(f"requires.dotfile:{error.number}: missing }} for {error.block}")
+        die(f"requires.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        return []
+
+
 def load_requirements(ctx):
     groups = {}
     if not os.path.isfile(ctx.requires_file):
         return groups
-    group = ""
-    number = 0
-    with open(ctx.requires_file, encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-    for raw in lines:
-        number += 1
-        line = trim(raw.split("#", 1)[0])
-        if not line:
+    for entry in read_requirement_entries(ctx):
+        if entry.opens:
+            if not entry.block:
+                die(f"requires.dotfile:{entry.number}: empty group")
+            if not os.path.isdir(os.path.join(ctx.root, entry.block)):
+                die(f"requires.dotfile:{entry.number}: unknown group: {entry.block}")
+            groups.setdefault(entry.block, [])
             continue
-        if line == "}":
-            if not group:
-                die(f"requires.dotfile:{number}: unexpected }}")
-            group = ""
-            continue
-        if line.endswith("{"):
-            if group:
-                die(f"requires.dotfile:{number}: nested group")
-            group = trim(line[:-1])
-            if not group:
-                die(f"requires.dotfile:{number}: empty group")
-            if not os.path.isdir(os.path.join(ctx.root, group)):
-                die(f"requires.dotfile:{number}: unknown group: {group}")
-            groups.setdefault(group, [])
-            continue
-        if not group:
-            die(f"requires.dotfile:{number}: entry outside a group")
-        name, _, package = line.partition("=")
-        name = trim(name)
-        package = trim(package)
+        name, package = entry.split("=")
         optional = name.startswith("?")
         if optional:
             name = trim(name[1:])
@@ -110,10 +109,8 @@ def load_requirements(ctx):
                 kind = word
                 name = trim(name[len(word) :])
         if not name:
-            die(f"requires.dotfile:{number}: empty entry")
-        groups[group].append((kind, name, package or name, optional))
-    if group:
-        die(f"requires.dotfile:{number}: missing }} for {group}")
+            die(f"requires.dotfile:{entry.number}: empty entry")
+        groups[entry.block].append((kind, name, package or name, optional))
     return groups
 
 
@@ -402,6 +399,28 @@ def package_rows(ctx, profile, groups, show_all):
     return rows, total
 
 
+def benchmark_rows(ctx):
+    try:
+        from tools.utils.sysinfo.bench import store
+        from tools.utils.sysinfo.bench.health import age_in_days
+        from tools.utils.sysinfo.hosts import resolve
+    except ImportError:
+        return [], 0
+    host = resolve()
+    if not host:
+        return [], 0
+    runs = store.list_runs(host, grades=("clean",))
+    if not runs:
+        return [row("note", "benchmark", "no runs recorded for " + host)], 0
+    age = age_in_days(runs[0])
+    if age is None:
+        return [], 0
+    if age >= STALE_BENCHMARK_DAYS:
+        return [row("warn", "benchmark", f"last clean run was {age} days ago")], 1
+    noun = "run" if len(runs) == 1 else "runs"
+    return [row("ok", "benchmark", f"{len(runs)} clean {noun}, newest {age} days old")], 0
+
+
 def cmd_check(ctx, profile, show_all):
     profile = resolve_profile(ctx, profile or "")
     manifest = require_manifest(ctx, profile)
@@ -415,6 +434,7 @@ def cmd_check(ctx, profile, show_all):
         requirement_rows(ctx, groups, show_all),
         plugin_rows(ctx, groups, show_all),
         package_rows(ctx, profile, groups, show_all),
+        benchmark_rows(ctx),
     ):
         rows.extend(section)
         problems += count

@@ -19,6 +19,16 @@ if staged packages.dotfile PACKAGES.md scripts/src/tools/dotfile \
   git add "$root/packages.dotfile" "$root/PACKAGES.md"
 fi
 
+if staged benchmarks scripts/src/tools/utils/sysinfo/bench; then
+  if "$bin/sysinfo" bench document >/dev/null; then
+    if [ -e "$root/benchmarks/BENCHMARKS.md" ]; then
+      git add "$root/benchmarks/BENCHMARKS.md"
+    fi
+  else
+    echo "pre-commit: benchmark document generation failed (continuing)" >&2
+  fi
+fi
+
 if staged keys.dotfile; then
   "$bin/dotfile" secret sync
   if [ -e "$root/.sops.yaml" ]; then

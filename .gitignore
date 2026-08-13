@@ -47,3 +47,6 @@ __pycache__/
 scripts/.venv/
 
 .idea/
+
+# Benchmark run lock: process state, never tracked.
+benchmarks/.lock

@@ -1,7 +1,14 @@
 import fnmatch
 import os
 
-from tools.dotfile.state import die, trim
+from tools.core import blocks
+from tools.dotfile.state import die
+
+STRUCTURE_ERRORS = {
+    blocks.UNEXPECTED_CLOSE: "unexpected }",
+    blocks.NESTED: "nested block",
+    blocks.OUTSIDE: "line outside an 'allow {' block",
+}
 
 
 def allow_file(ctx):
@@ -13,33 +20,20 @@ def load_allow(ctx):
     path = allow_file(ctx)
     if not os.path.isfile(path):
         return rules
-    with open(path, encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-    block = ""
-    number = 0
-    for raw in lines:
-        number += 1
-        line = trim(raw.split("#", 1)[0])
-        if not line:
+    try:
+        entries = blocks.read(path)
+    except blocks.BlockError as error:
+        if error.kind == blocks.UNTERMINATED:
+            die("scan.dotfile: unterminated block")
+        die(f"scan.dotfile:{error.number}: {STRUCTURE_ERRORS[error.kind]}")
+        return rules
+    for entry in entries:
+        if entry.opens:
+            if entry.block != "allow":
+                die(f"scan.dotfile:{entry.number}: unknown block '{entry.block}'")
             continue
-        if line == "}":
-            if not block:
-                die(f"scan.dotfile:{number}: unexpected }}")
-            block = ""
-            continue
-        if line.endswith("{"):
-            if block:
-                die(f"scan.dotfile:{number}: nested block")
-            block = trim(line[:-1])
-            if block != "allow":
-                die(f"scan.dotfile:{number}: unknown block '{block}'")
-            continue
-        if not block:
-            die(f"scan.dotfile:{number}: line outside an 'allow {{' block")
-        fields = line.split()
+        fields = entry.fields()
         rules.append((fields[0], fields[1] if len(fields) > 1 else ""))
-    if block:
-        die("scan.dotfile: unterminated block")
     return rules
 
 

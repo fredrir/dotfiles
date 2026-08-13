@@ -11,6 +11,7 @@ from tools.utils.sysinfo.collect import (
 from tools.utils.sysinfo.devices import board_description, named_gpu
 from tools.utils.sysinfo.formatting import capacity, memory_capacity
 from tools.utils.sysinfo.health import health_issues
+from tools.utils.sysinfo.hosts import Host, load_hosts, resolve
 from tools.utils.sysinfo.models import (
     Component,
     Fact,
@@ -29,6 +30,7 @@ __all__ = [
     "Component",
     "Fact",
     "HealthIssue",
+    "Host",
     "RenderOptions",
     "Snapshot",
     "SoftwareBadge",
@@ -43,10 +45,12 @@ __all__ = [
     "health_issues",
     "illustration",
     "load_hardware_config",
+    "load_hosts",
     "memory_capacity",
     "named_gpu",
     "render_plain",
     "render_pretty",
+    "resolve",
     "resolve_brand",
     "shell_info",
     "sysinfo",
