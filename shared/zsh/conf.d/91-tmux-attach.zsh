@@ -1,10 +1,32 @@
-ssa() {
+# Attach a tmux session on macie or archie from either machine.
+#
+#   ssa   tmux on archie      ssm   tmux on macie
+#
+# Whichever host you are already on resolves to the local tmux server rather
+# than an ssh loop back to itself.
+_tmux_attach() {
   emulate -L zsh
 
-  local host=archie
+  local host=$1
+  local command_name=$2
+  shift 2
+
+  local this_host
+  case "$OSTYPE" in
+    darwin*) this_host=macie ;;
+    linux*) this_host=archie ;;
+    *)
+      print -u2 -r -- "$command_name: unsupported operating system: $OSTYPE"
+      return 1
+      ;;
+  esac
+
+  local local_server=0
+  [[ "$host" == "$this_host" ]] && local_server=1
+
   local action=attach
   local session=main
-  local usage='usage: ssa [SESSION | --cc [SESSION] | ls | -ls | --list | delete SESSION | -rm SESSION]'
+  local usage="usage: $command_name [SESSION | --cc [SESSION] | ls | delete SESSION]"
 
   if (( $# )); then
     case "$1" in
@@ -22,7 +44,11 @@ ssa() {
           print -u2 -r -- "$usage"
           return 2
         }
-        command ssh "$host" 'tmux list-sessions'
+        if (( local_server )); then
+          command tmux list-sessions
+        else
+          command ssh "$host" 'tmux list-sessions'
+        fi
         return
         ;;
       delete|rm|-rm|--delete)
@@ -46,7 +72,7 @@ ssa() {
         session=$1
         ;;
       -*)
-        print -u2 -r -- "ssa: unknown option: $1"
+        print -u2 -r -- "$command_name: unknown option: $1"
         return 2
         ;;
       *)
@@ -61,7 +87,7 @@ ssa() {
 
   case "$session" in
     ''|-*|*[!A-Za-z0-9_-]*)
-      print -u2 -r -- 'ssa: session names may contain letters, numbers, _ and -'
+      print -u2 -r -- "$command_name: session names may contain letters, numbers, _ and -"
       return 2
       ;;
   esac
@@ -76,12 +102,23 @@ ssa() {
 
     # The leading '=' makes tmux use an exact session name, not a prefix match.
     local target="=$session"
-    command ssh "$host" "tmux kill-session -t ${(q)target}"
-  elif [[ "$action" == control ]]; then
-    command ssh -t "$host" \
-      "exec tmux -CC new-session -A -s ${(q)session}"
+    if (( local_server )); then
+      command tmux kill-session -t "$target"
+    else
+      command ssh "$host" "tmux kill-session -t ${(q)target}"
+    fi
+    return
+  fi
+
+  local -a mode
+  [[ "$action" == control ]] && mode=(-CC)
+
+  if (( local_server )); then
+    command tmux $mode new-session -A -s "$session"
   else
-    command ssh -t "$host" \
-      "exec tmux new-session -A -s ${(q)session}"
+    command ssh -t "$host" "exec tmux ${mode:+-CC }new-session -A -s ${(q)session}"
   fi
 }
+
+ssa() { _tmux_attach archie ssa "$@" }
+ssm() { _tmux_attach macie ssm "$@" }

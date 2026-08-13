@@ -8,6 +8,7 @@ local modules = {
   'wez.keys',
   'wez.domains',
   'wez.remote',
+  'wez.integrations',
 }
 
 for _, name in ipairs(modules) do

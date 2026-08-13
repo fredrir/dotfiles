@@ -3,8 +3,8 @@ local act = wezterm.action
 
 local M = {}
 
+-- CTRL+SHIFT+c is owned by wez.integrations.clean_copy.
 M.keys = {
-  { key = 'c', mods = 'CTRL|SHIFT', action = act.CopyTo 'Clipboard' },
   { key = 'v', mods = 'CTRL|SHIFT', action = act.PasteFrom 'Clipboard' },
   { key = 'v', mods = 'CTRL', action = act.PasteFrom 'Clipboard' },
   { key = 'Insert', mods = 'CTRL', action = act.CopyTo 'Clipboard' },

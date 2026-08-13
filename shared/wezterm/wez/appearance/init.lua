@@ -2,6 +2,7 @@ local wezterm = require 'wezterm'
 local platform = require 'wez.platform'
 local theme = require 'wez.theme'
 local tabs = require 'wez.appearance.tabs'
+local status = require 'wez.appearance.status'
 
 local M = {}
 
@@ -49,6 +50,7 @@ end
 
 function M.setup()
   tabs.setup()
+  status.setup()
 end
 
 return M
