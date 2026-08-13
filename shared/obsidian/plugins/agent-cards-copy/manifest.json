@@ -1,9 +1,0 @@
-{
-  "id": "agent-cards-copy",
-  "name": "Agent Cards Copy",
-  "version": "1.1.0",
-  "minAppVersion": "1.4.0",
-  "description": "Copy button and provider reassignment for agent transcript callouts.",
-  "author": "fredrir",
-  "isDesktopOnly": false
-}

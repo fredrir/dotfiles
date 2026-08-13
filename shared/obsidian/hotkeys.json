@@ -16,7 +16,7 @@
       "key": "P"
     }
   ],
-  "templater-obsidian:Templates/agent-wrap.md": [
+  "agent-transcripts:wrap-agent-transcript": [
     {
       "modifiers": [
         "Mod"
@@ -24,7 +24,7 @@
       "key": "Å"
     }
   ],
-  "templater-obsidian:Templates/agent-turn.md": [
+  "agent-transcripts:mark-transcript-turn": [
     {
       "modifiers": [
         "Mod"

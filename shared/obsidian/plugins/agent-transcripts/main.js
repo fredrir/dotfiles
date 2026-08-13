@@ -1,8 +1,48 @@
-const { Menu, Notice, Plugin, TFile, setIcon } = require("obsidian");
+const { FuzzySuggestModal, Menu, Notice, Plugin, TFile, setIcon } = require("obsidian");
+const {
+  formatLocalDate,
+  markTranscriptTurn,
+  swapProviderText,
+  wrapAgentTranscript,
+} = require("./format");
 
 const COPY_KINDS = new Set(["me", "turn", "tool", "claude", "codex", "agent", "chatgpt"]);
 const PROVIDERS = ["claude", "codex", "chatgpt", "agent"];
 const PROVIDER_KINDS = new Set(PROVIDERS);
+
+const PROVIDER_CHOICES = [
+  { label: "Claude", value: "claude" },
+  { label: "Codex", value: "codex" },
+  { label: "ChatGPT", value: "chatgpt" },
+  { label: "Agent", value: "agent" },
+];
+
+const TURN_CHOICES = [
+  { label: "Me — user message", value: "me" },
+  { label: "Turn — assistant reply", value: "turn" },
+  { label: "Tool — command / output", value: "tool" },
+];
+
+class ChoiceModal extends FuzzySuggestModal {
+  constructor(app, items, placeholder, onChoose) {
+    super(app);
+    this.items = items;
+    this.onChoose = onChoose;
+    this.setPlaceholder(placeholder);
+  }
+
+  getItems() {
+    return this.items;
+  }
+
+  getItemText(item) {
+    return item.label;
+  }
+
+  onChooseItem(item) {
+    void this.onChoose(item.value);
+  }
+}
 
 function textOf(content) {
   const clone = content.cloneNode(true);
@@ -16,15 +56,19 @@ function textOf(content) {
   return text.trim();
 }
 
-function swapProviderText(text, from, to) {
-  return text
-    .replace(new RegExp("(^[>\\s]*\\[!)" + from + "(\\]|\\|)", "gm"), "$1" + to + "$2")
-    .replace(new RegExp("(\\[!turn\\|)" + from + "(\\])", "g"), "$1" + to + "$2")
-    .replace(/^provider:.*$/m, "provider: " + to);
-}
-
-module.exports = class AgentCards extends Plugin {
+module.exports = class AgentTranscripts extends Plugin {
   onload() {
+    this.addCommand({
+      id: "wrap-agent-transcript",
+      name: "Wrap selection as agent transcript",
+      editorCallback: (editor) => this.openWrapPicker(editor),
+    });
+    this.addCommand({
+      id: "mark-transcript-turn",
+      name: "Mark selection as transcript turn",
+      editorCallback: (editor) => this.openTurnPicker(editor),
+    });
+
     this.registerMarkdownPostProcessor((element, context) => {
       for (const callout of element.querySelectorAll(".callout")) {
         const kind = callout.getAttribute("data-callout");
@@ -40,6 +84,39 @@ module.exports = class AgentCards extends Plugin {
     });
   }
 
+  openWrapPicker(editor) {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    const selection = editor.getRange(from, to);
+    new ChoiceModal(this.app, PROVIDER_CHOICES, "Wrap paste as…", async (provider) => {
+      let text = selection;
+      if (!text.trim()) {
+        try {
+          text = await navigator.clipboard.readText();
+        } catch (error) {
+          console.error("Agent Transcripts: could not read clipboard", error);
+          new Notice("Could not read the clipboard");
+          return;
+        }
+      }
+      if (!text.trim()) {
+        new Notice("The selection and clipboard are empty");
+        return;
+      }
+      editor.replaceRange(wrapAgentTranscript(text, provider, formatLocalDate(new Date())), from, to);
+    }).open();
+  }
+
+  openTurnPicker(editor) {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    const selection = editor.getRange(from, to);
+    new ChoiceModal(this.app, TURN_CHOICES, "Mark selection as…", (kind) => {
+      if (!selection) return;
+      editor.replaceRange(markTranscriptTurn(selection, kind), from, to);
+    }).open();
+  }
+
   copyButton(content) {
     const button = document.createElement("button");
     button.className = "agent-copy-button";
@@ -51,6 +128,9 @@ module.exports = class AgentCards extends Plugin {
       navigator.clipboard.writeText(textOf(content)).then(() => {
         setIcon(button, "check");
         window.setTimeout(() => setIcon(button, "copy"), 1200);
+      }).catch((error) => {
+        console.error("Agent Transcripts: could not write clipboard", error);
+        new Notice("Could not copy transcript contents");
       });
     });
     return button;
@@ -71,7 +151,7 @@ module.exports = class AgentCards extends Plugin {
             .setTitle(provider)
             .setChecked(provider === current)
             .setDisabled(provider === current)
-            .onClick(() => this.reassign(sourcePath, current, provider))
+            .onClick(() => this.reassign(sourcePath, current, provider)),
         );
       }
       menu.showAtMouseEvent(event);
@@ -97,6 +177,6 @@ module.exports = class AgentCards extends Plugin {
       }
       await this.app.fileManager.renameFile(file, target);
     }
-    new Notice("Provider set to " + to);
+    new Notice(`Provider set to ${to}`);
   }
 };

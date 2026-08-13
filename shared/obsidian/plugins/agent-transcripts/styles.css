@@ -1,3 +1,12 @@
+body {
+  --agent-claude-accent: #c47a5e;
+  --agent-claude-accent-rgb: 196, 122, 94;
+  --agent-codex-accent: #3d6fb4;
+  --agent-codex-accent-rgb: 61, 111, 180;
+  --agent-chatgpt-accent: #10a37f;
+  --agent-chatgpt-accent-rgb: 16, 163, 127;
+}
+
 .callout:is(
   [data-callout="claude"],
   [data-callout="codex"],
@@ -121,18 +130,26 @@
 }
 
 .callout[data-callout="claude"] {
-  --agent-accent: #c47a5e;
+  --agent-accent: var(--agent-claude-accent);
   --agent-label: "claude";
-  --agent-surface: color-mix(in srgb, #c47a5e 3%, var(--background-primary));
-  --callout-color: 196, 122, 94;
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-claude-accent) 3%,
+    var(--background-primary)
+  );
+  --callout-color: var(--agent-claude-accent-rgb);
   --callout-icon: lucide-asterisk;
 }
 
 .callout[data-callout="codex"] {
-  --agent-accent: #3d6fb4;
+  --agent-accent: var(--agent-codex-accent);
   --agent-label: "codex";
-  --agent-surface: color-mix(in srgb, #3d6fb4 4%, var(--background-primary));
-  --callout-color: 61, 111, 180;
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-codex-accent) 4%,
+    var(--background-primary)
+  );
+  --callout-color: var(--agent-codex-accent-rgb);
   --callout-icon: lucide-terminal;
 
   & > .callout-title .callout-title-inner {
@@ -147,10 +164,14 @@
 }
 
 .callout[data-callout="chatgpt"] {
-  --agent-accent: #10a37f;
+  --agent-accent: var(--agent-chatgpt-accent);
   --agent-label: "chatgpt";
-  --agent-surface: color-mix(in srgb, #10a37f 3%, var(--background-primary));
-  --callout-color: 16, 163, 127;
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-chatgpt-accent) 3%,
+    var(--background-primary)
+  );
+  --callout-color: var(--agent-chatgpt-accent-rgb);
   --callout-icon: lucide-message-square;
 }
 
@@ -288,12 +309,17 @@
 
 .callout[data-callout="turn"][data-callout-metadata*="claude"] {
   --callout-icon: lucide-asterisk;
-  --turn-accent: #c47a5e;
+  --turn-accent: var(--agent-claude-accent);
 }
 
 .callout[data-callout="turn"][data-callout-metadata*="codex"] {
   --callout-icon: lucide-terminal;
-  --turn-accent: #3d6fb4;
+  --turn-accent: var(--agent-codex-accent);
+}
+
+.callout[data-callout="turn"][data-callout-metadata*="chatgpt"] {
+  --callout-icon: lucide-message-square;
+  --turn-accent: var(--agent-chatgpt-accent);
 }
 
 .callout[data-callout="toc"] {
@@ -455,4 +481,67 @@
 .transcript .callout[data-callout="me"] > .callout-content {
   color: var(--text-muted);
   font-size: 0.92em;
+}
+
+.markdown-rendered pre:has(> code.language-claude) {
+  --agent-accent: var(--agent-claude-accent);
+  --agent-block-label: "claude";
+}
+
+.markdown-rendered pre:has(> code.language-codex) {
+  --agent-accent: var(--agent-codex-accent);
+  --agent-block-label: "codex";
+}
+
+.markdown-rendered pre:has(> code.language-chatgpt) {
+  --agent-accent: var(--agent-chatgpt-accent);
+  --agent-block-label: "chatgpt";
+}
+
+.markdown-rendered pre:has(> code.language-agent) {
+  --agent-accent: var(--text-accent);
+  --agent-block-label: "agent";
+}
+
+.markdown-rendered pre:has(
+  > code:is(.language-claude, .language-codex, .language-chatgpt, .language-agent)
+) {
+  position: relative;
+  max-height: min(60vh, 44rem);
+  margin-block: 1.1rem;
+  padding: 2.4rem 1rem 1rem;
+  overflow: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-inline-start: 2px solid
+    color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  border-radius: 8px;
+  background: var(--code-background);
+  scrollbar-gutter: stable;
+
+  &::before {
+    content: var(--agent-block-label);
+    position: absolute;
+    top: 0.7rem;
+    left: 1rem;
+    color: color-mix(in srgb, var(--agent-accent) 70%, var(--text-muted));
+    font-family: var(--font-interface);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+
+  & > code {
+    background: transparent;
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    line-height: 1.55;
+    white-space: pre;
+    overflow-wrap: normal;
+
+    &::before {
+      display: none;
+      content: none;
+    }
+  }
 }
