@@ -180,7 +180,7 @@ def test_doctor_reports_a_missing_recovery_key(tool, repo):
     _root, _home, env = repo
     secret(tool, env, "enroll", "archpc", KEY_A)
     result = secret(tool, env, "doctor")
-    assert "no recovery key" in result.stdout
+    assert "none named recovery" in result.stdout
 
 
 @pytest.mark.skipif(not shutil.which("age-keygen"), reason="needs age")
@@ -196,17 +196,30 @@ def test_doctor_tells_a_duplicate_identity_from_a_different_one(repo, tmp_path):
     stray = home / ".config" / "sops" / "age" / "keys.txt"
     stray.parent.mkdir(parents=True)
 
-    assert doctor.strays_row(ctx)[0] == "ok"
+    assert doctor.strays_row(ctx, {})[0] == "ok"
 
     shutil.copy(identity, stray)
-    assert "same key" in doctor.strays_row(ctx)[3][0][1]
+    mine = doctor.strays_row(ctx, {})
+    assert mine[0] == "warn"
+    assert "own key" in mine[3][0][1]
 
     stray.unlink()
     subprocess.run(["age-keygen", "-o", str(stray)], check=True, capture_output=True)
-    assert "a different key" in doctor.strays_row(ctx)[3][0][1]
+    other = subprocess.run(
+        ["age-keygen", "-y", str(stray)], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    unrelated = doctor.strays_row(ctx, {})
+    assert unrelated[0] == "note"
+    assert "opens nothing" in unrelated[3][0][1]
+    held = doctor.strays_row(ctx, {"recovery2": other})
+    assert held[0] == "warn"
+    assert "recovery2" in held[3][0][1] and "off-machine" in held[3][0][1]
+    held = doctor.strays_row(ctx, {"otherbox": other})
+    assert held[0] == "warn"
+    assert "otherbox" in held[3][0][1] and "wrong machine" in held[3][0][1]
 
     stray.write_text("junk\n")
-    assert "not readable" in doctor.strays_row(ctx)[3][0][1]
+    assert "not readable" in doctor.strays_row(ctx, {})[3][0][1]
 
 
 def test_enroll_stages_what_it_changed(tool, repo):
@@ -302,3 +315,26 @@ def test_using_rejects_a_path_that_is_not_an_identity(tool, repo, tmp_path):
     result = secret(tool, env, "enroll", "new", KEY_B, "--using", str(tmp_path / "nope.txt"))
     assert result.returncode == 1
     assert "no such identity file" in result.stderr
+
+
+def test_any_recovery_prefixed_label_counts(tool, repo):
+    _root, _home, env = repo
+    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "recovery2", KEY_B)
+    result = secret(tool, env, "doctor")
+    assert "no recovery" not in result.stdout
+    assert "none named recovery" not in result.stdout
+
+
+def test_a_label_that_merely_contains_recovery_does_not_count(tool, repo):
+    _root, _home, env = repo
+    secret(tool, env, "enroll", "my-recovery-box", KEY_A)
+    result = secret(tool, env, "doctor")
+    assert "none named recovery" in result.stdout
+
+
+def test_recovery_labels_are_matched_by_prefix():
+    assert keys.recovery_labels({"recovery": "x"}) == ["recovery"]
+    assert keys.recovery_labels({"recovery2": "x"}) == ["recovery2"]
+    assert keys.recovery_labels({"Recovery-yubikey": "x"}) == ["Recovery-yubikey"]
+    assert keys.recovery_labels({"archpc": "x", "macie": "x"}) == []

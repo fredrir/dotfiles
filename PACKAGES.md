@@ -11,6 +11,7 @@
 - `starship` — Cross-shell prompt configuration
 - `tmux`
 - `transcript`
+- `wezterm`
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
 
@@ -67,7 +68,6 @@
 
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
-- `iterm` — iTerm2 terminal profile
 - `launchd`
 - `skhd`
 - `ssh`

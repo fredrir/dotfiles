@@ -14,10 +14,11 @@ from tools.dotfile.secret.identity import (
     stray_paths,
 )
 from tools.dotfile.secret.keys import (
-    RECOVERY,
+    is_recovery,
     keys_file,
     label_for,
     load_recipients,
+    recovery_labels,
     sops_drifted,
     sops_file,
 )
@@ -82,12 +83,12 @@ def suggested_label():
 def recipients_row(ctx, recipients):
     if not recipients:
         return row("bad", "recipients", f"none in {shorten(ctx, keys_file(ctx))}")
-    items = [(label, "recovery" if label == RECOVERY else "") for label in sorted(recipients)]
-    if RECOVERY not in recipients:
+    items = [(label, "recovery" if is_recovery(label) else "") for label in sorted(recipients)]
+    if not recovery_labels(recipients):
         return row(
             "bad",
             "recipients",
-            f"{len(recipients)} enrolled, no recovery key",
+            f"{len(recipients)} enrolled, none named recovery*",
             items + [("one lost disk loses everything encrypted", "")],
         )
     return row("ok", "recipients", f"{len(recipients)} enrolled", items)
@@ -188,22 +189,29 @@ def diffs_row(ctx):
     return row("ok", "diffs", "git diff decrypts sops files locally")
 
 
-def strays_row(ctx):
+def stray_finding(recipients, mine, other):
+    if not other:
+        return "warn", "not readable as an age key"
+    if other == mine:
+        return "warn", "this machine's own key, duplicated here"
+    label = label_for(recipients, other)
+    if not label:
+        return "note", "not a recipient here, so it opens nothing in this repository"
+    if is_recovery(label):
+        return "warn", f"the '{label}' key, which is meant to live off-machine"
+    return "warn", f"the '{label}' key; that machine's identity, on the wrong machine"
+
+
+def strays_row(ctx, recipients):
     found = [path for path in stray_paths(ctx) if os.path.isfile(path)]
     if not found:
         return row("ok", "strays", "no identity outside the state directory")
     mine = public_key(identity_path(ctx))
-    items = []
-    for path in found:
-        other = public_key(path)
-        if other and other == mine:
-            note = "same key, safe to remove"
-        elif other:
-            note = "a different key; sops may prefer it"
-        else:
-            note = "not readable as an age key"
-        items.append((shorten(ctx, path), note))
-    return row("warn", "strays", "another age identity on this machine", items)
+    findings = [(path, *stray_finding(recipients, mine, public_key(path))) for path in found]
+    items = [(shorten(ctx, path), note) for path, _kind, note in findings]
+    if any(kind == "warn" for _path, kind, _note in findings):
+        return row("warn", "strays", "another age identity on this machine", items)
+    return row("note", "strays", "another age identity, unrelated to this one", items)
 
 
 def cmd_doctor(ctx, show_all):
@@ -221,7 +229,7 @@ def cmd_doctor(ctx, show_all):
         canaries_row(ctx),
         hooks_row(ctx),
         diffs_row(ctx),
-        strays_row(ctx),
+        strays_row(ctx, recipients),
     ]
     for entry in entries:
         emit(entry, color_on)

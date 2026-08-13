@@ -8,6 +8,14 @@ LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RECOVERY = "recovery"
 
 
+def is_recovery(label):
+    return label.lower().startswith(RECOVERY)
+
+
+def recovery_labels(recipients):
+    return [label for label in sorted(recipients) if is_recovery(label)]
+
+
 def keys_file(ctx):
     return os.path.join(ctx.root, "keys.dotfile")
 
