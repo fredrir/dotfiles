@@ -11,7 +11,7 @@
 - `starship` — Cross-shell prompt configuration
 - `tmux`
 - `transcript`
-- `wezterm`
+- `wezterm` — Terminal emulator with a modular Lua configuration
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
 

@@ -2,3 +2,4 @@
 /luarocks.bat
 /lua_modules
 /.luarocks
+/types

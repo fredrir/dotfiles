@@ -22,6 +22,7 @@ def _panel_preset_outputs():
 
 EMITTERS = [
     Emitter("kitty", emitters.emit_kitty, ["shared/kitty/colors-mocha.conf"]),
+    Emitter("wezterm", emitters.emit_wezterm, ["shared/wezterm/wez/theme.lua"]),
     Emitter(
         "konsole", emitters.emit_konsole, ["linux/kde/konsole/share/Catppuccin-Mocha.colorscheme"]
     ),

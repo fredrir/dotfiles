@@ -63,7 +63,7 @@ QUICKLAUNCH_KEYS = (
 def emit_kitty(theme, out):
     terminal = theme.data["terminal"]
     ansi = terminal["ansi"]
-    tabs = theme.data["kitty"]["tabs"]
+    tabs = terminal["tabs"]
     lines = [
         f"# {GENERATED_HEADER}",
         f"# {theme.data['name']}",
@@ -88,6 +88,53 @@ def emit_kitty(theme, out):
         f"tab_bar_background      {theme.hex(tabs['bar_background'])}",
     ]
     out.write(path("shared/kitty/colors-mocha.conf"), "\n".join(lines) + "\n")
+
+
+def emit_wezterm(theme, out):
+    terminal = theme.data["terminal"]
+    ansi = terminal["ansi"]
+    tabs = terminal["tabs"]
+
+    def quoted(value):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return '"' + escaped + '"'
+
+    def entry(key, value):
+        return f"    [{quoted(key)}] = {quoted(value)},"
+
+    def ansi_list(names):
+        return "{ " + ", ".join(quoted(theme.hex(ansi[name])) for name in names) + " }"
+
+    lines = [
+        f"-- {GENERATED_HEADER}",
+        "return {",
+        f'  name = {quoted(theme.data["name"])},',
+        "  colors = {",
+        f'    foreground = {quoted(theme.hex(terminal["foreground"]))},',
+        f'    background = {quoted(theme.hex(terminal["background"]))},',
+        f'    cursor_bg = {quoted(theme.hex(terminal["cursor"]))},',
+        f'    cursor_fg = {quoted(theme.hex(terminal["cursor_text"]))},',
+        f'    cursor_border = {quoted(theme.hex(terminal["cursor"]))},',
+        f'    selection_fg = {quoted(theme.hex(terminal["selection_foreground"]))},',
+        f'    selection_bg = {quoted(theme.hex(terminal["selection_background"]))},',
+        f"    ansi = {ansi_list(ANSI_NORMAL)},",
+        f"    brights = {ansi_list(['bright_' + name for name in ANSI_NORMAL])},",
+        "  },",
+        "  tabs = {",
+    ]
+    for key in sorted(tabs):
+        lines.append(entry(key, theme.hex(tabs[key])))
+    lines.append("  },")
+    lines.append("  palette = {")
+    for name in sorted(theme.palette):
+        lines.append(entry(name, theme.hex(name)))
+    lines.append("  },")
+    lines.append("  fonts = {")
+    for name in sorted(theme.fonts):
+        lines.append(entry(name, theme.fonts[name]))
+    lines.append("  },")
+    lines.append("}")
+    out.write(path("shared/wezterm/wez/theme.lua"), "\n".join(lines) + "\n")
 
 
 def emit_konsole(theme, out):

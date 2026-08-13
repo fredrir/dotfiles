@@ -68,7 +68,7 @@ bright_magenta = "pink"
 bright_cyan    = "teal"
 bright_white   = "subtext"
 
-[kitty.tabs]
+[terminal.tabs]
 active_foreground   = "base"
 active_background   = "mauve"
 inactive_foreground = "subtext"
