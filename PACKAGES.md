@@ -6,7 +6,7 @@
 - `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from theme/palette.toml
-- `rsync` — Shared exclusion rules for remote pulls
+- `rsync` — Shared exclusion rules for home-directory transfers
 - `skills`
 - `starship` — Cross-shell prompt configuration
 - `transcript`

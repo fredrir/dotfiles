@@ -6,21 +6,44 @@ git() {
   esac
 }
 
-# Copy one home-relative file or directory between this machine and a remote.
-hcopy() {
+# Copy one path between matching locations under the home directories on
+# macie and archie.
+_home_copy() {
   emulate -L zsh
+
+  local direction=$1
+  local command_name="h$direction"
+  shift
+
+  local local_name remote_host remote_home
+  case "$OSTYPE" in
+    darwin*)
+      local_name=macie
+      remote_host=archie
+      remote_home=/home/fredrir
+      ;;
+    linux*)
+      local_name=archie
+      remote_host=macie
+      remote_home=/Users/fredrir
+      ;;
+    *)
+      print -u2 -r -- "$command_name: unsupported operating system: $OSTYPE"
+      return 1
+      ;;
+  esac
 
   local preview=0
   local use_excludes=1
-  local -a rsync_args=(-ai)
-  local usage='usage: hcopy <pull|push> [-n|--dry-run] [-c|--checksum] [--all] host home-relative-path'
+  local -a rsync_args=(-aiR)
+  local usage="usage: $command_name [-n|--dry-run] [-c|--checksum] [--all] path"
   local help="$usage
 
-Copy one path between matching locations in the local and remote home
-directories. The direction is always stated explicitly:
+Copy a file or directory between the same home-relative location on macie
+and archie. A relative path is resolved from the current directory.
 
-  pull  remote -> local
-  push  local  -> remote
+  hpull  other machine -> this machine
+  hpush  this machine  -> other machine
 
 Files at the destination may be updated. Files absent from the source are
 not deleted.
@@ -32,42 +55,16 @@ Options:
   -h, --help      Show this help
 
 Examples:
-  hcopy pull archie .config/nvim
-      FROM  archie:~/.config/nvim
-      TO    local:~/.config/nvim
+  cd ~ && hpush .tmux.conf
+      macie:~/.tmux.conf -> archie:~/.tmux.conf  (when run on macie)
 
-  hcopy push archie Documents/notes.md
-      FROM  local:~/Documents/notes.md
-      TO    archie:~/Documents/notes.md
+  cd ~/projects/my-app && hpull project.yml
+      Pull the matching ~/projects/my-app/project.yml from the other machine
 
-  hcopy pull --dry-run archie projects/my-app
-      Preview a remote-to-local copy without changing either machine
+  hpush --dry-run go
+      Preview the copy and make no changes
 
-  hcopy push --checksum user@example.com projects/my-app
-      Copy local changes to the remote, comparing files by content
-
-  hcopy push --all archie projects/my-app
-      Include normally excluded files such as .git and __pycache__"
-
-  case "${1:-}" in
-    pull|push)
-      local direction=$1
-      shift
-      ;;
-    -h|--help|help)
-      print -r -- "$help"
-      return 0
-      ;;
-    '')
-      print -u2 -r -- "$usage"
-      return 2
-      ;;
-    *)
-      print -u2 -r -- "hcopy: direction must be 'pull' or 'push': $1"
-      print -u2 -r -- "$usage"
-      return 2
-      ;;
-  esac
+Run the command to see the exact FROM and TO paths before confirming."
 
   while (( $# )); do
     case "$1" in
@@ -90,7 +87,7 @@ Examples:
         break
         ;;
       -*)
-        print -u2 -r -- "hcopy: unknown option: $1"
+        print -u2 -r -- "$command_name: unknown option: $1"
         print -u2 -r -- "$usage"
         return 2
         ;;
@@ -101,34 +98,39 @@ Examples:
     shift
   done
 
-  (( $# == 2 )) || {
+  (( $# == 1 )) || {
     print -u2 -r -- "$usage"
     return 2
   }
 
-  local remote_host=$1
-  local rel_path=${2%/}
-
-  case "$remote_host" in
-    ''|-*|*[!A-Za-z0-9._@-]*)
-      print -u2 -r -- 'hcopy: host must be an SSH name or user@host'
-      return 2
+  local input_path=$1
+  local local_path
+  case "$input_path" in
+    '~')
+      local_path=$HOME
+      ;;
+    '~/'*)
+      local_path="$HOME/${input_path#\~/}"
+      ;;
+    *)
+      local_path=$input_path
       ;;
   esac
 
-  case "$rel_path" in
-    ''|.|./*|*/./*|*/.|/*|~*|..|../*|*/../*|*/..)
-      print -u2 -r -- 'hcopy: path must be clean and relative to the home directory'
-      return 2
-      ;;
-  esac
+  local home_path=${HOME:A}
+  local_path=${local_path:A}
+  if [[ "$local_path" != "$home_path"/* ]]; then
+    print -u2 -r -- "$command_name: path must be inside your home directory: $local_path"
+    return 2
+  fi
+  local rel_path=${local_path#$home_path/}
 
   (( $+commands[rsync] )) || {
-    print -u2 -r -- 'hcopy: rsync is not installed'
+    print -u2 -r -- "$command_name: rsync is not installed"
     return 127
   }
   (( $+commands[ssh] )) || {
-    print -u2 -r -- 'hcopy: ssh is not installed'
+    print -u2 -r -- "$command_name: ssh is not installed"
     return 127
   }
 
@@ -138,57 +140,67 @@ Examples:
     rsync_args+=(--exclude-from="$exclude_file")
   fi
 
-  local label=$direction
-  (( preview )) && label="$label (dry run)"
+  local suffix=''
+  (( preview )) && suffix=' (dry run)'
 
   if [[ "$direction" == pull ]]; then
-    print -u2 -r -- "hcopy $label"
-    print -u2 -r -- "  FROM  $remote_host:~/$rel_path"
-    print -u2 -r -- "  TO    local:~/$rel_path"
-
-    # Copying into the source's parent preserves the same path for both files
-    # and directories without changing metadata on the home directory itself.
-    local local_parent="$HOME/${rel_path:h}"
-    if [[ ! -d "$local_parent" ]]; then
-      if (( preview )); then
-        print -u2 -r -- "hcopy: local destination parent does not exist: $local_parent"
-        print -u2 -r -- 'hcopy: a real pull would create it'
-        return 1
-      fi
-      command mkdir -p -- "$local_parent" || return
-    fi
-
-    command rsync "${rsync_args[@]}" -- \
-      "$remote_host:${(q)rel_path}" \
-      "$local_parent/"
+    print -u2 -r -- "$command_name$suffix"
+    print -u2 -r -- "  FROM  $remote_host:$remote_home/$rel_path"
+    print -u2 -r -- "  TO    $local_name:$local_path"
   else
-    print -u2 -r -- "hcopy $label"
-    print -u2 -r -- "  FROM  local:~/$rel_path"
-    print -u2 -r -- "  TO    $remote_host:~/$rel_path"
-
-    local local_source="$HOME/$rel_path"
-    if [[ ! -e "$local_source" && ! -L "$local_source" ]]; then
-      print -u2 -r -- "hcopy: local source does not exist: $local_source"
+    if [[ ! -e "$local_path" && ! -L "$local_path" ]]; then
+      print -u2 -r -- "$command_name: local source does not exist: $local_path"
       return 1
     fi
 
-    local remote_parent=${rel_path:h}
-    if [[ "$remote_parent" != . ]]; then
-      if (( preview )); then
-        if ! command ssh "$remote_host" "test -d ${(q)remote_parent}"; then
-          print -u2 -r -- "hcopy: remote destination parent does not exist: $remote_host:~/$remote_parent"
-          print -u2 -r -- 'hcopy: a real push would create it'
-          return 1
-        fi
-      else
-        command ssh "$remote_host" "mkdir -p -- ${(q)remote_parent}" || return
-      fi
-    fi
-
-    command rsync "${rsync_args[@]}" -- \
-      "$local_source" \
-      "$remote_host:${(q)remote_parent}/"
+    print -u2 -r -- "$command_name$suffix"
+    print -u2 -r -- "  FROM  $local_name:$local_path"
+    print -u2 -r -- "  TO    $remote_host:$remote_home/$rel_path"
   fi
+
+  if (( ! preview )); then
+    local reply
+    while true; do
+      if ! read -r "reply?Continue? [Y/n] "; then
+        print
+        return 1
+      fi
+      case "${reply:l}" in
+        ''|y|yes)
+          break
+          ;;
+        n|no)
+          print -r -- "$command_name: cancelled"
+          return 0
+          ;;
+        *)
+          print -u2 -r -- 'Please answer y or n.'
+          ;;
+      esac
+    done
+  fi
+
+  # --relative preserves rel_path and creates missing destination directories.
+  if [[ "$direction" == pull ]]; then
+    command rsync "${rsync_args[@]}" -- \
+      "$remote_host:${(q)rel_path}" \
+      "$home_path/"
+  else
+    (
+      builtin cd -- "$home_path" || return
+      command rsync "${rsync_args[@]}" -- \
+        "$rel_path" \
+        "$remote_host:"
+    )
+  fi
+}
+
+hpull() {
+  _home_copy pull "$@"
+}
+
+hpush() {
+  _home_copy push "$@"
 }
 
 unalias cd 2>/dev/null
