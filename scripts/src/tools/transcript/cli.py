@@ -1,4 +1,5 @@
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -48,7 +49,7 @@ def main(ctx: typer.Context):
     elif name == "rm":
         _interactive_rm()
     elif name == "migrate":
-        migrate()
+        migrate(verbose=False)
     elif name == "sync":
         sync(dry_run=False, raw=False, quiet=False, tools=False)
 
@@ -314,8 +315,50 @@ def _vault_relative(path):
         return str(path)
 
 
+def _quantity(count, noun):
+    return f"{count} {noun if count == 1 else f'{noun}s'}"
+
+
+def _migration_relative(move):
+    return move.source.relative_to(config.transcripts_dir() / move.group)
+
+
+def _print_migration_preview(moves, verbose):
+    groups = {}
+    for move in moves:
+        groups.setdefault(move.group, []).append(move)
+
+    out("Transcript migration")
+    out()
+    out(f"{_quantity(len(moves), 'file')} in {_quantity(len(groups), 'group')}")
+    for group, group_moves in groups.items():
+        source_root = config.transcripts_dir() / group
+        destination_root = config.destination_dir(group)
+        directories = Counter(
+            str(relative.parent) if relative.parent != Path(".") else "(root)"
+            for relative in (_migration_relative(move) for move in group_moves)
+        )
+        width = max(len(directory) for directory in directories)
+
+        out()
+        out(f"{group}  {_quantity(len(group_moves), 'file')}")
+        out(f"  {_vault_relative(source_root)} → {_vault_relative(destination_root)}")
+        out()
+        for directory, count in sorted(directories.items()):
+            out(f"  {directory:<{width}}  {_quantity(count, 'file')}")
+        if verbose:
+            out()
+            out("  Files")
+            for move in group_moves:
+                out(f"    {_migration_relative(move)}")
+
+
 @app.command(help="Move existing transcript groups to their configured destinations.")
-def migrate():
+def migrate(
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="List every file in the preview.")
+    ] = False,
+):
     try:
         moves = migration.plan()
     except ValueError as error:
@@ -324,24 +367,15 @@ def migrate():
         out("transcript migrate: nothing to migrate")
         return
     blocked = migration.conflicts(moves)
-    blocked_destinations = {move.destination for move in blocked}
-    table = Table(title="Transcript migration", header_style="bold")
-    table.add_column("group")
-    table.add_column("from")
-    table.add_column("to")
-    table.add_column("status")
-    for move in moves:
-        table.add_row(
-            move.group,
-            _vault_relative(move.source),
-            _vault_relative(move.destination),
-            "conflict" if move.destination in blocked_destinations else "move",
-        )
-    stdout.print(table)
+    _print_migration_preview(moves, verbose)
     if blocked:
+        out()
+        out(_quantity(len(blocked), "destination conflict"))
+        for move in blocked:
+            out(f"  {_vault_relative(move.destination)}")
         die("transcript", "migration has destination conflicts; no files were moved")
     noun = "file" if len(moves) == 1 else "files"
-    if not typer.confirm(f"Migrate {len(moves)} {noun}?", default=True):
+    if not typer.confirm(f"Move {len(moves)} {noun}?", default=False):
         out("transcript migrate: cancelled")
         return
     try:

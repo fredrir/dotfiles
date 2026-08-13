@@ -601,9 +601,10 @@ dotfiles = "Dotfiles/Agents"
 
 With that configuration, a July Codex session is written to
 `Dotfiles/Agents/2026-07/codex/<note>.md`. Groups without an override retain the
-normal `Transcripts/<group>` layout. `transcript migrate` previews every file
-move from the old group roots, refuses destination conflicts, and asks for
-confirmation with `[Y/n]` before changing anything.
+normal `Transcripts/<group>` layout. `transcript migrate` previews file counts
+grouped by directory, while `--verbose` lists every relative file path. It
+refuses destination conflicts and asks for confirmation with `[y/N]` before
+changing anything.
 
 ## cpa, cpas and acp
 
