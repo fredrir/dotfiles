@@ -1,0 +1,13 @@
+[Unit]
+Description=DHCP for Mac USB direct link
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/dnsmasq --keep-in-foreground --conf-file=/etc/dnsmasq-macie-usb.conf
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

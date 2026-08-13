@@ -13,6 +13,7 @@ FILE_MODE = 0o600
 DIR_MODE = 0o700
 
 MARKER = ".secret"
+SYSTEM_MARKER = ".system"
 SUFFIX = ".enc"
 TEMPLATE = ".tmpl"
 
@@ -141,7 +142,7 @@ def package_entries(ctx, pkgdir, name, whole):
     found = []
     for parent, _dirnames, filenames in os.walk(pkgdir):
         for base in sorted(filenames):
-            if base in (MARKER, ".nolink"):
+            if base in (MARKER, ".nolink", SYSTEM_MARKER):
                 continue
             src = os.path.join(parent, base)
             kind = kind_of(src)

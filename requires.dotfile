@@ -46,6 +46,10 @@ linux/common {
   wl-paste = wl-clipboard
 }
 
+linux/arch {
+  dnsmasq
+}
+
 linux/kde {
   plasmashell = plasma-desktop
   konsole

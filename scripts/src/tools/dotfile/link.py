@@ -100,7 +100,7 @@ def link_dir(ctx, src, dst, full, pkg, rel):
 
 
 def walk_node(ctx, pkg, rel, src, full):
-    if os.path.basename(src) in (".nolink", ".secret"):
+    if os.path.basename(src) in (".nolink", ".secret", ".system"):
         return
     if vault_owned(src):
         return
@@ -245,7 +245,7 @@ def claimed_destinations(ctx):
             continue
         pkg = os.path.basename(pkgdir)
         for file in status_files(pkgdir):
-            if os.path.basename(file) in (".nolink", ".secret") or vault_owned(file):
+            if os.path.basename(file) in (".nolink", ".secret", ".system") or vault_owned(file):
                 continue
             rel = file[len(pkgdir) + 1 :]
             claims[map_dst(ctx, f"{name}/{rel}", pkg, rel)] = file

@@ -22,3 +22,4 @@ shared/obsidian/appearance.json = ~/Documents/main/.obsidian/appearance.json
 shared/obsidian/app.json = ~/Documents/main/.obsidian/app.json
 shared/obsidian/templates = ~/Documents/main/.obsidian/templates
 shared/obsidian/plugins = ~/Documents/main/.obsidian/plugins
+linux/arch/macie-usb/etc = /etc

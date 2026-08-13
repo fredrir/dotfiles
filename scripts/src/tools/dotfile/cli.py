@@ -7,6 +7,7 @@ from tools.dotfile import link as link_command
 from tools.dotfile import packages as packages_command
 from tools.dotfile import profiles as profiles_command
 from tools.dotfile import remove as remove_command
+from tools.dotfile import system as system_cli
 from tools.dotfile.secret import cli as secret_cli
 from tools.dotfile.state import Context, die, log
 
@@ -16,6 +17,7 @@ app = typer.Typer(
 )
 
 app.add_typer(secret_cli.app, name="secret")
+app.add_typer(system_cli.app, name="system")
 
 
 @app.callback(invoke_without_command=True)

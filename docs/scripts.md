@@ -77,6 +77,7 @@ scripts/
       format.py              .conf formatter
       profiles.py            host platform and desktop detection
       report.py              shared marks, alignment and clipping
+      system.py              root-owned files under /etc
       secret/
         cli.py               secret subcommand dispatch
         scan.py              pattern, canary and invariant tiers
@@ -365,6 +366,40 @@ its secrets as `sealed` and links everything else, so an unenrolled machine is
 still usable.
 
 See `docs/secrets.md` for the threat model behind all of it.
+
+### system
+
+`dotfile system` tracks root-owned files — `/etc` and the like — that the
+linker deliberately will not touch. A package carrying a `.system` marker is
+never symlinked and never installed by `link`; it mirrors the destination tree
+inside itself, so `linux/arch/macie-usb/etc/systemd/network/x.link` installs to
+`/etc/systemd/network/x.link` under a single `targets` line pointing the
+package's `etc` at `/etc`.
+
+Symlinking is not merely unsupported here, it is unsafe. systemd, dnsmasq and
+NetworkManager read those files as root; a symlink into a user-writable
+repository turns write access to `$HOME` into root. So these are copied with
+`install -o root -g root`, never linked, and `add` refuses any source under
+`$HOME` for the same reason the linker refuses sources outside it.
+
+Templates and vars work exactly as they do in the vault, which is the point: a
+`.link` file matching on a MAC address becomes a `.tmpl` naming a var, and the
+address itself lives encrypted in `vars.enc.yaml` rather than in a public
+repository.
+
+`status` and `diff` are read-only and need no privileges, since the files are
+world readable. `install` is the only command that touches the system, is never
+run by `link`, asks before writing unless given `--yes`, and refuses outright
+while any file is unresolved — a half-installed network configuration is worse
+than an out-of-date one. Destinations must be absolute, must not be under
+`$HOME`, and their top-level directory must already exist, so a typo in
+`targets` cannot invent a path.
+
+Modes are `0644`, `0755` when the tracked file is executable, and `0600` for
+anything encrypted. After installing, the command prints the reload each
+destination needs — `daemon-reload` for units, `udevadm` for `.link` files,
+a NetworkManager reload for its drop-ins — rather than running them, because
+those interrupt a working network.
 
 ### Profiles
 

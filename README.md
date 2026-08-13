@@ -112,6 +112,11 @@ dotfile secret clean
 dotfile secret edit vars.enc.yaml
 dotfile secret vars
 dotfile secret vars --unused
+
+dotfile system add /etc/dnsmasq-macie-usb.conf --pkg macie-usb
+dotfile system status
+dotfile system diff
+dotfile system install
 ```
 
 ## Command-line tools

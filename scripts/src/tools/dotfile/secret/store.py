@@ -22,6 +22,7 @@ from tools.dotfile.secret.vault import (
     plan,
 )
 from tools.dotfile.state import canon, die, log, shorten
+from tools.dotfile.system import plan as system_plan
 from tools.dotfile.targets import load_targets
 
 UNCHANGED = 200
@@ -120,7 +121,7 @@ def cmd_vars(ctx, unused_only):
         log(f"nothing declared in {VARS}")
         return
     used = {}
-    for entry in plan(ctx):
+    for entry in plan(ctx) + system_plan(ctx):
         if entry.kind != TMPL:
             continue
         with open(entry.src, encoding="utf-8", errors="replace") as handle:
