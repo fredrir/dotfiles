@@ -27,6 +27,7 @@
 
 ## `linux/arch`
 
+- `NetworkManager`
 - `fastfetch` — Arch fastfetch logo and configuration
 - `git` — Arch-specific Git configuration
 

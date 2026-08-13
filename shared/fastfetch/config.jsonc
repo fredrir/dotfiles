@@ -57,7 +57,6 @@
     "break",
 
     { "type": "custom", "format": "{$4}  NETWORK" },
-    { "type": "localip", "key": "{$4}󰩟  Local IP" },
     { "type": "locale", "key": "{$4}󰗊  Locale" },
     "break",
 

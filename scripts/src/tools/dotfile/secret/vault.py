@@ -3,9 +3,9 @@ import stat
 import tempfile
 
 from tools.core.process import capture_bytes
-from tools.dotfile.secret.facts import references, render
 from tools.dotfile.secret.identity import identity_path, sops_env
 from tools.dotfile.secret.keys import sops_file
+from tools.dotfile.secret.variables import references, render
 from tools.dotfile.state import each_package
 from tools.dotfile.targets import map_dst, never_fold
 
@@ -192,7 +192,7 @@ def secure_package_dirs(ctx, dry):
     return fixed
 
 
-def produce(ctx, entry, facts):
+def produce(ctx, entry, variables):
     if entry.kind == PLAIN:
         return None, PLAINTEXT
     if entry.kind == ENC:
@@ -208,9 +208,9 @@ def produce(ctx, entry, facts):
         entry.detail = "template is not text"
         return None, FAILED
     used = references(text)
-    if used and not facts.ok:
+    if used and not variables.ok:
         return None, SEALED
-    rendered, missing = render(text, facts.values)
+    rendered, missing = render(text, variables.values)
     if missing:
         entry.detail = "unknown: " + " ".join(missing)
         return None, UNRESOLVED
@@ -239,17 +239,17 @@ def settle(ctx, entry, plain, dry, force):
     return WROTE
 
 
-def materialise(ctx, entry, facts, dry, force):
-    plain, problem = produce(ctx, entry, facts)
+def materialise(ctx, entry, variables, dry, force):
+    plain, problem = produce(ctx, entry, variables)
     if problem:
         return problem
     return settle(ctx, entry, plain, dry, force)
 
 
-def unmaterialise(ctx, entry, facts, dry):
+def unmaterialise(ctx, entry, variables, dry):
     if not os.path.exists(entry.dst) and not os.path.islink(entry.dst):
         return ABSENT
-    plain, problem = produce(ctx, entry, facts)
+    plain, problem = produce(ctx, entry, variables)
     if problem:
         return problem
     if os.path.islink(entry.dst):
@@ -262,8 +262,8 @@ def unmaterialise(ctx, entry, facts, dry):
     return CLEANED
 
 
-def inspect(ctx, entry, facts):
-    plain, problem = produce(ctx, entry, facts)
+def inspect(ctx, entry, variables):
+    plain, problem = produce(ctx, entry, variables)
     if problem:
         return problem
     if os.path.islink(entry.dst):

@@ -1,6 +1,6 @@
 from tools.core.console import colors_enabled
 from tools.dotfile.report import DIM, GREEN, RED, YELLOW, paint
-from tools.dotfile.secret import facts as facts_module
+from tools.dotfile.secret.variables import load as load_vars
 from tools.dotfile.secret.vault import (
     ABSENT,
     BLOCKING,
@@ -47,7 +47,7 @@ ADVICE = {
     FAILED: "no recipient here can decrypt it",
     PLAINTEXT: "unencrypted file inside a .secret package",
     SEALED: "no age identity on this machine",
-    UNRESOLVED: "a template names a fact that facts.enc.yaml does not define",
+    UNRESOLVED: "a template names a var that vars.enc.yaml does not define",
 }
 
 QUIET = (CURRENT,)
@@ -100,10 +100,10 @@ def run_apply(ctx, dry, force, quiet):
             log("no secrets to apply")
         return False
     color_on = colors_enabled()
-    facts = facts_module.load(ctx)
-    if facts.note:
-        log(f"  {facts.note}")
-    results = [(materialise(ctx, entry, facts, dry, force), entry) for entry in entries]
+    declared = load_vars(ctx)
+    if declared.note:
+        log(f"  {declared.note}")
+    results = [(materialise(ctx, entry, declared, dry, force), entry) for entry in entries]
     for path in secure_package_dirs(ctx, dry):
         log(f"  {paint('remoded', GREEN, color_on):<{len('plaintext') + 12}}{shorten(ctx, path)}")
     return summarise(ctx, results, color_on, "would apply" if dry else "applied")
@@ -123,10 +123,10 @@ def cmd_status(ctx):
         log("no secrets tracked")
         return
     color_on = colors_enabled()
-    facts = facts_module.load(ctx)
-    if facts.note:
-        log(f"  {facts.note}")
-    results = [(inspect(ctx, entry, facts), entry) for entry in entries]
+    declared = load_vars(ctx)
+    if declared.note:
+        log(f"  {declared.note}")
+    results = [(inspect(ctx, entry, declared), entry) for entry in entries]
     for state, entry in results:
         show(ctx, state, entry, color_on)
     counts = {}
@@ -144,7 +144,7 @@ def cmd_clean(ctx, dry):
         log("no secrets tracked")
         return
     color_on = colors_enabled()
-    facts = facts_module.load(ctx)
-    results = [(unmaterialise(ctx, entry, facts, dry), entry) for entry in entries]
+    declared = load_vars(ctx)
+    results = [(unmaterialise(ctx, entry, declared, dry), entry) for entry in entries]
     if summarise(ctx, results, color_on, "would clean" if dry else "cleaned"):
         raise SystemExit(1)

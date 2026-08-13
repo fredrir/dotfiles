@@ -1,0 +1,2 @@
+*.enc    -text -merge diff=sops
+*.enc.*  -text -merge diff=sops

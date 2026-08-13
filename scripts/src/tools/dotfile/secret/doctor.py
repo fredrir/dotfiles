@@ -146,6 +146,25 @@ def sealed_row(ctx):
     return row("ok", "sealed", f"{counted}, all decrypt here")
 
 
+def git_config(ctx, name):
+    return capture(["git", "-C", ctx.root, "config", name]).stdout.strip()
+
+
+def diffs_row(ctx):
+    if not os.path.isfile(os.path.join(ctx.root, ".gitattributes")):
+        return row("warn", "diffs", "no .gitattributes, encrypted files diff as ciphertext")
+    if git_config(ctx, "diff.sops.cachetextconv") == "true":
+        return row(
+            "bad",
+            "diffs",
+            "cachetextconv would write plaintext into .git",
+            [("git config diff.sops.cachetextconv false", "")],
+        )
+    if not git_config(ctx, "diff.sops.textconv"):
+        return row("warn", "diffs", "sops textconv not configured", [("./setup.sh", "")])
+    return row("ok", "diffs", "git diff decrypts sops files locally")
+
+
 def strays_row(ctx):
     found = [path for path in stray_paths(ctx) if os.path.isfile(path)]
     if not found:
@@ -172,6 +191,7 @@ def cmd_doctor(ctx, show_all):
         sealed_row(ctx),
         canaries_row(ctx),
         hooks_row(ctx),
+        diffs_row(ctx),
         strays_row(ctx),
     ]
     for entry in entries:

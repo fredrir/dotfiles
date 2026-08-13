@@ -3,32 +3,35 @@
 <!-- fastfetch:start -->
 
 ```
-                                      fredrir @ 173
-                                      ───────────────────────────────
+                                             fredrir @ archpc
+                                             ───────────────────────────────
 
-                                        SYSTEM
-                                      󰌽  OS        macOS Tahoe 26.5.1 (25F80) arm64
-                        ..'           󰒓  Kernel    Darwin 25.5.0
-                    ,xNMM.            󰅐  Uptime    3 days, 1 hour, 24 mins
-                  .OMMMMo             󰏗  Packages  61 (brew), 5 (brew-cask)
-                  lMM"                󰆍  Shell     zsh 5.9
-        .;loddo:.  .olloddol;.
-      cKMMMMMMMMMMNWMMMMMMMMMM0:        HARDWARE
-    .KMMMMMMMMMMMMMMMMMMMMMMMWd.      󰻠  CPU       Apple M5 Pro (5+10) @ 4.61 GHz
-    XMMMMMMMMMMMMMMMMMMMMMMMX.        󰢮  GPU       Apple M5 Pro (16) @ 1.62 GHz [Integrated]
-   ;MMMMMMMMMMMMMMMMMMMMMMMM:         󰍛  Memory    18 GB / 24 GB [76%]
-   :MMMMMMMMMMMMMMMMMMMMMMMM:         󰋊  Disk      /  127 GB / 926 GB [14%]
-   .MMMMMMMMMMMMMMMMMMMMMMMMX.
-    kMMMMMMMMMMMMMMMMMMMMMMMMWd.        DESKTOP
-    'XMMMMMMMMMMMMMMMMMMMMMMMMMMk     󰖯  WM        Quartz Compositor 1.600.0
-     'XMMMMMMMMMMMMMMMMMMMMMMMMK.     󰆌  Terminal  kitty 0.48.2
-       kMMMMMMMMMMMMMMMMMMMMMMd       󰏘  Theme     Liquid Glass
-        ;KMMMMMMMWXXWMMMMMMMk.        󰍹  Display   3024x1964 @ 2x in 14", 120 Hz [Built-in]
-          "cooc*"    "*coo'"
-                                        NETWORK
-                                      󰗊  Locale    en_US.UTF-8
+                                               SYSTEM
+                                             󰌽  OS        Arch Linux x86_64
+                     -`                      󰒓  Kernel    Linux 7.1.8-arch1-3
+                    .o+`                     󰅐  Uptime    1 hour, 24 mins
+                   `ooo/                     󰏗  Packages  1377 (pacman)
+                  `+oooo:                    󰆍  Shell     zsh 5.9.2
+                 `+oooooo:
+                 -+oooooo+:                    HARDWARE
+               `/:-:++oooo+:                 󰻠  CPU       AMD Ryzen 7 9800X3D (16) @ 5.27 GHz
+              `/++++/+++++++:                󰢮  GPU       AMD Radeon Graphics [Integrated]
+             `/++++++++++++++:               󰢮  GPU       NVIDIA GeForce RTX 5070 Ti [Discrete]
+            `/+++ooooooooooooo/`             󰍛  Memory    5 GB / 31 GB [16%]
+           ./ooosssso++osssssso+`            󰋊  Disk      /  71 GB / 366 GB [19%]
+          .oossssso-````/ossssss+`           󰋊  Disk      /home  420 GB / 823 GB [51%]
+         -osssssso.      :ssssssso.
+        :osssssss/        osssso+++.           DESKTOP
+       /ossssssss/        +ssssooo/-         󰧨  DE        KDE Plasma 6.7.4
+     `/ossssso+/:-        -:/+osssso+-       󰖯  WM        KWin (Wayland)
+    `+sso+:-`                 `.-/+oso:      󰆌  Terminal  kitty 0.48.2
+   `++:.                           `-/+/     󰏘  Theme     Breeze (Light) [Qt]
+   .`                                 `/     󰍹  Display   3840x2160 @ 1.5x in 29", 60 Hz [External]
 
-                                        ● ● ● ● ● ● ● ●
+                                               NETWORK
+                                             󰗊  Locale    en_US.UTF-8
+
+                                               ● ● ● ● ● ● ● ●
 ```
 
 <!-- fastfetch:end -->
@@ -106,9 +109,9 @@ dotfile secret status
 dotfile secret apply
 dotfile secret clean
 
-dotfile secret edit facts.enc.yaml
-dotfile secret facts
-dotfile secret facts --unused
+dotfile secret edit vars.enc.yaml
+dotfile secret vars
+dotfile secret vars --unused
 ```
 
 ## Command-line tools

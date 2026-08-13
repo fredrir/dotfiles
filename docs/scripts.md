@@ -76,6 +76,20 @@ scripts/
       remove.py              stop tracking a path, keep it live
       format.py              .conf formatter
       profiles.py            host platform and desktop detection
+      report.py              shared marks, alignment and clipping
+      secret/
+        cli.py               secret subcommand dispatch
+        scan.py              pattern, canary and invariant tiers
+        canaries.py          private strings from the local file and vars
+        allow.py             scan.dotfile false-positive allowlist
+        identity.py          this machine's age identity
+        keys.py              keys.dotfile -> .sops.yaml
+        manage.py            init, enroll, revoke, sync
+        vault.py             encrypt, decrypt, render, materialise
+        variables.py         vars.enc.yaml loading and template rendering
+        store.py             add, edit, vars listing
+        apply.py             apply, status, clean and their reporting
+        doctor.py            end-to-end health of the secret system
   tests/                     pytest suites per area
 tests/
   run.sh                     black-box test runner
@@ -332,17 +346,17 @@ exit non-zero. `edit` is the supported way to change a secret, and
 `apply --force` is the way to throw the local edit away.
 
 A `*.tmpl` file renders to the name without the suffix, substituting
-`{{ dotted.name }}` from `facts.enc.yaml`, which is encrypted structurally so
+`{{ dotted.name }}` from `vars.enc.yaml`, which is encrypted structurally so
 its keys stay readable in a diff and only the values are ciphertext. Templates
 follow the same path as decrypted files: same drift rule, same 0600, never
-symlinked, never written back into the repository. A template naming a fact
+symlinked, never written back into the repository. A template naming a var
 that does not exist is `unresolved` and nothing is written, because a half
-rendered config is worse than none. `secret facts` lists the names and their
+rendered config is worse than none. `secret vars` lists the names and their
 consumers, never the values.
 
-Every fact value also becomes a canary for the scanner and a redaction for the
-transcript archiver, labelled by its dotted name, so a value in
-`facts.enc.yaml` cannot be committed in plaintext from the moment it exists.
+Every declared value also becomes a canary for the scanner and a redaction for
+the transcript archiver, labelled by its dotted name, so a value in
+`vars.enc.yaml` cannot be committed in plaintext from the moment it exists.
 Names under a top level `open:` key are exempt, for per-machine values that are
 not private.
 

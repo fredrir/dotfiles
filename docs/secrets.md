@@ -153,8 +153,9 @@ a short string matches everywhere and trains you to ignore the output.
 Matching is literal. A MAC written both as `aa:bb:cc:dd:ee:ff` and
 `aa-bb-cc-dd-ee-ff` needs both forms listed.
 
-In phase 3 this file becomes the plaintext view of the encrypted facts map, and
-the same values feed the templates and the transcript redactor.
+In phase 3 this file becomes the plaintext companion to the encrypted
+`vars.enc.yaml`, and the same values feed the templates and the transcript
+redactor.
 
 ### scan.dotfile
 
@@ -276,7 +277,7 @@ linked as usual.
 The suffix also selects how sops treats the file:
 
     apt-signing.asc.enc   binary, whole file opaque   ->  apt-signing.asc
-    facts.enc.yaml        structured, keys readable   ->  facts.yaml
+    vars.enc.yaml         structured, keys readable   ->  vars.yaml
 
 Use the plain `.enc` form for anything opaque: signing keys, licence files.
 Use the `.enc.<ext>` form when the keys are worth reading in a diff and only
@@ -344,7 +345,7 @@ removes materialised files, which is what to run before handing a machine on.
 `dotfile link` runs `apply` as its last phase, so the normal setup path needs
 none of these directly.
 
-## Facts
+## Vars
 
 Encryption answers "this whole file is secret". Most of what leaks is not a
 whole file: it is one address inside a config that is otherwise entirely public
@@ -358,9 +359,9 @@ So the second layer keeps the config public and moves the value out of it.
       HostName {{ hosts.parser.origin }}
       User {{ open.user }}
 
-`facts.enc.yaml` at the repository root holds the values. It is encrypted
+`vars.enc.yaml` at the repository root holds the values. It is encrypted
 structurally rather than as a blob, so the key names stay readable in a diff
-and only the values are ciphertext. Adding a fact is a one line change you can
+and only the values are ciphertext. Adding one is a single line you can
 review; what it is worth stays hidden.
 
 Templates carry a `.tmpl` suffix and render to the name without it, so
@@ -383,17 +384,17 @@ Nesting flattens to dotted names, and scalars render the way a config file
 wants them: `port: 22` becomes `22`, `enabled: true` becomes `true`. Lists and
 empty values are rejected, because a config file needs one string.
 
-A template naming a fact that does not exist is `unresolved`, which blocks
+A template naming a var that does not exist is `unresolved`, which blocks
 `apply` and `link` and reports the missing names. A half rendered config is
 worse than no config, so nothing is written.
 
-`dotfile secret facts` lists the names and which destination uses each, never
+`dotfile secret vars` lists the names and which destination uses each, never
 the values. `--unused` narrows it to the ones nothing references.
 
-### Every fact is a canary
+### Every var is a canary
 
 The values feed the scanner automatically, labelled by their dotted name. Put
-an address in `facts.enc.yaml` and any commit that carries it in plaintext is
+an address in `vars.enc.yaml` and any commit that carries it in plaintext is
 refused from that moment on, with no separate list to maintain. This is the
 control that would have caught the original leak, and it now arrives as a side
 effect of using the value rather than as a thing to remember.
@@ -402,11 +403,11 @@ They also feed the transcript redactor, so an archived agent session that
 mentions a host gets it stripped on the way into the vault.
 
 `~/.config/dotfile/canaries` still works for values that are not template
-inputs. Facts and the file are merged, and duplicates collapse.
+inputs. The two sources are merged, and duplicates collapse.
 
 ### open.
 
-Anything under a top level `open:` key renders like any other fact but is not
+Anything under a top level `open:` key renders like any other var but is not
 canaried and is not redacted.
 
     open:
@@ -415,7 +416,7 @@ canaried and is not redacted.
       parser:
         origin: 203.0.113.77
 
-That distinction matters more than it looks. A fact is matched literally
+That distinction matters more than it looks. A var is matched literally
 everywhere, so putting a common string like your username under `hosts:` would
 refuse every commit that happens to contain it, including files that have
 nothing to do with secrets. `open.` is for values that vary per machine and
@@ -423,6 +424,28 @@ belong in one place, but are not private: usernames, paths, display names.
 
 Values shorter than six characters never become canaries either, since a short
 string matches everywhere and trains you to ignore the output.
+
+### Readable diffs
+
+`.gitattributes` marks encrypted files `diff=sops`, and `setup.sh` points that
+driver at `sops -d` with this machine's identity. `git diff` then shows the
+decrypted content while the repository keeps the ciphertext, so a change to a
+var reads as one changed line instead of a wall of re-encrypted base64.
+
+`cachetextconv` is explicitly disabled. Enabling it would write the decrypted
+output into `.git`, which is the one place this whole design exists to keep
+plaintext out of. `doctor` fails if it is ever turned on.
+
+The same file marks them `-merge`. sops re-encrypts a whole document on every
+write with a fresh data key, so two machines editing one encrypted file produce
+conflicting blobs that git cannot merge meaningfully; marking them unmergeable
+turns a silent corruption into an honest conflict. Keep encrypted files small
+and single-purpose for the same reason.
+
+That non-determinism has a second consequence worth knowing: re-encrypting an
+unchanged file still produces a different blob. This is why `secret edit`
+treats sops exit 200 as success and leaves the file alone — quitting the editor
+without a change writes nothing rather than churning the repository.
 
 ## The vault is a second surface
 

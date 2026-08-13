@@ -95,6 +95,11 @@ fi
 
 git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || true
 
+AGE_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/age/keys.txt"
+git -C "$DOTFILES" config diff.sops.textconv \
+  "SOPS_AGE_KEY_FILE=$AGE_KEY_FILE sops -d" 2>/dev/null || true
+git -C "$DOTFILES" config diff.sops.cachetextconv false 2>/dev/null || true
+
 if ! command -v uv >/dev/null 2>&1; then
   echo "setup: uv is required (https://docs.astral.sh/uv/) to install the workstation tools" >&2
   exit 1

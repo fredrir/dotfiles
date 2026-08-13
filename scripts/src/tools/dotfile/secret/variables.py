@@ -5,20 +5,20 @@ import re
 from tools.core.process import capture
 from tools.dotfile.secret.identity import identity_path, sops_env
 
-FACTS = "facts.enc.yaml"
+VARS = "vars.enc.yaml"
 OPEN = "open."
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z0-9_][A-Za-z0-9_.-]*)\s*\}\}")
 
 
-class Facts:
+class Vars:
     def __init__(self, values, ok, note):
         self.values = values
         self.ok = ok
         self.note = note
 
 
-def facts_file(ctx):
-    return os.path.join(ctx.root, FACTS)
+def vars_file(ctx):
+    return os.path.join(ctx.root, VARS)
 
 
 def scalar(value):
@@ -35,7 +35,7 @@ def flatten(node, prefix, out):
             if problem:
                 return problem
         elif isinstance(value, list):
-            return f"'{name}' is a list; facts must be single values"
+            return f"'{name}' is a list; a var must be a single value"
         elif value is None:
             return f"'{name}' has no value"
         else:
@@ -44,25 +44,25 @@ def flatten(node, prefix, out):
 
 
 def load(ctx):
-    path = facts_file(ctx)
+    path = vars_file(ctx)
     if not os.path.isfile(path):
-        return Facts({}, True, "")
+        return Vars({}, True, "")
     if not os.path.isfile(identity_path(ctx)):
-        return Facts({}, False, f"{FACTS} needs an age identity to read")
+        return Vars({}, False, f"{VARS} needs an age identity to read")
     result = capture(["sops", "-d", "--output-type", "json", path], env=sops_env(ctx))
     if result.returncode != 0:
-        return Facts({}, False, f"{FACTS} did not decrypt on this machine")
+        return Vars({}, False, f"{VARS} did not decrypt on this machine")
     try:
         raw = json.loads(result.stdout)
     except ValueError:
-        return Facts({}, False, f"{FACTS} did not decrypt to an object")
+        return Vars({}, False, f"{VARS} did not decrypt to an object")
     if not isinstance(raw, dict):
-        return Facts({}, False, f"{FACTS} must hold a mapping")
+        return Vars({}, False, f"{VARS} must hold a mapping")
     values = {}
     problem = flatten(raw, "", values)
     if problem:
-        return Facts({}, False, problem)
-    return Facts(values, True, "")
+        return Vars({}, False, problem)
+    return Vars(values, True, "")
 
 
 def references(text):

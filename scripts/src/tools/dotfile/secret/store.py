@@ -3,10 +3,11 @@ import subprocess
 
 from tools.core.paths import tilde
 from tools.core.process import run
-from tools.dotfile.secret import facts as facts_module
 from tools.dotfile.secret.apply import prepare
 from tools.dotfile.secret.identity import sops_env
 from tools.dotfile.secret.keys import load_recipients
+from tools.dotfile.secret.variables import VARS, references, vars_file
+from tools.dotfile.secret.variables import load as load_vars
 from tools.dotfile.secret.vault import (
     ENC,
     FILE_MODE,
@@ -110,32 +111,32 @@ def cmd_add(ctx, path, group, pkg, marker):
     git_add(ctx, dest, ctx.targets_file)
 
 
-def cmd_facts(ctx, unused_only):
+def cmd_vars(ctx, unused_only):
     prepare(ctx)
-    loaded = facts_module.load(ctx)
-    if loaded.note:
-        die(loaded.note)
-    if not loaded.values:
-        log(f"no facts in {facts_module.FACTS}")
+    declared = load_vars(ctx)
+    if declared.note:
+        die(declared.note)
+    if not declared.values:
+        log(f"nothing declared in {VARS}")
         return
     used = {}
     for entry in plan(ctx):
         if entry.kind != TMPL:
             continue
         with open(entry.src, encoding="utf-8", errors="replace") as handle:
-            for name in facts_module.references(handle.read()):
+            for name in references(handle.read()):
                 used.setdefault(name, []).append(shorten(ctx, entry.dst))
-    names = sorted(loaded.values)
+    names = sorted(declared.values)
     if unused_only:
         names = [name for name in names if name not in used]
     if not names:
-        log("every fact is referenced")
+        log("every var is referenced")
         return
     width = max(len(name) for name in names)
     for name in names:
         where = " ".join(used.get(name, [])) or "unused"
         log(f"  {name:<{width}}  {where}")
-    missing = sorted(set(used) - set(loaded.values))
+    missing = sorted(set(used) - set(declared.values))
     for name in missing:
         log(f"  {name}  referenced by {' '.join(used[name])} but not defined")
     if missing:
@@ -144,9 +145,9 @@ def cmd_facts(ctx, unused_only):
 
 def matching_entries(ctx, path):
     expanded = ctx.home + path[1:] if path.startswith("~") else path
-    facts_path = facts_module.facts_file(ctx)
-    if expanded == facts_path or path in (facts_module.FACTS, "facts"):
-        return [Entry(facts_path, "", facts_module.FACTS, ENC)]
+    declared_path = vars_file(ctx)
+    if expanded == declared_path or path in (VARS, "vars"):
+        return [Entry(declared_path, "", VARS, ENC)]
     entries = plan(ctx)
     exact = [entry for entry in entries if entry.dst == expanded or entry.src == expanded]
     if exact:
@@ -171,7 +172,7 @@ def cmd_edit(ctx, path):
     entry = found[0]
     fresh = not os.path.exists(entry.src)
     if fresh:
-        seed_facts(ctx, entry.src)
+        seed_vars(ctx, entry.src)
     result = run(["sops", entry.src], cwd=ctx.root, env=sops_env(ctx))
     if result.returncode == UNCHANGED:
         log(f"unchanged {shorten(ctx, entry.src)}")
@@ -186,12 +187,12 @@ def cmd_edit(ctx, path):
     if not entry.dst:
         log(f"saved {entry.src[len(ctx.root) + 1 :]}")
         return
-    state = materialise(ctx, entry, facts_module.load(ctx), False, True)
+    state = materialise(ctx, entry, load_vars(ctx), False, True)
     log(f"{state} {shorten(ctx, entry.dst)}")
 
 
-def seed_facts(ctx, path):
-    if os.path.basename(path) != facts_module.FACTS:
+def seed_vars(ctx, path):
+    if os.path.basename(path) != VARS:
         die(f"nothing to edit: {shorten(ctx, path)}")
     problem = encrypt_text(ctx, path, EMPTY_MAPPING)
     if problem:
