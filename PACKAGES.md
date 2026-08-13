@@ -9,6 +9,7 @@
 - `rsync` — Shared exclusion rules for home-directory transfers
 - `skills`
 - `starship` — Cross-shell prompt configuration
+- `tmux`
 - `transcript`
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
