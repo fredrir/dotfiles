@@ -36,13 +36,13 @@ if staged keys.dotfile; then
   fi
 fi
 
-if staged theme scripts/src/tools/theme; then
-  if "$bin/generate-theme"; then
+if staged theme profiles.dotfile scripts/src/tools/theme; then
+  if "$bin/dotfile" theme apply; then
     while IFS= read -r path; do
       if [ -e "$root/$path" ]; then
         git add "$root/$path"
       fi
-    done < <("$bin/generate-theme" --list-outputs --stageable)
+    done < <("$bin/dotfile" theme outputs --stageable)
   else
     echo "pre-commit: theme generation failed (continuing)" >&2
   fi

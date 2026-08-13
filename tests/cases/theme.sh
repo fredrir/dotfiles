@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 
 generator() {
-  OUTPUT="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/generate-theme" "$@" 2>&1)"
+  OUTPUT="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/dotfile" theme "$@" 2>&1)"
   STATUS=$?
   return 0
 }
 
 test_generated_files_match_the_palette() {
-  generator --check
+  generator check
   assert_ok
   assert_output_has "already up to date"
 }
 
 test_every_declared_output_exists() {
-  generator --list-outputs
+  generator outputs
   assert_ok
   local path
   while IFS= read -r path; do
@@ -25,7 +25,7 @@ test_every_declared_output_exists() {
 }
 
 test_stageable_excludes_files_plasma_rewrites() {
-  generator --list-outputs --stageable
+  generator outputs --stageable
   assert_ok
   assert_output_lacks "kdeglobals"
   assert_output_lacks "desktop-appletsrc"
@@ -33,38 +33,62 @@ test_stageable_excludes_files_plasma_rewrites() {
   assert_output_has "linux/common/quicklaunch/config.toml"
 }
 
-test_list_profiles_marks_the_active_one() {
-  generator --list-profiles
+test_status_reports_the_groups_each_profile_covers() {
+  generator status
   assert_ok
-  assert_output_has "mocha"
-  assert_output_has "latte"
-  local marked
-  marked="$(printf '%s\n' "$OUTPUT" | grep -c '(active)')"
-  [ "$marked" -eq 1 ] || fail "expected exactly one profile marked active, got $marked"
+  assert_output_has "shared"
 }
 
-test_switching_profile_is_reported_but_not_written() {
+test_every_group_that_owns_a_file_is_assigned_a_profile() {
+  local groups assigned group
+  generator outputs
+  assert_ok
+  groups="$(printf '%s\n' "$OUTPUT" |
+    sed -n 's:^\(linux/[^/]*\)/.*:\1:p; s:^\([^/]*\)/.*:\1:p' | sort -u)"
+  [ -n "$groups" ] || fail "no groups derived from the declared outputs"
+
+  generator status
+  assert_ok
+  assigned="$OUTPUT"
+  while IFS= read -r group; do
+    [ -n "$group" ] || continue
+    printf '%s\n' "$assigned" | grep -q "$group" ||
+      fail "group '$group' owns files but no profile covers it"
+  done <<< "$groups"
+}
+
+test_a_group_cannot_theme_a_package_it_does_not_own() {
+  local keep="$SOURCE_ROOT/profiles.dotfile"
+  local saved
+  saved="$(cat "$keep")"
+  printf 'shared {\n  theme = mocha\n}\n\nlinux/arch {\n  zsh = latte\n}\n' > "$keep"
+  generator check
+  printf '%s\n' "$saved" > "$keep"
+
+  [ "$STATUS" -ne 0 ] || fail "theming a package the group does not own should fail"
+  assert_output_has "has no 'zsh' output"
+}
+
+test_switch_rejects_a_scope_that_owns_nothing() {
   local before
-  before="$(cat "$SOURCE_ROOT/theme/active")"
-
-  generator --profile latte --check
-  [ "$STATUS" -ne 0 ] || fail "switching to a different profile should report changes"
-  assert_output_has "latte"
-
-  [ "$(cat "$SOURCE_ROOT/theme/active")" = "$before" ] ||
-    fail "--check wrote theme/active"
+  before="$(cat "$SOURCE_ROOT/profiles.dotfile")"
+  generator switch latte linux/nowhere
+  [ "$STATUS" -ne 0 ] || fail "an unknown scope should fail"
+  assert_output_has "nothing generated is scoped to"
+  [ "$before" = "$(cat "$SOURCE_ROOT/profiles.dotfile")" ] ||
+    fail "a rejected scope must not rewrite profiles.dotfile"
 }
 
-test_unknown_profile_is_rejected() {
-  generator --profile nope --check
+test_switch_rejects_a_profile_that_does_not_exist() {
+  generator switch no-such-profile shared
   [ "$STATUS" -ne 0 ] || fail "an unknown profile should fail"
   assert_output_has "unknown profile"
 }
 
 test_hook_stages_exactly_what_the_registry_declares() {
   local declared hook_paths
-  declared="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/generate-theme" --list-outputs --stageable | LC_ALL=C sort)"
-  hook_paths="$(grep -c 'list-outputs --stageable' "$SOURCE_ROOT/.githooks/pre-commit")"
+  declared="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/dotfile" theme outputs --stageable | LC_ALL=C sort)"
+  hook_paths="$(grep -c 'theme outputs --stageable' "$SOURCE_ROOT/.githooks/pre-commit")"
   [ "$hook_paths" -eq 1 ] || fail "pre-commit hook no longer queries the registry"
   [ -n "$declared" ] || fail "registry declared no stageable outputs"
 }

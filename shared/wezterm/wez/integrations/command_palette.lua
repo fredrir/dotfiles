@@ -16,7 +16,7 @@ end
 
 local function commands()
   local list = {
-    entry('Regenerate theme', { 'generate-theme' }, 'md_palette'),
+    entry('Regenerate theme', { 'dotfile', 'theme', 'apply' }, 'md_palette'),
     entry('dotfile check', { 'dotfile', 'check' }, 'md_check_circle_outline'),
     entry('dotfile status', { 'dotfile', 'status' }, 'md_format_list_bulleted'),
     entry('dotfile link', { 'dotfile', 'link' }, 'md_link_variant'),

@@ -10,14 +10,16 @@ from tools.dotfile import remove as remove_command
 from tools.dotfile import system as system_cli
 from tools.dotfile.secret import cli as secret_cli
 from tools.dotfile.state import Context, die, log
+from tools.theme import cli as theme_cli
 
 app = typer.Typer(
     add_completion=False,
-    help="Manage dotfile symlinks, packages, and formatting for this repository.",
+    help="Manage dotfile symlinks, packages, themes, and formatting for this repository.",
 )
 
 app.add_typer(secret_cli.app, name="secret")
 app.add_typer(system_cli.app, name="system")
+app.add_typer(theme_cli.app, name="theme")
 
 
 @app.callback(invoke_without_command=True)

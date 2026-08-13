@@ -39,9 +39,12 @@ def test_every_emitter_declares_outputs():
         assert emitter.outputs()
 
 
-def test_generate_theme_stays_a_bare_command():
+def test_theme_lives_under_dotfile():
     import typer.main
 
-    from tools.theme.cli import app
+    from tools.dotfile.cli import app
 
-    assert getattr(typer.main.get_command(app), "commands", None) is None
+    commands = typer.main.get_command(app).commands
+    assert "theme" in commands
+    expected = {"apply", "check", "status", "show", "switch", "outputs"}
+    assert expected <= set(commands["theme"].commands)

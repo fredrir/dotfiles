@@ -6,12 +6,12 @@ from rich.table import Table
 from rich.text import Text
 
 from tools.core.console import colors_enabled
+from tools.core.typography import block_text
 from tools.theme.model import Theme
 from tools.utils.sysinfo.branding import header_illustration, illustration, resolve_brand
 from tools.utils.sysinfo.health import health_summary
 from tools.utils.sysinfo.identity import display_hostname, display_username
 from tools.utils.sysinfo.models import Component, HealthIssue, RenderOptions, SystemView
-from tools.utils.sysinfo.typography import block_text
 
 
 @dataclass(frozen=True)

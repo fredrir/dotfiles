@@ -11,7 +11,7 @@ def write_atomic(target, content):
         mode = os.stat(target).st_mode & 0o7777
     except FileNotFoundError:
         mode = 0o644 & ~_umask()
-    descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".generate-theme.")
+    descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".dotfile-theme.")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(content)
@@ -52,13 +52,30 @@ class Output:
             with open(target, encoding="utf-8") as handle:
                 previous = handle.read()
         except FileNotFoundError:
-            raise SystemExit(f"theme: {os.path.relpath(target, ROOT)} is missing")
+            raise SystemExit(f"dotfile theme: {os.path.relpath(target, ROOT)} is missing")
         updated = transform(previous)
         if updated == previous:
             return
         if not self.check:
             write_atomic(target, updated)
         self._record(target)
+
+
+class ScopedOutput:
+    def __init__(self, output, allowed):
+        self._output = output
+        self._allowed = {os.path.abspath(target) for target in allowed}
+
+    def _permits(self, target):
+        return os.path.abspath(target) in self._allowed
+
+    def write(self, target, content):
+        if self._permits(target):
+            self._output.write(target, content)
+
+    def edit(self, target, transform):
+        if self._permits(target):
+            self._output.edit(target, transform)
 
 
 def replace_between(text, name, new_lines, indent=""):

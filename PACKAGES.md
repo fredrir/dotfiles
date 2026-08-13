@@ -20,7 +20,6 @@
 - `flameshot` — Screenshot tool configuration
 - `fontconfig`
 - `gtk` — GTK theme settings
-- `jetbrains` — Shared JetBrains IDE settings
 - `quicklaunch` — Quicklaunch application configuration
 - `systemd`
 - `theme-watch` — Automatic theme generation service

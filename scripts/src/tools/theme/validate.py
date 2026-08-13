@@ -95,4 +95,4 @@ def validate(theme):
     _check_fonts(theme, problems)
     if problems:
         listed = "\n".join(f"  {problem}" for problem in problems)
-        raise SystemExit(f"theme: profile '{theme.profile}' is not usable:\n{listed}")
+        raise SystemExit(f"dotfile theme: profile '{theme.profile}' is not usable:\n{listed}")

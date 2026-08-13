@@ -1,6 +1,0 @@
-[Unit]
-Description=Regenerate the theme from the active profile in theme/
-
-[Service]
-Type=oneshot
-ExecStart=%h/.local/bin/generate-theme

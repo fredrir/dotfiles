@@ -27,9 +27,10 @@ scripts/
     core/
       blocks.py              shared `.dotfile` block grammar scanner
       console.py             shared output, errors, color gating
-      menu.py                arrow-key picker
+      menu.py                arrow-key picker, with optional live preview
       paths.py               repository root discovery, ~ shortening
       process.py             subprocess helpers
+      typography.py          terminal-safe block lettering
     utils/
       count.py               count items inside a directory
       size.py                du-backed size summary
@@ -62,7 +63,6 @@ scripts/
           report.py          run, list, comparison and trend rendering
           document.py        benchmarks/BENCHMARKS.md generation
         normalization.py     platform and device sanitation helpers
-        typography.py        terminal-safe block lettering
         hardware.py          normalized hardware components
         software.py          normalized software and system facts
         view.py              compact orchestration of the shared view
@@ -77,11 +77,13 @@ scripts/
       fastfetch.py           fastfetch preview block in README.md
     theme/
       model.py               profile loading, merging, colour conversion
+      profiles.py            profiles.dotfile: reading it, and rewriting it
       validate.py            what a profile must define to be usable
       render.py              file writing and in-place editing
       emitters.py            one function per generated config
       registry.py            emitter list and their declared outputs
-      cli.py                 argument handling
+      view.py                swatches, profile cards, status and previews
+      cli.py                 theme subcommands and their menus
     dotfile/
       cli.py                 command dispatch
       state.py               repo context, profiles, overrides, manifests
@@ -119,7 +121,6 @@ Data that used to be embedded in the programs now sits next to the palette:
 
 ```
 theme/
-  active                     the profile in force
   profiles/<name>.toml       one profile: colours and what it overrides
   roles.toml                 semantic colour layers every profile inherits
   fonts.toml                 font roles, sizes and per-application opt-in
@@ -130,9 +131,11 @@ theme/
   maps/obsidian.toml         Obsidian CSS custom property -> colour
 ```
 
-`theme/` holds colour and font data only. Every config that carries colour is a
-normal tracked dotfile in its own package; the generator stamps values into it
-rather than rendering it from a template.
+`theme/` holds colour and font data only, and says nothing about which profile
+is in force — that is `profiles.dotfile` at the repository root, beside the
+other `.dotfile` declarations. Every config that carries colour is a normal
+tracked dotfile in its own package; the generator stamps values into it rather
+than rendering it from a template.
 
 ## sysinfo
 
@@ -612,30 +615,95 @@ generator's own column alignment survives.
 
 ---
 
-## generate-theme
+## dotfile theme
 
-A *theme profile* is a colour palette plus fonts. One profile is active at a
-time, named in `theme/active`, and this stamps it into every config that
-carries colour or a font.
+A *theme profile* is a colour palette plus fonts. `profiles.dotfile` says which
+profile each group uses, and this stamps them into every config that carries
+colour or a font.
 
 ```
-generate-theme                        regenerate from the active profile
-generate-theme --profile latte        switch to latte, then regenerate
-generate-theme --profile latte --check  what switching would change, writes nothing
-generate-theme --list-profiles        the profiles available, active marked
-generate-theme --check                report what would change, exit 1 if anything would
-generate-theme --list-outputs         every file the generator owns
-generate-theme --list-outputs --stageable   only the ones safe to auto-stage
+dotfile theme                         the menu: switch, status, show, apply, check
+dotfile theme switch [profile] [scope]  assign a profile, then restamp
+dotfile theme status                  which profile each group uses, and what has drifted
+dotfile theme show [profile]          palette, roles, fonts and a sample of the terminal
+dotfile theme apply                   regenerate from profiles.dotfile
+dotfile theme check                   report what would change, exit 1 if anything would
+dotfile theme outputs                 every file the generator owns
+dotfile theme outputs --stageable     only the ones safe to auto-stage
 ```
 
-### Why one profile at a time
+This was the standalone `generate-theme` command. It moved under `dotfile`
+because it is the same job as the rest of that tool — reconciling the repo with
+the machine — and because the picker needed somewhere to live.
+
+### Switching
+
+`switch` is the only thing here that writes `profiles.dotfile`. With no
+arguments it asks what should change first (everything, one group, or one
+package inside a group), then which profile, drawing each candidate as a card
+painted in its own colours: the palette, a prompt, a file listing, and the
+selection, accent and tab chips. Choosing restamps every file the assignment
+covers.
+
+A *scope* is `everything`, a group (`linux/kde`), or a package inside one
+(`shared/obsidian`); anything else is an error naming the groups that exist,
+rather than writing a key that resolves to nothing. `everything` is the only
+scope that removes assignments — it drops every group and package key so the
+one `shared` fallback is left, and says which ones it dropped first.
+
+Value edits keep the line they are on, comment and alignment included. Adding a
+key realigns the block it joins; removing the last key in a block takes the
+block with it.
+
+### profiles.dotfile
+
+```
+shared {
+  theme    = mocha
+  obsidian = latte
+}
+
+linux/kde {
+  theme = latte
+}
+```
+
+`theme` sets the group's profile; any other key names one package inside that
+group. Resolution runs package -> group -> `shared`'s `theme`, which is the
+fallback every unlisted group lands on, so the minimum useful file is one
+block. `switch` writes it, but editing it by hand is still switching: the path
+unit regenerates on save either way.
+
+Selection is per *group* because that is the granularity that physically
+exists — every generated file belongs to exactly one group, so a group key
+resolves to an exact set of files:
+
+| group | owns |
+|---|---|
+| `shared` | kitty, wezterm, starship, zsh, obsidian, nvim, fastfetch |
+| `linux/common` | GTK colours and settings, quicklaunch |
+| `linux/kde` | kdeglobals, desktop-appletsrc, konsole, panel presets |
+| `linux/arch`, `linux/ubuntu`, `macos` | that platform's fastfetch config and logo |
+
+This is what makes light Plasma against dark terminals a one-line change.
+
+A package key only works where that group already owns the file, so
+`linux/arch { zsh = latte }` is an error naming what `linux/arch` does own
+rather than a silent no-op — `shared/zsh/conf.d/03-theme.zsh` belongs to
+`shared`. Making it work would mean generating an override into
+`linux/arch/zsh/` and leaning on the linker's later-group-wins rule. That is a
+real idiom here (fastfetch uses it), but it is only safe for fully generated
+files; for the marker-edited ones it would mean copying a hand-maintained file
+into a second group where it would drift, so it is deliberately not built.
+
+### Why a profile is stamped rather than switched at runtime
 
 kdeglobals, the GTK stylesheets, the Obsidian theme and `starship.toml` can
 each hold one scheme. Emitting every profile side by side would only work for
-the terminals, so switching regenerates in place instead. Every output is
-tracked, so the repo always encodes exactly one look and a switch is an
-ordinary ~25-file commit. Two machines cannot run different profiles from the
-same checkout — that is the price of the outputs being tracked at all.
+the terminals, so the choice is resolved at generate time instead. Every output
+is tracked, so the repo encodes one assignment and changing it is an ordinary
+commit. Two machines cannot run different assignments from the same checkout —
+that is the price of the outputs being tracked at all.
 
 ### Colour indirection
 
@@ -659,7 +727,7 @@ profile may override any table in `roles.toml` or `fonts.toml`.
 
 One file, `theme/profiles/<name>.toml`, with `name`, `dark`, `icons`,
 `[nvim] flavour` and a `[palette]` holding every colour name the shared layers
-reference. `generate-theme` validates that up front and reports everything
+reference. `dotfile theme` validates that up front and reports everything
 missing at once, rather than dying on the first unknown name partway through
 the emitter list. It also rejects two palette entries sharing a hex, and a
 `[kde]` role shadowing a palette name — both silently corrupt the retagging

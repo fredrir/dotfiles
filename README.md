@@ -59,20 +59,27 @@ Already cloned, or re-running
 
 ## Theme
 
-- **Profiles:** `theme/profiles/*.toml`, active one named in `theme/active`
-
-- **To regenerate theme:**
-
-```bash
-generate-theme
-```
+- **Profiles:** `theme/profiles/*.toml`, assigned per group in `profiles.dotfile`
 
 - **To switch profile:**
 
 ```bash
-generate-theme --list-profiles
-generate-theme --profile latte
+dotfile theme
 ```
+
+- **To regenerate after editing a palette:**
+
+```bash
+dotfile theme apply
+```
+
+- **To see which profile each group uses:**
+
+```bash
+dotfile theme status
+```
+
+- **After a change that touches KDE:**
 
 ```bash
 systemctl --user restart plasma-plasmashell
@@ -132,9 +139,7 @@ dotfile system install
 ./setup.sh --commands-only
 ```
 
-The public commands are declared in `scripts/pyproject.toml` and installed as
-an editable uv tool in `~/.local/bin`. The project environment remains
-isolated from the shell PATH.
+
 
 ## Tests
 
@@ -146,16 +151,5 @@ uv run --project scripts pytest
 
 ## Adding a machine
 
-1. Run `./setup.sh` and pick the environment under `environment/<os>/<desktop>`
+1. Run `./setup.sh` and select your environment under `environment/<os>/<desktop>`
 2. If the environment includes a group with an `overrides/` directory (machine-specific config such as `linux/hyprland/overrides/desktop` and `linux/hyprland/overrides/laptop`), pick the override that matches the machine, or `none`
-
-## Jetbrains
-
-New files WebStorm creates stay in `~/.config/JetBrains`
-
-```bash
-dotfile add --linux --pkg jetbrains JetBrains/WebStorm2026.1/options/editor.xml
-/opt/WebStorm/bin/webstorm installPlugins \
-    com.nasller.CodeGlancePro ru.adelf.idea.dotenv com.github.copilot \
-    org.intellij.plugins.hcl "Key Promoter X"
-```

@@ -199,10 +199,20 @@ echo
 link_failed=0
 "$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} || link_failed=1
 
-if command -v systemctl >/dev/null 2>&1 && [ -f "$HOME/.config/systemd/user/generate-theme.path" ]; then
-  systemctl --user daemon-reload 2>/dev/null || true
-  if systemctl --user enable --now generate-theme.path 2>/dev/null; then
-    echo "  enabled theme auto-regenerate watcher"
+if command -v systemctl >/dev/null 2>&1; then
+  UNIT_DIR="$HOME/.config/systemd/user"
+  if [ -L "$UNIT_DIR/generate-theme.path" ] ||
+     [ -L "$UNIT_DIR/default.target.wants/generate-theme.path" ]; then
+    systemctl --user disable generate-theme.path 2>/dev/null || true
+    rm -f "$UNIT_DIR/generate-theme.path" "$UNIT_DIR/generate-theme.service" \
+          "$UNIT_DIR/default.target.wants/generate-theme.path"
+    systemctl --user daemon-reload 2>/dev/null || true
+  fi
+  if [ -f "$UNIT_DIR/theme-watch.path" ]; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    if systemctl --user enable --now theme-watch.path 2>/dev/null; then
+      echo "  enabled theme auto-regenerate watcher"
+    fi
   fi
 fi
 

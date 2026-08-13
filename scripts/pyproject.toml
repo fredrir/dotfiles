@@ -24,7 +24,6 @@ cpas = "tools.utils.remote_clipboard:cpas_app"
 acp = "tools.utils.remote_clipboard:acp_app"
 transcript = "tools.transcript.cli:app"
 update-readme-fastfetch = "tools.readme.fastfetch:app"
-generate-theme = "tools.theme.cli:app"
 dotfile = "tools.dotfile.cli:app"
 
 [dependency-groups]

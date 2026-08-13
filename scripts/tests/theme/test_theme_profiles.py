@@ -2,7 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.theme.model import Theme, list_profiles, merge, read_active
+from tools.theme import profiles as profiles_module
+from tools.theme.model import Theme, list_profiles, merge
+from tools.theme.profiles import Selection, group_of, inventory, package_of
 from tools.theme.validate import (
     _check_fonts,
     _check_palette_shape,
@@ -92,8 +94,31 @@ def test_every_shipped_profile_is_valid():
         validate(Theme.load(name))
 
 
-def test_load_without_a_profile_uses_the_active_one():
-    assert Theme.load().profile == read_active()
+def test_group_and_package_come_from_the_output_path():
+    assert group_of("shared/kitty/conf.d/fonts.conf") == "shared"
+    assert package_of("shared/kitty/conf.d/fonts.conf") == "kitty"
+    assert group_of("linux/kde/plasma/kdeglobals") == "linux/kde"
+    assert package_of("linux/kde/plasma/kdeglobals") == "plasma"
+    assert group_of("macos/fastfetch/apple.txt") == "macos"
+    assert package_of("macos/fastfetch/apple.txt") == "fastfetch"
+
+
+def test_resolution_prefers_package_then_group_then_shared():
+    selection = Selection(
+        {
+            "shared": {"theme": "mocha", "obsidian": "latte"},
+            "linux/kde": {"theme": "latte"},
+        }
+    )
+    assert selection.for_path("shared/kitty/colors.conf") == "mocha"
+    assert selection.for_path("shared/obsidian/themes/Fredrir/theme.css") == "latte"
+    assert selection.for_path("linux/kde/plasma/kdeglobals") == "latte"
+    assert selection.for_path("macos/fastfetch/apple.txt") == "mocha"
+
+
+def test_a_group_without_an_entry_falls_back_to_shared():
+    selection = Selection({"shared": {"theme": "latte"}})
+    assert selection.for_path("linux/common/gtk/gtk-3.0/colors.css") == "latte"
 
 
 def test_unknown_profile_names_the_available_ones():
@@ -107,3 +132,68 @@ def test_profiles_do_not_share_a_hex_between_different_roles():
     from tools.theme.emitters import _hex_to_name
 
     assert _hex_to_name(Theme.load())
+
+
+def test_inventory_lists_the_packages_each_group_owns():
+    owned = ["shared/kitty/colors.conf", "shared/zsh/conf.d/03-theme.zsh", "macos/fastfetch/x.txt"]
+    assert inventory(owned) == {"macos": ["fastfetch"], "shared": ["kitty", "zsh"]}
+
+
+@pytest.fixture
+def selection_file(tmp_path, monkeypatch):
+    target = tmp_path / "profiles.dotfile"
+
+    def write(text):
+        target.write_text(text, encoding="utf-8")
+        return target
+
+    monkeypatch.setattr(profiles_module, "SELECTION_FILE", str(target))
+    return write
+
+
+def test_switching_a_profile_keeps_the_surrounding_file(selection_file):
+    target = selection_file("# which profile goes where\nshared {\n  theme = mocha  # base\n}\n")
+    assert profiles_module.assign("shared", "theme", "latte")
+    assert target.read_text() == "# which profile goes where\nshared {\n  theme = latte  # base\n}\n"
+
+
+def test_switching_to_the_same_profile_rewrites_nothing(selection_file):
+    target = selection_file("shared {\n  theme = mocha\n}\n")
+    before = target.stat().st_mtime_ns
+    assert not profiles_module.assign("shared", "theme", "mocha")
+    assert target.stat().st_mtime_ns == before
+
+
+def test_a_new_package_key_realigns_the_block_it_joins(selection_file):
+    target = selection_file("shared {\n  theme = mocha\n}\n")
+    assert profiles_module.assign("shared", "obsidian", "latte")
+    assert target.read_text() == "shared {\n  theme    = mocha\n  obsidian = latte\n}\n"
+
+
+def test_a_new_group_is_appended_as_its_own_block(selection_file):
+    target = selection_file("shared {\n  theme = mocha\n}\n")
+    assert profiles_module.assign("linux/kde", "theme", "latte")
+    assert target.read_text() == "shared {\n  theme = mocha\n}\n\nlinux/kde {\n  theme = latte\n}\n"
+
+
+def test_dropping_the_last_key_takes_the_empty_block_with_it(selection_file):
+    target = selection_file("shared {\n  theme = mocha\n}\n\nlinux/kde {\n  theme = latte\n}\n")
+    assert profiles_module.unassign("linux/kde", "theme")
+    assert target.read_text() == "shared {\n  theme = mocha\n}\n"
+
+
+def test_dropping_one_key_leaves_its_siblings_in_place(selection_file):
+    target = selection_file("shared {\n  theme    = mocha\n  obsidian = latte\n}\n")
+    assert profiles_module.unassign("shared", "obsidian")
+    assert target.read_text() == "shared {\n  theme    = mocha\n}\n"
+
+
+def test_dropping_a_key_that_is_not_there_changes_nothing(selection_file):
+    selection_file("shared {\n  theme = mocha\n}\n")
+    assert not profiles_module.unassign("shared", "obsidian")
+    assert not profiles_module.unassign("linux/kde", "theme")
+
+
+def test_overrides_exclude_the_shared_fallback():
+    selection = Selection({"shared": {"theme": "mocha", "obsidian": "latte"}, "macos": {"theme": "latte"}})
+    assert selection.overrides() == [("macos", "theme"), ("shared", "obsidian")]

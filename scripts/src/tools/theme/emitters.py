@@ -384,7 +384,7 @@ def emit_obsidian(theme, out):
 def emit_nvim(theme, out):
     flavour = theme.data.get("nvim", {}).get("flavour")
     if not flavour:
-        raise SystemExit(f"theme: profile '{theme.profile}' has no [nvim] flavour")
+        raise SystemExit(f"dotfile theme: profile '{theme.profile}' has no [nvim] flavour")
     out.edit(
         path(NVIM_CATPPUCCIN),
         lambda text: replace_between(text, "flavour", [f"flavour = '{flavour}',"], indent=" " * 6),
@@ -442,7 +442,7 @@ def emit_gtk(theme, out):
                 if base in mapping:
                     line = f"{match.group(1)}{variable}{match.group(3)}{theme.color(mapping[base])}{match.group(5)}"
                 else:
-                    sys.stderr.write(f"theme: unmapped GTK color '{variable}'\n")
+                    sys.stderr.write(f"dotfile theme: unmapped GTK color '{variable}'\n")
             lines.append(line)
         return "\n".join(lines)
 
@@ -477,7 +477,7 @@ def _hex_to_name(theme):
             key = value.lstrip("#").lower()
             if key in mapping and mapping[key] != name:
                 raise SystemExit(
-                    f"theme: {key} is '{mapping[key]}' in profile '{owner[key]}' but"
+                    f"dotfile theme: {key} is '{mapping[key]}' in profile '{owner[key]}' but"
                     f" '{name}' in profile '{profile}'; a shared hex cannot be remapped"
                 )
             mapping.setdefault(key, name)
