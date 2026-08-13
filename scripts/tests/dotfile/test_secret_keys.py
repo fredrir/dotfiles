@@ -1,9 +1,10 @@
+import shutil
 import subprocess
 
 import pytest
 import typer
 
-from tools.dotfile.secret import keys
+from tools.dotfile.secret import doctor, keys
 
 KEY_A = "age1" + "q" * 58
 KEY_B = "age1" + "p" * 58
@@ -180,3 +181,29 @@ def test_doctor_reports_a_missing_recovery_key(tool, repo):
     secret(tool, env, "enroll", "archpc", KEY_A)
     result = secret(tool, env, "doctor")
     assert "no recovery key" in result.stdout
+
+
+@pytest.mark.skipif(not shutil.which("age-keygen"), reason="needs age")
+def test_doctor_tells_a_duplicate_identity_from_a_different_one(repo, tmp_path):
+    root, home, _env = repo
+    ctx = Ctx(root)
+    ctx.state_dir = str(home / ".config" / "dotfile")
+    ctx.home = str(home)
+
+    identity = home / ".config" / "dotfile" / "age" / "keys.txt"
+    identity.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["age-keygen", "-o", str(identity)], check=True, capture_output=True)
+    stray = home / ".config" / "sops" / "age" / "keys.txt"
+    stray.parent.mkdir(parents=True)
+
+    assert doctor.strays_row(ctx)[0] == "ok"
+
+    shutil.copy(identity, stray)
+    assert "same key" in doctor.strays_row(ctx)[3][0][1]
+
+    stray.unlink()
+    subprocess.run(["age-keygen", "-o", str(stray)], check=True, capture_output=True)
+    assert "a different key" in doctor.strays_row(ctx)[3][0][1]
+
+    stray.write_text("junk\n")
+    assert "not readable" in doctor.strays_row(ctx)[3][0][1]

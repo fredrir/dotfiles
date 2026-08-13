@@ -430,7 +430,20 @@ They also feed the transcript redactor, so an archived agent session that
 mentions a host gets it stripped on the way into the vault.
 
 `~/.config/dotfile/canaries` still works for values that are not template
-inputs. The two sources are merged, and duplicates collapse.
+inputs. The two sources are merged and duplicates collapse, but they do not
+behave the same way: the local file lives outside the repository and therefore
+never reaches another machine, so a value kept only there guards the machine
+that holds it and no other.
+
+Prefer `vars.enc.yaml`. A var that no template references is not wasted — it
+still guards every enrolled machine, and `secret vars` lists it as unused,
+which is an accurate description rather than a complaint. Keep the local file
+for values that must not enter the repository at all, even encrypted, and
+expect it to be empty most of the time.
+
+The counts differ when it is not. A machine with two vars and no local file
+reports two canaries; one with the same vars and a local entry reports three.
+That difference is the gap, not a display quirk.
 
 ### open.
 

@@ -169,12 +169,18 @@ def strays_row(ctx):
     found = [path for path in stray_paths(ctx) if os.path.isfile(path)]
     if not found:
         return row("ok", "strays", "no identity outside the state directory")
-    return row(
-        "warn",
-        "strays",
-        "another age identity is where sops looks by default",
-        [(shorten(ctx, path), "move or remove") for path in found],
-    )
+    mine = public_key(identity_path(ctx))
+    items = []
+    for path in found:
+        other = public_key(path)
+        if other and other == mine:
+            note = "same key, safe to remove"
+        elif other:
+            note = "a different key; sops may prefer it"
+        else:
+            note = "not readable as an age key"
+        items.append((shorten(ctx, path), note))
+    return row("warn", "strays", "another age identity on this machine", items)
 
 
 def cmd_doctor(ctx, show_all):
