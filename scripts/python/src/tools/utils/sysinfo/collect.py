@@ -6,10 +6,13 @@ import subprocess
 
 from tools.core import blocks
 from tools.core.console import die
+from tools.core.paths import repo_root
 from tools.core.process import capture
 from tools.utils.sysinfo import hosts
 from tools.utils.sysinfo.formatting import as_list
 from tools.utils.sysinfo.models import Snapshot
+
+NATIVE_COLLECTOR = ("scripts", "rust", "target", "release", "sysinfo-collect")
 
 TERMINALS = {
     "konsole": ("Konsole", "konsole"),
@@ -120,20 +123,83 @@ def terminal_info():
     return name, version
 
 
-def collect_fastfetch(full=False):
+def fastfetch_modules(modules):
     if not shutil.which("fastfetch"):
-        die("sysinfo", "fastfetch is required")
-    modules = [*BASE_MODULES, *(FULL_MODULES if full else [])]
+        return None
     result = capture(
         ["fastfetch", "-c", "-", "--format", "json"],
         input=json.dumps({"modules": modules}),
     )
     if result.returncode != 0:
-        die("sysinfo", "fastfetch could not collect system information")
+        return None
     try:
-        return json.loads(result.stdout)
+        parsed = json.loads(result.stdout)
     except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def collect_fastfetch(full=False):
+    if not shutil.which("fastfetch"):
+        die("sysinfo", "fastfetch is required (or build scripts/rust for native collection)")
+    found = fastfetch_modules([*BASE_MODULES, *(FULL_MODULES if full else [])])
+    if found is None:
         die("sysinfo", "fastfetch could not collect system information")
+    return found
+
+
+def native_collector_path():
+    override = os.environ.get("SYSINFO_COLLECTOR")
+    if override is not None:
+        return override if os.access(override, os.X_OK) else ""
+    built = os.path.join(str(repo_root()), *NATIVE_COLLECTOR)
+    if os.access(built, os.X_OK):
+        return built
+    return shutil.which("sysinfo-collect") or ""
+
+
+def collect_native():
+    path = native_collector_path()
+    if not path:
+        return None
+    try:
+        result = capture([path], timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def module_name(module):
+    return module["type"] if isinstance(module, dict) else module
+
+
+def collect_modules(full=False):
+    """Native collection when the binary is built, fastfetch otherwise.
+
+    The native collector covers everything identity and gating depend on. The
+    remaining full-mode modules are cosmetic, so they merge in from fastfetch
+    when it is installed and silently stay absent when it is not.
+    """
+    native = collect_native()
+    if native is None:
+        return collect_fastfetch(full=full)
+    if full:
+        covered = {entry.get("type") for entry in native if isinstance(entry, dict)}
+        missing = [
+            module
+            for module in [*BASE_MODULES, *FULL_MODULES]
+            if module_name(module) not in covered
+        ]
+        extras = fastfetch_modules(missing) if missing else None
+        if extras:
+            native = [*native, *extras]
+    return native
 
 
 def numeric(value):
@@ -229,7 +295,7 @@ def collect_snapshot(full=False):
     hardware = load_hardware_config()
     shell_name, shell_version = shell_info()
     terminal_name, terminal_version = terminal_info()
-    modules = index_modules(collect_fastfetch(full=full))
+    modules = index_modules(collect_modules(full=full))
     shell = modules.get("Shell") or {}
     terminal = recognized_terminal(modules.get("Terminal") or {})
     de = modules.get("DE") or {}

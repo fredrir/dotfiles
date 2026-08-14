@@ -52,11 +52,10 @@ if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
   fi
 fi
 
-if staged scripts/rust && command -v cargo >/dev/null 2>&1; then
-  if ! cargo fmt --check --manifest-path "$root/scripts/rust/Cargo.toml" >/dev/null 2>&1; then
-    echo "pre-commit: rust formatting is off (run: cargo fmt --manifest-path scripts/rust/Cargo.toml)" >&2
-    exit 1
-  fi
+if ! cargo fmt --check --all \
+  --manifest-path "$root/scripts/rust/Cargo.toml" >/dev/null 2>&1; then
+  echo "pre-commit: rust formatting is off (run: cargo fmt --all --manifest-path scripts/rust/Cargo.toml)" >&2
+  exit 1
 fi
 
 if staged linux/arch/fastfetch/config.jsonc; then

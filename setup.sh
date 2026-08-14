@@ -8,10 +8,32 @@ TOOL_BIN_DIR="$HOME/.local/bin"
 TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
 COMMANDS_ONLY=0
+SYNC=0
 
-if [ "${1:-}" = "--commands-only" ]; then
-  COMMANDS_ONLY=1
+case "${1:-}" in
+  --commands-only) COMMANDS_ONLY=1 ;;
+  --sync) SYNC=1 ;;
+esac
+
+# Steps that are expensive (tool reinstall, cargo build) are skipped when their
+# inputs are unchanged since the last run, so `dotfile sync` after a pull only
+# does the work the pull actually created. Stamps live outside the repository.
+STAMP_DIR="$STATE_DIR/sync"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  HASHER="sha256sum"
+else
+  HASHER="shasum -a 256"
 fi
+
+content_hash() { cat "$@" 2>/dev/null | $HASHER | cut -d' ' -f1; }
+
+unchanged() { [ "$(cat "$STAMP_DIR/$1" 2>/dev/null)" = "$2" ]; }
+
+stamp() {
+  mkdir -p "$STAMP_DIR"
+  printf '%s\n' "$2" > "$STAMP_DIR/$1"
+}
 
 BOLD=$'\033[1m'
 DIM=$'\033[2m'
@@ -105,32 +127,67 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ "$COMMANDS_ONLY" = 0 ]; then
-  echo "syncing workstation tools (scripts/python/.venv)"
-  uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
+# The commands are an editable install, so source edits need no reinstall;
+# only dependency or entry-point changes (pyproject/lock) do.
+PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
+
+python_current() {
+  [ -x "$DOTFILE_BIN" ] || return 1
+  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile" ]; then
+    return 1
+  fi
+  unchanged python "$PYTHON_HASH"
+}
+
+if python_current; then
+  echo "workstation commands are current"
+else
+  if [ "$COMMANDS_ONLY" = 0 ]; then
+    echo "syncing workstation tools (scripts/python/.venv)"
+    uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
+  fi
+  echo "installing workstation commands (~/.local/bin)"
+  mkdir -p "$TOOL_BIN_DIR"
+  UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
+    uv tool install \
+      --compile-bytecode \
+      --constraints <(
+        uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
+          --no-header --no-annotate --no-hashes --quiet
+      ) \
+      --editable --reinstall --quiet "$DOTFILES/scripts/python"
+  stamp python "$PYTHON_HASH"
 fi
 
-echo "installing workstation commands (~/.local/bin)"
-mkdir -p "$TOOL_BIN_DIR"
-UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
-  uv tool install \
-    --compile-bytecode \
-    --constraints <(
-      uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
-        --no-header --no-annotate --no-hashes --quiet
-    ) \
-    --editable --reinstall --quiet "$DOTFILES/scripts/python"
+RUST_BINARIES="bench-workloads sysinfo-collect"
+RUST_HASH="$(
+  find "$DOTFILES/scripts/rust" -type f -not -path '*/target/*' -print0 2>/dev/null |
+    sort -z | xargs -0 cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1
+)"
 
-if command -v cargo >/dev/null 2>&1; then
+rust_current() {
+  local name
+  for name in $RUST_BINARIES; do
+    [ -x "$TOOL_BIN_DIR/$name" ] || return 1
+  done
+  unchanged rust "$RUST_HASH"
+}
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "setup: cargo not found; skipping native tools (install rust to enable)"
+elif rust_current; then
+  echo "native tools are current"
+else
   echo "building native tools (scripts/rust)"
   if cargo build --release --locked --quiet --manifest-path "$DOTFILES/scripts/rust/Cargo.toml"; then
-    install -m 0755 "$DOTFILES/scripts/rust/target/release/bench-workloads" \
-      "$TOOL_BIN_DIR/bench-workloads"
+    for name in $RUST_BINARIES; do
+      install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$TOOL_BIN_DIR/$name"
+    done
+    "$TOOL_BIN_DIR/sysinfo-collect" --version >/dev/null
+    stamp rust "$RUST_HASH"
   else
     echo "setup: cargo build failed; native tools skipped" >&2
   fi
-else
-  echo "setup: cargo not found; skipping native tools (install rust to enable)"
 fi
 
 if [ "$COMMANDS_ONLY" = 1 ]; then
@@ -139,10 +196,19 @@ fi
 
 PROFILE="${1:-}"
 case "$PROFILE" in
+  --sync) PROFILE="" ;;
   --?*) PROFILE="${PROFILE#--}" ;;
 esac
 
 list_profiles() { "$DOTFILE_BIN" profiles; }
+
+if [ -z "$PROFILE" ] && [ "$SYNC" = 1 ]; then
+  PROFILE="$(saved_profile)"
+  if [ -z "$PROFILE" ]; then
+    echo "setup: no saved environment to sync; run ./setup.sh once first" >&2
+    exit 1
+  fi
+fi
 
 if [ -z "$PROFILE" ]; then
   if interactive; then
@@ -185,7 +251,7 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 OVERRIDE_ARGS=()
-if interactive; then
+if interactive && [ "$SYNC" = 0 ]; then
   while IFS= read -r group; do
     group="${group%%#*}"
     group="${group#"${group%%[![:space:]]*}"}"

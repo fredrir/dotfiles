@@ -44,18 +44,21 @@ cd ~/dotfiles
 ./setup.sh
 ```
 
+## Syncing new changes
+
+```bash
+dotfile sync
+```
+
 
 ## VPS / headless server
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/fredrir/dotfiles/main/bootstrap-vps.sh)"
+# Or if cloned
+./bootstrap-vps.sh
 ```
 
-Already cloned, or re-running
-
-```bash
-~/dotfiles/bootstrap-vps.sh
-```
 
 ## Theme
 
@@ -88,6 +91,8 @@ systemctl --user restart plasma-plasmashell
 ## The dotfile command
 
 ```bash
+dotfile sync
+
 dotfile add waybar
 dotfile add --description "Status bar" waybar
 dotfile add --linux zsh/conf.d/11-linux-env

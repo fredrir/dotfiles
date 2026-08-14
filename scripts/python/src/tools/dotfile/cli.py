@@ -1,3 +1,6 @@
+import os
+import subprocess
+
 import typer
 
 from tools.dotfile import add as add_command
@@ -110,6 +113,15 @@ def format_conf(
     ),
 ):
     format_command.cmd_format(Context(), paths or [], stdin_name)
+
+
+@app.command(help="Re-run setup non-interactively, skipping steps whose inputs are unchanged.")
+def sync():
+    ctx = Context()
+    script = os.path.join(ctx.root, "setup.sh")
+    if not os.access(script, os.X_OK):
+        die("setup.sh is missing from the repository root")
+    raise typer.Exit(subprocess.call([script, "--sync"]))
 
 
 @app.command(help="Show link state for every file in the profile.")

@@ -15,7 +15,16 @@ editable uv tool and exposes only the console entry points declared in
 `scripts/python/pyproject.toml` through `~/.local/bin`, with runtime dependencies
 constrained by `scripts/python/uv.lock`. Setup enables install-time bytecode
 compilation for both environments. Re-running setup reconciles that directory
-with the declaration, including pruning removed entry points. The Linux,
+with the declaration, including pruning removed entry points.
+
+Setup is incremental: the tool reinstall is keyed on a hash of
+`pyproject.toml` + `uv.lock` (the install is editable, so source edits need no
+reinstall), and the cargo build on a hash of the `scripts/rust` sources, with
+stamps under `~/.config/dotfile/sync`. `dotfile sync` runs `setup.sh --sync`:
+the same steps non-interactively with the saved environment and overrides, so
+the routine after a pull is one command that only does the work the pull
+created. A first run on a new machine is `./setup.sh`, which is the same
+script with the pickers. The Linux,
 macOS, and Ubuntu zsh profiles put `~/.local/bin` on PATH without exposing the
 project environment's Python or dependency commands. The Ubuntu VPS bootstrap
 uses `./setup.sh --commands-only` to install the same entry points without a
@@ -44,7 +53,7 @@ scripts/python/
       remote_clipboard.py    text clipboard transfer between macOS and Archie
       sysinfo/               modular hardware and software summary
         cli.py               pretty, full and health command flags
-        collect.py           Fastfetch, process and NVIDIA probes
+        collect.py           native collector, fastfetch and NVIDIA probes
         models.py            shared snapshots, components and render options
         branding.py          vendor registry, marks, colours and fallbacks
         profiles.py          exact-model facts and operating limits
@@ -122,6 +131,7 @@ scripts/rust/
   rust-toolchain.toml        toolchain channel and components
   crates/
     bench-workloads/         dependency-free native workloads for sysinfo bench
+    sysinfo-collect/         native system probing, fastfetch-shaped JSON
 tests/
   run.sh                     black-box test runner, plus cargo test
   lib.sh                     sandbox and assertions
@@ -164,12 +174,24 @@ shown unless health mode is requested. Swap status is factual in full mode and
 becomes a warning only when high memory pressure makes the missing fallback
 actionable.
 
-Fastfetch remains the primary detector. Targeted NVIDIA telemetry enriches
-matching devices with live VRAM, utilization, clock and power readings from
-`nvidia-smi`. Optional probe failures become health findings and never prevent
-the remaining snapshot from rendering. Static components such as the cooler,
-memory kit, case and power supply come from `config/hosts.dotfile` when firmware
-interfaces cannot expose them without elevated privileges.
+The primary detector is `sysinfo-collect`, the Rust binary in `scripts/rust`:
+sysctl and IOKit on macOS, /proc and /sys with the hwdata/libdrm ID databases
+on Linux, emitting the same fastfetch-shaped module JSON the readers have
+always consumed. Its field values are matched against what fastfetch reports
+on the same hardware — the benchmark epoch is derived from them, and this was
+verified against the pinned baselines on both archie and macie before the
+switch. When the binary is missing, collection falls back to fastfetch
+unchanged; `SYSINFO_COLLECTOR` overrides the binary path for tests. In full
+mode, the purely cosmetic modules the native collector does not implement
+(Host, Packages, Theme, Display, OpenCL, Vulkan, firmware) merge in from
+fastfetch when it is installed and silently stay absent when it is not.
+
+Targeted NVIDIA telemetry enriches matching devices with live VRAM,
+utilization, clock and power readings from `nvidia-smi`. Optional probe
+failures become health findings and never prevent the remaining snapshot from
+rendering. Static components such as the cooler, memory kit, case and power
+supply come from `config/hosts.dotfile` when firmware interfaces cannot expose
+them without elevated privileges.
 
 ### config/hosts.dotfile
 

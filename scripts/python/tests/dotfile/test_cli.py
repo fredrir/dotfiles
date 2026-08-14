@@ -22,6 +22,23 @@ def sandbox(tmp_path):
     return repo, home, env
 
 
+def test_sync_runs_setup_with_the_sync_flag(tool, sandbox):
+    repo, _home, env = sandbox
+    script = repo / "setup.sh"
+    script.write_text('#!/bin/sh\nprintf %s "$1" > "$(dirname "$0")/called.txt"\nexit 7\n')
+    script.chmod(0o755)
+    result = tool("dotfile", "sync", env=env)
+    assert result.returncode == 7
+    assert (repo / "called.txt").read_text() == "--sync"
+
+
+def test_sync_without_a_setup_script_fails(tool, sandbox):
+    _repo, _home, env = sandbox
+    result = tool("dotfile", "sync", env=env)
+    assert result.returncode == 1
+    assert "setup.sh" in result.stderr
+
+
 def test_link_folds_a_package(tool, sandbox):
     repo, home, env = sandbox
     result = tool("dotfile", "link", "test", env=env)
