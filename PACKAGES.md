@@ -30,6 +30,7 @@
 - `fastfetch` — Arch fastfetch logo and configuration
 - `git` — Arch-specific Git configuration
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
+- `zsh`
 
 ## `linux/ubuntu`
 
