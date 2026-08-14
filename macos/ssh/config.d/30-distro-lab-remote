@@ -1,0 +1,6 @@
+Host *-dev
+    User fredrir
+    ProxyCommand ssh -T -q archie /storage/distro-lab/src/vm/libvirt-ssh-proxy %h %p
+    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking no
+    LogLevel ERROR
