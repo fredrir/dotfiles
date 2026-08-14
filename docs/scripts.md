@@ -25,8 +25,10 @@ reinstall), and the cargo build on a hash of the `scripts/rust` sources, with
 stamps under `~/.config/dotfile/sync`. `dotfile sync` runs `setup.sh --sync`:
 the same steps non-interactively with the saved environment and overrides, so
 the routine after a pull is one command that only does the work the pull
-created. A first run on a new machine is `./setup.sh`, which is the same
-script with the pickers. The Linux,
+created. When run from the configured zsh, a successful sync replaces the
+current shell with a fresh zsh process so linked shell changes take effect
+immediately; a failed sync leaves the existing shell alone. A first run on a
+new machine is `./setup.sh`, which is the same script with the pickers. The Linux,
 macOS, and Ubuntu zsh profiles put `~/.local/bin` on PATH without exposing the
 project environment's Python or dependency commands. The Ubuntu VPS bootstrap
 uses `./setup.sh --commands-only` to install the same entry points without a
