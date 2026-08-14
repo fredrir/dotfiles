@@ -46,7 +46,6 @@ scripts/python/
       typography.py          terminal-safe block lettering
     utils/
       count.py               count items inside a directory
-      size.py                du-backed size summary
       path.py                repo-relative or home-relative path of a target
       tardirs.py             tar archive directory tree with entry counts
       gpp.py                 git add + commit + push
@@ -131,6 +130,7 @@ scripts/rust/
   rust-toolchain.toml        toolchain channel and components
   crates/
     bench-workloads/         dependency-free native workloads for sysinfo bench
+    size/                    sizes and line counts for files and directories
     sysinfo-collect/         native system probing, fastfetch-shaped JSON
 tests/
   run.sh                     black-box test runner, plus cargo test
