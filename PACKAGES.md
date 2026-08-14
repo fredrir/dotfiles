@@ -40,7 +40,6 @@
 ## `linux/kde`
 
 - `kate` — Kate editor settings and external tools
-- `konsole` — Konsole terminal configuration
 - `krunnerrc` — KRunner configuration
 - `kvitals` — Plasma system monitor widget
 - `my-panel` — Plasma panel configuration
