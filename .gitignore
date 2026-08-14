@@ -44,7 +44,8 @@ linux/hyprland/hypr/conf.d/local.conf
 __pycache__/
 *.pyc
 
-scripts/.venv/
+scripts/python/.venv/
+scripts/rust/target/
 
 .idea/
 

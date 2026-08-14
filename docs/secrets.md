@@ -129,7 +129,7 @@ Three tiers, run together, cheapest first.
 **Pattern.** Token shapes and key blocks: GitHub, GitLab, npm, AWS, Slack,
 JWTs, age identities, and any PEM private key block, plus assignments to names
 like `api_key` or `password`. The pattern set lives in
-`scripts/src/tools/core/patterns.py` and is shared with the transcript
+`scripts/python/src/tools/core/patterns.py` and is shared with the transcript
 archiver, so there is one definition of what a secret looks like.
 
 **Canary.** Literal private values, read from `~/.config/dotfile/canaries`,
@@ -158,7 +158,7 @@ commits being pushed, which catches a value that was committed and then edited
 out before the push, exactly the case that happened, and which still fires when
 `--no-verify` skipped the commit hook.
 
-There is no CI. Both hooks fail closed instead: if `scripts/.venv` is missing
+There is no CI. Both hooks fail closed instead: if `scripts/python/.venv` is missing
 they refuse rather than skipping, since a scanner that silently disables itself
 is worse than none. Run `./setup.sh` on a new machine before committing.
 
@@ -184,7 +184,7 @@ In phase 3 this file becomes the plaintext companion to the encrypted
 `vars.enc.yaml`, and the same values feed the templates and the transcript
 redactor.
 
-### scan.dotfile
+### config/scan.dotfile
 
 Pattern findings can be allowed per path, optionally narrowed to one label:
 
@@ -224,11 +224,11 @@ Linux and macOS. `SOPS_AGE_KEY_FILE` is exported from
 on the shell. `doctor` reports an identity left at sops' default path, since
 that is the confusing failure to catch early.
 
-### keys.dotfile and .sops.yaml
+### config/keys.dotfile and .sops.yaml
 
-`keys.dotfile` is the source of truth: a label and a public key per recipient.
+`config/keys.dotfile` is the source of truth: a label and a public key per recipient.
 `.sops.yaml` is generated from it, sorted, and staged by `pre-commit`, in the
-same way `packages.dotfile` generates `PACKAGES.md`. Never edit `.sops.yaml`
+same way `config/packages.dotfile` generates `PACKAGES.md`. Never edit `.sops.yaml`
 directly; `doctor` reports the drift if you do.
 
     recipients {
@@ -312,7 +312,7 @@ themselves.
 
 `dotfile secret doctor` checks the whole chain: age and sops on PATH, the
 identity present and correctly moded, this machine enrolled, a recovery
-recipient present, `.sops.yaml` matching `keys.dotfile`, every encrypted file
+recipient present, `.sops.yaml` matching `config/keys.dotfile`, every encrypted file
 decryptable here, the canaries file present and 600, both hooks active, and no
 stray identity where sops would find it first. It exits non-zero when any of
 those fail, so it works as a post-setup check on a new machine.
@@ -392,7 +392,7 @@ fold — `$HOME`, `~/.config`, `~/.local` and friends — are never chmodded.
 is, at 0600 — the live file is already the materialised form, so there is
 nothing to move and nothing to link. It writes the `.secret` marker when it
 creates a new package, and maps the package to the source directory in
-`targets` when that is not already the default.
+`config/targets.dotfile` when that is not already the default.
 
 The plaintext never passes through the repository: sops reads the live path
 directly and the ciphertext is written to the repository path, with `--config`

@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+# One codegen unit and fat LTO, so a rebuild of the same source on the same
+# toolchain produces the same machine code: these binaries are measurement
+# instruments, and codegen variance would show up as a hardware regression.
+[profile.release]
+lto = true
+codegen-units = 1

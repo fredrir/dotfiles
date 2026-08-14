@@ -16,7 +16,7 @@ test_adopts_a_loose_config_file_and_maps_it() {
   assert_file_is "$REPO/shared/foot/foot.ini" "x"
   assert_symlink "$HOME/.config/foot.ini" "$REPO/shared/foot/foot.ini"
   assert_output_has "shared/foot = ~/.config"
-  grep -qxF "shared/foot = ~/.config" "$REPO/targets" || fail "targets entry not written"
+  grep -qxF "shared/foot = ~/.config" "$REPO/config/targets.dotfile" || fail "targets entry not written"
 }
 
 test_places_into_the_requested_group() {
@@ -56,7 +56,7 @@ test_honours_an_explicit_package_name() {
   assert_ok
   assert_file_is "$REPO/shared/zsh/.zshrc" "rc"
   assert_symlink "$HOME/.zshrc" "$REPO/shared/zsh/.zshrc"
-  grep -qxF "shared/zsh/.zshrc = ~/.zshrc" "$REPO/targets" || fail "targets entry not written"
+  grep -qxF "shared/zsh/.zshrc = ~/.zshrc" "$REPO/config/targets.dotfile" || fail "targets entry not written"
 }
 
 test_keeps_subdirectories_when_the_package_names_the_dotdir() {
@@ -66,7 +66,7 @@ test_keeps_subdirectories_when_the_package_names_the_dotdir() {
   assert_ok
   assert_file_is "$REPO/shared/ssh/config.d/40-cabled" "cabled"
   assert_symlink "$HOME/.ssh/config.d/40-cabled" "$REPO/shared/ssh/config.d/40-cabled"
-  grep -qxF "shared/ssh = ~/.ssh" "$REPO/targets" || fail "directory targets entry not written"
+  grep -qxF "shared/ssh = ~/.ssh" "$REPO/config/targets.dotfile" || fail "directory targets entry not written"
 }
 
 test_flattens_when_the_package_does_not_name_the_dotdir() {
@@ -75,7 +75,7 @@ test_flattens_when_the_package_does_not_name_the_dotdir() {
   dotfile add --pkg git "$HOME/.ssh/allowed"
   assert_ok
   assert_file_is "$REPO/shared/git/allowed" "signers"
-  grep -qxF "shared/git/allowed = ~/.ssh/allowed" "$REPO/targets" || fail "file targets entry not written"
+  grep -qxF "shared/git/allowed = ~/.ssh/allowed" "$REPO/config/targets.dotfile" || fail "file targets entry not written"
 }
 
 test_requires_a_package_name_outside_config() {
@@ -91,7 +91,7 @@ test_records_a_description() {
   printf 'bar\n' > "$HOME/.config/waybar/config"
   dotfile add --description "Status bar" waybar
   assert_ok
-  grep -qF "waybar = Status bar" "$REPO/packages.dotfile" || fail "description not recorded"
+  grep -qF "waybar = Status bar" "$REPO/config/packages.dotfile" || fail "description not recorded"
   grep -qF "\`waybar\` — Status bar" "$REPO/PACKAGES.md" || fail "description not documented"
 }
 

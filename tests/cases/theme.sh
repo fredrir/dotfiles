@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 generator() {
-  OUTPUT="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/dotfile" theme "$@" 2>&1)"
+  OUTPUT="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/python/.venv/bin/dotfile" theme "$@" 2>&1)"
   STATUS=$?
   return 0
 }
@@ -58,7 +58,7 @@ test_every_group_that_owns_a_file_is_assigned_a_profile() {
 }
 
 test_a_group_cannot_theme_a_package_it_does_not_own() {
-  local keep="$SOURCE_ROOT/profiles.dotfile"
+  local keep="$SOURCE_ROOT/config/profiles.dotfile"
   local saved
   saved="$(cat "$keep")"
   printf 'shared {\n  theme = mocha\n}\n\nlinux/arch {\n  zsh = latte\n}\n' > "$keep"
@@ -71,11 +71,11 @@ test_a_group_cannot_theme_a_package_it_does_not_own() {
 
 test_switch_rejects_a_scope_that_owns_nothing() {
   local before
-  before="$(cat "$SOURCE_ROOT/profiles.dotfile")"
+  before="$(cat "$SOURCE_ROOT/config/profiles.dotfile")"
   generator switch latte linux/nowhere
   [ "$STATUS" -ne 0 ] || fail "an unknown scope should fail"
   assert_output_has "nothing generated is scoped to"
-  [ "$before" = "$(cat "$SOURCE_ROOT/profiles.dotfile")" ] ||
+  [ "$before" = "$(cat "$SOURCE_ROOT/config/profiles.dotfile")" ] ||
     fail "a rejected scope must not rewrite profiles.dotfile"
 }
 
@@ -87,7 +87,7 @@ test_switch_rejects_a_profile_that_does_not_exist() {
 
 test_hook_stages_exactly_what_the_registry_declares() {
   local declared hook_paths
-  declared="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/.venv/bin/dotfile" theme outputs --stageable | LC_ALL=C sort)"
+  declared="$(cd "$SOURCE_ROOT" && "$SOURCE_ROOT/scripts/python/.venv/bin/dotfile" theme outputs --stageable | LC_ALL=C sort)"
   hook_paths="$(grep -c 'theme outputs --stageable' "$SOURCE_ROOT/.githooks/pre-commit")"
   [ "$hook_paths" -eq 1 ] || fail "pre-commit hook no longer queries the registry"
   [ -n "$declared" ] || fail "registry declared no stageable outputs"

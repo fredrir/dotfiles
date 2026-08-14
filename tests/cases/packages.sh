@@ -11,7 +11,7 @@ test_generates_the_manifest_from_the_tree() {
   packages_repo
   dotfile packages
   assert_ok
-  assert_file_is "$REPO/packages.dotfile" "shared {
+  assert_file_is "$REPO/config/packages.dotfile" "shared {
   alpha
   beta
 }
@@ -39,12 +39,12 @@ test_generates_the_documentation() {
 test_preserves_descriptions_across_regeneration() {
   packages_repo
   dotfile packages
-  printf 'shared {\n  alpha = First one\n  beta\n}\n\nlinux/kde {\n  gamma\n}\n' > "$REPO/packages.dotfile"
+  printf 'shared {\n  alpha = First one\n  beta\n}\n\nlinux/kde {\n  gamma\n}\n' > "$REPO/config/packages.dotfile"
   mkpkg shared/delta/delta.conf "d"
   dotfile packages
   assert_ok
-  grep -qF "alpha = First one" "$REPO/packages.dotfile" || fail "description lost"
-  grep -qF "delta" "$REPO/packages.dotfile" || fail "new package missing"
+  grep -qF "alpha = First one" "$REPO/config/packages.dotfile" || fail "description lost"
+  grep -qF "delta" "$REPO/config/packages.dotfile" || fail "new package missing"
   grep -qF "\`alpha\` — First one" "$REPO/PACKAGES.md" || fail "description not documented"
 }
 
@@ -54,7 +54,7 @@ test_ignores_override_directories() {
   dotfile packages
   assert_ok
   assert_output_lacks "overrides"
-  grep -qF "overrides" "$REPO/packages.dotfile" && fail "overrides leaked into the manifest"
+  grep -qF "overrides" "$REPO/config/packages.dotfile" && fail "overrides leaked into the manifest"
   return 0
 }
 
@@ -68,7 +68,7 @@ test_is_quiet_when_already_current() {
 
 test_rejects_a_duplicate_entry() {
   packages_repo
-  printf 'shared {\n  alpha\n  alpha\n}\n' > "$REPO/packages.dotfile"
+  printf 'shared {\n  alpha\n  alpha\n}\n' > "$REPO/config/packages.dotfile"
   dotfile packages
   assert_fails
   assert_output_has "duplicate package"
@@ -76,7 +76,7 @@ test_rejects_a_duplicate_entry() {
 
 test_rejects_a_package_outside_a_group() {
   packages_repo
-  printf 'alpha\n' > "$REPO/packages.dotfile"
+  printf 'alpha\n' > "$REPO/config/packages.dotfile"
   dotfile packages
   assert_fails
   assert_output_has "outside a group"
@@ -84,7 +84,7 @@ test_rejects_a_package_outside_a_group() {
 
 test_rejects_an_unclosed_group() {
   packages_repo
-  printf 'shared {\n  alpha\n' > "$REPO/packages.dotfile"
+  printf 'shared {\n  alpha\n' > "$REPO/config/packages.dotfile"
   dotfile packages
   assert_fails
   assert_output_has "missing }"

@@ -2,14 +2,14 @@
 
 sysinfo_bench() {
   require_sandboxed_home
-  OUTPUT="$(SYSINFO_BENCHMARKS="$REPO/benchmarks" SYSINFO_CONFIG="$REPO/hosts.dotfile" \
-    "$SOURCE_ROOT/scripts/.venv/bin/sysinfo" bench "$@" 2>&1)"
+  OUTPUT="$(SYSINFO_BENCHMARKS="$REPO/benchmarks" SYSINFO_CONFIG="$REPO/config/hosts.dotfile" \
+    "$SOURCE_ROOT/scripts/python/.venv/bin/sysinfo" bench "$@" 2>&1)"
   STATUS=$?
   return 0
 }
 
 mkhosts() {
-  cat > "$REPO/hosts.dotfile" <<'EOF'
+  cat > "$REPO/config/hosts.dotfile" <<'EOF'
 archie {
   hostnames = archpc, archie
   role = desktop
@@ -193,7 +193,7 @@ test_rejects_an_unknown_host() {
 }
 
 test_reports_a_malformed_hosts_file() {
-  printf 'archie {\n  role = desktop\n' > "$REPO/hosts.dotfile"
+  printf 'archie {\n  role = desktop\n' > "$REPO/config/hosts.dotfile"
   sysinfo_bench list --host archie
   assert_ok
   sysinfo_bench run --host archie

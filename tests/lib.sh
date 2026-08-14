@@ -10,8 +10,8 @@ setup_sandbox() {
   ZSH="$HOME/.oh-my-zsh"
   export HOME XDG_CONFIG_HOME ZSH
   export DOTFILE_ROOT="$REPO"
-  mkdir -p "$REPO" "$HOME/.config" "$HOME/.local/share" "$HOME/.local/bin"
-  : > "$REPO/targets"
+  mkdir -p "$REPO/config" "$HOME/.config" "$HOME/.local/share" "$HOME/.local/bin"
+  : > "$REPO/config/targets.dotfile"
 }
 
 teardown_sandbox() {
@@ -34,7 +34,7 @@ require_sandboxed_home() {
 
 dotfile() {
   require_sandboxed_home
-  OUTPUT="$("$SOURCE_ROOT/scripts/.venv/bin/dotfile" "$@" 2>&1)"
+  OUTPUT="$("$SOURCE_ROOT/scripts/python/.venv/bin/dotfile" "$@" 2>&1)"
   STATUS=$?
   return 0
 }
@@ -53,7 +53,7 @@ mkprofile() {
 }
 
 target() {
-  printf '%s\n' "$1" >> "$REPO/targets"
+  printf '%s\n' "$1" >> "$REPO/config/targets.dotfile"
 }
 
 assert_symlink() {

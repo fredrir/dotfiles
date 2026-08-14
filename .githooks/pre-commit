@@ -2,24 +2,24 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-bin="$root/scripts/.venv/bin"
+bin="$root/scripts/python/.venv/bin"
 
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
 if [ ! -x "$bin/dotfile" ]; then
-  echo "pre-commit: scripts/.venv missing, the secret scan cannot run" >&2
-  echo "pre-commit: run ./setup.sh (or: uv sync --project scripts --locked)" >&2
+  echo "pre-commit: scripts/python/.venv missing, the secret scan cannot run" >&2
+  echo "pre-commit: run ./setup.sh (or: uv sync --project scripts/python --locked)" >&2
   exit 1
 fi
 
-if staged packages.dotfile PACKAGES.md scripts/src/tools/dotfile \
+if staged config/packages.dotfile PACKAGES.md scripts/python/src/tools/dotfile \
           environment shared linux/common linux/arch linux/ubuntu linux/kde \
           linux/hyprland linux/server macos; then
   "$bin/dotfile" packages
-  git add "$root/packages.dotfile" "$root/PACKAGES.md"
+  git add "$root/config/packages.dotfile" "$root/PACKAGES.md"
 fi
 
-if staged benchmarks scripts/src/tools/utils/sysinfo/bench; then
+if staged benchmarks scripts/python/src/tools/utils/sysinfo/bench; then
   if "$bin/sysinfo" bench document >/dev/null; then
     # -A over the whole directory, for two reasons. BENCHMARKS.md is generated
     # from every run file on disk regardless of staging, so staging the document
@@ -33,14 +33,14 @@ if staged benchmarks scripts/src/tools/utils/sysinfo/bench; then
   fi
 fi
 
-if staged keys.dotfile; then
+if staged config/keys.dotfile; then
   "$bin/dotfile" secret sync
   if [ -e "$root/.sops.yaml" ]; then
     git add "$root/.sops.yaml"
   fi
 fi
 
-if staged theme profiles.dotfile scripts/src/tools/theme; then
+if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
   if "$bin/dotfile" theme apply; then
     while IFS= read -r path; do
       if [ -e "$root/$path" ]; then
@@ -49,6 +49,13 @@ if staged theme profiles.dotfile scripts/src/tools/theme; then
     done < <("$bin/dotfile" theme outputs --stageable)
   else
     echo "pre-commit: theme generation failed (continuing)" >&2
+  fi
+fi
+
+if staged scripts/rust && command -v cargo >/dev/null 2>&1; then
+  if ! cargo fmt --check --manifest-path "$root/scripts/rust/Cargo.toml" >/dev/null 2>&1; then
+    echo "pre-commit: rust formatting is off (run: cargo fmt --manifest-path scripts/rust/Cargo.toml)" >&2
+    exit 1
   fi
 fi
 

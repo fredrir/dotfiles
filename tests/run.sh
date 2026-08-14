@@ -35,16 +35,37 @@ run_case_file() {
   done < <(grep -oE '^test_[A-Za-z0-9_]+' "$file")
 }
 
+run_rust() {
+  local manifest="$TESTS_DIR/../scripts/rust/Cargo.toml"
+  command -v cargo >/dev/null 2>&1 || return 0
+  [ -f "$manifest" ] || return 0
+  printf '%s%s%s\n' "$BOLD" "rust" "$RESET"
+  printf '  %-54s' "cargo test"
+  if cargo test --quiet --manifest-path "$manifest" >"$TESTS_DIR/.out" 2>&1; then
+    printf '%sok%s\n' "$GREEN" "$RESET"
+    passed=$((passed + 1))
+  else
+    printf '%sFAIL%s\n' "$RED" "$RESET"
+    failed=$((failed + 1))
+    failed_names+=("rust/cargo_test")
+    sed 's/^/      /' "$TESTS_DIR/.out" >&2
+  fi
+}
+
 if [ "$#" -gt 0 ]; then
   for pattern in "$@"; do
     for file in "$TESTS_DIR"/cases/*"$pattern"*.sh; do
       [ -f "$file" ] && run_case_file "$file"
     done
+    case "rust" in
+      *"$pattern"*) run_rust ;;
+    esac
   done
 else
   for file in "$TESTS_DIR"/cases/*.sh; do
     [ -f "$file" ] && run_case_file "$file"
   done
+  run_rust
 fi
 
 rm -f "$TESTS_DIR/.out"

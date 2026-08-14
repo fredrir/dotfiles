@@ -106,8 +106,8 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 if [ "$COMMANDS_ONLY" = 0 ]; then
-  echo "syncing workstation tools (scripts/.venv)"
-  uv sync --project "$DOTFILES/scripts" --locked --compile-bytecode --quiet
+  echo "syncing workstation tools (scripts/python/.venv)"
+  uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
 fi
 
 echo "installing workstation commands (~/.local/bin)"
@@ -116,10 +116,22 @@ UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
   uv tool install \
     --compile-bytecode \
     --constraints <(
-      uv export --project "$DOTFILES/scripts" --locked --no-dev --no-emit-project \
+      uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
         --no-header --no-annotate --no-hashes --quiet
     ) \
-    --editable --reinstall --quiet "$DOTFILES/scripts"
+    --editable --reinstall --quiet "$DOTFILES/scripts/python"
+
+if command -v cargo >/dev/null 2>&1; then
+  echo "building native tools (scripts/rust)"
+  if cargo build --release --locked --quiet --manifest-path "$DOTFILES/scripts/rust/Cargo.toml"; then
+    install -m 0755 "$DOTFILES/scripts/rust/target/release/bench-workloads" \
+      "$TOOL_BIN_DIR/bench-workloads"
+  else
+    echo "setup: cargo build failed; native tools skipped" >&2
+  fi
+else
+  echo "setup: cargo not found; skipping native tools (install rust to enable)"
+fi
 
 if [ "$COMMANDS_ONLY" = 1 ]; then
   exit 0

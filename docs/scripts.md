@@ -4,12 +4,16 @@ Reference for the workstation command-line tools in `scripts/`. Code files
 carry no comments, so the reasoning behind the non-obvious behaviour lives
 here.
 
-`scripts/` is a uv-managed Python project (Typer + Rich, package name
-`tools`). `uv sync --project scripts --locked` installs its development
-environment into `scripts/.venv`. Setup also installs the project as an
+`scripts/` holds two projects: `scripts/python`, the uv-managed Python
+project, and `scripts/rust`, a cargo workspace for native tools where
+interpreter overhead would distort what is being measured.
+
+`scripts/python` is a uv-managed Python project (Typer + Rich, package name
+`tools`). `uv sync --project scripts/python --locked` installs its development
+environment into `scripts/python/.venv`. Setup also installs the project as an
 editable uv tool and exposes only the console entry points declared in
-`scripts/pyproject.toml` through `~/.local/bin`, with runtime dependencies
-constrained by `scripts/uv.lock`. Setup enables install-time bytecode
+`scripts/python/pyproject.toml` through `~/.local/bin`, with runtime dependencies
+constrained by `scripts/python/uv.lock`. Setup enables install-time bytecode
 compilation for both environments. Re-running setup reconciles that directory
 with the declaration, including pruning removed entry points. The Linux,
 macOS, and Ubuntu zsh profiles put `~/.local/bin` on PATH without exposing the
@@ -20,7 +24,7 @@ development environment.
 ## Layout
 
 ```
-scripts/
+scripts/python/
   pyproject.toml             project, dependencies, console entry points
   uv.lock                    locked dependency versions
   src/tools/
@@ -48,7 +52,7 @@ scripts/
         facts.py             shared normalized fact construction
         formatting.py        shared units, percentages and text formatting
         identity.py          platform-aware username and hostname resolution
-        hosts.py             hosts.dotfile parsing and host resolution
+        hosts.py             config/hosts.dotfile parsing and host resolution
         bench/
           cli.py             bench subcommands and their menus
           record.py          run and metric schema, epoch derivation
@@ -56,7 +60,8 @@ scripts/
           capture.py         embedded hardware snapshot and install facts
           conditions.py      confounders, gating and run grading
           runner.py          orchestration and dynamic run counts
-          suites/            one module per measurement family
+          suites/            one module per measurement family; native.py
+                             drives the bench-workloads Rust binary
           select.py          host[/os][@epoch][:run] selectors
           compare.py         deltas, noise bands, snapshot diffs
           health.py          benchmark findings as HealthIssues
@@ -77,7 +82,7 @@ scripts/
       fastfetch.py           fastfetch preview block in README.md
     theme/
       model.py               profile loading, merging, colour conversion
-      profiles.py            profiles.dotfile: reading it, and rewriting it
+      profiles.py            config/profiles.dotfile: reading it, and rewriting it
       validate.py            what a profile must define to be usable
       render.py              file writing and in-place editing
       emitters.py            one function per generated config
@@ -87,10 +92,10 @@ scripts/
     dotfile/
       cli.py                 command dispatch
       state.py               repo context, profiles, overrides, manifests
-      targets.py             targets file -> destination mapping
+      targets.py             config/targets.dotfile -> destination mapping
       link.py                link / unlink / prune engine
       check.py               health of the installed environment
-      packages.py            packages.dotfile and PACKAGES.md
+      packages.py            config/packages.dotfile and PACKAGES.md
       add.py                 adopt a live config into the repo
       remove.py              stop tracking a path, keep it live
       format.py              .conf formatter
@@ -101,9 +106,9 @@ scripts/
         cli.py               secret subcommand dispatch
         scan.py              pattern, canary and invariant tiers
         canaries.py          private strings from the local file and vars
-        allow.py             scan.dotfile false-positive allowlist
+        allow.py             config/scan.dotfile false-positive allowlist
         identity.py          this machine's age identity
-        keys.py              keys.dotfile -> .sops.yaml
+        keys.py              config/keys.dotfile -> .sops.yaml
         manage.py            init, enroll, revoke, sync
         vault.py             encrypt, decrypt, render, materialise
         variables.py         vars.enc.yaml loading and template rendering
@@ -111,8 +116,14 @@ scripts/
         apply.py             apply, status, clean and their reporting
         doctor.py            end-to-end health of the secret system
   tests/                     pytest suites per area
+scripts/rust/
+  Cargo.toml                 cargo workspace, release codegen pinned for
+                             reproducible measurement binaries
+  rust-toolchain.toml        toolchain channel and components
+  crates/
+    bench-workloads/         dependency-free native workloads for sysinfo bench
 tests/
-  run.sh                     black-box test runner
+  run.sh                     black-box test runner, plus cargo test
   lib.sh                     sandbox and assertions
   cases/                     one file per test group
 ```
@@ -132,7 +143,7 @@ theme/
 ```
 
 `theme/` holds colour and font data only, and says nothing about which profile
-is in force — that is `profiles.dotfile` at the repository root, beside the
+is in force — that is `config/profiles.dotfile` at the repository root, beside the
 other `.dotfile` declarations. Every config that carries colour is a normal
 tracked dotfile in its own package; the generator stamps values into it rather
 than rendering it from a template.
@@ -157,12 +168,12 @@ Fastfetch remains the primary detector. Targeted NVIDIA telemetry enriches
 matching devices with live VRAM, utilization, clock and power readings from
 `nvidia-smi`. Optional probe failures become health findings and never prevent
 the remaining snapshot from rendering. Static components such as the cooler,
-memory kit, case and power supply come from `hosts.dotfile` when firmware
+memory kit, case and power supply come from `config/hosts.dotfile` when firmware
 interfaces cannot expose them without elevated privileges.
 
-### hosts.dotfile
+### config/hosts.dotfile
 
-One block per physical machine, in the same grammar as `packages.dotfile`:
+One block per physical machine, in the same grammar as `config/packages.dotfile`:
 
 ```
 archie {
@@ -228,19 +239,19 @@ terminal; piped, they say so and exit non-zero rather than printing nothing.
 ### What a run is pinned to
 
 Four independent dimensions, because each question holds a different set fixed:
-the **host** (declared in `hosts.dotfile`), the **hardware snapshot** embedded in
+the **host** (declared in `config/hosts.dotfile`), the **hardware snapshot** embedded in
 the run, the **install** (distro, kernel, driver) captured automatically, and the
 **run** itself (time, tier, note, conditions).
 
 Every run embeds its resolved hardware snapshot rather than pointing at one.
-`hosts.dotfile` describes *now*; a run describes *then*. So there are no
+`config/hosts.dotfile` describes *now*; a run describes *then*. So there are no
 hardware revision numbers to maintain, `compare` can diff two embedded snapshots
 and report "GPU changed: RTX 3080 → RTX 5070 Ti" on its own, and a run taken
 inside a VM is self-evident from its own record.
 
 The **epoch** (`10db7d1f`) is a derived index key, not stored state: a blake2s
 digest over the identity-bearing snapshot fields. Swap a part and it changes by
-itself, while older runs keep their old parts. `git log -p -- hosts.dotfile` is
+itself, while older runs keep their old parts. `git log -p -- config/hosts.dotfile` is
 the upgrade log; nothing else records it.
 
 Which fields count is a deliberately narrow question, because anything that
@@ -260,7 +271,7 @@ cross-machine comparison work at all, since git already syncs the two machines.
 One file per run means two machines can record independently and merge without
 ever touching the same bytes. `baselines.dotfile` pins the reference run per host
 and epoch, and `BENCHMARKS.md` is generated from the set by `sysinfo bench
-document`, staged by `pre-commit` — the same relationship `packages.dotfile` has
+document`, staged by `pre-commit` — the same relationship `config/packages.dotfile` has
 with `PACKAGES.md`.
 
 Records carry the declared host alias only. Serials, `machine-id`, disk WWNs,
@@ -421,6 +432,24 @@ Each workload is preflighted once with a 20 second budget and dropped if it does
 not finish. A cold `nvim --headless` can trigger a plugin manager sync that takes
 many minutes; without the preflight that hang lands inside the measurement.
 
+### native metrics
+
+`cpu.native_*` and `mem.native_*` come from `bench-workloads`, the Rust binary
+in `scripts/rust`. The other suites measure through whatever the platform
+packages — a distribution's 7z and openssl are built with different compilers
+and flags on every OS, which is exactly the variable a cross-machine rating
+should not contain. `bench-workloads` is compiled from this repository with
+codegen pinned in the workspace profile, has no dependencies, and does the
+measured work outside any interpreter, so the method is identical on every
+host and the tool version in each record is the crate version.
+
+`suites/native.py` finds the binary at `scripts/rust/target/release/` (built
+by setup when cargo is present), then `~/.local/bin`, and contributes nothing
+when neither exists; `SYSINFO_BENCH_WORKLOADS` overrides the path for tests.
+`cpu.native_*` runs a fixed data-dependent xorshift chain per thread, and
+`mem.native_*` is single threaded for the same zero-page reason as `mem.*`,
+with the buffer pattern-filled before timing starts.
+
 ### Health integration
 
 `benchmark_issues()` returns the same `HealthIssue` tuples `health.py` produces,
@@ -460,7 +489,7 @@ Each package is linked as a whole directory symlink when possible, because one
 symlink is cheaper to reason about than a tree of them. That folding is skipped
 in two cases:
 
-- **A `targets` entry points inside the package.** The entry has to be able to
+- **A `config/targets.dotfile` entry points inside the package.** The entry has to be able to
   land somewhere else, so the parent must be a real directory.
 - **The destination is a directory that must never itself become a symlink** —
   `$HOME`, `~/.config`, `~/.local`, `~/.local/share`, `~/.local/bin`,
@@ -470,7 +499,7 @@ in two cases:
 
 When a directory that was previously folded stops qualifying, it is *unfolded*:
 the directory symlink is replaced by a real directory containing one symlink per
-entry. This is why `link` is safe to re-run after adding a `targets` entry.
+entry. This is why `link` is safe to re-run after adding a `config/targets.dotfile` entry.
 
 Groups are linked in manifest order, and a later group may hold a package of the
 same name as an earlier one. The shared copy is linked first, then unfolded file
@@ -478,9 +507,9 @@ by file, and each file the later group also carries replaces its link. So a
 platform group overrides individual files of a shared package while inheriting
 the rest — how `shared/fastfetch` is specialised per platform.
 
-### targets
+### targets.dotfile
 
-`targets` maps a repo path to a destination. Without an entry, a package lands
+`config/targets.dotfile` maps a repo path to a destination. Without an entry, a package lands
 at `~/.config/<package>`. Matching is longest-prefix, so a specific file entry
 beats the package entry containing it.
 
@@ -548,7 +577,7 @@ destination. One row per subject, the misses listed underneath it:
   name is not guessed at), every declared command is installed through uv into
   `~/.local/bin` and resolves there, every group with `overrides/` has a
   selection, and the login shell is zsh.
-- **tools, fonts, files, optional** — the entries in `requires.dotfile` for the
+- **tools, fonts, files, optional** — the entries in `config/requirements.dotfile` for the
   groups this profile links. Fonts are matched against `fc-list` families, or
   against the font directories when fontconfig is not installed; a family
   matches its own weights (`HackNerdFontMono-BoldItalic`) but not a longer name
@@ -563,10 +592,10 @@ destination. One row per subject, the misses listed underneath it:
 
 Lists stop at twelve entries; `--all` prints every one.
 
-### requires.dotfile
+### config/requirements.dotfile
 
 Hand-maintained, one block per group, in the same grammar as
-`packages.dotfile`:
+`config/packages.dotfile`:
 
 ```
 shared {
@@ -609,16 +638,16 @@ output lands in scrollback and in transcripts.
 `pre-commit` runs it last, after the steps that stage generated files, so
 nothing reaches a commit unscanned. `pre-push` runs it over the commits being
 pushed, which still catches a value that a `--no-verify` commit slipped in and
-a later commit removed. Both fail closed when `scripts/.venv` is missing.
-Allowed false positives live in `scan.dotfile`; canary and invariant findings
+a later commit removed. Both fail closed when `scripts/python/.venv` is missing.
+Allowed false positives live in `config/scan.dotfile`; canary and invariant findings
 cannot be allowed.
 
 `init` writes this machine's identity, `enroll` and `revoke` edit
-`keys.dotfile`, `sync` regenerates `.sops.yaml` from it (`--rewrap` also runs
+`config/keys.dotfile`, `sync` regenerates `.sops.yaml` from it (`--rewrap` also runs
 `sops updatekeys` over every encrypted file), `keys` lists what is enrolled,
 and `doctor` checks the whole chain from binaries through hooks.
-`keys.dotfile` is the source of truth and `.sops.yaml` is generated and staged
-by `pre-commit`, the same relationship `packages.dotfile` has with
+`config/keys.dotfile` is the source of truth and `.sops.yaml` is generated and staged
+by `pre-commit`, the same relationship `config/packages.dotfile` has with
 `PACKAGES.md`.
 
 `add`, `edit`, `apply`, `status` and `clean` work the vault. Encrypted material
@@ -661,7 +690,7 @@ See `docs/secrets.md` for the threat model behind all of it.
 linker deliberately will not touch. A package carrying a `.system` marker is
 never symlinked and never installed by `link`; it mirrors the destination tree
 inside itself, so `linux/arch/macie-usb/etc/systemd/network/x.link` installs to
-`/etc/systemd/network/x.link` under a single `targets` line pointing the
+`/etc/systemd/network/x.link` under a single `config/targets.dotfile` line pointing the
 package's `etc` at `/etc`.
 
 Symlinking is not merely unsupported here, it is unsafe. systemd, dnsmasq and
@@ -681,7 +710,7 @@ run by `link`, asks before writing unless given `--yes`, and refuses outright
 while any file is unresolved — a half-installed network configuration is worse
 than an out-of-date one. Destinations must be absolute, must not be under
 `$HOME`, and their top-level directory must already exist, so a typo in
-`targets` cannot invent a path.
+`config/targets.dotfile` cannot invent a path.
 
 Modes are `0644`, `0755` when the tracked file is executable, and `0600` for
 anything encrypted. After installing, the command prints the reload each
@@ -718,7 +747,7 @@ generator's own column alignment survives.
 
 ## dotfile theme
 
-A *theme profile* is a colour palette plus fonts. `profiles.dotfile` says which
+A *theme profile* is a colour palette plus fonts. `config/profiles.dotfile` says which
 profile each group uses, and this stamps them into every config that carries
 colour or a font.
 
@@ -727,7 +756,7 @@ dotfile theme                         the menu: switch, status, show, apply, che
 dotfile theme switch [profile] [scope]  assign a profile, then restamp
 dotfile theme status                  which profile each group uses, and what has drifted
 dotfile theme show [profile]          palette, roles, fonts and a sample of the terminal
-dotfile theme apply                   regenerate from profiles.dotfile
+dotfile theme apply                   regenerate from config/profiles.dotfile
 dotfile theme check                   report what would change, exit 1 if anything would
 dotfile theme outputs                 every file the generator owns
 dotfile theme outputs --stageable     only the ones safe to auto-stage
@@ -739,7 +768,7 @@ the machine — and because the picker needed somewhere to live.
 
 ### Switching
 
-`switch` is the only thing here that writes `profiles.dotfile`. With no
+`switch` is the only thing here that writes `config/profiles.dotfile`. With no
 arguments it asks what should change first (everything, one group, or one
 package inside a group), then which profile, drawing each candidate as a card
 painted in its own colours: the palette, a prompt, a file listing, and the
@@ -756,7 +785,7 @@ Value edits keep the line they are on, comment and alignment included. Adding a
 key realigns the block it joins; removing the last key in a block takes the
 block with it.
 
-### profiles.dotfile
+### config/profiles.dotfile
 
 ```
 shared {

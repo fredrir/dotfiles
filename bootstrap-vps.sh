@@ -172,20 +172,20 @@ install_dotfile_commands() {
 # --- link dotfiles -----------------------------------------------------------
 # Standalone per-file linker for the server profile: no dependency on the
 # workstation Python tooling. Every tracked file gets its own symlink at the
-# destination mapped by the targets file (default ~/.config/<package>/...).
+# destination mapped by config/targets.dotfile (default ~/.config/<package>/...).
 declare -A LINK_TARGETS=()
 LINK_CONFLICTS=0
 
 load_link_targets() {
   LINK_TARGETS=()
-  [ -f "$DOTFILES_DIR/targets" ] || return 0
+  [ -f "$DOTFILES_DIR/config/targets.dotfile" ] || return 0
   local line key value
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in *=*) ;; *) continue ;; esac
     key="${line%%=*}"; key="${key#"${key%%[![:space:]]*}"}"; key="${key%"${key##*[![:space:]]}"}"
     value="${line#*=}"; value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"
     LINK_TARGETS["$key"]="${value/#\~/$HOME}"
-  done < "$DOTFILES_DIR/targets"
+  done < "$DOTFILES_DIR/config/targets.dotfile"
 }
 
 map_link_dst() { # repo-relative path, package name, path inside package

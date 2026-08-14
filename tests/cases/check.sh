@@ -6,7 +6,7 @@ check_repo() {
 }
 
 requires() {
-  printf '%s\n' "$@" > "$REPO/requires.dotfile"
+  printf '%s\n' "$@" > "$REPO/config/requirements.dotfile"
 }
 
 test_passes_when_the_tools_are_in_place() {

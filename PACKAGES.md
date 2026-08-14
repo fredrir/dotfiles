@@ -67,6 +67,7 @@
 
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
+- `hammerspoon`
 - `launchd`
 - `skhd`
 - `ssh`

@@ -59,7 +59,7 @@ Already cloned, or re-running
 
 ## Theme
 
-- **Profiles:** `theme/profiles/*.toml`, assigned per group in `profiles.dotfile`
+- **Profiles:** `theme/profiles/*.toml`, assigned per group in `config/profiles.dotfile`
 
 - **To switch profile:**
 
@@ -146,7 +146,8 @@ dotfile system install
 ```bash
 tests/run.sh
 tests/run.sh link
-uv run --project scripts pytest
+uv run --project scripts/python pytest
+cargo test --manifest-path scripts/rust/Cargo.toml
 ```
 
 ## Adding a machine

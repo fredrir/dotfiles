@@ -59,8 +59,8 @@ test_removes_only_target_entries_below_the_requested_path() {
   dotfile remove shared/zsh/.zshrc
   assert_ok
   assert_file_is "$HOME/.zshrc" "zshrc"
-  grep -qxF "shared/zsh/conf.d = ~/.config/zsh/conf.d" "$REPO/targets" || fail "sibling target was removed"
-  if grep -qF "shared/zsh/.zshrc" "$REPO/targets"; then fail "removed target remains"; fi
+  grep -qxF "shared/zsh/conf.d = ~/.config/zsh/conf.d" "$REPO/config/targets.dotfile" || fail "sibling target was removed"
+  if grep -qF "shared/zsh/.zshrc" "$REPO/config/targets.dotfile"; then fail "removed target remains"; fi
 }
 
 test_honours_a_target_added_after_a_package_was_folded() {

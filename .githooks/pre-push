@@ -2,11 +2,11 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-bin="$root/scripts/.venv/bin"
+bin="$root/scripts/python/.venv/bin"
 
 if [ ! -x "$bin/dotfile" ]; then
-  echo "pre-push: scripts/.venv missing, the secret scan cannot run" >&2
-  echo "pre-push: run ./setup.sh (or: uv sync --project scripts --locked)" >&2
+  echo "pre-push: scripts/python/.venv missing, the secret scan cannot run" >&2
+  echo "pre-push: run ./setup.sh (or: uv sync --project scripts/python --locked)" >&2
   exit 1
 fi
 
