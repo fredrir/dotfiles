@@ -7,7 +7,6 @@
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from the active theme profile
 - `rsync` — Shared exclusion rules for home-directory transfers
-- `skills`
 - `starship` — Cross-shell prompt configuration
 - `tmux`
 - `transcript`
