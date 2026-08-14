@@ -4,19 +4,22 @@
 //! its total, `-r` lists a directory's immediate contents, `-R` recurses
 //! (`-L` limits how deep the listing goes), and `-l` swaps bytes for line
 //! counts everywhere. Totals always include hidden files; `-a` only decides
-//! whether hidden entries get their own rows.
+//! whether hidden entries get their own rows. On a terminal, names get the
+//! same colors and Nerd Font icons eza-flavoured `ls` shows.
 
 use std::fs;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser, ValueHint};
+use rayon::prelude::*;
 
 #[derive(Parser)]
 #[command(version, about = "Sizes and line counts for files and directories")]
 struct Cli {
     /// File or directory to measure (no target: list the current directory)
+    #[arg(value_hint = ValueHint::AnyPath)]
     target: Option<PathBuf>,
 
     /// List the immediate contents of the directory
@@ -43,6 +46,10 @@ struct Cli {
     /// Include hidden entries in listings (totals always include them)
     #[arg(short = 'a', long = "all")]
     all: bool,
+
+    /// Print shell completions and exit
+    #[arg(long = "completions", value_name = "SHELL", exclusive = true)]
+    completions: Option<clap_complete::Shell>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -67,15 +74,18 @@ struct Row {
     measure: Measure,
 }
 
-struct Walk {
+struct Options {
     lines: bool,
     all: bool,
     display_depth: usize,
-    rows: Vec<Row>,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if let Some(shell) = cli.completions {
+        clap_complete::generate(shell, &mut Cli::command(), "size", &mut std::io::stdout());
+        return ExitCode::SUCCESS;
+    }
     let named_target = cli.target.is_some();
     let target = cli.target.unwrap_or_else(|| PathBuf::from("."));
     let target = match resolve(target) {
@@ -110,21 +120,20 @@ fn main() -> ExitCode {
     } else {
         1
     };
-    let mut walk = Walk {
+    let options = Options {
         lines: cli.lines,
         all: cli.all,
         display_depth,
-        rows: Vec::new(),
     };
-    let total = walk_directory(&mut walk, &target, Path::new(""), 0);
+    let (total, mut rows) = walk_directory(&options, &target, Path::new(""), 0);
 
     if !listing {
         println!("{}", plain_value(total, cli.lines));
         return done(total.unreadable);
     }
 
-    sort_rows(&mut walk.rows, cli.lines);
-    print_table(&walk.rows, total, cli.lines);
+    sort_rows(&mut rows, cli.lines);
+    print_table(&rows, total, cli.lines);
     done(total.unreadable)
 }
 
@@ -238,51 +247,73 @@ fn count_lines(path: &Path) -> Option<u64> {
     }
 }
 
-/// Depth-first aggregate of everything under `directory`, hidden included.
-/// Rows are only recorded down to the display depth and, unless `-a`, only
-/// for visible entries — an invisible directory hides its whole subtree from
-/// the listing while still counting toward every total.
-fn walk_directory(walk: &mut Walk, directory: &Path, relative: &Path, depth: usize) -> Measure {
-    let mut total = Measure::default();
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(_) => {
-            total.unreadable += 1;
-            return total;
-        }
+/// Depth-first aggregate of everything under `directory`, hidden included,
+/// with every directory's entries processed in parallel. Rows are only
+/// recorded down to the display depth and, unless `-a`, only for visible
+/// entries — an invisible directory hides its whole subtree from the listing
+/// while still counting toward every total.
+fn walk_directory(
+    options: &Options,
+    directory: &Path,
+    relative: &Path,
+    depth: usize,
+) -> (Measure, Vec<Row>) {
+    let unreadable = || {
+        (
+            Measure {
+                unreadable: 1,
+                ..Measure::default()
+            },
+            Vec::new(),
+        )
     };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let path = entry.path();
-        let child_relative = relative.join(&name);
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            total.unreadable += 1;
-            continue;
-        };
-        let visible = depth < walk.display_depth && (walk.all || !hidden(&name));
-        let measure = if metadata.is_dir() {
-            // A hidden directory's children stay out of the listing even with
-            // room left in the depth budget, so cap their display depth.
-            let child_depth = if visible {
-                depth + 1
-            } else {
-                walk.display_depth
+    let entries: Vec<fs::DirEntry> = match fs::read_dir(directory) {
+        Ok(entries) => entries.flatten().collect(),
+        Err(_) => return unreadable(),
+    };
+    entries
+        .into_par_iter()
+        .map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let child_relative = relative.join(&name);
+            let Ok(metadata) = entry.metadata() else {
+                return unreadable();
             };
-            walk_directory(walk, &path, &child_relative, child_depth)
-        } else {
-            measure_file(&path, &metadata, walk.lines)
-        };
-        if visible {
-            walk.rows.push(Row {
-                name: child_relative.to_string_lossy().to_string(),
-                kind: kind_of(&metadata),
-                executable: is_executable(&metadata),
-                measure,
-            });
-        }
-        total.add(measure);
-    }
-    total
+            let visible = depth < options.display_depth && (options.all || !hidden(&name));
+            let (measure, mut rows) = if metadata.is_dir() {
+                // A hidden directory's children stay out of the listing even
+                // with room left in the depth budget, so cap their display
+                // depth.
+                let child_depth = if visible {
+                    depth + 1
+                } else {
+                    options.display_depth
+                };
+                walk_directory(options, &entry.path(), &child_relative, child_depth)
+            } else {
+                (
+                    measure_file(&entry.path(), &metadata, options.lines),
+                    Vec::new(),
+                )
+            };
+            if visible {
+                rows.push(Row {
+                    name: child_relative.to_string_lossy().to_string(),
+                    kind: kind_of(&metadata),
+                    executable: is_executable(&metadata),
+                    measure,
+                });
+            }
+            (measure, rows)
+        })
+        .reduce(
+            || (Measure::default(), Vec::new()),
+            |mut left, right| {
+                left.0.add(right.0);
+                left.1.extend(right.1);
+                (left.0, left.1)
+            },
+        )
 }
 
 /// Files and links first, directories last — each group largest first.
@@ -363,6 +394,60 @@ fn ls_color(row: &Row) -> Option<String> {
     }
 }
 
+/// The Nerd Font glyph eza would show for this entry.
+fn icon_for(row: &Row) -> char {
+    if row.kind == "directory" {
+        return '\u{f115}';
+    }
+    let base = row
+        .name
+        .rsplit('/')
+        .next()
+        .unwrap_or(&row.name)
+        .to_lowercase();
+    match base.as_str() {
+        "dockerfile" => return '\u{e650}',
+        "makefile" | "justfile" => return '\u{e673}',
+        "license" | "license.md" | "license.txt" => return '\u{f02d}',
+        "readme" | "readme.md" => return '\u{f00ba}',
+        _ => {}
+    }
+    if base.starts_with(".git") {
+        return '\u{f02a2}';
+    }
+    let extension = match base.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => extension,
+        _ => "",
+    };
+    match extension {
+        "rs" => '\u{e68b}',
+        "py" => '\u{e606}',
+        "js" | "mjs" | "cjs" => '\u{e74e}',
+        "ts" => '\u{e628}',
+        "tsx" | "jsx" => '\u{e7ba}',
+        "json" => '\u{e60b}',
+        "toml" => '\u{e6b2}',
+        "yaml" | "yml" => '\u{e8eb}',
+        "md" => '\u{f48a}',
+        "sh" | "zsh" | "bash" => '\u{f489}',
+        "lua" => '\u{e620}',
+        "go" => '\u{e65e}',
+        "c" | "h" => '\u{e61e}',
+        "cpp" | "cc" | "hpp" => '\u{e61d}',
+        "html" => '\u{f13b}',
+        "css" => '\u{e749}',
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" => '\u{f1c5}',
+        "svg" => '\u{f0559}',
+        "pdf" => '\u{f1c1}',
+        "zip" | "gz" | "tar" | "xz" | "zst" | "bz2" | "7z" => '\u{f410}',
+        "lock" => '\u{f023}',
+        "conf" | "cfg" | "ini" => '\u{f107b}',
+        "nix" => '\u{f313}',
+        "txt" => '\u{f15c}',
+        _ => '\u{f086f}',
+    }
+}
+
 fn print_table(rows: &[Row], total: Measure, lines: bool) {
     let styled = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
     let (dim, bold, reset) = if styled {
@@ -370,10 +455,12 @@ fn print_table(rows: &[Row], total: Measure, lines: bool) {
     } else {
         ("", "", "")
     };
+    // Icons occupy two cells (glyph + space) in front of every name.
+    let prefix = if styled { 2 } else { 0 };
     let value_header = if lines { "LINES" } else { "SIZE" };
     let name_width = rows
         .iter()
-        .map(|row| row.name.chars().count())
+        .map(|row| row.name.chars().count() + prefix)
         .chain(["NAME".len(), "Total".len()])
         .max()
         .unwrap_or(4);
@@ -385,15 +472,16 @@ fn print_table(rows: &[Row], total: Measure, lines: bool) {
         .max()
         .unwrap_or(4);
 
-    println!(
-        "{dim}{:<name_width$}  {:>value_width$}{reset}",
-        "NAME", value_header
-    );
     for row in rows {
-        let padding = " ".repeat(name_width - row.name.chars().count());
-        let name = match ls_color(row) {
-            Some(color) if styled => format!("\x1b[{color}m{}{reset}", row.name),
-            _ => row.name.clone(),
+        let padding = " ".repeat(name_width - row.name.chars().count() - prefix);
+        let name = if styled {
+            let icon = icon_for(row);
+            match ls_color(row) {
+                Some(color) => format!("\x1b[{color}m{icon} {}{reset}", row.name),
+                None => format!("{icon} {}", row.name),
+            }
+        } else {
+            row.name.clone()
         };
         println!(
             "{name}{padding}  {:>value_width$}",
@@ -425,15 +513,14 @@ mod tests {
     }
 
     fn walk_all(root: &Path, lines: bool, all: bool, depth: usize) -> (Vec<Row>, Measure) {
-        let mut walk = Walk {
+        let options = Options {
             lines,
             all,
             display_depth: depth,
-            rows: Vec::new(),
         };
-        let total = walk_directory(&mut walk, root, Path::new(""), 0);
-        sort_rows(&mut walk.rows, lines);
-        (walk.rows, total)
+        let (total, mut rows) = walk_directory(&options, root, Path::new(""), 0);
+        sort_rows(&mut rows, lines);
+        (rows, total)
     }
 
     #[test]
@@ -527,5 +614,24 @@ mod tests {
     fn grouped_thousands() {
         assert_eq!(grouped(58), "58");
         assert_eq!(grouped(12345), "12,345");
+    }
+
+    fn row(name: &str, kind: &'static str) -> Row {
+        Row {
+            name: name.to_string(),
+            kind,
+            executable: false,
+            measure: Measure::default(),
+        }
+    }
+
+    #[test]
+    fn icons_follow_the_eza_table() {
+        assert_eq!(icon_for(&row("src", "directory")), '\u{f115}');
+        assert_eq!(icon_for(&row("main.rs", "file")), '\u{e68b}');
+        assert_eq!(icon_for(&row("deep/path/notes.md", "file")), '\u{f48a}');
+        assert_eq!(icon_for(&row("README.md", "file")), '\u{f00ba}');
+        assert_eq!(icon_for(&row(".gitignore", "file")), '\u{f02a2}');
+        assert_eq!(icon_for(&row("mystery", "file")), '\u{f086f}');
     }
 }
