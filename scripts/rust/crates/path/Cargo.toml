@@ -1,13 +1,12 @@
 [package]
-name = "size"
+name = "path"
 version = "0.1.0"
-description = "Sizes and line counts for files and directories"
+description = "Repository-relative or home-relative path of a target"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 clap.workspace = true
-rayon.workspace = true
 workstation.workspace = true
 
 [dev-dependencies]

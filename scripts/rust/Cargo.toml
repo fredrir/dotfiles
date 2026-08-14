@@ -6,6 +6,15 @@ members = ["crates/*"]
 edition = "2024"
 license = "MIT"
 
+# Versions for anything more than one crate depends on, so the binaries share
+# a single clap and a single rayon rather than drifting apart.
+[workspace.dependencies]
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+rayon = "1"
+tempfile = "3"
+workstation = { path = "crates/workstation" }
+
 # One codegen unit and fat LTO, so a rebuild of the same source on the same
 # toolchain produces the same machine code: these binaries are measurement
 # instruments, and codegen variance would show up as a hardware regression.

@@ -40,6 +40,8 @@ alias cdb="cd ../backend"
 
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
 
+alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease'
+
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"
 alias dockseed="docker compose exec backend pnpm db:seed"

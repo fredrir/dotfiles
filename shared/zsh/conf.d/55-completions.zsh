@@ -17,17 +17,19 @@ fi
 
 # Completions for the repo's Rust tools, regenerated whenever the binary is
 # newer than the cache (same pattern as pnpm above, but after compinit since
-# the generated script registers itself with compdef). The explicit path
-# avoids the system's Mach-O `size`.
-if [[ -x "$HOME/.local/bin/size" ]]; then
-  _size_comp_cache="$HOME/.cache/zsh/size-completion.zsh"
-  if [[ ! -f "$_size_comp_cache" || "$HOME/.local/bin/size" -nt "$_size_comp_cache" ]]; then
-    mkdir -p "${_size_comp_cache:h}"
-    "$HOME/.local/bin/size" --completions zsh > "$_size_comp_cache" 2>/dev/null \
-      || : > "$_size_comp_cache"
+# the generated script registers itself with compdef). The explicit paths
+# avoid the system's Mach-O `size` and anything else of the same name.
+for _tool in count gpp path size; do
+  _tool_bin="$HOME/.local/bin/$_tool"
+  [[ -x "$_tool_bin" ]] || continue
+  _tool_comp_cache="$HOME/.cache/zsh/$_tool-completion.zsh"
+  if [[ ! -f "$_tool_comp_cache" || "$_tool_bin" -nt "$_tool_comp_cache" ]]; then
+    mkdir -p "${_tool_comp_cache:h}"
+    "$_tool_bin" --completions zsh > "$_tool_comp_cache" 2>/dev/null \
+      || : > "$_tool_comp_cache"
   fi
-  source "$_size_comp_cache"
-  unset _size_comp_cache
-fi
+  source "$_tool_comp_cache"
+done
+unset _tool _tool_bin _tool_comp_cache
 
 zstyle ':completion:*' matcher-list '' 'm:{a-zA-Z}={A-Za-z}'

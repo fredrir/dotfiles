@@ -12,8 +12,11 @@ use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, ValueHint};
+use clap::{Parser, ValueHint};
 use rayon::prelude::*;
+use workstation::Completions;
+
+const PROGRAM: &str = "size";
 
 #[derive(Parser)]
 #[command(version, about = "Sizes and line counts for files and directories")]
@@ -47,9 +50,8 @@ struct Cli {
     #[arg(short = 'a', long = "all")]
     all: bool,
 
-    /// Print shell completions and exit
-    #[arg(long = "completions", value_name = "SHELL", exclusive = true)]
-    completions: Option<clap_complete::Shell>,
+    #[command(flatten)]
+    completions: Completions,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -82,32 +84,26 @@ struct Options {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if let Some(shell) = cli.completions {
-        clap_complete::generate(shell, &mut Cli::command(), "size", &mut std::io::stdout());
-        return ExitCode::SUCCESS;
+    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
+        return status;
     }
     let named_target = cli.target.is_some();
     let target = cli.target.unwrap_or_else(|| PathBuf::from("."));
     let target = match resolve(target) {
         Ok(path) => path,
-        Err(message) => {
-            eprintln!("size: {message}");
-            return ExitCode::FAILURE;
-        }
+        Err(message) => return workstation::fail(PROGRAM, message),
     };
 
     let metadata = match fs::symlink_metadata(&target) {
         Ok(metadata) => metadata,
         Err(error) => {
-            eprintln!("size: {}: {error}", target.display());
-            return ExitCode::FAILURE;
+            return workstation::fail(PROGRAM, format!("{}: {error}", target.display()));
         }
     };
 
     if !metadata.is_dir() {
         if cli.list || cli.recursive {
-            eprintln!("size: not a directory: {}", target.display());
-            return ExitCode::FAILURE;
+            return workstation::fail(PROGRAM, format!("not a directory: {}", target.display()));
         }
         let measure = measure_file(&target, &metadata, cli.lines);
         println!("{}", plain_value(measure, cli.lines));
@@ -140,7 +136,7 @@ fn main() -> ExitCode {
 fn done(unreadable: usize) -> ExitCode {
     if unreadable > 0 {
         let plural = if unreadable == 1 { "entry" } else { "entries" };
-        eprintln!("size: {unreadable} {plural} could not be read");
+        eprintln!("{PROGRAM}: {unreadable} {plural} could not be read");
     }
     ExitCode::SUCCESS
 }
@@ -174,7 +170,7 @@ fn resolve(target: PathBuf) -> Result<PathBuf, String> {
     }
     match matches.as_slice() {
         [only] => {
-            eprintln!("size: {} -> {}", target.display(), only.display());
+            eprintln!("{PROGRAM}: {} -> {}", target.display(), only.display());
             Ok(only.clone())
         }
         [] => Err(format!("no such file or directory: {}", target.display())),

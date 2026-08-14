@@ -10,10 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-count = "tools.utils.count:app"
-path = "tools.utils.path:app"
 tardirs = "tools.utils.tardirs:app"
-gpp = "tools.utils.gpp:app"
 sysinfo = "tools.utils.sysinfo:app"
 power-menu = "tools.desktop.power_menu:app"
 confirm-exit = "tools.desktop.confirm_exit:app"

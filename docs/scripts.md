@@ -5,8 +5,10 @@ carry no comments, so the reasoning behind the non-obvious behaviour lives
 here.
 
 `scripts/` holds two projects: `scripts/python`, the uv-managed Python
-project, and `scripts/rust`, a cargo workspace for native tools where
-interpreter overhead would distort what is being measured.
+project, and `scripts/rust`, a cargo workspace for native tools — the ones
+where interpreter overhead would distort what is being measured, and the
+small commands that run often enough that a Python start was most of their
+cost.
 
 `scripts/python` is a uv-managed Python project (Typer + Rich, package name
 `tools`). `uv sync --project scripts/python --locked` installs its development
@@ -45,10 +47,7 @@ scripts/python/
       process.py             subprocess helpers
       typography.py          terminal-safe block lettering
     utils/
-      count.py               count items inside a directory
-      path.py                repo-relative or home-relative path of a target
       tardirs.py             tar archive directory tree with entry counts
-      gpp.py                 git add + commit + push
       remote_clipboard.py    text clipboard transfer between macOS and Archie
       sysinfo/               modular hardware and software summary
         cli.py               pretty, full and health command flags
@@ -130,8 +129,12 @@ scripts/rust/
   rust-toolchain.toml        toolchain channel and components
   crates/
     bench-workloads/         dependency-free native workloads for sysinfo bench
+    count/                   count items inside a directory
+    gpp/                     git add + commit + push
+    path/                    repo-relative or home-relative path of a target
     size/                    sizes and line counts for files and directories
     sysinfo-collect/         native system probing, fastfetch-shaped JSON
+    workstation/             shared completions flag and error convention
 tests/
   run.sh                     black-box test runner, plus cargo test
   lib.sh                     sandbox and assertions
@@ -1033,6 +1036,44 @@ guess which one wrote a literal.
 The cost is that the set of hexes a human can hardcode in those files shrinks
 with every profile added. Eight-digit hex is never rewritten, because
 `#RRGGBBAA` and `#AARRGGBB` are not distinguishable here.
+
+---
+
+## count, gpp and path
+
+Three one-shot commands that run inside prompts, loops and keybindings, where
+the interpreter start was most of the wall clock. They are Rust binaries in
+`scripts/rust`, sharing the `workstation` crate for the two things every tool
+in that workspace agrees on: a `--completions <shell>` flag shaped the way
+`shared/zsh/conf.d/55-completions.zsh` expects, and a failure reported as
+`program: message` on stderr with a non-zero status.
+
+`count` counts a directory's entries; `-r` counts everything underneath it
+instead, and `-d` leaves hidden entries out. Under `-r` the two flags agree on
+what hidden means: a hidden directory takes its whole subtree with it, so a
+subtree is either counted whole or skipped whole. A symlinked directory counts
+as one entry and is not descended into, which is what keeps a link loop from
+becoming a hang. Sub-directories are read in parallel, and a directory that
+cannot be read is reported on stderr rather than passed off as empty.
+
+`path` prints where a target sits: relative to its repository root as
+`/sub/file`, relative to the home directory as `~/sub/file`, or absolute when
+it is outside both. The root is the nearest ancestor holding a `.git` entry —
+a directory in a plain clone, a file in a worktree or a submodule — found by
+walking up rather than by asking `git rev-parse --show-toplevel`, because the
+spawn was the whole cost. The two answers agree except inside `.git` itself,
+where git declines to answer and this prints `/.git/...`. Targets need not
+exist: the part that does is resolved through symlinks and the rest is
+appended, so a file that is about to be written still describes itself.
+
+`gpp` is `git add .`, then `git commit -m <message>`, then `git push`. It stops
+at the first failure and exits with that step's own status, so git's vocabulary
+— 128 for "not a repository" and so on — survives for whatever is chained after
+it. The one case it answers itself is an empty index: `git commit` with nothing
+staged prints a status report and fails, which reads like a fault in the tool,
+so `git diff --cached --quiet` asks first (0 means nothing is staged, 1 means a
+change is waiting, anything else is git failing and is passed through). Message
+words are joined with spaces, and a word may start with `-`.
 
 ---
 

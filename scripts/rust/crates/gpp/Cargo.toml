@@ -1,13 +1,12 @@
 [package]
-name = "size"
+name = "gpp"
 version = "0.1.0"
-description = "Sizes and line counts for files and directories"
+description = "Stage everything, commit with the given message, and push"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 clap.workspace = true
-rayon.workspace = true
 workstation.workspace = true
 
 [dev-dependencies]
