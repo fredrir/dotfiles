@@ -86,8 +86,21 @@ _git_finish_from_root() {
     _git_from_root push
 }
 
+# Fork-free stand-in for `git rev-parse` on the chpwd hot path: walk up
+# looking for a .git entry. -e, not -d — worktrees and submodules keep
+# their .git as a file.
+_in_git_repo() {
+  local dir=${PWD:A}
+
+  while true; do
+    [[ -e $dir/.git ]] && return 0
+    [[ $dir == / ]] && return 1
+    dir=${dir:h}
+  done
+}
+
 _sync_git_repo_commands() {
-  if command git rev-parse --show-toplevel >/dev/null 2>&1; then
+  if _in_git_repo; then
     alias cdg=_cdg_to_root
     alias gs='_git_from_root status'
     alias ga='_git_from_root add .'

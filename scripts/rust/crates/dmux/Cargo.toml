@@ -1,0 +1,17 @@
+[package]
+name = "dmux"
+version = "0.1.0"
+description = "Wezterm-mux and tmux sessions: list, attach, create"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["unstable-ext"] }
+clap_complete = { workspace = true, features = ["unstable-dynamic"] }
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+workstation.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

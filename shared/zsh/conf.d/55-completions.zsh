@@ -38,4 +38,19 @@ for _tool in count gdd gpp path size; do
 done
 unset _tool _tool_bin _tool_comp_cache
 
+# dmux uses clap's dynamic completer instead of the static --completions
+# flag: COMPLETE=zsh emits a runtime shim that asks the binary at completion
+# time, which is how session names stay live. Same cache pattern as above.
+_dmux_bin="$HOME/.local/bin/dmux"
+if [[ -x "$_dmux_bin" ]]; then
+  _dmux_comp_cache="$HOME/.cache/zsh/dmux-completion.zsh"
+  if [[ ! -f "$_dmux_comp_cache" || "$_dmux_bin" -nt "$_dmux_comp_cache" ]]; then
+    mkdir -p "${_dmux_comp_cache:h}"
+    COMPLETE=zsh "$_dmux_bin" > "$_dmux_comp_cache" 2>/dev/null \
+      || : > "$_dmux_comp_cache"
+  fi
+  source "$_dmux_comp_cache"
+fi
+unset _dmux_bin _dmux_comp_cache
+
 zstyle ':completion:*' matcher-list '' 'm:{a-zA-Z}={A-Za-z}'

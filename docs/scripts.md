@@ -132,6 +132,7 @@ scripts/rust/
   crates/
     bench-workloads/         dependency-free native workloads for sysinfo bench
     count/                   count items inside a directory
+    dmux/                    wezterm-mux + tmux session manager
     git/
       gdd/                   discard every change in the working tree
       gitkit/                shared repository access, survey, plan and discard
@@ -1139,6 +1140,39 @@ would write in the index itself, so the answer is usually one comparison of two
 hashes; only a missing or stale cache-tree falls back to comparing the whole
 tree against `HEAD`. Message words are joined with spaces, and a word may start
 with `-`.
+
+---
+
+## dmux
+
+One CLI for every session on either machine: wezterm-mux workspaces and tmux
+sessions, local or on the peer, from `scripts/rust/crates/dmux`. It replaces
+the internals of the old ssa/ssm shell functions —
+`shared/zsh/conf.d/91-tmux-attach.zsh` now only wraps it (`ssa` is
+`dmux --host archie`, `ssm` is `dmux --host macie`) — and `dmx` is the shell
+alias. `-H/--host <macie|archie>` points any invocation at the peer.
+
+The verbs: `ls` merges wezterm workspaces and tmux sessions into one indexed
+list, `--json` for machines; `con <name|index>` attaches an existing session
+and refuses to invent one, so a typo cannot leave a stray session behind
+(`new` is the verb that creates); `rm` kills after asking, `rename` renames;
+`dmux -` toggles back to the previously attached session; `keys` prints the
+live wezterm and tmux key tables instead of a hand-maintained copy; `doctor`
+reports what the transport probes see. Bare `dmux` on a TTY is a picker,
+and a bare name is treated as `con`.
+
+Attaching a remote host walks the chain the shell version had, now in one
+place. Inside wezterm a bare attach is a native mux tab on the peer's ssh
+domain — the `-usb` domain when the cable answers the probe, the `-ts`
+(Tailscale) domain when it does not. Anything else — outside wezterm, or any
+named session, since tmux sessions are a tmux concept — is
+`ssh -t <host> exec tmux new-session -A -s <session>`, and each step down
+the chain is one stderr line saying why. Attach replaces the process with
+`exec` so the TTY is handed over cleanly, which is also why it cannot be
+observed from a test: `DMUX_DRY_RUN=1` prints the command that would have
+been exec'd instead of running it, and that is how the integration tests —
+and a doubtful user — inspect transport selection without losing the
+terminal.
 
 ---
 

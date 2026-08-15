@@ -11,4 +11,4 @@ clap_complete.workspace = true
 
 # Only for the terminal-size ioctl; there is no other way to ask.
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc.workspace = true
