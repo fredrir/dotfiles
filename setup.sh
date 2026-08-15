@@ -159,7 +159,7 @@ else
   stamp python "$PYTHON_HASH"
 fi
 
-RUST_BINARIES="bench-workloads count gdd gpp path size sysinfo-collect"
+RUST_BINARIES="bench-workloads count git-discard gpp path size sysinfo-collect"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" -type f -not -path '*/target/*' -print0 2>/dev/null |
     sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1
@@ -188,6 +188,12 @@ else
   else
     echo "setup: cargo build failed; native tools skipped" >&2
   fi
+fi
+
+# `gdd` is GNU dd's conventional macOS name, and fzf-tab probes for it.
+# Keep the user-facing shorthand as a shell alias, not an executable.
+if [ -x "$TOOL_BIN_DIR/git-discard" ] && { [ -f "$TOOL_BIN_DIR/gdd" ] || [ -L "$TOOL_BIN_DIR/gdd" ]; }; then
+  rm -f -- "$TOOL_BIN_DIR/gdd"
 fi
 
 if [ "$COMMANDS_ONLY" = 1 ]; then

@@ -9,7 +9,7 @@ All Python commands accept `--help`.
 | Command | Purpose and options |
 | --- | --- |
 | `count <DIRECTORY>` | Count direct entries. `-r`, `--recursive`: include all descendants; `-d`, `--no-hidden`: exclude hidden entries and subtrees. |
-| `gdd [PATH...]` | Discard every change: tracked files back to `HEAD`, untracked files deleted. Prints the plan and asks first. `-n`, `--dry-run`: show the plan and stop; `-a`, `--all`: list every entry instead of the first 12 of a section; `-y`, `--yes`: do not ask. Ignored files and nested repositories are kept. |
+| `gdd [PATH...]` | Discard every change: tracked files back to `HEAD`, untracked files deleted. Prints the plan and asks first. `-n`, `--dry-run`: show the plan and stop; `-a`, `--all`: list every entry instead of the first 12 of a section; `-y`, `--yes`: do not ask. Ignored files and nested repositories are kept. The shell alias is backed by the `git-discard` executable. |
 | `gpp <MESSAGE...>` | Run `git add .`, commit with the joined message, then push. |
 | `path [TARGET=.]` | Print a repo-relative, home-relative, or absolute path. `-f`, `--full`: always print the absolute path. |
 | `size [TARGET]` | Measure bytes; with no target, list the current directory. `-r`: list direct children; `-R`: list recursively; `-l`, `--lines`: count lines; `-L`, `--limit <DEPTH>`: limit `-R`; `-a`, `--all`: show hidden rows. |

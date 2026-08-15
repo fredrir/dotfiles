@@ -1093,6 +1093,10 @@ one and the plan should not promise what will not happen. Paths limit the run
 and are read as pathspecs relative to the current directory, the way git reads
 them.
 
+The installed binary is named `git-discard`, while `gdd` is a shell alias.
+That keeps the short command without colliding with the `gdd` name used for
+GNU dd on macOS (which `fzf-tab` probes when completing commands).
+
 An untracked directory is one row and one deletion when everything inside it
 is untracked too, since the whole thing goes; one that holds anything ignored
 stays open instead and its untracked files are listed individually, because

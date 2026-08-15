@@ -20,7 +20,12 @@ fi
 # the generated script registers itself with compdef). The explicit paths
 # avoid the system's Mach-O `size` and anything else of the same name.
 for _tool in count gdd gpp path size; do
-  _tool_bin="$HOME/.local/bin/$_tool"
+  # GNU dd by fzf-tab on macOS.
+  if [[ "$_tool" == gdd ]]; then
+    _tool_bin="$HOME/.local/bin/git-discard"
+  else
+    _tool_bin="$HOME/.local/bin/$_tool"
+  fi
   [[ -x "$_tool_bin" ]] || continue
   _tool_comp_cache="$HOME/.cache/zsh/$_tool-completion.zsh"
   if [[ ! -f "$_tool_comp_cache" || "$_tool_bin" -nt "$_tool_comp_cache" ]]; then
@@ -29,6 +34,7 @@ for _tool in count gdd gpp path size; do
       || : > "$_tool_comp_cache"
   fi
   source "$_tool_comp_cache"
+  [[ "$_tool" == gdd ]] && compdef _gdd git-discard
 done
 unset _tool _tool_bin _tool_comp_cache
 

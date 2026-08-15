@@ -101,7 +101,7 @@ impl Sandbox {
     }
 
     fn gdd_in(&self, cwd: &Path, arguments: &[&str]) -> Output {
-        self.command(env!("CARGO_BIN_EXE_gdd"), cwd)
+        self.command(env!("CARGO_BIN_EXE_git-discard"), cwd)
             .args(arguments)
             .stdin(Stdio::null())
             .output()
@@ -111,7 +111,7 @@ impl Sandbox {
     /// Run `gdd` and answer its question with `answer`.
     fn answer(&self, arguments: &[&str], answer: &str) -> Output {
         let mut child = self
-            .command(env!("CARGO_BIN_EXE_gdd"), &self.work())
+            .command(env!("CARGO_BIN_EXE_git-discard"), &self.work())
             .args(arguments)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
