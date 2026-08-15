@@ -39,6 +39,7 @@ shared {
   ?openssl
   font Hack Nerd Font Mono
   font Noto Sans
+  file ~/dotfiles/shared/wezterm/types
 }
 
 macos {

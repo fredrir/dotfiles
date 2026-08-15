@@ -3,60 +3,71 @@ local theme = require 'wez.theme'
 
 local M = {}
 
+-- Query-only handle; wez.plugins.sync owns apply_to_config.
+local sync_ok, sync = pcall(wezterm.plugin.require, 'https://github.com/fredrir/sync-panes.wez')
+
 function M.setup()
-    wezterm.on('update-status', function(window, pane)
-        local segments = {}
+  wezterm.on('update-status', function(window, pane)
+    local segments = {}
 
-        local domain = pane and pane:get_domain_name() or nil
-        if domain and domain ~= 'local' then
-            table.insert(segments, {
-                fg = theme.palette.peach,
-                text = domain
-            })
-        end
+    local domain = pane and pane:get_domain_name() or nil
+    if domain and domain ~= 'local' then
+      table.insert(segments, {
+        fg = theme.palette.peach,
+        text = domain,
+      })
+    end
 
-        local workspace = window:active_workspace()
-        if workspace and workspace ~= 'default' then
-            table.insert(segments, {
-                fg = theme.palette.mauve,
-                text = workspace
-            })
-        end
+    local workspace = window:active_workspace()
+    if workspace and workspace ~= 'default' then
+      table.insert(segments, {
+        fg = theme.palette.mauve,
+        text = workspace,
+      })
+    end
 
-        if window:leader_is_active() then
-            table.insert(segments, {
-                fg = theme.palette.red,
-                text = 'LEADER'
-            })
-        end
+    -- Broadcast mode types into every pane of the tab; make it loud.
+    if sync_ok and sync.is_synced(window) then
+      table.insert(segments, {
+        fg = theme.palette.red,
+        text = 'SYNC',
+      })
+    end
 
-        local elements = {}
-        for index, segment in ipairs(segments) do
-            if index > 1 then
-                table.insert(elements, {
-                    Foreground = {
-                        Color = theme.palette.overlay
-                    }
-                })
-                table.insert(elements, {
-                    Text = ' · '
-                })
-            end
-            table.insert(elements, {
-                Foreground = {
-                    Color = segment.fg
-                }
-            })
-            table.insert(elements, {
-                Text = segment.text
-            })
-        end
+    if window:leader_is_active() then
+      table.insert(segments, {
+        fg = theme.palette.red,
+        text = 'LEADER',
+      })
+    end
+
+    local elements = {}
+    for index, segment in ipairs(segments) do
+      if index > 1 then
         table.insert(elements, {
-            Text = '  '
+          Foreground = {
+            Color = theme.palette.overlay,
+          },
         })
+        table.insert(elements, {
+          Text = ' · ',
+        })
+      end
+      table.insert(elements, {
+        Foreground = {
+          Color = segment.fg,
+        },
+      })
+      table.insert(elements, {
+        Text = segment.text,
+      })
+    end
+    table.insert(elements, {
+      Text = '  ',
+    })
 
-        window:set_right_status(wezterm.format(elements))
-    end)
+    window:set_right_status(wezterm.format(elements))
+  end)
 end
 
 return M

@@ -9,6 +9,9 @@ local modules = {
   'wez.domains',
   'wez.remote',
   'wez.integrations',
+  -- Last: wez.plugins.sync mirrors the paste bindings it finds in
+  -- config.keys, so every key module must have run already.
+  'wez.plugins',
 }
 
 for _, name in ipairs(modules) do

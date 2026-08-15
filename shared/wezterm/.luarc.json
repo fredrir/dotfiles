@@ -3,7 +3,7 @@
   "runtime.version": "Lua 5.4",
   "runtime.path": ["?.lua", "?/init.lua"],
   "runtime.pathStrict": true,
-  "workspace.library": ["${workspaceFolder}/types"],
+  "workspace.library": ["${workspaceFolder}/types/lua"],
   "workspace.ignoreDir": [".luarocks", "lua_modules"],
   "workspace.checkThirdParty": false,
   "diagnostics.unusedLocalExclude": ["_*"],
