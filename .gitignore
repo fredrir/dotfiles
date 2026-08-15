@@ -49,5 +49,7 @@ scripts/rust/target/
 
 .idea/
 
+.DS_Store
+
 # Benchmark run lock: process state, never tracked.
 benchmarks/.lock

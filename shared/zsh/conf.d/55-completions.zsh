@@ -19,7 +19,7 @@ fi
 # newer than the cache (same pattern as pnpm above, but after compinit since
 # the generated script registers itself with compdef). The explicit paths
 # avoid the system's Mach-O `size` and anything else of the same name.
-for _tool in count gpp path size; do
+for _tool in count gdd gpp path size; do
   _tool_bin="$HOME/.local/bin/$_tool"
   [[ -x "$_tool_bin" ]] || continue
   _tool_comp_cache="$HOME/.cache/zsh/$_tool-completion.zsh"

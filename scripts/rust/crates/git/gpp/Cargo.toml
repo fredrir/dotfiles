@@ -1,0 +1,14 @@
+[package]
+name = "gpp"
+version = "0.1.0"
+description = "Stage everything, commit with the given message, and push"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+gitkit.workspace = true
+workstation.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

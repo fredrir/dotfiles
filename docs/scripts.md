@@ -132,11 +132,15 @@ scripts/rust/
   crates/
     bench-workloads/         dependency-free native workloads for sysinfo bench
     count/                   count items inside a directory
-    gpp/                     git add + commit + push
+    git/
+      gdd/                   discard every change in the working tree
+      gitkit/                shared repository access, survey, plan and discard
+      gpp/                   git add + commit + push
     path/                    repo-relative or home-relative path of a target
     size/                    sizes and line counts for files and directories
     sysinfo-collect/         native system probing, fastfetch-shaped JSON
-    workstation/             shared completions flag and error convention
+    workstation/             shared completions flag, palette, prompt and
+                             error convention
 tests/
   run.sh                     black-box test runner, plus cargo test
   lib.sh                     sandbox and assertions
@@ -1041,14 +1045,16 @@ with every profile added. Eight-digit hex is never rewritten, because
 
 ---
 
-## count, gpp and path
+## count and path
 
-Three one-shot commands that run inside prompts, loops and keybindings, where
+Two one-shot commands that run inside prompts, loops and keybindings, where
 the interpreter start was most of the wall clock. They are Rust binaries in
-`scripts/rust`, sharing the `workstation` crate for the two things every tool
-in that workspace agrees on: a `--completions <shell>` flag shaped the way
-`shared/zsh/conf.d/55-completions.zsh` expects, and a failure reported as
-`program: message` on stderr with a non-zero status.
+`scripts/rust`, sharing the `workstation` crate for what every tool in that
+workspace agrees on: a `--completions <shell>` flag shaped the way
+`shared/zsh/conf.d/55-completions.zsh` expects, a failure reported as
+`program: message` on stderr with a non-zero status, and — for the ones that
+draw something — the palette `dotfile theme` exports, the terminal's width,
+and the question asked before anything irreversible.
 
 `count` counts a directory's entries; `-r` counts everything underneath it
 instead, and `-d` leaves hidden entries out. Under `-r` the two flags agree on
@@ -1068,14 +1074,61 @@ where git declines to answer and this prints `/.git/...`. Targets need not
 exist: the part that does is resolved through symlinks and the rest is
 appended, so a file that is about to be written still describes itself.
 
+---
+
+## gdd and gpp
+
+The two git commands live in `scripts/rust/crates/git` and share `gitkit`,
+which is the only crate that talks to gitoxide: it opens the repository,
+surveys the working tree, renders the plan, and carries it out. Each binary is
+the command-line shape around that.
+
+`gdd` discards every change: tracked files go back to `HEAD`, untracked files
+are deleted. It prints what that means before doing it, because half of it
+cannot be taken back — a restored file is still in `HEAD`, a deleted untracked
+file is nowhere — and then asks, unless `-y` says not to; `-n` stops after the
+plan. Ignored files are neither listed nor touched, and a repository nested in
+the working tree is listed under `kept`, because `git clean` refuses to delete
+one and the plan should not promise what will not happen. Paths limit the run
+and are read as pathspecs relative to the current directory, the way git reads
+them.
+
+The plan is three sections, one per fate, with the destructive one in red.
+Columns are measured over the rows that are actually shown, a section stops at
+twelve rows unless `-a` asks for all of them, and the counts are the diff
+against `HEAD` that would be thrown away: per row, and as a total on the
+summary line that includes untracked files.
+
+Behind it is one status walk — gitoxide runs the staged, the unstaged and the
+untracked comparisons at the same time — after which every changed path is
+looked up once in `HEAD`'s tree, which settles both how it is labelled and
+whether discarding it is a restore or a deletion. The line counts are the
+numbers `git diff --numstat` gives, computed through gitoxide's resource cache
+so that `.gitattributes` filters and the binary-or-text judgement are the same
+ones git would apply, and computed in parallel across the changed paths. The
+shell version this replaced spent a whole `git diff` process per untracked file
+on that number alone.
+
+The discard is gitoxide too. Deletions go first, because a path on its way out
+can be standing where a path on its way back belongs; a directory goes whole,
+except for a repository inside it, which `git clean` steps around as well, and
+the empty directories a removed file leaves behind go with it. Then the entries
+to restore are checked out from `HEAD` — filters, executable bits and symlinks
+included — and the index is rewritten once, with its cache-tree dropped, since
+those cached subtree ids describe the entries that were just replaced and a
+later `git commit` would otherwise believe them.
+
 `gpp` is `git add .`, then `git commit -m <message>`, then `git push`. It stops
 at the first failure and exits with that step's own status, so git's vocabulary
 — 128 for "not a repository" and so on — survives for whatever is chained after
-it. The one case it answers itself is an empty index: `git commit` with nothing
-staged prints a status report and fails, which reads like a fault in the tool,
-so `git diff --cached --quiet` asks first (0 means nothing is staged, 1 means a
-change is waiting, anything else is git failing and is passed through). Message
-words are joined with spaces, and a word may start with `-`.
+it. Those three stay with git: they are the steps that run hooks, sign, and
+reach the network with the user's credentials. The question between them is
+answered here, because `git commit` with nothing staged prints a status report
+and fails, which reads like a fault in the tool. git leaves the tree its index
+would write in the index itself, so the answer is usually one comparison of two
+hashes; only a missing or stale cache-tree falls back to comparing the whole
+tree against `HEAD`. Message words are joined with spaces, and a word may start
+with `-`.
 
 ---
 

@@ -7,15 +7,19 @@
 //! exits with, which keeps git's vocabulary — 128 for "not a repository" and
 //! so on — intact for anything chained after it.
 //!
-//! The empty commit is the one case worth catching here: `git commit` with
-//! nothing staged prints a status report and fails, which reads like an
-//! error in the tool rather than an answer, so `git diff --cached --quiet`
-//! asks first. It reports an empty index as 0 and a staged change as 1;
-//! anything else is git failing, and that status is passed through too.
+//! Those three stay with git: they are the steps that run hooks, sign, and
+//! reach the network with the user's credentials, and none of that is worth
+//! reimplementing. The one question between them is answered here. `git
+//! commit` with nothing staged prints a status report and fails, which reads
+//! like an error in the tool rather than an answer, so the index is asked
+//! first — and since git leaves the tree its index would write in the index
+//! itself, the usual answer is one comparison of two hashes rather than
+//! another process.
 
-use std::process::{Command, ExitCode, ExitStatus};
+use std::process::ExitCode;
 
 use clap::Parser;
+use gitkit::Repo;
 use workstation::Completions;
 
 const PROGRAM: &str = "gpp";
@@ -50,35 +54,21 @@ fn main() -> ExitCode {
     }
 }
 
-fn publish(message: &str) -> Result<ExitCode, String> {
-    let added = code(git(&["add", "."])?);
+fn publish(message: &str) -> gitkit::Result<ExitCode> {
+    let added = gitkit::git(&["add", "."])?;
     if added != 0 {
         return Ok(exit(added));
     }
-    match code(git(&["diff", "--cached", "--quiet"])?) {
-        0 => return Ok(workstation::fail(PROGRAM, "nothing to commit")),
-        1 => {}
-        failed => return Ok(exit(failed)),
+    // Only now: staging is what git had to be in the repository to do, so a
+    // repository that isn't there has already reported itself.
+    if Repo::here()?.index_matches_head()? {
+        return Ok(workstation::fail(PROGRAM, "nothing to commit"));
     }
-    let committed = code(git(&["commit", "-m", message])?);
+    let committed = gitkit::git(&["commit", "-m", message])?;
     if committed != 0 {
         return Ok(exit(committed));
     }
-    Ok(exit(code(git(&["push"])?)))
-}
-
-/// Errors here are git not starting at all, which is worth naming; git
-/// failing once it has started reports itself.
-fn git(arguments: &[&str]) -> Result<ExitStatus, String> {
-    Command::new("git")
-        .args(arguments)
-        .status()
-        .map_err(|error| format!("git {}: {error}", arguments[0]))
-}
-
-/// A step killed by a signal has no status of its own; call it a failure.
-fn code(status: ExitStatus) -> i32 {
-    status.code().unwrap_or(1)
+    Ok(exit(gitkit::git(&["push"])?))
 }
 
 fn exit(code: i32) -> ExitCode {

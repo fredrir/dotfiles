@@ -1,12 +1,14 @@
 [package]
-name = "gpp"
+name = "gdd"
 version = "0.1.0"
-description = "Stage everything, commit with the given message, and push"
+description = "Discard every change in the working tree"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 clap.workspace = true
+gitkit.workspace = true
+gix.workspace = true
 workstation.workspace = true
 
 [dev-dependencies]

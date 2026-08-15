@@ -1,0 +1,14 @@
+[package]
+name = "gitkit"
+version = "0.1.0"
+description = "Shared repository access, working-tree survey and plan rendering"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gix.workspace = true
+rayon.workspace = true
+workstation.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

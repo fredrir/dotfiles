@@ -7,3 +7,11 @@
 [credential "https://gist.github.com"]
 	helper =
 	helper = !/opt/homebrew/bin/gh auth git-credential
+[gpg]
+	format = ssh
+[user]
+	signingkey = /Users/fredrir/.ssh/id_ed25519.pub
+[commit]
+	gpgsign = true
+[tag]
+	gpgSign = true

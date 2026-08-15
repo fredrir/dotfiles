@@ -147,6 +147,53 @@ fn nothing_to_commit_stops_before_committing() {
     assert_eq!(sandbox.read(&work, &["rev-parse", "HEAD"]), before);
 }
 
+/// "Nothing to commit" is a question about the index, not about the working
+/// tree: something staged earlier still has to be committed.
+#[test]
+fn something_staged_earlier_is_still_committed() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.work();
+    fs::write(work.join("new.txt"), "content\n").unwrap();
+    sandbox.git(&work, &["add", "new.txt"]);
+
+    let output = sandbox.gpp(&work, &["stage", "then", "commit"]);
+    assert!(output.status.success());
+    assert_eq!(
+        sandbox.read(&work, &["log", "-1", "--format=%s"]),
+        "stage then commit"
+    );
+}
+
+/// An unmerged index is one git cannot summarise with a cached tree, so the
+/// question is answered the long way — and either way the conflict is git's
+/// to report, not something to mistake for an empty index.
+#[test]
+fn a_conflict_is_left_for_git_to_report() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.work();
+    fs::create_dir(work.join("elsewhere")).unwrap();
+    fs::write(work.join("elsewhere/other.txt"), "x\n").unwrap();
+    sandbox.git(&work, &["add", "-A"]);
+    sandbox.git(&work, &["commit", "--quiet", "-m", "elsewhere"]);
+    sandbox.git(&work, &["checkout", "--quiet", "-b", "other"]);
+    fs::write(work.join("seed"), "theirs\n").unwrap();
+    sandbox.git(&work, &["commit", "--quiet", "-am", "theirs"]);
+    sandbox.git(&work, &["checkout", "--quiet", "-"]);
+    fs::write(work.join("seed"), "ours\n").unwrap();
+    sandbox.git(&work, &["commit", "--quiet", "-am", "ours"]);
+    let merge = sandbox
+        .command("git", &work)
+        .args(["merge", "other"])
+        .output()
+        .unwrap();
+    assert!(!merge.status.success(), "the merge should conflict");
+    fs::write(work.join("elsewhere/other.txt"), "changed\n").unwrap();
+
+    let output = sandbox.gpp(&work.join("elsewhere"), &["commit", "from", "here"]);
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("nothing to commit"));
+}
+
 #[test]
 fn a_missing_message_is_a_usage_error() {
     let sandbox = Sandbox::new();
