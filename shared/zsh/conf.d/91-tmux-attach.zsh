@@ -127,15 +127,20 @@ _tmux_attach() {
     return
   fi
 
-  # Native wezterm mux: wired, inside wezterm, and nothing tmux-specific
-  # asked for. tmux sessions are a tmux concept, so a named session always
-  # takes the tmux path.
-  if (( ! local_server && ! force_tmux && ! explicit_session )) \
-    && [[ -n "$WEZTERM_UNIX_SOCKET" ]] && _usb_link_up; then
-    if command wezterm cli spawn --domain-name "${host}-usb" >/dev/null 2>&1; then
-      return 0
+  # Native wezterm path when nothing tmux-specific was asked for (tmux
+  # sessions are a tmux concept, so a named session always means tmux).
+  # Local host: a new tab in the current pane's domain — inside a mux pane
+  # that domain IS the peer's mux server. Remote host: the -usb ssh domain
+  # when the cable answers; otherwise say why tmux is taking over.
+  if (( ! force_tmux && ! explicit_session )) && [[ -n "$WEZTERM_UNIX_SOCKET" ]]; then
+    if (( local_server )); then
+      command wezterm cli spawn >/dev/null 2>&1 && return 0
+    elif _usb_link_up; then
+      command wezterm cli spawn --domain-name "${host}-usb" >/dev/null 2>&1 && return 0
+      print -u2 -r -- "$command_name: native mux spawn failed, falling back to tmux"
+    else
+      print -u2 -r -- "$command_name: usb link down, tmux over ssh instead"
     fi
-    print -u2 -r -- "$command_name: native mux spawn failed, falling back to tmux"
   fi
 
   if (( local_server )); then
