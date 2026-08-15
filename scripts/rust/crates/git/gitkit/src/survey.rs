@@ -187,6 +187,25 @@ impl Repo {
                 check_dirty: false,
             })
             .untracked_files(gix::status::UntrackedFiles::Collapsed)
+            // An untracked directory arrives as one entry, and discarding it
+            // is one `remove_dir_all`: everything inside goes, whether or not
+            // the walk ever named it. That is only true to `git clean -d` if
+            // the directory holds nothing but untracked files, and gitoxide
+            // will only hold back the collapse for that reason when it knows
+            // the walk is a deletion. Unset, the collapse is deliberately
+            // "more generous in relation to ignored files", and a directory
+            // with a `node_modules` or a `.env` in it still folds into the
+            // single entry that takes them with it. Told this much, such a
+            // directory stays open and the untracked files in it are named
+            // one by one, which is what git lists there too.
+            .dirwalk_options(|options| {
+                options.for_deletion(Some(
+                    // Ignored directories are not recursed into, which costs
+                    // nothing here: what is inside one is never deleted, so a
+                    // repository hiding in there is in no danger either.
+                    gix::dir::walk::ForDeletionMode::IgnoredDirectoriesCanHideNestedRepositories,
+                ))
+            })
             .into_iter(patterns.to_vec())?;
 
         for item in walk.by_ref() {

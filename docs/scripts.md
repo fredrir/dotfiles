@@ -1093,6 +1093,12 @@ one and the plan should not promise what will not happen. Paths limit the run
 and are read as pathspecs relative to the current directory, the way git reads
 them.
 
+An untracked directory is one row and one deletion when everything inside it
+is untracked too, since the whole thing goes; one that holds anything ignored
+stays open instead and its untracked files are listed individually, because
+the row is what gets removed and a row for the directory would take the
+ignored files with it. That is the same place `git clean -d` stops.
+
 The plan is three sections, one per fate, with the destructive one in red.
 Columns are measured over the rows that are actually shown, a section stops at
 twelve rows unless `-a` asks for all of them, and the counts are the diff

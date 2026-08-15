@@ -189,8 +189,8 @@ fn count_lines(content: &[u8]) -> u32 {
     u32::try_from(breaks + unterminated).unwrap_or(u32::MAX)
 }
 
-/// Every file under `directory`, hidden and ignored ones included, since a
-/// discard of the directory takes all of them.
+/// Every file under `directory`, hidden ones included, since a discard of the
+/// directory takes all of them.
 ///
 /// A repository nested inside is left out, because `git clean` leaves it
 /// alone and so does the discard.

@@ -15,7 +15,8 @@ struct Sandbox {
 
 impl Sandbox {
     /// A repository with one commit: a file to modify, a file to delete, a
-    /// file to stage over, and an ignore rule.
+    /// file to stage over, and two ignore rules — one for a name, one for a
+    /// directory, since the walk reaches those two by different routes.
     fn new() -> Sandbox {
         let sandbox = Sandbox::bare();
         let work = sandbox.work();
@@ -24,7 +25,7 @@ impl Sandbox {
         sandbox.write("mod.txt", "one\ntwo\n");
         sandbox.write("del.txt", "gone\n");
         sandbox.write("keep.txt", "keep\n");
-        sandbox.write(".gitignore", "ignored.log\n");
+        sandbox.write(".gitignore", "ignored.log\nignored_dir/\n");
         sandbox.git(&work, &["add", "-A"]);
         sandbox.git(&work, &["commit", "--quiet", "-m", "init"]);
         sandbox
@@ -157,7 +158,13 @@ fn untracked_files_and_directories_are_deleted() {
     sandbox.write("added.txt", "added\n");
     sandbox.git(&sandbox.work(), &["add", "added.txt"]);
 
-    assert!(sandbox.gdd(&["-y"]).status.success());
+    let output = sandbox.gdd(&["-y"]);
+    assert!(output.status.success(), "{}", out(&output));
+    // A directory of nothing but untracked files is one row and one deletion,
+    // not a row per file; nothing inside it is named.
+    let text = out(&output);
+    assert!(text.contains("untracked_dir/"), "{text}");
+    assert!(!text.contains("f.txt"), "{text}");
     assert!(!sandbox.exists("untracked.txt"));
     assert!(!sandbox.exists("untracked_dir"));
     assert!(!sandbox.exists("added.txt"));
@@ -174,6 +181,57 @@ fn ignored_files_are_neither_listed_nor_touched() {
     assert!(!out(&output).contains("ignored.log"));
     assert_eq!(sandbox.read("ignored.log"), "log\n");
     assert!(!sandbox.exists("untracked.txt"));
+}
+
+/// And the same inside an untracked directory, which is the harder half: the
+/// walk would rather hand over the whole directory as one entry, and removing
+/// that entry is one recursive delete that never consults an ignore rule. So
+/// the directory has to stay open all the way down to the untracked files, as
+/// it does for `git clean -d`.
+#[test]
+fn ignored_files_inside_an_untracked_directory_are_kept_too() {
+    let sandbox = Sandbox::new();
+    sandbox.write("loose/gone.txt", "loose\n");
+    sandbox.write("loose/ignored.log", "log\n");
+    sandbox.write("loose/ignored_dir/deep.txt", "deep\n");
+    sandbox.write("loose/deeper/gone.txt", "loose\n");
+    sandbox.write("loose/deeper/ignored.log", "log\n");
+
+    let output = sandbox.gdd(&["-y"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = out(&output);
+    assert!(!text.contains("ignored.log"), "{text}");
+    assert!(!text.contains("ignored_dir"), "{text}");
+    // Named one by one rather than collapsed into `loose/`.
+    assert!(text.contains("loose/gone.txt"), "{text}");
+    assert!(text.contains("loose/deeper/gone.txt"), "{text}");
+
+    assert!(!sandbox.exists("loose/gone.txt"));
+    assert!(!sandbox.exists("loose/deeper/gone.txt"));
+    assert_eq!(sandbox.read("loose/ignored.log"), "log\n");
+    assert_eq!(sandbox.read("loose/deeper/ignored.log"), "log\n");
+    assert_eq!(sandbox.read("loose/ignored_dir/deep.txt"), "deep\n");
+}
+
+/// The collapse has to stop at the directory that holds the ignored file and
+/// no higher: a sibling with nothing ignored in it is still one entry.
+#[test]
+fn a_sibling_with_nothing_ignored_still_collapses() {
+    let sandbox = Sandbox::new();
+    sandbox.write("top/clean/f.txt", "x\n");
+    sandbox.write("top/dirty/gone.txt", "x\n");
+    sandbox.write("top/dirty/ignored.log", "log\n");
+
+    let output = sandbox.gdd(&["-y"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = out(&output);
+    assert!(text.contains("top/clean/"), "{text}");
+    assert!(!text.contains("f.txt"), "{text}");
+    assert!(text.contains("top/dirty/gone.txt"), "{text}");
+
+    assert!(!sandbox.exists("top/clean"));
+    assert!(!sandbox.exists("top/dirty/gone.txt"));
+    assert_eq!(sandbox.read("top/dirty/ignored.log"), "log\n");
 }
 
 #[test]
