@@ -1,9 +1,20 @@
-# Attach a tmux session on macie or archie from either machine.
+# Attach the peer machine's terminal from either side.
 #
-#   ssa   tmux on archie      ssm   tmux on macie
+#   ssa   archie      ssm   macie
 #
-# Whichever host you are already on resolves to the local tmux server rather
-# than an ssh loop back to itself.
+# Inside wezterm with the USB link up, a bare attach opens a native mux tab
+# (wezterm domain archie-usb / macie-usb): panes live on the peer's mux
+# server and survive the cable. Everything else — explicit sessions, --tmux,
+# other terminals, Tailscale — uses tmux over ssh. Whichever host you are
+# already on resolves to the local server rather than an ssh loop back.
+_usb_link_up() {
+  case "$OSTYPE" in
+    darwin*) command nc -4 -z -G 1 -b en3 10.77.77.2 22 >/dev/null 2>&1 ;;
+    linux*) command nc -z -w 1 -s 10.77.77.2 10.77.77.1 22 >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
 _tmux_attach() {
   emulate -L zsh
 
@@ -26,18 +37,22 @@ _tmux_attach() {
 
   local action=attach
   local session=main
-  local usage="usage: $command_name [SESSION | --cc [SESSION] | ls | delete SESSION]"
+  local explicit_session=0
+  local force_tmux=0
+  local usage="usage: $command_name [SESSION | --tmux [SESSION] | ls | delete SESSION]"
 
   if (( $# )); then
     case "$1" in
-      # Control mode: WezTerm renders the session's windows as native tabs.
-      -cc|--cc|--control)
+      -t|--tmux)
         (( $# <= 2 )) || {
           print -u2 -r -- "$usage"
           return 2
         }
-        action=control
-        (( $# == 2 )) && session=$2
+        force_tmux=1
+        if (( $# == 2 )); then
+          session=$2
+          explicit_session=1
+        fi
         ;;
       ls|list|-l|-ls|--list)
         (( $# == 1 )) || {
@@ -70,6 +85,7 @@ _tmux_attach() {
           return 2
         }
         session=$1
+        explicit_session=1
         ;;
       -*)
         print -u2 -r -- "$command_name: unknown option: $1"
@@ -81,6 +97,7 @@ _tmux_attach() {
           return 2
         }
         session=$1
+        explicit_session=1
         ;;
     esac
   fi
@@ -110,13 +127,21 @@ _tmux_attach() {
     return
   fi
 
-  local -a mode
-  [[ "$action" == control ]] && mode=(-CC)
+  # Native wezterm mux: wired, inside wezterm, and nothing tmux-specific
+  # asked for. tmux sessions are a tmux concept, so a named session always
+  # takes the tmux path.
+  if (( ! local_server && ! force_tmux && ! explicit_session )) \
+    && [[ -n "$WEZTERM_UNIX_SOCKET" ]] && _usb_link_up; then
+    if command wezterm cli spawn --domain-name "${host}-usb" >/dev/null 2>&1; then
+      return 0
+    fi
+    print -u2 -r -- "$command_name: native mux spawn failed, falling back to tmux"
+  fi
 
   if (( local_server )); then
-    command tmux $mode new-session -A -s "$session"
+    command tmux new-session -A -s "$session"
   else
-    command ssh -t "$host" "exec tmux ${mode:+-CC }new-session -A -s ${(q)session}"
+    command ssh -t "$host" "exec tmux new-session -A -s ${(q)session}"
   fi
 }
 

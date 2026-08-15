@@ -1,4 +1,5 @@
 local design = require 'wez.design'
+local platform = require 'wez.platform'
 local wezterm = require 'wezterm'
 
 local M = {}
@@ -130,11 +131,16 @@ function M.setup()
     local reserved = 2 + #index + (indicator and 2 or 0) + (badge and #badge or 0) + 1
     local title = wezterm.truncate_right(tab_title(tab), math.max(max_width - reserved, 1))
 
-    local items = {
-      { Background = { Color = design.tabs.background } },
-      { Foreground = { Color = bg } },
-      { Text = LEFT_CAP },
-    }
+    local items = {}
+    if platform.is_mac and tab.tab_index == 0 then
+      -- Clear the native traffic lights, which INTEGRATED_BUTTONS draws
+      -- over the leading edge of the retro tab bar.
+      table.insert(items, { Background = { Color = design.tabs.background } })
+      table.insert(items, { Text = string.rep(' ', 10) })
+    end
+    table.insert(items, { Background = { Color = design.tabs.background } })
+    table.insert(items, { Foreground = { Color = bg } })
+    table.insert(items, { Text = LEFT_CAP })
     if indicator then
       table.insert(items, { Background = { Color = bg } })
       table.insert(items, { Foreground = { Color = ATT_COLORS[kind] } })

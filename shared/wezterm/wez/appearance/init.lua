@@ -50,7 +50,12 @@ function M.apply(config)
     top = 10,
     bottom = 6,
   }
-  config.window_decorations = 'RESIZE'
+  -- mac: native traffic lights drawn inside the tab bar row (title bar and
+  -- tab bar are one surface); KDE: a real server-side Breeze title bar.
+  config.window_decorations = platform.pick {
+    mac = 'INTEGRATED_BUTTONS|RESIZE',
+    default = 'TITLE | RESIZE',
+  }
   config.window_background_opacity = platform.pick { mac = 0.95, default = 0.96 }
   config.inactive_pane_hsb = { saturation = 0.92, brightness = 0.82 }
   config.window_close_confirmation = 'NeverPrompt'
@@ -61,6 +66,7 @@ function M.apply(config)
   config.audible_bell = 'Disabled'
 
   if platform.is_mac then
+    config.integrated_title_button_style = 'MacOsNative'
     config.macos_window_background_blur = 30
     config.native_macos_fullscreen_mode = false
     config.macos_fullscreen_extend_behind_notch = true
