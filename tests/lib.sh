@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
 SOURCE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Resolved so sandbox paths match what the tool records (macOS: /var -> /private/var).
+TMP_ROOT="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 
 setup_sandbox() {
-  SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/dotfile-test.XXXXXX")"
+  SANDBOX="$(mktemp -d "$TMP_ROOT/dotfile-test.XXXXXX")"
   REPO="$SANDBOX/repo"
   HOME="$SANDBOX/home"
   XDG_CONFIG_HOME="$HOME/.config"
@@ -16,7 +18,7 @@ setup_sandbox() {
 
 teardown_sandbox() {
   case "${SANDBOX:-}" in
-    /tmp/*|"${TMPDIR:-/tmp}"/*) rm -rf "$SANDBOX" ;;
+    "$TMP_ROOT"/*) rm -rf "$SANDBOX" ;;
   esac
 }
 

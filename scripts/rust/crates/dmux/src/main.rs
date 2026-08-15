@@ -50,7 +50,8 @@ const PROGRAM: &str = "dmux";
 
 Bare `dmux` opens a picker (or creates `main` when nothing runs); with --host
 it attaches the peer the way the old ssa/ssm did. `dmux <name>` attaches an
-existing session, and `dmux -` toggles back to the previous one."
+existing session (a trailing `-w N` picks its window), and `dmux -` toggles
+back to the previous one."
 )]
 struct Cli {
     /// Host whose sessions to use (default: this machine)
@@ -71,6 +72,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// List wezterm workspaces and tmux sessions
+    #[command(visible_alias = "list")]
     Ls {
         /// Only tmux sessions
         #[arg(long)]
@@ -84,7 +86,7 @@ enum Cmd {
         #[arg(long)]
         json: bool,
 
-        #[arg(long, hide = true)]
+        #[arg(long, hide = true, conflicts_with = "json")]
         names: bool,
     },
 
@@ -98,20 +100,43 @@ enum Cmd {
         /// Window to select after attaching
         #[arg(short, long)]
         window: Option<String>,
+
+        /// Create the session like `dmux new` when it does not exist
+        #[arg(short = 'A', long = "create")]
+        create: bool,
     },
 
     /// Create a session if needed, then attach it
     New {
         /// Session name: letters, numbers, _ and -
         name: String,
+
+        /// Working directory for the new session
+        #[arg(long, value_name = "PATH")]
+        dir: Option<String>,
+
+        /// Command to run in the new session, after `--`
+        #[arg(last = true, value_name = "CMD")]
+        command: Vec<String>,
     },
 
+    /// Detach the current client from its tmux session
+    Detach,
+
     /// Kill sessions, or one window of a session with -w
-    #[command(visible_alias = "kill")]
+    #[command(visible_aliases = ["kill", "delete"])]
     Rm {
         /// Session names or indices from `dmux ls`
-        #[arg(required = true, add = ArgValueCompleter::new(complete_sessions))]
+        #[arg(
+            required_unless_present = "all",
+            conflicts_with = "all",
+            add = ArgValueCompleter::new(complete_sessions)
+        )]
         targets: Vec<String>,
+
+        /// Kill every tmux session listed (keeps the one this client is in)
+        #[arg(long, conflicts_with = "window")]
+        all: bool,
 
         /// Kill one window of the session instead
         #[arg(short, long)]
@@ -147,7 +172,11 @@ enum Cmd {
     },
 
     /// Probe the environment transport selection depends on
-    Doctor,
+    Doctor {
+        /// Machine-readable report
+        #[arg(long)]
+        json: bool,
+    },
 
     #[command(external_subcommand)]
     Other(Vec<String>),
@@ -175,16 +204,24 @@ fn main() -> ExitCode {
             json,
             names,
         }) => list::run(&context, tmux, wez, json, names),
-        Some(Cmd::Con { target, window }) => attach::con(&context, &target, window.as_deref()),
-        Some(Cmd::New { name }) => attach::new_session(&context, &name),
+        Some(Cmd::Con {
+            target,
+            window,
+            create,
+        }) => attach::con(&context, &target, window.as_deref(), create),
+        Some(Cmd::New { name, dir, command }) => {
+            attach::new_session_in(&context, &name, dir.as_deref(), &command)
+        }
+        Some(Cmd::Detach) => attach::detach(&context),
         Some(Cmd::Rm {
             targets,
+            all,
             window,
             yes,
-        }) => attach::remove(&context, &targets, window.as_deref(), yes),
+        }) => attach::remove(&context, &targets, all, window.as_deref(), yes),
         Some(Cmd::Rename { old, new_name }) => attach::rename(&context, &old, &new_name),
         Some(Cmd::Keys { man, tmux, wez }) => keys::run(man, tmux, wez),
-        Some(Cmd::Doctor) => Ok(doctor::run(&context)),
+        Some(Cmd::Doctor { json }) => Ok(doctor::run(&context, json)),
         Some(Cmd::Other(args)) => other(&context, &args),
     };
     match outcome {
@@ -193,20 +230,67 @@ fn main() -> ExitCode {
     }
 }
 
-/// clap refuses a bare `-` outright, so it is rewritten into a marker the
-/// external-subcommand arm recognises; `@` keeps it out of the valid session
-/// namespace.
+/// clap cannot parse a bare `-` as a subcommand, so the toggle spelling is
+/// rewritten into a marker the external-subcommand arm recognises; `@` keeps
+/// it out of the valid session namespace.
 fn normalized_args() -> Vec<OsString> {
-    std::env::args_os()
-        .map(|arg| if arg == "-" { "@prev".into() } else { arg })
-        .collect()
+    let mut args: Vec<OsString> = std::env::args_os().collect();
+    if let Some(position) = toggle_position(&args) {
+        args[position] = "@prev".into();
+    }
+    args
+}
+
+/// Only the standalone toggle invocation is rewritten: a bare `-` standing
+/// where the subcommand would, after nothing but the global host flag
+/// (`dmux -`, `dmux -H peer -`). A `-` anywhere else — `dmux rm -` — reaches
+/// clap untouched and earns its ordinary error.
+fn toggle_position(args: &[OsString]) -> Option<usize> {
+    let mut position = 1;
+    while position < args.len() {
+        let arg = args[position].to_str()?;
+        match arg {
+            "-" => return Some(position),
+            "-H" | "--host" => position += 2,
+            _ if arg.starts_with("--host=") || (arg.starts_with("-H") && arg.len() > 2) => {
+                position += 1;
+            }
+            _ => return None,
+        }
+    }
+    None
 }
 
 fn other(context: &Context, args: &[String]) -> Result<ExitCode, String> {
     match args {
         [word] if word == "@prev" => attach::toggle(context),
-        [target] => attach::con(context, target, None),
-        _ => Err(format!("unexpected arguments: {}", args.join(" "))),
+        [word, ..] if word == "@prev" => Err("`dmux -` takes no arguments".to_string()),
+        [target] => attach::con(context, target, None, false),
+        [target, rest @ ..] => match parse_window(rest) {
+            Some(window) => attach::con(context, target, Some(window), false),
+            None => Err(format!("unexpected arguments: {}", args.join(" "))),
+        },
+        [] => Err("unexpected arguments".to_string()),
+    }
+}
+
+/// The one flag the fallthrough shares with `con`: `-w/--window`, in every
+/// spelling clap would accept there. Anything else keeps the strict error.
+fn parse_window(rest: &[String]) -> Option<&str> {
+    match rest {
+        [flag, window] if flag == "-w" || flag == "--window" => Some(window),
+        [joined] => {
+            if let Some(window) = joined.strip_prefix("--window=") {
+                return Some(window);
+            }
+            if joined.starts_with("--") {
+                return None;
+            }
+            joined
+                .strip_prefix("-w")
+                .filter(|window| !window.is_empty())
+        }
+        _ => None,
     }
 }
 
@@ -228,13 +312,14 @@ fn bare(host_given: bool, context: &Context) -> Result<ExitCode, String> {
 }
 
 /// fzf over the same lines `ls` prints when it is around, a numbered prompt
-/// otherwise. No selection is not an error.
+/// otherwise. Declining to choose is not an error; a broken picker or an
+/// answer that names no row is.
 fn pick(rows: &[list::Row]) -> Result<Option<usize>, String> {
     let lines = list::render(rows, &Style::for_stdout());
     let chosen = if attach::on_path("fzf") {
         fzf_pick(&lines)?
     } else {
-        number_pick(&lines)?
+        number_pick(&lines, rows.len())?
     };
     Ok(chosen
         .and_then(|index| index.checked_sub(1))
@@ -246,6 +331,9 @@ fn fzf_pick(lines: &[String]) -> Result<Option<usize>, String> {
         .args(["--ansi", "--height=~40%", "--reverse"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        // fzf draws its interface on /dev/tty, so stderr carries only real
+        // complaints and is safe to capture.
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("fzf: {error}"))?;
     if let Some(mut stdin) = child.stdin.take() {
@@ -255,13 +343,31 @@ fn fzf_pick(lines: &[String]) -> Result<Option<usize>, String> {
     let output = child
         .wait_with_output()
         .map_err(|error| format!("fzf: {error}"))?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-    Ok(leading_index(&String::from_utf8_lossy(&output.stdout)))
+    fzf_outcome(
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stdout),
+        &String::from_utf8_lossy(&output.stderr),
+    )
 }
 
-fn number_pick(lines: &[String]) -> Result<Option<usize>, String> {
+/// fzf's exit codes are an interface: 0 selected, 1 matched nothing, 130
+/// cancelled — the last two are a quiet "no thanks". Anything else (2 is
+/// fzf's own error code) is a real failure and surfaces fzf's stderr.
+fn fzf_outcome(code: Option<i32>, stdout: &str, stderr: &str) -> Result<Option<usize>, String> {
+    match code {
+        Some(0) => Ok(leading_index(stdout)),
+        Some(1) | Some(130) | None => Ok(None),
+        Some(code) => {
+            let reason = stderr.lines().map(str::trim).find(|line| !line.is_empty());
+            Err(match reason {
+                Some(reason) => format!("fzf failed (exit {code}): {reason}"),
+                None => format!("fzf failed (exit {code})"),
+            })
+        }
+    }
+}
+
+fn number_pick(lines: &[String], count: usize) -> Result<Option<usize>, String> {
     for line in lines {
         println!("{line}");
     }
@@ -273,7 +379,19 @@ fn number_pick(lines: &[String]) -> Result<Option<usize>, String> {
             println!();
             Ok(None)
         }
-        Ok(_) => Ok(leading_index(&answer)),
+        Ok(_) => parse_pick(answer.trim(), count),
+    }
+}
+
+/// An empty answer declines; anything else must name a listed index —
+/// garbage and out-of-range numbers are errors, not silent successes.
+fn parse_pick(answer: &str, count: usize) -> Result<Option<usize>, String> {
+    if answer.is_empty() {
+        return Ok(None);
+    }
+    match answer.parse::<usize>() {
+        Ok(number) if (1..=count).contains(&number) => Ok(Some(number)),
+        _ => Err(format!("no such index '{answer}'")),
     }
 }
 
@@ -297,4 +415,77 @@ fn complete_sessions(current: &OsStr) -> Vec<CompletionCandidate> {
         .filter(|name| name.starts_with(prefix))
         .map(CompletionCandidate::new)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<OsString> {
+        words.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn only_a_leading_dash_is_the_toggle() {
+        assert_eq!(toggle_position(&args(&["dmux", "-"])), Some(1));
+        assert_eq!(
+            toggle_position(&args(&["dmux", "-H", "archie", "-"])),
+            Some(3)
+        );
+        assert_eq!(
+            toggle_position(&args(&["dmux", "--host", "archie", "-"])),
+            Some(3)
+        );
+        assert_eq!(
+            toggle_position(&args(&["dmux", "--host=archie", "-"])),
+            Some(2)
+        );
+        assert_eq!(toggle_position(&args(&["dmux", "-Harchie", "-"])), Some(2));
+        assert_eq!(toggle_position(&args(&["dmux"])), None);
+        assert_eq!(toggle_position(&args(&["dmux", "rm", "-"])), None);
+        assert_eq!(toggle_position(&args(&["dmux", "con", "-"])), None);
+        assert_eq!(toggle_position(&args(&["dmux", "ls", "--host", "-"])), None);
+    }
+
+    #[test]
+    fn the_fallthrough_window_takes_every_con_spelling() {
+        let words = |items: &[&str]| -> Vec<String> {
+            items.iter().map(|item| (*item).to_string()).collect()
+        };
+        assert_eq!(parse_window(&words(&["-w", "2"])), Some("2"));
+        assert_eq!(parse_window(&words(&["--window", "2"])), Some("2"));
+        assert_eq!(parse_window(&words(&["--window=2"])), Some("2"));
+        assert_eq!(parse_window(&words(&["-w2"])), Some("2"));
+        assert_eq!(parse_window(&words(&["-w"])), None);
+        assert_eq!(parse_window(&words(&["--window"])), None);
+        assert_eq!(parse_window(&words(&["-x", "2"])), None);
+        assert_eq!(parse_window(&words(&["2"])), None);
+        assert_eq!(parse_window(&words(&["-w", "2", "extra"])), None);
+    }
+
+    #[test]
+    fn a_picked_number_must_name_a_row() {
+        assert_eq!(parse_pick("", 3), Ok(None));
+        assert_eq!(parse_pick("2", 3), Ok(Some(2)));
+        assert_eq!(parse_pick("3", 3), Ok(Some(3)));
+        assert_eq!(parse_pick("0", 3).unwrap_err(), "no such index '0'");
+        assert_eq!(parse_pick("4", 3).unwrap_err(), "no such index '4'");
+        assert_eq!(parse_pick("nope", 3).unwrap_err(), "no such index 'nope'");
+    }
+
+    #[test]
+    fn fzf_cancel_is_quiet_and_failure_is_loud() {
+        assert_eq!(fzf_outcome(Some(0), "2  beta\n", ""), Ok(Some(2)));
+        assert_eq!(fzf_outcome(Some(1), "", ""), Ok(None));
+        assert_eq!(fzf_outcome(Some(130), "", ""), Ok(None));
+        assert_eq!(fzf_outcome(None, "", ""), Ok(None));
+        assert_eq!(
+            fzf_outcome(Some(2), "", "unknown option: --bogus\n"),
+            Err("fzf failed (exit 2): unknown option: --bogus".to_string())
+        );
+        assert_eq!(
+            fzf_outcome(Some(2), "", ""),
+            Err("fzf failed (exit 2)".to_string())
+        );
+    }
 }

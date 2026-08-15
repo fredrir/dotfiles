@@ -6,30 +6,10 @@ import sys
 
 from tools.theme.model import list_profiles, load_map, path, profile_palette
 from tools.theme.render import (
-    get_ini_key,
     replace_between,
     replace_ini_section,
     set_ini_key,
 )
-
-KITTY_SLOTS = {
-    "black": 0,
-    "red": 1,
-    "green": 2,
-    "yellow": 3,
-    "blue": 4,
-    "magenta": 5,
-    "cyan": 6,
-    "white": 7,
-    "bright_black": 8,
-    "bright_red": 9,
-    "bright_green": 10,
-    "bright_yellow": 11,
-    "bright_blue": 12,
-    "bright_magenta": 13,
-    "bright_cyan": 14,
-    "bright_white": 15,
-}
 
 ANSI_NORMAL = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
 
@@ -56,10 +36,6 @@ OBSIDIAN_DIR = "shared/obsidian/themes/Fredrir"
 
 PANEL_PRESETS_DIR = "linux/kde/panel-colorizer/presets"
 
-KITTY_COLORS = "shared/kitty/colors.conf"
-KITTY_FONTS = "shared/kitty/conf.d/fonts.conf"
-KONSOLE_SCHEME = "linux/kde/konsole/share/Theme.colorscheme"
-KONSOLE_PROFILE = "linux/kde/konsole/share/main.profile"
 NVIM_CATPPUCCIN = "shared/nvim/lua/plugins/catppuccin.lua"
 
 GTK_VERSIONS = ("gtk-3.0", "gtk-4.0")
@@ -71,47 +47,6 @@ QUICKLAUNCH_KEYS = (
     ("muted", "inactive"),
     ("selection", "selection_bg"),
 )
-
-
-def emit_kitty(theme, out):
-    terminal = theme.data["terminal"]
-    ansi = terminal["ansi"]
-    tabs = terminal["tabs"]
-    lines = [
-        f"# {theme.header}",
-        f"# {theme.name}",
-        "",
-        f"foreground              {theme.hex(terminal['foreground'])}",
-        f"background              {theme.hex(terminal['background'])}",
-        f"selection_foreground    {theme.hex(terminal['selection_foreground'])}",
-        f"selection_background    {theme.hex(terminal['selection_background'])}",
-        f"cursor                  {theme.hex(terminal['cursor'])}",
-        f"cursor_text_color       {theme.hex(terminal['cursor_text'])}",
-        f"url_color               {theme.hex(terminal['url'])}",
-        "",
-    ]
-    for name, index in KITTY_SLOTS.items():
-        lines.append(f"color{index:<2} {theme.hex(ansi[name])}")
-    lines += [
-        "",
-        f"active_tab_foreground   {theme.hex(tabs['active_foreground'])}",
-        f"active_tab_background   {theme.hex(tabs['active_background'])}",
-        f"inactive_tab_foreground {theme.hex(tabs['inactive_foreground'])}",
-        f"inactive_tab_background {theme.hex(tabs['inactive_background'])}",
-        f"tab_bar_background      {theme.hex(tabs['bar_background'])}",
-    ]
-    out.write(path(KITTY_COLORS), "\n".join(lines) + "\n")
-
-
-def emit_kitty_fonts(theme, out):
-    nerd = theme.font("nerd")
-    lines = [
-        f"# {theme.header}",
-        f"font_family  {nerd}",
-        f"font_size    {theme.size('terminal')}",
-        f"symbol_map   U+E000-U+F8FF {nerd}",
-    ]
-    out.write(path(KITTY_FONTS), "\n".join(lines) + "\n")
 
 
 def emit_wezterm(theme, out):
@@ -164,71 +99,6 @@ def emit_wezterm(theme, out):
     lines.append("  },")
     lines.append("}")
     out.write(path("shared/wezterm/wez/theme.lua"), "\n".join(lines) + "\n")
-
-
-def emit_konsole(theme, out):
-    terminal = theme.data["terminal"]
-    ansi = terminal["ansi"]
-    bright = ["bright_" + name for name in ANSI_NORMAL]
-
-    def block(section, value):
-        return [f"[{section}]", f"Color={theme.rgb_csv(value)}", ""]
-
-    body = []
-    body += block("Background", theme.hex(terminal["background"]))
-    body += block("BackgroundIntense", theme.hex(terminal["background"]))
-    body += block("BackgroundFaint", theme.hex(terminal["background"]))
-    for index in range(8):
-        body += block(f"Color{index}", theme.hex(ansi[ANSI_NORMAL[index]]))
-        body += block(f"Color{index}Intense", theme.hex(ansi[bright[index]]))
-        body += block(f"Color{index}Faint", theme.hex(ansi[ANSI_NORMAL[index]]))
-    body += block("Foreground", theme.hex(terminal["foreground"]))
-    body += block("ForegroundIntense", theme.hex(terminal["foreground"]))
-    body += block("ForegroundFaint", theme.hex(terminal["foreground"]))
-    body += [
-        "[General]",
-        "Blur=false",
-        "ColorRandomization=false",
-        f"Description={theme.name}",
-        "Opacity=1",
-        "Wallpaper=",
-    ]
-    content = f"# {theme.header}\n" + "\n".join(body) + "\n"
-    out.write(path(KONSOLE_SCHEME), content)
-
-
-def _replace_leading_fields(previous, values):
-    fields = previous.split(",")
-    if len(fields) < len(values):
-        return ",".join(values)
-    fields[: len(values)] = values
-    return ",".join(fields)
-
-
-def emit_konsole_profile(theme, out):
-    family = theme.font("nerd")
-    size = theme.size("terminal")
-
-    def transform(text):
-        where = KONSOLE_PROFILE
-        font = get_ini_key(text, "Appearance", "Font", where) or ""
-        text = set_ini_key(
-            text, "Appearance", "Font", _replace_leading_fields(font, [family, str(size)]), where
-        )
-        text = set_ini_key(text, "Appearance", "ColorScheme", os.path.basename(KONSOLE_SCHEME).removesuffix(".colorscheme"), where)
-        for key, role in (
-            ("TabColor", "tab"),
-            ("FocusBorderColor", "focus_border"),
-            ("TabActivityColor", "tab_activity"),
-        ):
-            previous = get_ini_key(text, "Appearance", key, where) or ""
-            channels = theme.rgb_csv(theme.konsole(role)).split(",")
-            text = set_ini_key(
-                text, "Appearance", key, _replace_leading_fields(previous, channels), where
-            )
-        return text
-
-    out.edit(path(KONSOLE_PROFILE), transform)
 
 
 def emit_fastfetch_config(theme, out):

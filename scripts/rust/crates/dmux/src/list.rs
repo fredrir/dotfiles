@@ -14,9 +14,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use unicode_width::UnicodeWidthStr;
 use workstation::Style;
 
-use crate::hosts::{Context, Host};
+use crate::PROGRAM;
+use crate::hosts::{self, Context, Host};
 
 const TMUX_FORMAT: &str =
     "#{session_name}|#{session_created}|#{session_windows}|#{session_attached}";
@@ -26,6 +28,14 @@ pub struct Row {
     pub index: usize,
     pub name: String,
     pub kind: Kind,
+    /// Which machine the row came from, so `--json` output is
+    /// self-describing; filled in by `gather`.
+    pub host: &'static str,
+    /// One live pane inside a wezterm workspace — the handle an attach from
+    /// inside wezterm activates. Internal: tmux rows have none, and the
+    /// `--json` shape stays as it is.
+    #[serde(skip)]
+    pub pane: Option<u64>,
     pub created: Option<i64>,
     pub windows: usize,
     pub attached: bool,
@@ -54,9 +64,34 @@ pub fn run(
     json: bool,
     names: bool,
 ) -> Result<ExitCode, String> {
+    // Remote wezterm workspaces are not enumerable over this path — only the
+    // peer's tmux server answers ssh — so an explicit `--wez` there would
+    // always print nothing. Humans get an error; --json/--names are for
+    // scripts, which get a well-formed empty result plus the note on stderr.
+    if !context.local && only_wez && !only_tmux {
+        let message = format!(
+            "wezterm workspaces on {} are not listable over ssh; only tmux sessions are (--tmux)",
+            context.host.name()
+        );
+        if json || names {
+            eprintln!("{PROGRAM}: {message}");
+            if json {
+                println!("[]");
+            }
+            return Ok(ExitCode::SUCCESS);
+        }
+        return Err(message);
+    }
+    // Indices are assigned over the full merged set before any filter, so the
+    // number a filtered listing prints is the same one con/rm resolve — gaps
+    // in the output are the point, not a bug.
+    let mut rows = gather(context, true, true)?;
     let include_wez = only_wez || !only_tmux;
     let include_tmux = only_tmux || !only_wez;
-    let rows = gather(context, include_wez, include_tmux)?;
+    rows.retain(|row| match row.kind {
+        Kind::Wez => include_wez,
+        Kind::Tmux => include_tmux,
+    });
     if names {
         for row in &rows {
             println!("{}", row.name);
@@ -103,15 +138,18 @@ pub fn gather(
     rows.extend(tmux);
     for (position, row) in rows.iter_mut().enumerate() {
         row.index = position + 1;
+        row.host = context.host.name();
     }
     Ok(rows)
 }
 
 /// A workspace is the set of windows whose panes carry its name; the one
 /// holding `WEZTERM_PANE` is the workspace this process is sitting in.
+/// `--no-auto-start` because a listing is a question, not a request to
+/// daemonize a wezterm-mux-server on a machine that runs none.
 fn wez_rows() -> Vec<Row> {
     let Ok(output) = Command::new("wezterm")
-        .args(["cli", "list", "--format", "json"])
+        .args(["cli", "--no-auto-start", "list", "--format", "json"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -130,21 +168,40 @@ fn wez_rows() -> Vec<Row> {
     let Ok(panes) = serde_json::from_slice::<Vec<Pane>>(&output.stdout) else {
         return Vec::new();
     };
-    let current: Option<u64> = std::env::var("WEZTERM_PANE")
-        .ok()
-        .and_then(|value| value.parse().ok());
-    let mut workspaces: BTreeMap<String, (BTreeSet<u64>, bool)> = BTreeMap::new();
+    // Same staleness rule as `Context::resolve`: a WEZTERM_PANE frozen into
+    // a tmux environment must not mark a workspace attached.
+    let trusted = hosts::trust_wezterm_env(
+        std::env::var_os("TMUX").is_some(),
+        std::env::var("TERM_PROGRAM").ok().as_deref(),
+    );
+    let current: Option<u64> = if trusted {
+        std::env::var("WEZTERM_PANE")
+            .ok()
+            .and_then(|value| value.parse().ok())
+    } else {
+        None
+    };
+    // Windows, attachment, and the lowest pane id — a stable handle for
+    // `attach` to activate the workspace with from inside wezterm.
+    let mut workspaces: BTreeMap<String, (BTreeSet<u64>, bool, Option<u64>)> = BTreeMap::new();
     for pane in panes {
         let entry = workspaces.entry(pane.workspace).or_default();
         entry.0.insert(pane.window_id);
         entry.1 |= current == Some(pane.pane_id);
+        entry.2 = Some(
+            entry
+                .2
+                .map_or(pane.pane_id, |lowest| lowest.min(pane.pane_id)),
+        );
     }
     workspaces
         .into_iter()
-        .map(|(name, (windows, attached))| Row {
+        .map(|(name, (windows, attached, pane))| Row {
             index: 0,
             name,
             kind: Kind::Wez,
+            host: "",
+            pane,
             created: None,
             windows: windows.len(),
             attached,
@@ -169,20 +226,38 @@ fn local_tmux_rows() -> Vec<Row> {
 
 /// tmux's own failures ("no server running") pass through ssh as an ordinary
 /// nonzero exit and mean an empty list; 255 is ssh itself failing, which is
-/// worth an error because the host was asked for by name.
+/// worth an error because the host was asked for by name — and worth ssh's
+/// own first line of explanation, not just "cannot reach". Exit 127 (or a
+/// "command not found" on stderr) is the remote shell failing to find tmux
+/// at all — a PATH problem, not an empty server — and silently answering
+/// `[]` to that would hide a broken transport, so it errs loudly instead.
 fn remote_tmux_rows(host: Host) -> Result<Vec<Row>, String> {
-    let command = format!("tmux list-sessions -F '{TMUX_FORMAT}'");
+    let command = format!(
+        "{}tmux list-sessions -F '{TMUX_FORMAT}'",
+        hosts::REMOTE_PATH_PREFIX
+    );
     let output = Command::new("ssh")
-        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5"])
+        .args(["-o", "BatchMode=yes", "-o", hosts::SSH_CONNECT_TIMEOUT])
         .args([host.name(), &command])
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
         .output()
         .map_err(|error| format!("ssh: {error}"))?;
     if output.status.code() == Some(255) {
-        return Err(format!("cannot reach {}", host.name()));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let reason = stderr.lines().map(str::trim).find(|line| !line.is_empty());
+        return Err(match reason {
+            Some(reason) => format!("cannot reach {}: {reason}", host.name()),
+            None => format!("cannot reach {}", host.name()),
+        });
     }
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.code() == Some(127) || stderr.contains("command not found") {
+            return Err(format!(
+                "tmux not found on {} (non-interactive ssh PATH)",
+                host.name()
+            ));
+        }
         return Ok(Vec::new());
     }
     Ok(tmux_rows_from(&String::from_utf8_lossy(&output.stdout)))
@@ -206,6 +281,8 @@ fn parse_tmux_line(line: &str) -> Option<Row> {
         index: 0,
         name: name.to_string(),
         kind: Kind::Tmux,
+        host: "",
+        pane: None,
         created: Some(created),
         windows,
         attached: attached > 0,
@@ -214,11 +291,7 @@ fn parse_tmux_line(line: &str) -> Option<Row> {
 
 pub fn render(rows: &[Row], style: &Style) -> Vec<String> {
     let index_width = rows.last().map_or(1, |row| row.index.to_string().len());
-    let name_width = rows
-        .iter()
-        .map(|row| row.name.chars().count())
-        .max()
-        .unwrap_or(0);
+    let name_width = rows.iter().map(|row| row.name.width()).max().unwrap_or(0);
     let windows_width = rows
         .iter()
         .map(|row| row.windows.to_string().len())
@@ -230,7 +303,7 @@ pub fn render(rows: &[Row], style: &Style) -> Vec<String> {
             let mut line = format!(
                 "{}  {}  {}  {}  {}",
                 style.dim(&format!("{:>index_width$}", row.index)),
-                style.teal(&format!("{:<name_width$}", row.name)),
+                style.teal(&pad_display(&row.name, name_width)),
                 style.dim(&format!("{created:<11}")),
                 style.dim(&format!("{:<4}", row.kind.label())),
                 style.dim(&format!("{:>windows_width$}", row.windows)),
@@ -242,6 +315,13 @@ pub fn render(rows: &[Row], style: &Style) -> Vec<String> {
             line
         })
         .collect()
+}
+
+/// Pad to a display width, not a char count: CJK and emoji names occupy two
+/// columns per glyph, and `format!`'s `{:<width$}` counts neither.
+fn pad_display(name: &str, width: usize) -> String {
+    let padding = width.saturating_sub(name.width());
+    format!("{name}{:padding$}", "")
 }
 
 /// `HH:MM DD.MM` in local time, straight from `localtime_r` — the promised
@@ -349,6 +429,8 @@ mod tests {
             index: 0,
             name: name.to_string(),
             kind,
+            host: "",
+            pane: None,
             created,
             windows: 1,
             attached: false,
@@ -451,6 +533,19 @@ mod tests {
         assert_eq!(lines[0].find("wez"), lines[1].find("tmux"));
         assert!(lines[0].contains("a          "));
         assert!(lines[0].contains('-'));
+    }
+
+    /// Byte offsets differ — multibyte names are longer in bytes — so the
+    /// aligned columns are equal in display width, the unit terminals use.
+    #[test]
+    fn alignment_uses_display_width_not_char_count() {
+        let rows = indexed(vec![
+            row("日本語", Kind::Tmux, Some(0)), // 3 chars, width 6
+            row("abcdef", Kind::Tmux, Some(0)), // 6 chars, width 6
+        ]);
+        let lines = render(&rows, &Style::plain());
+        let width_before_kind = |line: &str| line[..line.find("tmux").unwrap()].width();
+        assert_eq!(width_before_kind(&lines[0]), width_before_kind(&lines[1]));
     }
 
     // The libc crate does not bind tzset on every platform, but POSIX does.

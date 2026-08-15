@@ -123,7 +123,7 @@ Run the command to see the exact FROM and TO paths before confirming."
     print -u2 -r -- "$command_name: path must be inside your home directory: $local_path"
     return 2
   fi
-  local rel_path=${local_path#$home_path/}
+  local rel_path=${local_path#"$home_path"/}
 
   (( $+commands[rsync] )) || {
     print -u2 -r -- "$command_name: rsync is not installed"
@@ -223,7 +223,7 @@ cd() {
       builtin cd -- "$1"
       ;;
     *)
-      print -u2 "cd: ambiguous case-insensitive match: ${matches[*]}"
+      print -ru2 -- "cd: ambiguous case-insensitive match: ${matches[*]}"
       return 1
       ;;
   esac

@@ -15,8 +15,8 @@ function M.label()
 end
 
 -- tmux allows spaces, dots and shell metacharacters in session names. Names
--- outside this set are refused rather than escaped; `ssa` applies the same
--- rule, and there is no value in being more permissive than it.
+-- outside this set are refused rather than escaped; the dmux crate applies
+-- the same rule, and there is no value in being more permissive than it.
 function M.is_valid_session(session)
   return type(session) == 'string' and session:match '^[%w_-]+$' ~= nil
 end

@@ -147,6 +147,24 @@ fn nothing_to_commit_stops_before_committing() {
     assert_eq!(sandbox.read(&work, &["rev-parse", "HEAD"]), before);
 }
 
+/// Staging starts at the repository root, wherever `gpp` runs: a change at
+/// the top level is committed even when the command runs in a subdirectory.
+#[test]
+fn staging_starts_at_the_repository_root() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.work();
+    fs::create_dir(work.join("nested")).unwrap();
+    fs::write(work.join("nested/inner.txt"), "inner\n").unwrap();
+    fs::write(work.join("root.txt"), "root\n").unwrap();
+
+    let output = sandbox.gpp(&work.join("nested"), &["from", "a", "subdirectory"]);
+    assert!(output.status.success());
+    assert_eq!(
+        sandbox.read(&work, &["show", "--name-only", "--format=", "HEAD"]),
+        "nested/inner.txt\nroot.txt"
+    );
+}
+
 /// "Nothing to commit" is a question about the index, not about the working
 /// tree: something staged earlier still has to be committed.
 #[test]
@@ -164,11 +182,12 @@ fn something_staged_earlier_is_still_committed() {
     );
 }
 
-/// An unmerged index is one git cannot summarise with a cached tree, so the
-/// question is answered the long way — and either way the conflict is git's
-/// to report, not something to mistake for an empty index.
+/// Staging from the root during a merge takes each conflicted file as the
+/// working tree has it — the same resolution `git add` offers — so wherever
+/// `gpp` runs, the commit that follows is the merge commit, with both
+/// parents.
 #[test]
-fn a_conflict_is_left_for_git_to_report() {
+fn a_conflicted_merge_is_committed_as_it_stands() {
     let sandbox = Sandbox::new();
     let work = sandbox.work();
     fs::create_dir(work.join("elsewhere")).unwrap();
@@ -190,8 +209,13 @@ fn a_conflict_is_left_for_git_to_report() {
     fs::write(work.join("elsewhere/other.txt"), "changed\n").unwrap();
 
     let output = sandbox.gpp(&work.join("elsewhere"), &["commit", "from", "here"]);
-    assert!(!output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stderr).contains("nothing to commit"));
+    assert!(output.status.success());
+    assert_eq!(
+        sandbox.read(&work, &["log", "-1", "--format=%s"]),
+        "commit from here"
+    );
+    // The merge concluded: `HEAD` has a second parent to resolve.
+    sandbox.read(&work, &["rev-parse", "--verify", "HEAD^2"]);
 }
 
 #[test]

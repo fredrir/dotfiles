@@ -7,7 +7,7 @@
 //! ~/.ssh/config's cabled-first Match rules keep doing route selection for
 //! everything tmux-shaped.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
 
@@ -47,30 +47,91 @@ pub fn bare(context: &Context) -> Result<ExitCode, String> {
     new_session(context, "main")
 }
 
-pub fn con(context: &Context, target: &str, window: Option<&str>) -> Result<ExitCode, String> {
+pub fn con(
+    context: &Context,
+    target: &str,
+    window: Option<&str>,
+    create: bool,
+) -> Result<ExitCode, String> {
     if let Some(window) = window {
         list::require_valid(window)?;
     }
     let rows = list::gather(context, true, true)?;
-    let row = list::resolve(&rows, target)?.clone();
+    let row = match list::resolve(&rows, target) {
+        Ok(row) => row.clone(),
+        // -A: the old ssa default — fall back to what `dmux new` would do,
+        // name validation included.
+        Err(_) if create => return new_session(context, target),
+        Err(error) => return Err(error),
+    };
     attach_row(context, &row, window)
 }
 
 pub fn attach_row(context: &Context, row: &Row, window: Option<&str>) -> Result<ExitCode, String> {
     if row.kind == Kind::Wez {
-        return Err(format!(
-            "'{}' is a wezterm workspace; switch to it inside wezterm",
-            row.name
-        ));
+        return attach_wez(context, row, window);
     }
     record_departure(context, &row.name);
     Ok(exec_plan(plan_con(context, &row.name, window), &[]))
 }
 
+/// A wezterm workspace has no attach protocol, but inside wezterm (per the
+/// same trust rule everything else uses) activating one of its panes makes
+/// the GUI switch to it. Outside wezterm there is nothing that could switch,
+/// so the honest error stands. No toggle state is recorded: `dmux -` moves
+/// between tmux sessions, and a workspace switch is not a departure.
+fn attach_wez(context: &Context, row: &Row, window: Option<&str>) -> Result<ExitCode, String> {
+    if !context.inside_wezterm {
+        return Err(format!(
+            "'{}' is a wezterm workspace; switch to it inside wezterm",
+            row.name
+        ));
+    }
+    if window.is_some() {
+        return Err(format!(
+            "-w selects tmux windows; '{}' is a wezterm workspace",
+            row.name
+        ));
+    }
+    let Some(pane) = row.pane else {
+        return Err(format!("'{}' lists no pane to activate", row.name));
+    };
+    let mut plan = plan(&["wezterm", "cli", "activate-pane", "--pane-id"]);
+    plan.push(pane.to_string());
+    Ok(exec_plan(plan, &[]))
+}
+
 pub fn new_session(context: &Context, name: &str) -> Result<ExitCode, String> {
+    new_session_in(context, name, None, &[])
+}
+
+/// `--dir` and a trailing command ride the same plan. tmux's own `-A`
+/// semantics apply: when the session already exists both are ignored and the
+/// attach simply happens.
+pub fn new_session_in(
+    context: &Context,
+    name: &str,
+    dir: Option<&str>,
+    command: &[String],
+) -> Result<ExitCode, String> {
     list::require_valid(name)?;
     record_departure(context, name);
-    Ok(exec_plan(plan_new(context, name), &[]))
+    Ok(exec_plan(plan_new(context, name, dir, command), &[]))
+}
+
+/// Detach is a tmux concept — the client leaves, the session keeps running.
+/// Wezterm has no equivalent: a GUI window is not attached the way a tmux
+/// client is, so anywhere but inside tmux the honest answer is an error.
+pub fn detach(context: &Context) -> Result<ExitCode, String> {
+    if context.inside_tmux {
+        return Ok(exec_plan(plan(&["tmux", "detach-client"]), &[]));
+    }
+    if context.inside_wezterm {
+        return Err(
+            "wezterm windows do not detach; detach applies inside a tmux session".to_string(),
+        );
+    }
+    Err("not inside a tmux session; nothing to detach".to_string())
 }
 
 pub fn toggle(context: &Context) -> Result<ExitCode, String> {
@@ -80,12 +141,13 @@ pub fn toggle(context: &Context) -> Result<ExitCode, String> {
             context.host.name()
         ));
     };
-    con(context, &previous, None)
+    con(context, &previous, None, false)
 }
 
 pub fn remove(
     context: &Context,
     targets: &[String],
+    all: bool,
     window: Option<&str>,
     yes: bool,
 ) -> Result<ExitCode, String> {
@@ -97,6 +159,13 @@ pub fn remove(
     }
     let rows = list::gather(context, true, true)?;
     let mut chosen = Vec::new();
+    if all {
+        chosen = chosen_for_all(context, &rows);
+        if chosen.is_empty() {
+            eprintln!("{PROGRAM}: nothing to kill on {}", context.host.name());
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
     for target in targets {
         let row = list::resolve(&rows, target)?;
         if row.kind == Kind::Wez {
@@ -107,8 +176,8 @@ pub fn remove(
         }
         chosen.push(row.clone());
     }
-    if !yes && !confirmed(context, &chosen, window) {
-        println!("{PROGRAM}: cancelled");
+    if !yes && !confirmed(context, &chosen, window)? {
+        eprintln!("{PROGRAM}: cancelled");
         return Ok(ExitCode::SUCCESS);
     }
     let mut all_ok = true;
@@ -126,9 +195,46 @@ pub fn remove(
     })
 }
 
+/// `--all` is every tmux session in the listing. Wezterm workspaces are not
+/// killable over this path and are left alone with a note, and the session
+/// this client sits inside is kept — killing it would take the terminal down
+/// mid-sweep — with a note saying how to kill it explicitly.
+fn chosen_for_all(context: &Context, rows: &[Row]) -> Vec<Row> {
+    let workspaces = rows.iter().filter(|row| row.kind == Kind::Wez).count();
+    if workspaces > 0 {
+        eprintln!(
+            "{PROGRAM}: leaving {workspaces} wezterm workspace(s) alone; close them inside wezterm"
+        );
+    }
+    let current = current_session(context);
+    let mut chosen = Vec::new();
+    for row in rows.iter().filter(|row| row.kind == Kind::Tmux) {
+        if current.as_deref() == Some(row.name.as_str()) {
+            eprintln!(
+                "{PROGRAM}: keeping current session '{}' (dmux rm {} to kill it)",
+                row.name, row.name
+            );
+            continue;
+        }
+        chosen.push(row.clone());
+    }
+    chosen
+}
+
+/// The old target resolves like con/rm's — index or exact name, exact name
+/// winning — so a session another tool created with a nonconforming name
+/// (spaces and all) can still be renamed. Only the new name must conform.
 pub fn rename(context: &Context, old: &str, new: &str) -> Result<ExitCode, String> {
-    list::require_valid(old)?;
     list::require_valid(new)?;
+    let rows = list::gather(context, true, true)?;
+    let row = list::resolve(&rows, old)?;
+    if row.kind == Kind::Wez {
+        return Err(format!(
+            "'{}' is a wezterm workspace; rename it inside wezterm",
+            row.name
+        ));
+    }
+    let old = row.name.as_str();
     let plan = if context.local {
         vec![
             "tmux".to_string(),
@@ -138,7 +244,14 @@ pub fn rename(context: &Context, old: &str, new: &str) -> Result<ExitCode, Strin
             new.to_string(),
         ]
     } else {
-        ssh_run(context, format!("tmux rename-session -t ={old} {new}"))
+        ssh_run(
+            context,
+            format!(
+                "tmux rename-session -t {} {}",
+                quote(&format!("={old}")),
+                quote(new)
+            ),
+        )
     };
     Ok(if run_plan(plan)? {
         ExitCode::SUCCESS
@@ -174,19 +287,36 @@ fn plan_con(context: &Context, name: &str, window: Option<&str>) -> Vec<String> 
     ssh_attach(context, command)
 }
 
-fn plan_new(context: &Context, name: &str) -> Vec<String> {
+fn plan_new(context: &Context, name: &str, dir: Option<&str>, command: &[String]) -> Vec<String> {
     if !context.local {
-        return ssh_attach(context, format!("exec tmux new-session -A -s {name}"));
+        let mut remote = format!("exec tmux new-session -A -s {name}");
+        if let Some(dir) = dir {
+            remote.push_str(&format!(" -c {}", quote(dir)));
+        }
+        for word in command {
+            remote.push_str(&format!(" {}", quote(word)));
+        }
+        return ssh_attach(context, remote);
     }
     if context.inside_tmux {
         let mut words = plan(&["tmux", "new-session", "-A", "-d", "-s"]);
         words.push(name.to_string());
+        if let Some(dir) = dir {
+            words.push("-c".to_string());
+            words.push(dir.to_string());
+        }
+        words.extend(command.iter().cloned());
         words.extend(plan(&[";", "switch-client", "-t"]));
         words.push(format!("={name}"));
         words
     } else {
         let mut words = plan(&["tmux", "new-session", "-A", "-s"]);
         words.push(name.to_string());
+        if let Some(dir) = dir {
+            words.push("-c".to_string());
+            words.push(dir.to_string());
+        }
+        words.extend(command.iter().cloned());
         words
     }
 }
@@ -226,66 +356,106 @@ fn plan_select_window(name: &str, window: &str) -> Vec<String> {
     plan
 }
 
+/// Both ssh transports prepend `REMOTE_PATH_PREFIX` here, the one funnel
+/// every remote command passes through, so no call site can forget that
+/// macOS sshd's non-interactive PATH lacks tmux.
 fn ssh_attach(context: &Context, command: String) -> Vec<String> {
     vec![
         "ssh".to_string(),
+        "-o".to_string(),
+        hosts::SSH_CONNECT_TIMEOUT.to_string(),
         "-t".to_string(),
         context.host.name().to_string(),
-        command,
+        format!("{}{command}", hosts::REMOTE_PATH_PREFIX),
     ]
 }
 
 fn ssh_run(context: &Context, command: String) -> Vec<String> {
-    vec!["ssh".to_string(), context.host.name().to_string(), command]
+    vec![
+        "ssh".to_string(),
+        "-o".to_string(),
+        hosts::SSH_CONNECT_TIMEOUT.to_string(),
+        context.host.name().to_string(),
+        format!("{}{command}", hosts::REMOTE_PATH_PREFIX),
+    ]
 }
 
 fn plan(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_string()).collect()
 }
 
-/// A toggle target is only recorded when there is a session being left: the
-/// one this process sits inside. Skipped on a dry run, which must not write.
+/// A toggle target is only recorded when there is a session being left. On
+/// this machine that is the session this process sits inside; a peer cannot
+/// be asked, so remote attaches instead track the last session dmux attached
+/// there (see `state::record_attach`). Skipped on a dry run, which must not
+/// write.
 fn record_departure(context: &Context, target: &str) {
-    if dry_run() || !context.local || !context.inside_tmux {
+    if dry_run() {
         return;
     }
-    let Ok(output) = Command::new("tmux")
-        .args(["display-message", "-p", "#{session_name}"])
-        .output()
-    else {
+    if !context.local {
+        state::record_attach(context.host, target);
+        return;
+    }
+    let Some(current) = current_session(context) else {
         return;
     };
-    if !output.status.success() {
-        return;
+    if current != target {
+        state::record(context.host, &current);
     }
-    let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if current.is_empty() || current == target {
-        return;
-    }
-    state::record(context.host, &current);
 }
 
-fn confirmed(context: &Context, rows: &[Row], window: Option<&str>) -> bool {
+/// The tmux session this process sits inside, when there is one to ask.
+/// Read-only, so it runs on a dry run too — which is what lets `rm --all`'s
+/// keep-the-current-session rule be tested through the stub tmux.
+fn current_session(context: &Context) -> Option<String> {
+    if !context.local || !context.inside_tmux {
+        return None;
+    }
+    let output = Command::new("tmux")
+        .args(["display-message", "-p", "#{session_name}"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!current.is_empty()).then_some(current)
+}
+
+/// A confirmation needs someone to ask: without a terminal on stdin a real
+/// kill refuses loudly instead of blocking on a pipe that may never answer
+/// (or reading EOF and silently doing nothing). A dry run destroys nothing,
+/// so it keeps reading whatever stdin is — that is also what lets the
+/// prompt logic itself be tested through a pipe.
+fn confirmed(context: &Context, rows: &[Row], window: Option<&str>) -> Result<bool, String> {
+    if !io::stdin().is_terminal() && !dry_run() {
+        return Err("stdin is not a terminal; pass --yes to kill without confirmation".to_string());
+    }
     let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
     let what = match window {
         Some(window) => format!("window '{}:{window}'", names[0]),
         None if names.len() == 1 => format!("session '{}'", names[0]),
         None => format!("{} sessions ({})", names.len(), names.join(", ")),
     };
-    ask(&format!("Kill {what} on {}? [y/N] ", context.host.name()))
+    Ok(ask(&format!(
+        "Kill {what} on {}? [y/N] ",
+        context.host.name()
+    )))
 }
 
 /// Not `workstation::confirm`: that treats an empty answer as yes, and a
-/// kill keeps the zsh version's [y/N] — only an explicit yes destroys.
+/// kill keeps the zsh version's [y/N] — only an explicit yes destroys. The
+/// prompt goes to stderr so it never contaminates captured output.
 fn ask(question: &str) -> bool {
-    print!("{question}");
-    if io::stdout().flush().is_err() {
+    eprint!("{question}");
+    if io::stderr().flush().is_err() {
         return false;
     }
     let mut answer = String::new();
     match io::stdin().read_line(&mut answer) {
         Ok(0) | Err(_) => {
-            println!();
+            eprintln!();
             false
         }
         Ok(_) => matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes"),
@@ -327,9 +497,12 @@ fn shell_join(plan: &[String]) -> String {
 
 /// Enough quoting for two readers: a human checking a dry run, and a remote
 /// shell receiving the ssh command string. The remote login shell is zsh, so
-/// braces and commas stay out of the plain set — `={a,b}` would expand.
+/// braces and commas stay out of the plain set — `={a,b}` would expand — and
+/// so does `=`: with the EQUALS option, zsh rewrites an unquoted `=word`
+/// into a PATH lookup, so a bare `=main` target dies with "main not found"
+/// (or silently becomes a filesystem path when the name shadows a command).
 fn quote(argument: &str) -> String {
-    let plain = |byte: u8| byte.is_ascii_alphanumeric() || b"_-./=:@%+".contains(&byte);
+    let plain = |byte: u8| byte.is_ascii_alphanumeric() || b"_-./:@%+".contains(&byte);
     if !argument.is_empty() && argument.bytes().all(plain) {
         return argument.to_string();
     }
@@ -380,35 +553,63 @@ mod tests {
         );
     }
 
+    /// Every remote command string opens with the PATH prefix — macOS sshd's
+    /// non-interactive PATH lacks Homebrew's tmux — and the target rides
+    /// after it, quoted as before.
     #[test]
-    fn a_remote_attach_goes_over_ssh() {
+    fn a_remote_attach_quotes_the_equals_target() {
         let plan = plan_con(&context(false, false, false), "main", None);
-        assert_eq!(plan, ["ssh", "-t", "archie", "exec tmux attach -t =main"]);
+        let command = format!("{}exec tmux attach -t '=main'", hosts::REMOTE_PATH_PREFIX);
+        assert_eq!(
+            plan,
+            [
+                "ssh",
+                "-o",
+                "ConnectTimeout=5",
+                "-t",
+                "archie",
+                command.as_str()
+            ]
+        );
     }
 
     #[test]
     fn a_remote_window_select_escapes_the_separator() {
         let plan = plan_con(&context(false, false, false), "main", Some("2"));
         assert_eq!(
-            plan[3],
-            "exec tmux attach -t =main \\; select-window -t =main:2"
+            plan.last().unwrap(),
+            &format!(
+                "{}exec tmux attach -t '=main' \\; select-window -t '=main:2'",
+                hosts::REMOTE_PATH_PREFIX
+            )
         );
     }
 
     #[test]
     fn new_creates_and_attaches() {
-        let plan = plan_new(&context(true, false, false), "scratch");
+        let plan = plan_new(&context(true, false, false), "scratch", None, &[]);
         assert_eq!(plan, ["tmux", "new-session", "-A", "-s", "scratch"]);
-        let plan = plan_new(&context(false, false, false), "scratch");
+        let plan = plan_new(&context(false, false, false), "scratch", None, &[]);
+        let command = format!(
+            "{}exec tmux new-session -A -s scratch",
+            hosts::REMOTE_PATH_PREFIX
+        );
         assert_eq!(
             plan,
-            ["ssh", "-t", "archie", "exec tmux new-session -A -s scratch"]
+            [
+                "ssh",
+                "-o",
+                "ConnectTimeout=5",
+                "-t",
+                "archie",
+                command.as_str()
+            ]
         );
     }
 
     #[test]
     fn new_inside_tmux_detaches_then_switches() {
-        let plan = plan_new(&context(true, false, true), "scratch");
+        let plan = plan_new(&context(true, false, true), "scratch", None, &[]);
         assert_eq!(
             plan,
             [
@@ -427,23 +628,89 @@ mod tests {
     }
 
     #[test]
+    fn new_carries_the_directory_and_command() {
+        let command = ["nvim".to_string(), ".".to_string()];
+        let plan = plan_new(&context(true, false, false), "s", Some("/tmp/x"), &command);
+        assert_eq!(
+            plan,
+            [
+                "tmux",
+                "new-session",
+                "-A",
+                "-s",
+                "s",
+                "-c",
+                "/tmp/x",
+                "nvim",
+                "."
+            ]
+        );
+        let plan = plan_new(&context(true, false, true), "s", Some("/tmp/x"), &command);
+        assert_eq!(
+            plan,
+            [
+                "tmux",
+                "new-session",
+                "-A",
+                "-d",
+                "-s",
+                "s",
+                "-c",
+                "/tmp/x",
+                "nvim",
+                ".",
+                ";",
+                "switch-client",
+                "-t",
+                "=s"
+            ]
+        );
+    }
+
+    /// The remote plan quotes the directory and every command word: a space
+    /// or a hostile character must reach the peer's tmux intact.
+    #[test]
+    fn a_remote_new_quotes_directory_and_command() {
+        let command = ["echo".to_string(), "hi there".to_string()];
+        let plan = plan_new(
+            &context(false, false, false),
+            "s",
+            Some("/tmp/a b"),
+            &command,
+        );
+        assert_eq!(
+            plan.last().unwrap(),
+            &format!(
+                "{}exec tmux new-session -A -s s -c '/tmp/a b' echo 'hi there'",
+                hosts::REMOTE_PATH_PREFIX
+            )
+        );
+    }
+
+    #[test]
     fn kills_use_exact_targets() {
         let plan = plan_kill(&context(true, false, false), "main");
         assert_eq!(plan, ["tmux", "kill-session", "-t", "=main"]);
         let plan = plan_kill_window(&context(false, false, false), "main", "2");
-        assert_eq!(plan, ["ssh", "archie", "tmux kill-window -t =main:2"]);
+        let command = format!("{}tmux kill-window -t '=main:2'", hosts::REMOTE_PATH_PREFIX);
+        assert_eq!(
+            plan,
+            ["ssh", "-o", "ConnectTimeout=5", "archie", command.as_str()]
+        );
     }
 
     #[test]
     fn quoting_survives_a_hostile_name() {
-        assert_eq!(quote("=main"), "=main");
+        // `=main` must be quoted: zsh's EQUALS option expands a bare =word.
+        assert_eq!(quote("=main"), "'=main'");
+        assert_eq!(quote("main"), "main");
         assert_eq!(quote("a b"), "'a b'");
         assert_eq!(quote("$(reboot)"), "'$(reboot)'");
         assert_eq!(quote("it's"), r"'it'\''s'");
         assert_eq!(quote("={a,b}"), "'={a,b}'");
         assert_eq!(
             shell_join(&plan(&["tmux", "attach", "-t", "=a", ";", "x"])),
-            "tmux attach -t =a ';' x"
+            "tmux attach -t '=a' ';' x"
         );
     }
 }

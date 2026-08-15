@@ -1129,7 +1129,9 @@ included — and the index is rewritten once, with its cache-tree dropped, since
 those cached subtree ids describe the entries that were just replaced and a
 later `git commit` would otherwise believe them.
 
-`gpp` is `git add .`, then `git commit -m <message>`, then `git push`. It stops
+`gpp` is `git add :/` — everything, from the repository root, whichever
+subdirectory it runs in — then `git commit -m <message>`, then `git push`. It
+stops
 at the first failure and exits with that step's own status, so git's vocabulary
 — 128 for "not a repository" and so on — survives for whatever is chained after
 it. Those three stay with git: they are the steps that run hooks, sign, and
@@ -1139,7 +1141,7 @@ and fails, which reads like a fault in the tool. git leaves the tree its index
 would write in the index itself, so the answer is usually one comparison of two
 hashes; only a missing or stale cache-tree falls back to comparing the whole
 tree against `HEAD`. Message words are joined with spaces, and a word may start
-with `-`.
+with `-`. `gff` is a shell alias for `gpp .`.
 
 ---
 
@@ -1148,18 +1150,35 @@ with `-`.
 One CLI for every session on either machine: wezterm-mux workspaces and tmux
 sessions, local or on the peer, from `scripts/rust/crates/dmux`. It replaces
 the internals of the old ssa/ssm shell functions —
-`shared/zsh/conf.d/91-tmux-attach.zsh` now only wraps it (`ssa` is
-`dmux --host archie`, `ssm` is `dmux --host macie`) — and `dmx` is the shell
-alias. `-H/--host <macie|archie>` points any invocation at the peer.
+`shared/zsh/conf.d/91-tmux-attach.zsh` now only wraps it: `ssa` forwards to
+`dmux --host archie` and `ssm` to `dmux --host macie`, a bare session name
+becomes `con -A` (the old create-or-attach default), and the remaining old
+flags (`--tmux`, `-l`) intentionally error rather than silently change
+meaning. `dmx` is
+the shell alias, and all three borrow dmux's completion.
+`-H/--host <macie|archie>` points any invocation at the peer.
 
-The verbs: `ls` merges wezterm workspaces and tmux sessions into one indexed
-list, `--json` for machines; `con <name|index>` attaches an existing session
-and refuses to invent one, so a typo cannot leave a stray session behind
-(`new` is the verb that creates); `rm` kills after asking, `rename` renames;
-`dmux -` toggles back to the previously attached session; `keys` prints the
-live wezterm and tmux key tables instead of a hand-maintained copy; `doctor`
-reports what the transport probes see. Bare `dmux` on a TTY is a picker,
-and a bare name is treated as `con`.
+The verbs: `ls` (alias `list`) merges wezterm workspaces and tmux sessions
+into one indexed list, `--json` for machines — rows carry a `host` field,
+and indices are assigned over the merged set before `--tmux`/`--wez` filter,
+so a filtered listing has gaps but its numbers still name what `con` and
+`rm` resolve. `con <name|index>` attaches an existing session and refuses to
+invent one, so a typo cannot leave a stray session behind; `-A/--create`
+falls back to what `new` does. `new <name>` creates then attaches (tmux `-A`
+semantics), with `--dir <path>` for the working directory and a command
+after `--`. `rm` (aliases `kill`, `delete`) kills after asking — the [y/N]
+goes to stderr, and a non-TTY without `--yes` is refused rather than
+answered silently; `rm --all` sweeps every tmux session but keeps the one
+the client is sitting in, with a note saying how to kill it explicitly.
+`detach` hands the client back and leaves the session running; `rename`
+renames; `dmux -` toggles back to the previously attached session, tracked
+per host, so `ssa -` toggles on the peer; `keys` prints the live wezterm and
+tmux key tables instead of a hand-maintained copy (`--man` renders them as a
+man page, via a randomly named temp file); `doctor` reports what the
+transport probes see, `--json` included. Bare `dmux` on a TTY is a picker,
+and a bare name is treated as `con` — `dmux myproj -w 2` works, the one flag
+the fallthrough shares with `con`. Inside wezterm the picker and `con` can
+also switch to a wezterm workspace, by activating one of its panes.
 
 Attaching a remote host walks the chain the shell version had, now in one
 place. Inside wezterm a bare attach is a native mux tab on the peer's ssh
@@ -1167,7 +1186,10 @@ domain — the `-usb` domain when the cable answers the probe, the `-ts`
 (Tailscale) domain when it does not. Anything else — outside wezterm, or any
 named session, since tmux sessions are a tmux concept — is
 `ssh -t <host> exec tmux new-session -A -s <session>`, and each step down
-the chain is one stderr line saying why. Attach replaces the process with
+the chain is one stderr line saying why. Remote arguments are quoted for the
+peer's zsh — a session named `={a,b}` or `$(reboot)` reaches tmux as text —
+and `wezterm cli` probes run with `--no-auto-start`, because a listing is a
+question, not a request to boot a mux server. Attach replaces the process with
 `exec` so the TTY is handed over cleanly, which is also why it cannot be
 observed from a test: `DMUX_DRY_RUN=1` prints the command that would have
 been exec'd instead of running it, and that is how the integration tests —

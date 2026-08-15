@@ -31,7 +31,7 @@ def test_registry_marks_plasma_owned_files_unstageable():
     by_name = {emitter.name: emitter for emitter in registry.EMITTERS}
     assert not by_name["kde-colorscheme"].stageable
     assert not by_name["desktop-appletsrc"].stageable
-    assert by_name["kitty"].stageable
+    assert by_name["wezterm"].stageable
 
 
 def test_every_emitter_declares_outputs():

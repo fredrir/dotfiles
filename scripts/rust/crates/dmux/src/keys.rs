@@ -5,7 +5,9 @@
 //! cheat sheet would. `--man` wraps the same dumps in a roff page and execs
 //! `man` on it, which buys paging, searching and nvim's Man mode for free.
 
+use std::io::Write;
 use std::process::{Command, ExitCode, Stdio};
+use std::thread;
 
 use workstation::Style;
 
@@ -15,12 +17,16 @@ use crate::attach;
 pub fn run(man: bool, only_tmux: bool, only_wez: bool) -> Result<ExitCode, String> {
     let include_wez = only_wez || !only_tmux;
     let include_tmux = only_tmux || !only_wez;
+    // Both dumps at once, the way doctor runs its probes: the answer costs
+    // the slower of the two subprocesses, not their sum.
+    let wez = include_wez.then(|| thread::spawn(|| dump("wezterm", &["show-keys"])));
+    let tmux = include_tmux.then(|| thread::spawn(|| dump("tmux", &["list-keys", "-N"])));
     let mut sections = Vec::new();
-    if include_wez {
-        sections.push(("WEZTERM", dump("wezterm", &["show-keys"])));
+    if let Some(handle) = wez {
+        sections.push(("WEZTERM", joined(handle)));
     }
-    if include_tmux {
-        sections.push(("TMUX", dump("tmux", &["list-keys", "-N"])));
+    if let Some(handle) = tmux {
+        sections.push(("TMUX", joined(handle)));
     }
     if man {
         return man_page(&sections);
@@ -50,6 +56,12 @@ pub fn run(man: bool, only_tmux: bool, only_wez: bool) -> Result<ExitCode, Strin
     }
 }
 
+fn joined(handle: thread::JoinHandle<Result<String, String>>) -> Result<String, String> {
+    handle
+        .join()
+        .unwrap_or_else(|_| Err("probe panicked".to_string()))
+}
+
 fn dump(program: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new(program)
         .args(args)
@@ -77,8 +89,21 @@ fn man_page(sections: &[(&str, Result<String, String>)]) -> Result<ExitCode, Str
         }
         roff.push_str(".fi\n");
     }
-    let path = std::env::temp_dir().join(format!("dmux-keys-{}.1", std::process::id()));
-    std::fs::write(&path, roff).map_err(|error| format!("{}: {error}", path.display()))?;
+    // A tempfile-crate file, not a predictable pid-named path in shared
+    // /tmp: the name is random, so nothing can squat it between runs. The
+    // viewer replaces this process via exec, so no destructor would ever
+    // run anyway — keep() makes that explicit, trading one small leftover
+    // file for a page `man` (and MANPAGER=nvim) can open by path; piping
+    // roff on stdin would instead steal the terminal from the pager and
+    // macOS's BSD man has no `-l -` mode.
+    let mut temp = tempfile::Builder::new()
+        .prefix("dmux-keys-")
+        .suffix(".1")
+        .tempfile()
+        .map_err(|error| format!("man page: {error}"))?;
+    temp.write_all(roff.as_bytes())
+        .map_err(|error| format!("man page: {error}"))?;
+    let (_, path) = temp.keep().map_err(|error| format!("man page: {error}"))?;
     let path = path
         .into_os_string()
         .into_string()

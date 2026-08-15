@@ -67,14 +67,44 @@ impl Context {
     pub fn resolve(requested: Option<Host>) -> Result<Context, String> {
         let this = Host::this()?;
         let host = requested.unwrap_or(this);
+        let inside_tmux = std::env::var_os("TMUX").is_some();
+        let trusted = trust_wezterm_env(inside_tmux, std::env::var("TERM_PROGRAM").ok().as_deref());
         Ok(Context {
             host,
             local: host == this,
-            inside_wezterm: std::env::var_os("WEZTERM_UNIX_SOCKET").is_some(),
-            inside_tmux: std::env::var_os("TMUX").is_some(),
+            inside_wezterm: trusted && std::env::var_os("WEZTERM_UNIX_SOCKET").is_some(),
+            inside_tmux,
         })
     }
 }
+
+/// tmux freezes the environment its server started with, so a shell inside
+/// tmux can carry `WEZTERM_*` variables from a wezterm session that is long
+/// gone — a plain ssh tty attaching that server would otherwise spawn tabs
+/// in an unwatched GUI. Inside tmux the wezterm env is trusted only when
+/// `TERM_PROGRAM` still says WezTerm — note tmux >= 3.2 sets it to "tmux"
+/// in panes regardless of the attached client, so this deliberately errs
+/// toward distrust (ssh-tmux route, never a surprise GUI tab); outside
+/// tmux the env is this process's own and stands.
+pub fn trust_wezterm_env(inside_tmux: bool, term_program: Option<&str>) -> bool {
+    !inside_tmux || term_program == Some("WezTerm")
+}
+
+/// Every ssh dmux runs — the listing probe and the attach/run transports —
+/// caps connection establishment the same way, so a dead route fails in
+/// seconds instead of hanging the terminal.
+pub const SSH_CONNECT_TIMEOUT: &str = "ConnectTimeout=5";
+
+/// macOS's sshd hands a non-interactive command a minimal PATH
+/// (/usr/bin:/bin:/usr/sbin:/sbin) that lacks Homebrew's tmux, so a bare
+/// `ssh macie tmux ...` dies with exit 127. Every remote command dmux sends
+/// therefore carries this prefix: user-local installs first, then Homebrew
+/// (Apple Silicon, then Intel/Linux /usr/local), then whatever the remote
+/// shell already had. `$HOME` and `$PATH` are literal here — the remote
+/// shell expands them — and the assignment-prefix form applies to the
+/// command that follows, `exec` included, in POSIX sh and zsh alike.
+pub const REMOTE_PATH_PREFIX: &str =
+    r#"PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" "#;
 
 pub const PROBE_TIMEOUT: Duration = Duration::from_millis(400);
 
@@ -180,6 +210,18 @@ mod tests {
         assert_eq!(Host::Archie.usb_address(), Ipv4Addr::new(10, 77, 77, 2));
         assert_eq!(Host::Macie.ts_address(), Ipv4Addr::new(100, 75, 71, 79));
         assert_eq!(Host::Archie.ts_address(), Ipv4Addr::new(100, 126, 231, 24));
+    }
+
+    #[test]
+    fn wezterm_env_is_distrusted_inside_a_foreign_tmux() {
+        // Outside tmux the process's own environment is authoritative.
+        assert!(trust_wezterm_env(false, None));
+        assert!(trust_wezterm_env(false, Some("Apple_Terminal")));
+        // Inside tmux only a live WezTerm terminal vouches for it.
+        assert!(trust_wezterm_env(true, Some("WezTerm")));
+        assert!(!trust_wezterm_env(true, None));
+        assert!(!trust_wezterm_env(true, Some("Apple_Terminal")));
+        assert!(!trust_wezterm_env(true, Some("tmux")));
     }
 
     #[test]
