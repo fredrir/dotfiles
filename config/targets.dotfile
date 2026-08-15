@@ -20,4 +20,5 @@ shared/obsidian/plugins = ~/Documents/main/.obsidian/plugins
 linux/arch/macie-usb/etc = /etc
 macos/ssh = ~/.ssh
 linux/arch/ssh = ~/.ssh
+linux/arch/wezterm-mux = ~/.config/systemd/user
 shared/ssh = ~/.ssh

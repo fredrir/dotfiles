@@ -4,14 +4,14 @@ local target = require 'wez.remote.target'
 
 local M = {}
 
--- `ssa ls` yields tmux's default "name: N windows (...)" while the local path
--- uses -F '#{session_name}'. Only names we would be willing to attach to are
--- accepted, which also drops shell noise (motd, warnings) from the ssh path.
+-- Both list commands emit one bare session name per line, but the ssh path
+-- can interleave banner noise (motd, warnings). Only names we would be
+-- willing to attach to are accepted; everything else is dropped.
 function M.parse(stdout)
   local names = {}
   local seen = {}
   for line in stdout:gmatch '[^\r\n]+' do
-    local name = line:match '^(%S+):%s+%d+%s+window' or line:match '^(%S+)$'
+    local name = line:match '^(%S+)$'
     if name and target.is_valid_session(name) and not seen[name] then
       seen[name] = true
       table.insert(names, name)

@@ -1,0 +1,10 @@
+[Unit]
+Description=WezTerm multiplexer server
+
+[Service]
+ExecStart=/usr/bin/wezterm-mux-server
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
