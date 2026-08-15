@@ -4,11 +4,16 @@ local act = wezterm.action
 local M = {}
 
 M.keys = {
-  { key = 't', mods = 'CTRL', action = act.SpawnTab 'CurrentPaneDomain' },
+  -- CTRL+T belongs to fzf's file widget; new tab lives on the shifted chord
+  -- here and on CMD+T on mac.
+  { key = 't', mods = 'CTRL|SHIFT', action = act.SpawnTab 'CurrentPaneDomain' },
   -- Confirmed: CTRL+w is backward-kill-word in readline and is easy to hit.
   { key = 'w', mods = 'CTRL', action = act.CloseCurrentTab { confirm = true } },
 
-  -- '[' and ']' need AltGr here, so tab cycling uses n/p instead.
+  { key = 'Tab', mods = 'CTRL', action = act.ActivateTabRelative(1) },
+  { key = 'Tab', mods = 'CTRL|SHIFT', action = act.ActivateTabRelative(-1) },
+
+  -- '[' and ']' need AltGr here, so leader tab cycling uses n/p instead.
   { key = 'p', mods = 'LEADER|SHIFT', action = act.ActivateTabRelative(-1) },
   { key = 'n', mods = 'LEADER|SHIFT', action = act.ActivateTabRelative(1) },
 

@@ -4,7 +4,7 @@ import re
 import sys
 
 from tools.core.process import capture
-from tools.dotfile.state import die, log, prune_embedded_repos
+from tools.dotfile.state import die, log
 
 HYPR_PATTERNS = ("*/hypr/*", "*/hypr-local.conf", "hypr*.conf")
 PLAIN_PATTERNS = ("*/kitty/colors*.conf", "*/colors*.conf", "*/kitty/conf.d/fonts.conf")
@@ -177,8 +177,7 @@ def tracked_conf_files(ctx):
 
 def conf_files_under(directory):
     found = []
-    for parent, dirnames, filenames in os.walk(directory):
-        prune_embedded_repos(parent, dirnames)
+    for parent, _dirnames, filenames in os.walk(directory):
         for name in filenames:
             if name.endswith(".conf"):
                 found.append(os.path.join(parent, name))

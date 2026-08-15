@@ -8,6 +8,7 @@ local SOURCES = {
   'wez.keys.tabs',
   'wez.keys.copy',
   'wez.keys.window',
+  'wez.keys.mac',
 }
 
 function M.apply(config)
