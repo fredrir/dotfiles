@@ -70,7 +70,6 @@
 - `git` — macOS-specific Git configuration
 - `hammerspoon`
 - `launchd`
-- `skhd`
 - `ssh`
 - `sunshine`
 - `zsh` — macOS-specific Z shell configuration

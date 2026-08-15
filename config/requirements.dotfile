@@ -38,6 +38,7 @@ shared {
   ?7z = 7zip
   ?openssl
   font Hack Nerd Font Mono
+  font JetBrains Mono
   font Noto Sans
   file ~/dotfiles/shared/wezterm/types
 }

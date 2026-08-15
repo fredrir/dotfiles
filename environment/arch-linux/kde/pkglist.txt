@@ -126,6 +126,8 @@ texlive-publishers
 texlive-xetex
 tree
 tree-sitter-cli
+ttf-jetbrains-mono
+ttf-nerd-fonts-symbols-mono
 unzip
 wacomtablet
 webkit2gtk-4.1

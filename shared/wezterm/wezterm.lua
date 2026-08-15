@@ -5,6 +5,7 @@ local config = wezterm.config_builder()
 -- append their own bindings to that table.
 local modules = {
   'wez.appearance',
+  'wez.perf',
   'wez.keys',
   'wez.domains',
   'wez.remote',
