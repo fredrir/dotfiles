@@ -6,7 +6,7 @@ from tools.core.process import capture_bytes
 from tools.dotfile.secret.identity import identity_path, sops_env
 from tools.dotfile.secret.keys import sops_file
 from tools.dotfile.secret.variables import references, render
-from tools.dotfile.state import each_package
+from tools.dotfile.state import each_package, prune_embedded_repos
 from tools.dotfile.targets import map_dst, never_fold
 
 FILE_MODE = 0o600
@@ -140,7 +140,8 @@ def mode_of(path):
 def package_entries(ctx, pkgdir, name, whole):
     pkg = os.path.basename(pkgdir)
     found = []
-    for parent, _dirnames, filenames in os.walk(pkgdir):
+    for parent, dirnames, filenames in os.walk(pkgdir):
+        prune_embedded_repos(parent, dirnames)
         for base in sorted(filenames):
             if base in (MARKER, ".nolink", SYSTEM_MARKER):
                 continue

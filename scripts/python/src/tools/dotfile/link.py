@@ -9,6 +9,7 @@ from tools.dotfile.state import (
     load_overrides,
     log,
     owned_by_repo,
+    prune_embedded_repos,
     require_manifest,
     resolve_link,
     resolve_path,
@@ -218,6 +219,7 @@ def cmd_link(ctx, profile, dry_run, override_specs):
 def status_files(pkgdir):
     found = []
     for parent, dirnames, filenames in os.walk(pkgdir):
+        prune_embedded_repos(parent, dirnames)
         for name in dirnames:
             full = os.path.join(parent, name)
             if os.path.islink(full):

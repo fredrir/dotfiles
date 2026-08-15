@@ -28,6 +28,17 @@ class Context:
         self.package_descriptions = {}
 
 
+def prune_embedded_repos(parent, dirnames):
+    """Drop subdirectories that are their own git checkouts.
+
+    A vendored clone inside a package (shared/wezterm/types) is foreign code:
+    its files are not dotfiles content, and its .tmpl files belong to that
+    project's tooling. `.git` is a file in worktrees and submodules, so test
+    existence, not isdir. Mutates dirnames in place for use with os.walk.
+    """
+    dirnames[:] = [d for d in dirnames if not os.path.exists(os.path.join(parent, d, ".git"))]
+
+
 def log(message):
     print(message)
 
