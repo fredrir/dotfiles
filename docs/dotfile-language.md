@@ -1,47 +1,50 @@
 # The `.dotfile` Language
 
-**Source language:** 1
+**`.dotfile` version:** 1
 
-**Resolution-lock schema:** 1
+**Generated lock version:** 1
 
-**Status:** final design for implementation and migration
+**Status:** current normative specification
+
 **Repository:** `fredrir/dotfiles`
 
-This document replaces Draft 3. It specifies one small, declarative language for the
-repository's package requirements, profiles, hosts, deployment mappings, secret and system
-plans, recipient keys, scan exceptions, and generated benchmark baselines. The compiler turns
-the semantic domains into a committed resolution lock at the repository root.
+This specification defines one small, declarative language for the repository's package
+requirements, profiles, hosts, theme inputs, deployment mappings, secret and system plans,
+recipient keys, scan exceptions, and generated benchmark baselines. The compiler turns the
+resolution domains into the committed `package.lock.dotfile` at the repository root.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. Examples are normative
 when they demonstrate syntax or an algorithm; comments in examples are explanatory.
 
-## 1. Final disposition of Draft 3
+## 1. Version declarations
 
-The architecture is accepted, but several Draft 3 rules are replaced before parser or mutating
-command implementation begins.
+`@dotfile-version = "1"` means “parse every repository-owned `.dotfile` source using version 1 of
+the syntax and semantics in this specification.” It appears exactly once, as the first
+non-comment entry of `config/profiles.dotfile`. There is no comma after it. An implementation MUST
+reject a version it does not support instead of guessing how to interpret the file.
 
-| Draft 3 area | Final ruling |
-|---|---|
-| Facets are roots, not implicit entities | Kept. A config package never implies a same-named command check. |
-| Facts merge; demands accumulate | Kept, with an occurrence-level demand IR. |
-| Nested optional demands | Kept. Optionality is fixed lexically before identities are merged. |
-| Global entity identity | Kept. Resources remain separately and permanently qualified. |
-| Resource overlays | `@extend` is included in language 1; a normal resource block always creates a demand. |
-| `@target` | Removed. `@destination`, entity `@path`, and group `@directory` are distinct. |
-| `@via` | Renamed `@installer`; profiles declare one explicit default `@manager`. |
-| Deployment kinds | Replaced by orthogonal action, privilege, sensitivity policy, and filename-derived render. |
-| Directory links | Prohibited. The lock contains filtered leaf claims only. |
-| Override scope | One selected variant per group, with an exact prefix-stripping rule. |
-| Lock | Replaced by an exhaustive, typed, qualified, canonical schema. |
-| Source `sync` command | Compilation is `dotfile lock`; the existing orchestration meaning of `sync` is retained. |
-| General programming features | Imports, conditionals, comprehensions, recursion, environment reads, and command execution are absent from language 1. |
+The generated lock has a separate `@lock-version = "1"` because authored source syntax and the
+generated lock layout can evolve independently. Users write the source declaration; the compiler
+copies that value into the lock and writes `@lock-version`. The lock also records
+`@builtins-version`, which identifies the exact built-in adapter, inference, default, deployment,
+observation, application, and provenance rules used to compile and consume it. These are opaque
+version identifiers, not quantities; `"1"` is quoted because `.dotfile` has no numeric literals and
+no version arithmetic. A consumer MUST reject an unsupported lock or built-ins version instead of
+attempting a partial read.
 
-The implementation gate is therefore this specification plus its positive, negative, migration,
-and reader fixtures—not Draft 3 alone.
+The authored declaration is the only version selector. `.dotfile` version 1 selects exactly
+generated-lock version 1 and built-ins version 1; another implementation processing the same
+source version MUST NOT silently select a different tuple. A source-visible change to accepted
+managers, installers, defaults, or other built-in semantics therefore requires a new `.dotfile`
+version as well as any affected generated-lock or built-ins version.
+
+All configuration interpreted by the `dotfile` tool uses `.dotfile` syntax. Native configuration
+that is merely deployed to another program—such as Cargo manifests or Starship configuration—stays
+in the format required by that program.
 
 ## 2. Design goals and non-goals
 
-Language 1 is designed to be:
+`.dotfile` version 1 is designed to be:
 
 - **declarative:** source states facts, demands, profiles, and mappings, never procedures;
 - **hermetic at compile time:** identical declared repository inputs produce identical IR and
@@ -51,9 +54,10 @@ Language 1 is designed to be:
 - **safe to apply:** planning, collision detection, ownership checks, and privilege boundaries are
   specified separately from compilation;
 - **small:** the syntax is intentionally narrower than Nix, Dhall, CUE, Jsonnet, Nickel, or HCL;
-- **migratable:** existing repository behavior has an explicit parity gate.
+- **behavior-preserving:** repository-visible mappings and operations have explicit conformance
+  coverage.
 
-Language 1 is not:
+`.dotfile` version 1 is not:
 
 - a shell language;
 - a system-provisioning language;
@@ -67,14 +71,14 @@ drivers, kernels, and unrelated workstation provisioning remain out of scope.
 
 ## 3. Processing model
 
-There are four distinct phases.
+The processing model has four operations.
 
 1. **Parse** source bytes into a concrete syntax tree, preserving comments and spans.
 2. **Compile** all semantic source domains into a qualified, occurrence-based IR. Compilation is
    pure and fully validates every declared profile.
 3. **Bind** one profile, group-variant selection, invoking user, home/XDG anchors, host, and actual
    target filesystem. Machine observations do not enter the committed lock.
-4. **Apply or inspect** the bound plan. Only this phase observes installed tools, services, fonts,
+4. **Apply or inspect** the bound plan. Only this operation observes installed tools, services, fonts,
    destinations, vault identities, or destination-volume behavior.
 
 Compilation MUST NOT read environment variables, the clock, hostname, PATH, installed programs,
@@ -82,19 +86,20 @@ network, or random state. It MAY read only the repository inputs defined in sect
 It MUST enumerate all inputs in a specified order and fully validate exported IR; an
 implementation may evaluate lazily internally only if no error can remain hidden.
 
-The lock is a **resolution lock**, not a content snapshot. Ordinary linked file contents remain
-live in the working tree. Copied, encrypted, and template source identities are fingerprinted
-because their bytes are materialized.
+The generated lock records resolved identities, facts, demands, and deployment plans; it is not a
+content snapshot. Ordinary linked file contents remain live in the working tree. Copied,
+encrypted, and template source identities are fingerprinted because their bytes are materialized.
 
 ## 4. Files and domains
 
-The repository language version is declared once in `config/profiles.dotfile`. Every `.dotfile`
-file in the repository is parsed with that version.
+The `.dotfile` version is declared once in `config/profiles.dotfile`. Every repository-owned
+`.dotfile` source is parsed with that version.
 
 The first non-comment entry of `config/profiles.dotfile` MUST be exactly
-`@language = "1"`; it cannot use a binding, interpolation, or soft line break. The bootstrap reader
-recognizes only this ASCII preamble before selecting the versioned lexer/parser. `@language` is
-invalid in every other source file and duplicate declarations are errors.
+`@dotfile-version = "1"`; it cannot use a binding, interpolation, soft line break, or trailing
+comma. The bootstrap reader recognizes only this ASCII preamble before selecting the lexer/parser
+for that version. `@dotfile-version` is invalid in every other source file, and duplicate
+declarations are errors.
 
 | Path | Domain | Lock input | Owner |
 |---|---|---:|---|
@@ -102,13 +107,16 @@ invalid in every other source file and duplicate declarations are errors.
 | `config/hosts.dotfile` | hosts and hardware facts | yes | human |
 | `<group-directory>/package.dotfile` | group demands and fact extensions | yes | human |
 | `<group-directory>/<package>/package.dotfile` | facet, demands, facts, deployment | yes | human |
-| `<group-directory>/overrides/<variant>/<package>/package.dotfile` | variant deployment metadata | yes | human/migrator |
+| `<group-directory>/overrides/<variant>/<package>/package.dotfile` | variant deployment metadata | yes | human/tool |
 | `config/keys.dotfile` | age recipients | no; separate consumer | human/tool |
 | `config/scan.dotfile` | secret-scan allow rules | no; separate consumer | human |
 | `benchmarks/baselines.dotfile` | benchmark baselines | no; separate generated domain | tool |
-| `theme/profiles/*.toml` | tracked theme-basename inventory | structure/name only | theme generator |
+| `theme/roles.dotfile` | shared theme role definitions | no; theme consumer | human |
+| `theme/fonts.dotfile` | shared theme font definitions | no; theme consumer | human |
+| `theme/maps/*.dotfile` | registered application theme maps | no; theme consumer | human |
+| `theme/profiles/*.dotfile` | theme definitions | structure/name only | human |
 | `vars.enc.yaml` | fixed encrypted template-variable store | structure/identity only | vault |
-| `package.lock.dotfile` | resolution lock | generated | compiler |
+| `package.lock.dotfile` | generated lock | generated | compiler |
 
 `config/profiles.dotfile` is parsed and validated first. It supplies the group directory map used
 to discover the remaining semantic sources. A missing mandatory semantic file is an error. A
@@ -118,11 +126,12 @@ missing group-root `package.dotfile` is equivalent to an empty one.
 It MUST be a tracked regular file. Compilation reads and hashes its ciphertext bytes but never
 decrypts it.
 
-The keys, scan, and benchmark files share the lexical language and formatter, but their consumers
-read them directly. They are deliberately not duplicated into the resolution lock. The statement
-“commands read the lock” means that graph, profile, package-coordinate, and deployment consumers
-use the lock as their only semantic source; it does not apply to the compiler, formatter, editor,
-vault, scanner, or benchmark store.
+The keys, scan, benchmark, and theme-definition files share the lexer, grammar, CST, and formatter,
+but their specialized consumers read typed source directly. Their contents are deliberately not
+duplicated into the generated lock. Theme profile paths additionally supply its theme-name
+inventory. The statement “commands read the lock” means that graph, profile, package-coordinate,
+and deployment consumers use the lock as their only resolution source; it does not apply to the
+compiler, formatter, editor, theme generator, vault, scanner, or benchmark store.
 
 ## 5. Namespaces and qualified identity
 
@@ -137,7 +146,7 @@ The resolver never searches one undifferentiated name pool.
 | resource | resource kind plus key | `resource:<kind>/<key>` |
 | facet path | facet identity plus normalized relative source path | base `path:<group>/<package>/<path>`; variant `path:<group>/<package>@<variant>/<path>` |
 | host | block name | `host:<name>` |
-| theme | `theme/profiles/<name>.toml` basename | `theme:<name>` |
+| theme | `theme/profiles/<name>.dotfile` basename | `theme:<name>` |
 | binding | lexical binding name | never serialized as a node |
 
 All identities are case-sensitive except hostname aliases, which are ASCII-case-insensitive.
@@ -217,11 +226,12 @@ Additional rules:
   `@letfoo = "x"` is the ordinary attribute `letfoo`, while `@let = "x"` is a malformed binding
   declaration.
 - `if`, `then`, `else`, `for`, `in`, `import`, `as`, `null`, `true`, and `false` are reserved for a
-  future language version and are invalid as unquoted identifiers in language 1.
+  future `.dotfile` version and are invalid as unquoted identifiers in version 1.
 - Qualified IR strings containing `:`, `/`, or both are not source identifiers.
 
-Language 1 has no numeric or Boolean literal. Versions, modes, counts, dates, hashes, roles, and
-other data are strings. This preserves the rule that every bare value token is a typed reference.
+`.dotfile` version 1 has no numeric or Boolean literal. Versions, modes, counts, dates, hashes,
+theme sizes/alpha values, and other data are schema-checked strings. This preserves the rule that
+every bare value token is a typed reference.
 
 ### 6.4 Strings and interpolation
 
@@ -256,7 +266,7 @@ Interpolation accepts bindings only, never general expressions:
 @destination = "${vault}/.obsidian"
 ```
 
-The Draft 3 adjacency form remains accepted as input sugar on one physical line:
+The noncanonical multi-atom form is accepted as input sugar on one physical line:
 
 ```dotfile
 @destination = $vault "/.obsidian"
@@ -377,7 +387,7 @@ Consequences:
 - `brew =` followed by newline and `"homebrew"` is valid; a soft break is permitted immediately
   after `=`.
 - A string-expression concatenation cannot cross a physical newline.
-- In the legacy multi-atom form, consecutive `string_atom`s MUST have at least one horizontal
+- In the multi-atom form, consecutive `string_atom`s MUST have at least one horizontal
   whitespace character between their source spans. Thus `$vault "/x"` is accepted but
   `$vault"/x"` is not. The formatter always emits one interpolated `STRING`.
 - Lists require commas; newlines alone never separate list values.
@@ -385,7 +395,8 @@ Consequences:
 - A top-level trailing comma is invalid.
 - `?@font` is syntactically valid; a domain schema rejects `?` before structural blocks such as
   `@groups`.
-- `{...}` is not a first-class value in language 1. Structured data uses schema-defined blocks.
+- `{...}` is not a first-class value in `.dotfile` version 1. Structured data uses schema-defined
+  blocks.
 - There are no operators and therefore no expression-precedence table beyond string
   interpolation/concatenation, assignment, the declaration prefix `?`, and separators.
 
@@ -472,7 +483,7 @@ that requires its same-named tool writes it explicitly.
 
 ### 9.3 Resource demands
 
-Language 1 registers one resource kind, `font`:
+`.dotfile` version 1 registers one resource kind, `font`:
 
 ```dotfile
 @font {
@@ -485,8 +496,8 @@ The block creates a demand occurrence for `resource:font/hack_nerd_font` and con
 `?@font` creates an optional resource occurrence. Every resource block MUST have exactly one direct,
 bare `@key`. A string, interpolated key, duplicate key, or `@key` outside a resource is invalid.
 
-Other resource kinds require a source-language/schema bump. Services and machine paths remain
-entities with service/path check shapes in language 1.
+Other resource kinds require new `.dotfile` and lock versions. Services and machine paths remain
+entities with service/path check shapes in version 1.
 
 ### 9.4 Fact-only extension
 
@@ -608,7 +619,7 @@ The occurrence tree, not the globally merged identity graph, is the source of `w
 Every fact contribution records its qualified target, attribute, value, declaration group, and
 source span before merging.
 
-Language 1 has five merge classes:
+`.dotfile` version 1 has five merge classes:
 
 | Class | Rule |
 |---|---|
@@ -635,9 +646,9 @@ For one attribute and profile:
 
 Lists are compared as ordered lists. They do not union, concatenate, or merge element-wise.
 
-Language 1 has no clear/unset/tombstone operation. Absence means inherit. If a profile genuinely
+`.dotfile` version 1 has no clear/unset/tombstone operation. Absence means inherit. If a profile genuinely
 needs a different semantic shape, it contributes a replacement in a descendant group or uses a
-separate identity. `@unset` is reserved for a future language version.
+separate identity. `@unset` is reserved for a future `.dotfile` version.
 
 ## 12. Attribute vocabulary
 
@@ -721,7 +732,7 @@ Groups are declared exactly once in `config/profiles.dotfile`. Names are globall
 their declarations are nested. Nesting means semantic ancestry, not an inferred filesystem path.
 
 ```dotfile
-@language = "1"
+@dotfile-version = "1"
 
 @groups {
     shared { @directory = "shared" }
@@ -810,8 +821,9 @@ The built-in manager-to-default-installer mapping is:
 | `apt` | `apt` |
 
 `@manager` names the profile's native package-management context; `@installer` names the concrete
-emitter/adapter for one resolved node. Additional managers or installers require a
-lock-schema/adapter registry update. A node's `@installer` overrides the profile default.
+emitter/adapter for one resolved node. Additional source-visible managers or installers require a
+new `.dotfile` version and built-ins version; the generated-lock version changes only if their
+serialized representation changes. A node's `@installer` overrides the profile default.
 
 The versioned adapter registry declares each installer's supported profile OS and native managers.
 For example, `brew-formula` and `brew-cask` require manager `brew` on Darwin, `aur` requires
@@ -863,36 +875,37 @@ Rules:
   errors rather than ignored.
 
 Profile selection precedence is explicit CLI profile, saved machine state, then matched host.
-Read-only `check` reports saved/host disagreement. A deployment-applying command MUST refuse that disagreement
-unless the user supplied an explicit profile for this invocation; a successful explicit apply may
-update saved state.
+Read-only `check` reports saved/host disagreement. A deployment-applying command MUST refuse that
+disagreement unless the user supplied an explicit profile for this invocation; a successful
+explicit apply may update saved state.
 
 Machine state remains outside the repository at `$XDG_CONFIG_HOME/dotfile`, falling back to
 `~/.config/dotfile`. `profile` is exactly one unqualified profile name plus LF; `overrides` is zero
 or more `group=variant-or-none` lines sorted by group bytes with one final LF when non-empty; and
-`state-version` is `1` plus LF after migration. Duplicate/unknown group lines, malformed UTF-8, or
+`state-version` is exactly `1` plus LF. Duplicate/unknown group lines, malformed UTF-8, or
 extra whitespace are errors, never last-wins input. The ownership ledger and HMAC key use separate
 owner-only files `ledger.json` and `hmac.key` in this directory; the directory is `0700`, the files
 are `0600`, and `hmac.key` is exactly 32 random bytes created with an OS CSPRNG on first apply.
 
-A theme reference resolves a basename in `theme/profiles/*.toml`. Theme-name inventory is a compile
-input. Effective theme precedence is explicit CLI theme, facet theme, group-root theme, host theme,
-profile theme, then repository `@theme`. A missing final theme is an error for a command that needs
-theme generation. Theme TOML contents are owned and fingerprinted by the theme generator, not by
-the resolution lock; only the available-name inventory and resolved references enter this IR. If a
-generated theme artifact later becomes a materialized deployment leaf, that output follows the
-ordinary copy-digest rule.
+A theme reference resolves the basename of a tracked `theme/profiles/<name>.dotfile` source. The
+theme source schemas and renderer boundary are defined in section 26.4. Effective theme
+precedence is explicit CLI theme, facet theme, group-root theme, host theme, profile theme, then
+repository `@theme`. A missing final theme is an error for a command that needs theme generation.
+Theme commands read theme source contents directly rather than duplicating them in the generated
+lock; the available-name inventory and resolved references enter resolution IR.
+If a generated theme artifact is a materialized deployment leaf, its final generated bytes follow
+the ordinary copy-digest rule.
 
-Only tracked regular `.toml` files directly under `theme/profiles` contribute names; each basename
-without `.toml` MUST be an `IDENT`, and duplicates are errors. Group-root `@theme` contributions
-use the scoped-scalar merge in section 11: a descendant replaces an ancestor, equal active sibling
-values coalesce, and disagreeing active siblings invalidate the profile. Profile order never picks
-a group theme. A facet `@theme` then replaces the merged group theme for that facet.
+Only tracked ordinary `.dotfile` files directly under `theme/profiles` contribute names; each
+basename MUST be an `IDENT`, and duplicates are errors. Group-root `@theme` contributions use the
+scoped-scalar merge in section 11: a descendant replaces an ancestor, equal active sibling values
+coalesce, and disagreeing active siblings invalidate the profile. Profile order never picks a
+group theme. A facet `@theme` then replaces the merged group theme for that facet.
 
-Language 1 permits exactly one repository default declaration, the optional top-level
+`.dotfile` version 1 permits exactly one repository default declaration, the optional top-level
 `@theme = <theme-reference>` in `config/profiles.dotfile`. It produces one `@defaults` record with
 `key = "theme"` and the qualified theme ID as `value`; if absent, `@defaults` is empty. No other
-default key is valid in lock schema 1.
+default key is valid in generated lock version 1.
 
 ## 15. Per-profile node resolution and checks
 
@@ -937,10 +950,10 @@ error even when an explicit `@check` would otherwise ignore it.
 
 Path nodes with `@deploy = "none"` use their own repository-path observation and are not entities.
 
-`@version` is valid only with `command` or `package`. The language 1 command strategy invokes the
-registered executable directly with adapter-defined `--version` arguments and requires the wanted
-string in the bounded first output line. The package strategy searches the manager-reported
-version. Other adapters reject `@version`.
+`@version` is valid only with `command` or `package`. The built-ins-version-1 command strategy
+invokes the registered executable directly with adapter-defined `--version` arguments and requires
+the wanted string in the bounded first output line. The package strategy searches the
+manager-reported version. Other adapters reject `@version`.
 
 Adapters are versioned built-ins. Source cannot supply shell fragments, arbitrary argv, executable
 paths for internal helpers, timeouts, or environment variables. Compilation never runs an adapter.
@@ -979,10 +992,11 @@ Package emission performs a second aggregation by `(installer, package)`:
 Thus `wl-copy` and `wl-paste` may both resolve to `wl-clipboard` without producing duplicate install
 lines.
 
-### 15.3 Built-in adapter registry 1
+### 15.3 Built-in adapter definitions
 
-Source language 1 and lock schema 1 use exactly registry `1`; it is normative data, not a host or
-tool-version input. Installer order, compatibility, defaults, and query behavior are:
+`.dotfile` version 1 and generated lock version 1 use built-ins version `1`; its adapter subset is
+normative data, not a host or tool-version input. Installer order, compatibility, defaults, and
+query behavior are:
 
 | Order | Installer | Profile manager(s) | OS | Default | Installed-version query |
 |---:|---|---|---|---|---|
@@ -1074,9 +1088,9 @@ The following are metadata, not payload:
 - a variant-facet-root `package.dotfile`;
 - any tracked `.gitignore` used for inventory selection;
 - `package.lock.dotfile`;
-- retired migration markers `.nolink`, `.secret`, and `.system`.
+- reserved invalid marker files `.nolink`, `.secret`, and `.system`.
 
-After migration, encountering a retired marker is an error with an automated fix suggestion.
+Encountering one of those marker files is an error with an automated fix suggestion.
 
 ## 17. Leaf enumeration and source safety
 
@@ -1084,11 +1098,11 @@ After migration, encountering a retired marker is an error with an automated fix
 
 Regular directories are traversal structure. The compiler emits one candidate deployment row per
 eligible leaf. Compiler-synthesized destination directory links and directory rows are invalid in
-lock schema 1.
+generated lock version 1.
 
-Leaf-only deployment is what permits co-located `package.dotfile` metadata, exact collision
-detection, and lock freshness. It also makes historical “fold barrier” target entries unnecessary:
-destination directories are always real directories containing leaf links or files.
+Leaf-only deployment permits co-located `package.dotfile` metadata, exact collision detection, and
+lock freshness. Destination directories are real directories containing leaf links or files;
+directory-unfolding target entries are not part of the language.
 
 ### 17.2 Source symlinks
 
@@ -1112,13 +1126,13 @@ descriptor and forms an absolute target to that candidate's `physical_source`. T
 symlink stores that absolute target byte-for-byte. It never stores a path relative to the
 destination. When the source leaf is itself an authored symlink, the destination links to that
 symlink object; it does not copy/rebase the authored symlink's raw target. Thus the resulting link
-may be a two-link chain, matching current repository behavior. “Exactly desired” means the
+may be a two-link chain. “Exactly desired” means the
 destination is a symlink whose raw target is this bound absolute path, not merely one that happens
 to resolve to the same inode.
 
 ### 17.3 Plain, encrypted, and template source names
 
-Render behavior is explicit in IR, with safe filename sugar retained from the current vault:
+Render behavior is explicit in IR and derived from these filename forms:
 
 | Source basename | Effective render | Destination basename |
 |---|---|---|
@@ -1130,7 +1144,7 @@ Render behavior is explicit in IR, with safe filename sugar retained from the cu
 A basename matching more than one transform pattern is an error. In `name.enc.<tail>`, `<tail>` is
 the entire non-empty remainder and may itself contain dots; the transform removes exactly the
 first `.enc` immediately before it, so `archive.enc.tar.gz` becomes `archive.tar.gz`. Render is
-derived only from these filename forms in language 1. It cannot be authored, suppressed, or
+derived only from these filename forms in `.dotfile` version 1. It cannot be authored, suppressed, or
 applied to a nonstandard basename. `logical_source` retains the pre-transform basename;
 `output_source` is the same logical path with this one basename transform applied.
 
@@ -1192,8 +1206,8 @@ Example for `shared/starship/starship.toml`:
 # -> ~/.config/starship.toml
 ```
 
-The second form matches the repository's current `shared/starship = ~/.config` behavior. The Draft
-3 directory row at `~/.config/starship` was incorrect.
+The second form maps the leaf directly to `~/.config/starship.toml`; no directory row at
+`~/.config/starship` is emitted.
 
 ### 18.2 Coverage by action
 
@@ -1255,7 +1269,7 @@ of the exact raw ciphertext bytes of the configured encrypted variable store (cu
 
 ## 19. Override variants
 
-Overrides are group-scoped machine variants, preserving current repository behavior.
+Overrides are group-scoped machine variants.
 
 ```text
 <group-directory>/overrides/<variant>/<package>/...
@@ -1266,8 +1280,8 @@ Rules:
 1. `<variant>` and `<package>` are `IDENT`s and ordinary directories. A variant name MUST NOT be
    `base` or `none`; those two strings are reserved respectively for the base-row lock tag and the
    explicit no-variant machine-state selection.
-2. Every variant package contains a `package.dotfile`. Migration creates empty files where current
-   variants rely on defaults.
+2. Every variant package MUST contain a `package.dotfile`; it may be empty when the variant relies
+   entirely on inherited defaults.
 3. A variant package file permits bindings, facet deployment attributes, and path nodes only. It
    cannot add demands or facts; machine state never changes the semantic dependency graph.
 4. Its physical prefix is
@@ -1282,8 +1296,8 @@ Rules:
    group. Replacement removes the base candidate completely, even when the variant remaps that
    logical leaf to a different destination. Base leaves at other logical paths remain; a variant
    leaf with a new logical path is added.
-8. There is no whiteout/removal marker in language 1. A future removal form requires a language
-   version bump.
+8. There is no whiteout/removal marker in `.dotfile` version 1. A future removal form requires a
+   new `.dotfile` version.
 9. An unknown, inactive-group, or path-interpolated selection is an error. If a group has variants
    and no selection is saved or supplied, no variant is active. Read-only status MUST warn and MAY
    show a base-only preview clearly marked non-applicable. A destination-mutating command MUST
@@ -1399,8 +1413,8 @@ Destination state is classified as:
 | recorded as tool-managed and still matches recorded identity | replace or prune as planned |
 | anything else | hard foreign-destination conflict |
 
-The owner-only `ledger.json` is canonical JCS with `schema = "1"` and an `entries` array sorted by
-bound destination bytes. Every entry stores destination, object kind, resolved mode/owner metadata,
+The owner-only `ledger.json` is canonical JCS with `"ledger-version": "1"` and an `entries` array
+sorted by bound destination bytes. Every entry stores destination, object kind, resolved mode/owner metadata,
 and the platform's guarded `object_token` (volume identity, file identity, and generation/change
 token). A leaf entry additionally stores `candidate_id`, the lowercase `sha256:` digest of that
 candidate's canonical JSON record. A link stores its raw absolute target; a public copy stores its
@@ -1476,14 +1490,15 @@ identity, never plaintext.
 `--dry-run` performs the same compilation, binding, collision, ownership, and permission checks but
 makes no mutation.
 
-## 22. The resolution lock
+## 22. The generated lock file
 
 `package.lock.dotfile` is committed, generated, canonical, and never hand-edited. It is a lossless
-serialization of resolved semantic IR—not a source round trip and not machine observations.
+serialization of resolved semantic IR—not a source round trip and not machine observations. Its
+format version is independent of the `.dotfile` source version as explained in section 1.
 
 ### 22.1 Required sections
 
-Lock schema 1 has this exact section order:
+Generated lock version 1 has this exact section order:
 
 1. `@lock`
 2. `@sources`
@@ -1509,9 +1524,9 @@ lock `null` value.
 ```dotfile
 # Generated by `dotfile lock`. Do not edit.
 @lock {
-    @language = "1"
-    @schema = "1"
-    @registry = "1"
+    @dotfile-version = "1"
+    @lock-version = "1"
+    @builtins-version = "1"
     @ir = "sha256:..."
     @structure = "sha256:..."
 }
@@ -1523,7 +1538,7 @@ lock `null` value.
 
 The lock omits timestamps, hostnames, absolute repository paths, random IDs, and tool version, so
 conforming implementations produce identical bytes. Source hashes cover the exact raw bytes of
-every semantic language file. CRLF-to-LF parsing does not change the source hash.
+every resolution-domain source file. CRLF-to-LF parsing does not change the source hash.
 
 `source.domain` has exactly five values: `"profiles"` for `config/profiles.dotfile`, `"hosts"` for
 `config/hosts.dotfile`, `"group"` for a group-root `package.dotfile`, `"facet"` for a base facet
@@ -1537,7 +1552,7 @@ The structure digest covers canonical records for:
 - copied-source content digest;
 - group directory map and facet coverage;
 - override variant and variant-facet inventories;
-- available theme names, but not theme TOML contents;
+- available theme names, but not theme-definition contents;
 - tracked `.gitignore` paths and raw-byte digests;
 - the fixed encrypted template-variable store's path and ciphertext digest;
 - no ambient or unnamed external input.
@@ -1626,14 +1641,14 @@ Every `provenance` value is an ordered list of canonical origin strings. A sourc
 `s:<field_byte_length>:<field>:<source_span>`; a built-in origin is
 `b:<field_byte_length>:<field>:<rule_byte_length>:<rule>`. Lengths count UTF-8 bytes and use
 canonical unsigned decimal. `field` is the exact output field receiving the value (for example
-`installer`, `destination`, or `mode`); `rule` is a registry-1 ASCII rule ID such as
+`installer`, `destination`, or `mode`); `rule` is a built-ins-version-1 ASCII rule ID such as
 `manager/brew/default-installer`. Origins sort by `(field bytes, source-before-built-in, span-or-rule
 bytes)` and exact duplicates collapse. A merged/deduplicated row retains the union, so field-level
 origin is never inferred from list position.
 
 Provenance covers merged facts, inferred/default checks and coordinates, mapping selection, and
 deployment properties; identity/path fields already name their own origin and do not need a
-provenance item. Registry 1 permits exactly these built-in rule IDs:
+provenance item. Built-ins version 1 permits exactly these built-in rule IDs:
 
 ```text
 check/infer/font              check/infer/service
@@ -1652,7 +1667,8 @@ deploy/render/mode-0700       deploy/mapping/longest-prefix
 theme/profile                 theme/repository-default
 ```
 
-An implementation cannot mint another built-in provenance rule without a registry/schema bump.
+An implementation cannot mint another built-in provenance rule without new built-ins and
+generated-lock versions.
 
 `source_span` has this exact lock-string encoding:
 
@@ -1695,7 +1711,7 @@ rather than an ID tiebreak.
   Unknown fields, duplicate fields, and out-of-order fields are schema errors.
 - All lock scalar values are quoted strings, including qualified IDs and enum values. Lists contain
   quoted strings.
-- Defaults are emitted as resolved fields when the lock schema requires them; consumers never
+- Defaults are emitted as resolved fields when the generated lock format requires them; consumers never
   recreate an omitted semantic default.
 - Each `source`, `group`, `profile`, `facet`, `node`, semantic `fact`, `occurrence`, `assertion`,
   `mapping`, `resolution`, `candidate`, `theme`, `contribution`, `theme_resolution`, `host`, host
@@ -1724,7 +1740,7 @@ is mandatory but is excluded from the canonical JSON IR and both digests.
 
 | Record | Exact field order | Sort tuple |
 |---|---|---|
-| `@lock` | `language`, `schema`, `registry`, `ir`, `structure` | singleton |
+| `@lock` | `dotfile-version`, `lock-version`, `builtins-version`, `ir`, `structure` | singleton |
 | `source` | `path`, `domain`, `hash` | `(path)` |
 | `group` | `id`, `name`, `ancestors`, `parent?`, `directory?`, `os?`, `arch?`, `description?` | `(id)` |
 | `profile` | `id`, `groups`, `manager`, `installer`, `os`, `arch?`, `theme?`, `description?` | `(id)` |
@@ -1832,6 +1848,12 @@ Sorts are stable, so duplicates and invalid/keyless resource blocks retain sourc
 still be formatted before validation fails. The formatter never moves an `@let` out of its legal
 prologue or changes list order.
 
+Theme definitions use the section 26.4 schema order instead of requirement-domain sorting. Known
+singleton fields and blocks move to their published positions. Palette leaves, Eza patterns and
+categories, and every repeated application-map record remain in semantic source order. Unknown or
+duplicate entries retain their relative source position so formatting remains total; validation
+still rejects them.
+
 A block is inlined only when it has no nested block, has at most three entries, has no comments,
 and fits 100 columns. Otherwise it has one entry per line.
 
@@ -1845,15 +1867,15 @@ Comment attachment:
 
 The generated lock has the separate one-record-per-line canon in section 22. `dotfile fmt --check`
 accepts it only to verify canonical bytes; a non-check `dotfile fmt package.lock.dotfile` rejects
-the generated file and directs the user to `dotfile lock`. `dotfile format` continues to mean the
-existing `.conf` formatter; it is not renamed or repurposed.
+the generated file and directs the user to `dotfile lock`. `dotfile format` formats `.conf` files;
+it does not format `.dotfile` sources.
 
-## 24. Diagnostics and validation phases
+## 24. Diagnostics and validation order
 
 Diagnostics are part of the conformance surface. Each diagnostic contains:
 
 - stable machine-readable code;
-- phase and severity;
+- stage and severity;
 - short summary and concrete remedy;
 - tight primary span and related spans;
 - qualified semantic path/identity;
@@ -1862,14 +1884,17 @@ Diagnostics are part of the conformance surface. Each diagnostic contains:
 - secret-redaction marker;
 - optional structured fix-it.
 
-Phase order is exactly `lex`, `parse`, `schema`, `resolve`, `graph`, `discovery`, `deploy`, `lock`,
-`bind`, `observe`, `apply`. Language/schema 1 defines this complete stable code registry:
+Stage order is exactly `lex`, `parse`, `schema`, `theme`, `resolve`, `graph`, `discovery`, `deploy`,
+`lock`, `bind`, `observe`, `apply`. The complete stable code registry is version-owned by stage:
+the `.dotfile` version owns `lex` through `deploy`, the generated-lock version owns `lock`, and the
+built-ins version owns `bind`, `observe`, and `apply`:
 
-| Phase | Codes |
+| Stage | Codes |
 |---|---|
 | `lex` | `lex/encoding`, `lex/token` |
 | `parse` | `parse/syntax` |
 | `schema` | `schema/context`, `schema/duplicate`, `schema/binding` |
+| `theme` | `theme/discovery`, `theme/reference`, `theme/merge`, `theme/map`, `theme/output` |
 | `resolve` | `resolve/reference`, `resolve/identity`, `resolve/resource-key`, `resolve/fact-conflict`, `resolve/adapter`, `resolve/theme` |
 | `graph` | `graph/cycle` |
 | `discovery` | `discovery/group`, `discovery/inventory`, `discovery/source` |
@@ -1879,10 +1904,15 @@ Phase order is exactly `lex`, `parse`, `schema`, `resolve`, `graph`, `discovery`
 | `observe` | `observe/absent`, `observe/adapter`, `observe/vault`, `observe/destination` |
 | `apply` | `apply/approval`, `apply/race`, `apply/rollback` |
 
-The first applicable code in the corresponding phase is used; diagnostics may carry a structured
-`detail` discriminator but MUST NOT invent another string code without a language/schema revision.
-Independent errors are collected and sorted by this phase order, path bytes, start byte, then code.
+The first applicable code in the corresponding stage is used; diagnostics may carry a structured
+`detail` discriminator but MUST NOT invent another string code without revising the version that
+owns that stage. A change spanning stages revises every affected owner. Independent errors are
+collected and sorted by this stage order, path bytes, start byte, then code.
 Conflict diagnostics show every origin, not merely the final one.
+
+Theme-stage errors block `dotfile theme apply` and `dotfile theme check`. Syntax and generic-schema
+errors in any theme source also block `dotfile fmt --check` for that source. Theme contents are not
+generated-lock inputs, so a theme value error does not masquerade as a graph or deployment error.
 
 ### 24.1 Source compilation errors
 
@@ -1951,25 +1981,25 @@ heuristic, not a change to demand mode.
 | `dotfile graph [profile]` | resolved acyclic occurrence graph with required/optional modes |
 | `dotfile packages <profile> --emit <installer> [--optional]` | emit that profile's deduplicated coordinates for one installer |
 | `dotfile add / remove` | scaffold/retire a package facet and update source through the formatter |
-| `dotfile migrate-state` | one-time exact legacy-profile state rewrite from section 28 |
+| `dotfile theme apply|check|status|show|switch|outputs` | consume the typed theme domains from section 26.4 |
 
-Existing commands retain their meanings:
+Command meanings are distinct:
 
-- `dotfile sync` remains repository orchestration (pull/build/lock/link/restart policy) and may call
-  `dotfile lock`; it is not redefined as the compiler itself.
-- `dotfile format` remains the current `.conf` formatter; `.dotfile` formatting is `fmt`.
-- vault, scan, secret-edit, and benchmark commands keep their separate domains.
+- `dotfile sync` performs repository orchestration (pull/build/lock/link/restart policy) and may
+  call `dotfile lock`; it is not the compiler itself.
+- `dotfile format` formats `.conf` files; `.dotfile` sources use `dotfile fmt`.
+- vault, scan, secret-edit, theme, and benchmark commands use their separate typed domains.
 
 `why`, `graph`, and package emission use lock semantics only. Package emission requires the
 explicit profile argument and never infers it from host or saved machine state. `link`, `status`,
-`check`, and system
-commands additionally observe current machine state. `lock`, `fmt`, `add`, and `remove` necessarily
-read source files.
+`check`, and system commands additionally observe current machine state. `lock`, `fmt`, `add`, and
+`remove` necessarily read source files.
 
 ## 26. Peripheral `.dotfile` domains
 
 These domains use the lexer, generic grammar, string/reference rules, comments, and formatter, but
-they do not contribute graph IR.
+they do not contribute demand or fact graph IR. Theme profile identities additionally enter the
+generated lock as described in sections 14 and 22; their definition trees remain theme-owned.
 
 ### 26.1 Recipient keys
 
@@ -2005,11 +2035,11 @@ Patterns use `/` separators, have no empty, `.` or `..` component, and support o
 metacharacters: `*` matches zero or more non-`/` scalars, `?` matches exactly one non-`/` scalar,
 and a component equal to `**` matches zero or more complete path components. Character classes,
 brace expansion, backslash escapes, negation, and platform-native separators are invalid. A
-literal `*` or `?` cannot be represented in a language-1 scan pattern.
+literal `*` or `?` cannot be represented in a version 1 scan pattern.
 
 ### 26.3 Benchmark baselines
 
-`benchmarks/baselines.dotfile` remains generated host → run-ID data:
+`benchmarks/baselines.dotfile` is generated host → run-ID data:
 
 ```dotfile
 archie {
@@ -2025,9 +2055,340 @@ equal the key. Derivation of the epoch is owned by the benchmark schema, not thi
 Duplicate hosts or epochs are errors instead of last-wins behavior. The benchmark store owns
 canonical ordering by host bytes and then epoch bytes.
 
+### 26.4 Theme definitions
+
+All theme configuration interpreted by `dotfile theme` uses this closed `.dotfile` domain:
+
+```text
+theme/roles.dotfile
+theme/fonts.dotfile
+theme/profiles/<theme>.dotfile
+theme/maps/catppuccin.dotfile
+theme/maps/eza.dotfile
+theme/maps/gtk.dotfile
+theme/maps/kde.dotfile
+theme/maps/obsidian.dotfile
+```
+
+The two fixed base files, all five fixed map files, and at least one profile are mandatory. They
+MUST be tracked ordinary files, not symlinks. Profile files are immediate children of
+`theme/profiles`; `<theme>` is an `IDENT` and is the theme's identity independently of its display
+name. Files with an unregistered basename, nested profile directories, and theme-control files in
+another format are errors. Native configuration generated for an application remains in that
+application's format and is not a theme-definition source.
+
+Theme files use only the existing string, reference, list, assignment, and block forms. They do
+not add general numbers, Booleans, quoted keys, inline objects, or arbitrary tables to the
+language. Decimal data is a schema-checked quoted string. Arbitrary external keys are represented
+by repeated records with a quoted `key` field. Theme files forbid `@let`, interpolation, adjacent
+string atoms, demands, paths, and deployment attributes. Every theme data string is one literal,
+single-line `STRING` token in NFC.
+
+#### 26.4.1 Shared roles and fonts
+
+`theme/roles.dotfile` has these root blocks in this order when present:
+`roles`, `terminal`, `eza`, `kde`, and `konsole`. `terminal` may contain `ansi` and `tabs`; `eza`
+may contain `categories` and repeated `pattern` blocks. Every ordinary leaf is a bare palette
+reference. An Eza pattern has exactly a quoted `key` and a bare `role`:
+
+```dotfile
+roles {
+    section_system = blue
+    section_hardware = peach
+    sudo = red
+}
+
+terminal {
+    foreground = text
+    background = base
+
+    ansi {
+        black = surface1
+        bright_black = surface2
+    }
+}
+
+eza {
+    fi = subtext
+    di = blue
+
+    pattern { key = "*.toml", role = orange }
+    pattern { key = "*.json", role = yellow }
+
+    categories {
+        image = mauve
+        archive = red
+    }
+}
+```
+
+`roles`, the direct scalar regions of `terminal` and `eza`, `terminal.ansi`, `terminal.tabs`,
+`eza.categories`, `kde`, and `konsole` are open role maps: each accepts unique `IDENT` keys and bare
+palette-reference values. The blocks themselves and the `pattern` record shape are closed. Thus a
+new named role is preserved as typed data rather than silently ignored, while an unknown structural
+block or record field remains an error.
+
+`theme/fonts.dotfile` contains exactly `fonts`, `sizes`, and `applications`:
+
+```dotfile
+fonts {
+    general = "Noto Sans"
+    nerd = "Hack Nerd Font Mono"
+}
+
+sizes {
+    terminal = "12"
+    terminal_mac = "13"
+    interface = "10"
+}
+
+applications {
+    obsidian = "enabled"
+}
+```
+
+Font families are non-empty one-line strings and MUST NOT contain a comma. The three shown size
+keys are required; their values are positive canonical decimals. A canonical decimal is ASCII,
+has no sign or leading zero except the value `0`, has no exponent, and when fractional has neither
+an empty fraction nor a trailing zero. Application keys are `IDENT`s and values are exactly
+`"enabled"` or `"disabled"`; after base/profile merging, an absent application key means
+`"disabled"`. `fonts` is an open unique-`IDENT` string map with `general` and `nerd` required;
+`sizes` accepts exactly the three shown keys; `applications` is an open unique-`IDENT` enum map.
+
+#### 26.4.2 Theme profiles
+
+Each `theme/profiles/<theme>.dotfile` contains the required root fields `display-name`,
+`appearance`, and `icons`, followed by required `nvim` and `palette` blocks. `appearance` is
+`"dark"` or `"light"`; `display-name` and `icons` are non-empty one-line data strings; `nvim`
+contains exactly the non-empty string `flavour`. Palette keys are `IDENT`s and values are lowercase
+`#[0-9a-f]{6}` strings:
+
+```dotfile
+display-name = "Catppuccin Mocha"
+appearance = "dark"
+icons = "Breeze Chameleon Dark"
+
+nvim { flavour = "mocha" }
+
+palette {
+    flamingo = "#f2cdcd"
+    pink = "#f5c2e7"
+    mauve = "#cba6f7"
+    red = "#f38ba8"
+    base = "#1e1e2e"
+}
+
+terminal {
+    ansi {
+        black = subtext
+        bright_black = overlay2
+    }
+}
+```
+
+A profile may sparsely override any leaf shape accepted by `roles.dotfile` or `fonts.dotfile` by
+using the same block and field spelling after its palette. Resolution starts with the shared
+role/font trees and replaces matching leaves with profile leaves. Replacing a leaf preserves its
+base position; a new allowed leaf appends after existing siblings in profile source order. Absence
+means inherit, and deletion is not supported. Palettes never inherit: every profile declares its
+complete palette. “Complete” means it defines every palette name referenced by its resolved role
+tree and every registered map; additional unique palette names are allowed.
+
+Every profile, including an unselected one, is resolved and validated. Palette values are unique
+within a profile. Across profiles, one hexadecimal value may recur only under the same palette
+name; this makes reverse color remapping unambiguous. Every effective palette reference MUST
+resolve, KDE role names MUST NOT shadow palette names, the required `general`/`nerd` fonts and all
+three size fields MUST exist, and profile-local application values retain the exact
+enabled/disabled type. Source validation resolves only references authored in the typed theme
+domain; open role maps do not acquire an implicit required-key vocabulary from an application
+renderer. If a renderer contract requests an undeclared role, that contract invocation fails with
+`theme/reference` rather than inventing a default or retroactively making the source schema vary by
+renderer.
+
+#### 26.4.3 Registered application maps
+
+Each map filename selects one exact schema. Entries in all repeated-record containers are ordered
+data: duplicate keys are errors, and the formatter never sorts them.
+
+`catppuccin.dotfile` contains one `colors` block of repeated entries mapping a lowercase six-digit
+hex value without `#` to a palette reference:
+
+```dotfile
+colors {
+    entry { key = "1e1e2e", palette = base }
+    entry { key = "cdd6f4", palette = text }
+}
+```
+
+`eza.dotfile` contains one `categories` block. Each `name` declares a local Eza-category identity
+matching `IDENT`. Its `extensions` value is a non-empty ordered list of unique strings matching
+`[a-z0-9][a-z0-9_+-]*`; a value contains no leading dot, slash, or whitespace. One extension may
+belong to only one category:
+
+```dotfile
+categories {
+    category {
+        name = image
+        extensions = ["png", "jpg", "jpeg", "gif", "svg"]
+    }
+}
+```
+
+Every key in `roles.dotfile`'s `eza.categories` role map MUST name a category identity declared
+here. Map-only categories are allowed and unused until a role is assigned. This is a keyed join,
+not a reference to a global entity or resource namespace.
+
+`gtk.dotfile` contains one `colors` block. Each entry maps an external string key to a bare palette
+or KDE-role reference:
+
+```dotfile
+colors {
+    entry { key = "theme_bg_color", role = window_bg }
+    entry { key = "error_color", role = negative }
+}
+```
+
+`kde.dotfile` contains `groups`, `foregrounds`, and `selection-foregrounds` in that order. A group
+entry has an external key and exactly two ordered references to keys in the resolved `kde` role
+map. The other containers map an external key to one resolved `kde` role:
+
+```dotfile
+groups {
+    entry { key = "Colors:Window", roles = [window_bg, window_alt] }
+    entry { key = "Colors:Header][Inactive", roles = [window_bg, window_alt] }
+}
+
+foregrounds {
+    entry { key = "ForegroundActive", role = active }
+}
+
+selection-foregrounds {
+    entry { key = "ForegroundNormal", role = selection_fg }
+}
+```
+
+`obsidian.dotfile` contains `derived` followed by `variables`. `derived` has exactly
+`source = <palette-reference>`. Each ordered `variable` has a unique quoted CSS key and exactly
+one of these value shapes:
+
+- `palette = <palette-reference>`;
+- `rgb = <palette-reference>`;
+- `color = <palette-reference>` together with required `alpha = "<decimal>"`;
+- `derived = <derived-reference>`;
+- `literal = "<one-line data>"`.
+
+Alpha is a canonical decimal in the inclusive range zero through one. The allowed derived
+references are `accent_h`, `accent_s`, `accent_l`, and `accent_hsl`.
+
+```dotfile
+derived { source = mauve }
+
+variables {
+    variable { key = "--color-base-00", palette = crust }
+    variable { key = "--color-red-rgb", rgb = red }
+
+    variable {
+        key = "--background-modifier-cover"
+        color = crust
+        alpha = "0.72"
+    }
+
+    variable { key = "--accent-h", derived = accent_h }
+    variable { key = "--scrollbar-bg", literal = "transparent" }
+}
+```
+
+Unknown structural blocks, closed-record fields, value-shape combinations, map names, or
+unresolved references are errors; there is no ignored extension mechanism. Open role/palette maps
+are explicitly typed containers, not an unknown-field escape hatch.
+
+#### 26.4.4 Canonical ordering and merge details
+
+The canonical root order of `roles.dotfile` is `roles`, `terminal`, `eza`, `kde`, `konsole`.
+Within `terminal`, direct role leaves retain source order and precede `ansi`, then `tabs`. Within
+`eza`, direct role leaves retain source order, followed by `categories`, then repeated `pattern`
+records. The root order of `fonts.dotfile` is `fonts`, `sizes`, `applications`; open-map entries
+retain source order, while size fields order as `terminal`, `terminal_mac`, `interface`.
+
+The canonical profile root order is `display-name`, `appearance`, `icons`, `nvim`, `palette`, then
+optional override blocks in this order: `roles`, `terminal`, `eza`, `kde`, `konsole`, `fonts`,
+`sizes`, `applications`. Every open role, font, application, and palette map retains source order.
+The five application-map files use the block order published in section 26.4.3, and every repeated
+record retains source order. Comments remain attached CST trivia.
+
+Profile leaf replacement preserves the base leaf's position, while a newly introduced allowed
+leaf appends in profile order. Eza patterns merge by their decoded `key`: a matching profile key
+replaces the role at its base position, and a new key appends in profile pattern order. A theme
+file MUST NOT declare the same decoded pattern key twice in its own scope.
+
+The resolver derives an ordered Eza rule sequence. For each assigned category in
+`eza.dotfile` category order, it emits one semantic rule per extension in list order, using that
+category's resolved role; it then appends explicit patterns in merged order. Explicit patterns
+therefore have later-match precedence. This ordered semantic sequence, not application-specific
+rendered bytes, is part of the resolver result.
+
+The theme resolver parses all profiles, not only the selected theme, so the cross-profile palette
+identity rules are checked globally. Its normative result is the ordered, fully merged typed theme
+tree, the five ordered typed map trees, and the derived Eza rule sequence. The `rgb`, `derived`,
+and other Obsidian tags are typed operation names; RGB-to-HSL calculation, application-file
+rendering, emitter ordering, owned-region algorithms, output paths, and stageability belong to the
+repository's renderer contract, not to `.dotfile` syntax or semantic resolution. This specification
+therefore does not authorize a parser or resolver to rewrite native application files.
+
+#### 26.4.5 Repository assignment and lock boundary
+
+Repository-generated output must be assigned to a qualified facet by its renderer contract; group
+or package identity is never inferred by splitting an output path. Given that facet, its
+repository-output theme is selected without a machine profile:
+
+1. use the facet's own `@theme` when present;
+2. otherwise walk its declaration group, then declared parents from nearest to farthest, and use
+   the first group-root `@theme` encountered;
+3. for a non-`shared` declaration group, consider the `shared` group-root `@theme` next;
+4. otherwise use the repository top-level `@theme`;
+5. if none resolves, generation for that output is an error.
+
+This source-only chain is deliberately distinct from the machine-bound precedence in section 14.
+Sibling-group contributions, host themes, machine-profile themes, saved state, and one-invocation
+CLI choices never change committed repository bytes.
+
+`dotfile theme apply` validates the complete typed domain and delegates native-file rendering to
+the separate renderer contract. `dotfile theme check` performs the same read-only source
+resolution and renderer drift check.
+
+Renderer freshness is a consumer precondition, not source-language validity and not a compilation
+input. After pure compilation identifies its deployment candidates, the renderer contract supplies
+the exact registered-artifact subset among those candidates. Before `dotfile lock` reads a member
+of that subset as payload, and before `link` or `system install` applies a bound plan containing one,
+the command MUST invoke the same read-only check scoped to exactly those artifacts. Drift in an
+unrelated output or an inactive theme does not block the command. An unavailable contract, an
+unregistered claimed generated artifact, or an indeterminate check fails with `theme/output`; the
+command MUST NOT generate or modify an artifact as part of this precondition.
+
+After `dotfile theme apply` changes a materialized deployment source, the generated lock MUST be
+regenerated before the command reports a clean repository. Thus the final generated digest, never
+stale pre-render bytes, enters the deployment candidate, and a later theme-source edit cannot make
+an applying command accept that stale render merely because the old artifact still matches its
+locked byte digest.
+
+The generated lock stores theme identities and assignment provenance, not theme-definition trees.
+Theme commands read this typed peripheral domain directly. Native renderer behavior, including its
+deterministic output-to-facet registry and artifact-scoped freshness operation, is a fixed
+repository integration outside language conformance and requires its own output-ownership and
+golden tests. A parser/compiler claiming language conformance need not implement native rendering;
+a destination command claiming repository integration MUST provide that fixed contract or refuse
+plans containing registered theme-generated artifacts.
+
+`dotfile theme switch <theme> <scope>` is a CST-aware source edit followed by generation. Repository
+scope writes the top-level `@theme` in `config/profiles.dotfile`; group scope writes the group-root
+`@theme`; facet scope writes that facet's `@theme`. An `everything` switch writes the repository
+default and removes group/facet overrides only after explicit confirmation. It never removes host
+or machine-profile declarations. `show`, `status`, and `outputs` are read-only views of the same
+typed definitions, resolved assignments, and registered output inventory.
+
 ## 27. Complete worked source example
 
-This example illustrates the final spellings and fixes every contradictory Draft 3 mapping.
+This example illustrates the complete source spellings and mappings.
 
 ### `shared/zsh/package.dotfile`
 
@@ -2071,8 +2432,8 @@ obsidian
 ```
 
 The child mapping is semantically redundant here but legal; identical expansion deduplicates while
-retaining both mapping spans. Historical child entries needed only to force directory unfolding may
-be removed because language 1 always emits leaves.
+retaining both mapping spans. Directory-unfolding child entries are unnecessary because version 1
+always emits leaves.
 
 ### `shared/wezterm/package.dotfile`
 
@@ -2153,8 +2514,8 @@ dnsmasq { @description = "DHCP for the macie ↔ archie cable link" }
 
 A source such as `etc/systemd/network/10-macie.link.tmpl` renders privately to
 `/etc/systemd/network/10-macie.link`. It remains a system copy, but the transform locks that row to
-`0600` rather than inheriting the plain-file `0644` default. This expresses the
-encrypted/template-system combination that Draft 3's single enum could not.
+`0600` rather than inheriting the plain-file `0644` default. This combines template rendering,
+system-copy semantics, and a locked private mode.
 
 ### Override variant
 
@@ -2190,71 +2551,9 @@ single-item provenance lists above are abbreviated illustrations rather than con
 a real row carries the complete field-origin union. No resource is flattened to a bare entity
 block, and no package-directory deployment row is legal.
 
-## 28. Migration plan and parity gate
+## 28. Conformance requirements
 
-Migration is staged; old files are deleted only after the corresponding new source and golden
-outputs pass.
-
-During this one migration only, `dotfile lock --allow-legacy-markers` treats `.nolink`, `.secret`,
-and `.system` as excluded metadata warnings instead of errors. The flag is rejected in CI and by
-every destination-applying command. Golden comparison is performed with the flag; after marker
-declarations have been translated and the marker files deleted, the ordinary flag-free lock must
-match the reviewed plan. No repository sentinel or ambient state changes this rule.
-
-| Current source/state | Language 1 destination |
-|---|---|
-| `config/packages.dotfile` | facet `@description`; `PACKAGES.md` renders from lock |
-| `config/requirements.dotfile` | co-located demands/resource blocks/`@extend` |
-| `config/targets.dotfile` | exact facet/path `@destination` mappings |
-| `config/pins.dotfile` | scoped `@version` facts |
-| current theme `config/profiles.dotfile` | repository/group/facet theme references in the new profiles domain |
-| `environment/*/manifest` | explicit profile `@groups` |
-| `environment/*/pkglist.txt`, `aurlist.txt` | deleted as provisioning; graph lists come from `packages --emit` |
-| `environment/**/notes.md` | moved to `docs/environments/**`, never deleted as “manifest data” |
-| `.nolink` | facet `@deploy = "none"` |
-| `.secret` | `@deploy = "copy"`, `@sensitivity = "private"`, user privilege, exact mappings |
-| `.system` | `@deploy = "copy"`, system privilege, explicit mappings/modes/owner/group |
-| `.enc`, `.enc.*`, `.tmpl` leaves | filename-derived render rows with destination-name transforms preserved |
-| saved legacy profile names | one-time state migration with aliases |
-| override directories | per-variant package metadata plus lock-resident candidate rows |
-| `shared/wezterm/types` | check-only `./types { @deploy = "none", @expect = "directory" }` |
-
-Migration MUST also update non-language consumers before deletion:
-
-- `setup.sh` and `bootstrap-vps.sh` must consume the new lock or a generated compatibility manifest;
-- the VPS hard-coded `ubuntu/server` profile must map to `server`;
-- repository-root discovery must accept `package.lock.dotfile` only after the new compiler lands;
-- the theme watcher must watch `config/profiles.dotfile`;
-- pre-commit generation must call `dotfile lock --check` and `dotfile fmt --check`;
-- the zsh `dotfile sync` wrapper retains its orchestration/restart behavior;
-- editor calls to `dotfile format --stdin` retain the `.conf` formatter.
-
-The migration parity gate is broader than a Brewfile diff. For every legacy profile and every
-override choice, compare old and new:
-
-- active group/facet set and ordering;
-- every leaf link source/destination and overlay winner;
-- every system and secret source/destination, filename transform, mode, owner, and group;
-- host aliases, roles, arbitrary facts, profile, and theme;
-- required/optional checks, adapters, pins, and path assertions;
-- emitted installer/package/version tuples and all deduplication;
-- departed/new identities;
-- bootstrap and setup behavior.
-
-The old plans remain golden fixtures until every intentional difference is reviewed. Only then may
-the central legacy files, manifests, and marker files be removed.
-
-Saved-state migration has one exact alias table in language 1: `ubuntu/server` → `server`.
-`dotfile migrate-state` reads the old saved profile atomically, verifies that the target profile
-exists, refuses an unknown old value or a simultaneously present new-state record, writes
-`server`, and records migration version `1`. Normal profile resolution never accepts the legacy
-alias, so the migration is observable and cannot mask a later typo. The command is idempotent only
-when version `1` and `server` are already recorded.
-
-## 29. Conformance and implementation gate
-
-Before grammar freeze or any mutating implementation is declared complete, the repository MUST
-ship:
+A conforming implementation MUST pass these fixture suites:
 
 1. lexer fixtures for UTF-8, BOM, CRLF, comments, every escape, interpolation, sigil adjacency, and
    quoted paths;
@@ -2276,17 +2575,19 @@ ship:
 12. safe-application tests for foreign paths, ledger pruning, stale/tampered locks, no-follow parent
     races, source-descriptor swaps, no-replace creation, guarded replacement refusal, private HMAC
     verification, rollback journals, permissions, redaction, and privilege-helper validation;
-13. full legacy migration parity fixtures from section 28;
+13. theme-domain fixtures for discovery, base/profile merging, every registered map shape,
+    semantic order, Eza joins, application defaults, cross-profile palette identity, and a stubbed
+    renderer-contract check proving that lock generation and destination application refuse
+    exact-plan output drift without being blocked by unrelated output drift;
 14. fresh-reader tests that correctly answer graph, manager, mapping, variant, lock, and mutation
     questions using this document alone.
 
-Parser + CST + typed AST + occurrence/fact IR + canonical lock generation come before any filesystem
-mutation. Mutating commands remain behind a feature gate until their safety fixtures pass.
+Destination-mutating commands MUST satisfy parsing, compilation, lock freshness, binding, and the
+section 21 safety requirements before making any filesystem change.
 
-## 30. Research basis
+## 29. Research basis
 
-The final design borrows specific properties rather than cloning one general configuration
-language:
+The format borrows specific properties rather than cloning one general configuration language:
 
 | Precedent | Adopted lesson | Explicitly not adopted |
 |---|---|---|
@@ -2307,9 +2608,9 @@ The central synthesis is intentionally conservative: CUE-like conflict behavior,
 purity, HCL-like schema-directed blocks, TOML-like obvious data, a first-class occurrence/provenance
 IR, and a Stow/Home-Manager-informed leaf deployment plan with a stricter ownership boundary.
 
-## 31. Reserved future features
+## 30. Reserved future features
 
-The following spellings are reserved and invalid in source language 1:
+The following spellings are reserved and invalid in `.dotfile` version 1:
 
 - `@import` and all remote/local import syntax;
 - `if`, `then`, `else`, `for`, `in`, and comprehension forms;
@@ -2319,5 +2620,6 @@ The following spellings are reserved and invalid in source language 1:
 - remote package coordinates that cause the compiler to fetch content.
 
 A future proposal must define its purity inputs, termination, type behavior, source maps,
-canonicalization, lock representation, cycle behavior, security boundary, migration, and fixtures
-before changing the language version. Unknown reserved forms are errors, never ignored extensions.
+canonicalization, lock representation, cycle behavior, security boundary, version transition, and
+fixtures before changing the `.dotfile` version. Unknown reserved forms are errors, never ignored
+extensions.

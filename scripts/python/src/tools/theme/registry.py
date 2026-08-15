@@ -21,11 +21,7 @@ def _panel_preset_outputs():
 
 
 EMITTERS = [
-    Emitter("kitty", emitters.emit_kitty, [emitters.KITTY_COLORS]),
-    Emitter("kitty-fonts", emitters.emit_kitty_fonts, [emitters.KITTY_FONTS]),
     Emitter("wezterm", emitters.emit_wezterm, ["shared/wezterm/wez/theme.lua"]),
-    Emitter("konsole", emitters.emit_konsole, [emitters.KONSOLE_SCHEME]),
-    Emitter("konsole-profile", emitters.emit_konsole_profile, [emitters.KONSOLE_PROFILE]),
     Emitter("fastfetch-config", emitters.emit_fastfetch_config, emitters.FASTFETCH_CONFIGS),
     Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, emitters.FASTFETCH_LOGOS),
     Emitter("starship", emitters.emit_starship, ["shared/starship/starship.toml"]),

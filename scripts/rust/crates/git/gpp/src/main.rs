@@ -1,9 +1,10 @@
 //! Stage everything, commit with the given message, and push.
 //!
-//! `gpp fix the parser` is `git add .`, then `git commit -m 'fix the parser'`,
-//! then `git push`. Each step's output goes straight to the terminal and the
-//! first failure ends the sequence, so a failed stage never commits and a
-//! failed commit never pushes. The failing step's own status is what `gpp`
+//! `gpp fix the parser` is `git add :/` — everything, from the repository
+//! root, whichever subdirectory it runs in — then `git commit -m 'fix the
+//! parser'`, then `git push`. Each step's output goes straight to the
+//! terminal and the first failure ends the sequence, so a failed stage never
+//! commits and a failed commit never pushes. The failing step's own status is what `gpp`
 //! exits with, which keeps git's vocabulary — 128 for "not a repository" and
 //! so on — intact for anything chained after it.
 //!
@@ -55,7 +56,10 @@ fn main() -> ExitCode {
 }
 
 fn publish(message: &str) -> gitkit::Result<ExitCode> {
-    let added = gitkit::git(&["add", "."])?;
+    // `:/` is the pathspec for the working tree's top, so everything is
+    // staged from the repository root no matter which subdirectory this runs
+    // in — and outside a repository, git still gets to say so itself.
+    let added = gitkit::git(&["add", ":/"])?;
     if added != 0 {
         return Ok(exit(added));
     }

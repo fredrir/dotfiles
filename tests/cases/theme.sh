@@ -29,7 +29,7 @@ test_stageable_excludes_files_plasma_rewrites() {
   assert_ok
   assert_output_lacks "kdeglobals"
   assert_output_lacks "desktop-appletsrc"
-  assert_output_has "shared/kitty/colors.conf"
+  assert_output_has "shared/wezterm/wez/theme.lua"
   assert_output_has "linux/common/quicklaunch/config.toml"
 }
 

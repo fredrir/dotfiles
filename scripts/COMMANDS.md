@@ -10,7 +10,7 @@ All Python commands accept `--help`.
 | --- | --- |
 | `count <DIRECTORY>` | Count direct entries. `-r`, `--recursive`: include all descendants; `-d`, `--no-hidden`: exclude hidden entries and subtrees. |
 | `gdd [PATH...]` | Discard every change: tracked files back to `HEAD`, untracked files deleted. Prints the plan and asks first. `-n`, `--dry-run`: show the plan and stop; `-a`, `--all`: list every entry instead of the first 12 of a section; `-y`, `--yes`: do not ask. Ignored files and nested repositories are kept. The shell alias is backed by the `git-discard` executable. |
-| `gpp <MESSAGE...>` | Run `git add .`, commit with the joined message, then push. |
+| `gpp <MESSAGE...>` | Stage everything from the repository root (`git add :/`), commit with the joined message, then push. |
 | `path [TARGET=.]` | Print a repo-relative, home-relative, or absolute path. `-f`, `--full`: always print the absolute path. |
 | `size [TARGET]` | Measure bytes; with no target, list the current directory. `-r`: list direct children; `-R`: list recursively; `-l`, `--lines`: count lines; `-L`, `--limit <DEPTH>`: limit `-R`; `-a`, `--all`: show hidden rows. |
 | `tardirs <ARCHIVE> [MAX_DEPTH]` | Print a tar archive's directory tree and direct-entry counts. |
@@ -24,6 +24,30 @@ All Python commands accept `--help`.
 
 `count`, `gdd`, `gpp`, `path`, and `size` also accept `-h`/`--help`,
 `-V`/`--version`, and `--completions <bash|elvish|fish|powershell|zsh>`.
+
+## `dmux`
+
+Bare `dmux` opens a session picker (or creates `main` when nothing runs);
+with `--host` it attaches the peer the way the old ssa/ssm did.
+`dmux <NAME>` attaches an existing session (a trailing `-w <WINDOW>` picks a
+window) and `dmux -` toggles back to the previous one. `-H`, `--host
+<macie|archie>` points any command at the peer.
+
+| Command | Purpose and options |
+| --- | --- |
+| `dmux ls` | List wezterm workspaces and tmux sessions as one indexed list. `--tmux` / `--wez`: filter while keeping merged-set indices; `--json`: machine-readable rows including a `host` field. Alias `list`. |
+| `dmux con <NAME\|INDEX>` | Attach an existing session. `-w`, `--window <WINDOW>`: select a window; `-A`, `--create`: create like `dmux new` when it does not exist. Aliases `attach`, `a`. |
+| `dmux new <NAME>` | Create a session if needed, then attach. `--dir <PATH>`: working directory; a command may follow `--`. |
+| `dmux detach` | Detach the current client from its tmux session. |
+| `dmux rm <TARGET...>` | Kill sessions after a `[y/N]` prompt. `--all`: every tmux session except the current one; `-w`, `--window <WINDOW>`: kill one window instead; `-y`, `--yes`: do not ask (required without a terminal). Aliases `kill`, `delete`. |
+| `dmux rename <OLD> <NEW>` | Rename a tmux session. |
+| `dmux keys` | Show the live wezterm and tmux key bindings. `--man`: render as a man page; `--tmux` / `--wez`: only one table. |
+| `dmux doctor` | Probe the environment transport selection depends on. `--json`: machine-readable report. |
+
+`dmux` also accepts `-h`/`--help`, `-v`/`--version`, and
+`--completions <bash|elvish|fish|powershell|zsh>`. The `ssa`, `ssm`, and
+`dmx` shell wrappers forward to it; for `ssa`/`ssm` a bare session name is
+create-or-attach (`con -A`).
 
 ## `sysinfo`
 
