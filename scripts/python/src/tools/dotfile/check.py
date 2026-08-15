@@ -106,6 +106,58 @@ def load_requirements(ctx):
     return groups
 
 
+def read_pin_entries(ctx):
+    try:
+        return blocks.read(ctx.pins_file)
+    except blocks.BlockError as error:
+        die(blocks.describe(error, "config/pins.dotfile", "group"))
+        return []
+
+
+def load_pins(ctx):
+    groups = {}
+    if not os.path.isfile(ctx.pins_file):
+        return groups
+    for entry in read_pin_entries(ctx):
+        if entry.opens:
+            if not entry.block:
+                die(f"config/pins.dotfile:{entry.number}: empty group")
+            if not os.path.isdir(os.path.join(ctx.root, entry.block)):
+                die(f"config/pins.dotfile:{entry.number}: unknown group: {entry.block}")
+            groups.setdefault(entry.block, [])
+            continue
+        name, want = entry.split("=")
+        if not name or not want:
+            die(f"config/pins.dotfile:{entry.number}: expected `command = build`")
+        groups[entry.block].append((name, want))
+    return groups
+
+
+def pin_version(name):
+    result = capture([name, "--version"])
+    if result.returncode != 0 or not result.stdout:
+        return ""
+    return trim(result.stdout.splitlines()[0])
+
+
+def pin_rows(ctx, groups, show_all):
+    pins = load_pins(ctx)
+    entries = [pin for group in groups for pin in pins.get(group, [])]
+    if not entries:
+        return [], 0
+    wrong = []
+    for name, want in entries:
+        if shutil.which(name) is None:
+            wrong.append((name, f"not installed, want {want}"))
+            continue
+        have = pin_version(name)
+        if want not in have:
+            wrong.append((name, f"{have or 'no version output'}, want {want}"))
+    if wrong:
+        return [row("bad", "pins", f"{len(wrong)} mismatched", wrong, show_all)], len(wrong)
+    return [row("ok", "pins", f"{len(entries)} pinned")], 0
+
+
 def read_lines(path):
     with open(path, encoding="utf-8") as handle:
         return handle.read().splitlines()
@@ -427,6 +479,7 @@ def cmd_check(ctx, profile, show_all):
     for section, count in (
         environment_rows(ctx, profile, manifest, detect_platform()),
         requirement_rows(ctx, groups, show_all),
+        pin_rows(ctx, groups, show_all),
         plugin_rows(ctx, groups, show_all),
         package_rows(ctx, profile, groups, show_all),
         benchmark_rows(ctx),

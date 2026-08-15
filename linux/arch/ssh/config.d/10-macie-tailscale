@@ -1,5 +1,6 @@
-Host archie
-    HostName archie
+Host macie
+    HostName macie
     User fredrir
+    HostKeyAlias macie
     ServerAliveInterval 5
     ServerAliveCountMax 2

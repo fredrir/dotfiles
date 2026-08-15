@@ -9,6 +9,10 @@ requires() {
   printf '%s\n' "$@" > "$REPO/config/requirements.dotfile"
 }
 
+pins() {
+  printf '%s\n' "$@" > "$REPO/config/pins.dotfile"
+}
+
 test_passes_when_the_tools_are_in_place() {
   check_repo
   requires "shared {" "  sh" "}"
@@ -36,6 +40,38 @@ test_reports_a_required_tool_that_is_not_installed() {
   assert_fails
   assert_output_has "tools      1 missing"
   assert_output_has "definitely-not-installed  some-package"
+}
+
+test_accepts_a_matching_pin() {
+  check_repo
+  requires "shared {" "  sh" "}"
+  pins "shared {" "  git = git version" "}"
+  dotfile link test
+  dotfile check test
+  assert_ok
+  assert_output_has "pins       1 pinned"
+}
+
+test_reports_a_pin_mismatch() {
+  check_repo
+  requires "shared {" "  sh" "}"
+  pins "shared {" "  git = not-a-real-build" "}"
+  dotfile link test
+  dotfile check test
+  assert_fails
+  assert_output_has "pins       1 mismatched"
+  assert_output_has "want not-a-real-build"
+}
+
+test_reports_a_pinned_tool_that_is_not_installed() {
+  check_repo
+  requires "shared {" "  sh" "}"
+  pins "shared {" "  definitely-not-installed = 1.0" "}"
+  dotfile link test
+  dotfile check test
+  assert_fails
+  assert_output_has "pins       1 mismatched"
+  assert_output_has "not installed, want 1.0"
 }
 
 test_reports_a_missing_font() {

@@ -3,3 +3,6 @@ MACAddress={{ macie.usb.primary_mac }}
 
 [Link]
 Name=macie0
+# Match the Mac's en3 MTU; a 1500-byte default caps throughput on the
+# 10 Gbps link well below what the cable can carry.
+MTUBytes=8178

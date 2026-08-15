@@ -1,0 +1,27 @@
+Host llunde
+    HostName llunde-01
+    User root
+    IdentityFile ~/.ssh/llunde_hetzner_root
+    IdentitiesOnly yes
+
+Host llunde-deploy
+    HostName llunde-01
+    User deploy
+    IdentityFile ~/.ssh/llunde_hetzner_deploy
+    IdentitiesOnly yes
+
+Host pyparser
+    HostName llunde-parser
+    User root
+
+Host pyparser-deploy
+    HostName llunde-parser
+    User leploy
+    IdentityFile ~/.ssh/pyparser_hetzner_deploy
+    IdentitiesOnly yes
+
+Host openclaw
+    HostName 46.62.214.182
+    User openclaw
+    IdentityFile ~/.ssh/openclaw
+    IdentitiesOnly yes

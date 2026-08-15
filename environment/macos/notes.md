@@ -2,8 +2,9 @@
 
 macOS. Stows `shared` + `macos`.
 
-- Terminal: kitty (stowed to `~/.config/kitty`). iTerm assets are reference
-  only — see `macos/iterm/`.
+- Terminal: WezTerm, built from fredrir/wezterm at the commit pinned in
+  `config/pins.dotfile`. Not a Homebrew cask to ensure identical builds for native mux.
+  -  `~/packages/wezterm` (`cargo build` +  `ci/deploy.sh` darwin steps) 
 - Run `brew bundle --file macos/Brewfile` once you populate the Brewfile.
 
 Install: `./setup.sh macbook/macos`

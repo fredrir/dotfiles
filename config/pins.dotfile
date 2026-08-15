@@ -1,0 +1,5 @@
+# Tools that must run one exact build on every machine.
+
+shared {
+  wezterm = 20260813-114614-18a44cb7
+}

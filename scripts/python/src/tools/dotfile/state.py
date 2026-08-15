@@ -15,6 +15,7 @@ class Context:
         self.targets_file = os.path.join(self.root, "config/targets.dotfile")
         self.packages_config = os.path.join(self.root, "config/packages.dotfile")
         self.requires_file = os.path.join(self.root, "config/requirements.dotfile")
+        self.pins_file = os.path.join(self.root, "config/pins.dotfile")
         self.packages_doc = os.path.join(self.root, "PACKAGES.md")
         self.overrides_file = os.path.join(self.state_dir, "overrides")
         self.environment_dir = os.path.join(self.root, "environment")

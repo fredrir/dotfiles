@@ -19,3 +19,5 @@ shared/obsidian/app.json = ~/Documents/main/.obsidian/app.json
 shared/obsidian/plugins = ~/Documents/main/.obsidian/plugins
 linux/arch/macie-usb/etc = /etc
 macos/ssh = ~/.ssh
+linux/arch/ssh = ~/.ssh
+shared/ssh = ~/.ssh

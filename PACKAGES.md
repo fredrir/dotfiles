@@ -6,6 +6,7 @@
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from the active theme profile
 - `rsync` — Shared exclusion rules for home-directory transfers
+- `ssh` — OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
 - `starship` — Cross-shell prompt configuration
 - `tmux`
 - `transcript`
@@ -29,6 +30,7 @@
 - `fastfetch` — Arch fastfetch logo and configuration
 - `git` — Arch-specific Git configuration
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
+- `ssh` — Cabled-first routing to macie with Tailscale fallback
 - `zsh`
 
 ## `linux/ubuntu`

@@ -1,0 +1,7 @@
+Match originalhost macie exec "nc -z -w 1 -s 10.77.77.2 10.77.77.1 22 >/dev/null 2>&1"
+    HostName 10.77.77.1
+    User fredrir
+    HostKeyAlias macie
+    BindInterface macie0
+
+Match all

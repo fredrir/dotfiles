@@ -3,3 +3,5 @@ Host cabled-archie
     User fredrir
     HostKeyAlias archie
     BindInterface en3
+    ServerAliveInterval 5
+    ServerAliveCountMax 2
