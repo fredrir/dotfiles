@@ -1,0 +1,457 @@
+{
+  "contract_version": "1",
+  "program": "dotfile",
+  "json_option": "--json",
+  "json_media_type": "application/json",
+  "json_encoding": "utf-8",
+  "json_termination": "single_lf",
+  "json_envelope": {
+    "protocol_version": "1",
+    "field_order": [
+      "protocol_version",
+      "command",
+      "outcome",
+      "changed",
+      "diagnostics",
+      "data"
+    ],
+    "required_fields": [
+      "protocol_version",
+      "command",
+      "outcome",
+      "changed",
+      "diagnostics",
+      "data"
+    ],
+    "fields": {
+      "protocol_version": "string",
+      "command": "string",
+      "outcome": "success_or_difference_or_failure_or_interrupted_or_internal_error",
+      "changed": "boolean",
+      "diagnostics": "array_of_diagnostic_records",
+      "data": "object"
+    },
+    "data_when_empty": {},
+    "null_data": "forbidden",
+    "unknown_fields": "forbidden",
+    "diagnostics_contract": "diagnostics.json",
+    "diagnostic_order": "diagnostics.json.ordering",
+    "stdout": "exactly_one_envelope",
+    "stderr": "empty_after_json_mode_is_recognized",
+    "partial_json": "forbidden",
+    "serialization": "construct_complete_envelope_before_single_stdout_write"
+  },
+  "outcomes": [
+    "success",
+    "difference",
+    "failure",
+    "interrupted",
+    "internal_error"
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "name": "success",
+      "meaning": "command completed with a positive or clean result"
+    },
+    {
+      "code": 1,
+      "name": "diagnosed_negative_result",
+      "meaning": "validation, check, status, drift, conflict, refusal, or denied warning produced a diagnosed negative result"
+    },
+    {
+      "code": 2,
+      "name": "invalid_invocation",
+      "meaning": "arguments, flags, command selection, or required operands are invalid"
+    },
+    {
+      "code": 3,
+      "name": "repository_or_transport_failure",
+      "meaning": "repository I/O or a required external transport failed"
+    },
+    {
+      "code": 70,
+      "name": "internal_invariant_failure",
+      "meaning": "an internal invariant failed"
+    },
+    {
+      "code": 130,
+      "name": "interrupted",
+      "meaning": "the operation was interrupted"
+    }
+  ],
+  "warning_policy": {
+    "intrinsic_severity_unchanged": true,
+    "deny_option": "--deny-warnings",
+    "denied_warning_exit": 1
+  },
+  "exit_precedence": [
+    130,
+    70,
+    3,
+    2,
+    1,
+    0
+  ],
+  "exit_outcomes": {
+    "0": [
+      "success"
+    ],
+    "1": [
+      "difference",
+      "failure"
+    ],
+    "2": [
+      "failure"
+    ],
+    "3": [
+      "failure"
+    ],
+    "70": [
+      "internal_error"
+    ],
+    "130": [
+      "interrupted"
+    ]
+  },
+  "human_streams": {
+    "command_data": "stdout",
+    "diagnostics": "stderr",
+    "usage": "stderr_for_invalid_invocation",
+    "interrupt": "stderr"
+  },
+  "repository_writes": {
+    "atomic": true,
+    "method": "same_directory_temporary_flush_and_replace",
+    "check_mode_writes": false,
+    "writes_on_error": false,
+    "writes_on_denied_warning": false,
+    "changed_true_only_after_committed_write": true
+  },
+  "lock_backed_read_freshness": {
+    "required_for_read_only_commands": true,
+    "inputs": [
+      "source",
+      "repository_snapshot",
+      "generated_lock"
+    ],
+    "result": "report_current_source_staleness_before_returning_lock_backed_data"
+  },
+  "destination_apply_preconditions": {
+    "commands": ["link", "system install"],
+    "required_reads": ["source", "repository_snapshot", "generated_lock", "machine_state", "state_ledger"],
+    "exclusive_machine_lock": "acquire_before_complete_preflight_and_hold_through_commit_or_rollback",
+    "ledger_classification": "required_for_every_destination",
+    "private_journal": "write_and_flush_before_first_destination_mutation",
+    "commit_order": "destinations_then_state_ledger_then_journal_completion",
+    "failure": "rollback_or_preserve_incomplete_journal_and_never_claim_success",
+    "dry_run_writes": false
+  },
+  "packages_output": {
+    "default": "rfc8785_json_lines",
+    "default_record_fields": [
+      "installer",
+      "mode",
+      "package",
+      "version"
+    ],
+    "version_omitted_when_empty": true,
+    "one_final_lf": true,
+    "global_json_option": "single_global_envelope_with_data_coordinates_array",
+    "global_json_data_shape": {
+      "coordinates": "array_of_coordinate_objects"
+    },
+    "json_lines_nested_in_envelope": false
+  },
+  "commands": [
+    {
+      "name": "lock",
+      "syntax": "dotfile lock [--check]",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock"
+      ],
+      "writes": "package.lock.dotfile_unless_check",
+      "destination_mutation": false,
+      "renderer_freshness_precheck": "exact_materialized_registered_artifact_subset_read_only",
+      "renderer_precheck_writes": false,
+      "json": true
+    },
+    {
+      "name": "fmt",
+      "syntax": "dotfile fmt [--check] [paths...]",
+      "reads": [
+        "source"
+      ],
+      "writes": "authored_source_unless_check",
+      "destination_mutation": false,
+      "generated_lock": "check_only",
+      "json": true
+    },
+    {
+      "name": "lint",
+      "syntax": "dotfile lint [--deny-warnings] [paths...]",
+      "status": "planned_read_only_extension",
+      "reads": [
+        "source",
+        "repository_snapshot"
+      ],
+      "writes": "none",
+      "binds_machine": false,
+      "observes_machine": false,
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "link",
+      "syntax": "dotfile link [profile] [--override group=name] [--dry-run]",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock",
+        "machine_state",
+        "state_ledger"
+      ],
+      "writes": "user_destinations_state_ledger_and_private_journal_unless_dry_run",
+      "system_destinations": false,
+      "destination_mutation": true,
+      "lock_freshness_precondition": "independent_recompile_and_complete_canonical_byte_compare",
+      "renderer_freshness_precheck": "exact_active_registered_artifact_subset_read_only",
+      "renderer_precheck_writes": false,
+      "json": true
+    },
+    {
+      "name": "system status",
+      "syntax": "dotfile system status",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock",
+        "machine_state"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "system diff",
+      "syntax": "dotfile system diff",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock",
+        "machine_state"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "secret_plaintext_output": false,
+      "json": true
+    },
+    {
+      "name": "system install",
+      "syntax": "dotfile system install",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock",
+        "machine_state",
+        "state_ledger"
+      ],
+      "writes": "approved_system_copy_rows_state_ledger_and_private_journal",
+      "privileged_confirmation": "separate_exact_confirmation",
+      "destination_mutation": true,
+      "lock_freshness_precondition": "independent_recompile_and_complete_canonical_byte_compare",
+      "renderer_freshness_precheck": "exact_active_registered_artifact_subset_read_only",
+      "renderer_precheck_writes": false,
+      "json": true
+    },
+    {
+      "name": "status",
+      "syntax": "dotfile status [profile]",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock",
+        "machine_state",
+        "state_ledger"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "check",
+      "syntax": "dotfile check [profile]",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock",
+        "machine_state"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "why",
+      "syntax": "dotfile why <qualified-or-unique-name>",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "graph",
+      "syntax": "dotfile graph [profile]",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "packages",
+      "syntax": "dotfile packages <profile> --emit <installer> [--optional]",
+      "reads": [
+        "source",
+        "repository_snapshot",
+        "generated_lock"
+      ],
+      "writes": "none",
+      "profile_inference": false,
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "add",
+      "syntax": "dotfile add <path-or-facet>",
+      "reads": [
+        "source",
+        "repository_snapshot"
+      ],
+      "writes": "authored_source_and_repository_scaffold",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "remove",
+      "syntax": "dotfile remove <path-or-facet>",
+      "reads": [
+        "source",
+        "repository_snapshot"
+      ],
+      "writes": "authored_source_and_repository_scaffold",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "theme apply",
+      "syntax": "dotfile theme apply",
+      "reads": [
+        "typed_theme_domains",
+        "renderer_registry"
+      ],
+      "writes": "registered_renderer_artifacts",
+      "destination_mutation": false,
+      "postcondition": "regenerate_package_lock_after_materialized_artifact_change_before_clean_result",
+      "json": true
+    },
+    {
+      "name": "theme check",
+      "syntax": "dotfile theme check [--artifact <repository-path>]...",
+      "reads": [
+        "typed_theme_domains",
+        "renderer_registry",
+        "registered_renderer_artifacts"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "theme status",
+      "syntax": "dotfile theme status",
+      "reads": [
+        "typed_theme_domains",
+        "renderer_registry"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "theme show",
+      "syntax": "dotfile theme show <theme>",
+      "reads": [
+        "typed_theme_domains"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "theme switch",
+      "syntax": "dotfile theme switch <theme> <scope>",
+      "reads": [
+        "typed_theme_domains",
+        "renderer_registry"
+      ],
+      "writes": "cst_aware_theme_assignment_and_registered_renderer_artifacts",
+      "destination_mutation": false,
+      "postcondition": "regenerate_package_lock_after_materialized_artifact_change_before_clean_result",
+      "json": true
+    },
+    {
+      "name": "theme outputs",
+      "syntax": "dotfile theme outputs [--stageable]",
+      "reads": [
+        "renderer_registry"
+      ],
+      "writes": "none",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "migrate",
+      "syntax": "dotfile migrate --from legacy [--check|--write]",
+      "status": "planned_legacy_migration_extension",
+      "reads": [
+        "legacy_source",
+        "repository_snapshot"
+      ],
+      "writes": "proposed_v1_sources_only_with_explicit_write",
+      "destination_mutation": false,
+      "json": true
+    },
+    {
+      "name": "sync",
+      "syntax": "dotfile sync",
+      "status": "repository_orchestration",
+      "compiler": false,
+      "may_invoke": [
+        "lock",
+        "link"
+      ],
+      "destination_mutation": true,
+      "destination_mutation_condition": "only_when_sync_invokes_link",
+      "may_mutate_user_destinations": true,
+      "json": true
+    },
+    {
+      "name": "format",
+      "syntax": "dotfile format [paths...]",
+      "status": "native_conf_formatter",
+      "dotfile_source_formatter": false,
+      "destination_mutation": false,
+      "json": true
+    }
+  ]
+}

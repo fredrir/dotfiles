@@ -1,0 +1,195 @@
+{
+  "contract_version": "1",
+  "producer": "sysinfo bench",
+  "run_schema": {
+    "field": "schema",
+    "json_type": "integer",
+    "value": 1
+  },
+  "commands": [
+    {
+      "syntax": "sysinfo bench",
+      "role": "interactive_menu"
+    },
+    {
+      "syntax": "sysinfo bench run [--tier quick|standard|heavy] [--only cpu,mem,cache,disk,gpu,thermal,workload] [--note <text>] [--tag <tag>]... [--host <host>] [--workdir <directory>] [--force] [--no-save] [--baseline] [--json]",
+      "role": "produce_run"
+    },
+    {
+      "syntax": "sysinfo bench show [selector] [--json]",
+      "role": "read_run"
+    },
+    {
+      "syntax": "sysinfo bench list [--host <host>] [--limit <count>] [--all]",
+      "role": "list_runs"
+    },
+    {
+      "syntax": "sysinfo bench health [--host <host>]",
+      "role": "report_history_findings"
+    },
+    {
+      "syntax": "sysinfo bench compare [left] [right] [--json]",
+      "role": "compare_runs"
+    },
+    {
+      "syntax": "sysinfo bench trend [selector] [metric]",
+      "role": "report_metric_trend"
+    },
+    {
+      "syntax": "sysinfo bench baseline show",
+      "role": "read_baseline"
+    },
+    {
+      "syntax": "sysinfo bench baseline set [selector]",
+      "role": "write_baseline"
+    },
+    {
+      "syntax": "sysinfo bench baseline clear <selector>",
+      "role": "remove_baseline"
+    },
+    {
+      "syntax": "sysinfo bench document",
+      "role": "regenerate_benchmark_document"
+    },
+    {
+      "syntax": "sysinfo bench prune [--host <host>] [--keep <count>] [--dry-run] [--yes]",
+      "role": "prune_runs"
+    }
+  ],
+  "tiers": [
+    "quick",
+    "standard",
+    "heavy"
+  ],
+  "families": [
+    "cpu",
+    "mem",
+    "cache",
+    "disk",
+    "gpu",
+    "thermal",
+    "workload"
+  ],
+  "epoch_identity": {
+    "input_types": {
+      "snapshot": "json_object",
+      "snapshot.cpu": "json_object_or_missing",
+      "snapshot.cpu.model": "json_string_or_missing",
+      "snapshot.cpu.cores_physical": "positive_json_integer_or_missing",
+      "snapshot.cpu.cores_logical": "positive_json_integer_or_missing",
+      "snapshot.memory": "json_object_or_missing",
+      "snapshot.memory.total": "finite_nonnegative_json_number_or_missing",
+      "snapshot.gpu": "array_of_json_objects_or_missing",
+      "snapshot.gpu[].name": "json_string_or_missing",
+      "snapshot.gpu[].memory_total": "finite_nonnegative_json_number_or_missing",
+      "snapshot.disks": "array_of_json_objects_or_missing",
+      "snapshot.disks[].name": "json_string_or_missing",
+      "snapshot.disks[].size": "finite_nonnegative_json_number_or_missing"
+    },
+    "input_fields_in_order": [
+      "snapshot.cpu.model",
+      "snapshot.cpu.cores_physical",
+      "snapshot.cpu.cores_logical",
+      "floor(snapshot.memory.total / 1073741824)",
+      "sorted(snapshot.gpu[].name + ':' + floor(snapshot.gpu[].memory_total / 1073741824))",
+      "sorted(snapshot.disks[].name + ':' + floor(snapshot.disks[].size / 1073741824))"
+    ],
+    "missing_value_classification": ["absent_object_or_field", "json_null"],
+    "missing_scalar": "empty_string",
+    "invalid_value_classification": ["wrong_json_type", "negative_capacity", "non_finite_capacity", "zero_core_count"],
+    "invalid_value_behavior": "reject_run_before_epoch_or_baseline_mutation",
+    "capacity_encoding": "base_10_gib_floor_without_suffix",
+    "collection_encoding": "one_item_per_field_after_byte_sort",
+    "join": "lf_without_trailing_lf",
+    "text_encoding": "utf-8",
+    "hash": "blake2s",
+    "digest_bytes": 4,
+    "encoding": "eight_lowercase_hexadecimal_digits"
+  },
+  "reviewed_epoch_vectors": [
+    {
+      "host": "archie",
+      "fields": [
+        "AMD Ryzen 7 9800X3D",
+        "8",
+        "16",
+        "30",
+        "AMD Radeon Graphics:0",
+        "NVIDIA GeForce RTX 5070 Ti:15",
+        "KINGSTON SNVS2000G:1863",
+        "WDC WD20EZRZ-00Z:1863"
+      ],
+      "joined_with": "lf_without_trailing_lf",
+      "epoch": "10db7d1f"
+    },
+    {
+      "host": "macie",
+      "fields": [
+        "Apple M5 Pro",
+        "15",
+        "15",
+        "24",
+        "Apple M5 Pro:",
+        "APPLE SSD AP1024Z Media:931"
+      ],
+      "joined_with": "lf_without_trailing_lf",
+      "epoch": "31c0c4e0"
+    }
+  ],
+  "run_id": {
+    "started": "utc_seconds",
+    "format": "YYYY-MM-DDTHH-MM-SSZ-<epoch>",
+    "pattern": "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-[0-9a-f]{8}",
+    "epoch_suffix_must_match": true
+  },
+  "storage": {
+    "run_path": "benchmarks/<host>/<run-id>.json",
+    "baseline_path": "benchmarks/baselines.dotfile",
+    "document_path": "benchmarks/BENCHMARKS.md",
+    "run_write": "same_directory_temporary_file_fsync_atomic_replace",
+    "baseline_write": "same_directory_temporary_file_fsync_atomic_replace",
+    "missing_baseline_file": "empty_baseline_set",
+    "baseline_value_encoding": "quoted_string",
+    "baseline_validation": [
+      "referenced_run_file_exists",
+      "referenced_run_json_is_object",
+      "referenced_run_schema_is_1",
+      "referenced_run_host_equals_outer_host",
+      "referenced_run_epoch_equals_inner_epoch",
+      "recomputed_run_epoch_equals_inner_epoch",
+      "referenced_run_id_equals_quoted_value",
+      "run_id_epoch_suffix_equals_inner_epoch"
+    ],
+    "baseline_text_schema": {
+      "host": "unique_IDENT_block",
+      "epoch": "unique_eight_lowercase_hexadecimal_key_within_host",
+      "run_id": "quoted_value_matching_run_id_pattern",
+      "unknown_entries": "forbidden",
+      "duplicate_hosts_or_epochs": "error"
+    },
+    "validation_failure": "reject_without_mutating_baseline_document",
+    "clear_last_entry": "atomically_remove_baseline_document",
+    "baseline_order": [
+      "host_bytes",
+      "epoch_bytes"
+    ]
+  },
+  "run_record_fields_in_order": [
+    "schema",
+    "run_id",
+    "host",
+    "epoch",
+    "started",
+    "tier",
+    "grade",
+    "note",
+    "tags",
+    "dotfiles_sha",
+    "gate_reasons",
+    "bytes_written",
+    "snapshot",
+    "install",
+    "conditions",
+    "metrics"
+  ]
+}

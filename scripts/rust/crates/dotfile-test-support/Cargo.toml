@@ -1,0 +1,13 @@
+[package]
+name = "dotfile-test-support"
+version = "0.1.0"
+description = "Contract fixtures and deterministic test models for dotfile v1"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+blake2 = "0.10"

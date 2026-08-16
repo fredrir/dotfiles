@@ -1,0 +1,293 @@
+{
+  "contract_version": "1",
+  "lsp": {
+    "protocol_floor": "3.17",
+    "transport": "stdio",
+    "server_binary": "dotfile-lsp",
+    "position_encoding_preference": [
+      "utf-8",
+      "utf-16"
+    ],
+    "position_encoding_fallback": "utf-16",
+    "document_sync": "incremental",
+    "diagnostics": {
+      "preferred": "pull",
+      "fallback": "push"
+    }
+  },
+  "distribution": {
+    "channel": "direct_github_release_archive",
+    "repository": "fredrir/dotfiles",
+    "archive_format": "tar.gz",
+    "archive_name": "dotfile-<release>-<target>.tar.gz",
+    "checksum_algorithm": "sha256",
+    "checksum_manifest": "SHA256SUMS",
+    "attestation": "sigstore_bundle",
+    "attestation_required": true,
+    "install_procedure": [
+      "download_archive_checksum_manifest_and_sigstore_bundle_from_same_github_release_tag",
+      "verify_sigstore_bundle_identity_and_archive_digest",
+      "verify_archive_sha256_against_checksum_manifest",
+      "on_macos_verify_developer_id_signature_notarization_and_stapled_ticket",
+      "extract_archive_to_new_directory",
+      "run_extracted_dotfile_and_dotfile_lsp_version_checks_before_replacing_existing_installation",
+      "atomically_install_dotfile_and_dotfile_lsp_into_user_selected_bin_directory"
+    ]
+  },
+  "artifacts": [
+    {
+      "target": "aarch64-apple-darwin",
+      "status": "required",
+      "blocking": true,
+      "asset_name": "dotfile-<release>-aarch64-apple-darwin.tar.gz",
+      "format": "tar.gz",
+      "os": "macos",
+      "architecture": "aarch64",
+      "minimum_os": "13",
+      "binaries": [
+        "dotfile",
+        "dotfile-lsp"
+      ],
+      "apple_code_signing": true,
+      "apple_notarization": true
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "status": "required",
+      "blocking": true,
+      "asset_name": "dotfile-<release>-x86_64-apple-darwin.tar.gz",
+      "format": "tar.gz",
+      "os": "macos",
+      "architecture": "x86_64",
+      "minimum_os": "13",
+      "binaries": [
+        "dotfile",
+        "dotfile-lsp"
+      ],
+      "apple_code_signing": true,
+      "apple_notarization": true
+    },
+    {
+      "target": "aarch64-unknown-linux-gnu",
+      "status": "required",
+      "blocking": true,
+      "asset_name": "dotfile-<release>-aarch64-unknown-linux-gnu.tar.gz",
+      "format": "tar.gz",
+      "os": "linux",
+      "architecture": "aarch64",
+      "minimum_kernel": "5.15",
+      "minimum_glibc": "2.31",
+      "binaries": [
+        "dotfile",
+        "dotfile-lsp"
+      ]
+    },
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "status": "required",
+      "blocking": true,
+      "asset_name": "dotfile-<release>-x86_64-unknown-linux-gnu.tar.gz",
+      "format": "tar.gz",
+      "os": "linux",
+      "architecture": "x86_64",
+      "minimum_kernel": "5.15",
+      "minimum_glibc": "2.31",
+      "binaries": [
+        "dotfile",
+        "dotfile-lsp"
+      ]
+    }
+  ],
+  "verification": {
+    "archive_checksum_required": true,
+    "sigstore_attestation_required": true,
+    "apple_signature_required_on_macos": true,
+    "apple_notarization_required_on_macos": true,
+    "sigstore_identity": {
+      "oidc_issuer": "https://token.actions.githubusercontent.com",
+      "repository": "fredrir/dotfiles",
+      "workflow": ".github/workflows/release.yml",
+      "ref": "refs/tags/<release>"
+    },
+    "apple": {
+      "certificate": "Developer ID Application",
+      "hardened_runtime": true,
+      "secure_timestamp": true,
+      "notarization": true,
+      "stapling": true
+    }
+  },
+  "editor_artifacts": [
+    {
+      "name": "tree-sitter-dotfile-native",
+      "status": "required",
+      "blocking": true,
+      "format": "tar.gz",
+      "channel": "direct_github_release_archive",
+      "checksum_manifest": "SHA256SUMS",
+      "sigstore_attestation_required": true,
+      "apple_native_library_signature_required": true,
+      "installation": "editor_client_managed_platform_parser_directory_after_verification",
+      "assets": [
+        {
+          "target": "aarch64-apple-darwin",
+          "asset_name": "tree-sitter-dotfile-<release>-aarch64-apple-darwin.tar.gz",
+          "contents": [
+            "libtree_sitter_dotfile.dylib",
+            "node-types.json",
+            "queries/highlights.scm",
+            "queries/locals.scm",
+            "queries/folds.scm",
+            "queries/indents.scm"
+          ]
+        },
+        {
+          "target": "x86_64-apple-darwin",
+          "asset_name": "tree-sitter-dotfile-<release>-x86_64-apple-darwin.tar.gz",
+          "contents": [
+            "libtree_sitter_dotfile.dylib",
+            "node-types.json",
+            "queries/highlights.scm",
+            "queries/locals.scm",
+            "queries/folds.scm",
+            "queries/indents.scm"
+          ]
+        },
+        {
+          "target": "aarch64-unknown-linux-gnu",
+          "asset_name": "tree-sitter-dotfile-<release>-aarch64-unknown-linux-gnu.tar.gz",
+          "contents": [
+            "libtree_sitter_dotfile.so",
+            "node-types.json",
+            "queries/highlights.scm",
+            "queries/locals.scm",
+            "queries/folds.scm",
+            "queries/indents.scm"
+          ]
+        },
+        {
+          "target": "x86_64-unknown-linux-gnu",
+          "asset_name": "tree-sitter-dotfile-<release>-x86_64-unknown-linux-gnu.tar.gz",
+          "contents": [
+            "libtree_sitter_dotfile.so",
+            "node-types.json",
+            "queries/highlights.scm",
+            "queries/locals.scm",
+            "queries/folds.scm",
+            "queries/indents.scm"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tree-sitter-dotfile-wasm",
+      "status": "required",
+      "blocking": true,
+      "target": "wasm32",
+      "asset_name": "tree-sitter-dotfile-<release>-wasm32.tar.gz",
+      "format": "tar.gz",
+      "checksum_manifest": "SHA256SUMS",
+      "sigstore_attestation_required": true,
+      "platform_signature": "not_applicable_portable_wasm",
+      "installation": "editor_client_managed_wasm_parser_directory_after_verification",
+      "contents": [
+        "tree-sitter-dotfile.wasm",
+        "node-types.json",
+        "queries/highlights.scm",
+        "queries/locals.scm",
+        "queries/folds.scm",
+        "queries/indents.scm"
+      ],
+      "channel": "direct_github_release_archive"
+    },
+    {
+      "name": "dotfile-vscode",
+      "status": "required",
+      "blocking": true,
+      "asset_name": "dotfile-vscode-<release>.vsix",
+      "format": "vsix",
+      "content": "vscode_extension_with_lsp_client_and_tree_sitter_dotfile_wasm",
+      "channel": "direct_github_release_asset",
+      "checksum_manifest": "SHA256SUMS",
+      "sigstore_attestation_required": true,
+      "package_signature": "sigstore_attestation_bound_to_release_identity",
+      "installation": "editor_extension_installer_after_checksum_attestation_and_vsix_signature_verification"
+    }
+  ],
+  "conformance_matrix": [
+    {
+      "target": "aarch64-apple-darwin",
+      "status": "required",
+      "blocking": true,
+      "scope": [
+        "syntax",
+        "formatter",
+        "lock",
+        "lsp",
+        "cli",
+        "bind",
+        "apply"
+      ]
+    },
+    {
+      "target": "x86_64-apple-darwin",
+      "status": "required",
+      "blocking": true,
+      "scope": [
+        "syntax",
+        "formatter",
+        "lock",
+        "lsp",
+        "cli",
+        "bind",
+        "apply"
+      ]
+    },
+    {
+      "target": "aarch64-unknown-linux-gnu",
+      "status": "required",
+      "blocking": true,
+      "scope": [
+        "syntax",
+        "formatter",
+        "lock",
+        "lsp",
+        "cli",
+        "bind",
+        "apply"
+      ]
+    },
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "status": "required",
+      "blocking": true,
+      "scope": [
+        "syntax",
+        "formatter",
+        "lock",
+        "lsp",
+        "cli",
+        "bind",
+        "apply"
+      ]
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "status": "optional",
+      "blocking": false,
+      "scope": [
+        "syntax",
+        "formatter",
+        "lsp"
+      ]
+    }
+  ],
+  "runtime_support": {
+    "supported_operating_systems": [
+      "darwin",
+      "linux"
+    ],
+    "unsupported_bind_or_apply": "fail_before_planning_without_partial_apply",
+    "filesystem_matrix": "apply-capabilities.json.filesystem_test_matrix"
+  }
+}

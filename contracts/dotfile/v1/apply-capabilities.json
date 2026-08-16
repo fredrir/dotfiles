@@ -1,0 +1,162 @@
+{
+  "contract_version": "1",
+  "builtins_version": "1",
+  "static_feasibility": {
+    "guarded_replace": "unsupported_on_all_registered_v1_filesystems",
+    "guarded_prune": "unsupported_on_all_registered_v1_filesystems",
+    "create_no_replace": "candidate_primitive_requires_runtime_volume_probe"
+  },
+  "runtime_probe": {
+    "scope": "each_destination_volume_before_plan_approval",
+    "cache_key": "platform_filesystem_volume_identity",
+    "scratch_location": "tool_owned_directory_on_destination_volume",
+    "plan_target_mutation": false,
+    "probe_failure": "refuse_before_plan_target_mutation",
+    "unknown_filesystem": "refuse_before_plan_target_mutation"
+  },
+  "os_names": {
+    "source_and_bind_name": "darwin",
+    "release_and_capability_matrix_name": "macos",
+    "mapping": {
+      "darwin": "macos"
+    }
+  },
+  "path_traversal": {
+    "descriptor_relative": true,
+    "no_follow": true,
+    "repository_root_held_by_descriptor": true,
+    "parent_components_revalidated_immediately_before_final_operation": true,
+    "linux": [
+      "openat_with_O_DIRECTORY_and_O_NOFOLLOW",
+      "fstatat_with_AT_SYMLINK_NOFOLLOW"
+    ],
+    "darwin": [
+      "openat_with_O_DIRECTORY_and_O_NOFOLLOW",
+      "fstatat_with_AT_SYMLINK_NOFOLLOW"
+    ]
+  },
+  "forbidden_fallbacks": [
+    "userspace_check_then_rename",
+    "userspace_check_then_unlink",
+    "advisory_lock_as_namespace_cas",
+    "unconditional_overwrite",
+    "unconditional_prune"
+  ],
+  "filesystems": [
+    {
+      "os": "linux",
+      "minimum_kernel": "5.15",
+      "filesystem": "ext4",
+      "case_sensitivity": "sensitive",
+      "create_no_replace": {
+        "static_status": "candidate",
+        "primitives": {
+          "regular_file": "renameat2_RENAME_NOREPLACE",
+          "directory": "mkdirat",
+          "symlink": "symlinkat"
+        },
+        "runtime_status": "capability_probed",
+        "required_for_absent_creation": true,
+        "on_probe_failure": "refuse"
+      },
+      "guarded_replace": {
+        "static_status": "unsupported",
+        "automatic_operation": false,
+        "behavior": "fail_closed",
+        "recovery": "separately_confirmed_backup_or_adopt"
+      },
+      "guarded_prune": {
+        "static_status": "unsupported",
+        "automatic_operation": false,
+        "behavior": "fail_closed",
+        "recovery": "separately_confirmed_backup_or_adopt"
+      }
+    },
+    {
+      "os": "macos",
+      "minimum_os": "13",
+      "filesystem": "apfs",
+      "case_sensitivity": "sensitive",
+      "create_no_replace": {
+        "static_status": "candidate",
+        "primitives": {
+          "regular_file": "renameatx_np_RENAME_EXCL",
+          "directory": "mkdirat",
+          "symlink": "symlinkat"
+        },
+        "runtime_status": "capability_probed",
+        "required_for_absent_creation": true,
+        "on_probe_failure": "refuse"
+      },
+      "guarded_replace": {
+        "static_status": "unsupported",
+        "automatic_operation": false,
+        "behavior": "fail_closed",
+        "recovery": "separately_confirmed_backup_or_adopt"
+      },
+      "guarded_prune": {
+        "static_status": "unsupported",
+        "automatic_operation": false,
+        "behavior": "fail_closed",
+        "recovery": "separately_confirmed_backup_or_adopt"
+      }
+    },
+    {
+      "os": "macos",
+      "minimum_os": "13",
+      "filesystem": "apfs",
+      "case_sensitivity": "insensitive",
+      "create_no_replace": {
+        "static_status": "candidate",
+        "primitives": {
+          "regular_file": "renameatx_np_RENAME_EXCL",
+          "directory": "mkdirat",
+          "symlink": "symlinkat"
+        },
+        "runtime_status": "capability_probed",
+        "required_for_absent_creation": true,
+        "on_probe_failure": "refuse"
+      },
+      "guarded_replace": {
+        "static_status": "unsupported",
+        "automatic_operation": false,
+        "behavior": "fail_closed",
+        "recovery": "separately_confirmed_backup_or_adopt"
+      },
+      "guarded_prune": {
+        "static_status": "unsupported",
+        "automatic_operation": false,
+        "behavior": "fail_closed",
+        "recovery": "separately_confirmed_backup_or_adopt"
+      }
+    }
+  ],
+  "filesystem_test_matrix": [
+    {
+      "platform": "linux_x86_64",
+      "filesystem": "ext4",
+      "case_sensitivity": "sensitive",
+      "required": true
+    },
+    {
+      "platform": "macos_arm64",
+      "filesystem": "apfs",
+      "case_sensitivity": "sensitive",
+      "required": true
+    },
+    {
+      "platform": "macos_arm64",
+      "filesystem": "apfs",
+      "case_sensitivity": "insensitive",
+      "required": true
+    }
+  ],
+  "plan_rules": {
+    "absent_destination": "create_only_after_successful_no_replace_volume_probe",
+    "managed_exact_destination": "no_op",
+    "managed_changed_destination": "refuse_automatic_replace",
+    "managed_prune_candidate": "refuse_automatic_prune",
+    "foreign_destination": "hard_conflict",
+    "unsupported_target_or_filesystem": "refuse_before_mutation"
+  }
+}

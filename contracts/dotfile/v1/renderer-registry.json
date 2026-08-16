@@ -1,0 +1,254 @@
+{
+  "contract_version": "1",
+  "source_version": "1",
+  "registry_kind": "deterministic_output_to_qualified_facet",
+  "assignment_inference_from_path": false,
+  "artifact_schema": {
+    "required_fields": [
+      "renderer",
+      "path",
+      "facet",
+      "stageable",
+      "write_mode"
+    ],
+    "field_types": {
+      "renderer": "string",
+      "path": "canonical_repository_relative_path",
+      "facet": "qualified_facet_id",
+      "stageable": "boolean",
+      "write_mode": "replace_or_owned_region_or_owned_values"
+    },
+    "write_modes": [
+      "replace",
+      "owned_region",
+      "owned_values"
+    ],
+    "unknown_fields": "invalid",
+    "duplicate_paths": "invalid",
+    "ordering": "path_unsigned_utf8_bytes"
+  },
+  "api": {
+    "check": {
+      "mutating": false,
+      "request": {
+        "required_fields": [
+          "contract_version",
+          "artifacts"
+        ],
+        "contract_version": "1",
+        "artifacts": "nonempty_unique_exact_paths_sorted_by_unsigned_utf8_bytes",
+        "unknown_fields": "invalid"
+      },
+      "response": {
+        "required_fields": [
+          "contract_version",
+          "artifacts"
+        ],
+        "contract_version": "1",
+        "row_required_fields": [
+          "path",
+          "status"
+        ],
+        "status_values": [
+          "current",
+          "drift",
+          "missing",
+          "unregistered",
+          "indeterminate"
+        ],
+        "one_row_per_requested_path": true,
+        "row_order": "request_path_order",
+        "duplicate_unknown_or_missing_rows": "invalid",
+        "unknown_fields": "invalid"
+      }
+    },
+    "render": {
+      "mutating": true,
+      "separate_from_check": true,
+      "request": {
+        "required_fields": [
+          "contract_version",
+          "artifacts"
+        ],
+        "contract_version": "1",
+        "artifacts": "unique_registered_exact_paths_sorted_by_unsigned_utf8_bytes"
+      },
+      "writes": "only_requested_registered_artifacts"
+    }
+  },
+  "commands": {
+    "apply": "dotfile theme apply",
+    "check": "dotfile theme check",
+    "scoped_check": "dotfile theme check --artifact <repository-path>",
+    "outputs": "dotfile theme outputs",
+    "stageable_outputs": "dotfile theme outputs --stageable"
+  },
+  "freshness": {
+    "scope": "exact_requested_artifacts",
+    "unrelated_drift_blocks": false,
+    "check_may_write": false,
+    "status_diagnostics": {
+      "current": "none",
+      "drift": "theme/output",
+      "missing": "theme/output",
+      "unregistered": "theme/output",
+      "indeterminate": "theme/output"
+    }
+  },
+  "artifacts": [
+    {
+      "renderer": "fastfetch-logo",
+      "path": "linux/arch/fastfetch/arch.txt",
+      "facet": "facet:arch/fastfetch",
+      "stageable": true,
+      "write_mode": "replace"
+    },
+    {
+      "renderer": "fastfetch-config",
+      "path": "linux/arch/fastfetch/config.jsonc",
+      "facet": "facet:arch/fastfetch",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "gtk",
+      "path": "linux/common/gtk/gtk-3.0/colors.css",
+      "facet": "facet:common/gtk",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "gtk-settings",
+      "path": "linux/common/gtk/gtk-3.0/settings.ini",
+      "facet": "facet:common/gtk",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "gtk",
+      "path": "linux/common/gtk/gtk-4.0/colors.css",
+      "facet": "facet:common/gtk",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "gtk-settings",
+      "path": "linux/common/gtk/gtk-4.0/settings.ini",
+      "facet": "facet:common/gtk",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "quicklaunch",
+      "path": "linux/common/quicklaunch/config.toml",
+      "facet": "facet:common/quicklaunch",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "panel-presets",
+      "path": "linux/kde/panel-colorizer/presets/Fusion Backup/settings.json",
+      "facet": "facet:kde/panel-colorizer",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "panel-presets",
+      "path": "linux/kde/panel-colorizer/presets/Mocha Bar/settings.json",
+      "facet": "facet:kde/panel-colorizer",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "panel-presets",
+      "path": "linux/kde/panel-colorizer/presets/Mocha Islands/settings.json",
+      "facet": "facet:kde/panel-colorizer",
+      "stageable": true,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "kde-colorscheme",
+      "path": "linux/kde/plasma/kdeglobals",
+      "facet": "facet:kde/plasma",
+      "stageable": false,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "desktop-appletsrc",
+      "path": "linux/kde/plasma/plasma-org.kde.plasma.desktop-appletsrc",
+      "facet": "facet:kde/plasma",
+      "stageable": false,
+      "write_mode": "owned_values"
+    },
+    {
+      "renderer": "fastfetch-config",
+      "path": "linux/ubuntu/fastfetch/config.jsonc",
+      "facet": "facet:ubuntu/fastfetch",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "fastfetch-logo",
+      "path": "linux/ubuntu/fastfetch/ubuntu.txt",
+      "facet": "facet:ubuntu/fastfetch",
+      "stageable": true,
+      "write_mode": "replace"
+    },
+    {
+      "renderer": "fastfetch-logo",
+      "path": "macos/fastfetch/apple.txt",
+      "facet": "facet:macos/fastfetch",
+      "stageable": true,
+      "write_mode": "replace"
+    },
+    {
+      "renderer": "fastfetch-config",
+      "path": "macos/fastfetch/config.jsonc",
+      "facet": "facet:macos/fastfetch",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "fastfetch-config",
+      "path": "shared/fastfetch/config.jsonc",
+      "facet": "facet:shared/fastfetch",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "nvim",
+      "path": "shared/nvim/lua/plugins/catppuccin.lua",
+      "facet": "facet:shared/nvim",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "obsidian",
+      "path": "shared/obsidian/themes/Fredrir/theme.css",
+      "facet": "facet:shared/obsidian",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "starship",
+      "path": "shared/starship/starship.toml",
+      "facet": "facet:shared/starship",
+      "stageable": true,
+      "write_mode": "owned_region"
+    },
+    {
+      "renderer": "wezterm",
+      "path": "shared/wezterm/wez/theme.lua",
+      "facet": "facet:shared/wezterm",
+      "stageable": true,
+      "write_mode": "replace"
+    },
+    {
+      "renderer": "zsh",
+      "path": "shared/zsh/conf.d/03-theme.zsh",
+      "facet": "facet:shared/zsh",
+      "stageable": true,
+      "write_mode": "replace"
+    }
+  ]
+}

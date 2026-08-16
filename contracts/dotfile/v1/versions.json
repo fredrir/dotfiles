@@ -1,0 +1,454 @@
+{
+  "contract_version": "1",
+  "tuple": {
+    "source": "1",
+    "generated_lock": "1",
+    "builtins": "1"
+  },
+  "source_versions": [
+    {
+      "version": "1",
+      "status": "current",
+      "generated_lock": "1",
+      "builtins": "1",
+      "bootstrap_path": "config/profiles.dotfile",
+      "bootstrap_entry": "@dotfile-version = \"1\""
+    }
+  ],
+  "compatibility": {
+    "policy": "exact_only",
+    "source_read": [
+      "1"
+    ],
+    "source_write": "1",
+    "generated_lock_read": [
+      "1"
+    ],
+    "generated_lock_write": "1",
+    "builtins_read": [
+      "1"
+    ],
+    "builtins_write": "1",
+    "unsupported_behavior": "reject"
+  },
+  "version_selectors": {
+    "authored": "@dotfile-version",
+    "generated_lock": "@lock-version",
+    "builtins": "@builtins-version",
+    "authored_is_only_selector": true,
+    "silent_tuple_substitution": false
+  },
+  "diagnostic_stage_owners": {
+    "source": [
+      "lex",
+      "parse",
+      "schema",
+      "theme",
+      "resolve",
+      "graph",
+      "discovery",
+      "deploy"
+    ],
+    "generated_lock": [
+      "lock"
+    ],
+    "builtins": [
+      "bind",
+      "observe",
+      "apply"
+    ]
+  },
+  "traceability_version_owners": {
+    "dotfile-1": {
+      "components": {
+        "source": "1"
+      }
+    },
+    "lock-1": {
+      "components": {
+        "generated_lock": "1"
+      }
+    },
+    "builtins-1": {
+      "components": {
+        "builtins": "1"
+      }
+    },
+    "lock-1+builtins-1": {
+      "components": {
+        "generated_lock": "1",
+        "builtins": "1"
+      }
+    },
+    "dotfile-1+lock-1+builtins-1": {
+      "components": {
+        "source": "1",
+        "generated_lock": "1",
+        "builtins": "1"
+      }
+    }
+  },
+  "traceability_stage_groups": {
+    "cross-stage": {
+      "kind": "aggregate",
+      "members": [
+        "lex",
+        "parse",
+        "schema",
+        "theme",
+        "resolve",
+        "graph",
+        "discovery",
+        "deploy",
+        "lock",
+        "bind",
+        "observe",
+        "apply"
+      ]
+    }
+  },
+  "traceability_reference_policy": {
+    "version_owner": "must_reference_traceability_version_owners_key",
+    "stage": "must_reference_diagnostic_stage_or_traceability_stage_groups_key",
+    "composite_owner_component_versions": "must_equal_registered_tuple_components"
+  },
+  "adapter_registry": {
+    "builtins_version": "1",
+    "execution": {
+      "shell": false,
+      "environment": "minimal_locale_fixed_with_sanitized_path",
+      "timeout_seconds": 10,
+      "maximum_output_bytes": 65536
+    },
+    "managers": [
+      {
+        "name": "brew",
+        "os": "darwin",
+        "default_installer": "brew-formula"
+      },
+      {
+        "name": "pacman",
+        "os": "linux",
+        "default_installer": "pacman"
+      },
+      {
+        "name": "apt",
+        "os": "linux",
+        "default_installer": "apt"
+      }
+    ],
+    "installers": [
+      {
+        "order": 10,
+        "name": "brew-formula",
+        "profile_managers": [
+          "brew"
+        ],
+        "operating_systems": [
+          "darwin"
+        ],
+        "default": true,
+        "installed_version_query": [
+          "brew",
+          "list",
+          "--versions",
+          "<package>"
+        ],
+        "result_match": "exact_package_record"
+      },
+      {
+        "order": 20,
+        "name": "brew-cask",
+        "profile_managers": [
+          "brew"
+        ],
+        "operating_systems": [
+          "darwin"
+        ],
+        "default": false,
+        "installed_version_query": [
+          "brew",
+          "list",
+          "--cask",
+          "--versions",
+          "<package>"
+        ],
+        "result_match": "exact_package_record"
+      },
+      {
+        "order": 30,
+        "name": "pacman",
+        "profile_managers": [
+          "pacman"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "default": true,
+        "installed_version_query": [
+          "pacman",
+          "-Q",
+          "<package>"
+        ],
+        "result_match": "exact_package_record"
+      },
+      {
+        "order": 40,
+        "name": "aur",
+        "profile_managers": [
+          "pacman"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "default": false,
+        "installed_version_query": [
+          "pacman",
+          "-Q",
+          "<package>"
+        ],
+        "result_match": "exact_package_record"
+      },
+      {
+        "order": 50,
+        "name": "apt",
+        "profile_managers": [
+          "apt"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "default": true,
+        "installed_version_query": [
+          "dpkg-query",
+          "-W",
+          "-f=${Version}",
+          "<package>"
+        ],
+        "result_match": "version_only"
+      },
+      {
+        "order": 60,
+        "name": "cargo",
+        "profile_managers": [
+          "brew",
+          "pacman",
+          "apt"
+        ],
+        "operating_systems": [
+          "darwin",
+          "linux"
+        ],
+        "default": false,
+        "installed_version_query": [
+          "cargo",
+          "install",
+          "--list"
+        ],
+        "result_match": "exact_package_record"
+      },
+      {
+        "order": 70,
+        "name": "uv",
+        "profile_managers": [
+          "brew",
+          "pacman",
+          "apt"
+        ],
+        "operating_systems": [
+          "darwin",
+          "linux"
+        ],
+        "default": false,
+        "installed_version_query": [
+          "uv",
+          "tool",
+          "list"
+        ],
+        "result_match": "exact_package_record"
+      }
+    ],
+    "package_and_version_constraints": {
+      "encoding": "utf-8",
+      "nonempty": true,
+      "single_line": true,
+      "leading_or_trailing_whitespace": false,
+      "nul": false
+    },
+    "check_inference_order": [
+      "font",
+      "service",
+      "path",
+      "command"
+    ],
+    "check_adapters": [
+      {
+        "name": "command",
+        "required": [
+          "effective_bin_or_entity_name"
+        ],
+        "allowed_shape_attributes": [
+          "@bin",
+          "@version"
+        ],
+        "forbidden_shape_attributes": [
+          "@family",
+          "@service",
+          "@scope",
+          "@path"
+        ],
+        "observation": "executable_present_on_sanitized_user_path",
+        "presence_uses_process": false,
+        "version_argv": [
+          "<bin>",
+          "--version"
+        ],
+        "version_match": "wanted_string_in_bounded_first_output_line"
+      },
+      {
+        "name": "package",
+        "required": [
+          "completed_install_coordinate"
+        ],
+        "allowed_shape_attributes": [
+          "@version"
+        ],
+        "forbidden_shape_attributes": [
+          "@bin",
+          "@family",
+          "@service",
+          "@scope",
+          "@path"
+        ],
+        "observation": "selected_installer_installed_version_query"
+      },
+      {
+        "name": "font",
+        "required": [
+          "nonempty_@family"
+        ],
+        "allowed_shape_attributes": [
+          "@family"
+        ],
+        "forbidden_shape_attributes": [
+          "@bin",
+          "@service",
+          "@scope",
+          "@path",
+          "@version"
+        ],
+        "observation": {
+          "darwin": "coretext_api",
+          "linux": "fontconfig_library_api"
+        }
+      },
+      {
+        "name": "service",
+        "required": [
+          "@service"
+        ],
+        "allowed_shape_attributes": [
+          "@service",
+          "@scope"
+        ],
+        "forbidden_shape_attributes": [
+          "@bin",
+          "@family",
+          "@path",
+          "@version"
+        ],
+        "observation": {
+          "darwin_user": [
+            "launchctl",
+            "print",
+            "gui/<uid>/<service>"
+          ],
+          "darwin_system": [
+            "launchctl",
+            "print",
+            "system/<service>"
+          ],
+          "linux_user": [
+            "systemctl",
+            "--user",
+            "is-enabled",
+            "<service>"
+          ],
+          "linux_system": [
+            "systemctl",
+            "is-enabled",
+            "<service>"
+          ]
+        }
+      },
+      {
+        "name": "path",
+        "required": [
+          "entity_@path"
+        ],
+        "allowed_shape_attributes": [
+          "@path"
+        ],
+        "forbidden_shape_attributes": [
+          "@bin",
+          "@family",
+          "@service",
+          "@scope",
+          "@version"
+        ],
+        "observation": "lstat"
+      },
+      {
+        "name": "none",
+        "required": [],
+        "allowed_shape_attributes": [],
+        "forbidden_shape_attributes": [
+          "@bin",
+          "@family",
+          "@service",
+          "@scope",
+          "@path",
+          "@version"
+        ],
+        "observation": "none"
+      }
+    ],
+    "install_metadata_allowed_for_all_checks": [
+      "@pkg",
+      "@installer",
+      "@description"
+    ]
+  },
+  "provenance_rule_ids": [
+    "check/infer/font",
+    "check/infer/service",
+    "check/infer/path",
+    "check/infer/command",
+    "check/scope/user",
+    "node/bin/entity-name",
+    "install/package/entity-name",
+    "manager/brew/default-installer",
+    "manager/pacman/default-installer",
+    "manager/apt/default-installer",
+    "deploy/action/link",
+    "deploy/privilege/user",
+    "deploy/sensitivity/public",
+    "deploy/destination/config-package",
+    "deploy/mode/user-public",
+    "deploy/render/plain",
+    "deploy/render/sops-binary",
+    "deploy/render/sops-structured",
+    "deploy/render/template",
+    "deploy/render/force-copy",
+    "deploy/render/private",
+    "deploy/render/mode-0600",
+    "deploy/render/mode-0700",
+    "deploy/mapping/longest-prefix",
+    "theme/profile",
+    "theme/repository-default"
+  ],
+  "provenance_rule_policy": {
+    "unregistered_rule": "invalid",
+    "new_rule_requires_builtins_and_generated_lock_version_revision": true
+  }
+}

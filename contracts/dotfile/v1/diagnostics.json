@@ -1,0 +1,379 @@
+{
+  "contract_version": "1",
+  "severities": [
+    "Error",
+    "Warning"
+  ],
+  "ordering": [
+    "stage",
+    "path_bytes",
+    "primary_start_byte",
+    "code"
+  ],
+  "stages": [
+    {
+      "name": "lex",
+      "order": 1,
+      "version_owner": "source",
+      "codes": [
+        "lex/encoding",
+        "lex/token"
+      ]
+    },
+    {
+      "name": "parse",
+      "order": 2,
+      "version_owner": "source",
+      "codes": [
+        "parse/syntax"
+      ]
+    },
+    {
+      "name": "schema",
+      "order": 3,
+      "version_owner": "source",
+      "codes": [
+        "schema/context",
+        "schema/duplicate",
+        "schema/binding"
+      ]
+    },
+    {
+      "name": "theme",
+      "order": 4,
+      "version_owner": "source",
+      "codes": [
+        "theme/discovery",
+        "theme/reference",
+        "theme/merge",
+        "theme/map",
+        "theme/output"
+      ]
+    },
+    {
+      "name": "resolve",
+      "order": 5,
+      "version_owner": "source",
+      "codes": [
+        "resolve/reference",
+        "resolve/identity",
+        "resolve/resource-key",
+        "resolve/fact-conflict",
+        "resolve/adapter",
+        "resolve/theme"
+      ]
+    },
+    {
+      "name": "graph",
+      "order": 6,
+      "version_owner": "source",
+      "codes": [
+        "graph/cycle"
+      ]
+    },
+    {
+      "name": "discovery",
+      "order": 7,
+      "version_owner": "source",
+      "codes": [
+        "discovery/group",
+        "discovery/inventory",
+        "discovery/source"
+      ]
+    },
+    {
+      "name": "deploy",
+      "order": 8,
+      "version_owner": "source",
+      "codes": [
+        "deploy/mapping",
+        "deploy/permission",
+        "deploy/collision",
+        "deploy/variant"
+      ]
+    },
+    {
+      "name": "lock",
+      "order": 9,
+      "version_owner": "generated_lock",
+      "codes": [
+        "lock/stale",
+        "lock/noncanonical",
+        "lock/tampered"
+      ]
+    },
+    {
+      "name": "bind",
+      "order": 10,
+      "version_owner": "builtins",
+      "codes": [
+        "bind/profile",
+        "bind/host",
+        "bind/variant",
+        "bind/destination"
+      ]
+    },
+    {
+      "name": "observe",
+      "order": 11,
+      "version_owner": "builtins",
+      "codes": [
+        "observe/absent",
+        "observe/adapter",
+        "observe/vault",
+        "observe/destination"
+      ]
+    },
+    {
+      "name": "apply",
+      "order": 12,
+      "version_owner": "builtins",
+      "codes": [
+        "apply/approval",
+        "apply/race",
+        "apply/rollback"
+      ]
+    }
+  ],
+  "details": [
+    {
+      "code": "discovery/inventory",
+      "detail": "package_without_metadata",
+      "severity": "Warning",
+      "summary": "package directory without package.dotfile"
+    },
+    {
+      "code": "resolve/identity",
+      "detail": "near_entity_name",
+      "severity": "Warning",
+      "summary": "near-name possible entity typo"
+    },
+    {
+      "code": "resolve/identity",
+      "detail": "unused_entity_facts",
+      "severity": "Warning",
+      "summary": "entity facts unused by every declared profile"
+    },
+    {
+      "code": "discovery/inventory",
+      "detail": "empty_deployable_facet",
+      "severity": "Warning",
+      "summary": "empty deployable facet after exclusions"
+    },
+    {
+      "code": "schema/binding",
+      "detail": "unused_binding",
+      "severity": "Warning",
+      "summary": "unused binding"
+    },
+    {
+      "code": "lock/stale",
+      "detail": "departed_identity",
+      "severity": "Warning",
+      "summary": "departed node or facet compared with the previous lock"
+    },
+    {
+      "code": "parse/syntax",
+      "detail": "resource_limit",
+      "severity": "Error",
+      "summary": "configured parser work or depth limit was reached"
+    },
+    {
+      "code": "schema/context",
+      "detail": "unsupported_dotfile_version",
+      "severity": "Error",
+      "summary": "the authored source version is unsupported"
+    },
+    {
+      "code": "lock/tampered",
+      "detail": "unsupported_lock_version",
+      "severity": "Error",
+      "summary": "the generated lock version is unsupported"
+    },
+    {
+      "code": "lock/tampered",
+      "detail": "unsupported_builtins_version",
+      "severity": "Error",
+      "summary": "the built-ins version is unsupported"
+    },
+    {
+      "code": "lock/tampered",
+      "detail": "version_tuple_mismatch",
+      "severity": "Error",
+      "summary": "the source, generated lock, and built-ins versions do not form a registered tuple"
+    }
+  ],
+  "record": {
+    "unknown_fields": "forbidden",
+    "null_values": "forbidden",
+    "required_fields": [
+      "code",
+      "scope",
+      "stage",
+      "severity",
+      "summary",
+      "remedy",
+      "primary_span",
+      "related_spans",
+      "semantic_identity",
+      "provenance",
+      "expected",
+      "actual",
+      "secret_redacted"
+    ],
+    "optional_fields": [
+      "detail",
+      "fix"
+    ],
+    "field_types": {
+      "code": "registered_diagnostic_code_string",
+      "scope": "diagnostic_scope_enum",
+      "stage": "registered_stage_string",
+      "severity": "Error_or_Warning",
+      "summary": "nonempty_one_line_string",
+      "remedy": "nonempty_one_line_string",
+      "primary_span": "span_record",
+      "related_spans": "array_of_span_records",
+      "semantic_identity": "qualified_identity_or_empty_string",
+      "provenance": "array_of_canonical_provenance_strings",
+      "expected": "code_specific_json_object",
+      "actual": "code_specific_json_object",
+      "secret_redacted": "boolean",
+      "detail": "registered_detail_string",
+      "fix": "fix_record"
+    },
+    "empty_value_rules": {
+      "related_spans": "empty_array_when_absent",
+      "semantic_identity": "empty_string_when_not_applicable",
+      "provenance": "empty_array_when_not_applicable",
+      "expected": "empty_object_when_not_applicable",
+      "actual": "empty_object_when_not_applicable"
+    },
+    "primary_span": {
+      "unknown_fields": "forbidden",
+      "null_values": "forbidden",
+      "required_fields": [
+        "path",
+        "start_byte",
+        "end_byte",
+        "start_line",
+        "start_column",
+        "end_line",
+        "end_column"
+      ],
+      "optional_fields": [],
+      "field_types": {
+        "path": "repository_relative_or_redacted_symbolic_path_string",
+        "start_byte": "nonnegative_u64_json_integer",
+        "end_byte": "nonnegative_u64_json_integer",
+        "start_line": "positive_u64_json_integer",
+        "start_column": "positive_u64_json_integer",
+        "end_line": "positive_u64_json_integer",
+        "end_column": "positive_u64_json_integer"
+      },
+      "byte_range": "zero_based_half_open_u64",
+      "line_column": "one_based_unicode_scalar_or_invalid_byte_pseudo_scalar_for_lex_encoding"
+    },
+    "related_spans": {
+      "item_type": "primary_span_record",
+      "ordering": "canonical_path_bytes_then_start_byte_then_end_byte",
+      "duplicates": "forbidden"
+    },
+    "provenance": {
+      "item_type": "canonical_source_or_builtin_origin_string",
+      "ordering": "canonical_origin_order",
+      "duplicates": "forbidden"
+    },
+    "structured_data": {
+      "fields": ["expected", "actual"],
+      "json_type": "object",
+      "unknown_keys": "allowed_and_owned_by_registered_code_or_detail",
+      "null_values": "forbidden_recursively"
+    },
+    "fix": {
+      "unknown_fields": "forbidden",
+      "null_values": "forbidden",
+      "required_fields": ["title", "applicability", "edits"],
+      "optional_fields": [],
+      "field_types": {
+        "title": "nonempty_one_line_string",
+        "applicability": "safe_or_preview_only",
+        "edits": "nonempty_array_of_fix_edit_records"
+      },
+      "edit": {
+        "unknown_fields": "forbidden",
+        "null_values": "forbidden",
+        "required_fields": ["path", "range", "replacement"],
+        "optional_fields": [],
+        "field_types": {
+          "path": "canonical_repository_relative_path_string",
+          "range": "zero_based_half_open_raw_byte_range_record",
+          "replacement": "utf8_string"
+        },
+        "range_required_fields": ["start_byte", "end_byte"]
+      }
+    },
+    "scope_values": [
+      "source",
+      "generated",
+      "machine"
+    ]
+  },
+  "code_policy": {
+    "selection": "first_applicable_code_in_stage",
+    "new_code_requires_owner_version_revision": true,
+    "detail_may_refine_code": true,
+    "detail_presence_default": "optional",
+    "detail_required_for": [
+      {
+        "code": "discovery/inventory",
+        "detail": "package_without_metadata"
+      },
+      {
+        "code": "resolve/identity",
+        "detail": "near_entity_name"
+      },
+      {
+        "code": "resolve/identity",
+        "detail": "unused_entity_facts"
+      },
+      {
+        "code": "discovery/inventory",
+        "detail": "empty_deployable_facet"
+      },
+      {
+        "code": "schema/binding",
+        "detail": "unused_binding"
+      },
+      {
+        "code": "lock/stale",
+        "detail": "departed_identity"
+      },
+      {
+        "code": "parse/syntax",
+        "detail": "resource_limit"
+      },
+      {
+        "code": "schema/context",
+        "detail": "unsupported_dotfile_version"
+      },
+      {
+        "code": "lock/tampered",
+        "detail": "unsupported_lock_version"
+      },
+      {
+        "code": "lock/tampered",
+        "detail": "unsupported_builtins_version"
+      },
+      {
+        "code": "lock/tampered",
+        "detail": "version_tuple_mismatch"
+      }
+    ],
+    "new_detail_requires_owner_version_revision": true,
+    "same_owner_version_detail_addition": "forbidden",
+    "detail_owner": "owning_code_stage_version_owner",
+    "unregistered_detail": "invalid",
+    "conflicts_include_all_origins": true
+  }
+}

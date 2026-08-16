@@ -1,0 +1,202 @@
+{
+  "contract_version": "1",
+  "gate_policy": {
+    "active": false,
+    "pull_request": "inactive_non_blocking",
+    "dedicated_nightly": "inactive_non_blocking",
+    "release": "inactive_non_blocking",
+    "adversarial_parse": "inactive_non_blocking"
+  },
+  "gate_activation": {
+    "state": "inactive_unfrozen_corpora",
+    "requirements": [
+      "both_corpus_artifacts_exist",
+      "both_corpus_contents_are_reviewed",
+      "both_corpus_sha256_tree_digests_are_recorded",
+      "both_corpus_statuses_are_frozen"
+    ],
+    "activation": "single_reviewed_contract_revision",
+    "on_unmet_requirement": "reject_activation_and_remain_inactive_non_blocking"
+  },
+  "measurement_protocol": {
+    "build_profile": "release",
+    "warmup_iterations": 5,
+    "measured_iterations": 30,
+    "percentile": "nearest_rank_p95",
+    "execution": "serialized",
+    "host_state": "clean_and_dedicated",
+    "cold_state": "fresh_process_fresh_analysis_database_and_new_corpus_checkout",
+    "warm_state": "same_release_process_after_one_complete_unmeasured_operation",
+    "cache_state": "compiler_and_analysis_caches_explicitly_recorded_os_page_cache_not_forcibly_dropped",
+    "network": "disabled_unless_operation_contract_requires_it",
+    "epoch_change": "invalidate_baseline_and_require_reviewed_rebaseline",
+    "result_grouping": [
+      "host",
+      "epoch",
+      "corpus_id",
+      "operation"
+    ],
+    "time_aggregation": "nearest_rank_p95_of_30_measured_iterations_per_host_corpus_operation",
+    "nearest_rank_index": "ceil(0.95 * sample_count)",
+    "memory_measurement": {
+      "typical_lsp": "maximum_resident_set_size_after_interactive_sequence_and_idle_settle",
+      "stress_compile": "peak_resident_set_size_over_complete_operation",
+      "sampling": "platform_process_resource_api"
+    },
+    "cross_host_aggregation": "none_each_applicable_reference_host_must_pass_independently"
+  },
+  "corpora": {
+    "interactive": {
+      "id": "dotfile-interactive-v1",
+      "status": "planned_unfrozen",
+      "artifact": "contracts/dotfile/v1/performance-corpora/interactive-v1",
+      "generator_contract": "byte_identical_tree_for_corpus_id",
+      "generator_version": "1",
+      "generator_seed": "dotfile-interactive-v1",
+      "tree_digest_algorithm": "sha256",
+      "tree_digest": "required_before_gate_activation",
+      "files": 100,
+      "lines": 10000,
+      "semantic_nodes": 2000
+    },
+    "stress": {
+      "id": "dotfile-stress-v1",
+      "status": "planned_unfrozen",
+      "artifact": "contracts/dotfile/v1/performance-corpora/stress-v1",
+      "generator_contract": "byte_identical_tree_for_corpus_id",
+      "generator_version": "1",
+      "generator_seed": "dotfile-stress-v1",
+      "tree_digest_algorithm": "sha256",
+      "tree_digest": "required_before_gate_activation",
+      "files": 2000,
+      "lines": 200000,
+      "semantic_nodes": 50000
+    }
+  },
+  "reference_hosts": [
+    {
+      "name": "archie",
+      "role": "linux_x86_64",
+      "os": "linux",
+      "architecture": "x86_64",
+      "filesystem": "ext4",
+      "cpu": "AMD Ryzen 7 9800X3D",
+      "nominal_memory_gb": 32,
+      "measured_memory_bytes": 32783540224,
+      "evidence": "benchmarks/archie/2026-08-13T11-34-32Z-10db7d1f.json"
+    },
+    {
+      "name": "macie",
+      "role": "macos_arm64",
+      "os": "macos",
+      "architecture": "aarch64",
+      "filesystem": "apfs",
+      "cpu": "Apple M5 Pro",
+      "nominal_memory_gb": 24,
+      "measured_memory_bytes": 25769803776,
+      "evidence": "benchmarks/macie/2026-08-13T13-39-55Z-31c0c4e0.json"
+    }
+  ],
+  "hard_deadlines": [
+    {
+      "operation": "environment_completion",
+      "maximum": 250,
+      "unit": "ms",
+      "on_deadline": "return_cached_or_deterministic_fallback",
+      "late_result_publication": false
+    }
+  ],
+  "gates": [
+    {
+      "active": false,
+      "operation": "server_ready",
+      "statistic": "p95",
+      "maximum": 400,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "full_parse_interactive",
+      "statistic": "p95",
+      "maximum": 50,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "warm_full_compile_validate",
+      "statistic": "p95",
+      "maximum": 500,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "cold_lock_build_with_discovery_and_hashing",
+      "statistic": "p95",
+      "maximum": 1500,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "incremental_syntax_diagnostics_excluding_debounce",
+      "statistic": "p95",
+      "maximum": 50,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "incremental_semantic_diagnostics",
+      "statistic": "p95",
+      "maximum": 200,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "repository_schema_completion",
+      "statistic": "p95",
+      "maximum": 75,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "environment_completion_hard_deadline",
+      "statistic": "p95",
+      "maximum": 250,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "inlay_hints_and_document_links",
+      "statistic": "p95",
+      "maximum": 100,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "format_2000_line_file",
+      "statistic": "p95",
+      "maximum": 50,
+      "unit": "ms"
+    },
+    {
+      "active": false,
+      "operation": "typical_long_lived_lsp_memory",
+      "statistic": "maximum_of_30_measured_iterations",
+      "maximum": 200,
+      "unit": "MiB"
+    },
+    {
+      "active": false,
+      "operation": "stress_full_compile_time",
+      "statistic": "nearest_rank_p95_of_30_measured_iterations",
+      "maximum": 5,
+      "unit": "s"
+    },
+    {
+      "active": false,
+      "operation": "stress_full_compile_memory",
+      "statistic": "maximum_of_30_measured_iterations",
+      "maximum": 512,
+      "unit": "MiB"
+    }
+  ]
+}

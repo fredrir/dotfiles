@@ -1,0 +1,2578 @@
+{
+  "contract_version": "1",
+  "source_version": "1",
+  "unknown_repository_dotfile": {
+    "diagnostic": "schema/context",
+    "behavior": "reject"
+  },
+  "classification": {
+    "basis": "canonical_repository_relative_path_and_validated_group_layout",
+    "content_matching": false,
+    "symlink_following": false
+  },
+  "value_types": {
+    "dotfile_version_literal": {
+      "syntax": "single_string_token",
+      "exact_value": "1",
+      "reference_namespace": "none"
+    },
+    "string": {
+      "syntax": "single_string_token",
+      "reference_namespace": "none"
+    },
+    "one_line_string": {
+      "syntax": "single_string_token",
+      "validation": "decoded_value_contains_no_line_break",
+      "reference_namespace": "none"
+    },
+    "string_expression": {
+      "syntax": "string_atom_sequence",
+      "bindings": true,
+      "reference_namespace": "binding_only"
+    },
+    "command_name_string": {
+      "syntax": "single_string_token",
+      "pattern": "[A-Za-z0-9][A-Za-z0-9._+-]*",
+      "forbidden_values": [
+        ".",
+        ".."
+      ]
+    },
+    "check_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "command",
+        "package",
+        "font",
+        "service",
+        "path",
+        "none"
+      ]
+    },
+    "string_or_string_list": {
+      "syntax": "single_string_token_or_homogeneous_list",
+      "scalar_normalization": "one_element_list"
+    },
+    "bare_resource_key_reference": {
+      "syntax": "bare_reference",
+      "reference_namespace": "resource_key"
+    },
+    "machine_path_expression": {
+      "syntax": "string_expression",
+      "anchors": [
+        "home",
+        "absolute_posix"
+      ]
+    },
+    "destination_path_expression": {
+      "syntax": "string_expression",
+      "anchors": [
+        "home",
+        "absolute_posix"
+      ],
+      "normalization": "nfc"
+    },
+    "repository_directory_string": {
+      "syntax": "single_string_token",
+      "validation": "normalized_repository_relative_path"
+    },
+    "deploy_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "link",
+        "copy",
+        "none"
+      ]
+    },
+    "privilege_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "user",
+        "system"
+      ]
+    },
+    "sensitivity_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "public",
+        "private"
+      ]
+    },
+    "mode_string": {
+      "syntax": "single_string_token",
+      "pattern": "[0-7]{4}",
+      "setuid_setgid_sticky": false
+    },
+    "expect_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "any",
+        "file",
+        "directory",
+        "symlink"
+      ]
+    },
+    "service_scope_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "user",
+        "system"
+      ]
+    },
+    "os_enum": {
+      "syntax": "single_string_token",
+      "values": [
+        "darwin",
+        "linux"
+      ]
+    },
+    "architecture_list": {
+      "syntax": "nonempty_unique_string_list",
+      "values": [
+        "x86_64",
+        "aarch64"
+      ]
+    },
+    "group_reference_list": {
+      "syntax": "ordered_unique_bare_reference_list",
+      "reference_namespace": "group"
+    },
+    "manager_string": {
+      "syntax": "single_string_token",
+      "registry": "versions.json.adapter_registry.managers"
+    },
+    "installer_string": {
+      "syntax": "single_string_token",
+      "registry": "versions.json.adapter_registry.installers"
+    },
+    "theme_reference": {
+      "syntax": "bare_reference",
+      "reference_namespace": "theme"
+    },
+    "profile_reference": {
+      "syntax": "bare_reference",
+      "reference_namespace": "profile"
+    },
+    "binding_declaration": {
+      "syntax": "binding_name_equals_string_expression",
+      "reference_namespace": "binding",
+      "scope": "file_or_block"
+    }
+  },
+  "namespace_registry": {
+    "group": {
+      "source_key": "globally_unique_IDENT",
+      "canonical_identity": "group:<name>",
+      "case_sensitivity": "sensitive"
+    },
+    "profile": {
+      "source_key": "globally_unique_IDENT",
+      "canonical_identity": "profile:<name>",
+      "case_sensitivity": "sensitive"
+    },
+    "facet": {
+      "source_key": "group_plus_logical_package_plus_optional_variant",
+      "base_identity": "facet:<group>/<package>",
+      "variant_identity": "facet:<group>/<package>@<variant>",
+      "case_sensitivity": "sensitive"
+    },
+    "entity": {
+      "source_key": "global_IDENT",
+      "canonical_identity": "entity:<name>",
+      "declaration": "first_dependency_position_use",
+      "case_sensitivity": "sensitive"
+    },
+    "resource": {
+      "source_key": "registered_resource_kind_plus_direct_bare_key",
+      "canonical_identity": "resource:<kind>/<key>",
+      "case_sensitivity": "sensitive"
+    },
+    "facet_path": {
+      "source_key": "facet_identity_plus_normalized_relative_source_path",
+      "base_identity": "path:<group>/<package>/<path>",
+      "variant_identity": "path:<group>/<package>@<variant>/<path>",
+      "case_sensitivity": "sensitive"
+    },
+    "host": {
+      "source_key": "host_block_IDENT",
+      "canonical_identity": "host:<name>",
+      "identity_case_sensitivity": "sensitive",
+      "hostname_alias_case_sensitivity": "ascii_insensitive"
+    },
+    "theme": {
+      "source_key": "theme_profiles_immediate_child_basename",
+      "canonical_identity": "theme:<name>",
+      "case_sensitivity": "sensitive"
+    },
+    "binding": {
+      "source_key": "lexical_binding_name",
+      "canonical_identity": "not_serialized",
+      "case_sensitivity": "sensitive"
+    }
+  },
+  "demand_shape_registry": {
+    "entity": {
+      "name_syntax": "IDENT",
+      "canonical_target": "entity:<name>",
+      "namespace": "entity",
+      "optional_prefix": "?",
+      "forms": [
+        "name",
+        "?name",
+        "name = string_expression",
+        "?name = string_expression",
+        "name { facts_and_nested_demands }",
+        "?name { facts_and_nested_demands }"
+      ],
+      "assignment_desugaring": "entity_block_with_@pkg",
+      "creates_occurrence": true
+    },
+    "resource_kinds": {
+      "font": {
+        "source_sigil": "@font",
+        "optional_source_sigil": "?@font",
+        "canonical_target": "resource:font/<key>",
+        "namespace": "resource",
+        "key_attribute": "@key",
+        "key_cardinality": "exactly_one_direct",
+        "key_value_type": "bare_resource_key_reference",
+        "string_interpolated_duplicate_or_nested_key": "invalid",
+        "creates_occurrence": true
+      }
+    },
+    "unknown_resource_kind": "requires_new_source_and_generated_lock_versions",
+    "extension": {
+      "source_sigil": "@extend",
+      "target_forms": ["entity/<IDENT>", "font/<bare-resource-key>"],
+      "canonical_targets": ["entity:<name>", "resource:font/<key>"],
+      "target_must_have_normal_demand_somewhere": true,
+      "body": "binding_prologue_then_fact_attributes_only",
+      "creates_occurrence": false
+    }
+  },
+  "attribute_registry": [
+    {
+      "name": "@pkg",
+      "value_type": "string_expression",
+      "namespace": "package_data",
+      "legal_contexts": [
+        "entity_fact",
+        "resource_fact",
+        "entity_extension",
+        "resource_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 100
+      },
+      "docs": "Package name when it differs from the node default."
+    },
+    {
+      "name": "@installer",
+      "value_type": "installer_string",
+      "namespace": "installer_registry",
+      "legal_contexts": [
+        "entity_fact",
+        "resource_fact",
+        "entity_extension",
+        "resource_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 110
+      },
+      "docs": "Explicit installer adapter."
+    },
+    {
+      "name": "@bin",
+      "value_type": "command_name_string",
+      "namespace": "command_data",
+      "legal_contexts": [
+        "entity_fact",
+        "entity_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 120
+      },
+      "docs": "PATH basename when it differs from the entity name."
+    },
+    {
+      "name": "@check",
+      "value_type": "check_enum",
+      "namespace": "check_adapter_registry",
+      "legal_contexts": [
+        "entity_fact",
+        "resource_fact",
+        "entity_extension",
+        "resource_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 130
+      },
+      "docs": "Explicit observation adapter."
+    },
+    {
+      "name": "@version",
+      "value_type": "string",
+      "namespace": "version_data",
+      "legal_contexts": [
+        "entity_fact",
+        "resource_fact",
+        "entity_extension",
+        "resource_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 140
+      },
+      "docs": "Expected version for command or package checks."
+    },
+    {
+      "name": "@family",
+      "value_type": "string_or_string_list",
+      "namespace": "font_family_data",
+      "legal_contexts": [
+        "entity_fact",
+        "resource_fact",
+        "entity_extension",
+        "resource_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 150
+      },
+      "docs": "Preferred font-family stack."
+    },
+    {
+      "name": "@service",
+      "value_type": "string",
+      "namespace": "service_label_data",
+      "legal_contexts": [
+        "entity_fact",
+        "entity_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 160
+      },
+      "docs": "Service or unit label."
+    },
+    {
+      "name": "@scope",
+      "value_type": "service_scope_enum",
+      "namespace": "service_scope",
+      "legal_contexts": [
+        "entity_fact",
+        "entity_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 170
+      },
+      "docs": "User or system scope for a service check."
+    },
+    {
+      "name": "@path",
+      "value_type": "machine_path_expression",
+      "namespace": "machine_path_data",
+      "legal_contexts": [
+        "entity_fact",
+        "entity_extension"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 180
+      },
+      "docs": "Machine path checked for existence."
+    },
+    {
+      "name": "@key",
+      "value_type": "bare_resource_key_reference",
+      "namespace": "resource_key",
+      "legal_contexts": [
+        "resource_demand"
+      ],
+      "cardinality": "exactly_one_direct_entry",
+      "singleton": true,
+      "format_order": {
+        "resource_identity": 20
+      },
+      "docs": "Identity key for a resource demand."
+    },
+    {
+      "name": "@destination",
+      "value_type": "destination_path_expression",
+      "namespace": "destination_data",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 100
+      },
+      "docs": "Exact destination root for a source prefix."
+    },
+    {
+      "name": "@deploy",
+      "value_type": "deploy_enum",
+      "namespace": "deployment_action",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 110
+      },
+      "docs": "Deployment action for plain leaves."
+    },
+    {
+      "name": "@privilege",
+      "value_type": "privilege_enum",
+      "namespace": "deployment_privilege",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 120
+      },
+      "docs": "User or privileged destination."
+    },
+    {
+      "name": "@sensitivity",
+      "value_type": "sensitivity_enum",
+      "namespace": "deployment_sensitivity",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 130
+      },
+      "docs": "Public or private visibility and permission policy."
+    },
+    {
+      "name": "@mode",
+      "value_type": "mode_string",
+      "namespace": "mode_data",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 140
+      },
+      "docs": "Materialized file mode."
+    },
+    {
+      "name": "@owner",
+      "value_type": "string",
+      "namespace": "machine_user_name",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 150
+      },
+      "docs": "Owner required for system copies."
+    },
+    {
+      "name": "@group",
+      "value_type": "string",
+      "namespace": "machine_group_name",
+      "legal_contexts": [
+        "facet_root",
+        "facet_path",
+        "variant_facet_root",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 160
+      },
+      "docs": "Owner group required for system copies."
+    },
+    {
+      "name": "@expect",
+      "value_type": "expect_enum",
+      "namespace": "repository_object_kind",
+      "legal_contexts": [
+        "facet_path",
+        "variant_path"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "deployment": 170
+      },
+      "docs": "Exact object assertion on a check-only path."
+    },
+    {
+      "name": "@directory",
+      "value_type": "repository_directory_string",
+      "namespace": "repository_path_data",
+      "legal_contexts": [
+        "group_declaration"
+      ],
+      "cardinality": "zero_or_one_per_group",
+      "singleton": true,
+      "format_order": {
+        "group": 100
+      },
+      "docs": "Repository directory assigned to a group."
+    },
+    {
+      "name": "@os",
+      "value_type": "os_enum",
+      "namespace": "operating_system",
+      "legal_contexts": [
+        "group_declaration",
+        "profile_declaration"
+      ],
+      "cardinality": "zero_or_one_per_group_and_exactly_one_per_profile",
+      "singleton": true,
+      "format_order": {
+        "group": 110,
+        "profile": 120
+      },
+      "docs": "Operating-system constraint."
+    },
+    {
+      "name": "@arch",
+      "value_type": "architecture_list",
+      "namespace": "architecture",
+      "legal_contexts": [
+        "group_declaration",
+        "profile_declaration"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "group": 120,
+        "profile": 130
+      },
+      "docs": "Allowed canonical architectures."
+    },
+    {
+      "name": "@groups",
+      "value_type": "group_reference_list",
+      "namespace": "group",
+      "legal_contexts": [
+        "profile_declaration"
+      ],
+      "cardinality": "exactly_one_per_profile",
+      "singleton": true,
+      "format_order": {
+        "profile": 100
+      },
+      "docs": "Ordered declared groups selected by a profile."
+    },
+    {
+      "name": "@manager",
+      "value_type": "manager_string",
+      "namespace": "manager_registry",
+      "legal_contexts": [
+        "profile_declaration"
+      ],
+      "cardinality": "exactly_one_per_profile",
+      "singleton": true,
+      "format_order": {
+        "profile": 110
+      },
+      "docs": "Profile native package-management context."
+    },
+    {
+      "name": "@profile",
+      "value_type": "profile_reference",
+      "namespace": "profile",
+      "legal_contexts": [
+        "host_block"
+      ],
+      "cardinality": "exactly_one_per_host",
+      "singleton": true,
+      "format_order": {
+        "host": 100
+      },
+      "docs": "Profile assigned to a host."
+    },
+    {
+      "name": "@theme",
+      "value_type": "theme_reference",
+      "namespace": "theme",
+      "legal_contexts": [
+        "profiles_file_root",
+        "profile_declaration",
+        "group_root_file",
+        "facet_root",
+        "variant_facet_root",
+        "host_block"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "profiles_file_root": 400,
+        "profile": 140,
+        "group_root_file": 100,
+        "deployment": 190,
+        "host": 110
+      },
+      "docs": "Theme reference in the context-specific precedence chain."
+    },
+    {
+      "name": "@description",
+      "value_type": "one_line_string",
+      "namespace": "description_data",
+      "legal_contexts": [
+        "entity_fact",
+        "resource_fact",
+        "entity_extension",
+        "resource_extension",
+        "facet_root",
+        "variant_facet_root",
+        "group_declaration",
+        "profile_declaration"
+      ],
+      "cardinality": "zero_or_one_per_immediate_semantic_block",
+      "singleton": true,
+      "format_order": {
+        "fact": 190,
+        "deployment": 180,
+        "group": 130,
+        "profile": 150
+      },
+      "docs": "One-line human-readable description."
+    },
+    {
+      "name": "@let",
+      "value_type": "binding_declaration",
+      "namespace": "binding",
+      "legal_contexts": [
+        "allowed_file_or_block_prologue"
+      ],
+      "cardinality": "repeatable_with_unique_binding_name",
+      "singleton": false,
+      "format_order": {
+        "prologue": 10
+      },
+      "docs": "Ordered file-local or block-local string binding declaration."
+    }
+  ],
+  "completion_registry": {
+    "attribute_text": {
+      "@pkg": "@pkg = ",
+      "@installer": "@installer = ",
+      "@bin": "@bin = ",
+      "@check": "@check = ",
+      "@version": "@version = ",
+      "@family": "@family = ",
+      "@service": "@service = ",
+      "@scope": "@scope = ",
+      "@path": "@path = ",
+      "@key": "@key = ",
+      "@destination": "@destination = ",
+      "@deploy": "@deploy = ",
+      "@privilege": "@privilege = ",
+      "@sensitivity": "@sensitivity = ",
+      "@mode": "@mode = ",
+      "@owner": "@owner = ",
+      "@group": "@group = ",
+      "@expect": "@expect = ",
+      "@directory": "@directory = ",
+      "@os": "@os = ",
+      "@arch": "@arch = ",
+      "@groups": "@groups = ",
+      "@manager": "@manager = ",
+      "@profile": "@profile = ",
+      "@theme": "@theme = ",
+      "@description": "@description = ",
+      "@let": "@let name = "
+    },
+    "domain_file_text": {
+      "profiles": "@dotfile-version = \"1\"\n\n@groups {}\n\n@profiles {}\n",
+      "hosts": "host-name {\n}\n",
+      "group_root_requirements": "entity-name\n",
+      "facet_requirements": "./path {\n}\n",
+      "override_variant": "./path {\n}\n",
+      "recipient_keys": "recipients {\n}\n",
+      "secret_scan_rules": "allow {\n}\n",
+      "benchmark_baselines": "host-name {\n}\n",
+      "theme_roles": "roles {\n}\n",
+      "theme_fonts": "fonts {\n}\n",
+      "theme_map_catppuccin": "colors {\n}\n",
+      "theme_map_eza": "categories {\n}\n",
+      "theme_map_gtk": "colors {\n}\n",
+      "theme_map_kde": "groups {\n}\n\nforegrounds {\n}\n\nselection-foregrounds {\n}\n",
+      "theme_map_obsidian": "derived {\n    source = \"\"\n}\n\nvariables {\n}\n",
+      "theme_profile": "display-name = \"\"\nappearance = \"dark\"\nicons = \"\"\n\nnvim { flavour = \"\" }\n\npalette {}\n",
+      "template_variables": "",
+      "generated_lock": ""
+    },
+    "disabled_domains": {
+      "template_variables": "encrypted_vault_owned_yaml",
+      "generated_lock": "compiler_owned"
+    }
+  },
+  "domain_shapes": {
+    "profiles": {
+      "canonical_root_order": [
+        "@dotfile-version",
+        "@groups",
+        "@profiles",
+        "@theme"
+      ],
+      "field_types": {
+        "group_name": "unique_IDENT_in_group_namespace",
+        "profile_name": "unique_IDENT_in_profile_namespace",
+        "nested_group_block": "group_declaration",
+        "profile_block": "profile_declaration"
+      },
+      "root_shapes": [
+        {
+          "name": "@dotfile-version",
+          "kind": "attribute",
+          "cardinality": "exactly_one",
+          "value_type": "dotfile_version_literal",
+          "position": "first_non_comment_entry"
+        },
+        {
+          "name": "@groups",
+          "kind": "block",
+          "cardinality": "exactly_one",
+          "records": "repeatable_unique_named_group_blocks"
+        },
+        {
+          "name": "@profiles",
+          "kind": "block",
+          "cardinality": "exactly_one",
+          "records": "repeatable_unique_named_profile_blocks"
+        },
+        {
+          "name": "@theme",
+          "kind": "attribute",
+          "cardinality": "zero_or_one"
+        }
+      ]
+    },
+    "hosts": {
+      "canonical_root_order": [
+        "host_by_name_bytes"
+      ],
+      "field_types": {
+        "host_name": "unique_IDENT_in_host_namespace",
+        "hostnames": "nonempty_ordered_list_of_one_line_strings",
+        "role": "string_enum_desktop_laptop_server",
+        "@profile": "profile_reference",
+        "@theme": "theme_reference",
+        "extension_key": "unique_ASCII_pattern_[A-Z][A-Z0-9_]*",
+        "extension_value": "string_or_homogeneous_string_list"
+      },
+      "root_shapes": [
+        {
+          "name": "host",
+          "kind": "named_block",
+          "cardinality": "repeatable_unique_name",
+          "required_fields": [
+            "hostnames",
+            "role",
+            "@profile"
+          ],
+          "optional_fields": [
+            "@theme",
+            "extension_fact"
+          ]
+        }
+      ]
+    },
+    "group_root_requirements": {
+      "canonical_root_order": [
+        "@let",
+        "@theme",
+        "resource_demand",
+        "@extend",
+        "entity_demand"
+      ],
+      "root_shapes": [
+        {
+          "name": "@let",
+          "cardinality": "repeatable_prologue"
+        },
+        {
+          "name": "@theme",
+          "cardinality": "zero_or_one"
+        },
+        {
+          "name": "resource_demand",
+          "cardinality": "repeatable"
+        },
+        {
+          "name": "@extend",
+          "cardinality": "repeatable"
+        },
+        {
+          "name": "entity_demand",
+          "cardinality": "repeatable"
+        }
+      ]
+    },
+    "facet_requirements": {
+      "canonical_root_order": [
+        "@let",
+        "@destination",
+        "@deploy",
+        "@privilege",
+        "@sensitivity",
+        "@mode",
+        "@owner",
+        "@group",
+        "@description",
+        "@theme",
+        "path",
+        "resource_demand",
+        "@extend",
+        "entity_demand"
+      ],
+      "root_shapes": [
+        {
+          "name": "facet_attribute",
+          "cardinality": "zero_or_one_each"
+        },
+        {
+          "name": "path",
+          "cardinality": "repeatable_unique_decoded_path"
+        },
+        {
+          "name": "resource_demand",
+          "cardinality": "repeatable"
+        },
+        {
+          "name": "@extend",
+          "cardinality": "repeatable"
+        },
+        {
+          "name": "entity_demand",
+          "cardinality": "repeatable"
+        }
+      ]
+    },
+    "override_variant": {
+      "canonical_root_order": [
+        "@let",
+        "@destination",
+        "@deploy",
+        "@privilege",
+        "@sensitivity",
+        "@mode",
+        "@owner",
+        "@group",
+        "@description",
+        "@theme",
+        "path"
+      ],
+      "root_shapes": [
+        {
+          "name": "deployment_attribute",
+          "cardinality": "zero_or_one_each"
+        },
+        {
+          "name": "path",
+          "cardinality": "repeatable_unique_decoded_path"
+        }
+      ],
+      "forbidden_root_shapes": [
+        "entity_demand",
+        "resource_demand",
+        "@extend"
+      ]
+    },
+    "recipient_keys": {
+      "canonical_root_order": [
+        "recipients"
+      ],
+      "field_types": {
+        "label": "unique_pattern_[A-Za-z0-9][A-Za-z0-9._-]*",
+        "value": "quoted_age_public_recipient_string"
+      },
+      "root_shapes": [
+        {
+          "name": "recipients",
+          "kind": "closed_block",
+          "cardinality": "exactly_one",
+          "records": "repeatable_unique_label_assignments_sorted_by_label_bytes"
+        }
+      ]
+    },
+    "secret_scan_rules": {
+      "canonical_root_order": [
+        "allow"
+      ],
+      "field_types": {
+        "pattern": "quoted_validated_repository_relative_glob",
+        "inspect": "string_enum_path_value"
+      },
+      "root_shapes": [
+        {
+          "name": "allow",
+          "kind": "closed_block",
+          "cardinality": "exactly_one",
+          "records": "repeatable_rule_blocks_in_source_order",
+          "rule_required_fields": [
+            "pattern",
+            "inspect"
+          ]
+        }
+      ]
+    },
+    "benchmark_baselines": {
+      "canonical_root_order": [
+        "host_by_name_bytes"
+      ],
+      "field_types": {
+        "host": "host_IDENT",
+        "epoch": "eight_lowercase_hexadecimal_digits",
+        "run_id": "quoted_utc_run_id_with_matching_epoch_suffix"
+      },
+      "root_shapes": [
+        {
+          "name": "host",
+          "kind": "named_block",
+          "cardinality": "repeatable_unique_name",
+          "records": "repeatable_unique_epoch_assignments_sorted_by_epoch_bytes"
+        }
+      ]
+    },
+    "theme_roles": {
+      "canonical_root_order": [
+        "roles",
+        "terminal",
+        "eza",
+        "kde",
+        "konsole"
+      ],
+      "field_types": {
+        "open_role_key": "unique_IDENT",
+        "open_role_value": "bare_palette_reference",
+        "pattern.key": "unique_one_line_string",
+        "pattern.role": "bare_palette_reference"
+      },
+      "root_shapes": [
+        {
+          "name": "roles",
+          "cardinality": "zero_or_one",
+          "shape": "open_role_map"
+        },
+        {
+          "name": "terminal",
+          "cardinality": "zero_or_one",
+          "canonical_child_order": [
+            "direct_roles",
+            "ansi",
+            "tabs"
+          ]
+        },
+        {
+          "name": "eza",
+          "cardinality": "zero_or_one",
+          "canonical_child_order": [
+            "direct_roles",
+            "categories",
+            "pattern"
+          ],
+          "pattern_cardinality": "repeatable_ordered"
+        },
+        {
+          "name": "kde",
+          "cardinality": "zero_or_one",
+          "shape": "open_role_map"
+        },
+        {
+          "name": "konsole",
+          "cardinality": "zero_or_one",
+          "shape": "open_role_map"
+        }
+      ]
+    },
+    "theme_fonts": {
+      "canonical_root_order": [
+        "fonts",
+        "sizes",
+        "applications"
+      ],
+      "field_types": {
+        "fonts.key": "unique_IDENT",
+        "fonts.value": "nonempty_one_line_string_without_comma",
+        "sizes.key": "terminal_or_terminal_mac_or_interface",
+        "sizes.value": "positive_canonical_decimal_string",
+        "applications.key": "unique_IDENT",
+        "applications.value": "string_enum_enabled_disabled"
+      },
+      "root_shapes": [
+        {
+          "name": "fonts",
+          "cardinality": "exactly_one",
+          "shape": "open_unique_string_map",
+          "required_fields": [
+            "general",
+            "nerd"
+          ]
+        },
+        {
+          "name": "sizes",
+          "cardinality": "exactly_one",
+          "canonical_child_order": [
+            "terminal",
+            "terminal_mac",
+            "interface"
+          ]
+        },
+        {
+          "name": "applications",
+          "cardinality": "exactly_one",
+          "shape": "open_unique_enabled_disabled_map"
+        }
+      ]
+    },
+    "theme_profile": {
+      "canonical_root_order": [
+        "display-name",
+        "appearance",
+        "icons",
+        "nvim",
+        "palette",
+        "roles",
+        "terminal",
+        "eza",
+        "kde",
+        "konsole",
+        "fonts",
+        "sizes",
+        "applications"
+      ],
+      "field_types": {
+        "display-name": "nonempty_one_line_string",
+        "appearance": "string_enum_dark_light",
+        "icons": "nonempty_one_line_string",
+        "nvim.flavour": "nonempty_one_line_string",
+        "palette.key": "unique_IDENT",
+        "palette.value": "lowercase_hash_six_hex_string",
+        "override": "matching_theme_roles_or_fonts_leaf_shape"
+      },
+      "root_shapes": [
+        {
+          "name": "display-name",
+          "kind": "field",
+          "cardinality": "exactly_one"
+        },
+        {
+          "name": "appearance",
+          "kind": "field",
+          "cardinality": "exactly_one"
+        },
+        {
+          "name": "icons",
+          "kind": "field",
+          "cardinality": "exactly_one"
+        },
+        {
+          "name": "nvim",
+          "kind": "closed_block",
+          "cardinality": "exactly_one",
+          "required_fields": [
+            "flavour"
+          ]
+        },
+        {
+          "name": "palette",
+          "kind": "open_map",
+          "cardinality": "exactly_one"
+        },
+        {
+          "name": "role_font_or_application_override",
+          "kind": "typed_block",
+          "cardinality": "zero_or_one_each"
+        }
+      ]
+    },
+    "theme_map_catppuccin": {
+      "canonical_root_order": [
+        "colors"
+      ],
+      "field_types": {
+        "entry.key": "unique_lowercase_six_hex_string_without_hash",
+        "entry.palette": "bare_palette_reference"
+      },
+      "root_shapes": [
+        {
+          "name": "colors",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_entry",
+          "record_required_fields": [
+            "key",
+            "palette"
+          ]
+        }
+      ]
+    },
+    "theme_map_eza": {
+      "canonical_root_order": [
+        "categories"
+      ],
+      "field_types": {
+        "category.name": "unique_IDENT_in_eza_category_namespace",
+        "category.extensions": "nonempty_ordered_unique_extension_string_list"
+      },
+      "root_shapes": [
+        {
+          "name": "categories",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_category",
+          "record_required_fields": [
+            "name",
+            "extensions"
+          ]
+        }
+      ]
+    },
+    "theme_map_gtk": {
+      "canonical_root_order": [
+        "colors"
+      ],
+      "field_types": {
+        "entry.key": "unique_external_one_line_string",
+        "entry.role": "bare_palette_or_kde_role_reference"
+      },
+      "root_shapes": [
+        {
+          "name": "colors",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_entry",
+          "record_required_fields": [
+            "key",
+            "role"
+          ]
+        }
+      ]
+    },
+    "theme_map_kde": {
+      "canonical_root_order": [
+        "groups",
+        "foregrounds",
+        "selection-foregrounds"
+      ],
+      "field_types": {
+        "groups.entry.key": "unique_external_one_line_string",
+        "groups.entry.roles": "ordered_list_of_exactly_two_kde_role_references",
+        "foregrounds.entry.key": "unique_external_one_line_string",
+        "foregrounds.entry.role": "bare_kde_role_reference",
+        "selection-foregrounds.entry.key": "unique_external_one_line_string",
+        "selection-foregrounds.entry.role": "bare_kde_role_reference"
+      },
+      "root_shapes": [
+        {
+          "name": "groups",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_entry",
+          "record_required_fields": [
+            "key",
+            "roles"
+          ]
+        },
+        {
+          "name": "foregrounds",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_entry",
+          "record_required_fields": [
+            "key",
+            "role"
+          ]
+        },
+        {
+          "name": "selection-foregrounds",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_entry",
+          "record_required_fields": [
+            "key",
+            "role"
+          ]
+        }
+      ]
+    },
+    "theme_map_obsidian": {
+      "canonical_root_order": [
+        "derived",
+        "variables"
+      ],
+      "field_types": {
+        "derived.source": "bare_palette_reference",
+        "variable.key": "unique_quoted_css_key",
+        "variable.palette": "bare_palette_reference",
+        "variable.rgb": "bare_palette_reference",
+        "variable.color": "bare_palette_reference",
+        "variable.alpha": "canonical_decimal_string_inclusive_zero_to_one",
+        "variable.derived": "bare_enum_accent_h_accent_s_accent_l_accent_hsl",
+        "variable.literal": "one_line_string"
+      },
+      "root_shapes": [
+        {
+          "name": "derived",
+          "cardinality": "exactly_one",
+          "required_fields": [
+            "source"
+          ]
+        },
+        {
+          "name": "variables",
+          "cardinality": "exactly_one",
+          "records": "repeatable_ordered_variable",
+          "record_required_fields": [
+            "key",
+            "exactly_one_value_shape"
+          ],
+          "value_shapes": [
+            "palette",
+            "rgb",
+            "color_with_alpha",
+            "derived",
+            "literal"
+          ]
+        }
+      ]
+    },
+    "generated_lock": {
+      "canonical_root_order": [
+        "@lock",
+        "@sources",
+        "@groups",
+        "@profiles",
+        "@facets",
+        "@nodes",
+        "@facts",
+        "@occurrences",
+        "@paths",
+        "@mappings",
+        "@effective",
+        "@deployments",
+        "@themes",
+        "@hosts",
+        "@defaults"
+      ],
+      "all_sections_required": true,
+      "empty_sections_emitted": true,
+      "null_value": false,
+      "field_types": {
+        "version_literal": "quoted_supported_version_string",
+        "repository_path": "quoted_canonical_repository_relative_path",
+        "source_domain": "quoted_enum_profiles_hosts_group_facet_variant",
+        "qualified_id": "quoted_qualified_identity_string",
+        "qualified_group_id": "quoted_group_colon_qualified_identity",
+        "qualified_theme_id": "quoted_theme_colon_qualified_identity",
+        "occurrence_id": "quoted_occ_colon_64_lowercase_sha256_hex",
+        "occurrence_id_list": "ordered_list_of_quoted_occurrence_ids",
+        "assertion_id": "quoted_assert_colon_64_lowercase_sha256_hex",
+        "identifier": "quoted_validated_identifier_string",
+        "resource_key": "quoted_unqualified_bare_resource_key",
+        "qualified_id_list": "ordered_list_of_quoted_qualified_identity_strings",
+        "string_list": "ordered_list_of_quoted_strings",
+        "os": "quoted_darwin_or_linux",
+        "architecture_list": "ordered_list_of_quoted_architecture_strings",
+        "one_line_string": "quoted_one_line_string",
+        "manager": "quoted_registered_manager_string",
+        "installer": "quoted_registered_installer_string",
+        "variant": "quoted_base_or_declared_variant_string",
+        "source_span_text": "canonical_source_span_string",
+        "source_span_json": "seven_field_nonnegative_integer_object",
+        "digest": "sha256_colon_64_lowercase_hex",
+        "destination": "quoted_validated_destination_expression",
+        "deploy": "quoted_link_copy_or_none",
+        "privilege": "quoted_user_or_system",
+        "sensitivity": "quoted_public_or_private",
+        "mode": "quoted_canonical_octal_mode_string",
+        "account": "quoted_validated_account_or_group_string",
+        "node_kind": "quoted_entity_or_resource",
+        "resource_kind": "quoted_validated_resource_kind",
+        "fact_attribute": "quoted_registered_or_extension_fact_attribute",
+        "fact_scope": "quoted_declaration_group_qualified_identity",
+        "fact_value": "quoted_string_or_ordered_list_of_quoted_strings",
+        "demand_mode": "quoted_required_or_optional",
+        "repository_or_machine_path": "quoted_validated_path_string",
+        "expect": "quoted_file_directory_symlink_or_any",
+        "mapping_origin": "quoted_implicit_or_authored",
+        "check": "quoted_registered_check_adapter",
+        "command": "quoted_validated_command_name",
+        "family_list": "ordered_nonempty_list_of_quoted_font_family_strings",
+        "service": "quoted_validated_service_name",
+        "service_scope": "quoted_user_or_system",
+        "package": "quoted_validated_installer_package",
+        "package_version": "quoted_nonempty_version_string",
+        "action": "quoted_link_or_copy",
+        "render": "quoted_plain_sops_or_template",
+        "source_type": "quoted_regular_or_symlink",
+        "theme_name": "quoted_declared_theme_name",
+        "hostname_list": "nonempty_ordered_list_of_quoted_hostname_strings",
+        "host_role": "quoted_desktop_laptop_or_server",
+        "host_fact_key": "quoted_validated_host_extension_key",
+        "default_key": "quoted_registered_default_key",
+        "provenance": "ordered_unique_canonical_origin_string_list"
+      },
+      "serialized_record_names": {
+        "source": "source",
+        "group": "group",
+        "profile": "profile",
+        "facet": "facet",
+        "node": "node",
+        "semantic_fact": "fact",
+        "occurrence": "occurrence",
+        "assertion": "assertion",
+        "mapping": "mapping",
+        "resolution": "resolution",
+        "candidate": "candidate",
+        "theme": "theme",
+        "theme_contribution": "contribution",
+        "theme_resolution": "theme_resolution",
+        "host": "host",
+        "host_fact": "fact",
+        "default": "default"
+      },
+      "record_field_types": {
+        "header": {
+          "dotfile-version": "version_literal",
+          "lock-version": "version_literal",
+          "builtins-version": "version_literal",
+          "ir": "digest",
+          "structure": "digest"
+        },
+        "source": {
+          "path": "repository_path",
+          "domain": "source_domain",
+          "hash": "digest"
+        },
+        "group": {
+          "id": "qualified_id",
+          "name": "identifier",
+          "ancestors": "qualified_id_list",
+          "parent": "qualified_id",
+          "directory": "repository_path",
+          "os": "os",
+          "arch": "architecture_list",
+          "description": "one_line_string"
+        },
+        "profile": {
+          "id": "qualified_id",
+          "groups": "qualified_id_list",
+          "manager": "manager",
+          "installer": "installer",
+          "os": "os",
+          "arch": "architecture_list",
+          "theme": "qualified_theme_id",
+          "description": "one_line_string"
+        },
+        "facet": {
+          "id": "qualified_id",
+          "group": "qualified_id",
+          "package": "identifier",
+          "directory": "repository_path",
+          "variant": "variant",
+          "source_span": "source_span_text",
+          "description": "one_line_string",
+          "theme": "qualified_theme_id",
+          "destination": "destination",
+          "deploy": "deploy",
+          "privilege": "privilege",
+          "sensitivity": "sensitivity",
+          "mode": "mode",
+          "owner": "account",
+          "owner_group": "account"
+        },
+        "node": {
+          "id": "qualified_id",
+          "node_kind": "node_kind",
+          "resource_kind": "resource_kind",
+          "resource_key": "resource_key"
+        },
+        "semantic_fact": {
+          "target": "qualified_id",
+          "attribute": "fact_attribute",
+          "scope": "fact_scope",
+          "value": "fact_value",
+          "source_span": "source_span_text"
+        },
+        "occurrence": {
+          "id": "occurrence_id",
+          "target": "qualified_id",
+          "root": "qualified_id",
+          "group": "qualified_id",
+          "parent": "occurrence_id",
+          "local_mode": "demand_mode",
+          "effective_mode": "demand_mode",
+          "source_span": "source_span_text",
+          "reasons": "qualified_id_list"
+        },
+        "assertion": {
+          "id": "assertion_id",
+          "facet": "qualified_id",
+          "path": "repository_path",
+          "demand_mode": "demand_mode",
+          "expect": "expect",
+          "source_span": "source_span_text"
+        },
+        "mapping": {
+          "facet": "qualified_id",
+          "source_prefix": "repository_path",
+          "deploy": "deploy",
+          "privilege": "privilege",
+          "sensitivity": "sensitivity",
+          "origin": "mapping_origin",
+          "destination": "destination",
+          "mode": "mode",
+          "owner": "account",
+          "owner_group": "account",
+          "source_span": "source_span_text"
+        },
+        "resolution": {
+          "profile": "qualified_id",
+          "target": "qualified_id",
+          "demand_mode": "demand_mode",
+          "check": "check",
+          "bin": "command",
+          "family": "family_list",
+          "service": "service",
+          "scope": "service_scope",
+          "path": "repository_or_machine_path",
+          "installer": "installer",
+          "package": "package",
+          "version": "package_version",
+          "provenance": "provenance"
+        },
+        "candidate": {
+          "facet": "qualified_id",
+          "declaration_group": "qualified_id",
+          "variant": "variant",
+          "physical_source": "repository_path",
+          "logical_source": "repository_path",
+          "output_source": "repository_path",
+          "destination": "destination",
+          "action": "action",
+          "render": "render",
+          "privilege": "privilege",
+          "sensitivity": "sensitivity",
+          "mode": "mode",
+          "owner": "account",
+          "owner_group": "account",
+          "source_type": "source_type",
+          "source_digest": "digest",
+          "vault_source": "repository_path",
+          "vault_digest": "digest",
+          "provenance": "provenance"
+        },
+        "theme": {
+          "id": "qualified_id",
+          "name": "theme_name",
+          "path": "repository_path"
+        },
+        "theme_contribution": {
+          "group": "qualified_id",
+          "theme": "qualified_theme_id",
+          "source_span": "source_span_text"
+        },
+        "theme_resolution": {
+          "profile": "qualified_id",
+          "group_theme": "qualified_theme_id",
+          "profile_theme": "qualified_theme_id",
+          "default_theme": "qualified_theme_id",
+          "provenance": "provenance"
+        },
+        "host": {
+          "id": "qualified_id",
+          "name": "identifier",
+          "hostnames": "hostname_list",
+          "role": "host_role",
+          "profile": "qualified_id",
+          "theme": "qualified_theme_id"
+        },
+        "host_fact": {
+          "host": "qualified_id",
+          "key": "host_fact_key",
+          "value": "fact_value"
+        },
+        "default": {
+          "key": "default_key",
+          "value": "qualified_theme_id",
+          "source_span": "source_span_text"
+        }
+      },
+      "canonical_json_type_overrides": {
+        "facet.source_span": "source_span_json",
+        "semantic_fact.source_span": "source_span_json",
+        "occurrence.source_span": "source_span_json",
+        "assertion.source_span": "source_span_json",
+        "mapping.source_span": "source_span_json",
+        "theme_contribution.source_span": "source_span_json",
+        "default.source_span": "source_span_json"
+      },
+      "structure_preimage": {
+        "serialization": "RFC8785_JCS_UTF8",
+        "root_type": "object",
+        "required_fields": ["files", "groups", "facets", "themes", "ignores", "vault_inputs"],
+        "optional_fields": [],
+        "unknown_fields": "forbidden",
+        "null_values": "forbidden",
+        "field_types": {
+          "files": "array_of_file_records",
+          "groups": "array_of_structure_group_records",
+          "facets": "array_of_structure_facet_records",
+          "themes": "array_of_theme_name_strings",
+          "ignores": "array_of_ignore_records",
+          "vault_inputs": "array_of_zero_or_one_vault_input_record"
+        },
+        "records": {
+          "file": {
+            "required_fields": ["path", "mode"],
+            "optional_fields": ["raw_target", "content_digest"],
+            "field_order": ["path", "mode", "raw_target", "content_digest"],
+            "field_types": {
+              "path": "canonical_repository_relative_path_string",
+              "mode": "string_enum_100644_100755_120000",
+              "raw_target": "validated_source_symlink_raw_target_string",
+              "content_digest": "sha256_colon_64_lowercase_hex"
+            },
+            "conditional_rules": [
+              "raw_target_is_present_exactly_when_mode_is_120000",
+              "content_digest_is_present_exactly_when_a_regular_file_feeds_a_materialized_candidate",
+              "raw_target_and_content_digest_never_coexist"
+            ],
+            "sort_tuple": ["path"]
+          },
+          "group": {
+            "required_fields": ["id"],
+            "optional_fields": ["directory"],
+            "field_order": ["id", "directory"],
+            "field_types": {
+              "id": "group_qualified_identity_string",
+              "directory": "canonical_repository_relative_path_string"
+            },
+            "sort_tuple": ["id"]
+          },
+          "facet": {
+            "required_fields": ["id", "directory", "variant"],
+            "optional_fields": [],
+            "field_order": ["id", "directory", "variant"],
+            "field_types": {
+              "id": "facet_qualified_identity_string",
+              "directory": "canonical_repository_relative_path_string",
+              "variant": "base_or_declared_variant_string"
+            },
+            "sort_tuple": ["id", "variant"]
+          },
+          "ignore": {
+            "required_fields": ["path", "raw_digest"],
+            "optional_fields": [],
+            "field_order": ["path", "raw_digest"],
+            "field_types": {
+              "path": "canonical_repository_relative_gitignore_path_string",
+              "raw_digest": "sha256_colon_64_lowercase_hex"
+            },
+            "sort_tuple": ["path"]
+          },
+          "vault_input": {
+            "required_fields": ["path", "ciphertext_digest"],
+            "optional_fields": [],
+            "field_order": ["path", "ciphertext_digest"],
+            "field_types": {
+              "path": "literal_vars.enc.yaml",
+              "ciphertext_digest": "sha256_colon_64_lowercase_hex"
+            },
+            "cardinality": "zero_or_one"
+          }
+        },
+        "array_order": {
+          "files": ["path"],
+          "groups": ["id"],
+          "facets": ["id", "variant"],
+          "themes": ["theme_name_bytes"],
+          "ignores": ["path"],
+          "vault_inputs": ["singleton"]
+        }
+      },
+      "conditional_field_rules": {
+        "node": [
+          "resource_kind_and_resource_key_are_both_present_exactly_for_resource_nodes"
+        ],
+        "occurrence": [
+          "parent_is_present_exactly_for_non_root_occurrences"
+        ],
+        "resolution": [
+          "bin_is_present_exactly_when_check_is_command",
+          "family_is_present_exactly_when_check_is_font",
+          "service_and_scope_are_present_exactly_when_check_is_service",
+          "path_is_present_exactly_when_check_is_path",
+          "no_shape_field_is_present_for_check_none_or_package",
+          "installer_and_package_are_both_present_or_both_absent",
+          "every_entity_has_installer_and_package",
+          "version_is_present_exactly_when_a_nonempty_version_resolves",
+          "provenance_is_always_present"
+        ],
+        "candidate": [
+          "mode_is_present_exactly_when_action_is_copy",
+          "source_digest_is_present_exactly_for_materialized_candidates",
+          "owner_and_owner_group_are_present_for_every_system_candidate",
+          "vault_source_and_vault_digest_are_present_exactly_for_template_candidates",
+          "provenance_is_always_present"
+        ],
+        "theme_resolution": [
+          "exactly_one_record_is_emitted_per_profile",
+          "each_optional_theme_field_is_present_exactly_when_its_candidate_exists",
+          "provenance_membership_is_the_union_required_by_section_22_3"
+        ]
+      },
+      "records": {
+        "source": {
+          "section": "@sources",
+          "required": [
+            "path",
+            "domain",
+            "hash"
+          ],
+          "optional": []
+        },
+        "group": {
+          "section": "@groups",
+          "required": [
+            "id",
+            "name",
+            "ancestors"
+          ],
+          "optional": [
+            "parent",
+            "directory",
+            "os",
+            "arch",
+            "description"
+          ]
+        },
+        "profile": {
+          "section": "@profiles",
+          "required": [
+            "id",
+            "groups",
+            "manager",
+            "installer",
+            "os"
+          ],
+          "optional": [
+            "arch",
+            "theme",
+            "description"
+          ]
+        },
+        "facet": {
+          "section": "@facets",
+          "required": [
+            "id",
+            "group",
+            "package",
+            "directory",
+            "variant",
+            "source_span"
+          ],
+          "optional": [
+            "description",
+            "theme",
+            "destination",
+            "deploy",
+            "privilege",
+            "sensitivity",
+            "mode",
+            "owner",
+            "owner_group"
+          ]
+        },
+        "node": {
+          "section": "@nodes",
+          "required": [
+            "id",
+            "node_kind"
+          ],
+          "optional": [
+            "resource_kind",
+            "resource_key"
+          ]
+        },
+        "semantic_fact": {
+          "section": "@facts",
+          "required": [
+            "target",
+            "attribute",
+            "scope",
+            "value",
+            "source_span"
+          ],
+          "optional": []
+        },
+        "occurrence": {
+          "section": "@occurrences",
+          "required": [
+            "id",
+            "target",
+            "root",
+            "group",
+            "local_mode",
+            "effective_mode",
+            "source_span",
+            "reasons"
+          ],
+          "optional": [
+            "parent"
+          ]
+        },
+        "assertion": {
+          "section": "@paths",
+          "required": [
+            "id",
+            "facet",
+            "path",
+            "demand_mode",
+            "expect",
+            "source_span"
+          ],
+          "optional": []
+        },
+        "mapping": {
+          "section": "@mappings",
+          "required": [
+            "facet",
+            "source_prefix",
+            "deploy",
+            "privilege",
+            "sensitivity",
+            "origin",
+            "source_span"
+          ],
+          "optional": [
+            "destination",
+            "mode",
+            "owner",
+            "owner_group"
+          ]
+        },
+        "resolution": {
+          "section": "@effective",
+          "required": [
+            "profile",
+            "target",
+            "demand_mode",
+            "check",
+            "provenance"
+          ],
+          "optional": [
+            "bin",
+            "family",
+            "service",
+            "scope",
+            "path",
+            "installer",
+            "package",
+            "version"
+          ]
+        },
+        "candidate": {
+          "section": "@deployments",
+          "required": [
+            "facet",
+            "declaration_group",
+            "variant",
+            "physical_source",
+            "logical_source",
+            "output_source",
+            "destination",
+            "action",
+            "render",
+            "privilege",
+            "sensitivity",
+            "source_type",
+            "provenance"
+          ],
+          "optional": [
+            "mode",
+            "owner",
+            "owner_group",
+            "source_digest",
+            "vault_source",
+            "vault_digest"
+          ]
+        },
+        "theme": {
+          "section": "@themes",
+          "required": [
+            "id",
+            "name",
+            "path"
+          ],
+          "optional": []
+        },
+        "theme_contribution": {
+          "section": "@themes",
+          "required": [
+            "group",
+            "theme",
+            "source_span"
+          ],
+          "optional": []
+        },
+        "theme_resolution": {
+          "section": "@themes",
+          "required": [
+            "profile",
+            "provenance"
+          ],
+          "optional": [
+            "group_theme",
+            "profile_theme",
+            "default_theme"
+          ]
+        },
+        "host": {
+          "section": "@hosts",
+          "required": [
+            "id",
+            "name",
+            "hostnames",
+            "role",
+            "profile"
+          ],
+          "optional": [
+            "theme"
+          ]
+        },
+        "host_fact": {
+          "section": "@hosts",
+          "required": [
+            "host",
+            "key",
+            "value"
+          ],
+          "optional": []
+        },
+        "default": {
+          "section": "@defaults",
+          "required": [
+            "key",
+            "value",
+            "source_span"
+          ],
+          "optional": []
+        }
+      },
+      "header": {
+        "section": "@lock",
+        "cardinality": "exactly_one",
+        "field_order": [
+          "dotfile-version",
+          "lock-version",
+          "builtins-version",
+          "ir",
+          "structure"
+        ],
+        "conditional_fields": [],
+        "sort_tuple": [
+          "singleton"
+        ]
+      },
+      "record_layouts": {
+        "source": {
+          "field_order": [
+            "path",
+            "domain",
+            "hash"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "path"
+          ]
+        },
+        "group": {
+          "field_order": [
+            "id",
+            "name",
+            "ancestors",
+            "parent",
+            "directory",
+            "os",
+            "arch",
+            "description"
+          ],
+          "conditional_fields": [
+            "parent",
+            "directory",
+            "os",
+            "arch",
+            "description"
+          ],
+          "sort_tuple": [
+            "id"
+          ]
+        },
+        "profile": {
+          "field_order": [
+            "id",
+            "groups",
+            "manager",
+            "installer",
+            "os",
+            "arch",
+            "theme",
+            "description"
+          ],
+          "conditional_fields": [
+            "arch",
+            "theme",
+            "description"
+          ],
+          "sort_tuple": [
+            "id"
+          ]
+        },
+        "facet": {
+          "field_order": [
+            "id",
+            "group",
+            "package",
+            "directory",
+            "variant",
+            "source_span",
+            "description",
+            "theme",
+            "destination",
+            "deploy",
+            "privilege",
+            "sensitivity",
+            "mode",
+            "owner",
+            "owner_group"
+          ],
+          "conditional_fields": [
+            "description",
+            "theme",
+            "destination",
+            "deploy",
+            "privilege",
+            "sensitivity",
+            "mode",
+            "owner",
+            "owner_group"
+          ],
+          "sort_tuple": [
+            "id",
+            "variant"
+          ]
+        },
+        "node": {
+          "field_order": [
+            "id",
+            "node_kind",
+            "resource_kind",
+            "resource_key"
+          ],
+          "conditional_fields": [
+            "resource_kind",
+            "resource_key"
+          ],
+          "sort_tuple": [
+            "id"
+          ]
+        },
+        "semantic_fact": {
+          "field_order": [
+            "target",
+            "attribute",
+            "scope",
+            "value",
+            "source_span"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "target",
+            "attribute",
+            "scope",
+            "source_span"
+          ]
+        },
+        "occurrence": {
+          "field_order": [
+            "id",
+            "target",
+            "root",
+            "group",
+            "parent",
+            "local_mode",
+            "effective_mode",
+            "source_span",
+            "reasons"
+          ],
+          "conditional_fields": [
+            "parent"
+          ],
+          "sort_tuple": [
+            "source_span",
+            "target",
+            "id"
+          ]
+        },
+        "assertion": {
+          "field_order": [
+            "id",
+            "facet",
+            "path",
+            "demand_mode",
+            "expect",
+            "source_span"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "facet",
+            "path",
+            "source_span",
+            "id"
+          ]
+        },
+        "mapping": {
+          "field_order": [
+            "facet",
+            "source_prefix",
+            "deploy",
+            "privilege",
+            "sensitivity",
+            "origin",
+            "destination",
+            "mode",
+            "owner",
+            "owner_group",
+            "source_span"
+          ],
+          "conditional_fields": [
+            "destination",
+            "mode",
+            "owner",
+            "owner_group"
+          ],
+          "sort_tuple": [
+            "facet",
+            "source_prefix",
+            "source_span"
+          ]
+        },
+        "resolution": {
+          "field_order": [
+            "profile",
+            "target",
+            "demand_mode",
+            "check",
+            "bin",
+            "family",
+            "service",
+            "scope",
+            "path",
+            "installer",
+            "package",
+            "version",
+            "provenance"
+          ],
+          "conditional_fields": [
+            "bin",
+            "family",
+            "service",
+            "scope",
+            "path",
+            "installer",
+            "package",
+            "version"
+          ],
+          "sort_tuple": [
+            "profile",
+            "target"
+          ]
+        },
+        "candidate": {
+          "field_order": [
+            "facet",
+            "declaration_group",
+            "variant",
+            "physical_source",
+            "logical_source",
+            "output_source",
+            "destination",
+            "action",
+            "render",
+            "privilege",
+            "sensitivity",
+            "mode",
+            "owner",
+            "owner_group",
+            "source_type",
+            "source_digest",
+            "vault_source",
+            "vault_digest",
+            "provenance"
+          ],
+          "conditional_fields": [
+            "mode",
+            "owner",
+            "owner_group",
+            "source_digest",
+            "vault_source",
+            "vault_digest"
+          ],
+          "sort_tuple": [
+            "declaration_group",
+            "variant",
+            "destination",
+            "logical_source",
+            "output_source",
+            "physical_source",
+            "facet"
+          ]
+        },
+        "theme": {
+          "field_order": [
+            "id",
+            "name",
+            "path"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "id"
+          ]
+        },
+        "theme_contribution": {
+          "field_order": [
+            "group",
+            "theme",
+            "source_span"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "group",
+            "source_span",
+            "theme"
+          ]
+        },
+        "theme_resolution": {
+          "field_order": [
+            "profile",
+            "group_theme",
+            "profile_theme",
+            "default_theme",
+            "provenance"
+          ],
+          "conditional_fields": [
+            "group_theme",
+            "profile_theme",
+            "default_theme"
+          ],
+          "sort_tuple": [
+            "profile"
+          ]
+        },
+        "host": {
+          "field_order": [
+            "id",
+            "name",
+            "hostnames",
+            "role",
+            "profile",
+            "theme"
+          ],
+          "conditional_fields": [
+            "theme"
+          ],
+          "sort_tuple": [
+            "id"
+          ]
+        },
+        "host_fact": {
+          "field_order": [
+            "host",
+            "key",
+            "value"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "host",
+            "key"
+          ]
+        },
+        "default": {
+          "field_order": [
+            "key",
+            "value",
+            "source_span"
+          ],
+          "conditional_fields": [],
+          "sort_tuple": [
+            "key"
+          ]
+        }
+      },
+      "mixed_record_order": {
+        "@themes": [
+          "theme",
+          "theme_contribution",
+          "theme_resolution"
+        ],
+        "@hosts": [
+          "host",
+          "host_fact"
+        ]
+      }
+    },
+    "template_variables": {
+      "canonical_root_order": [
+        "sops_document"
+      ],
+      "root_shapes": [
+        {
+          "name": "sops_document",
+          "kind": "encrypted_yaml_document",
+          "cardinality": "exactly_one_when_required",
+          "plaintext_read_by_compiler": false
+        }
+      ]
+    }
+  },
+  "domains": [
+    {
+      "id": "profiles",
+      "path_kind": "exact",
+      "path": "config/profiles.dotfile",
+      "schema": "profiles",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "full",
+      "bootstrap": true,
+      "typed_support": [
+        "source_version",
+        "group_nesting",
+        "group_ancestry",
+        "group_directories",
+        "profile_groups",
+        "managers",
+        "operating_systems",
+        "architectures",
+        "theme_defaults"
+      ]
+    },
+    {
+      "id": "hosts",
+      "path_kind": "exact",
+      "path": "config/hosts.dotfile",
+      "schema": "hosts",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "full",
+      "typed_support": [
+        "host_identities",
+        "hostname_aliases",
+        "roles",
+        "profile_references",
+        "theme_references",
+        "extension_fact_fields"
+      ]
+    },
+    {
+      "id": "group_root_requirements",
+      "path_kind": "group_layout",
+      "path": "<group-directory>/package.dotfile",
+      "schema": "group_root_requirements",
+      "owner": "human",
+      "required": false,
+      "missing_behavior": "empty_group_root",
+      "generated": false,
+      "lock_input": "full",
+      "typed_support": [
+        "bindings",
+        "entity_demands",
+        "resource_demands",
+        "fact_extensions"
+      ]
+    },
+    {
+      "id": "facet_requirements",
+      "path_kind": "group_layout",
+      "path": "<group-directory>/<package>/package.dotfile",
+      "schema": "facet_requirements",
+      "owner": "human",
+      "required": "for_declared_facet",
+      "generated": false,
+      "lock_input": "full",
+      "typed_support": [
+        "bindings",
+        "entity_demands",
+        "resource_demands",
+        "facts",
+        "facet_attributes",
+        "path_entries",
+        "deployment_mappings"
+      ]
+    },
+    {
+      "id": "override_variant",
+      "path_kind": "group_layout",
+      "path": "<group-directory>/overrides/<variant>/<package>/package.dotfile",
+      "schema": "override_variant",
+      "owner": "human_or_tool",
+      "required": "for_each_variant_package",
+      "generated": false,
+      "lock_input": "full",
+      "typed_support": [
+        "inherited_deployment_metadata",
+        "path_entries",
+        "variant_overlay"
+      ],
+      "forbidden": [
+        "entity_demands",
+        "resource_demands",
+        "fact_contributions"
+      ]
+    },
+    {
+      "id": "recipient_keys",
+      "path_kind": "exact",
+      "path": "config/keys.dotfile",
+      "schema": "recipient_keys",
+      "owner": "human_or_tool",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "closed_recipients_block",
+        "unique_labels",
+        "age_public_recipient_validation"
+      ]
+    },
+    {
+      "id": "secret_scan_rules",
+      "path_kind": "exact",
+      "path": "config/scan.dotfile",
+      "schema": "secret_scan_rules",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "ordered_closed_rule_records",
+        "repository_relative_globs",
+        "path_or_value_inspection"
+      ]
+    },
+    {
+      "id": "benchmark_baselines",
+      "path_kind": "exact",
+      "path": "benchmarks/baselines.dotfile",
+      "schema": "benchmark_baselines",
+      "owner": "tool",
+      "required": false,
+      "missing_behavior": "empty_baseline_set",
+      "generated": true,
+      "lock_input": "none",
+      "typed_support": [
+        "host_epoch_run_id_correlation",
+        "canonical_host_epoch_ordering"
+      ]
+    },
+    {
+      "id": "theme_roles",
+      "path_kind": "exact",
+      "path": "theme/roles.dotfile",
+      "schema": "theme_roles",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "open_role_maps",
+        "terminal_roles",
+        "eza_roles_and_patterns",
+        "kde_roles",
+        "konsole_roles"
+      ]
+    },
+    {
+      "id": "theme_fonts",
+      "path_kind": "exact",
+      "path": "theme/fonts.dotfile",
+      "schema": "theme_fonts",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "open_font_map",
+        "canonical_decimal_sizes",
+        "application_enablement"
+      ]
+    },
+    {
+      "id": "theme_map_catppuccin",
+      "path_kind": "exact",
+      "path": "theme/maps/catppuccin.dotfile",
+      "schema": "theme_map_catppuccin",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "ordered_hex_to_palette_records"
+      ]
+    },
+    {
+      "id": "theme_map_eza",
+      "path_kind": "exact",
+      "path": "theme/maps/eza.dotfile",
+      "schema": "theme_map_eza",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "ordered_category_records",
+        "unique_extension_join"
+      ]
+    },
+    {
+      "id": "theme_map_gtk",
+      "path_kind": "exact",
+      "path": "theme/maps/gtk.dotfile",
+      "schema": "theme_map_gtk",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "ordered_external_color_role_records"
+      ]
+    },
+    {
+      "id": "theme_map_kde",
+      "path_kind": "exact",
+      "path": "theme/maps/kde.dotfile",
+      "schema": "theme_map_kde",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "ordered_group_records",
+        "foreground_records",
+        "selection_foreground_records",
+        "resolved_kde_role_joins"
+      ]
+    },
+    {
+      "id": "theme_map_obsidian",
+      "path_kind": "exact",
+      "path": "theme/maps/obsidian.dotfile",
+      "schema": "theme_map_obsidian",
+      "owner": "human",
+      "required": true,
+      "generated": false,
+      "lock_input": "none",
+      "typed_support": [
+        "derived_source",
+        "ordered_variable_records",
+        "palette_rgb_color_alpha_derived_literal_shapes"
+      ]
+    },
+    {
+      "id": "theme_profiles",
+      "path_kind": "immediate_children",
+      "path": "theme/profiles/<theme>.dotfile",
+      "schema": "theme_profile",
+      "owner": "human",
+      "required": "at_least_one",
+      "generated": false,
+      "lock_input": "identity_and_structure",
+      "typed_support": [
+        "identity",
+        "appearance",
+        "icons",
+        "nvim_flavour",
+        "complete_palette",
+        "sparse_role_font_and_application_overrides",
+        "cross_profile_palette_validation"
+      ]
+    },
+    {
+      "id": "template_variables",
+      "path_kind": "exact",
+      "path": "vars.enc.yaml",
+      "schema": "template_variables",
+      "owner": "vault",
+      "required": "when_template_leaf_exists",
+      "generated": false,
+      "lock_input": "ciphertext_structure_and_identity",
+      "typed_support": [
+        "tracked_regular_file",
+        "ciphertext_hash_without_decryption"
+      ]
+    },
+    {
+      "id": "generated_lock",
+      "path_kind": "exact",
+      "path": "package.lock.dotfile",
+      "schema": "generated_lock",
+      "owner": "compiler",
+      "required": "for_lock_consumers",
+      "generated": true,
+      "lock_input": "generated_output",
+      "typed_support": [
+        "exact_sections",
+        "typed_records",
+        "field_order",
+        "conditional_fields",
+        "canonical_text",
+        "canonical_json",
+        "stable_ids",
+        "digests",
+        "freshness",
+        "tamper_detection"
+      ]
+    }
+  ]
+}
