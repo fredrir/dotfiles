@@ -1,0 +1,130 @@
+{
+ "id": "f01-lex-path-absolute",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "6.5",
+   "clause": "absolute path",
+   "rule_id": "DFV1-MUST-013"
+  }
+ ],
+ "domain": "generic",
+ "operation": "lex",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "./\"/etc\"\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nPathRef 0..8 \"./\\\"/etc\\\"\" decoded \"/etc\"\ngap 8..8 \"\"\nNewline 8..9 \"\\n\"\ngap 9..9 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "lex/token",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 8,
+      "end_column": 9,
+      "end_line": 1,
+      "path": "fixture.dotfile",
+      "start_byte": 0,
+      "start_column": 1,
+      "start_line": 1
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "use a plain relative repository path",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "lex",
+     "summary": "path reference is absolute"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

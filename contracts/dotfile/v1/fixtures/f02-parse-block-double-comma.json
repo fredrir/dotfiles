@@ -1,0 +1,132 @@
+{
+ "id": "f02-parse-block-double-comma",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "double comma"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "a { b,, c }\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nWord 0..1 \"a\"\ngap 1..2 \" \"\nLeftBrace 2..3 \"{\"\ngap 3..4 \" \"\nWord 4..5 \"b\"\ngap 5..5 \"\"\nComma 5..6 \",\"\ngap 6..6 \"\"\nComma 6..7 \",\"\ngap 7..8 \" \"\nWord 8..9 \"c\"\ngap 9..10 \" \"\nRightBrace 10..11 \"}\"\ngap 11..11 \"\"\nNewline 11..12 \"\\n\"\ngap 12..12 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..12\n  NamedEntry 0..11\n    Word 0..1 \"a\"\n    Block 2..11\n      LeftBrace 2..3 \"{\"\n      NamedEntry 4..5\n        Word 4..5 \"b\"\n      Comma 5..6 \",\"\n      Error 6..9\n        Comma 6..7 \",\"\n        Word 8..9 \"c\"\n      RightBrace 10..11 \"}\"\n  Newline 11..12 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "parse/syntax",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 7,
+      "end_column": 8,
+      "end_line": 1,
+      "path": "fixture.dotfile",
+      "start_byte": 6,
+      "start_column": 7,
+      "start_line": 1
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "start an entry with a name, `@`, `?`, or a path",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "parse",
+     "summary": "expected an entry"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

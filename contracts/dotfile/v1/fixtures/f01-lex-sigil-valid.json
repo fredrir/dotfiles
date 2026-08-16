@@ -1,0 +1,106 @@
+{
+ "id": "f01-lex-sigil-valid",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "6.3",
+   "clause": "adjacent sigils",
+   "rule_id": "DFV1-MUST-011"
+  }
+ ],
+ "domain": "generic",
+ "operation": "lex",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@a\n$b\n?c\n?@font { @key = x }\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAt 0..1 \"@\"\ngap 1..1 \"\"\nWord 1..2 \"a\"\ngap 2..2 \"\"\nNewline 2..3 \"\\n\"\ngap 3..3 \"\"\nDollar 3..4 \"$\"\ngap 4..4 \"\"\nWord 4..5 \"b\"\ngap 5..5 \"\"\nNewline 5..6 \"\\n\"\ngap 6..6 \"\"\nQuestion 6..7 \"?\"\ngap 7..7 \"\"\nWord 7..8 \"c\"\ngap 8..8 \"\"\nNewline 8..9 \"\\n\"\ngap 9..9 \"\"\nQuestion 9..10 \"?\"\ngap 10..10 \"\"\nAt 10..11 \"@\"\ngap 11..11 \"\"\nWord 11..15 \"font\"\ngap 15..16 \" \"\nLeftBrace 16..17 \"{\"\ngap 17..18 \" \"\nAt 18..19 \"@\"\ngap 19..19 \"\"\nWord 19..22 \"key\"\ngap 22..23 \" \"\nEq 23..24 \"=\"\ngap 24..25 \" \"\nWord 25..26 \"x\"\ngap 26..27 \" \"\nRightBrace 27..28 \"}\"\ngap 28..28 \"\"\nNewline 28..29 \"\\n\"\ngap 29..29 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

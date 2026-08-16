@@ -1,0 +1,132 @@
+{
+ "id": "f02-parse-entry-missing-value",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "missing equals value"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@a =\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAt 0..1 \"@\"\ngap 1..1 \"\"\nWord 1..2 \"a\"\ngap 2..3 \" \"\nEq 3..4 \"=\"\ngap 4..4 \"\"\nNewline 4..5 \"\\n\"\ngap 5..5 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..5\n  Attribute 0..5\n    At 0..1 \"@\"\n    Word 1..2 \"a\"\n    Eq 3..4 \"=\"\n    Newline 4..5 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "parse/syntax",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 5,
+      "end_column": 1,
+      "end_line": 2,
+      "path": "fixture.dotfile",
+      "start_byte": 5,
+      "start_column": 1,
+      "start_line": 2
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "write a string, a reference, or a list",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "parse",
+     "summary": "expected a value"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

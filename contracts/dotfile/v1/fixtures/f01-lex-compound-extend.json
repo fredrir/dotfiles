@@ -1,0 +1,105 @@
+{
+ "id": "f01-lex-compound-extend",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "6.3",
+   "clause": "exact @extend followed by space and target"
+  }
+ ],
+ "domain": "generic",
+ "operation": "lex",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@extend entity/wezterm {\n    @pkg = \"wezterm\"\n}\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAtExtend 0..7 \"@extend\"\ngap 7..8 \" \"\nWord 8..14 \"entity\"\ngap 14..14 \"\"\nSlash 14..15 \"/\"\ngap 15..15 \"\"\nWord 15..22 \"wezterm\"\ngap 22..23 \" \"\nLeftBrace 23..24 \"{\"\ngap 24..24 \"\"\nNewline 24..25 \"\\n\"\ngap 25..29 \"    \"\nAt 29..30 \"@\"\ngap 30..30 \"\"\nWord 30..33 \"pkg\"\ngap 33..34 \" \"\nEq 34..35 \"=\"\ngap 35..36 \" \"\nString 36..45 \"\\\"wezterm\\\"\" decoded \"wezterm\"\ngap 45..45 \"\"\nNewline 45..46 \"\\n\"\ngap 46..46 \"\"\nRightBrace 46..47 \"}\"\ngap 47..47 \"\"\nNewline 47..48 \"\\n\"\ngap 48..48 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

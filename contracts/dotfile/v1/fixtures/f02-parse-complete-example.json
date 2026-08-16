@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-complete-example",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "27",
+   "clause": "worked facet example"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@description = \"Terminal emulator with a modular Lua configuration\"\n\n./types {\n    @deploy = \"none\"\n    @expect = \"directory\"\n}\n\n@font {\n    @key = hack_nerd_font\n    @description = \"Terminal font stack\"\n    @family = [\"Hack Nerd Font Mono\", \"JetBrainsMono Nerd Font\"]\n}\n\ntmux\nwezterm { @version = \"20260813-114614-18a44cb7\" }\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAt 0..1 \"@\"\ngap 1..1 \"\"\nWord 1..12 \"description\"\ngap 12..13 \" \"\nEq 13..14 \"=\"\ngap 14..15 \" \"\nString 15..67 \"\\\"Terminal emulator with a modular Lua configuration\\\"\" decoded \"Terminal emulator with a modular Lua configuration\"\ngap 67..67 \"\"\nNewline 67..68 \"\\n\"\ngap 68..68 \"\"\nNewline 68..69 \"\\n\"\ngap 69..69 \"\"\nPathRef 69..76 \"./types\"\ngap 76..77 \" \"\nLeftBrace 77..78 \"{\"\ngap 78..78 \"\"\nNewline 78..79 \"\\n\"\ngap 79..83 \"    \"\nAt 83..84 \"@\"\ngap 84..84 \"\"\nWord 84..90 \"deploy\"\ngap 90..91 \" \"\nEq 91..92 \"=\"\ngap 92..93 \" \"\nString 93..99 \"\\\"none\\\"\" decoded \"none\"\ngap 99..99 \"\"\nNewline 99..100 \"\\n\"\ngap 100..104 \"    \"\nAt 104..105 \"@\"\ngap 105..105 \"\"\nWord 105..111 \"expect\"\ngap 111..112 \" \"\nEq 112..113 \"=\"\ngap 113..114 \" \"\nString 114..125 \"\\\"directory\\\"\" decoded \"directory\"\ngap 125..125 \"\"\nNewline 125..126 \"\\n\"\ngap 126..126 \"\"\nRightBrace 126..127 \"}\"\ngap 127..127 \"\"\nNewline 127..128 \"\\n\"\ngap 128..128 \"\"\nNewline 128..129 \"\\n\"\ngap 129..129 \"\"\nAt 129..130 \"@\"\ngap 130..130 \"\"\nWord 130..134 \"font\"\ngap 134..135 \" \"\nLeftBrace 135..136 \"{\"\ngap 136..136 \"\"\nNewline 136..137 \"\\n\"\ngap 137..141 \"    \"\nAt 141..142 \"@\"\ngap 142..142 \"\"\nWord 142..145 \"key\"\ngap 145..146 \" \"\nEq 146..147 \"=\"\ngap 147..148 \" \"\nWord 148..162 \"hack_nerd_font\"\ngap 162..162 \"\"\nNewline 162..163 \"\\n\"\ngap 163..167 \"    \"\nAt 167..168 \"@\"\ngap 168..168 \"\"\nWord 168..179 \"description\"\ngap 179..180 \" \"\nEq 180..181 \"=\"\ngap 181..182 \" \"\nString 182..203 \"\\\"Terminal font stack\\\"\" decoded \"Terminal font stack\"\ngap 203..203 \"\"\nNewline 203..204 \"\\n\"\ngap 204..208 \"    \"\nAt 208..209 \"@\"\ngap 209..209 \"\"\nWord 209..215 \"family\"\ngap 215..216 \" \"\nEq 216..217 \"=\"\ngap 217..218 \" \"\nLeftBracket 218..219 \"[\"\ngap 219..219 \"\"\nString 219..240 \"\\\"Hack Nerd Font Mono\\\"\" decoded \"Hack Nerd Font Mono\"\ngap 240..240 \"\"\nComma 240..241 \",\"\ngap 241..242 \" \"\nString 242..267 \"\\\"JetBrainsMono Nerd Font\\\"\" decoded \"JetBrainsMono Nerd Font\"\ngap 267..267 \"\"\nRightBracket 267..268 \"]\"\ngap 268..268 \"\"\nNewline 268..269 \"\\n\"\ngap 269..269 \"\"\nRightBrace 269..270 \"}\"\ngap 270..270 \"\"\nNewline 270..271 \"\\n\"\ngap 271..271 \"\"\nNewline 271..272 \"\\n\"\ngap 272..272 \"\"\nWord 272..276 \"tmux\"\ngap 276..276 \"\"\nNewline 276..277 \"\\n\"\ngap 277..277 \"\"\nWord 277..284 \"wezterm\"\ngap 284..285 \" \"\nLeftBrace 285..286 \"{\"\ngap 286..287 \" \"\nAt 287..288 \"@\"\ngap 288..288 \"\"\nWord 288..295 \"version\"\ngap 295..296 \" \"\nEq 296..297 \"=\"\ngap 297..298 \" \"\nString 298..324 \"\\\"20260813-114614-18a44cb7\\\"\" decoded \"20260813-114614-18a44cb7\"\ngap 324..325 \" \"\nRightBrace 325..326 \"}\"\ngap 326..326 \"\"\nNewline 326..327 \"\\n\"\ngap 327..327 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..327\n  Attribute 0..67\n    At 0..1 \"@\"\n    Word 1..12 \"description\"\n    Eq 13..14 \"=\"\n    StringExpr 15..67\n      String 15..67 \"\\\"Terminal emulator with a modular Lua configuration\\\"\"\n  Newline 67..68 \"\\n\"\n  Newline 68..69 \"\\n\"\n  PathEntry 69..127\n    PathRef 69..76 \"./types\"\n    Block 77..127\n      LeftBrace 77..78 \"{\"\n      Newline 78..79 \"\\n\"\n      Attribute 83..99\n        At 83..84 \"@\"\n        Word 84..90 \"deploy\"\n        Eq 91..92 \"=\"\n        StringExpr 93..99\n          String 93..99 \"\\\"none\\\"\"\n      Newline 99..100 \"\\n\"\n      Attribute 104..125\n        At 104..105 \"@\"\n        Word 105..111 \"expect\"\n        Eq 112..113 \"=\"\n        StringExpr 114..125\n          String 114..125 \"\\\"directory\\\"\"\n      Newline 125..126 \"\\n\"\n      RightBrace 126..127 \"}\"\n  Newline 127..128 \"\\n\"\n  Newline 128..129 \"\\n\"\n  SigilBlock 129..270\n    At 129..130 \"@\"\n    Word 130..134 \"font\"\n    Block 135..270\n      LeftBrace 135..136 \"{\"\n      Newline 136..137 \"\\n\"\n      Attribute 141..162\n        At 141..142 \"@\"\n        Word 142..145 \"key\"\n        Eq 146..147 \"=\"\n        Reference 148..162\n          Word 148..162 \"hack_nerd_font\"\n      Newline 162..163 \"\\n\"\n      Attribute 167..203\n        At 167..168 \"@\"\n        Word 168..179 \"description\"\n        Eq 180..181 \"=\"\n        StringExpr 182..203\n          String 182..203 \"\\\"Terminal font stack\\\"\"\n      Newline 203..204 \"\\n\"\n      Attribute 208..268\n        At 208..209 \"@\"\n        Word 209..215 \"family\"\n        Eq 216..217 \"=\"\n        List 218..268\n          LeftBracket 218..219 \"[\"\n          StringExpr 219..240\n            String 219..240 \"\\\"Hack Nerd Font Mono\\\"\"\n          Comma 240..241 \",\"\n          StringExpr 242..267\n            String 242..267 \"\\\"JetBrainsMono Nerd Font\\\"\"\n          RightBracket 267..268 \"]\"\n      Newline 268..269 \"\\n\"\n      RightBrace 269..270 \"}\"\n  Newline 270..271 \"\\n\"\n  Newline 271..272 \"\\n\"\n  NamedEntry 272..276\n    Word 272..276 \"tmux\"\n  Newline 276..277 \"\\n\"\n  NamedEntry 277..326\n    Word 277..284 \"wezterm\"\n    Block 285..326\n      LeftBrace 285..286 \"{\"\n      Attribute 287..324\n        At 287..288 \"@\"\n        Word 288..295 \"version\"\n        Eq 296..297 \"=\"\n        StringExpr 298..324\n          String 298..324 \"\\\"20260813-114614-18a44cb7\\\"\"\n      RightBrace 325..326 \"}\"\n  Newline 326..327 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

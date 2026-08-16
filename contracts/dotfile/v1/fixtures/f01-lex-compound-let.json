@@ -1,0 +1,105 @@
+{
+ "id": "f01-lex-compound-let",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "6.3",
+   "clause": "exact @let followed by horizontal space and binding"
+  }
+ ],
+ "domain": "generic",
+ "operation": "lex",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@let vault = \"x\"\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAtLet 0..4 \"@let\"\ngap 4..5 \" \"\nWord 5..10 \"vault\"\ngap 10..11 \" \"\nEq 11..12 \"=\"\ngap 12..13 \" \"\nString 13..16 \"\\\"x\\\"\" decoded \"x\"\ngap 16..16 \"\"\nNewline 16..17 \"\\n\"\ngap 17..17 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

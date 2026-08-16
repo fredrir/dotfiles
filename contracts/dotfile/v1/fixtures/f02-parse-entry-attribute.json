@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-entry-attribute",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "attribute"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@version = \"20260813-114614-18a44cb7\"\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAt 0..1 \"@\"\ngap 1..1 \"\"\nWord 1..8 \"version\"\ngap 8..9 \" \"\nEq 9..10 \"=\"\ngap 10..11 \" \"\nString 11..37 \"\\\"20260813-114614-18a44cb7\\\"\" decoded \"20260813-114614-18a44cb7\"\ngap 37..37 \"\"\nNewline 37..38 \"\\n\"\ngap 38..38 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..38\n  Attribute 0..37\n    At 0..1 \"@\"\n    Word 1..8 \"version\"\n    Eq 9..10 \"=\"\n    StringExpr 11..37\n      String 11..37 \"\\\"20260813-114614-18a44cb7\\\"\"\n  Newline 37..38 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

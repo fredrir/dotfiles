@@ -1,0 +1,132 @@
+{
+ "id": "f02-parse-block-missing-closer",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "missing closer"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "a {\n    b\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nWord 0..1 \"a\"\ngap 1..2 \" \"\nLeftBrace 2..3 \"{\"\ngap 3..3 \"\"\nNewline 3..4 \"\\n\"\ngap 4..8 \"    \"\nWord 8..9 \"b\"\ngap 9..9 \"\"\nNewline 9..10 \"\\n\"\ngap 10..10 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..10\n  NamedEntry 0..10\n    Word 0..1 \"a\"\n    Block 2..10\n      LeftBrace 2..3 \"{\"\n      Newline 3..4 \"\\n\"\n      NamedEntry 8..9\n        Word 8..9 \"b\"\n      Newline 9..10 \"\\n\"\n      Missing RightBrace 10\n"
+   }
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "parse/syntax",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 10,
+      "end_column": 1,
+      "end_line": 3,
+      "path": "fixture.dotfile",
+      "start_byte": 10,
+      "start_column": 1,
+      "start_line": 3
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "close the block with `}`",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "parse",
+     "summary": "missing closing brace"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

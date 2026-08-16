@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-optional-sigil-block",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "?@font parses as generic syntax"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "?@font {\n    @key = hack_nerd_font\n}\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nQuestion 0..1 \"?\"\ngap 1..1 \"\"\nAt 1..2 \"@\"\ngap 2..2 \"\"\nWord 2..6 \"font\"\ngap 6..7 \" \"\nLeftBrace 7..8 \"{\"\ngap 8..8 \"\"\nNewline 8..9 \"\\n\"\ngap 9..13 \"    \"\nAt 13..14 \"@\"\ngap 14..14 \"\"\nWord 14..17 \"key\"\ngap 17..18 \" \"\nEq 18..19 \"=\"\ngap 19..20 \" \"\nWord 20..34 \"hack_nerd_font\"\ngap 34..34 \"\"\nNewline 34..35 \"\\n\"\ngap 35..35 \"\"\nRightBrace 35..36 \"}\"\ngap 36..36 \"\"\nNewline 36..37 \"\\n\"\ngap 37..37 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..37\n  SigilBlock 0..36\n    Question 0..1 \"?\"\n    At 1..2 \"@\"\n    Word 2..6 \"font\"\n    Block 7..36\n      LeftBrace 7..8 \"{\"\n      Newline 8..9 \"\\n\"\n      Attribute 13..34\n        At 13..14 \"@\"\n        Word 14..17 \"key\"\n        Eq 18..19 \"=\"\n        Reference 20..34\n          Word 20..34 \"hack_nerd_font\"\n      Newline 34..35 \"\\n\"\n      RightBrace 35..36 \"}\"\n  Newline 36..37 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

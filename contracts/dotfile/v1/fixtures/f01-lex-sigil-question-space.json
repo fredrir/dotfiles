@@ -1,0 +1,161 @@
+{
+ "id": "f01-lex-sigil-question-space",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "6.3",
+   "clause": "? demand and ? @font",
+   "rule_id": "DFV1-MUST-011"
+  }
+ ],
+ "domain": "generic",
+ "operation": "lex",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "? demand\n? @font\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nQuestion 0..1 \"?\"\ngap 1..2 \" \"\nWord 2..8 \"demand\"\ngap 8..8 \"\"\nNewline 8..9 \"\\n\"\ngap 9..9 \"\"\nQuestion 9..10 \"?\"\ngap 10..11 \" \"\nAt 11..12 \"@\"\ngap 12..12 \"\"\nWord 12..16 \"font\"\ngap 16..16 \"\"\nNewline 16..17 \"\\n\"\ngap 17..17 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {
+      "sigil": "?"
+     },
+     "code": "lex/token",
+     "expected": {
+      "subject": "@, a name, or a path"
+     },
+     "primary_span": {
+      "end_byte": 1,
+      "end_column": 2,
+      "end_line": 1,
+      "path": "fixture.dotfile",
+      "start_byte": 0,
+      "start_column": 1,
+      "start_line": 1
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "write the sigil immediately before its subject",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "lex",
+     "summary": "sigil is not adjacent to its subject"
+    },
+    {
+     "actual": {
+      "sigil": "?"
+     },
+     "code": "lex/token",
+     "expected": {
+      "subject": "@, a name, or a path"
+     },
+     "primary_span": {
+      "end_byte": 10,
+      "end_column": 2,
+      "end_line": 2,
+      "path": "fixture.dotfile",
+      "start_byte": 9,
+      "start_column": 1,
+      "start_line": 2
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "write the sigil immediately before its subject",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "lex",
+     "summary": "sigil is not adjacent to its subject"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

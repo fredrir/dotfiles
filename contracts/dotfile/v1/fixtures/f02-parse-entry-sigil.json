@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-entry-sigil",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "sigil block"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@font {\n    @key = hack_nerd_font\n}\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAt 0..1 \"@\"\ngap 1..1 \"\"\nWord 1..5 \"font\"\ngap 5..6 \" \"\nLeftBrace 6..7 \"{\"\ngap 7..7 \"\"\nNewline 7..8 \"\\n\"\ngap 8..12 \"    \"\nAt 12..13 \"@\"\ngap 13..13 \"\"\nWord 13..16 \"key\"\ngap 16..17 \" \"\nEq 17..18 \"=\"\ngap 18..19 \" \"\nWord 19..33 \"hack_nerd_font\"\ngap 33..33 \"\"\nNewline 33..34 \"\\n\"\ngap 34..34 \"\"\nRightBrace 34..35 \"}\"\ngap 35..35 \"\"\nNewline 35..36 \"\\n\"\ngap 36..36 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..36\n  SigilBlock 0..35\n    At 0..1 \"@\"\n    Word 1..5 \"font\"\n    Block 6..35\n      LeftBrace 6..7 \"{\"\n      Newline 7..8 \"\\n\"\n      Attribute 12..33\n        At 12..13 \"@\"\n        Word 13..16 \"key\"\n        Eq 17..18 \"=\"\n        Reference 19..33\n          Word 19..33 \"hack_nerd_font\"\n      Newline 33..34 \"\\n\"\n      RightBrace 34..35 \"}\"\n  Newline 35..36 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-entry-extend",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "extend entry"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "@extend font/hack_nerd_font {\n    @pkg = \"font-hack-nerd-font\"\n}\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nAtExtend 0..7 \"@extend\"\ngap 7..8 \" \"\nWord 8..12 \"font\"\ngap 12..12 \"\"\nSlash 12..13 \"/\"\ngap 13..13 \"\"\nWord 13..27 \"hack_nerd_font\"\ngap 27..28 \" \"\nLeftBrace 28..29 \"{\"\ngap 29..29 \"\"\nNewline 29..30 \"\\n\"\ngap 30..34 \"    \"\nAt 34..35 \"@\"\ngap 35..35 \"\"\nWord 35..38 \"pkg\"\ngap 38..39 \" \"\nEq 39..40 \"=\"\ngap 40..41 \" \"\nString 41..62 \"\\\"font-hack-nerd-font\\\"\" decoded \"font-hack-nerd-font\"\ngap 62..62 \"\"\nNewline 62..63 \"\\n\"\ngap 63..63 \"\"\nRightBrace 63..64 \"}\"\ngap 64..64 \"\"\nNewline 64..65 \"\\n\"\ngap 65..65 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..65\n  ExtendEntry 0..64\n    AtExtend 0..7 \"@extend\"\n    QualifiedRef 8..27\n      Word 8..12 \"font\"\n      Slash 12..13 \"/\"\n      Word 13..27 \"hack_nerd_font\"\n    Block 28..64\n      LeftBrace 28..29 \"{\"\n      Newline 29..30 \"\\n\"\n      Attribute 34..62\n        At 34..35 \"@\"\n        Word 35..38 \"pkg\"\n        Eq 39..40 \"=\"\n        StringExpr 41..62\n          String 41..62 \"\\\"font-hack-nerd-font\\\"\"\n      Newline 62..63 \"\\n\"\n      RightBrace 63..64 \"}\"\n  Newline 64..65 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

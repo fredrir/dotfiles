@@ -377,10 +377,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotfile-source"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "dotfile-syntax"
+version = "0.1.0"
+dependencies = [
+ "dotfile-source",
+ "serde_json",
+]
+
+[[package]]
 name = "dotfile-test-support"
 version = "0.1.0"
 dependencies = [
  "blake2",
+ "dotfile-source",
+ "dotfile-syntax",
  "serde_json",
 ]
 

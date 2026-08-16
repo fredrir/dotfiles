@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-entry-path",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "path entry"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "./.zshrc { @destination = \"~/.zshrc\" }\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nPathRef 0..8 \"./.zshrc\"\ngap 8..9 \" \"\nLeftBrace 9..10 \"{\"\ngap 10..11 \" \"\nAt 11..12 \"@\"\ngap 12..12 \"\"\nWord 12..23 \"destination\"\ngap 23..24 \" \"\nEq 24..25 \"=\"\ngap 25..26 \" \"\nString 26..36 \"\\\"~/.zshrc\\\"\" decoded \"~/.zshrc\"\ngap 36..37 \" \"\nRightBrace 37..38 \"}\"\ngap 38..38 \"\"\nNewline 38..39 \"\\n\"\ngap 39..39 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..39\n  PathEntry 0..38\n    PathRef 0..8 \"./.zshrc\"\n    Block 9..38\n      LeftBrace 9..10 \"{\"\n      Attribute 11..36\n        At 11..12 \"@\"\n        Word 12..23 \"destination\"\n        Eq 24..25 \"=\"\n        StringExpr 26..36\n          String 26..36 \"\\\"~/.zshrc\\\"\"\n      RightBrace 37..38 \"}\"\n  Newline 38..39 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

@@ -6,6 +6,8 @@ members = [
   "crates/bench-workloads",
   "crates/count",
   "crates/dmux",
+  "crates/dotfile-source",
+  "crates/dotfile-syntax",
   "crates/dotfile-test-support",
   "crates/git/gdd",
   "crates/git/gitkit",

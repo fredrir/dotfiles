@@ -1,639 +1,1629 @@
 {
-  "format_version": "1",
-  "status": "planned",
-  "normative_sources": [
-    { "path": "docs/dotfile-language.md", "section": "28", "items": 14 },
-    { "path": "docs/dotfile-implementation-plan.md", "section": "12", "test_classes": 6 },
-    { "path": "docs/dotfile-implementation-plan.md", "section": "18", "scope": "sections 6 through 8 examples and negative neighbors" }
-  ],
-  "implementation_claims": {
-    "implemented_fixture_ids": [],
-    "passing_fixture_ids": [],
-    "conformance_claimed": false
+ "format_version": "1",
+ "status": "planned",
+ "normative_sources": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "28",
+   "items": 14
   },
-  "fixture_record_contract": {
-    "unknown_fields": "forbidden_at_every_record_level",
+  {
+   "path": "docs/dotfile-implementation-plan.md",
+   "section": "12",
+   "test_classes": 6
+  },
+  {
+   "path": "docs/dotfile-implementation-plan.md",
+   "section": "18",
+   "scope": "sections 6 through 8 examples and negative neighbors"
+  }
+ ],
+ "implementation_claims": {
+  "implemented_fixture_ids": [
+   "f00-bootstrap-absent",
+   "f00-bootstrap-binding",
+   "f00-bootstrap-bom-comments",
+   "f00-bootstrap-crlf",
+   "f00-bootstrap-duplicate",
+   "f00-bootstrap-exact",
+   "f00-bootstrap-interpolation",
+   "f00-bootstrap-not-first",
+   "f00-bootstrap-soft-break",
+   "f00-bootstrap-trailing-comma",
+   "f00-bootstrap-unsupported",
+   "f00-bootstrap-wrong-file",
+   "f01-lex-bom-after-whitespace",
+   "f01-lex-bom-double",
+   "f01-lex-bom-none",
+   "f01-lex-bom-single",
+   "f01-lex-comment-eof",
+   "f01-lex-comment-hash-in-string",
+   "f01-lex-comment-line",
+   "f01-lex-comment-trailing",
+   "f01-lex-comment-word-hash",
+   "f01-lex-compound-at-let-eof",
+   "f01-lex-compound-extend",
+   "f01-lex-compound-let",
+   "f01-lex-compound-letfoo",
+   "f01-lex-compound-space-between",
+   "f01-lex-controls-c1",
+   "f01-lex-controls-escaped-in-string",
+   "f01-lex-controls-nul",
+   "f01-lex-controls-tab-space",
+   "f01-lex-controls-vtab",
+   "f01-lex-interp-basic",
+   "f01-lex-interp-empty",
+   "f01-lex-interp-escaped",
+   "f01-lex-interp-ident",
+   "f01-lex-interp-literal-dollar",
+   "f01-lex-interp-missing-brace",
+   "f01-lex-interp-multiple",
+   "f01-lex-newlines-bare-cr",
+   "f01-lex-newlines-crlf",
+   "f01-lex-newlines-lf",
+   "f01-lex-newlines-mixed",
+   "f01-lex-path-absolute",
+   "f01-lex-path-backslash",
+   "f01-lex-path-dot-component",
+   "f01-lex-path-dotdot-component",
+   "f01-lex-path-dotdot-filename",
+   "f01-lex-path-dotfile",
+   "f01-lex-path-empty-component",
+   "f01-lex-path-punctuation",
+   "f01-lex-path-quoted-unicode",
+   "f01-lex-path-trailing-slash",
+   "f01-lex-pathref-bare",
+   "f01-lex-pathref-dot-word",
+   "f01-lex-pathref-incomplete",
+   "f01-lex-pathref-quoted",
+   "f01-lex-pathref-space-before-quote",
+   "f01-lex-qpath-example",
+   "f01-lex-qpath-interpolation",
+   "f01-lex-reserved-quoted",
+   "f01-lex-sigil-at-space",
+   "f01-lex-sigil-dollar-space",
+   "f01-lex-sigil-newline",
+   "f01-lex-sigil-question-space",
+   "f01-lex-sigil-valid",
+   "f01-lex-string-dollar",
+   "f01-lex-string-empty",
+   "f01-lex-string-escapes",
+   "f01-lex-string-literal-control",
+   "f01-lex-string-literal-lf",
+   "f01-lex-string-unicode",
+   "f01-lex-string-unlisted-escape",
+   "f01-lex-string-unterminated",
+   "f01-lex-uescape-above-max",
+   "f01-lex-uescape-hex-case",
+   "f01-lex-uescape-missing-brace",
+   "f01-lex-uescape-one-digit",
+   "f01-lex-uescape-seven-digits",
+   "f01-lex-uescape-six-digit",
+   "f01-lex-uescape-surrogate",
+   "f01-lex-uescape-zero-digits",
+   "f01-lex-utf8-ascii",
+   "f01-lex-utf8-astral",
+   "f01-lex-utf8-invalid-lead",
+   "f01-lex-utf8-multibyte",
+   "f01-lex-utf8-overlong",
+   "f01-lex-utf8-truncated",
+   "f01-lex-word-digit-leading",
+   "f01-lex-word-dot-leading",
+   "f01-lex-word-hyphen-leading",
+   "f01-lex-word-non-ascii",
+   "f01-lex-word-underscore-leading",
+   "f02-parse-block-comma",
+   "f02-parse-block-double-comma",
+   "f02-parse-block-empty",
+   "f02-parse-block-missing-closer",
+   "f02-parse-block-newline",
+   "f02-parse-block-trailing-comma",
+   "f02-parse-complete-example",
+   "f02-parse-entry-attribute",
+   "f02-parse-entry-extend",
+   "f02-parse-entry-let",
+   "f02-parse-entry-missing-name",
+   "f02-parse-entry-missing-value",
+   "f02-parse-entry-named",
+   "f02-parse-entry-named-assign",
+   "f02-parse-entry-named-block",
+   "f02-parse-entry-optional",
+   "f02-parse-entry-path",
+   "f02-parse-entry-qualified-missing-side",
+   "f02-parse-entry-sigil",
+   "f02-parse-file-comma",
+   "f02-parse-file-empty",
+   "f02-parse-file-multi",
+   "f02-parse-file-newlines",
+   "f02-parse-file-no-separator",
+   "f02-parse-file-one-entry",
+   "f02-parse-file-trailing-comma",
+   "f02-parse-file-unexpected-closer",
+   "f02-parse-kind-bare-in-string-pos",
+   "f02-parse-kind-reserved-null",
+   "f02-parse-name-digit-binding",
+   "f02-parse-name-dot",
+   "f02-parse-name-dotdot",
+   "f02-parse-name-underscore-ident",
+   "f02-parse-optional-attribute",
+   "f02-parse-optional-duplicate",
+   "f02-parse-optional-sigil-block",
+   "f02-parse-recovery-adversarial-nesting",
+   "f02-parse-recovery-missing-comma",
+   "f02-parse-recovery-unmatched-delimiter",
+   "f02-parse-recovery-valid-after-error",
+   "f02-parse-softbreak",
+   "f02-parse-softbreak-atoms-cross-line",
+   "f02-parse-softbreak-multi",
+   "f02-parse-value-block-as-value",
+   "f02-parse-value-list",
+   "f02-parse-value-list-empty",
+   "f02-parse-value-list-multiline",
+   "f02-parse-value-list-newline-separated",
+   "f02-parse-value-list-unclosed",
+   "f02-parse-value-reference",
+   "f02-parse-value-string"
+  ],
+  "passing_fixture_ids": [
+   "f00-bootstrap-absent",
+   "f00-bootstrap-binding",
+   "f00-bootstrap-bom-comments",
+   "f00-bootstrap-crlf",
+   "f00-bootstrap-duplicate",
+   "f00-bootstrap-exact",
+   "f00-bootstrap-interpolation",
+   "f00-bootstrap-not-first",
+   "f00-bootstrap-soft-break",
+   "f00-bootstrap-trailing-comma",
+   "f00-bootstrap-unsupported",
+   "f00-bootstrap-wrong-file",
+   "f01-lex-bom-after-whitespace",
+   "f01-lex-bom-double",
+   "f01-lex-bom-none",
+   "f01-lex-bom-single",
+   "f01-lex-comment-eof",
+   "f01-lex-comment-hash-in-string",
+   "f01-lex-comment-line",
+   "f01-lex-comment-trailing",
+   "f01-lex-comment-word-hash",
+   "f01-lex-compound-at-let-eof",
+   "f01-lex-compound-extend",
+   "f01-lex-compound-let",
+   "f01-lex-compound-letfoo",
+   "f01-lex-compound-space-between",
+   "f01-lex-controls-c1",
+   "f01-lex-controls-escaped-in-string",
+   "f01-lex-controls-nul",
+   "f01-lex-controls-tab-space",
+   "f01-lex-controls-vtab",
+   "f01-lex-interp-basic",
+   "f01-lex-interp-empty",
+   "f01-lex-interp-escaped",
+   "f01-lex-interp-ident",
+   "f01-lex-interp-literal-dollar",
+   "f01-lex-interp-missing-brace",
+   "f01-lex-interp-multiple",
+   "f01-lex-newlines-bare-cr",
+   "f01-lex-newlines-crlf",
+   "f01-lex-newlines-lf",
+   "f01-lex-newlines-mixed",
+   "f01-lex-path-absolute",
+   "f01-lex-path-backslash",
+   "f01-lex-path-dot-component",
+   "f01-lex-path-dotdot-component",
+   "f01-lex-path-dotdot-filename",
+   "f01-lex-path-dotfile",
+   "f01-lex-path-empty-component",
+   "f01-lex-path-punctuation",
+   "f01-lex-path-quoted-unicode",
+   "f01-lex-path-trailing-slash",
+   "f01-lex-pathref-bare",
+   "f01-lex-pathref-dot-word",
+   "f01-lex-pathref-incomplete",
+   "f01-lex-pathref-quoted",
+   "f01-lex-pathref-space-before-quote",
+   "f01-lex-qpath-example",
+   "f01-lex-qpath-interpolation",
+   "f01-lex-reserved-quoted",
+   "f01-lex-sigil-at-space",
+   "f01-lex-sigil-dollar-space",
+   "f01-lex-sigil-newline",
+   "f01-lex-sigil-question-space",
+   "f01-lex-sigil-valid",
+   "f01-lex-string-dollar",
+   "f01-lex-string-empty",
+   "f01-lex-string-escapes",
+   "f01-lex-string-literal-control",
+   "f01-lex-string-literal-lf",
+   "f01-lex-string-unicode",
+   "f01-lex-string-unlisted-escape",
+   "f01-lex-string-unterminated",
+   "f01-lex-uescape-above-max",
+   "f01-lex-uescape-hex-case",
+   "f01-lex-uescape-missing-brace",
+   "f01-lex-uescape-one-digit",
+   "f01-lex-uescape-seven-digits",
+   "f01-lex-uescape-six-digit",
+   "f01-lex-uescape-surrogate",
+   "f01-lex-uescape-zero-digits",
+   "f01-lex-utf8-ascii",
+   "f01-lex-utf8-astral",
+   "f01-lex-utf8-invalid-lead",
+   "f01-lex-utf8-multibyte",
+   "f01-lex-utf8-overlong",
+   "f01-lex-utf8-truncated",
+   "f01-lex-word-digit-leading",
+   "f01-lex-word-dot-leading",
+   "f01-lex-word-hyphen-leading",
+   "f01-lex-word-non-ascii",
+   "f01-lex-word-underscore-leading",
+   "f02-parse-block-comma",
+   "f02-parse-block-double-comma",
+   "f02-parse-block-empty",
+   "f02-parse-block-missing-closer",
+   "f02-parse-block-newline",
+   "f02-parse-block-trailing-comma",
+   "f02-parse-complete-example",
+   "f02-parse-entry-attribute",
+   "f02-parse-entry-extend",
+   "f02-parse-entry-let",
+   "f02-parse-entry-missing-name",
+   "f02-parse-entry-missing-value",
+   "f02-parse-entry-named",
+   "f02-parse-entry-named-assign",
+   "f02-parse-entry-named-block",
+   "f02-parse-entry-optional",
+   "f02-parse-entry-path",
+   "f02-parse-entry-qualified-missing-side",
+   "f02-parse-entry-sigil",
+   "f02-parse-file-comma",
+   "f02-parse-file-empty",
+   "f02-parse-file-multi",
+   "f02-parse-file-newlines",
+   "f02-parse-file-no-separator",
+   "f02-parse-file-one-entry",
+   "f02-parse-file-trailing-comma",
+   "f02-parse-file-unexpected-closer",
+   "f02-parse-kind-bare-in-string-pos",
+   "f02-parse-kind-reserved-null",
+   "f02-parse-name-digit-binding",
+   "f02-parse-name-dot",
+   "f02-parse-name-dotdot",
+   "f02-parse-name-underscore-ident",
+   "f02-parse-optional-attribute",
+   "f02-parse-optional-duplicate",
+   "f02-parse-optional-sigil-block",
+   "f02-parse-recovery-adversarial-nesting",
+   "f02-parse-recovery-missing-comma",
+   "f02-parse-recovery-unmatched-delimiter",
+   "f02-parse-recovery-valid-after-error",
+   "f02-parse-softbreak",
+   "f02-parse-softbreak-atoms-cross-line",
+   "f02-parse-softbreak-multi",
+   "f02-parse-value-block-as-value",
+   "f02-parse-value-list",
+   "f02-parse-value-list-empty",
+   "f02-parse-value-list-multiline",
+   "f02-parse-value-list-newline-separated",
+   "f02-parse-value-list-unclosed",
+   "f02-parse-value-reference",
+   "f02-parse-value-string"
+  ],
+  "conformance_claimed": false
+ },
+ "fixture_record_contract": {
+  "unknown_fields": "forbidden_at_every_record_level",
+  "required_fields": [
+   "id",
+   "format_version",
+   "status",
+   "normative_references",
+   "domain",
+   "operation",
+   "input_bytes",
+   "repository_state",
+   "machine_state",
+   "expected"
+  ],
+  "field_types": {
+   "id": "immutable_nonempty_ascii_identifier",
+   "format_version": "literal_1",
+   "status": "fixture_status",
+   "normative_references": "nonempty_array_of_normative_reference_records",
+   "domain": "nonempty_ascii_domain_identifier",
+   "operation": "nonempty_ascii_operation_identifier",
+   "input_bytes": "byte_string",
+   "repository_state": "repository_state_record",
+   "machine_state": "machine_state_record",
+   "expected": "expected_channels_record"
+  },
+  "status_values": [
+   "planned",
+   "implemented",
+   "passing",
+   "failing",
+   "blocked"
+  ],
+  "input_bytes": {
+   "required_fields": [
+    "encoding",
+    "value"
+   ],
+   "optional_fields": [],
+   "unknown_fields": "forbidden",
+   "field_types": {
+    "encoding": "byte_string_encoding",
+    "value": "json_string"
+   },
+   "encoding_values": [
+    "utf8",
+    "base64",
+    "hex"
+   ],
+   "value_rule": "decode_exactly_without_newline_or_unicode_normalization",
+   "representation_choice": "not_semantic_utf8_is_preferred_for_readable_valid_text_and_base64_or_hex_may_encode_any_bytes",
+   "base64_alphabet": "RFC4648_standard_with_required_padding",
+   "hex_alphabet": "lowercase_even_length"
+  },
+  "repository_state": {
+   "required_fields": [
+    "git_index",
+    "tracked_ignores",
+    "worktree",
+    "no_follow_metadata",
+    "symlink_targets"
+   ],
+   "optional_fields": [],
+   "unknown_fields": "forbidden",
+   "field_types": {
+    "git_index": "array_of_git_index_entry_records",
+    "tracked_ignores": "array_of_tracked_ignore_records",
+    "worktree": "array_of_worktree_entry_records",
+    "no_follow_metadata": "array_of_no_follow_metadata_records",
+    "symlink_targets": "array_of_symlink_target_records"
+   },
+   "ordering": "each_array_sorted_by_decoded_unsigned_path_bytes",
+   "rule": "every_repository_input_is_explicit_and_an_absent_collection_is_empty"
+  },
+  "machine_state": {
+   "required_fields": [
+    "profile",
+    "host",
+    "variants",
+    "os",
+    "architecture",
+    "filesystem",
+    "state_files",
+    "destinations",
+    "accounts",
+    "capabilities"
+   ],
+   "optional_fields": [],
+   "unknown_fields": "forbidden",
+   "field_types": {
+    "profile": "json_string",
+    "host": "json_string",
+    "variants": "object_of_json_string_to_json_string",
+    "os": "json_string",
+    "architecture": "json_string",
+    "filesystem": "filesystem_record",
+    "state_files": "array_of_machine_state_file_records",
+    "destinations": "array_of_destination_records",
+    "accounts": "array_of_account_records",
+    "capabilities": "capability_record"
+   },
+   "rule": "pure_compiler_fixtures_use_empty_values_and_never_acquire_ambient_state"
+  },
+  "expected": {
+   "required_fields": [
+    "tokens",
+    "cst",
+    "diagnostics",
+    "ir",
+    "lock_text",
+    "lock_jcs",
+    "edits",
+    "cli",
+    "lsp",
+    "tree_sitter",
+    "filesystem_mutations"
+   ],
+   "optional_fields": [],
+   "unknown_fields": "forbidden",
+   "field_type": "expected_channel_record_for_every_named_channel",
+   "result_states": [
+    "golden",
+    "property",
+    "oracle",
+    "empty",
+    "not_applicable"
+   ],
+   "comparison_values": [
+    "exact_bytes",
+    "exact_json",
+    "semantic_json",
+    "property",
+    "oracle",
+    "empty",
+    "none"
+   ],
+   "channel_required_fields": [
+    "state",
+    "comparison",
+    "payload"
+   ],
+   "channel_optional_fields": [],
+   "channel_field_types": {
+    "state": "expected_result_state",
+    "comparison": "expected_comparison",
+    "payload": "json_value_with_byte_strings_used_for_exact_bytes"
+   },
+   "conditional_rules": [
+    "not_applicable_requires_comparison_none_and_empty_object_payload",
+    "empty_requires_comparison_empty_and_natural_empty_payload",
+    "golden_requires_exact_bytes_exact_json_or_semantic_json",
+    "property_requires_comparison_property",
+    "oracle_requires_comparison_oracle"
+   ],
+   "rule": "every_channel_is_present_and_explicitly_encodes_its_state_comparison_and_payload"
+  },
+  "record_types": {
+   "normative_reference": {
     "required_fields": [
-      "id",
-      "format_version",
-      "status",
-      "normative_references",
-      "domain",
-      "operation",
-      "input_bytes",
-      "repository_state",
-      "machine_state",
-      "expected"
+     "path",
+     "section"
+    ],
+    "optional_fields": [
+     "clause",
+     "rule_id"
     ],
     "field_types": {
-      "id": "immutable_nonempty_ascii_identifier",
-      "format_version": "literal_1",
-      "status": "fixture_status",
-      "normative_references": "nonempty_array_of_normative_reference_records",
-      "domain": "nonempty_ascii_domain_identifier",
-      "operation": "nonempty_ascii_operation_identifier",
-      "input_bytes": "byte_string",
-      "repository_state": "repository_state_record",
-      "machine_state": "machine_state_record",
-      "expected": "expected_channels_record"
-    },
-    "status_values": ["planned", "implemented", "passing", "failing", "blocked"],
-    "input_bytes": {
-      "required_fields": ["encoding", "value"],
-      "optional_fields": [],
-      "unknown_fields": "forbidden",
-      "field_types": {
-        "encoding": "byte_string_encoding",
-        "value": "json_string"
-      },
-      "encoding_values": ["utf8", "base64", "hex"],
-      "value_rule": "decode_exactly_without_newline_or_unicode_normalization",
-      "representation_choice": "not_semantic_utf8_is_preferred_for_readable_valid_text_and_base64_or_hex_may_encode_any_bytes",
-      "base64_alphabet": "RFC4648_standard_with_required_padding",
-      "hex_alphabet": "lowercase_even_length"
-    },
-    "repository_state": {
-      "required_fields": ["git_index", "tracked_ignores", "worktree", "no_follow_metadata", "symlink_targets"],
-      "optional_fields": [],
-      "unknown_fields": "forbidden",
-      "field_types": {
-        "git_index": "array_of_git_index_entry_records",
-        "tracked_ignores": "array_of_tracked_ignore_records",
-        "worktree": "array_of_worktree_entry_records",
-        "no_follow_metadata": "array_of_no_follow_metadata_records",
-        "symlink_targets": "array_of_symlink_target_records"
-      },
-      "ordering": "each_array_sorted_by_decoded_unsigned_path_bytes",
-      "rule": "every_repository_input_is_explicit_and_an_absent_collection_is_empty"
-    },
-    "machine_state": {
-      "required_fields": ["profile", "host", "variants", "os", "architecture", "filesystem", "state_files", "destinations", "accounts", "capabilities"],
-      "optional_fields": [],
-      "unknown_fields": "forbidden",
-      "field_types": {
-        "profile": "json_string",
-        "host": "json_string",
-        "variants": "object_of_json_string_to_json_string",
-        "os": "json_string",
-        "architecture": "json_string",
-        "filesystem": "filesystem_record",
-        "state_files": "array_of_machine_state_file_records",
-        "destinations": "array_of_destination_records",
-        "accounts": "array_of_account_records",
-        "capabilities": "capability_record"
-      },
-      "rule": "pure_compiler_fixtures_use_empty_values_and_never_acquire_ambient_state"
-    },
-    "expected": {
-      "required_fields": ["tokens", "cst", "diagnostics", "ir", "lock_text", "lock_jcs", "edits", "cli", "lsp", "tree_sitter", "filesystem_mutations"],
-      "optional_fields": [],
-      "unknown_fields": "forbidden",
-      "field_type": "expected_channel_record_for_every_named_channel",
-      "result_states": ["golden", "property", "oracle", "empty", "not_applicable"],
-      "comparison_values": ["exact_bytes", "exact_json", "semantic_json", "property", "oracle", "empty", "none"],
-      "channel_required_fields": ["state", "comparison", "payload"],
-      "channel_optional_fields": [],
-      "channel_field_types": {
-        "state": "expected_result_state",
-        "comparison": "expected_comparison",
-        "payload": "json_value_with_byte_strings_used_for_exact_bytes"
-      },
-      "conditional_rules": [
-        "not_applicable_requires_comparison_none_and_empty_object_payload",
-        "empty_requires_comparison_empty_and_natural_empty_payload",
-        "golden_requires_exact_bytes_exact_json_or_semantic_json",
-        "property_requires_comparison_property",
-        "oracle_requires_comparison_oracle"
-      ],
-      "rule": "every_channel_is_present_and_explicitly_encodes_its_state_comparison_and_payload"
-    },
-    "record_types": {
-      "normative_reference": {
-        "required_fields": ["path", "section"],
-        "optional_fields": ["clause", "rule_id"],
-        "field_types": {
-          "path": "canonical_repository_relative_path",
-          "section": "nonempty_string",
-          "clause": "nonempty_string",
-          "rule_id": "traceability_rule_id"
-        }
-      },
-      "git_index_entry": {
-        "required_fields": ["path", "object_type", "mode", "bytes"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "byte_string",
-          "object_type": "json_string",
-          "mode": "json_string",
-          "bytes": "byte_string"
-        }
-      },
-      "tracked_ignore": {
-        "required_fields": ["path", "bytes"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "byte_string",
-          "bytes": "byte_string"
-        }
-      },
-      "worktree_entry": {
-        "required_fields": ["path", "object_type", "mode", "bytes"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "byte_string",
-          "object_type": "json_string",
-          "mode": "json_string",
-          "bytes": "byte_string"
-        }
-      },
-      "no_follow_metadata": {
-        "required_fields": ["path", "object_type", "device", "inode", "generation", "mode"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "byte_string",
-          "object_type": "json_string",
-          "device": "json_string",
-          "inode": "json_string",
-          "generation": "json_string",
-          "mode": "json_string"
-        }
-      },
-      "symlink_target": {
-        "required_fields": ["path", "target_bytes"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "byte_string",
-          "target_bytes": "byte_string"
-        }
-      },
-      "filesystem": {
-        "required_fields": ["kind", "case_sensitivity", "volume_identity"],
-        "optional_fields": [],
-        "field_types": {
-          "kind": "json_string",
-          "case_sensitivity": "json_string",
-          "volume_identity": "json_string"
-        }
-      },
-      "machine_state_file": {
-        "required_fields": ["path", "bytes"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "json_string",
-          "bytes": "byte_string"
-        }
-      },
-      "destination": {
-        "required_fields": ["path", "object_type", "bytes", "mode", "owner", "group", "token"],
-        "optional_fields": [],
-        "field_types": {
-          "path": "byte_string",
-          "object_type": "json_string",
-          "bytes": "byte_string",
-          "mode": "json_string",
-          "owner": "json_string",
-          "group": "json_string",
-          "token": "object_token_or_empty_object"
-        },
-        "conditional_rules": [
-          "absent_requires_empty_bytes_mode_owner_group_and_token",
-          "present_requires_nonempty_object_token"
-        ]
-      },
-      "object_token": {
-        "required_fields": ["volume", "file", "generation"],
-        "optional_fields": [],
-        "field_types": {
-          "volume": "json_string",
-          "file": "json_string",
-          "generation": "json_string"
-        }
-      },
-      "account": {
-        "required_fields": ["name", "uid", "primary_group", "groups"],
-        "optional_fields": [],
-        "field_types": {
-          "name": "json_string",
-          "uid": "json_string",
-          "primary_group": "json_string",
-          "groups": "array_of_json_strings"
-        }
-      },
-      "capability": {
-        "required_fields": ["create_no_replace", "guarded_replace", "guarded_prune"],
-        "optional_fields": [],
-        "field_types": {
-          "create_no_replace": "boolean",
-          "guarded_replace": "boolean",
-          "guarded_prune": "boolean"
-        }
-      },
-      "expected_channel": {
-        "required_fields": ["state", "comparison", "payload"],
-        "optional_fields": [],
-        "field_types": {
-          "state": "expected_result_state",
-          "comparison": "expected_comparison",
-          "payload": "json_value"
-        }
-      }
-    },
-    "ordering": "Fixture records sort by unsigned UTF-8 bytes of id.",
-    "identity": "Fixture ids are immutable after publication; changed semantics receive a new id."
-  },
-  "conformance_families": [
-    {
-      "id": "F01-LEXER",
-      "section_28_item": 1,
-      "name": "Lexer",
-      "status": "planned",
-      "owner_packages": ["dotfile-source", "dotfile-syntax", "dotfile-test-support"],
-      "milestone": "M1",
-      "planned_coverage": ["strict UTF-8", "BOM", "LF and CRLF", "bare CR", "comments", "every escape", "interpolation", "sigil adjacency", "quoted paths", "controls", "exact token and trivia gaps"]
-    },
-    {
-      "id": "F02-PARSER",
-      "section_28_item": 2,
-      "name": "Parser",
-      "status": "planned",
-      "owner_packages": ["dotfile-syntax", "dotfile-test-support"],
-      "milestone": "M1",
-      "planned_coverage": ["every grammar production", "multiline separators", "trailing separators", "neighboring negative cases", "lossless recovery", "missing tokens", "bounded work"]
-    },
-    {
-      "id": "F03-SCHEMA",
-      "section_28_item": 3,
-      "name": "Schema contexts",
-      "status": "planned",
-      "owner_packages": ["dotfile-schema", "dotfile-theme", "dotfile-test-support"],
-      "milestone": "M2",
-      "planned_coverage": ["one positive and negative fixture for every entry context", "one positive and negative fixture for every attribute context", "value and reference types", "singleton and repeatable entries", "unknown repository domains"]
-    },
-    {
-      "id": "F04-DEMAND",
-      "section_28_item": 4,
-      "name": "Demand occurrences",
-      "status": "planned",
-      "owner_packages": ["dotfile-semantics", "dotfile-ir", "dotfile-test-support"],
-      "milestone": "M3",
-      "planned_coverage": ["nested optionality", "required wins", "occurrence preservation", "reason chains", "stable ids", "provenance", "active and inactive cycles"]
-    },
-    {
-      "id": "F05-FACT-MERGE",
-      "section_28_item": 5,
-      "name": "Fact merging",
-      "status": "planned",
-      "owner_packages": ["dotfile-semantics", "dotfile-ir", "dotfile-test-support"],
-      "milestone": "M3",
-      "planned_coverage": ["shared baseline", "descendant replacement", "equal siblings", "conflicting siblings", "ordered list replacement", "same-group equality", "all origin spans"]
-    },
-    {
-      "id": "F06-PROFILE-RESOLUTION",
-      "section_28_item": 6,
-      "name": "Per-profile resolution",
-      "status": "planned",
-      "owner_packages": ["dotfile-semantics", "dotfile-observe", "dotfile-test-support"],
-      "milestone": "M3/M9",
-      "planned_coverage": ["manager defaults", "installer compatibility", "check inference", "explicit check shapes", "install coordinates", "package aggregation", "Arch and Ubuntu separation", "every declared profile"]
-    },
-    {
-      "id": "F07-PAYLOAD",
-      "section_28_item": 7,
-      "name": "Payload discovery and mapping",
-      "status": "planned",
-      "owner_packages": ["dotfile-repo", "dotfile-deploy", "dotfile-test-support"],
-      "milestone": "M4",
-      "planned_coverage": ["Git selection", "tracked ignore semantics", "ignored and generated paths", "source symlinks", "special files", "filename transforms", "exact and longest-prefix mappings", "metadata exclusion", "clean checkout"]
-    },
-    {
-      "id": "F08-VARIANTS",
-      "section_28_item": 8,
-      "name": "Override variants",
-      "status": "planned",
-      "owner_packages": ["dotfile-repo", "dotfile-deploy", "dotfile-bind", "dotfile-test-support"],
-      "milestone": "M4/M9",
-      "planned_coverage": ["prefix stripping", "base fallback", "new logical leaves", "replacement", "switching", "explicit none", "missing selection", "unknown selection", "inactive-group selection"]
-    },
-    {
-      "id": "F09-COLLISIONS",
-      "section_28_item": 9,
-      "name": "Deployment collisions",
-      "status": "planned",
-      "owner_packages": ["dotfile-deploy", "dotfile-bind", "dotfile-test-support"],
-      "milestone": "M4/M9",
-      "planned_coverage": ["identical deduplication", "same-group conflict", "cross-group overlay", "cross-action conflict", "source-mapping overlap", "destination-prefix conflict", "case equivalence", "Unicode equivalence", "actual-volume recheck"]
-    },
-    {
-      "id": "F10-LOCK",
-      "section_28_item": 10,
-      "name": "Canonical lock and JSON",
-      "status": "planned",
-      "owner_packages": ["dotfile-ir", "dotfile-lock", "dotfile-test-support"],
-      "milestone": "M4",
-      "planned_coverage": ["all sections and record shapes", "field and record ordering", "canonical strings", "source spans", "provenance", "JCS", "IR and structure hashes", "stable ids", "cross-implementation digest vectors", "freshness and tamper detection"]
-    },
-    {
-      "id": "F11-FORMATTER",
-      "section_28_item": 11,
-      "name": "Formatter",
-      "status": "planned",
-      "owner_packages": ["dotfile-format", "dotfile-test-support"],
-      "milestone": "M2",
-      "planned_coverage": ["idempotence", "semantic preservation", "comment attachment", "schema ordering", "invalid and unknown entry preservation", "Unicode scalar width", "generated lock refusal"]
-    },
-    {
-      "id": "F12-SAFE-APPLICATION",
-      "section_28_item": 12,
-      "name": "Safe application",
-      "status": "planned",
-      "owner_packages": ["dotfile-bind", "dotfile-apply", "dotfile-helper", "dotfile-test-support"],
-      "milestone": "M9/M10/M11",
-      "planned_coverage": ["foreign paths", "ledger pruning", "stale and tampered locks", "no-follow parent races", "source descriptor swaps", "no-replace creation", "guarded-operation refusal", "private HMAC", "journals and rollback", "permissions", "redaction", "privilege helper"]
-    },
-    {
-      "id": "F13-THEME",
-      "section_28_item": 13,
-      "name": "Theme domains and renderer boundary",
-      "status": "planned",
-      "owner_packages": ["dotfile-theme", "dotfile-lock", "dotfile-apply", "dotfile-test-support"],
-      "milestone": "M2/M3/M4/M8/M9",
-      "planned_coverage": ["discovery", "base and profile merging", "all five map schemas", "semantic order", "Eza joins", "application defaults", "cross-profile palette identity", "source-only assignment", "artifact-scoped renderer freshness", "related versus unrelated drift"]
-    },
-    {
-      "id": "F14-FRESH-READER",
-      "section_28_item": 14,
-      "name": "Fresh reader",
-      "status": "planned",
-      "owner_packages": ["dotfile-test-support"],
-      "milestone": "M12/M14",
-      "planned_coverage": ["graph explanation", "manager behavior", "mapping behavior", "variant behavior", "lock behavior", "generated ownership", "mutation boundary", "context-free document review"]
+     "path": "canonical_repository_relative_path",
+     "section": "nonempty_string",
+     "clause": "nonempty_string",
+     "rule_id": "traceability_rule_id"
     }
-  ],
-  "test_classes": [
-    {
-      "id": "TC01-GOLDEN",
-      "name": "Golden",
-      "status": "planned",
-      "source": "docs/dotfile-implementation-plan.md section 12",
-      "planned_artifacts": ["token dumps", "trivia dumps", "CST and recovery dumps", "diagnostic JSON", "formatter output", "lock text", "lock JCS", "hash vectors", "CLI output and exit status", "LSP transcripts", "tree-sitter query captures"]
-    },
-    {
-      "id": "TC02-PROPERTY",
-      "name": "Property",
-      "status": "planned",
-      "source": "docs/dotfile-implementation-plan.md section 12",
-      "planned_properties": ["formatter idempotence", "semantic preservation", "canonical lock round trip", "stable ids", "environment hermeticity", "order independence", "serial and parallel determinism", "incremental and full equality", "span conversion", "dry-run mutation emptiness"]
-    },
-    {
-      "id": "TC03-FUZZ",
-      "name": "Fuzz",
-      "status": "planned",
-      "source": "docs/dotfile-implementation-plan.md section 12",
-      "planned_targets": ["arbitrary bytes", "nesting", "separators", "interpolation", "parse-format-parse", "comment attachment", "tree-sitter incremental edits", "LSP framing", "LSP cancellation and version churn", "discovery", "privileged helper plans"]
-    },
-    {
-      "id": "TC04-DIFFERENTIAL",
-      "name": "Differential",
-      "status": "planned",
-      "source": "docs/dotfile-implementation-plan.md section 12",
-      "planned_oracles": ["authoritative and tree-sitter syntax", "incremental and full analysis", "textual and JCS lock", "symbolic and brute-force variants", "modeled and real filesystems"]
-    },
-    {
-      "id": "TC05-INTEGRATION",
-      "name": "Integration",
-      "status": "planned",
-      "source": "docs/dotfile-implementation-plan.md section 12",
-      "planned_scope": ["every CLI command", "all fourteen section 28 families", "repository-shaped snapshots", "LSP clients", "platform matrix"]
-    },
-    {
-      "id": "TC06-FAULT-RACE",
-      "name": "Fault and race injection",
-      "status": "planned",
-      "source": "docs/dotfile-implementation-plan.md section 12",
-      "planned_scope": ["every application preflight", "every write step", "source swaps", "destination swaps", "ledger changes", "guarded-operation mismatch", "helper rejection", "journal and rollback failure"]
+   },
+   "git_index_entry": {
+    "required_fields": [
+     "path",
+     "object_type",
+     "mode",
+     "bytes"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "byte_string",
+     "object_type": "json_string",
+     "mode": "json_string",
+     "bytes": "byte_string"
     }
-  ],
-  "syntax_case_inventory": {
-    "scope": "docs/dotfile-language.md sections 6 through 8",
-    "status": "planned",
-    "case_groups": [
-      {
-        "id": "S06-01-UTF8",
-        "section": "6.1",
-        "status": "planned",
-        "positive_cases": ["ASCII source", "multibyte scalar source", "astral scalar source", "combining scalars in non-path data"],
-        "negative_neighbors": ["invalid leading byte", "invalid continuation byte", "overlong encoding", "UTF-8 surrogate encoding", "truncated sequence"]
-      },
-      {
-        "id": "S06-02-BOM",
-        "section": "6.1",
-        "status": "planned",
-        "positive_cases": ["no BOM", "one UTF-8 BOM at byte zero"],
-        "negative_neighbors": ["two leading BOMs", "BOM after whitespace", "BOM after comment", "BOM inside source"]
-      },
-      {
-        "id": "S06-03-NEWLINES",
-        "section": "6.1",
-        "status": "planned",
-        "positive_cases": ["LF", "CRLF", "mixed LF and CRLF with exact spans"],
-        "negative_neighbors": ["bare CR", "CR followed by non-LF"]
-      },
-      {
-        "id": "S06-04-CONTROLS-WHITESPACE",
-        "section": "6.1",
-        "status": "planned",
-        "positive_cases": ["space between tokens", "tab between tokens", "escaped controls inside strings"],
-        "negative_neighbors": ["NUL outside string", "literal C0 outside string", "literal C1 outside string", "vertical tab as whitespace", "nonbreaking space as whitespace"]
-      },
-      {
-        "id": "S06-05-COMMENTS",
-        "section": "6.2",
-        "status": "planned",
-        "positive_cases": ["comment as first non-whitespace text", "trailing comment after horizontal whitespace", "hash inside quoted string", "comment ending at EOF"],
-        "negative_neighbors": ["word#not-a-comment", "sigil#not-a-comment", "block-comment spelling"]
-      },
-      {
-        "id": "S06-06-WORD-CONTEXTS",
-        "section": "6.3",
-        "status": "planned",
-        "positive_cases": ["letter-leading IDENT", "digit-leading IDENT", "dot-leading IDENT", "underscore-leading binding", "word valid as either contextual type"],
-        "negative_neighbors": ["underscore-leading IDENT", "digit-leading binding", "hyphen-leading word", "non-ASCII word", "dot IDENT", "dot-dot IDENT"]
-      },
-      {
-        "id": "S06-07-SIGIL-ADJACENCY",
-        "section": "6.3",
-        "status": "planned",
-        "positive_cases": ["@attribute", "$binding", "?demand", "?@font"],
-        "negative_neighbors": ["@ attribute", "$ binding", "? demand", "? @font", "sigil separated by newline"]
-      },
-      {
-        "id": "S06-08-PATHREF-PRECEDENCE",
-        "section": "6.3",
-        "status": "planned",
-        "positive_cases": ["bare ./name recognized as one PATHREF", "quoted ./\"name with space\" recognized as one PATHREF", "dot-leading ordinary WORD when not ./"],
-        "negative_neighbors": ["./ emitted as separate tokens", "whitespace between ./ and quoted string", "incomplete ./"]
-      },
-      {
-        "id": "S06-09-COMPOUND-KEYWORDS",
-        "section": "6.3",
-        "status": "planned",
-        "positive_cases": ["exact @let followed by horizontal space and binding", "exact @extend followed by horizontal space and qualified target", "@letfoo parsed as ordinary attribute"],
-        "negative_neighbors": ["@let without following word", "@let = value", "@extend without target", "space between @ and let", "newline after compound keyword"]
-      },
-      {
-        "id": "S06-10-RESERVED-WORDS",
-        "section": "6.3",
-        "status": "planned",
-        "positive_cases": ["reserved spelling as quoted data", "identifier neighboring a reserved spelling"],
-        "negative_neighbors": ["if", "then", "else", "for", "in", "import", "as", "null", "true", "false as unquoted identifiers"]
-      },
-      {
-        "id": "S06-11-STRING-BASE",
-        "section": "6.4",
-        "status": "planned",
-        "positive_cases": ["empty string", "Unicode scalar string", "ordinary dollar", "hash data", "all listed short escapes"],
-        "negative_neighbors": ["unterminated string", "literal LF", "literal CR", "literal control", "unlisted escape", "unescaped quote"]
-      },
-      {
-        "id": "S06-12-UNICODE-ESCAPES",
-        "section": "6.4",
-        "status": "planned",
-        "positive_cases": ["one-digit escape", "six-digit escape", "U+0000 encoded escape", "U+10FFFF", "upper and lowercase input hex"],
-        "negative_neighbors": ["zero digits", "seven digits", "surrogate lower bound", "surrogate upper bound", "above U+10FFFF", "missing brace"]
-      },
-      {
-        "id": "S06-13-INTERPOLATION",
-        "section": "6.4",
-        "status": "planned",
-        "positive_cases": ["exact ${binding}", "multiple interpolations", "literal dollar not followed by brace", "escaped literal ${ sequence"],
-        "negative_neighbors": ["empty interpolation", "IDENT instead of binding", "missing closing brace", "general expression", "unescaped literal ${"]
-      },
-      {
-        "id": "S06-14-MULTI-ATOM-SUGAR",
-        "section": "6.4",
-        "status": "planned",
-        "positive_cases": ["$binding followed by spaced string", "string followed by tabbed variable", "canonical formatter interpolation result"],
-        "negative_neighbors": ["adjacent atoms without whitespace", "atoms split by physical newline", "comment used instead of horizontal spacing"]
-      },
-      {
-        "id": "S06-15-SOURCE-PATH-FORMS",
-        "section": "6.5",
-        "status": "planned",
-        "positive_cases": ["./.zshrc", "percent in bare component", "at and equals in bare component", "quoted spaces", "quoted Unicode", "foo..bar component"],
-        "negative_neighbors": ["absolute path", "empty path", "leading slash after ./", "trailing slash", "empty component", "dot component", "dot-dot component", "backslash", "control"]
-      },
-      {
-        "id": "S06-16-QUOTED-PATH-CONTEXT",
-        "section": "6.5",
-        "status": "planned",
-        "positive_cases": ["./\"presets/Mocha Islands/settings.json\"", "literal dollar in quoted path"],
-        "negative_neighbors": ["space between ./ and string", "interpolation in quoted path", "quoted absolute path after ./"]
-      },
-      {
-        "id": "S06-17-MACHINE-PATH-ANCHORS",
-        "section": "6.6",
-        "status": "planned",
-        "positive_cases": ["~", "~/file", "~/nested/file", "/absolute/file"],
-        "negative_neighbors": ["relative/file", "~user/file", "$HOME/file", "prefix~/file", "//host/file", "/ as leaf"]
-      },
-      {
-        "id": "S06-18-MACHINE-PATH-COMPONENTS",
-        "section": "6.6",
-        "status": "planned",
-        "positive_cases": ["NFC path", "symbolic home retained in output"],
-        "negative_neighbors": ["empty component", "dot component", "dot-dot component", "trailing slash", "backslash", "control", "canonical-equivalent NFD path"]
-      },
-      {
-        "id": "S07-01-FILE-BODY",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["empty file", "newline-only file", "one entry", "multiple newline-separated entries", "comma-separated entries with surrounding newlines"],
-        "negative_neighbors": ["top-level trailing comma", "entry without separator", "unexpected closer"]
-      },
-      {
-        "id": "S07-02-ENTRY-PRODUCTIONS",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["let declaration", "extend entry", "attribute", "sigil block", "named entry", "named assignment", "named block", "path entry", "optional named entry", "optional path entry"],
-        "negative_neighbors": ["missing name", "missing equals value", "missing block", "qualified reference with missing side", "unsupported entry prefix"]
-      },
-      {
-        "id": "S07-03-BLOCKS",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["empty block", "newline body", "comma separators", "newline separators", "multiline trailing comma"],
-        "negative_neighbors": ["missing opener", "missing closer", "top-level closer", "double comma", "entry without separator"]
-      },
-      {
-        "id": "S07-04-VALUES-LISTS",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["string expression", "bare reference", "empty list", "single-value list", "multiline comma list", "list trailing comma"],
-        "negative_neighbors": ["newline-only list separation", "missing list comma", "missing value", "unclosed list", "block used as first-class value"]
-      },
-      {
-        "id": "S07-05-SOFT-BREAK",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["assignment value on same line", "assignment value after one newline", "assignment value after multiple newlines"],
-        "negative_neighbors": ["string-expression atoms crossing a newline", "separator consumed as an absent value"]
-      },
-      {
-        "id": "S07-06-GENERIC-OPTIONALITY",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["?@font parses as generic syntax", "?name parses", "?PATHREF parses"],
-        "negative_neighbors": ["optional sigil on attribute", "duplicate optional sigil", "schema rejection of ?@groups after successful parse"]
-      },
-      {
-        "id": "S07-07-RECOVERY-NEIGHBORS",
-        "section": "7",
-        "status": "planned",
-        "positive_cases": ["valid outer entry after recovered inner error", "valid entry after missing comma recovery"],
-        "negative_neighbors": ["unmatched delimiter", "missing closer at EOF", "unexpected closer", "unparsed tail", "adversarial nesting", "diagnostic-cap input"]
-      },
-      {
-        "id": "S08-01-VALUE-KINDS",
-        "section": "8",
-        "status": "planned",
-        "positive_cases": ["quoted string in data position", "bare reference in reference position", "homogeneous ordered list"],
-        "negative_neighbors": ["bare value in string-only position", "quoted value in reference-only position", "heterogeneous list", "null", "Boolean", "numeric literal"]
-      },
-      {
-        "id": "S08-02-ROOT-PROLOGUE",
-        "section": "8",
-        "status": "planned",
-        "positive_cases": ["root let prologue", "multiple source-ordered root lets", "root use after declaration"],
-        "negative_neighbors": ["root let after ordinary entry", "root use before declaration", "root self-reference", "same-root redeclaration"]
-      },
-      {
-        "id": "S08-03-NESTED-SCOPES",
-        "section": "8",
-        "status": "planned",
-        "positive_cases": ["nested scope sees outer binding", "nested scope shadows outer binding", "later declaration sees earlier declaration"],
-        "negative_neighbors": ["outer scope sees inner binding", "same-block redeclaration", "nested use before local declaration", "binding crosses files"]
-      },
-      {
-        "id": "S08-04-BINDING-INITIALIZERS",
-        "section": "8",
-        "status": "planned",
-        "positive_cases": ["literal string initializer", "string initializer using earlier binding", "multi-atom string initializer"],
-        "negative_neighbors": ["bare reference initializer", "list initializer", "block initializer", "self-reference"]
-      },
-      {
-        "id": "S08-05-PATH-CONSUMPTION",
-        "section": "8",
-        "status": "planned",
-        "positive_cases": ["tilde remains data in ordinary string field", "tilde expands only after path-typed consumption", "binding segments retain provenance"],
-        "negative_neighbors": ["environment lookup", "command substitution", "implicit non-string conversion", "eager tilde expansion in an ordinary string"]
-      },
-      {
-        "id": "S08-06-FORMATTER-BINDINGS",
-        "section": "8",
-        "status": "planned",
-        "positive_cases": ["binding declaration order preserved", "binding remains in legal prologue", "adjacent atoms canonicalize to interpolation"],
-        "negative_neighbors": ["binding hoisted across entry", "shadowing reordered", "prologue declaration sorted by name"]
-      }
+   },
+   "tracked_ignore": {
+    "required_fields": [
+     "path",
+     "bytes"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "byte_string",
+     "bytes": "byte_string"
+    }
+   },
+   "worktree_entry": {
+    "required_fields": [
+     "path",
+     "object_type",
+     "mode",
+     "bytes"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "byte_string",
+     "object_type": "json_string",
+     "mode": "json_string",
+     "bytes": "byte_string"
+    }
+   },
+   "no_follow_metadata": {
+    "required_fields": [
+     "path",
+     "object_type",
+     "device",
+     "inode",
+     "generation",
+     "mode"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "byte_string",
+     "object_type": "json_string",
+     "device": "json_string",
+     "inode": "json_string",
+     "generation": "json_string",
+     "mode": "json_string"
+    }
+   },
+   "symlink_target": {
+    "required_fields": [
+     "path",
+     "target_bytes"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "byte_string",
+     "target_bytes": "byte_string"
+    }
+   },
+   "filesystem": {
+    "required_fields": [
+     "kind",
+     "case_sensitivity",
+     "volume_identity"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "kind": "json_string",
+     "case_sensitivity": "json_string",
+     "volume_identity": "json_string"
+    }
+   },
+   "machine_state_file": {
+    "required_fields": [
+     "path",
+     "bytes"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "json_string",
+     "bytes": "byte_string"
+    }
+   },
+   "destination": {
+    "required_fields": [
+     "path",
+     "object_type",
+     "bytes",
+     "mode",
+     "owner",
+     "group",
+     "token"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "path": "byte_string",
+     "object_type": "json_string",
+     "bytes": "byte_string",
+     "mode": "json_string",
+     "owner": "json_string",
+     "group": "json_string",
+     "token": "object_token_or_empty_object"
+    },
+    "conditional_rules": [
+     "absent_requires_empty_bytes_mode_owner_group_and_token",
+     "present_requires_nonempty_object_token"
     ]
+   },
+   "object_token": {
+    "required_fields": [
+     "volume",
+     "file",
+     "generation"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "volume": "json_string",
+     "file": "json_string",
+     "generation": "json_string"
+    }
+   },
+   "account": {
+    "required_fields": [
+     "name",
+     "uid",
+     "primary_group",
+     "groups"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "name": "json_string",
+     "uid": "json_string",
+     "primary_group": "json_string",
+     "groups": "array_of_json_strings"
+    }
+   },
+   "capability": {
+    "required_fields": [
+     "create_no_replace",
+     "guarded_replace",
+     "guarded_prune"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "create_no_replace": "boolean",
+     "guarded_replace": "boolean",
+     "guarded_prune": "boolean"
+    }
+   },
+   "expected_channel": {
+    "required_fields": [
+     "state",
+     "comparison",
+     "payload"
+    ],
+    "optional_fields": [],
+    "field_types": {
+     "state": "expected_result_state",
+     "comparison": "expected_comparison",
+     "payload": "json_value"
+    }
+   }
+  },
+  "ordering": "Fixture records sort by unsigned UTF-8 bytes of id.",
+  "identity": "Fixture ids are immutable after publication; changed semantics receive a new id."
+ },
+ "conformance_families": [
+  {
+   "id": "F01-LEXER",
+   "section_28_item": 1,
+   "name": "Lexer",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-source",
+    "dotfile-syntax",
+    "dotfile-test-support"
+   ],
+   "milestone": "M1",
+   "planned_coverage": [
+    "strict UTF-8",
+    "BOM",
+    "LF and CRLF",
+    "bare CR",
+    "comments",
+    "every escape",
+    "interpolation",
+    "sigil adjacency",
+    "quoted paths",
+    "controls",
+    "exact token and trivia gaps"
+   ]
+  },
+  {
+   "id": "F02-PARSER",
+   "section_28_item": 2,
+   "name": "Parser",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-syntax",
+    "dotfile-test-support"
+   ],
+   "milestone": "M1",
+   "planned_coverage": [
+    "every grammar production",
+    "multiline separators",
+    "trailing separators",
+    "neighboring negative cases",
+    "lossless recovery",
+    "missing tokens",
+    "bounded work"
+   ]
+  },
+  {
+   "id": "F03-SCHEMA",
+   "section_28_item": 3,
+   "name": "Schema contexts",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-schema",
+    "dotfile-theme",
+    "dotfile-test-support"
+   ],
+   "milestone": "M2",
+   "planned_coverage": [
+    "one positive and negative fixture for every entry context",
+    "one positive and negative fixture for every attribute context",
+    "value and reference types",
+    "singleton and repeatable entries",
+    "unknown repository domains"
+   ]
+  },
+  {
+   "id": "F04-DEMAND",
+   "section_28_item": 4,
+   "name": "Demand occurrences",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-semantics",
+    "dotfile-ir",
+    "dotfile-test-support"
+   ],
+   "milestone": "M3",
+   "planned_coverage": [
+    "nested optionality",
+    "required wins",
+    "occurrence preservation",
+    "reason chains",
+    "stable ids",
+    "provenance",
+    "active and inactive cycles"
+   ]
+  },
+  {
+   "id": "F05-FACT-MERGE",
+   "section_28_item": 5,
+   "name": "Fact merging",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-semantics",
+    "dotfile-ir",
+    "dotfile-test-support"
+   ],
+   "milestone": "M3",
+   "planned_coverage": [
+    "shared baseline",
+    "descendant replacement",
+    "equal siblings",
+    "conflicting siblings",
+    "ordered list replacement",
+    "same-group equality",
+    "all origin spans"
+   ]
+  },
+  {
+   "id": "F06-PROFILE-RESOLUTION",
+   "section_28_item": 6,
+   "name": "Per-profile resolution",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-semantics",
+    "dotfile-observe",
+    "dotfile-test-support"
+   ],
+   "milestone": "M3/M9",
+   "planned_coverage": [
+    "manager defaults",
+    "installer compatibility",
+    "check inference",
+    "explicit check shapes",
+    "install coordinates",
+    "package aggregation",
+    "Arch and Ubuntu separation",
+    "every declared profile"
+   ]
+  },
+  {
+   "id": "F07-PAYLOAD",
+   "section_28_item": 7,
+   "name": "Payload discovery and mapping",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-repo",
+    "dotfile-deploy",
+    "dotfile-test-support"
+   ],
+   "milestone": "M4",
+   "planned_coverage": [
+    "Git selection",
+    "tracked ignore semantics",
+    "ignored and generated paths",
+    "source symlinks",
+    "special files",
+    "filename transforms",
+    "exact and longest-prefix mappings",
+    "metadata exclusion",
+    "clean checkout"
+   ]
+  },
+  {
+   "id": "F08-VARIANTS",
+   "section_28_item": 8,
+   "name": "Override variants",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-repo",
+    "dotfile-deploy",
+    "dotfile-bind",
+    "dotfile-test-support"
+   ],
+   "milestone": "M4/M9",
+   "planned_coverage": [
+    "prefix stripping",
+    "base fallback",
+    "new logical leaves",
+    "replacement",
+    "switching",
+    "explicit none",
+    "missing selection",
+    "unknown selection",
+    "inactive-group selection"
+   ]
+  },
+  {
+   "id": "F09-COLLISIONS",
+   "section_28_item": 9,
+   "name": "Deployment collisions",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-deploy",
+    "dotfile-bind",
+    "dotfile-test-support"
+   ],
+   "milestone": "M4/M9",
+   "planned_coverage": [
+    "identical deduplication",
+    "same-group conflict",
+    "cross-group overlay",
+    "cross-action conflict",
+    "source-mapping overlap",
+    "destination-prefix conflict",
+    "case equivalence",
+    "Unicode equivalence",
+    "actual-volume recheck"
+   ]
+  },
+  {
+   "id": "F10-LOCK",
+   "section_28_item": 10,
+   "name": "Canonical lock and JSON",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-ir",
+    "dotfile-lock",
+    "dotfile-test-support"
+   ],
+   "milestone": "M4",
+   "planned_coverage": [
+    "all sections and record shapes",
+    "field and record ordering",
+    "canonical strings",
+    "source spans",
+    "provenance",
+    "JCS",
+    "IR and structure hashes",
+    "stable ids",
+    "cross-implementation digest vectors",
+    "freshness and tamper detection"
+   ]
+  },
+  {
+   "id": "F11-FORMATTER",
+   "section_28_item": 11,
+   "name": "Formatter",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-format",
+    "dotfile-test-support"
+   ],
+   "milestone": "M2",
+   "planned_coverage": [
+    "idempotence",
+    "semantic preservation",
+    "comment attachment",
+    "schema ordering",
+    "invalid and unknown entry preservation",
+    "Unicode scalar width",
+    "generated lock refusal"
+   ]
+  },
+  {
+   "id": "F12-SAFE-APPLICATION",
+   "section_28_item": 12,
+   "name": "Safe application",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-bind",
+    "dotfile-apply",
+    "dotfile-helper",
+    "dotfile-test-support"
+   ],
+   "milestone": "M9/M10/M11",
+   "planned_coverage": [
+    "foreign paths",
+    "ledger pruning",
+    "stale and tampered locks",
+    "no-follow parent races",
+    "source descriptor swaps",
+    "no-replace creation",
+    "guarded-operation refusal",
+    "private HMAC",
+    "journals and rollback",
+    "permissions",
+    "redaction",
+    "privilege helper"
+   ]
+  },
+  {
+   "id": "F13-THEME",
+   "section_28_item": 13,
+   "name": "Theme domains and renderer boundary",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-theme",
+    "dotfile-lock",
+    "dotfile-apply",
+    "dotfile-test-support"
+   ],
+   "milestone": "M2/M3/M4/M8/M9",
+   "planned_coverage": [
+    "discovery",
+    "base and profile merging",
+    "all five map schemas",
+    "semantic order",
+    "Eza joins",
+    "application defaults",
+    "cross-profile palette identity",
+    "source-only assignment",
+    "artifact-scoped renderer freshness",
+    "related versus unrelated drift"
+   ]
+  },
+  {
+   "id": "F14-FRESH-READER",
+   "section_28_item": 14,
+   "name": "Fresh reader",
+   "status": "planned",
+   "owner_packages": [
+    "dotfile-test-support"
+   ],
+   "milestone": "M12/M14",
+   "planned_coverage": [
+    "graph explanation",
+    "manager behavior",
+    "mapping behavior",
+    "variant behavior",
+    "lock behavior",
+    "generated ownership",
+    "mutation boundary",
+    "context-free document review"
+   ]
   }
+ ],
+ "test_classes": [
+  {
+   "id": "TC01-GOLDEN",
+   "name": "Golden",
+   "status": "planned",
+   "source": "docs/dotfile-implementation-plan.md section 12",
+   "planned_artifacts": [
+    "token dumps",
+    "trivia dumps",
+    "CST and recovery dumps",
+    "diagnostic JSON",
+    "formatter output",
+    "lock text",
+    "lock JCS",
+    "hash vectors",
+    "CLI output and exit status",
+    "LSP transcripts",
+    "tree-sitter query captures"
+   ]
+  },
+  {
+   "id": "TC02-PROPERTY",
+   "name": "Property",
+   "status": "planned",
+   "source": "docs/dotfile-implementation-plan.md section 12",
+   "planned_properties": [
+    "formatter idempotence",
+    "semantic preservation",
+    "canonical lock round trip",
+    "stable ids",
+    "environment hermeticity",
+    "order independence",
+    "serial and parallel determinism",
+    "incremental and full equality",
+    "span conversion",
+    "dry-run mutation emptiness"
+   ]
+  },
+  {
+   "id": "TC03-FUZZ",
+   "name": "Fuzz",
+   "status": "planned",
+   "source": "docs/dotfile-implementation-plan.md section 12",
+   "planned_targets": [
+    "arbitrary bytes",
+    "nesting",
+    "separators",
+    "interpolation",
+    "parse-format-parse",
+    "comment attachment",
+    "tree-sitter incremental edits",
+    "LSP framing",
+    "LSP cancellation and version churn",
+    "discovery",
+    "privileged helper plans"
+   ]
+  },
+  {
+   "id": "TC04-DIFFERENTIAL",
+   "name": "Differential",
+   "status": "planned",
+   "source": "docs/dotfile-implementation-plan.md section 12",
+   "planned_oracles": [
+    "authoritative and tree-sitter syntax",
+    "incremental and full analysis",
+    "textual and JCS lock",
+    "symbolic and brute-force variants",
+    "modeled and real filesystems"
+   ]
+  },
+  {
+   "id": "TC05-INTEGRATION",
+   "name": "Integration",
+   "status": "planned",
+   "source": "docs/dotfile-implementation-plan.md section 12",
+   "planned_scope": [
+    "every CLI command",
+    "all fourteen section 28 families",
+    "repository-shaped snapshots",
+    "LSP clients",
+    "platform matrix"
+   ]
+  },
+  {
+   "id": "TC06-FAULT-RACE",
+   "name": "Fault and race injection",
+   "status": "planned",
+   "source": "docs/dotfile-implementation-plan.md section 12",
+   "planned_scope": [
+    "every application preflight",
+    "every write step",
+    "source swaps",
+    "destination swaps",
+    "ledger changes",
+    "guarded-operation mismatch",
+    "helper rejection",
+    "journal and rollback failure"
+   ]
+  }
+ ],
+ "syntax_case_inventory": {
+  "scope": "docs/dotfile-language.md sections 6 through 8",
+  "status": "planned",
+  "case_groups": [
+   {
+    "id": "S06-01-UTF8",
+    "section": "6.1",
+    "status": "planned",
+    "positive_cases": [
+     "ASCII source",
+     "multibyte scalar source",
+     "astral scalar source",
+     "combining scalars in non-path data"
+    ],
+    "negative_neighbors": [
+     "invalid leading byte",
+     "invalid continuation byte",
+     "overlong encoding",
+     "UTF-8 surrogate encoding",
+     "truncated sequence"
+    ]
+   },
+   {
+    "id": "S06-02-BOM",
+    "section": "6.1",
+    "status": "planned",
+    "positive_cases": [
+     "no BOM",
+     "one UTF-8 BOM at byte zero"
+    ],
+    "negative_neighbors": [
+     "two leading BOMs",
+     "BOM after whitespace",
+     "BOM after comment",
+     "BOM inside source"
+    ]
+   },
+   {
+    "id": "S06-03-NEWLINES",
+    "section": "6.1",
+    "status": "planned",
+    "positive_cases": [
+     "LF",
+     "CRLF",
+     "mixed LF and CRLF with exact spans"
+    ],
+    "negative_neighbors": [
+     "bare CR",
+     "CR followed by non-LF"
+    ]
+   },
+   {
+    "id": "S06-04-CONTROLS-WHITESPACE",
+    "section": "6.1",
+    "status": "planned",
+    "positive_cases": [
+     "space between tokens",
+     "tab between tokens",
+     "escaped controls inside strings"
+    ],
+    "negative_neighbors": [
+     "NUL outside string",
+     "literal C0 outside string",
+     "literal C1 outside string",
+     "vertical tab as whitespace",
+     "nonbreaking space as whitespace"
+    ]
+   },
+   {
+    "id": "S06-05-COMMENTS",
+    "section": "6.2",
+    "status": "planned",
+    "positive_cases": [
+     "comment as first non-whitespace text",
+     "trailing comment after horizontal whitespace",
+     "hash inside quoted string",
+     "comment ending at EOF"
+    ],
+    "negative_neighbors": [
+     "word#not-a-comment",
+     "sigil#not-a-comment",
+     "block-comment spelling"
+    ]
+   },
+   {
+    "id": "S06-06-WORD-CONTEXTS",
+    "section": "6.3",
+    "status": "planned",
+    "positive_cases": [
+     "letter-leading IDENT",
+     "digit-leading IDENT",
+     "dot-leading IDENT",
+     "underscore-leading binding",
+     "word valid as either contextual type"
+    ],
+    "negative_neighbors": [
+     "underscore-leading IDENT",
+     "digit-leading binding",
+     "hyphen-leading word",
+     "non-ASCII word",
+     "dot IDENT",
+     "dot-dot IDENT"
+    ]
+   },
+   {
+    "id": "S06-07-SIGIL-ADJACENCY",
+    "section": "6.3",
+    "status": "planned",
+    "positive_cases": [
+     "@attribute",
+     "$binding",
+     "?demand",
+     "?@font"
+    ],
+    "negative_neighbors": [
+     "@ attribute",
+     "$ binding",
+     "? demand",
+     "? @font",
+     "sigil separated by newline"
+    ]
+   },
+   {
+    "id": "S06-08-PATHREF-PRECEDENCE",
+    "section": "6.3",
+    "status": "planned",
+    "positive_cases": [
+     "bare ./name recognized as one PATHREF",
+     "quoted ./\"name with space\" recognized as one PATHREF",
+     "dot-leading ordinary WORD when not ./"
+    ],
+    "negative_neighbors": [
+     "./ emitted as separate tokens",
+     "whitespace between ./ and quoted string",
+     "incomplete ./"
+    ]
+   },
+   {
+    "id": "S06-09-COMPOUND-KEYWORDS",
+    "section": "6.3",
+    "status": "planned",
+    "positive_cases": [
+     "exact @let followed by horizontal space and binding",
+     "exact @extend followed by horizontal space and qualified target",
+     "@letfoo parsed as ordinary attribute"
+    ],
+    "negative_neighbors": [
+     "@let without following word",
+     "@let = value",
+     "@extend without target",
+     "space between @ and let",
+     "newline after compound keyword"
+    ]
+   },
+   {
+    "id": "S06-10-RESERVED-WORDS",
+    "section": "6.3",
+    "status": "planned",
+    "positive_cases": [
+     "reserved spelling as quoted data",
+     "identifier neighboring a reserved spelling"
+    ],
+    "negative_neighbors": [
+     "if",
+     "then",
+     "else",
+     "for",
+     "in",
+     "import",
+     "as",
+     "null",
+     "true",
+     "false as unquoted identifiers"
+    ]
+   },
+   {
+    "id": "S06-11-STRING-BASE",
+    "section": "6.4",
+    "status": "planned",
+    "positive_cases": [
+     "empty string",
+     "Unicode scalar string",
+     "ordinary dollar",
+     "hash data",
+     "all listed short escapes"
+    ],
+    "negative_neighbors": [
+     "unterminated string",
+     "literal LF",
+     "literal CR",
+     "literal control",
+     "unlisted escape",
+     "unescaped quote"
+    ]
+   },
+   {
+    "id": "S06-12-UNICODE-ESCAPES",
+    "section": "6.4",
+    "status": "planned",
+    "positive_cases": [
+     "one-digit escape",
+     "six-digit escape",
+     "U+0000 encoded escape",
+     "U+10FFFF",
+     "upper and lowercase input hex"
+    ],
+    "negative_neighbors": [
+     "zero digits",
+     "seven digits",
+     "surrogate lower bound",
+     "surrogate upper bound",
+     "above U+10FFFF",
+     "missing brace"
+    ]
+   },
+   {
+    "id": "S06-13-INTERPOLATION",
+    "section": "6.4",
+    "status": "planned",
+    "positive_cases": [
+     "exact ${binding}",
+     "multiple interpolations",
+     "literal dollar not followed by brace",
+     "escaped literal ${ sequence"
+    ],
+    "negative_neighbors": [
+     "empty interpolation",
+     "IDENT instead of binding",
+     "missing closing brace",
+     "general expression",
+     "unescaped literal ${"
+    ]
+   },
+   {
+    "id": "S06-14-MULTI-ATOM-SUGAR",
+    "section": "6.4",
+    "status": "planned",
+    "positive_cases": [
+     "$binding followed by spaced string",
+     "string followed by tabbed variable",
+     "canonical formatter interpolation result"
+    ],
+    "negative_neighbors": [
+     "adjacent atoms without whitespace",
+     "atoms split by physical newline",
+     "comment used instead of horizontal spacing"
+    ]
+   },
+   {
+    "id": "S06-15-SOURCE-PATH-FORMS",
+    "section": "6.5",
+    "status": "planned",
+    "positive_cases": [
+     "./.zshrc",
+     "percent in bare component",
+     "at and equals in bare component",
+     "quoted spaces",
+     "quoted Unicode",
+     "foo..bar component"
+    ],
+    "negative_neighbors": [
+     "absolute path",
+     "empty path",
+     "leading slash after ./",
+     "trailing slash",
+     "empty component",
+     "dot component",
+     "dot-dot component",
+     "backslash",
+     "control"
+    ]
+   },
+   {
+    "id": "S06-16-QUOTED-PATH-CONTEXT",
+    "section": "6.5",
+    "status": "planned",
+    "positive_cases": [
+     "./\"presets/Mocha Islands/settings.json\"",
+     "literal dollar in quoted path"
+    ],
+    "negative_neighbors": [
+     "space between ./ and string",
+     "interpolation in quoted path",
+     "quoted absolute path after ./"
+    ]
+   },
+   {
+    "id": "S06-17-MACHINE-PATH-ANCHORS",
+    "section": "6.6",
+    "status": "planned",
+    "positive_cases": [
+     "~",
+     "~/file",
+     "~/nested/file",
+     "/absolute/file"
+    ],
+    "negative_neighbors": [
+     "relative/file",
+     "~user/file",
+     "$HOME/file",
+     "prefix~/file",
+     "//host/file",
+     "/ as leaf"
+    ]
+   },
+   {
+    "id": "S06-18-MACHINE-PATH-COMPONENTS",
+    "section": "6.6",
+    "status": "planned",
+    "positive_cases": [
+     "NFC path",
+     "symbolic home retained in output"
+    ],
+    "negative_neighbors": [
+     "empty component",
+     "dot component",
+     "dot-dot component",
+     "trailing slash",
+     "backslash",
+     "control",
+     "canonical-equivalent NFD path"
+    ]
+   },
+   {
+    "id": "S07-01-FILE-BODY",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "empty file",
+     "newline-only file",
+     "one entry",
+     "multiple newline-separated entries",
+     "comma-separated entries with surrounding newlines"
+    ],
+    "negative_neighbors": [
+     "top-level trailing comma",
+     "entry without separator",
+     "unexpected closer"
+    ]
+   },
+   {
+    "id": "S07-02-ENTRY-PRODUCTIONS",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "let declaration",
+     "extend entry",
+     "attribute",
+     "sigil block",
+     "named entry",
+     "named assignment",
+     "named block",
+     "path entry",
+     "optional named entry",
+     "optional path entry"
+    ],
+    "negative_neighbors": [
+     "missing name",
+     "missing equals value",
+     "missing block",
+     "qualified reference with missing side",
+     "unsupported entry prefix"
+    ]
+   },
+   {
+    "id": "S07-03-BLOCKS",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "empty block",
+     "newline body",
+     "comma separators",
+     "newline separators",
+     "multiline trailing comma"
+    ],
+    "negative_neighbors": [
+     "missing opener",
+     "missing closer",
+     "top-level closer",
+     "double comma",
+     "entry without separator"
+    ]
+   },
+   {
+    "id": "S07-04-VALUES-LISTS",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "string expression",
+     "bare reference",
+     "empty list",
+     "single-value list",
+     "multiline comma list",
+     "list trailing comma"
+    ],
+    "negative_neighbors": [
+     "newline-only list separation",
+     "missing list comma",
+     "missing value",
+     "unclosed list",
+     "block used as first-class value"
+    ]
+   },
+   {
+    "id": "S07-05-SOFT-BREAK",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "assignment value on same line",
+     "assignment value after one newline",
+     "assignment value after multiple newlines"
+    ],
+    "negative_neighbors": [
+     "string-expression atoms crossing a newline",
+     "separator consumed as an absent value"
+    ]
+   },
+   {
+    "id": "S07-06-GENERIC-OPTIONALITY",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "?@font parses as generic syntax",
+     "?name parses",
+     "?PATHREF parses"
+    ],
+    "negative_neighbors": [
+     "optional sigil on attribute",
+     "duplicate optional sigil",
+     "schema rejection of ?@groups after successful parse"
+    ]
+   },
+   {
+    "id": "S07-07-RECOVERY-NEIGHBORS",
+    "section": "7",
+    "status": "planned",
+    "positive_cases": [
+     "valid outer entry after recovered inner error",
+     "valid entry after missing comma recovery"
+    ],
+    "negative_neighbors": [
+     "unmatched delimiter",
+     "missing closer at EOF",
+     "unexpected closer",
+     "unparsed tail",
+     "adversarial nesting",
+     "diagnostic-cap input"
+    ]
+   },
+   {
+    "id": "S08-01-VALUE-KINDS",
+    "section": "8",
+    "status": "planned",
+    "positive_cases": [
+     "quoted string in data position",
+     "bare reference in reference position",
+     "homogeneous ordered list"
+    ],
+    "negative_neighbors": [
+     "bare value in string-only position",
+     "quoted value in reference-only position",
+     "heterogeneous list",
+     "null",
+     "Boolean",
+     "numeric literal"
+    ]
+   },
+   {
+    "id": "S08-02-ROOT-PROLOGUE",
+    "section": "8",
+    "status": "planned",
+    "positive_cases": [
+     "root let prologue",
+     "multiple source-ordered root lets",
+     "root use after declaration"
+    ],
+    "negative_neighbors": [
+     "root let after ordinary entry",
+     "root use before declaration",
+     "root self-reference",
+     "same-root redeclaration"
+    ]
+   },
+   {
+    "id": "S08-03-NESTED-SCOPES",
+    "section": "8",
+    "status": "planned",
+    "positive_cases": [
+     "nested scope sees outer binding",
+     "nested scope shadows outer binding",
+     "later declaration sees earlier declaration"
+    ],
+    "negative_neighbors": [
+     "outer scope sees inner binding",
+     "same-block redeclaration",
+     "nested use before local declaration",
+     "binding crosses files"
+    ]
+   },
+   {
+    "id": "S08-04-BINDING-INITIALIZERS",
+    "section": "8",
+    "status": "planned",
+    "positive_cases": [
+     "literal string initializer",
+     "string initializer using earlier binding",
+     "multi-atom string initializer"
+    ],
+    "negative_neighbors": [
+     "bare reference initializer",
+     "list initializer",
+     "block initializer",
+     "self-reference"
+    ]
+   },
+   {
+    "id": "S08-05-PATH-CONSUMPTION",
+    "section": "8",
+    "status": "planned",
+    "positive_cases": [
+     "tilde remains data in ordinary string field",
+     "tilde expands only after path-typed consumption",
+     "binding segments retain provenance"
+    ],
+    "negative_neighbors": [
+     "environment lookup",
+     "command substitution",
+     "implicit non-string conversion",
+     "eager tilde expansion in an ordinary string"
+    ]
+   },
+   {
+    "id": "S08-06-FORMATTER-BINDINGS",
+    "section": "8",
+    "status": "planned",
+    "positive_cases": [
+     "binding declaration order preserved",
+     "binding remains in legal prologue",
+     "adjacent atoms canonicalize to interpolation"
+    ],
+    "negative_neighbors": [
+     "binding hoisted across entry",
+     "shadowing reordered",
+     "prologue declaration sorted by name"
+    ]
+   }
+  ]
+ }
 }

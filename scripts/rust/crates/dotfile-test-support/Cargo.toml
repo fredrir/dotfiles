@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+dotfile-source = { path = "../dotfile-source" }
+dotfile-syntax = { path = "../dotfile-syntax" }
 serde_json.workspace = true
 
 [dev-dependencies]

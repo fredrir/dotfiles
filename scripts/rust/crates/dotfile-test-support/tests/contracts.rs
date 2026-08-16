@@ -28,6 +28,7 @@ fn every_m0_contract_is_valid_json_with_one_final_lf() {
         .collect::<BTreeSet<_>>();
     let actual = fs::read_dir(contract_directory())
         .unwrap()
+        .filter(|entry| entry.as_ref().unwrap().file_type().unwrap().is_file())
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect::<BTreeSet<_>>();
     assert_eq!(actual, expected);
@@ -89,13 +90,34 @@ fn fixture_manifest_covers_every_required_family_and_test_class() {
 
     let claims = &fixtures["implementation_claims"];
     assert_eq!(claims["conformance_claimed"], false);
-    assert!(
-        claims["implemented_fixture_ids"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
-    assert!(claims["passing_fixture_ids"].as_array().unwrap().is_empty());
+    let implemented = claims["implemented_fixture_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let passing = claims["passing_fixture_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| id.as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    // Claim lists are unique, sorted by unsigned bytes, and name fixture
+    // records that exist on disk; passing is a subset of implemented.
+    let implemented_set = implemented.iter().collect::<BTreeSet<_>>();
+    let passing_set = passing.iter().collect::<BTreeSet<_>>();
+    assert_eq!(implemented_set.len(), implemented.len());
+    assert_eq!(passing_set.len(), passing.len());
+    assert!(implemented.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(passing.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(passing_set.is_subset(&implemented_set));
+    let fixture_directory = contract_directory().join("fixtures");
+    for id in &implemented {
+        assert!(
+            fixture_directory.join(format!("{id}.json")).is_file(),
+            "claimed fixture {id} has no record on disk"
+        );
+    }
 }
 
 #[test]

@@ -1,0 +1,132 @@
+{
+ "id": "f02-parse-recovery-valid-after-error",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "valid outer entry after recovered inner error"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "a { b c }\nvalid\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nWord 0..1 \"a\"\ngap 1..2 \" \"\nLeftBrace 2..3 \"{\"\ngap 3..4 \" \"\nWord 4..5 \"b\"\ngap 5..6 \" \"\nWord 6..7 \"c\"\ngap 7..8 \" \"\nRightBrace 8..9 \"}\"\ngap 9..9 \"\"\nNewline 9..10 \"\\n\"\ngap 10..10 \"\"\nWord 10..15 \"valid\"\ngap 15..15 \"\"\nNewline 15..16 \"\\n\"\ngap 16..16 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..16\n  NamedEntry 0..9\n    Word 0..1 \"a\"\n    Block 2..9\n      LeftBrace 2..3 \"{\"\n      NamedEntry 4..5\n        Word 4..5 \"b\"\n      Error 6..7\n        Word 6..7 \"c\"\n      RightBrace 8..9 \"}\"\n  Newline 9..10 \"\\n\"\n  NamedEntry 10..15\n    Word 10..15 \"valid\"\n  Newline 15..16 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "parse/syntax",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 7,
+      "end_column": 8,
+      "end_line": 1,
+      "path": "fixture.dotfile",
+      "start_byte": 6,
+      "start_column": 7,
+      "start_line": 1
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "separate entries with a newline or a comma",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "parse",
+     "summary": "expected a separator between entries"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

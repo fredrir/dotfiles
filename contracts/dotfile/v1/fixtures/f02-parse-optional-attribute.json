@@ -1,0 +1,132 @@
+{
+ "id": "f02-parse-optional-attribute",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "optional sigil on attribute"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "?@groups = [macos]\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nQuestion 0..1 \"?\"\ngap 1..1 \"\"\nAt 1..2 \"@\"\ngap 2..2 \"\"\nWord 2..8 \"groups\"\ngap 8..9 \" \"\nEq 9..10 \"=\"\ngap 10..11 \" \"\nLeftBracket 11..12 \"[\"\ngap 12..12 \"\"\nWord 12..17 \"macos\"\ngap 17..17 \"\"\nRightBracket 17..18 \"]\"\ngap 18..18 \"\"\nNewline 18..19 \"\\n\"\ngap 19..19 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..19\n  Attribute 0..18\n    Question 0..1 \"?\"\n    At 1..2 \"@\"\n    Word 2..8 \"groups\"\n    Eq 9..10 \"=\"\n    List 11..18\n      LeftBracket 11..12 \"[\"\n      Reference 12..17\n        Word 12..17 \"macos\"\n      RightBracket 17..18 \"]\"\n  Newline 18..19 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "parse/syntax",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 10,
+      "end_column": 11,
+      "end_line": 1,
+      "path": "fixture.dotfile",
+      "start_byte": 9,
+      "start_column": 10,
+      "start_line": 1
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "remove the `?`",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "parse",
+     "summary": "an optional sigil is not valid on an attribute"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

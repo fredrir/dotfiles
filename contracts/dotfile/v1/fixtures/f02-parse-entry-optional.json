@@ -1,0 +1,108 @@
+{
+ "id": "f02-parse-entry-optional",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "optional named, path, and sigil entries"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "?ncdu\n?./generated-report { @deploy = \"none\" }\n?@font { @key = hack_nerd_font }\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nQuestion 0..1 \"?\"\ngap 1..1 \"\"\nWord 1..5 \"ncdu\"\ngap 5..5 \"\"\nNewline 5..6 \"\\n\"\ngap 6..6 \"\"\nQuestion 6..7 \"?\"\ngap 7..7 \"\"\nPathRef 7..25 \"./generated-report\"\ngap 25..26 \" \"\nLeftBrace 26..27 \"{\"\ngap 27..28 \" \"\nAt 28..29 \"@\"\ngap 29..29 \"\"\nWord 29..35 \"deploy\"\ngap 35..36 \" \"\nEq 36..37 \"=\"\ngap 37..38 \" \"\nString 38..44 \"\\\"none\\\"\" decoded \"none\"\ngap 44..45 \" \"\nRightBrace 45..46 \"}\"\ngap 46..46 \"\"\nNewline 46..47 \"\\n\"\ngap 47..47 \"\"\nQuestion 47..48 \"?\"\ngap 48..48 \"\"\nAt 48..49 \"@\"\ngap 49..49 \"\"\nWord 49..53 \"font\"\ngap 53..54 \" \"\nLeftBrace 54..55 \"{\"\ngap 55..56 \" \"\nAt 56..57 \"@\"\ngap 57..57 \"\"\nWord 57..60 \"key\"\ngap 60..61 \" \"\nEq 61..62 \"=\"\ngap 62..63 \" \"\nWord 63..77 \"hack_nerd_font\"\ngap 77..78 \" \"\nRightBrace 78..79 \"}\"\ngap 79..79 \"\"\nNewline 79..80 \"\\n\"\ngap 80..80 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..80\n  NamedEntry 0..5\n    Question 0..1 \"?\"\n    Word 1..5 \"ncdu\"\n  Newline 5..6 \"\\n\"\n  PathEntry 6..46\n    Question 6..7 \"?\"\n    PathRef 7..25 \"./generated-report\"\n    Block 26..46\n      LeftBrace 26..27 \"{\"\n      Attribute 28..44\n        At 28..29 \"@\"\n        Word 29..35 \"deploy\"\n        Eq 36..37 \"=\"\n        StringExpr 38..44\n          String 38..44 \"\\\"none\\\"\"\n      RightBrace 45..46 \"}\"\n  Newline 46..47 \"\\n\"\n  SigilBlock 47..79\n    Question 47..48 \"?\"\n    At 48..49 \"@\"\n    Word 49..53 \"font\"\n    Block 54..79\n      LeftBrace 54..55 \"{\"\n      Attribute 56..77\n        At 56..57 \"@\"\n        Word 57..60 \"key\"\n        Eq 61..62 \"=\"\n        Reference 63..77\n          Word 63..77 \"hack_nerd_font\"\n      RightBrace 78..79 \"}\"\n  Newline 79..80 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}

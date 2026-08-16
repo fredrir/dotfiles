@@ -1,0 +1,11 @@
+[package]
+name = "dotfile-syntax"
+version = "0.1.0"
+description = "Byte lexer, trivia gaps, recovering parser, lossless CST, and generic AST for dotfile v1"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dotfile-source = { path = "../dotfile-source" }
+serde_json.workspace = true

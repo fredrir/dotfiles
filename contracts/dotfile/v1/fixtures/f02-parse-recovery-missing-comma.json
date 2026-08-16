@@ -1,0 +1,132 @@
+{
+ "id": "f02-parse-recovery-missing-comma",
+ "format_version": "1",
+ "status": "passing",
+ "normative_references": [
+  {
+   "path": "docs/dotfile-language.md",
+   "section": "7",
+   "clause": "valid entry after missing comma recovery"
+  }
+ ],
+ "domain": "generic",
+ "operation": "parse",
+ "input_bytes": {
+  "encoding": "utf8",
+  "value": "a = [\n    \"x\"\n    \"y\"\n]\nvalid\n"
+ },
+ "repository_state": {
+  "git_index": [],
+  "tracked_ignores": [],
+  "worktree": [],
+  "no_follow_metadata": [],
+  "symlink_targets": []
+ },
+ "machine_state": {
+  "profile": "",
+  "host": "",
+  "variants": {},
+  "os": "",
+  "architecture": "",
+  "filesystem": {
+   "kind": "",
+   "case_sensitivity": "",
+   "volume_identity": ""
+  },
+  "state_files": [],
+  "destinations": [],
+  "accounts": [],
+  "capabilities": {
+   "create_no_replace": false,
+   "guarded_replace": false,
+   "guarded_prune": false
+  }
+ },
+ "expected": {
+  "tokens": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "gap 0..0 \"\"\nWord 0..1 \"a\"\ngap 1..2 \" \"\nEq 2..3 \"=\"\ngap 3..4 \" \"\nLeftBracket 4..5 \"[\"\ngap 5..5 \"\"\nNewline 5..6 \"\\n\"\ngap 6..10 \"    \"\nString 10..13 \"\\\"x\\\"\" decoded \"x\"\ngap 13..13 \"\"\nNewline 13..14 \"\\n\"\ngap 14..18 \"    \"\nString 18..21 \"\\\"y\\\"\" decoded \"y\"\ngap 21..21 \"\"\nNewline 21..22 \"\\n\"\ngap 22..22 \"\"\nRightBracket 22..23 \"]\"\ngap 23..23 \"\"\nNewline 23..24 \"\\n\"\ngap 24..24 \"\"\nWord 24..29 \"valid\"\ngap 29..29 \"\"\nNewline 29..30 \"\\n\"\ngap 30..30 \"\"\n"
+   }
+  },
+  "cst": {
+   "state": "golden",
+   "comparison": "exact_bytes",
+   "payload": {
+    "encoding": "utf8",
+    "value": "File 0..30\n  NamedEntry 0..23\n    Word 0..1 \"a\"\n    Eq 2..3 \"=\"\n    List 4..23\n      LeftBracket 4..5 \"[\"\n      Newline 5..6 \"\\n\"\n      StringExpr 10..13\n        String 10..13 \"\\\"x\\\"\"\n      Newline 13..14 \"\\n\"\n      Missing Comma 18\n      StringExpr 18..21\n        String 18..21 \"\\\"y\\\"\"\n      Newline 21..22 \"\\n\"\n      RightBracket 22..23 \"]\"\n  Newline 23..24 \"\\n\"\n  NamedEntry 24..29\n    Word 24..29 \"valid\"\n  Newline 29..30 \"\\n\"\n"
+   }
+  },
+  "diagnostics": {
+   "state": "golden",
+   "comparison": "exact_json",
+   "payload": [
+    {
+     "actual": {},
+     "code": "parse/syntax",
+     "expected": {},
+     "primary_span": {
+      "end_byte": 18,
+      "end_column": 5,
+      "end_line": 3,
+      "path": "fixture.dotfile",
+      "start_byte": 18,
+      "start_column": 5,
+      "start_line": 3
+     },
+     "provenance": [],
+     "related_spans": [],
+     "remedy": "separate list values with commas",
+     "scope": "source",
+     "secret_redacted": false,
+     "semantic_identity": "",
+     "severity": "Error",
+     "stage": "parse",
+     "summary": "missing comma between list values"
+    }
+   ]
+  },
+  "ir": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_text": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lock_jcs": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "edits": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "cli": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "lsp": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "tree_sitter": {
+   "state": "not_applicable",
+   "comparison": "none",
+   "payload": {}
+  },
+  "filesystem_mutations": {
+   "state": "empty",
+   "comparison": "empty",
+   "payload": []
+  }
+ }
+}
