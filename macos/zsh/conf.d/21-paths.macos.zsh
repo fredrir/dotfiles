@@ -14,3 +14,6 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 export PATH="$PATH:/Applications/PyCharm.app/Contents/MacOS"
+
+# opencode
+export PATH=/Users/fredrir/.opencode/bin:$PATH

@@ -1,0 +1,490 @@
+{
+ "schema_version": 1,
+ "captured": "2026-08-16",
+ "command": "cargo test -p dmux",
+ "toolchain": "cargo 1.97.1",
+ "revision": "039e2ee",
+ "total": 116,
+ "suites": {
+  "unit": {
+   "count": 37,
+   "tests": [
+    {
+     "id": "unit::hosts::tests::the_peers_are_symmetric",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::inside_tmux_the_client_switches",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::a_local_attach_is_plain_tmux",
+     "result": "ok"
+    },
+    {
+     "id": "unit::hosts::tests::an_unroutable_probe_comes_back_down_quickly",
+     "result": "ok"
+    },
+    {
+     "id": "unit::hosts::tests::addresses_match_the_wezterm_config",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::a_window_is_selected_after_the_attach",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::a_remote_attach_quotes_the_equals_target",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::new_inside_tmux_detaches_then_switches",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::a_remote_new_quotes_directory_and_command",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::quoting_survives_a_hostile_name",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::new_creates_and_attaches",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::a_remote_window_select_escapes_the_separator",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::kills_use_exact_targets",
+     "result": "ok"
+    },
+    {
+     "id": "unit::attach::tests::new_carries_the_directory_and_command",
+     "result": "ok"
+    },
+    {
+     "id": "unit::hosts::tests::wezterm_env_is_distrusted_inside_a_foreign_tmux",
+     "result": "ok"
+    },
+    {
+     "id": "unit::doctor::tests::details_spell_out_each_probe_state",
+     "result": "ok"
+    },
+    {
+     "id": "unit::keys::tests::verbatim_defuses_roff_syntax",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::a_missing_target_suggests_creating_it",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::a_name_may_contain_the_delimiter",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::a_numeric_name_shadows_the_index",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::garbage_lines_are_dropped",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::named_targets_prefer_the_tmux_row",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::names_are_letters_numbers_underscore_dash",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::numeric_targets_resolve_by_index",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::parses_the_tmux_format_line",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::tmux_rows_sort_by_creation_time",
+     "result": "ok"
+    },
+    {
+     "id": "unit::state::tests::a_later_line_wins",
+     "result": "ok"
+    },
+    {
+     "id": "unit::state::tests::parses_one_entry_per_host",
+     "result": "ok"
+    },
+    {
+     "id": "unit::tests::a_picked_number_must_name_a_row",
+     "result": "ok"
+    },
+    {
+     "id": "unit::tests::fzf_cancel_is_quiet_and_failure_is_loud",
+     "result": "ok"
+    },
+    {
+     "id": "unit::tests::only_a_leading_dash_is_the_toggle",
+     "result": "ok"
+    },
+    {
+     "id": "unit::tests::the_fallthrough_window_takes_every_con_spelling",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::alignment_uses_display_width_not_char_count",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::rendering_aligns_on_text_not_escapes",
+     "result": "ok"
+    },
+    {
+     "id": "unit::list::tests::formats_created_at_a_pinned_zone",
+     "result": "ok"
+    },
+    {
+     "id": "unit::state::tests::remote_state_leaves_the_local_slot_alone",
+     "result": "ok"
+    },
+    {
+     "id": "unit::state::tests::a_remote_attach_shifts_current_into_previous",
+     "result": "ok"
+    }
+   ]
+  },
+  "cli": {
+   "count": 73,
+   "tests": [
+    {
+     "id": "cli::a_remote_new_quotes_the_directory_and_command",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_remote_listing_needs_ssh",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_new_command_needs_the_separator",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_bare_remote_attach_outside_wezterm_is_tmux_main",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_bare_remote_attach_inside_wezterm_spawns_a_native_domain",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_remote_named_session_goes_over_ssh",
+     "result": "ok"
+    },
+    {
+     "id": "cli::an_empty_listing_is_an_empty_json_array",
+     "result": "ok"
+    },
+    {
+     "id": "cli::an_unknown_host_is_a_usage_error",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_remote_wez_listing_is_refused_honestly",
+     "result": "ok"
+    },
+    {
+     "id": "cli::an_invalid_session_name_is_rejected",
+     "result": "ok"
+    },
+    {
+     "id": "cli::both_version_flags_print_version_and_name",
+     "result": "ok"
+    },
+    {
+     "id": "cli::completions_are_static_zsh",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_reachable_peer_without_tmux_is_an_empty_listing",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_dash_after_a_verb_is_not_the_toggle",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_peer_whose_shell_cannot_find_tmux_is_a_hard_error",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_remote_rename_quotes_the_exact_target",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_remote_json_listing_names_its_host",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_filtered_listing_keeps_the_merged_indices",
+     "result": "ok"
+    },
+    {
+     "id": "cli::dash_without_state_says_so",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_numeric_target_resolves_against_the_listing",
+     "result": "ok"
+    },
+    {
+     "id": "cli::detach_inside_tmux_detaches_the_client",
+     "result": "ok"
+    },
+    {
+     "id": "cli::detach_inside_wezterm_is_refused_honestly",
+     "result": "ok"
+    },
+    {
+     "id": "cli::detach_outside_tmux_refuses",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_command_not_found_on_stderr_is_the_same_hard_error",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_window_flag_does_not_apply_to_a_workspace",
+     "result": "ok"
+    },
+    {
+     "id": "cli::help_describes_this_tool",
+     "result": "ok"
+    },
+    {
+     "id": "cli::a_window_is_selected_after_the_attach",
+     "result": "ok"
+    },
+    {
+     "id": "cli::an_unknown_word_falls_through_to_con",
+     "result": "ok"
+    },
+    {
+     "id": "cli::an_unreachable_peer_surfaces_the_ssh_error",
+     "result": "ok"
+    },
+    {
+     "id": "cli::bare_dmux_on_a_pipe_is_ls",
+     "result": "ok"
+    },
+    {
+     "id": "cli::con_attaches_an_existing_session",
+     "result": "ok"
+    },
+    {
+     "id": "cli::con_create_attaches_when_the_session_exists",
+     "result": "ok"
+    },
+    {
+     "id": "cli::con_create_falls_back_to_new",
+     "result": "ok"
+    },
+    {
+     "id": "cli::names_and_json_refuse_to_mix",
+     "result": "ok"
+    },
+    {
+     "id": "cli::new_creates_and_attaches_locally",
+     "result": "ok"
+    },
+    {
+     "id": "cli::new_takes_a_directory_and_a_command",
+     "result": "ok"
+    },
+    {
+     "id": "cli::con_create_plans_a_quoted_remote_new_session",
+     "result": "ok"
+    },
+    {
+     "id": "cli::con_create_still_validates_the_name",
+     "result": "ok"
+    },
+    {
+     "id": "cli::con_refuses_to_create",
+     "result": "ok"
+    },
+    {
+     "id": "cli::dash_toggles_to_the_recorded_session",
+     "result": "ok"
+    },
+    {
+     "id": "cli::delete_is_an_alias_for_rm",
+     "result": "ok"
+    },
+    {
+     "id": "cli::doctor_json_is_machine_readable",
+     "result": "ok"
+    },
+    {
+     "id": "cli::doctor_still_prints_the_human_report",
+     "result": "ok"
+    },
+    {
+     "id": "cli::inside_tmux_con_switches_the_client",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_all_mixes_with_neither_targets_nor_window",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_all_with_nothing_running_is_a_no_op",
+     "result": "ok"
+    },
+    {
+     "id": "cli::inside_wezterm_a_workspace_attach_activates_a_pane",
+     "result": "ok"
+    },
+    {
+     "id": "cli::list_is_an_alias_for_ls",
+     "result": "ok"
+    },
+    {
+     "id": "cli::ls_json_carries_the_full_rows",
+     "result": "ok"
+    },
+    {
+     "id": "cli::ls_names_is_plain_lines",
+     "result": "ok"
+    },
+    {
+     "id": "cli::ls_shows_the_tmux_sessions",
+     "result": "ok"
+    },
+    {
+     "id": "cli::malformed_wezterm_json_degrades_to_tmux_only",
+     "result": "ok"
+    },
+    {
+     "id": "cli::stale_wezterm_env_inside_tmux_is_distrusted",
+     "result": "ok"
+    },
+    {
+     "id": "cli::outside_wezterm_a_workspace_attach_still_refuses",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rename_reaches_sessions_with_hostile_names",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rename_refuses_a_wezterm_workspace",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rename_validates_only_the_new_name",
+     "result": "ok"
+    },
+    {
+     "id": "cli::the_fallthrough_rejects_other_extras",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_all_confirmation_lists_the_victims",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_all_keeps_the_session_it_is_inside",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_all_kills_every_listed_session",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_all_leaves_wezterm_workspaces_alone",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_confirmation_reads_yes_and_no",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_kills_with_an_exact_target",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_refuses_a_target_that_does_not_exist",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_reports_a_partial_failure",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_with_a_window_kills_only_that_window",
+     "result": "ok"
+    },
+    {
+     "id": "cli::rm_without_a_terminal_demands_yes",
+     "result": "ok"
+    },
+    {
+     "id": "cli::the_activated_pane_is_the_workspaces_lowest",
+     "result": "ok"
+    },
+    {
+     "id": "cli::the_aliases_reach_con",
+     "result": "ok"
+    },
+    {
+     "id": "cli::the_attached_workspace_is_the_one_holding_wezterm_pane",
+     "result": "ok"
+    },
+    {
+     "id": "cli::the_fallthrough_accepts_a_window",
+     "result": "ok"
+    },
+    {
+     "id": "cli::wez_workspaces_deduplicate_panes_into_windows",
+     "result": "ok"
+    }
+   ]
+  },
+  "roundtrip": {
+   "count": 6,
+   "tests": [
+    {
+     "id": "roundtrip::remote_targets_survive_zsh",
+     "result": "ok"
+    },
+    {
+     "id": "roundtrip::remote_targets_survive_sh",
+     "result": "ok"
+    },
+    {
+     "id": "roundtrip::a_remote_toggle_without_history_says_so",
+     "result": "ok"
+    },
+    {
+     "id": "roundtrip::a_remote_toggle_reattaches_the_previous_session",
+     "result": "ok"
+    },
+    {
+     "id": "roundtrip::a_new_directory_survives_zsh",
+     "result": "ok"
+    },
+    {
+     "id": "roundtrip::a_new_directory_survives_sh",
+     "result": "ok"
+    }
+   ]
+  }
+ },
+ "retirements": []
+}
