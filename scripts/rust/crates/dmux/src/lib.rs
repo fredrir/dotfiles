@@ -12,6 +12,10 @@
 
 pub mod backend;
 pub mod error;
+pub mod history;
+pub mod locks;
 pub mod model;
 pub mod refs;
+pub mod registry;
 pub mod remote;
+pub mod runtime;

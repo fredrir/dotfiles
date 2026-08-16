@@ -25,6 +25,7 @@ No spike patch merges into this repository as product behavior.
 | Installed build | `20260813-114614-18a44cb7` (commit `18a44cb70`, plus two packaging commits) — identical version installed on Macie (`/opt/homebrew/bin/wezterm`) and Archie |
 | Build command | `cargo build --release -p wezterm -p wezterm-gui -p wezterm-mux-server` (macOS local bundle produced as `WezTerm-macos-local`; Arch uses the pinned PKGBUILD in `9e6323bb5`) |
 | P0 spike worktree (disposable) | `/Users/fredrir/packages/wezterm-dmux-p0`, branch `dmux-p0-spike`, created from `9e6323bb5` |
+| P3c working worktree | `/Users/fredrir/packages/wezterm-dmux`, branch `dmux-primitives`, created from `9e6323bb5`; the Wez provider/fork agent's exclusive fork workspace within the P3c globs below. Merging `dmux-primitives` into `fredrir` (and installing the resulting build) is an explicit maintainer step, required before P6 adoption goes live. |
 
 Rules:
 

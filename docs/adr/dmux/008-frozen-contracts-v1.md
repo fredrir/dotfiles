@@ -144,16 +144,25 @@ full-suite gate.
 
 ## 7. W1→W2 handoff record
 
-W1 (root-only) produced the frozen skeletons. Per plan §19, at W2 dispatch
-the following exclusive ownership transfers take effect; the base revision is
-the commit introducing this ADR (recorded in the dispatch note when W2
-begins). Specialists do not edit before their recorded handoff.
+W1 (root-only) produced the frozen skeletons. **Executed 2026-08-16**: the W2
+base revision is the commit titled "dmux W2 dispatch: runtime resolver,
+handoff stubs, ownership record" (contracts frozen at `cb780bd`). Specialist
+ownership below is live from that commit; specialists do not edit outside
+their globs, do not change Cargo manifests, and stop with an evidence-backed
+report if implementation contradicts a frozen contract.
 
 | Path | From | To (W2) |
 | --- | --- | --- |
 | `src/model.rs`, `src/refs.rs`, `src/error.rs` | root | identity/registry agent |
-| `src/remote/protocol.rs` | root | remote/routing agent |
-| `src/backend/mod.rs`, `tests/provider_contract.rs` | root | stays root-owned |
+| `src/history.rs`, `src/locks.rs`, `src/registry/**`, `tests/{identity,registry}/**` | root (stubs) | identity/registry agent |
+| `src/backend/tmux.rs`, `tests/provider_tmux.rs`, `tests/fixtures/tmux/**` | — | tmux provider agent |
+| fork worktree per ADR 000 P3c globs + `tests/fixtures/wez/**` | — | Wez provider/fork agent |
+| `src/remote/protocol.rs` | root | remote/routing agent (dormant until P7 scaffolding) |
+| `src/backend/mod.rs`, `tests/provider_contract.rs`, `src/lib.rs`, `src/runtime.rs` | root | stays root-owned |
+
+Specialists deliver working-tree changes only; the root reviews, runs the
+full suite, and commits each handoff (repo hooks demand `cargo fmt`, which
+the root runs at integration).
 
 Gate result: full suite green at 137 tests — the 116-test baseline
 (`baseline-tests.json`) unchanged plus 21 additive contract tests; zero
