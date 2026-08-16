@@ -8,7 +8,9 @@
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use dmux::backend::tmux::{SpaceMarkers, SystemRunner, TmuxProvider};
+use dmux::backend::tmux::{
+    EpochSetOutcome, SpaceMarkers, SystemRunner, TmuxProvider, TmuxServerIdentity,
+};
 use dmux::backend::{
     CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, PresentationTarget, Provider,
     ProviderError,
@@ -29,9 +31,15 @@ struct ScratchServer {
 
 impl ScratchServer {
     fn new() -> Self {
+        Self::with_prefix("dmux-p3a")
+    }
+
+    /// P5 epoch-bootstrap tests use their own `dmux-p5tx-<pid>-<n>` scratch
+    /// namespaces; same Drop-guard `kill-server` cleanup.
+    fn with_prefix(prefix: &str) -> Self {
         ScratchServer {
             ns: format!(
-                "dmux-p3a-{}-{}",
+                "{prefix}-{}-{}",
                 std::process::id(),
                 COUNTER.fetch_add(1, Ordering::SeqCst)
             ),
@@ -251,6 +259,17 @@ fn unepoched_server_reports_none_and_ls_never_writes_the_option() {
     assert!(
         !globals.contains("@dmux_server_epoch"),
         "inventory must never write the epoch option; globals:\n{globals}"
+    );
+
+    // The P5 identity probe is equally read-only: of the bootstrap
+    // primitives, only set_epoch_if_absent writes the option.
+    srv.provider()
+        .server_identity(&srv.ns)
+        .expect("server_identity");
+    let globals = srv.tmux_ok(&["show-options", "-g"]);
+    assert!(
+        !globals.contains("@dmux_server_epoch"),
+        "server_identity must never write the epoch option; globals:\n{globals}"
     );
 }
 
@@ -610,4 +629,171 @@ fn capabilities_are_probed_by_running_against_the_real_server() {
         !listing.contains("dmux-probe-"),
         "probe session must be removed: {listing}"
     );
+}
+
+// -- P5 epoch bootstrap primitives (plan §11.2) ------------------------------
+//
+// These tests exercise the `dmux _tmux-bootstrap` building blocks on a real
+// scratch server (`tmux -L dmux-p5tx-<pid>-<n>`). The kernel lock the real
+// bootstrap holds is the CALLER's job and is not simulated here; the
+// primitives themselves are lock-free.
+
+#[test]
+fn epoch_bootstrap_sets_once_and_verifies_identity_and_epoch() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::with_prefix("dmux-p5tx");
+    srv.start_with_holder();
+    let provider = srv.provider();
+
+    // Identity probe on the running incarnation; read-only.
+    let id = provider.server_identity(&srv.ns).expect("server_identity");
+    assert!(id.pid > 0);
+    let start: u64 = id
+        .start_token
+        .parse()
+        .expect("start_token is #{start_time}: whole seconds since the epoch");
+    assert!(
+        start > 1_500_000_000,
+        "implausible server start time {start}"
+    );
+    // Parsing cross-check against a directly issued listing.
+    let raw = srv.tmux_ok(&["list-sessions", "-F", "#{pid}"]);
+    assert_eq!(raw.lines().next().unwrap(), id.pid.to_string());
+
+    // Fresh server → epoch absent → Set, verified by native readback.
+    let e1 = fresh_epoch();
+    assert_eq!(
+        provider
+            .set_epoch_if_absent(&srv.ns, e1)
+            .expect("first set"),
+        EpochSetOutcome::Set
+    );
+    let readback = srv.tmux_ok(&["show-options", "-gqv", "@dmux_server_epoch"]);
+    assert_eq!(readback.trim(), e1.0.to_string());
+
+    // Second bootstrap attempt observes the first winner.
+    assert_eq!(
+        provider
+            .set_epoch_if_absent(&srv.ns, fresh_epoch())
+            .expect("second call"),
+        EpochSetOutcome::AlreadySet(e1)
+    );
+
+    // verify_epoch: success, then each mismatch case typed.
+    provider
+        .verify_epoch(&srv.ns, e1, &id)
+        .expect("matching identity and epoch");
+    match provider.verify_epoch(&srv.ns, fresh_epoch(), &id) {
+        Err(ProviderError::EpochChanged { observed, .. }) => {
+            assert_eq!(observed, Some(e1));
+        }
+        other => panic!("expected epoch_changed, got {other:?}"),
+    }
+    let wrong_pid = TmuxServerIdentity {
+        pid: id.pid.wrapping_add(1),
+        start_token: id.start_token.clone(),
+    };
+    match provider.verify_epoch(&srv.ns, e1, &wrong_pid) {
+        Err(ProviderError::WrongInstance { .. }) => {}
+        other => panic!("expected wrong_instance for pid mismatch, got {other:?}"),
+    }
+    let wrong_start = TmuxServerIdentity {
+        pid: id.pid,
+        start_token: "1".into(),
+    };
+    match provider.verify_epoch(&srv.ns, e1, &wrong_start) {
+        Err(ProviderError::WrongInstance { .. }) => {}
+        other => panic!("expected wrong_instance for start-token mismatch, got {other:?}"),
+    }
+}
+
+#[test]
+fn external_epoch_writer_first_wins_and_malformed_value_is_typed() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::with_prefix("dmux-p5tx");
+    srv.start_with_holder();
+    let provider = srv.provider();
+
+    // An external actor (not dmux) installed an epoch before our bootstrap.
+    let external = fresh_epoch();
+    srv.set_epoch(external);
+    assert_eq!(
+        provider
+            .set_epoch_if_absent(&srv.ns, fresh_epoch())
+            .expect("bootstrap after external write"),
+        EpochSetOutcome::AlreadySet(external)
+    );
+
+    // A malformed existing value is a typed error and is never overwritten.
+    srv.tmux_ok(&["set-option", "-g", "@dmux_server_epoch", "not-a-uuid"]);
+    match provider.set_epoch_if_absent(&srv.ns, fresh_epoch()) {
+        Err(ProviderError::NativeFailure { detail }) => {
+            assert!(detail.contains("@dmux_server_epoch"), "{detail}");
+        }
+        other => panic!("expected native_failure, got {other:?}"),
+    }
+    let still = srv.tmux_ok(&["show-options", "-gqv", "@dmux_server_epoch"]);
+    assert_eq!(still.trim(), "not-a-uuid", "malformed value left untouched");
+}
+
+#[test]
+fn fresh_incarnation_has_no_epoch_and_a_new_identity() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::with_prefix("dmux-p5tx");
+    srv.start_with_holder();
+    let provider = srv.provider();
+
+    let id1 = provider.server_identity(&srv.ns).expect("identity 1");
+    let e1 = fresh_epoch();
+    assert_eq!(
+        provider.set_epoch_if_absent(&srv.ns, e1).expect("set 1"),
+        EpochSetOutcome::Set
+    );
+
+    // Restart the incarnation on the SAME socket namespace. #{start_time}
+    // has whole-second resolution, so cross a second boundary to prove the
+    // start token itself changes, independent of the pid.
+    srv.tmux_ok(&["kill-server"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    srv.start_with_holder();
+
+    // Global options died with the old server: the epoch is absent again.
+    let globals = srv.tmux_ok(&["show-options", "-g"]);
+    assert!(
+        !globals.contains("@dmux_server_epoch"),
+        "fresh incarnation must be unepoched; globals:\n{globals}"
+    );
+
+    let id2 = provider.server_identity(&srv.ns).expect("identity 2");
+    assert_ne!(id1, id2, "new incarnation must have a new identity");
+    assert_ne!(
+        id1.start_token, id2.start_token,
+        "start token must change across restarts"
+    );
+
+    // Stale identity/epoch from the previous incarnation are rejected before
+    // any child mutation could run.
+    match provider.verify_epoch(&srv.ns, e1, &id1) {
+        Err(ProviderError::WrongInstance { .. }) => {}
+        other => panic!("expected wrong_instance for stale incarnation, got {other:?}"),
+    }
+
+    // And the new incarnation bootstraps cleanly.
+    let e2 = fresh_epoch();
+    assert_eq!(
+        provider.set_epoch_if_absent(&srv.ns, e2).expect("set 2"),
+        EpochSetOutcome::Set
+    );
+    provider
+        .verify_epoch(&srv.ns, e2, &id2)
+        .expect("new binding verifies");
 }

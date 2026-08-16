@@ -183,6 +183,24 @@ enum Cmd {
     #[command(name = "_mux-idle", hide = true)]
     MuxIdle,
 
+    /// Internal: stamp a fresh server epoch on a managed tmux server and
+    /// publish the binding (plan §11.2). Invoked by the managed-server
+    /// session-created hook or by explicit adoption; `ls` never runs this.
+    #[command(name = "_tmux-bootstrap", hide = true)]
+    TmuxBootstrap {
+        /// Managed `-L` namespace; inferred from $TMUX inside the server.
+        #[arg(long)]
+        namespace: Option<String>,
+
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+    },
+
     #[command(external_subcommand)]
     Other(Vec<String>),
 }
@@ -230,12 +248,48 @@ fn main() -> ExitCode {
         Some(Cmd::MuxIdle) => loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         },
+        Some(Cmd::TmuxBootstrap {
+            namespace,
+            data_dir,
+            lock_dir,
+        }) => tmux_bootstrap_cmd(namespace, data_dir, lock_dir),
         Some(Cmd::Other(args)) => other(&context, &args),
     };
     match outcome {
         Ok(status) => status,
         Err(message) => workstation::fail(PROGRAM, message),
     }
+}
+
+/// `dmux _tmux-bootstrap`: silent on success (the session-created hook's
+/// run-shell output would land in a pane), typed message + nonzero on
+/// failure.
+fn tmux_bootstrap_cmd(
+    namespace: Option<String>,
+    data_dir: Option<String>,
+    lock_dir: Option<String>,
+) -> Result<ExitCode, String> {
+    use dmux::operations::{self, OperationEnv};
+    let namespace = namespace
+        .or_else(|| {
+            std::env::var("TMUX")
+                .ok()
+                .and_then(|t| operations::namespace_from_tmux_env(&t))
+        })
+        .ok_or_else(|| {
+            "usage: dmux _tmux-bootstrap --namespace <name> \
+             (or run inside the managed server)"
+                .to_string()
+        })?;
+    let env = match (data_dir, lock_dir) {
+        (Some(data), Some(lock)) => OperationEnv {
+            db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
+            lock_dir: std::path::PathBuf::from(lock),
+        },
+        _ => OperationEnv::production().map_err(|e| e.to_string())?,
+    };
+    operations::tmux_bootstrap(&env, &namespace).map_err(|e| e.to_string())?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// clap cannot parse a bare `-` as a subcommand, so the toggle spelling is

@@ -17,6 +17,7 @@ pub mod history;
 pub mod inventory;
 pub mod locks;
 pub mod model;
+pub mod operations;
 pub mod output;
 pub mod policy;
 pub mod refs;

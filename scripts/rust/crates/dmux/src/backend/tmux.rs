@@ -22,6 +22,16 @@
 //! (`EpochChanged`) on mismatch. `create` requires `scope.expected_epoch`;
 //! it never boots the server itself.
 //!
+//! P5 epoch-bootstrap primitives (plan §11.2): [`TmuxProvider::server_identity`],
+//! [`TmuxProvider::set_epoch_if_absent`], and [`TmuxProvider::verify_epoch`]
+//! are the building blocks the root's `dmux _tmux-bootstrap` orchestration
+//! calls, in that order, around its registry publish. They take no lock —
+//! the CALLER holds the exclusive tmux-backend kernel lock for the whole
+//! sequence, so dmux-vs-dmux races cannot happen; the verify-after-write
+//! readback in `set_epoch_if_absent` covers non-dmux external writers.
+//! `set_epoch_if_absent` is the **only** function in this module that writes
+//! `@dmux_server_epoch`; identity probing and verification are read-only.
+//!
 //! `create` asymmetry (registry `native_kind='tmux_session_id'`):
 //! `CreateSpec.native_token` is the requested **session name** passed to
 //! `new-session -s`; the returned `NativeBinding.native_token` is the
@@ -67,6 +77,14 @@ const EPOCH_OPTION: &str = "@dmux_server_epoch";
 
 /// Frozen spawn-return format (ADR 004): all three IDs atomically.
 const SPAWN_FORMAT: &str = "#{session_id}|#{window_id}|#{pane_id}";
+
+/// Server-incarnation identity probe (plan §11.2, P5). All three fields are
+/// **server-scoped** tmux formats, read via `list-sessions` because a tmux
+/// server only runs while it has at least one session — so on any running
+/// server this listing yields at least one row, whereas `display-message`
+/// needs a client/target heuristic. The socket path is last (remainder
+/// field) since it is the only field with arbitrary content.
+const IDENTITY_FORMAT: &str = "#{pid}\u{1f}#{start_time}\u{1f}#{socket_path}";
 
 const SESSIONS_FORMAT: &str = "#{session_id}\u{1f}#{session_name}";
 const WINDOWS_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{window_name}";
@@ -305,12 +323,130 @@ impl<R: TmuxRunner> TmuxProvider<R> {
 
     /// Re-read the epoch immediately before a native-ID mutation and require
     /// it to equal `expected` (plan §11.2; mismatch discards native IDs).
-    fn verify_epoch(&self, endpoint: &str, expected: ServerEpoch) -> ProviderResult<()> {
+    /// (Internal helper; the public [`Self::verify_epoch`] additionally
+    /// rechecks the server incarnation identity.)
+    fn check_epoch(&self, endpoint: &str, expected: ServerEpoch) -> ProviderResult<()> {
         let observed = self.read_epoch(endpoint).map_err(map_epoch_failure)?;
         if observed != Some(expected) {
             return Err(ProviderError::EpochChanged { expected, observed });
         }
         Ok(())
+    }
+
+    // -- P5 epoch-bootstrap primitives (plan §11.2) --------------------------
+    //
+    // Called by the root's `dmux _tmux-bootstrap` orchestration in the order
+    // identity → (caller takes kernel lock) → set_epoch_if_absent →
+    // registry publish → verify_epoch. None of these functions locks; the
+    // caller holds the exclusive tmux-backend kernel lock throughout.
+
+    /// Probe the exact socket's server incarnation: PID plus start token
+    /// (plan §11.2). Read via `list-sessions -F` with server-scoped formats —
+    /// a tmux server only runs while it has at least one session, so a
+    /// running server always yields at least one row (and `display-message`
+    /// would need a client/session heuristic instead). All rows carry
+    /// identical server-scoped fields; any disagreement means the output is
+    /// malformed, never guessed at.
+    ///
+    /// Start-token derivation: `#{start_time}` — the server process's own
+    /// wall-clock start time in whole seconds since the epoch, recorded by
+    /// tmux at server birth (probed present on tmux 3.7b). A restarted
+    /// server is a new process started at a later wall-clock second, so the
+    /// token changes across incarnations; paired with the PID, a false match
+    /// would need same-second restart *and* immediate PID reuse. If a
+    /// (pre-2.2) tmux expands `#{start_time}` to empty, the fallback token
+    /// is `ino:<dev>:<inode>` of the resolved `#{socket_path}` — a new
+    /// server unlinks and re-binds the socket, allocating a fresh inode.
+    pub fn server_identity(&self, endpoint: &str) -> ProviderResult<TmuxServerIdentity> {
+        let out = self
+            .run(endpoint, &["list-sessions", "-F", IDENTITY_FORMAT])
+            .map_err(map_run_error)?;
+        if !out.ok() {
+            let stderr = lossy(&out.stderr);
+            if no_server_stderr(&stderr) {
+                return Err(ProviderError::NativeFailure {
+                    detail: format!("no tmux server for this namespace: {}", stderr.trim()),
+                });
+            }
+            return Err(ProviderError::NativeFailure {
+                detail: format!("tmux list-sessions: {}", stderr.trim()),
+            });
+        }
+        let text = utf8(&out.stdout).map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let (pid, start_time, socket_path) =
+            parse_identity(&text).map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let start_token = if start_time.is_empty() {
+            // Pre-#{start_time} fallback: the socket inode is allocated when
+            // this incarnation bound the (freshly re-created) socket file.
+            use std::os::unix::fs::MetadataExt;
+            let meta =
+                std::fs::metadata(&socket_path).map_err(|e| ProviderError::NativeFailure {
+                    detail: format!("stat tmux socket {socket_path:?}: {e}"),
+                })?;
+            format!("ino:{}:{}", meta.dev(), meta.ino())
+        } else {
+            start_time
+        };
+        Ok(TmuxServerIdentity { pid, start_token })
+    }
+
+    /// Atomically bring a previously unepoched server incarnation under
+    /// management (plan §11.2, P5). Read `@dmux_server_epoch`; if absent or
+    /// empty, `set-option -g` the caller's epoch, then read back and verify
+    /// the write survived. The caller holds the exclusive kernel lock, so a
+    /// dmux-vs-dmux race is impossible; the readback covers a non-dmux
+    /// external writer racing the set — if the observed value differs from
+    /// what was written, the external racer won and its value is returned as
+    /// [`EpochSetOutcome::AlreadySet`]. A malformed (non-UUID) existing value
+    /// is a typed error, never overwritten. This is the only writer of the
+    /// option in this module; `inventory` never sets it.
+    pub fn set_epoch_if_absent(
+        &self,
+        endpoint: &str,
+        epoch: ServerEpoch,
+    ) -> ProviderResult<EpochSetOutcome> {
+        if let Some(existing) = self.read_epoch(endpoint).map_err(map_epoch_failure)? {
+            return Ok(EpochSetOutcome::AlreadySet(existing));
+        }
+        let value = epoch.0.to_string();
+        self.run_ok(endpoint, &["set-option", "-g", EPOCH_OPTION, &value])?;
+        match self.read_epoch(endpoint).map_err(map_epoch_failure)? {
+            Some(observed) if observed == epoch => Ok(EpochSetOutcome::Set),
+            Some(observed) => Ok(EpochSetOutcome::AlreadySet(observed)),
+            None => Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "{EPOCH_OPTION} absent immediately after set on {endpoint}: \
+                     server restarted mid-bootstrap or option externally unset"
+                ),
+            }),
+        }
+    }
+
+    /// Recheck socket, PID/start-token, and epoch immediately before child
+    /// mutations (plan §11.2). Identity is checked first — a changed
+    /// PID/start token means a different server incarnation entirely
+    /// ([`ProviderError::WrongInstance`]); only then is the epoch option
+    /// compared ([`ProviderError::EpochChanged`] on mismatch). Read-only.
+    pub fn verify_epoch(
+        &self,
+        endpoint: &str,
+        expected: ServerEpoch,
+        expected_identity: &TmuxServerIdentity,
+    ) -> ProviderResult<()> {
+        let observed = self.server_identity(endpoint)?;
+        if observed != *expected_identity {
+            return Err(ProviderError::WrongInstance {
+                detail: format!(
+                    "tmux server incarnation changed on {endpoint}: expected pid {} \
+                     start {:?}, observed pid {} start {:?}",
+                    expected_identity.pid,
+                    expected_identity.start_token,
+                    observed.pid,
+                    observed.start_token
+                ),
+            });
+        }
+        self.check_epoch(endpoint, expected)
     }
 
     /// Managed handle/child operations require the caller-held epoch: an
@@ -411,7 +547,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(session)?;
         let expected = Self::required_epoch(scope)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         for (option, value) in [
             (MARKER_HOST_UID, &markers.host_uid),
             (MARKER_REGISTRY_UID, &markers.registry_uid),
@@ -449,7 +585,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(session)?;
         if let Some(expected) = scope.expected_epoch {
-            self.verify_epoch(&scope.endpoint, expected)?;
+            self.check_epoch(&scope.endpoint, expected)?;
         }
         let mut values = [const { None }; 4];
         for (slot, option) in [
@@ -528,6 +664,27 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         let text = utf8(&out.stdout).map_err(|detail| ProviderError::NativeFailure { detail })?;
         Ok(!text.lines().any(|l| l == needle))
     }
+}
+
+/// One tmux server incarnation on one exact socket (plan §11.2, P5): the
+/// server process's PID plus a start token stable for the incarnation's
+/// lifetime and different for every restart (see
+/// [`TmuxProvider::server_identity`] for the exact derivation).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TmuxServerIdentity {
+    pub pid: u32,
+    pub start_token: String,
+}
+
+/// Outcome of [`TmuxProvider::set_epoch_if_absent`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EpochSetOutcome {
+    /// The option was absent; the caller's epoch was written and verified
+    /// by readback.
+    Set,
+    /// The option was already present (or an external racer's write won the
+    /// readback); the carried value is the epoch actually on the server.
+    AlreadySet(ServerEpoch),
 }
 
 /// Identity markers stamped on a managed/adopted session (plan §10.3).
@@ -644,6 +801,39 @@ fn parse_sigil_id(token: &str, sigil: char) -> Option<u64> {
         return None;
     }
     rest.parse().ok()
+}
+
+/// `#{pid}\x1f#{start_time}\x1f#{socket_path}` per line; the socket path is
+/// the remainder field. All fields are server-scoped, so every row must be
+/// identical; a disagreement means the output raced/garbled and is reported
+/// malformed. Returns `(pid, start_time, socket_path)` with `start_time`
+/// possibly empty (older tmux without the variable).
+fn parse_identity(text: &str) -> Result<(u32, String, String), String> {
+    let mut lines = text.lines();
+    let first = lines
+        .next()
+        .ok_or_else(|| "empty identity listing from a running server".to_string())?;
+    for other in lines {
+        if other != first {
+            return Err(format!(
+                "server-scoped identity rows disagree: {first:?} vs {other:?}"
+            ));
+        }
+    }
+    let mut parts = first.splitn(3, SEP);
+    let (Some(pid), Some(start), Some(socket)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(format!("identity row with missing fields: {first:?}"));
+    };
+    let pid: u32 = pid
+        .parse()
+        .map_err(|e| format!("bad server pid in identity row {first:?}: {e}"))?;
+    if !start.is_empty() && !start.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("bad start_time in identity row: {first:?}"));
+    }
+    if socket.is_empty() {
+        return Err(format!("empty socket_path in identity row: {first:?}"));
+    }
+    Ok((pid, start.to_string(), socket.to_string()))
 }
 
 /// `#{session_id}\x1f#{session_name}` per line; name is the remainder.
@@ -1051,7 +1241,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
                     .into(),
             });
         }
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
 
         let mut args: Vec<String> = vec![
             "new-session".into(),
@@ -1075,7 +1265,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         self.assert_window_options(&scope.endpoint, window)?;
 
         // Postcondition: same incarnation, session verifiably present.
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         if !self
             .list_session_ids(&scope.endpoint)?
             .iter()
@@ -1109,7 +1299,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         if !self
             .list_session_ids(&scope.endpoint)?
             .iter()
@@ -1152,7 +1342,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         self.run_ok(
             &scope.endpoint,
             &[
@@ -1188,7 +1378,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let sid = binding.native_token.clone();
         let needle = sid.clone();
         self.kill_converge(
@@ -1212,7 +1402,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         self.session_rows(&scope.endpoint, &binding.native_token)
     }
 
@@ -1233,7 +1423,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
                 detail: "group_new requires the bootstrap helper argv (ADR 004)".into(),
             });
         }
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let mut args: Vec<String> = vec![
             "new-window".into(),
             "-P".into(),
@@ -1267,7 +1457,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(handle)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         self.run_ok(&scope.endpoint, &["select-window", "-t", &target])?;
         Ok(())
     }
@@ -1282,7 +1472,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(handle)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         self.run_ok(&scope.endpoint, &["rename-window", "-t", &target, title])?;
         let listing = self.run_ok(
             &scope.endpoint,
@@ -1304,7 +1494,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(handle)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let needle = target.clone();
         self.kill_converge(
             &scope.endpoint,
@@ -1327,7 +1517,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(group)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let listing = self.run_ok(
             &scope.endpoint,
             &["list-panes", "-t", &target, "-F", PANES_FORMAT],
@@ -1361,7 +1551,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
                 detail: "split_new requires the bootstrap helper argv (ADR 004)".into(),
             });
         }
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let mut args: Vec<String> = vec![
             "split-window".into(),
             "-P".into(),
@@ -1390,7 +1580,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(handle)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         self.run_ok(&scope.endpoint, &["select-pane", "-t", &target])?;
         Ok(())
     }
@@ -1400,7 +1590,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(handle)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let needle = target.clone();
         self.kill_converge(
             &scope.endpoint,
@@ -1423,7 +1613,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Self::scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
-        self.verify_epoch(&scope.endpoint, expected)?;
+        self.check_epoch(&scope.endpoint, expected)?;
         let listing = self.run_ok(&scope.endpoint, &["list-sessions", "-F", SESSIONS_FORMAT])?;
         let sessions = parse_sessions(&listing).map_err(malformed_scan)?;
         let Some((sid, name)) = sessions
@@ -2293,6 +2483,239 @@ mod tests {
         let caps = provider(&runner).capabilities();
         assert!(caps.probed.is_empty());
         assert!(!caps.cas_rename);
+    }
+
+    // -- P5 epoch bootstrap (plan §11.2) -------------------------------------
+
+    const PID: u32 = 45159;
+    const START: &str = "1786887235";
+
+    fn identity_read_argv() -> Vec<String> {
+        argv(&[
+            "list-sessions",
+            "-F",
+            "#{pid}\u{1f}#{start_time}\u{1f}#{socket_path}",
+        ])
+    }
+
+    fn identity_ok() -> Result<RunOutput, RunError> {
+        ok(&format!(
+            "{PID}\u{1f}{START}\u{1f}/private/tmp/tmux-501/{NS}\n"
+        ))
+    }
+
+    fn identity() -> TmuxServerIdentity {
+        TmuxServerIdentity {
+            pid: PID,
+            start_token: START.into(),
+        }
+    }
+
+    fn assert_read_only(runner: &ScriptedRunner) {
+        for call in runner.calls.borrow().iter() {
+            assert_ne!(
+                call[3], "set-option",
+                "epoch probe/verify must never write: {call:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn server_identity_issues_exact_argv_and_parses_pid_and_start_token() {
+        // Two sessions → two identical server-scoped rows; first is used.
+        let runner = ScriptedRunner::new(vec![ok(&format!(
+            "{PID}\u{1f}{START}\u{1f}/private/tmp/tmux-501/{NS}\n\
+             {PID}\u{1f}{START}\u{1f}/private/tmp/tmux-501/{NS}\n"
+        ))]);
+        let id = provider(&runner).server_identity(NS).unwrap();
+        assert_eq!(id, identity());
+        assert_eq!(*runner.calls.borrow(), vec![identity_read_argv()]);
+        assert_read_only(&runner);
+    }
+
+    #[test]
+    fn server_identity_no_server_is_typed_native_failure() {
+        let runner = ScriptedRunner::new(vec![fail(
+            1,
+            "error connecting to /private/tmp/tmux-501/dmux-x (No such file or directory)",
+        )]);
+        match provider(&runner).server_identity(NS) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.contains("no tmux server"), "{detail}");
+            }
+            other => panic!("expected native_failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn server_identity_disagreeing_rows_are_malformed() {
+        let runner = ScriptedRunner::new(vec![ok(&format!(
+            "{PID}\u{1f}{START}\u{1f}/s\n{PID}\u{1f}9999999999\u{1f}/s\n"
+        ))]);
+        match provider(&runner).server_identity(NS) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.contains("disagree"), "{detail}");
+            }
+            other => panic!("expected native_failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn server_identity_empty_start_time_falls_back_to_socket_inode() {
+        // Simulate a tmux without #{start_time}: the field expands empty and
+        // the token is derived from the resolved socket's device+inode.
+        let sock = std::env::temp_dir().join(format!("dmux-idtest-{}", std::process::id()));
+        std::fs::write(&sock, b"").expect("create fake socket file");
+        let runner =
+            ScriptedRunner::new(vec![ok(&format!("{PID}\u{1f}\u{1f}{}\n", sock.display()))]);
+        let id = provider(&runner).server_identity(NS).unwrap();
+        let meta = std::fs::metadata(&sock).unwrap();
+        let _ = std::fs::remove_file(&sock);
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(id.pid, PID);
+        assert_eq!(id.start_token, format!("ino:{}:{}", meta.dev(), meta.ino()));
+    }
+
+    #[test]
+    fn set_epoch_if_absent_sets_verifies_readback_and_is_the_only_writer() {
+        let runner = ScriptedRunner::new(vec![
+            ok("\n"),   // read: absent
+            ok(""),     // set-option -g
+            epoch_ok(), // readback equals what was written
+        ]);
+        let outcome = provider(&runner)
+            .set_epoch_if_absent(NS, ServerEpoch(EPOCH))
+            .unwrap();
+        assert_eq!(outcome, EpochSetOutcome::Set);
+        assert_eq!(
+            *runner.calls.borrow(),
+            vec![
+                epoch_read_argv(),
+                argv(&["set-option", "-g", "@dmux_server_epoch", &EPOCH.to_string()]),
+                epoch_read_argv(),
+            ],
+        );
+    }
+
+    #[test]
+    fn set_epoch_if_absent_present_value_is_already_set_without_writing() {
+        let other = Uuid::new_v4();
+        let runner = ScriptedRunner::new(vec![ok(&format!("{other}\n"))]);
+        let outcome = provider(&runner)
+            .set_epoch_if_absent(NS, ServerEpoch(EPOCH))
+            .unwrap();
+        assert_eq!(outcome, EpochSetOutcome::AlreadySet(ServerEpoch(other)));
+        // Present → exactly one read-only command, no set-option.
+        assert_eq!(*runner.calls.borrow(), vec![epoch_read_argv()]);
+    }
+
+    #[test]
+    fn set_epoch_if_absent_external_racer_winning_readback_is_already_set() {
+        let racer = Uuid::new_v4();
+        let runner = ScriptedRunner::new(vec![
+            ok("\n"),                  // read: absent
+            ok(""),                    // our set-option succeeds...
+            ok(&format!("{racer}\n")), // ...but an external write won
+        ]);
+        let outcome = provider(&runner)
+            .set_epoch_if_absent(NS, ServerEpoch(EPOCH))
+            .unwrap();
+        assert_eq!(outcome, EpochSetOutcome::AlreadySet(ServerEpoch(racer)));
+    }
+
+    #[test]
+    fn set_epoch_if_absent_vanishing_readback_is_postcondition_failed() {
+        let runner = ScriptedRunner::new(vec![ok("\n"), ok(""), ok("\n")]);
+        match provider(&runner).set_epoch_if_absent(NS, ServerEpoch(EPOCH)) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("absent immediately after set"), "{detail}");
+            }
+            other => panic!("expected postcondition_failed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_epoch_if_absent_malformed_existing_value_is_typed_and_never_overwritten() {
+        let runner = ScriptedRunner::new(vec![ok("not-a-uuid\n")]);
+        match provider(&runner).set_epoch_if_absent(NS, ServerEpoch(EPOCH)) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.contains("@dmux_server_epoch"), "{detail}");
+            }
+            other => panic!("expected native_failure, got {other:?}"),
+        }
+        assert_read_only(&runner);
+    }
+
+    #[test]
+    fn verify_epoch_rechecks_identity_then_epoch_read_only() {
+        let runner = ScriptedRunner::new(vec![identity_ok(), epoch_ok()]);
+        provider(&runner)
+            .verify_epoch(NS, ServerEpoch(EPOCH), &identity())
+            .unwrap();
+        assert_eq!(
+            *runner.calls.borrow(),
+            vec![identity_read_argv(), epoch_read_argv()],
+        );
+        assert_read_only(&runner);
+    }
+
+    #[test]
+    fn verify_epoch_pid_mismatch_is_wrong_instance_before_epoch_read() {
+        let runner = ScriptedRunner::new(vec![identity_ok()]);
+        let expected = TmuxServerIdentity {
+            pid: PID + 1,
+            ..identity()
+        };
+        match provider(&runner).verify_epoch(NS, ServerEpoch(EPOCH), &expected) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("incarnation changed"), "{detail}");
+            }
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+        assert_eq!(runner.calls.borrow().len(), 1, "must stop at identity");
+    }
+
+    #[test]
+    fn verify_epoch_start_token_mismatch_is_wrong_instance() {
+        let runner = ScriptedRunner::new(vec![identity_ok()]);
+        let expected = TmuxServerIdentity {
+            start_token: "1".into(),
+            ..identity()
+        };
+        match provider(&runner).verify_epoch(NS, ServerEpoch(EPOCH), &expected) {
+            Err(ProviderError::WrongInstance { .. }) => {}
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_epoch_same_identity_different_epoch_is_epoch_changed() {
+        let runner = ScriptedRunner::new(vec![identity_ok(), ok(&format!("{}\n", Uuid::nil()))]);
+        match provider(&runner).verify_epoch(NS, ServerEpoch(EPOCH), &identity()) {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(ServerEpoch(Uuid::nil())));
+            }
+            other => panic!("expected epoch_changed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn identity_parser_rejects_noise() {
+        for bad in [
+            "",
+            "abc\u{1f}123\u{1f}/s\n",
+            "42\u{1f}12x3\u{1f}/s\n",
+            "42\u{1f}123\n",
+            "42\u{1f}123\u{1f}\n",
+        ] {
+            assert!(parse_identity(bad).is_err(), "{bad:?} must be rejected");
+        }
+        assert_eq!(
+            parse_identity("42\u{1f}123\u{1f}/a\u{1f}b\n").unwrap(),
+            (42, "123".into(), "/a\u{1f}b".into()),
+            "socket path is the remainder field"
+        );
     }
 
     // -- parsers ------------------------------------------------------------

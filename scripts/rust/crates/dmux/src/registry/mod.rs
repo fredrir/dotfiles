@@ -27,14 +27,22 @@
 //!    ++ registry_uid_lowercase_hyphenated_utf8 ++ 0x0A))
 //! ```
 //!
-//! Revision-advance policy: identity/lifecycle/name/binding mutations and
-//! backend-instance registration advance the chain (one row per committed
-//! mutation transaction). Journal state bookkeeping, lease grants/renewals,
-//! and the RPC ledger do not advance it.
+//! Revision-advance policy: identity/lifecycle/name/binding mutations,
+//! backend-instance registration, and server-epoch publication
+//! ([`Registry::publish_backend_server`] — which server incarnation is
+//! authoritative is identity, exactly like registering the instance was)
+//! advance the chain (one row per committed mutation transaction). Journal
+//! state bookkeeping (operations and bootstrap_requests), lease
+//! grants/renewals, and the RPC ledger do not advance it.
 
+pub mod bootstrap_journal;
 pub mod reconcile;
 pub mod schema;
 pub mod sha256;
+
+pub use bootstrap_journal::{
+    BootstrapRequestRow, bootstrap_can_transition, bootstrap_is_terminal, parse_bootstrap_state,
+};
 
 use std::fmt;
 use std::io;
@@ -45,7 +53,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use uuid::Uuid;
 
-use crate::error::ErrorCode;
+use crate::bootstrap::BootstrapState;
+use crate::error::{ErrorCode, TypedError};
 use crate::locks::{self, HeldLock, LockMode, LockScope};
 use crate::model::{
     Backend, BackendInstanceUid, Health, HostUid, Lifecycle, Observation, OperationKind,
@@ -94,6 +103,17 @@ pub enum RegistryError {
         from: OperationState,
         to: OperationState,
     },
+    /// Illegal bootstrap-journal transition (plan §11.1, ADR 004; see
+    /// [`bootstrap_journal`] for the matrix).
+    InvalidBootstrapTransition {
+        from: BootstrapState,
+        to: BootstrapState,
+    },
+    /// `bootstrap_requests.request_uid` primary key: the request UID was
+    /// already issued — two brokers claiming one request identity.
+    BootstrapRequestExists {
+        request_uid: Uuid,
+    },
     NotFound {
         what: String,
     },
@@ -112,11 +132,13 @@ impl RegistryError {
             RegistryError::OperationInProgress { .. } | RegistryError::LeaseHeld { .. } => {
                 ErrorCode::OperationInProgress
             }
-            RegistryError::NativeTokenConflict { .. } => ErrorCode::IdentityConflict,
+            RegistryError::NativeTokenConflict { .. }
+            | RegistryError::BootstrapRequestExists { .. } => ErrorCode::IdentityConflict,
             RegistryError::IdempotencyReuse { .. } => ErrorCode::IdempotencyReuse,
             RegistryError::NotFound { .. } => ErrorCode::NotFound,
             RegistryError::KernelLockMismatch { .. }
             | RegistryError::InvalidTransition { .. }
+            | RegistryError::InvalidBootstrapTransition { .. }
             | RegistryError::Corrupt(_)
             | RegistryError::Io(_)
             | RegistryError::Sqlite(_)
@@ -163,6 +185,17 @@ impl fmt::Display for RegistryError {
             RegistryError::InvalidTransition { from, to } => {
                 write!(f, "illegal journal transition {from} -> {to}")
             }
+            RegistryError::InvalidBootstrapTransition { from, to } => {
+                write!(
+                    f,
+                    "illegal bootstrap transition {} -> {}",
+                    from.as_str(),
+                    to.as_str()
+                )
+            }
+            RegistryError::BootstrapRequestExists { request_uid } => {
+                write!(f, "bootstrap request {request_uid} was already issued")
+            }
             RegistryError::NotFound { what } => write!(f, "{what} not found"),
             RegistryError::Corrupt(msg) => write!(f, "registry corrupt: {msg}"),
             RegistryError::Io(e) => write!(f, "registry i/o: {e}"),
@@ -173,6 +206,14 @@ impl fmt::Display for RegistryError {
 }
 
 impl std::error::Error for RegistryError {}
+
+/// The trait-boundary mapping (e.g. [`crate::bootstrap::BootstrapJournal`]):
+/// the stable code from [`RegistryError::error_code`] plus the display text.
+impl From<RegistryError> for TypedError {
+    fn from(e: RegistryError) -> TypedError {
+        TypedError::new(e.error_code(), e.to_string())
+    }
+}
 
 impl From<io::Error> for RegistryError {
     fn from(e: io::Error) -> Self {
@@ -412,6 +453,17 @@ pub struct OperationRow {
     pub started_at: String,
     pub updated_at: String,
     pub finished_at: Option<String>,
+}
+
+/// The published server incarnation of a backend instance
+/// (`backend_instances.server_*`/`socket_*`; ADR 001/002).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendServerRecord {
+    pub server_epoch: Option<ServerEpoch>,
+    pub server_pid: Option<i64>,
+    pub server_start_token: Option<String>,
+    pub socket_dev: Option<i64>,
+    pub socket_ino: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1000,6 +1052,85 @@ impl Registry {
             advance_revision(tx, &now)?;
             Ok(BackendInstanceUid(fresh))
         })
+    }
+
+    /// Publish a server incarnation for a managed backend instance: the
+    /// current epoch plus its PID/start-token and socket dev/ino witnesses
+    /// (ADR 001/002 replacement detection). Overwrites all five columns —
+    /// a restart with a fresh epoch fully replaces the previous incarnation
+    /// (the old epoch is gone; stale-ref invalidation stays caller-side).
+    ///
+    /// Advances the authority revision chain: which server incarnation is
+    /// authoritative for an instance is identity, exactly like registering
+    /// the instance was (module-docs advance policy).
+    pub fn publish_backend_server(
+        &mut self,
+        instance: BackendInstanceUid,
+        epoch: ServerEpoch,
+        pid: Option<i64>,
+        start_token: Option<&str>,
+        socket_dev: Option<i64>,
+        socket_ino: Option<i64>,
+    ) -> Result<()> {
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            let changed = tx.execute(
+                "UPDATE backend_instances SET server_epoch = ?2, server_pid = ?3, \
+                 server_start_token = ?4, socket_dev = ?5, socket_ino = ?6 \
+                 WHERE backend_instance_uid = ?1",
+                params![
+                    instance.0.to_string(),
+                    epoch.0.to_string(),
+                    pid,
+                    start_token,
+                    socket_dev,
+                    socket_ino
+                ],
+            )?;
+            if changed != 1 {
+                return Err(RegistryError::NotFound {
+                    what: format!("backend instance {}", instance.0),
+                });
+            }
+            advance_revision(tx, &now)?;
+            Ok(())
+        })
+    }
+
+    /// Read back the published server incarnation for an instance
+    /// (all-`None` when stopped/never published).
+    pub fn backend_server(&self, instance: BackendInstanceUid) -> Result<BackendServerRecord> {
+        self.conn
+            .query_row(
+                "SELECT server_epoch, server_pid, server_start_token, socket_dev, socket_ino \
+                 FROM backend_instances WHERE backend_instance_uid = ?1",
+                [instance.0.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<i64>>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| RegistryError::NotFound {
+                what: format!("backend instance {}", instance.0),
+            })
+            .and_then(|(epoch, pid, token, dev, ino)| {
+                Ok(BackendServerRecord {
+                    server_epoch: epoch
+                        .as_deref()
+                        .map(|e| parse_uuid(e).map(ServerEpoch))
+                        .transpose()?,
+                    server_pid: pid,
+                    server_start_token: token,
+                    socket_dev: dev,
+                    socket_ino: ino,
+                })
+            })
     }
 
     // -- identity allocation ----------------------------------------------
