@@ -31,6 +31,13 @@ pub mod methods {
     pub const RENAME: &str = "rename";
     pub const RM: &str = "rm";
     pub const ATTACH_PLAN: &str = "attach_plan";
+    // P8b remote hierarchy (additive).
+    pub const HIERARCHY: &str = "hierarchy";
+    pub const GROUP_NEW: &str = "group_new";
+    pub const GROUP_RENAME: &str = "group_rename";
+    pub const GROUP_RM: &str = "group_rm";
+    pub const SPLIT_NEW: &str = "split_new";
+    pub const SPLIT_RM: &str = "split_rm";
 }
 
 /// Canonical payload bytes for `payload_sha256`: the exact `payload` value
@@ -254,6 +261,85 @@ pub struct AttachPlanPayload {
     pub space_uid: SpaceUid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// P8b remote hierarchy payloads (additive). Child refs travel as the
+// canonical §6.3 child-suffix STRING (`g<epoch-uuid>.<handle>` /
+// `p<epoch-uuid>.<handle>`) — the exact spelling markers and the CLI use —
+// and are parsed owner-side via `refs::parse_ref`; a stale epoch is a typed
+// refusal, never a retarget. Responses reuse the operations-layer result
+// types verbatim: `hierarchy` → `operations::SpaceHierarchy`,
+// `group_new`/`split_new` → `operations::CreatedChild`,
+// `group_rm`/`split_rm` → `operations::RemovedChild`.
+
+/// `hierarchy` request payload (read-only tree of one Space).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HierarchyPayload {
+    pub space_uid: SpaceUid,
+}
+
+/// `group_new` request payload. Owner paths (helper binary, sockets,
+/// namespaces) never come from the client.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupNewPayload {
+    pub space_uid: SpaceUid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// User program argv; empty means a login shell.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub program: Vec<String>,
+}
+
+/// `split_new` request payload. `direction` is one of
+/// `left|right|up|down` (absent means `down`, the CLI default);
+/// `percent` is 1..=99.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitNewPayload {
+    pub space_uid: SpaceUid,
+    /// Canonical child suffix of the target Group.
+    pub group_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub program: Vec<String>,
+}
+
+/// `group_rename` request payload (presentation title, not an authority
+/// name).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupRenamePayload {
+    pub space_uid: SpaceUid,
+    pub group_ref: String,
+    pub title: String,
+}
+
+/// `group_rename` response payload. Carries no replay marker: the
+/// operations-layer ledger treats a replayed title write as the same
+/// idempotent success.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupRenameResult {
+    pub space_uid: SpaceUid,
+    pub group_ref: String,
+    pub title: String,
+}
+
+/// `group_rm` request payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupRmPayload {
+    pub space_uid: SpaceUid,
+    pub group_ref: String,
+}
+
+/// `split_rm` request payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitRmPayload {
+    pub space_uid: SpaceUid,
+    pub split_ref: String,
 }
 
 #[cfg(test)]

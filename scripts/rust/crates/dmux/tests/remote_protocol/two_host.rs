@@ -318,6 +318,108 @@ fn archie_end_to_end_matrix() {
     let result: protocol::RenameResult = serde_json::from_value(response.payload.unwrap()).unwrap();
     assert!(result.replayed);
 
+    // --- P8b remote hierarchy over real ssh: read, group_new + replay,
+    // stale-epoch refusal, split_new, group_rm. ---
+    let response = call(
+        &client,
+        &remote,
+        &expectation,
+        &request(
+            &client,
+            protocol::methods::HIERARCHY,
+            json!({ "space_uid": created.space_uid }),
+        ),
+    )
+    .unwrap();
+    let tree: dmux::operations::SpaceHierarchy =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(tree.groups.len(), 1);
+    assert_eq!(tree.groups[0].splits.len(), 1);
+
+    let group_request = request(
+        &client,
+        protocol::methods::GROUP_NEW,
+        json!({ "space_uid": created.space_uid, "program": ["sleep", "300"] }),
+    );
+    let response = call(&client, &remote, &expectation, &group_request).unwrap();
+    let group: dmux::operations::CreatedChild =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(group.kind, dmux::model::ChildKind::Group);
+    let windows = ssh_ok(&format!(
+        "tmux -L {} list-windows -t w5renamed -F '#{{window_id}}'",
+        remote.ns
+    ));
+    assert_eq!(windows.lines().count(), 2);
+
+    // Cross-invocation replay: identical envelope, no second window.
+    let response = call(&client, &remote, &expectation, &group_request).unwrap();
+    let replayed_group: dmux::operations::CreatedChild =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(replayed_group.replayed);
+    assert_eq!(replayed_group.group_ref, group.group_ref);
+    let windows = ssh_ok(&format!(
+        "tmux -L {} list-windows -t w5renamed -F '#{{window_id}}'",
+        remote.ns
+    ));
+    assert_eq!(windows.lines().count(), 2, "replay must not spawn");
+
+    // Stale-epoch child ref: typed refusal, nothing created.
+    let handle = group.group_ref.split_once('.').unwrap().1;
+    let stale_ref = format!("g{}.{handle}", Uuid::from_u128(7));
+    let error = call(
+        &client,
+        &remote,
+        &expectation,
+        &request(
+            &client,
+            protocol::methods::SPLIT_NEW,
+            json!({ "space_uid": created.space_uid, "group_ref": stale_ref }),
+        ),
+    )
+    .expect_err("stale child epoch must refuse");
+    assert_eq!(error.code, dmux::error::ErrorCode::BackendEpochChanged);
+
+    let response = call(
+        &client,
+        &remote,
+        &expectation,
+        &request(
+            &client,
+            protocol::methods::SPLIT_NEW,
+            json!({
+                "space_uid": created.space_uid,
+                "group_ref": group.group_ref,
+                "direction": "right",
+                "percent": 30,
+                "program": ["sleep", "300"],
+            }),
+        ),
+    )
+    .unwrap();
+    let split: dmux::operations::CreatedChild =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(split.group_ref, group.group_ref);
+
+    let response = call(
+        &client,
+        &remote,
+        &expectation,
+        &request(
+            &client,
+            protocol::methods::GROUP_RM,
+            json!({ "space_uid": created.space_uid, "group_ref": group.group_ref }),
+        ),
+    )
+    .unwrap();
+    let removed: dmux::operations::RemovedChild =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(removed.kind, dmux::model::ChildKind::Group);
+    let windows = ssh_ok(&format!(
+        "tmux -L {} list-windows -t w5renamed -F '#{{window_id}}'",
+        remote.ns
+    ));
+    assert_eq!(windows.lines().count(), 1, "hierarchy leg cleaned up");
+
     // --- Real PTY attach over `ssh -tt` (acceptance: PTY attach). ---
     let plan_request = request(
         &client,

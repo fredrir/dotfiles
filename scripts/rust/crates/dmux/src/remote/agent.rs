@@ -13,10 +13,13 @@
 //!   different content is the typed `idempotency_reuse` error;
 //! - every response carries the full authority identity fields, and errors
 //!   are `TypedError`s inside the envelope, never bare stderr;
-//! - the client's `backend` choice is product-level only; namespaces,
-//!   sockets, helper paths, and epochs are always owner-resolved. Agent v1
-//!   serves tmux natively; wez mutations return a typed
-//!   `provider_unavailable` (never a silent backend fallback).
+//! - the client's `backend` choice is product-level only (and only for
+//!   `new`); namespaces, sockets, helper paths, and epochs are always
+//!   owner-resolved, and children inherit their Space's backend. P8b: both
+//!   backends are served when the owner has a verifiable instance — a
+//!   backend the owner cannot serve is a typed refusal, never a fallback.
+//!   `DMUX_WEZ_BIN`/`DMUX_WEZ_CONFIG`/`DMUX_HELPER_BIN` are owner-side
+//!   test seams (like `DMUX_RUNTIME_DIR`), never client input.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -25,21 +28,27 @@ use rusqlite::OptionalExtension;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::backend::tmux::{SystemRunner, TmuxProvider, TmuxServerIdentity};
-use crate::backend::{InventoryOutcome, InventoryScope, Provider, ProviderError};
+use crate::backend::tmux::{TmuxProvider, TmuxServerIdentity};
+use crate::backend::wez::WezProvider;
+use crate::backend::{InventoryOutcome, InventoryScope, Provider, ProviderError, SplitDirection};
 use crate::error::{ErrorCode, TypedError};
-use crate::model::{Backend, BackendInstanceUid, HostUid, RegistryUid, ServerEpoch, SpaceUid};
-use crate::operations::{
-    CreateRequest, OpError, OperationEnv, create_space, remove_space, rename_space,
+use crate::model::{
+    Backend, BackendInstanceUid, ChildKind, HostUid, RegistryUid, ServerEpoch, SpaceUid,
 };
+use crate::operations::{
+    self as ops, CreateRequest, OpError, OperationEnv, create_space, remove_space, rename_space,
+};
+use crate::refs::{ChildRefShape, parse_ref};
 use crate::registry::{
     AttachTokenSpec, Registry, RegistryConfig, RegistryError, RpcDisposition, RpcResultState,
     SpaceRow, now_rfc3339, rfc3339_utc,
 };
 use crate::remote::protocol::{
-    self, AttachPlan, AttachPlanPayload, BackendStatus, ChainLink, Envelope, HelloInfo,
-    HelloPayload, NewPayload, PROTOCOL_VERSION, RenamePayload, RenameResult, RmPayload, RmResult,
-    ScanSummary, SpaceInfo, SpacesInfo, canonical_payload_sha256,
+    self, AttachPlan, AttachPlanPayload, BackendStatus, ChainLink, Envelope, GroupNewPayload,
+    GroupRenamePayload, GroupRenameResult, GroupRmPayload, HelloInfo, HelloPayload,
+    HierarchyPayload, NewPayload, PROTOCOL_VERSION, RenamePayload, RenameResult, RmPayload,
+    RmResult, ScanSummary, SpaceInfo, SpacesInfo, SplitNewPayload, SplitRmPayload,
+    canonical_payload_sha256,
 };
 
 /// Attach tokens are short-lived (plan §12.1 "short-lived attach plan").
@@ -229,6 +238,12 @@ fn dispatch(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Repl
         protocol::methods::RENAME => rename(cx, request, payload),
         protocol::methods::RM => remove(cx, request, payload),
         protocol::methods::ATTACH_PLAN => attach_plan(cx, request, payload),
+        protocol::methods::HIERARCHY => hierarchy_read(cx, request, payload),
+        protocol::methods::GROUP_NEW => group_new(cx, request, payload),
+        protocol::methods::GROUP_RENAME => group_rename(cx, request, payload),
+        protocol::methods::GROUP_RM => group_rm(cx, request, payload),
+        protocol::methods::SPLIT_NEW => split_new(cx, request, payload),
+        protocol::methods::SPLIT_RM => split_rm(cx, request, payload),
         other => Err(TypedError::new(
             ErrorCode::Usage,
             format!("unknown agent method {other:?}"),
@@ -390,7 +405,11 @@ fn typed_op(e: OpError) -> TypedError {
         OpError::Provider(d) => {
             TypedError::new(ErrorCode::OperationFailed, format!("provider: {d}"))
         }
-        OpError::Refused(d) => TypedError::new(ErrorCode::Usage, d),
+        // Cascade/unstamped refusals (plan §7.2/§10.3): the caller must use
+        // the parent-level remove or repair/stamp the Space first.
+        OpError::Refused(d) => TypedError::new(ErrorCode::RepairRequired, d),
+        // A stale epoch-qualified ref is exactly the invalidated-epoch
+        // condition (plan §6.3): fail, never retarget.
         OpError::StaleRef(d) => TypedError::new(ErrorCode::BackendEpochChanged, d),
         OpError::Registry(d) => {
             let code = if d.contains("reused with different content") {
@@ -445,23 +464,67 @@ fn find_instance(
     .transpose()
 }
 
-struct TmuxTarget {
+/// One live-verified backend target: the owner's managed instance, its
+/// exact endpoint, and the verified current server epoch.
+struct Target {
+    backend: Backend,
     instance: BackendInstanceUid,
-    namespace: String,
+    endpoint: String,
     epoch: ServerEpoch,
 }
 
-/// The backend-instance/epoch verification matrix for one tmux mutation:
-/// the owner's managed instance must exist with a recorded namespace and a
-/// published epoch; the LIVE server incarnation (pid/start token) and epoch
-/// option must still match that publication; and any instance/epoch the
-/// client claimed in its envelope must equal the verified values — a stale
-/// claim is a typed refusal BEFORE anything is created.
+fn scope_for(target: &Target) -> InventoryScope {
+    InventoryScope {
+        backend: target.backend,
+        endpoint: target.endpoint.clone(),
+        expected_epoch: Some(target.epoch),
+    }
+}
+
+/// Wez binary/config resolution. `DMUX_WEZ_BIN`/`DMUX_WEZ_CONFIG` are
+/// owner-side TEST seams (like `DMUX_RUNTIME_DIR`): checked before the
+/// production paths so scratch stock mux servers can be driven; production
+/// never sets them.
+fn wez_paths() -> (String, String) {
+    let (mut bin, mut config) = crate::runtime::production_wez_paths();
+    if let Ok(v) = std::env::var("DMUX_WEZ_BIN")
+        && !v.is_empty()
+    {
+        bin = v;
+    }
+    if let Ok(v) = std::env::var("DMUX_WEZ_CONFIG")
+        && !v.is_empty()
+    {
+        config = v;
+    }
+    (bin, config)
+}
+
+/// Backend-instance/epoch verification dispatcher: every mutation resolves
+/// its target through here BEFORE anything is created, and a stale claimed
+/// instance/epoch is a typed refusal.
+fn verified_target(
+    registry: &Registry,
+    backend: Backend,
+    claimed_instance: Option<BackendInstanceUid>,
+    claimed_epoch: Option<ServerEpoch>,
+) -> Result<(Target, Box<dyn Provider>), TypedError> {
+    match backend {
+        Backend::Tmux => verified_tmux_target(registry, claimed_instance, claimed_epoch),
+        Backend::Wez => verified_wez_target(registry, claimed_instance, claimed_epoch),
+    }
+}
+
+/// The tmux half of the verification matrix: the managed instance must
+/// exist with a recorded namespace and a published epoch; the LIVE server
+/// incarnation (pid/start token) and epoch option must still match that
+/// publication; and any instance/epoch the client claimed in its envelope
+/// must equal the verified values.
 fn verified_tmux_target(
     registry: &Registry,
     claimed_instance: Option<BackendInstanceUid>,
     claimed_epoch: Option<ServerEpoch>,
-) -> Result<(TmuxTarget, TmuxProvider<SystemRunner>), TypedError> {
+) -> Result<(Target, Box<dyn Provider>), TypedError> {
     let (instance, socket) = find_instance(registry, Backend::Tmux)?.ok_or_else(|| {
         TypedError::new(
             ErrorCode::ProviderUnavailable,
@@ -526,41 +589,150 @@ fn verified_tmux_target(
         ));
     }
     Ok((
-        TmuxTarget {
+        Target {
+            backend: Backend::Tmux,
             instance,
-            namespace,
+            endpoint: namespace,
             epoch,
         },
-        provider,
+        Box::new(provider),
     ))
 }
 
-fn tmux_scope(target: &TmuxTarget) -> InventoryScope {
-    InventoryScope {
-        backend: Backend::Tmux,
-        endpoint: target.namespace.clone(),
-        expected_epoch: Some(target.epoch),
-    }
-}
-
-/// Resolve a Space and require it to live on the managed tmux instance.
-/// Wez Spaces are typed-refused by agent v1 (never a backend fallback).
-fn require_tmux_space(registry: &Registry, space_uid: SpaceUid) -> Result<SpaceRow, TypedError> {
-    let space = registry.space(space_uid).map_err(typed_registry)?;
-    let info = registry
-        .backend_instance_info(space.backend_instance)
-        .map_err(typed_registry)?;
-    if info.backend != Backend::Tmux {
-        return Err(TypedError::new(
+/// The wez half of the verification matrix. The endpoint comes from the
+/// registry's wez instance row, falling back to the runtime descriptor
+/// (never from the client). The live epoch comes from a complete
+/// sentinel-verified scan; a stale registry publication or a stale claimed
+/// instance/epoch refuses.
+fn verified_wez_target(
+    registry: &Registry,
+    claimed_instance: Option<BackendInstanceUid>,
+    claimed_epoch: Option<ServerEpoch>,
+) -> Result<(Target, Box<dyn Provider>), TypedError> {
+    let (instance, socket) = find_instance(registry, Backend::Wez)?.ok_or_else(|| {
+        TypedError::new(
             ErrorCode::ProviderUnavailable,
-            "agent v1 serves tmux Spaces only; remote wez mutations arrive with P8b",
+            "no managed wez backend instance on this owner",
+        )
+    })?;
+    let endpoint = socket
+        .or_else(|| {
+            crate::runtime::read_wez_descriptor()
+                .ok()
+                .flatten()
+                .map(|d| d.socket)
+        })
+        .ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "managed wez instance has no recorded socket and no runtime descriptor",
+            )
+        })?;
+    if let Some(claimed) = claimed_instance
+        && claimed != instance
+    {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            format!(
+                "claimed backend instance {} but this owner's wez instance is {}",
+                claimed.0, instance.0
+            ),
         ));
     }
-    Ok(space)
+    let (bin, config) = wez_paths();
+    let provider = WezProvider::new(bin, config);
+    let probe = InventoryScope {
+        backend: Backend::Wez,
+        endpoint: endpoint.clone(),
+        expected_epoch: None,
+    };
+    let epoch = match provider.inventory(&probe) {
+        InventoryOutcome::Complete(inv) => inv.server_epoch.ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "wez server presents no sentinel epoch",
+            )
+        })?,
+        other => {
+            return Err(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                format!("wez scan: {other:?}"),
+            ));
+        }
+    };
+    // A published incarnation that no longer matches the live sentinel is a
+    // replaced server: refuse rather than serve stale identity.
+    let record = registry.backend_server(instance).map_err(typed_registry)?;
+    if let Some(published) = record.server_epoch
+        && published != epoch
+    {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "published wez epoch {} but the live sentinel epoch is {}",
+                published.0, epoch.0
+            ),
+        ));
+    }
+    if let Some(claimed) = claimed_epoch
+        && claimed != epoch
+    {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "claimed server epoch {} but the live verified epoch is {}",
+                claimed.0, epoch.0
+            ),
+        ));
+    }
+    Ok((
+        Target {
+            backend: Backend::Wez,
+            instance,
+            endpoint,
+            epoch,
+        },
+        Box::new(provider),
+    ))
+}
+
+/// Resolve a Space's OWN backend target (children inherit; the client never
+/// chooses) and verify the envelope's instance/epoch claims against it.
+fn space_target(
+    cx: &mut AgentCx,
+    space_uid: SpaceUid,
+    request: &Envelope,
+) -> Result<(SpaceRow, Target, Box<dyn Provider>), TypedError> {
+    let space = cx.registry.space(space_uid).map_err(typed_registry)?;
+    let info = cx
+        .registry
+        .backend_instance_info(space.backend_instance)
+        .map_err(typed_registry)?;
+    let (target, provider) = verified_target(
+        &cx.registry,
+        info.backend,
+        request.backend_instance_uid,
+        request.server_epoch,
+    )?;
+    if space.backend_instance != target.instance {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            "space belongs to a different backend instance",
+        ));
+    }
+    Ok((space, target, provider))
 }
 
 /// The pane-bootstrap helper is installed beside dmux (ADR 009 §4).
+/// `DMUX_HELPER_BIN` is an owner-side TEST seam (like `DMUX_RUNTIME_DIR`):
+/// the wez mux server does not propagate server env into panes, so the wez
+/// test leg shims the helper — clients never choose owner paths.
 fn helper_bin() -> Result<String, TypedError> {
+    if let Ok(shim) = std::env::var("DMUX_HELPER_BIN")
+        && !shim.is_empty()
+    {
+        return Ok(shim);
+    }
     let exe = std::env::current_exe()
         .map_err(|e| TypedError::new(ErrorCode::OperationFailed, format!("current_exe: {e}")))?;
     let sibling = exe.with_file_name("pane-bootstrap");
@@ -568,6 +740,57 @@ fn helper_bin() -> Result<String, TypedError> {
         return Ok(sibling.display().to_string());
     }
     Ok("pane-bootstrap".to_string())
+}
+
+/// Parse a canonical §6.3 child suffix of the expected kind.
+fn parse_child(suffix: &str, want: ChildKind) -> Result<ChildRefShape, TypedError> {
+    let parsed = parse_ref(&format!("x/{suffix}")).map_err(|e| {
+        TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("child ref {suffix:?}: {e:?}"),
+        )
+    })?;
+    let child = parsed.child.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("{suffix:?} is not a child ref"),
+        )
+    })?;
+    if child.kind != want {
+        return Err(TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("{suffix:?} is a {:?} ref; expected {want:?}", child.kind),
+        ));
+    }
+    Ok(child)
+}
+
+fn parse_direction(direction: Option<&str>) -> Result<SplitDirection, TypedError> {
+    Ok(match direction {
+        None => SplitDirection::Down,
+        Some("left") => SplitDirection::Left,
+        Some("right") => SplitDirection::Right,
+        Some("up") => SplitDirection::Up,
+        Some("down") => SplitDirection::Down,
+        Some(other) => {
+            return Err(TypedError::new(
+                ErrorCode::Usage,
+                format!("direction {other:?} is not one of left|right|up|down"),
+            ));
+        }
+    })
+}
+
+fn check_percent(percent: Option<u8>) -> Result<(), TypedError> {
+    if let Some(p) = percent
+        && !(1..=99).contains(&p)
+    {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            format!("percent {p} is outside 1..=99"),
+        ));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -666,14 +889,35 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
         }),
         None => {}
     }
-    if let Some((_, _)) = find_instance(&cx.registry, Backend::Wez)? {
-        scans.push(ScanSummary {
-            backend: Backend::Wez,
-            outcome: "unavailable".into(),
-            detail: Some("wez scans are not served by agent v1".into()),
-            rows: None,
-            server_epoch: None,
-        });
+    match find_instance(&cx.registry, Backend::Wez)? {
+        Some((_, socket)) => {
+            let endpoint = socket.or_else(|| {
+                crate::runtime::read_wez_descriptor()
+                    .ok()
+                    .flatten()
+                    .map(|d| d.socket)
+            });
+            match endpoint {
+                Some(endpoint) => {
+                    let (bin, config) = wez_paths();
+                    let provider = WezProvider::new(bin, config);
+                    let scope = InventoryScope {
+                        backend: Backend::Wez,
+                        endpoint,
+                        expected_epoch: None,
+                    };
+                    scans.push(scan_summary(Backend::Wez, &provider.inventory(&scope)));
+                }
+                None => scans.push(ScanSummary {
+                    backend: Backend::Wez,
+                    outcome: "unavailable".into(),
+                    detail: Some("no recorded socket and no runtime descriptor".into()),
+                    rows: None,
+                    server_epoch: None,
+                }),
+            }
+        }
+        None => {}
     }
     let info = SpacesInfo { spaces, scans };
     Ok(Reply::plain(serde_json::to_value(info).map_err(|e| {
@@ -727,26 +971,23 @@ fn scan_summary(backend: Backend, outcome: &InventoryOutcome) -> ScanSummary {
 
 fn new_space(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
     let new: NewPayload = parse_payload(payload)?;
-    if new.backend != Backend::Tmux {
-        return Err(TypedError::new(
-            ErrorCode::ProviderUnavailable,
-            "agent v1 creates tmux Spaces only; remote wez creation arrives with P8b \
-             (never a silent tmux fallback)",
-        ));
-    }
-    let (target, provider) = verified_tmux_target(
+    // `backend` is the client's PRODUCT-level choice (ADR 009 §4); native
+    // details are owner-resolved through the verification matrix. A backend
+    // the owner cannot serve is a typed refusal, never a fallback.
+    let (target, provider) = verified_target(
         &cx.registry,
+        new.backend,
         request.backend_instance_uid,
         request.server_epoch,
     )?;
-    let scope = tmux_scope(&target);
+    let scope = scope_for(&target);
     // End-to-end idempotency: the ENVELOPE request UID is the operation
     // request UID; create_space owns the ledger row for method "new".
     let created = create_space(
         &cx.env,
-        &provider,
+        provider.as_ref(),
         &scope,
-        Backend::Tmux,
+        target.backend,
         &CreateRequest {
             request_uid: request.request_uid,
             name: new.name,
@@ -794,19 +1035,8 @@ fn rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
         }
     );
 
-    let space = require_tmux_space(&cx.registry, rename.space_uid)?;
-    let (target, provider) = verified_tmux_target(
-        &cx.registry,
-        request.backend_instance_uid,
-        request.server_epoch,
-    )?;
-    if space.backend_instance != target.instance {
-        return Err(TypedError::new(
-            ErrorCode::WrongBackendInstance,
-            "space belongs to a different backend instance",
-        ));
-    }
-    let scope = tmux_scope(&target);
+    let (space, target, provider) = space_target(cx, rename.space_uid, request)?;
+    let scope = scope_for(&target);
 
     // Ack-loss / crash reconciliation (plan §12.1: a retry reconciles the
     // original mutation rather than repeating it blindly).
@@ -820,23 +1050,27 @@ fn rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
             if op.kind == crate::model::OperationKind::Rename
                 && op.request_uid == request.request_uid =>
         {
-            // Resume: repeat the (idempotent) native rename, then commit.
-            let binding = cx
-                .registry
-                .current_binding(rename.space_uid)
-                .map_err(typed_registry)?
-                .ok_or_else(|| {
-                    TypedError::new(ErrorCode::SpaceAbsent, "no current native binding")
-                })?;
-            let native = crate::backend::NativeBinding {
-                native_token: binding.native_token,
-                server_epoch: target.epoch,
-                root_group: crate::model::ProviderHandle::Tx(0),
-                root_split: crate::model::ProviderHandle::Tx(0),
-            };
-            provider
-                .rename(&scope, &native, &rename.new_name)
-                .map_err(typed_provider)?;
+            // Resume: repeat the (idempotent) native rename where the
+            // backend has one — wez logical renames are registry-only
+            // (plan §2.5) — then commit.
+            if target.backend == Backend::Tmux {
+                let binding = cx
+                    .registry
+                    .current_binding(rename.space_uid)
+                    .map_err(typed_registry)?
+                    .ok_or_else(|| {
+                        TypedError::new(ErrorCode::SpaceAbsent, "no current native binding")
+                    })?;
+                let native = crate::backend::NativeBinding {
+                    native_token: binding.native_token,
+                    server_epoch: target.epoch,
+                    root_group: crate::model::ProviderHandle::Tx(0),
+                    root_split: crate::model::ProviderHandle::Tx(0),
+                };
+                provider
+                    .rename(&scope, &native, &rename.new_name)
+                    .map_err(typed_provider)?;
+            }
             cx.registry
                 .commit_rename(rename.space_uid, op.operation_uid)
                 .map_err(typed_registry)?;
@@ -848,9 +1082,9 @@ fn rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
         _ => {
             rename_space(
                 &cx.env,
-                &provider,
+                provider.as_ref(),
                 &scope,
-                Backend::Tmux,
+                target.backend,
                 rename.space_uid,
                 &rename.new_name,
                 request.request_uid,
@@ -907,7 +1141,9 @@ fn remove(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
     }
     let is_replay = matches!(disposition, RpcDisposition::Replay { .. });
 
-    let space = require_tmux_space(&cx.registry, rm.space_uid)?;
+    // The Deleted/Aborted early paths must not require a live backend (a
+    // replayed rm of a removed Space answers even if the server is gone).
+    let space = cx.registry.space(rm.space_uid).map_err(typed_registry)?;
     let finish = |cx: &mut AgentCx, replayed: bool| -> Result<Reply, TypedError> {
         let stored = RmResult {
             space_uid: rm.space_uid,
@@ -948,18 +1184,8 @@ fn remove(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
         _ => {}
     }
 
-    let (target, provider) = verified_tmux_target(
-        &cx.registry,
-        request.backend_instance_uid,
-        request.server_epoch,
-    )?;
-    if space.backend_instance != target.instance {
-        return Err(TypedError::new(
-            ErrorCode::WrongBackendInstance,
-            "space belongs to a different backend instance",
-        ));
-    }
-    let scope = tmux_scope(&target);
+    let (space, target, provider) = space_target(cx, rm.space_uid, request)?;
+    let scope = scope_for(&target);
 
     if space.lifecycle == crate::model::Lifecycle::Deleting {
         // Crash between `deleting` intent and the tombstone: resume only
@@ -1006,9 +1232,9 @@ fn remove(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
 
     remove_space(
         &cx.env,
-        &provider,
+        provider.as_ref(),
         &scope,
-        Backend::Tmux,
+        target.backend,
         rm.space_uid,
         request.request_uid,
     )
@@ -1047,7 +1273,23 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
     }
 
     let identity = cx.registry.identity().map_err(typed_registry)?;
-    let space = require_tmux_space(&cx.registry, plan_req.space_uid)?;
+    // The PTY channel is tmux-only (plan §12.1): wez presentation is GUI
+    // domain attachment and never uses `_attach`.
+    let space = cx
+        .registry
+        .space(plan_req.space_uid)
+        .map_err(typed_registry)?;
+    let info = cx
+        .registry
+        .backend_instance_info(space.backend_instance)
+        .map_err(typed_registry)?;
+    if info.backend != Backend::Tmux {
+        return Err(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "attach_plan serves tmux Spaces only; wez presentation is GUI \
+             domain attachment (plan §12.1)",
+        ));
+    }
     match space.lifecycle {
         crate::model::Lifecycle::Active => {}
         crate::model::Lifecycle::Deleted | crate::model::Lifecycle::Aborted => {
@@ -1085,7 +1327,7 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
         ));
     }
     // The binding must still be live on the verified server.
-    let scope = tmux_scope(&target);
+    let scope = scope_for(&target);
     let native = crate::backend::NativeBinding {
         native_token: binding.native_token.clone(),
         server_epoch: target.epoch,
@@ -1105,7 +1347,7 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
     let attach_argv = vec![
         "tmux".to_string(),
         "-L".to_string(),
-        target.namespace.clone(),
+        target.endpoint.clone(),
         "attach-session".to_string(),
         "-t".to_string(),
         binding.native_token.clone(),
@@ -1150,4 +1392,138 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
         backend_instance: Some(target.instance),
         server_epoch: Some(target.epoch),
     })
+}
+
+// ---------------------------------------------------------------------------
+// P8b remote hierarchy methods. Each maps to the matching operations::*
+// function; the ENVELOPE request UID is the operation request UID (the
+// operations-layer child ledger owns replay — the agent never
+// double-records), the Space's OWN backend instance resolves the provider
+// (children inherit; the client never chooses), and every target passes
+// the backend-instance/epoch verification matrix first.
+
+fn to_reply<T: serde::Serialize>(target: &Target, value: &T) -> Result<Reply, TypedError> {
+    Ok(Reply {
+        payload: serde_json::to_value(value)
+            .map_err(|e| TypedError::new(ErrorCode::OperationFailed, e.to_string()))?,
+        backend_instance: Some(target.instance),
+        server_epoch: Some(target.epoch),
+    })
+}
+
+fn hierarchy_read(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let p: HierarchyPayload = parse_payload(payload)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let scope = scope_for(&target);
+    let tree = ops::hierarchy(&cx.env, provider.as_ref(), &scope, p.space_uid).map_err(typed_op)?;
+    to_reply(&target, &tree)
+}
+
+fn group_new(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: GroupNewPayload = parse_payload(payload)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let scope = scope_for(&target);
+    let created = ops::group_new(
+        &cx.env,
+        provider.as_ref(),
+        &scope,
+        &ops::GroupNewRequest {
+            request_uid: request.request_uid,
+            space_uid: p.space_uid,
+            cwd: p.cwd,
+            program: p.program,
+            helper_bin: helper_bin()?,
+        },
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &created)
+}
+
+fn split_new(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: SplitNewPayload = parse_payload(payload)?;
+    let group = parse_child(&p.group_ref, ChildKind::Group)?;
+    let direction = parse_direction(p.direction.as_deref())?;
+    check_percent(p.percent)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let scope = scope_for(&target);
+    let created = ops::split_new(
+        &cx.env,
+        provider.as_ref(),
+        &scope,
+        &ops::SplitNewRequest {
+            request_uid: request.request_uid,
+            space_uid: p.space_uid,
+            group,
+            direction,
+            percent: p.percent,
+            cwd: p.cwd,
+            program: p.program,
+            helper_bin: helper_bin()?,
+        },
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &created)
+}
+
+fn group_rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: GroupRenamePayload = parse_payload(payload)?;
+    let group = parse_child(&p.group_ref, ChildKind::Group)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let scope = scope_for(&target);
+    ops::group_rename(
+        &cx.env,
+        provider.as_ref(),
+        &scope,
+        p.space_uid,
+        &group,
+        &p.title,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(
+        &target,
+        &GroupRenameResult {
+            space_uid: p.space_uid,
+            group_ref: p.group_ref,
+            title: p.title,
+        },
+    )
+}
+
+fn group_rm(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: GroupRmPayload = parse_payload(payload)?;
+    let group = parse_child(&p.group_ref, ChildKind::Group)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let scope = scope_for(&target);
+    let removed = ops::group_remove(
+        &cx.env,
+        provider.as_ref(),
+        &scope,
+        p.space_uid,
+        &group,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &removed)
+}
+
+fn split_rm(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: SplitRmPayload = parse_payload(payload)?;
+    let split = parse_child(&p.split_ref, ChildKind::Split)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let scope = scope_for(&target);
+    let removed = ops::split_remove(
+        &cx.env,
+        provider.as_ref(),
+        &scope,
+        p.space_uid,
+        &split,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &removed)
 }

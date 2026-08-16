@@ -120,9 +120,17 @@ impl Scratch {
     }
 
     /// Invoke the REAL binary's `_agent` with this scratch's seams, writing
-    /// `body` (already-serialized request document) to stdin.
-    pub fn agent_raw(&self, protocol: u32, method: &str, body: &str) -> Output {
-        let mut child = Command::new(DMUX_BIN)
+    /// `body` (already-serialized request document) to stdin. `envs` are
+    /// extra owner-side environment seams (DMUX_WEZ_BIN etc.).
+    pub fn agent_raw_env(
+        &self,
+        protocol: u32,
+        method: &str,
+        body: &str,
+        envs: &[(&str, String)],
+    ) -> Output {
+        let mut command = Command::new(DMUX_BIN);
+        command
             .args([
                 "_agent",
                 "--protocol",
@@ -134,7 +142,11 @@ impl Scratch {
                 self.locks.path().to_str().unwrap(),
             ])
             .env_remove("TMUX")
-            .env_remove("TMUX_PANE")
+            .env_remove("TMUX_PANE");
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -149,12 +161,22 @@ impl Scratch {
         child.wait_with_output().unwrap()
     }
 
+    pub fn agent_raw(&self, protocol: u32, method: &str, body: &str) -> Output {
+        self.agent_raw_env(protocol, method, body, &[])
+    }
+
     /// Invoke `_agent` with a typed envelope; returns (exit, response).
     pub fn agent(&self, request: &Envelope) -> (i32, Envelope) {
-        let out = self.agent_raw(
+        self.agent_env(request, &[])
+    }
+
+    /// Like [`Scratch::agent`], with extra owner-side env seams.
+    pub fn agent_env(&self, request: &Envelope, envs: &[(&str, String)]) -> (i32, Envelope) {
+        let out = self.agent_raw_env(
             request.protocol_version,
             &request.method,
             &serde_json::to_string(request).unwrap(),
+            envs,
         );
         let stdout = String::from_utf8_lossy(&out.stdout);
         let response: Envelope = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {

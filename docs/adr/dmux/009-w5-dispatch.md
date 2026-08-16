@@ -139,3 +139,36 @@ contract and gains a v2 appendix when this lands):
   backend-instance/epoch verification matrix passes.
 - P8b starts only after both handoffs return and the root records them
   here.
+
+## 6. W5 closure record (all gates met; suite 494 passed / 0 failed)
+
+Commits `e222dba..` (dispatch) through the P8b integration commit. Gate
+evidence: P8a in `tests/{hierarchy_flow,normalize_flow}.rs` + both provider
+suites; P7/P8b in `tests/remote_protocol/**` including the live two-host
+matrix against Archie (enrollment, replay, PTY attach via single-use token,
+route fault/failover with byte-identical retries, epoch/instance refusals,
+and remote hierarchy: group/split create/remove with cross-invocation
+replay and stale-epoch refusal, all over real ssh). Batch repair
+(`dmux repair normalize`) detects managed multi-window Spaces (recording
+`health=multi_window`), heals them through previewed one-document JSON
+plans, and the re-scan proves zero unresolved managed multi-window Spaces.
+
+Frozen remote payload shapes (P8b additive; envelope unchanged): child refs
+travel as the canonical §6.3 suffix strings; requests
+`hierarchy{space_uid}`, `group_new{space_uid,cwd?,program?}`,
+`split_new{space_uid,group_ref,direction?,percent?,cwd?,program?}`,
+`group_rename{space_uid,group_ref,title}`, `group_rm{space_uid,group_ref}`,
+`split_rm{space_uid,split_ref}`; responses reuse the operations-layer types
+verbatim (`SpaceHierarchy`, `CreatedChild`, `RemovedChild`). Error mapping:
+`OpError::StaleRef → backend_epoch_changed`, `OpError::Refused →
+repair_required`. Owner-side test seams (never client input):
+`DMUX_WEZ_BIN`, `DMUX_WEZ_CONFIG`, `DMUX_HELPER_BIN`, plus the existing
+`DMUX_RUNTIME_DIR` and hidden `--data-dir/--lock-dir/--socket` flags.
+
+Deferred with rationale (candidates for P11 cleanup or later phases):
+persistent rollback-quarantine records (per-operation refusal today);
+proof-verified peer-cache advancement outside `hello`; a `revoked` attach
+token API (variant exists, no issuer); typed `OpError` variants replacing
+substring classification in the agent; wez descriptor-identity requirement
+in `verified_wez_target` once service publication is universal;
+`group_rename` replay visibility.
