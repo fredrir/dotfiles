@@ -83,7 +83,10 @@ fn reads_proceed_under_wal_while_a_writer_holds_the_database() {
         .unwrap();
 
     // Reads are unaffected by the write lock in WAL mode.
-    assert_eq!(reg.identity().unwrap().schema_version, 1);
+    assert_eq!(
+        reg.identity().unwrap().schema_version,
+        dmux::registry::schema::SCHEMA_VERSION
+    );
     assert_eq!(reg.spaces().unwrap().len(), 1);
     assert_eq!(reg.space(r.space_uid).unwrap().logical_name, "proj");
 

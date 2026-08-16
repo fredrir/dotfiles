@@ -4,17 +4,27 @@
 //! authority revision chain, and fenced leases. The P5 identity slice adds
 //! the bootstrap journal and server-epoch publication in [`bootstrap`];
 //! the P6 adoption surface (kind-explicit reservation, unstamped
-//! finalization, health transitions) lives in [`adopt`].
+//! finalization, health transitions) lives in [`adopt`]. The W5/P7 identity
+//! surface (ADR 009 §3) adds the v1→v2 migration in [`migrate_v2`], host
+//! enrollment in [`hosts`], route records in [`routes`], single-use attach
+//! tokens in [`attach`], the peer snapshot cache in [`peer_cache`], and
+//! pane stamps in [`stamps`].
 
 mod util;
 
 mod adopt;
 mod alloc;
+mod attach;
 mod backup;
 mod bootstrap;
 mod busy;
+mod hosts;
 mod idempotency;
 mod init;
 mod journal;
 mod leases;
 mod lineage;
+mod migrate_v2;
+mod peer_cache;
+mod routes;
+mod stamps;

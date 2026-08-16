@@ -13,7 +13,7 @@ fn first_run_initializes_identity_counters_and_genesis_exactly_once() {
     let s = scratch();
     let reg = open(&s.config);
     let id = reg.identity().unwrap();
-    assert_eq!(id.schema_version, 1);
+    assert_eq!(id.schema_version, dmux::registry::schema::SCHEMA_VERSION);
     assert_eq!(id.host_uid.0.get_version(), Some(Version::Random));
     assert_eq!(id.registry_uid.0.get_version(), Some(Version::Random));
     assert!(!id.created_at.is_empty());

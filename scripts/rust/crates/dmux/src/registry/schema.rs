@@ -1,11 +1,14 @@
 //! Versioned SQLite migrations implementing the frozen storage contract
-//! `docs/adr/dmux/registry-v1.sql` (plan §10.1).
+//! `docs/adr/dmux/registry-v1.sql` (plan §10.1) plus the v2 extension frozen
+//! in `docs/adr/dmux/009-w5-dispatch.md` §3 (attach tokens, pane stamps).
 //!
-//! The DDL below is the contract file transcribed verbatim — identical index
-//! names, identical semantics, including every `-- REQUIRED` partial index.
-//! Migration bookkeeping uses `PRAGMA user_version`; `meta.schema_version`
-//! mirrors it once the meta row exists. Migrations run under the exclusive
-//! maintenance gate (`registry::Registry::open` acquires it).
+//! The v1 DDL below is the contract file transcribed verbatim — identical
+//! index names, identical semantics, including every `-- REQUIRED` partial
+//! index. Migration bookkeeping uses `PRAGMA user_version`;
+//! `meta.schema_version` mirrors it once the meta row exists. Migrations run
+//! under the exclusive maintenance gate (`registry::Registry::open` acquires
+//! it) and are lossless: a v1 database opened by v2 code migrates in place
+//! with every row intact.
 
 use std::time::Duration;
 
@@ -13,9 +16,9 @@ use rusqlite::Connection;
 
 /// Current schema version. Each entry in [`MIGRATIONS`] moves
 /// `user_version` from `n-1` to `n`.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL), (2, V2_DDL)];
 
 /// registry-v1.sql, verbatim semantics (contract: equivalent index names
 /// allowed, weaker semantics not — the names are kept identical anyway).
@@ -270,6 +273,43 @@ CREATE TABLE recovery_journal (
 );
 "#;
 
+/// Schema v2 (ADR 009 §3): single-use PTY attach tokens and per-pane stamp
+/// acknowledgements, plus a hardening index for the route-upsert key. Purely
+/// additive — no v1 row is touched.
+const V2_DDL: &str = r#"
+-- Single-use PTY attach tokens (plan §12.1, ADR 009 §3). Only the sha256
+-- lowercase-hex of a token is ever stored; expiry/replay/revocation never
+-- deletes a row — the journal is kept for audit.
+CREATE TABLE attach_tokens (
+  token_hash   TEXT PRIMARY KEY,  -- sha256 lowercase hex of the opaque token
+  request_uid  TEXT NOT NULL UNIQUE,
+  host_uid     TEXT NOT NULL REFERENCES hosts(host_uid),
+  space_uid    TEXT NOT NULL,
+  server_epoch TEXT NOT NULL,
+  route        TEXT NOT NULL,     -- route the token is bound to
+  attach_argv  TEXT NOT NULL,     -- JSON argv of the exact owner-generated attach command
+  issued_at    TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  state        TEXT NOT NULL CHECK (state IN ('issued', 'redeemed', 'expired', 'revoked')),
+  redeemed_at  TEXT
+);
+
+-- Per-pane stamp acknowledgements for adopted-Space completion (plan §10.3).
+-- Epoch-scoped observation state; an upsert refreshes stamped_at.
+CREATE TABLE pane_stamps (
+  space_uid    TEXT NOT NULL REFERENCES spaces(space_uid),
+  server_epoch TEXT NOT NULL,
+  pane_handle  TEXT NOT NULL,     -- canonical provider handle string, e.g. 'tx-13' / 'wz-42'
+  stamped_at   TEXT NOT NULL,
+  PRIMARY KEY (space_uid, server_epoch, pane_handle)
+);
+
+-- The v2 route-upsert API is keyed on (host_uid, transport, endpoint); the
+-- database enforces the same key.
+CREATE UNIQUE INDEX routes_host_transport_endpoint_uq
+  ON routes(host_uid, transport, endpoint);
+"#;
+
 /// Apply the normative per-connection settings from the contract header:
 /// foreign_keys=ON, journal_mode=WAL, synchronous=FULL, trusted_schema=OFF,
 /// busy_timeout (5000 ms in production). Returns the resulting journal mode
@@ -294,8 +334,17 @@ pub fn user_version(conn: &Connection) -> rusqlite::Result<i64> {
 /// `user_version` and mirroring `meta.schema_version` where a meta row
 /// exists. Caller must hold the exclusive maintenance gate.
 pub fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
+    migrate_to(conn, SCHEMA_VERSION)
+}
+
+/// [`migrate`] stopping at `target` — a seam for migration tests and
+/// tooling that need a database frozen at an older schema version.
+pub fn migrate_to(conn: &mut Connection, target: i64) -> rusqlite::Result<()> {
     loop {
         let version = user_version(conn)?;
+        if version >= target {
+            return Ok(());
+        }
         let Some((next, ddl)) = MIGRATIONS.iter().find(|(v, _)| *v == version + 1) else {
             return Ok(());
         };
@@ -327,6 +376,35 @@ mod tests {
     }
 
     #[test]
+    fn migrate_to_stops_at_the_target_and_resumes_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = Connection::open(dir.path().join("t.sqlite3")).unwrap();
+        apply_connection_settings(&conn, Duration::from_millis(100)).unwrap();
+        migrate_to(&mut conn, 1).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), 1);
+        let has_tokens: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='attach_tokens'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_tokens, 0, "v1 database must not have v2 tables");
+        migrate(&mut conn).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
+        for table in ["attach_tokens", "pane_stamps"] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "v2 table {table} missing");
+        }
+    }
+
+    #[test]
     fn all_required_partial_indexes_exist_with_contract_semantics() {
         let dir = tempfile::tempdir().unwrap();
         let mut conn = Connection::open(dir.path().join("t.sqlite3")).unwrap();
@@ -339,6 +417,7 @@ mod tests {
             "spaces_live_name_uq",
             "bindings_current_native_uq",
             "operations_one_unfinished_uq",
+            "routes_host_transport_endpoint_uq",
         ] {
             let sql: String = conn
                 .query_row(

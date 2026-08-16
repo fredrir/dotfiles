@@ -41,12 +41,19 @@
 //! does advance the chain.
 
 pub mod bootstrap_journal;
+pub mod hosts;
 pub mod reconcile;
+pub mod remote;
 pub mod schema;
 pub mod sha256;
 
 pub use bootstrap_journal::{
     BootstrapRequestRow, bootstrap_can_transition, bootstrap_is_terminal, parse_bootstrap_state,
+};
+pub use hosts::{EnrolledHost, HostLifecycle, HostRow};
+pub use remote::{
+    AttachRedemption, AttachTokenSpec, NetworkClass, PeerCache, RedeemedAttach, RouteRow,
+    RouteSpec, Transport,
 };
 
 use std::fmt;
@@ -127,6 +134,28 @@ pub enum RegistryError {
     BootstrapRequestExists {
         request_uid: Uuid,
     },
+    /// `forget_host` targeting the local authority: `a` can never be
+    /// forgotten (plan §12.2).
+    LocalHostImmutable {
+        host_uid: HostUid,
+    },
+    /// A host-ref spelling (alias or label), once used, is permanently
+    /// bound to its first HostUid and never rebound (registry-v1.sql
+    /// host_refs contract).
+    SpellingBound {
+        spelling: String,
+        bound_to: HostUid,
+    },
+    /// Host labels are `[a-z][a-z0-9-]{0,31}` (plan §6.2).
+    InvalidLabel {
+        label: String,
+    },
+    /// `attach_tokens` token_hash/request_uid uniqueness: the token (or its
+    /// request identity) was already issued. Request replay is the RPC
+    /// ledger's job, never a re-issue.
+    AttachTokenExists {
+        request_uid: Uuid,
+    },
     NotFound {
         what: String,
     },
@@ -146,10 +175,15 @@ impl RegistryError {
                 ErrorCode::OperationInProgress
             }
             RegistryError::NativeTokenConflict { .. }
-            | RegistryError::BootstrapRequestExists { .. } => ErrorCode::IdentityConflict,
+            | RegistryError::BootstrapRequestExists { .. }
+            | RegistryError::SpellingBound { .. }
+            | RegistryError::AttachTokenExists { .. } => ErrorCode::IdentityConflict,
             RegistryError::IdempotencyReuse { .. } => ErrorCode::IdempotencyReuse,
             RegistryError::NotFound { .. } => ErrorCode::NotFound,
-            RegistryError::KindNotAllowed { .. } => ErrorCode::Usage,
+            RegistryError::KindNotAllowed { .. } | RegistryError::LocalHostImmutable { .. } => {
+                ErrorCode::Usage
+            }
+            RegistryError::InvalidLabel { .. } => ErrorCode::InvalidName,
             RegistryError::KernelLockMismatch { .. }
             | RegistryError::InvalidTransition { .. }
             | RegistryError::InvalidBootstrapTransition { .. }
@@ -215,6 +249,32 @@ impl fmt::Display for RegistryError {
             }
             RegistryError::BootstrapRequestExists { request_uid } => {
                 write!(f, "bootstrap request {request_uid} was already issued")
+            }
+            RegistryError::LocalHostImmutable { host_uid } => {
+                write!(
+                    f,
+                    "host {} is the local authority ('a') and cannot be forgotten",
+                    host_uid.0
+                )
+            }
+            RegistryError::SpellingBound { spelling, bound_to } => {
+                write!(
+                    f,
+                    "spelling {spelling:?} is permanently bound to host {}",
+                    bound_to.0
+                )
+            }
+            RegistryError::InvalidLabel { label } => {
+                write!(
+                    f,
+                    "invalid host label {label:?} (want [a-z][a-z0-9-]{{0,31}})"
+                )
+            }
+            RegistryError::AttachTokenExists { request_uid } => {
+                write!(
+                    f,
+                    "attach token for request {request_uid} was already issued"
+                )
             }
             RegistryError::NotFound { what } => write!(f, "{what} not found"),
             RegistryError::Corrupt(msg) => write!(f, "registry corrupt: {msg}"),
@@ -484,6 +544,32 @@ pub struct BackendServerRecord {
     pub server_start_token: Option<String>,
     pub socket_dev: Option<i64>,
     pub socket_ino: Option<i64>,
+}
+
+/// The static registration half of a backend instance — what
+/// [`Registry::register_backend_instance`] recorded (the incarnation half
+/// lives in [`BackendServerRecord`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendInstanceInfo {
+    pub backend: Backend,
+    pub owner: HostUid,
+    /// wez: exact service socket; tmux: `-L` namespace.
+    pub socket_path: Option<String>,
+    /// systemd unit / launchd label.
+    pub service_label: Option<String>,
+    pub created_at: String,
+}
+
+/// One epoch-scoped pane stamp acknowledgement (plan §10.3). The health
+/// recompute over these rows stays caller-side (operations layer); the
+/// registry only records and lists them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneStampRow {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    /// Canonical provider handle string, e.g. `tx-13` / `wz-42`.
+    pub pane_handle: String,
+    pub stamped_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1151,6 +1237,115 @@ impl Registry {
                     socket_ino: ino,
                 })
             })
+    }
+
+    /// The static registration record for an instance: backend kind plus
+    /// the socket/service endpoints the provider scope is constructed from.
+    pub fn backend_instance_info(
+        &self,
+        instance: BackendInstanceUid,
+    ) -> Result<BackendInstanceInfo> {
+        self.conn
+            .query_row(
+                "SELECT backend, owner_host_uid, socket_path, service_label, created_at \
+                 FROM backend_instances WHERE backend_instance_uid = ?1",
+                [instance.0.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| RegistryError::NotFound {
+                what: format!("backend instance {}", instance.0),
+            })
+            .and_then(|(backend, owner, socket, service, created)| {
+                Ok(BackendInstanceInfo {
+                    backend: token_enum(&backend)?,
+                    owner: HostUid(parse_uuid(&owner)?),
+                    socket_path: socket,
+                    service_label: service,
+                    created_at: created,
+                })
+            })
+    }
+
+    // -- pane stamps (plan §10.3) -------------------------------------------
+
+    /// Record (or refresh) one pane's stamp acknowledgement for a Space
+    /// under a server epoch — an upsert on the
+    /// `(space_uid, server_epoch, pane_handle)` key that refreshes
+    /// `stamped_at`. Observation-derived diagnostics, exactly like
+    /// [`Registry::set_space_health`]: never advances the authority
+    /// revision. The Space must exist (typed [`RegistryError::NotFound`]).
+    pub fn record_pane_stamp(
+        &mut self,
+        space_uid: SpaceUid,
+        server_epoch: ServerEpoch,
+        pane_handle: &str,
+    ) -> Result<()> {
+        let handle = pane_handle.to_string();
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            tx.execute(
+                "INSERT INTO pane_stamps (space_uid, server_epoch, pane_handle, stamped_at) \
+                 VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT(space_uid, server_epoch, pane_handle) \
+                 DO UPDATE SET stamped_at = excluded.stamped_at",
+                params![
+                    space_uid.0.to_string(),
+                    server_epoch.0.to_string(),
+                    handle,
+                    now
+                ],
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::SqliteFailure(f, Some(ref message))
+                    if f.code == rusqlite::ErrorCode::ConstraintViolation
+                        && message.contains("FOREIGN KEY") =>
+                {
+                    RegistryError::NotFound {
+                        what: format!("space {}", space_uid.0),
+                    }
+                }
+                other => other.into(),
+            })?;
+            Ok(())
+        })
+    }
+
+    /// Every stamp acknowledgement for a Space under one server epoch —
+    /// the input to the caller-side health recompute. Stamps from other
+    /// epochs are never returned.
+    pub fn pane_stamps(
+        &self,
+        space_uid: SpaceUid,
+        server_epoch: ServerEpoch,
+    ) -> Result<Vec<PaneStampRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT pane_handle, stamped_at FROM pane_stamps \
+             WHERE space_uid = ?1 AND server_epoch = ?2 ORDER BY pane_handle",
+        )?;
+        let rows = stmt.query_map(
+            params![space_uid.0.to_string(), server_epoch.0.to_string()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        let mut stamps = Vec::new();
+        for row in rows {
+            let (pane_handle, stamped_at) = row?;
+            stamps.push(PaneStampRow {
+                space_uid,
+                server_epoch,
+                pane_handle,
+                stamped_at,
+            });
+        }
+        Ok(stamps)
     }
 
     // -- identity allocation ----------------------------------------------

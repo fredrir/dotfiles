@@ -272,3 +272,39 @@ CREATE TABLE recovery_journal (
   updated_at            TEXT NOT NULL,
   PRIMARY KEY (generation_uid, manifest_node_path)
 );
+
+-- ===========================================================================
+-- v2 appendix (W5 / ADR 009 §3): applied by migration when user_version < 2.
+-- Implemented in registry/schema.rs (SCHEMA_VERSION = 2); mirrored here
+-- verbatim from the identity agent's W5 handoff.
+
+-- Single-use remote tmux attach tokens (plan §12.1). Only the sha256 of a
+-- token is ever stored; rows are retained (never deleted) for audit.
+CREATE TABLE attach_tokens (
+  token_hash   TEXT PRIMARY KEY,  -- sha256 lowercase hex of the opaque token
+  request_uid  TEXT NOT NULL UNIQUE,
+  host_uid     TEXT NOT NULL REFERENCES hosts(host_uid),
+  space_uid    TEXT NOT NULL,
+  server_epoch TEXT NOT NULL,
+  route        TEXT NOT NULL,
+  attach_argv  TEXT NOT NULL,     -- JSON argv of the exact owner-generated attach command
+  issued_at    TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  state        TEXT NOT NULL CHECK (state IN ('issued', 'redeemed', 'expired', 'revoked')),
+  redeemed_at  TEXT
+);
+
+-- Per-pane marker acknowledgements for adopted Spaces (plan §10.3): health
+-- becomes healthy only when every live pane has one current-epoch stamp.
+CREATE TABLE pane_stamps (
+  space_uid    TEXT NOT NULL REFERENCES spaces(space_uid),
+  server_epoch TEXT NOT NULL,
+  pane_handle  TEXT NOT NULL,
+  stamped_at   TEXT NOT NULL,
+  PRIMARY KEY (space_uid, server_epoch, pane_handle)
+);
+
+-- Enforces the frozen upsert key for routes (safe retrofit: no v1 code
+-- ever wrote the routes table).
+CREATE UNIQUE INDEX routes_host_transport_endpoint_uq
+  ON routes(host_uid, transport, endpoint);
