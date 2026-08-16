@@ -414,6 +414,221 @@ fn replay_stale_epoch_and_adopted_blocking() {
     wait_marker(&gmark);
 }
 
+// ---------------------------------------------------------------------------
+// Wez leg: the same fenced child flows on a real scratch STOCK mux server —
+// operations-level create → group/split with the real helper → removes.
+
+struct WezScratch {
+    server: std::process::Child,
+    socket: String,
+    config: String,
+    dir: tempfile::TempDir,
+}
+
+impl WezScratch {
+    fn start(tag: &str, runtime_dir: &std::path::Path) -> WezScratch {
+        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let socket = dir.path().join("sock").display().to_string();
+        let epoch = Uuid::new_v4();
+        let config_path = dir.path().join("mux.lua");
+        std::fs::write(
+            &config_path,
+            format!(
+                r#"local wezterm = require 'wezterm'
+local config = wezterm.config_builder and wezterm.config_builder() or {{}}
+config.unix_domains = {{ {{ name = 'hier{tag}', socket_path = os.getenv('DMUX_SOCKET'),
+                            no_serve_automatically = true }} }}
+config.default_prog = {{ '/bin/sh', '-c', 'echo DMUX-CANARY; sleep 600' }}
+wezterm.on('mux-startup', function()
+  wezterm.mux.spawn_window {{
+    workspace = 'dmux:system:{epoch}',
+    args = {{ '/bin/sh', '-c', 'while :; do sleep 3600; done' }},
+  }}
+end)
+return config
+"#
+            ),
+        )
+        .unwrap();
+        let server = Command::new("/opt/homebrew/bin/wezterm-mux-server")
+            .args(["--config-file", config_path.to_str().unwrap()])
+            .env("DMUX_SOCKET", &socket)
+            .env("DMUX_RUNTIME_DIR", runtime_dir)
+            .env_remove("WEZTERM_UNIX_SOCKET")
+            .spawn()
+            .unwrap();
+        WezScratch {
+            server,
+            socket,
+            config: config_path.display().to_string(),
+            dir,
+        }
+    }
+}
+
+impl Drop for WezScratch {
+    fn drop(&mut self) {
+        let _ = self.server.kill();
+        let _ = self.server.wait();
+        let _ = std::fs::remove_dir_all(self.dir.path());
+    }
+}
+
+#[test]
+fn wez_hierarchy_full_cycle_at_the_operations_layer() {
+    if !std::path::Path::new("/opt/homebrew/bin/wezterm-mux-server").exists() {
+        eprintln!("skipping: stock wezterm-mux-server not installed");
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let locks = tempfile::tempdir().unwrap();
+    let env = OperationEnv {
+        db_path: data.path().join("registry.sqlite3"),
+        lock_dir: locks.path().to_path_buf(),
+    };
+    let s = WezScratch::start("a", locks.path());
+    // The wez mux server does NOT propagate arbitrary server env into
+    // spawned panes (live-verified), so the DMUX_RUNTIME_DIR test seam
+    // cannot ride the server environment the way tmux tests do. Production
+    // is unaffected — the helper resolves the runtime dir itself via
+    // confstr — but the test shims the helper to export the seam.
+    let shim = data.path().join("helper-shim.sh");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\nexport DMUX_RUNTIME_DIR={}\nexec {} \"$@\"\n",
+            locks.path().display(),
+            helper()
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let helper_shim = shim.display().to_string();
+    let provider =
+        dmux::backend::wez::WezProvider::new("/opt/homebrew/bin/wezterm", s.config.clone());
+    let scope = InventoryScope {
+        backend: Backend::Wez,
+        endpoint: s.socket.clone(),
+        expected_epoch: None,
+    };
+    // Wait for the sentinel to establish a complete epoched scan.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        use dmux::backend::{InventoryOutcome, Provider};
+        if let InventoryOutcome::Complete(inv) = provider.inventory(&scope)
+            && inv.server_epoch.is_some()
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "mux server never became ready");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Space create through the full broker protocol on a wez pane.
+    let mark = data.path().join("wm");
+    let created = create_space(
+        &env,
+        &provider,
+        &scope,
+        Backend::Wez,
+        &CreateRequest {
+            request_uid: Uuid::new_v4(),
+            name: "proj".into(),
+            cwd: None,
+            program: marker_program(&mark),
+            helper_bin: helper_shim.clone(),
+        },
+    )
+    .unwrap();
+    assert!(created.native_token.starts_with("dmux:"));
+    let stamped = wait_marker(&mark);
+    assert!(
+        stamped.ends_with(&created.space_uid.0.to_string()),
+        "{stamped}"
+    );
+
+    // Child flows: a new Group, a Split inside it, then removes.
+    let gmark = data.path().join("wg");
+    let group = group_new(
+        &env,
+        &provider,
+        &scope,
+        &GroupNewRequest {
+            request_uid: Uuid::new_v4(),
+            space_uid: created.space_uid,
+            cwd: None,
+            program: marker_program(&gmark),
+            helper_bin: helper_shim.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        wait_marker(&gmark),
+        format!(
+            "{}|{}|{}",
+            group.group_ref, group.split_ref, created.space_uid.0
+        ),
+        "wez marker propagation"
+    );
+    let smark = data.path().join("ws");
+    let split = split_new(
+        &env,
+        &provider,
+        &scope,
+        &SplitNewRequest {
+            request_uid: Uuid::new_v4(),
+            space_uid: created.space_uid,
+            group: child_shape(&group.group_ref),
+            direction: SplitDirection::Right,
+            percent: Some(40),
+            cwd: None,
+            program: marker_program(&smark),
+            helper_bin: helper_shim.clone(),
+        },
+    )
+    .unwrap();
+    wait_marker(&smark);
+    assert_eq!(split.group_ref, group.group_ref);
+
+    let tree = hierarchy(&env, &provider, &scope, created.space_uid).unwrap();
+    assert_eq!(tree.groups.len(), 2);
+    assert_eq!(tree.groups.iter().map(|g| g.splits.len()).sum::<usize>(), 3);
+
+    split_remove(
+        &env,
+        &provider,
+        &scope,
+        created.space_uid,
+        &child_shape(&split.split_ref),
+        Uuid::new_v4(),
+    )
+    .unwrap();
+    group_remove(
+        &env,
+        &provider,
+        &scope,
+        created.space_uid,
+        &child_shape(&group.group_ref),
+        Uuid::new_v4(),
+    )
+    .unwrap();
+    let tree = hierarchy(&env, &provider, &scope, created.space_uid).unwrap();
+    assert_eq!(tree.groups.len(), 1, "back to the root group");
+    let err = group_remove(
+        &env,
+        &provider,
+        &scope,
+        created.space_uid,
+        &child_shape(&tree.groups[0].group_ref),
+        Uuid::new_v4(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::Refused(_)), "last group: {err}");
+}
+
 #[test]
 fn context_revalidation_and_child_orphan_classification() {
     let s = Scratch::new("ctx");

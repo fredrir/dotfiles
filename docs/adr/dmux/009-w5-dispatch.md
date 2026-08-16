@@ -108,6 +108,28 @@ contract and gains a v2 appendix when this lands):
   transports are fault-injected (dead endpoint = transport failure class,
   wrong user/key = auth class, never retried).
 
+## 4a. W5 pinned findings (live-verified during the wave)
+
+- **Wez spawn env scrubbing:** the wez mux server does NOT propagate
+  arbitrary server-process environment (e.g. `DMUX_RUNTIME_DIR`) into
+  `cli spawn`-created panes — proven with a live probe. Production
+  bootstrap is unaffected (the helper resolves the runtime dir itself via
+  `confstr`/XDG, never env), but any test seam that must reach a wez pane
+  has to travel inside the helper argv (the gate tests use an env-exporting
+  shim script as `helper_bin`). tmux panes DO inherit server env.
+- **tmux cwd default:** `split-window`/`new-window` without `-c` inherit
+  the invoking CLIENT's cwd (the dmux process), not the target pane's —
+  orchestration therefore always passes cwd explicitly (explicit →
+  target-split → owner home; `cwd_source` reports which).
+- **tmux split target:** the adapter's `split_new` parent slot is
+  positional pane-id semantics (`Tx(N)` ⇒ `%N`); orchestration resolves a
+  Group to a concrete pane before calling (wez takes the tab handle
+  directly).
+- **Wez merge semantics:** `move-pane-to-new-tab` gives each moved pane its
+  own tab in the target window — normalization is pane-preserving, not
+  layout-preserving; plans must be passed back verbatim (exact equality is
+  the drift check).
+
 ## 5. W5 gates
 
 - P8a: local both-backend hierarchy, child-orphan recovery, stale-epoch
