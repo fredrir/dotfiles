@@ -11,6 +11,7 @@
 //! `remote::protocol` to the remote agent at the recorded W1→W2 handoff.
 
 pub mod backend;
+pub mod bootstrap;
 pub mod error;
 pub mod history;
 pub mod inventory;

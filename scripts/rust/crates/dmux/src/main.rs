@@ -178,6 +178,11 @@ enum Cmd {
         json: bool,
     },
 
+    /// Internal: keep the reserved mux sentinel pane alive (plan §15.1).
+    /// Never a Space, Group, or Split; excluded from all listings.
+    #[command(name = "_mux-idle", hide = true)]
+    MuxIdle,
+
     #[command(external_subcommand)]
     Other(Vec<String>),
 }
@@ -222,6 +227,9 @@ fn main() -> ExitCode {
         Some(Cmd::Rename { old, new_name }) => attach::rename(&context, &old, &new_name),
         Some(Cmd::Keys { man, tmux, wez }) => keys::run(man, tmux, wez),
         Some(Cmd::Doctor { json }) => Ok(doctor::run(&context, json)),
+        Some(Cmd::MuxIdle) => loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        },
         Some(Cmd::Other(args)) => other(&context, &args),
     };
     match outcome {
