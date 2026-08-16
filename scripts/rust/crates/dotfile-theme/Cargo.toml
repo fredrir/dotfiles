@@ -1,0 +1,14 @@
+[package]
+name = "dotfile-theme"
+version = "0.1.0"
+description = "Typed immediate theme domains for dotfile v1"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dotfile-source = { path = "../dotfile-source" }
+dotfile-schema = { path = "../dotfile-schema" }
+dotfile-syntax = { path = "../dotfile-syntax" }
+serde_json.workspace = true
+unicode-normalization.workspace = true

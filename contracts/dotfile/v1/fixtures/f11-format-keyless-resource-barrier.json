@@ -1,0 +1,105 @@
+{
+  "domain": "group_root_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "exact_bytes",
+      "payload": {
+        "encoding": "utf8",
+        "value": "zsh\n@font { @family = \"Hack Nerd Font Mono\" }\nalacritty\nwezterm\n"
+      },
+      "state": "golden"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f11-format-keyless-resource-barrier",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "zsh\n@font { @family = \"Hack Nerd Font Mono\" }\nwezterm\nalacritty\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "keyless resource remains a stable sorting barrier",
+      "path": "docs/dotfile-language.md",
+      "section": "23"
+    }
+  ],
+  "operation": "format",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

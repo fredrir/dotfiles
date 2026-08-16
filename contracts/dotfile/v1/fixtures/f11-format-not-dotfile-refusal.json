@@ -1,0 +1,105 @@
+{
+  "domain": "not_dotfile",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "exact_json",
+      "payload": {
+        "error": "unclassified_path",
+        "path": "notes.txt"
+      },
+      "state": "golden"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f11-format-not-dotfile-refusal",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "z{b=\"2\",a=\"1\"}\na=\"root\"\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "NotDotfile paths are outside the authored-source formatter boundary",
+      "path": "docs/dotfile-implementation-plan.md",
+      "section": "6.1 and 7.1"
+    }
+  ],
+  "operation": "format",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

@@ -1,0 +1,1700 @@
+{
+  "domain": "theme_map_obsidian",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "document": {
+          "source": {
+            "name": "mauve",
+            "span": [
+              19,
+              24
+            ]
+          },
+          "span": [
+            0,
+            382
+          ],
+          "type": "map/obsidian",
+          "variables": [
+            {
+              "key": {
+                "span": [
+                  60,
+                  77
+                ],
+                "value": "--color-base-00"
+              },
+              "span": [
+                43,
+                96
+              ],
+              "value": {
+                "reference": {
+                  "name": "crust",
+                  "span": [
+                    89,
+                    94
+                  ]
+                },
+                "shape": "palette"
+              }
+            },
+            {
+              "key": {
+                "span": [
+                  118,
+                  135
+                ],
+                "value": "--color-red-rgb"
+              },
+              "span": [
+                101,
+                148
+              ],
+              "value": {
+                "reference": {
+                  "name": "red",
+                  "span": [
+                    143,
+                    146
+                  ]
+                },
+                "shape": "rgb"
+              }
+            },
+            {
+              "key": {
+                "span": [
+                  178,
+                  207
+                ],
+                "value": "--background-modifier-cover"
+              },
+              "span": [
+                153,
+                258
+              ],
+              "value": {
+                "alpha": {
+                  "span": [
+                    246,
+                    252
+                  ],
+                  "value": "0.72"
+                },
+                "reference": {
+                  "name": "crust",
+                  "span": [
+                    224,
+                    229
+                  ]
+                },
+                "shape": "color"
+              }
+            },
+            {
+              "key": {
+                "span": [
+                  280,
+                  292
+                ],
+                "value": "--accent-h"
+              },
+              "span": [
+                263,
+                314
+              ],
+              "value": {
+                "shape": "derived",
+                "span": [
+                  304,
+                  312
+                ],
+                "value": "accent_h"
+              }
+            },
+            {
+              "key": {
+                "span": [
+                  336,
+                  352
+                ],
+                "value": "--scrollbar-bg"
+              },
+              "span": [
+                319,
+                379
+              ],
+              "value": {
+                "literal": {
+                  "span": [
+                    364,
+                    377
+                  ],
+                  "value": "transparent"
+                },
+                "shape": "literal"
+              }
+            }
+          ]
+        },
+        "hir": {
+          "nodes": [
+            {
+              "children": [
+                1,
+                5
+              ],
+              "id": 0,
+              "kind": {
+                "document": "ObsidianMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  382
+                ]
+              },
+              "parent": null,
+              "poison": [],
+              "range": [
+                0,
+                382
+              ]
+            },
+            {
+              "children": [
+                2
+              ],
+              "id": 1,
+              "kind": {
+                "authored": "Block",
+                "entry": "derived",
+                "expected": "Block(ObsidianDerived)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  26
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                0,
+                26
+              ]
+            },
+            {
+              "children": [
+                3
+              ],
+              "id": 2,
+              "kind": {
+                "container": "ObsidianDerived"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  8,
+                  26
+                ]
+              },
+              "parent": 1,
+              "poison": [],
+              "range": [
+                8,
+                26
+              ]
+            },
+            {
+              "children": [
+                4
+              ],
+              "id": 3,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "source",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  10,
+                  24
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                10,
+                24
+              ]
+            },
+            {
+              "children": [],
+              "id": 4,
+              "kind": {
+                "decoded": "mauve",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  19,
+                  24
+                ]
+              },
+              "parent": 3,
+              "poison": [],
+              "range": [
+                19,
+                24
+              ]
+            },
+            {
+              "children": [
+                6
+              ],
+              "id": 5,
+              "kind": {
+                "authored": "Block",
+                "entry": "variables",
+                "expected": "Block(ObsidianVariables)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  27,
+                  381
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                27,
+                381
+              ]
+            },
+            {
+              "children": [
+                7,
+                13,
+                19,
+                27,
+                33
+              ],
+              "id": 6,
+              "kind": {
+                "container": "ObsidianVariables"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  37,
+                  381
+                ]
+              },
+              "parent": 5,
+              "poison": [],
+              "range": [
+                37,
+                381
+              ]
+            },
+            {
+              "children": [
+                8
+              ],
+              "id": 7,
+              "kind": {
+                "authored": "Block",
+                "entry": "variable",
+                "expected": "Block(ObsidianVariable)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  43,
+                  96
+                ]
+              },
+              "parent": 6,
+              "poison": [],
+              "range": [
+                43,
+                96
+              ]
+            },
+            {
+              "children": [
+                9,
+                11
+              ],
+              "id": 8,
+              "kind": {
+                "container": "ObsidianVariable"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  52,
+                  96
+                ]
+              },
+              "parent": 7,
+              "poison": [],
+              "range": [
+                52,
+                96
+              ]
+            },
+            {
+              "children": [
+                10
+              ],
+              "id": 9,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(CssCustomProperty)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  54,
+                  77
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                54,
+                77
+              ]
+            },
+            {
+              "children": [],
+              "id": 10,
+              "kind": {
+                "decoded": "--color-base-00",
+                "expected": "CssCustomProperty",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  60,
+                  77
+                ]
+              },
+              "parent": 9,
+              "poison": [],
+              "range": [
+                60,
+                77
+              ]
+            },
+            {
+              "children": [
+                12
+              ],
+              "id": 11,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "palette",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  79,
+                  94
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                79,
+                94
+              ]
+            },
+            {
+              "children": [],
+              "id": 12,
+              "kind": {
+                "decoded": "crust",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  89,
+                  94
+                ]
+              },
+              "parent": 11,
+              "poison": [],
+              "range": [
+                89,
+                94
+              ]
+            },
+            {
+              "children": [
+                14
+              ],
+              "id": 13,
+              "kind": {
+                "authored": "Block",
+                "entry": "variable",
+                "expected": "Block(ObsidianVariable)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  101,
+                  148
+                ]
+              },
+              "parent": 6,
+              "poison": [],
+              "range": [
+                101,
+                148
+              ]
+            },
+            {
+              "children": [
+                15,
+                17
+              ],
+              "id": 14,
+              "kind": {
+                "container": "ObsidianVariable"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  110,
+                  148
+                ]
+              },
+              "parent": 13,
+              "poison": [],
+              "range": [
+                110,
+                148
+              ]
+            },
+            {
+              "children": [
+                16
+              ],
+              "id": 15,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(CssCustomProperty)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  112,
+                  135
+                ]
+              },
+              "parent": 14,
+              "poison": [],
+              "range": [
+                112,
+                135
+              ]
+            },
+            {
+              "children": [],
+              "id": 16,
+              "kind": {
+                "decoded": "--color-red-rgb",
+                "expected": "CssCustomProperty",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  118,
+                  135
+                ]
+              },
+              "parent": 15,
+              "poison": [],
+              "range": [
+                118,
+                135
+              ]
+            },
+            {
+              "children": [
+                18
+              ],
+              "id": 17,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "rgb",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  137,
+                  146
+                ]
+              },
+              "parent": 14,
+              "poison": [],
+              "range": [
+                137,
+                146
+              ]
+            },
+            {
+              "children": [],
+              "id": 18,
+              "kind": {
+                "decoded": "red",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  143,
+                  146
+                ]
+              },
+              "parent": 17,
+              "poison": [],
+              "range": [
+                143,
+                146
+              ]
+            },
+            {
+              "children": [
+                20
+              ],
+              "id": 19,
+              "kind": {
+                "authored": "Block",
+                "entry": "variable",
+                "expected": "Block(ObsidianVariable)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  153,
+                  258
+                ]
+              },
+              "parent": 6,
+              "poison": [],
+              "range": [
+                153,
+                258
+              ]
+            },
+            {
+              "children": [
+                21,
+                23,
+                25
+              ],
+              "id": 20,
+              "kind": {
+                "container": "ObsidianVariable"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  162,
+                  258
+                ]
+              },
+              "parent": 19,
+              "poison": [],
+              "range": [
+                162,
+                258
+              ]
+            },
+            {
+              "children": [
+                22
+              ],
+              "id": 21,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(CssCustomProperty)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  172,
+                  207
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                172,
+                207
+              ]
+            },
+            {
+              "children": [],
+              "id": 22,
+              "kind": {
+                "decoded": "--background-modifier-cover",
+                "expected": "CssCustomProperty",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  178,
+                  207
+                ]
+              },
+              "parent": 21,
+              "poison": [],
+              "range": [
+                178,
+                207
+              ]
+            },
+            {
+              "children": [
+                24
+              ],
+              "id": 23,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "color",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  216,
+                  229
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                216,
+                229
+              ]
+            },
+            {
+              "children": [],
+              "id": 24,
+              "kind": {
+                "decoded": "crust",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  224,
+                  229
+                ]
+              },
+              "parent": 23,
+              "poison": [],
+              "range": [
+                224,
+                229
+              ]
+            },
+            {
+              "children": [
+                26
+              ],
+              "id": 25,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "alpha",
+                "expected": "Value(UnitDecimal)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  238,
+                  252
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                238,
+                252
+              ]
+            },
+            {
+              "children": [],
+              "id": 26,
+              "kind": {
+                "decoded": "0.72",
+                "expected": "UnitDecimal",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  246,
+                  252
+                ]
+              },
+              "parent": 25,
+              "poison": [],
+              "range": [
+                246,
+                252
+              ]
+            },
+            {
+              "children": [
+                28
+              ],
+              "id": 27,
+              "kind": {
+                "authored": "Block",
+                "entry": "variable",
+                "expected": "Block(ObsidianVariable)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  263,
+                  314
+                ]
+              },
+              "parent": 6,
+              "poison": [],
+              "range": [
+                263,
+                314
+              ]
+            },
+            {
+              "children": [
+                29,
+                31
+              ],
+              "id": 28,
+              "kind": {
+                "container": "ObsidianVariable"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  272,
+                  314
+                ]
+              },
+              "parent": 27,
+              "poison": [],
+              "range": [
+                272,
+                314
+              ]
+            },
+            {
+              "children": [
+                30
+              ],
+              "id": 29,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(CssCustomProperty)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  274,
+                  292
+                ]
+              },
+              "parent": 28,
+              "poison": [],
+              "range": [
+                274,
+                292
+              ]
+            },
+            {
+              "children": [],
+              "id": 30,
+              "kind": {
+                "decoded": "--accent-h",
+                "expected": "CssCustomProperty",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  280,
+                  292
+                ]
+              },
+              "parent": 29,
+              "poison": [],
+              "range": [
+                280,
+                292
+              ]
+            },
+            {
+              "children": [
+                32
+              ],
+              "id": 31,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "derived",
+                "expected": "Value(ObsidianDerived)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  294,
+                  312
+                ]
+              },
+              "parent": 28,
+              "poison": [],
+              "range": [
+                294,
+                312
+              ]
+            },
+            {
+              "children": [],
+              "id": 32,
+              "kind": {
+                "decoded": "accent_h",
+                "expected": "ObsidianDerived",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  304,
+                  312
+                ]
+              },
+              "parent": 31,
+              "poison": [],
+              "range": [
+                304,
+                312
+              ]
+            },
+            {
+              "children": [
+                34
+              ],
+              "id": 33,
+              "kind": {
+                "authored": "Block",
+                "entry": "variable",
+                "expected": "Block(ObsidianVariable)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  319,
+                  379
+                ]
+              },
+              "parent": 6,
+              "poison": [],
+              "range": [
+                319,
+                379
+              ]
+            },
+            {
+              "children": [
+                35,
+                37
+              ],
+              "id": 34,
+              "kind": {
+                "container": "ObsidianVariable"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  328,
+                  379
+                ]
+              },
+              "parent": 33,
+              "poison": [],
+              "range": [
+                328,
+                379
+              ]
+            },
+            {
+              "children": [
+                36
+              ],
+              "id": 35,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(CssCustomProperty)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  330,
+                  352
+                ]
+              },
+              "parent": 34,
+              "poison": [],
+              "range": [
+                330,
+                352
+              ]
+            },
+            {
+              "children": [],
+              "id": 36,
+              "kind": {
+                "decoded": "--scrollbar-bg",
+                "expected": "CssCustomProperty",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  336,
+                  352
+                ]
+              },
+              "parent": 35,
+              "poison": [],
+              "range": [
+                336,
+                352
+              ]
+            },
+            {
+              "children": [
+                38
+              ],
+              "id": 37,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "literal",
+                "expected": "Value(LiteralString)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  354,
+                  377
+                ]
+              },
+              "parent": 34,
+              "poison": [],
+              "range": [
+                354,
+                377
+              ]
+            },
+            {
+              "children": [],
+              "id": 38,
+              "kind": {
+                "decoded": "transparent",
+                "expected": "LiteralString",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  364,
+                  377
+                ]
+              },
+              "parent": 37,
+              "poison": [],
+              "range": [
+                364,
+                377
+              ]
+            }
+          ],
+          "root": 0,
+          "source_map": [
+            {
+              "authored": true,
+              "hir_id": 0,
+              "range": [
+                0,
+                382
+              ],
+              "theme_ids_for_range": [
+                0
+              ],
+              "theme_ids_for_syntax": [
+                0
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 1,
+              "range": [
+                0,
+                26
+              ],
+              "theme_ids_for_range": [
+                1
+              ],
+              "theme_ids_for_syntax": [
+                1
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 2,
+              "range": [
+                8,
+                26
+              ],
+              "theme_ids_for_range": [
+                2
+              ],
+              "theme_ids_for_syntax": [
+                2
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 3,
+              "range": [
+                10,
+                24
+              ],
+              "theme_ids_for_range": [
+                3
+              ],
+              "theme_ids_for_syntax": [
+                3
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 4,
+              "range": [
+                19,
+                24
+              ],
+              "theme_ids_for_range": [
+                4
+              ],
+              "theme_ids_for_syntax": [
+                4
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 5,
+              "range": [
+                27,
+                381
+              ],
+              "theme_ids_for_range": [
+                5
+              ],
+              "theme_ids_for_syntax": [
+                5
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 6,
+              "range": [
+                37,
+                381
+              ],
+              "theme_ids_for_range": [
+                6
+              ],
+              "theme_ids_for_syntax": [
+                6
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 7,
+              "range": [
+                43,
+                96
+              ],
+              "theme_ids_for_range": [
+                7
+              ],
+              "theme_ids_for_syntax": [
+                7
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 8,
+              "range": [
+                52,
+                96
+              ],
+              "theme_ids_for_range": [
+                8
+              ],
+              "theme_ids_for_syntax": [
+                8
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 9,
+              "range": [
+                54,
+                77
+              ],
+              "theme_ids_for_range": [
+                9
+              ],
+              "theme_ids_for_syntax": [
+                9
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 10,
+              "range": [
+                60,
+                77
+              ],
+              "theme_ids_for_range": [
+                10
+              ],
+              "theme_ids_for_syntax": [
+                10
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 11,
+              "range": [
+                79,
+                94
+              ],
+              "theme_ids_for_range": [
+                11
+              ],
+              "theme_ids_for_syntax": [
+                11
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 12,
+              "range": [
+                89,
+                94
+              ],
+              "theme_ids_for_range": [
+                12
+              ],
+              "theme_ids_for_syntax": [
+                12
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 13,
+              "range": [
+                101,
+                148
+              ],
+              "theme_ids_for_range": [
+                13
+              ],
+              "theme_ids_for_syntax": [
+                13
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 14,
+              "range": [
+                110,
+                148
+              ],
+              "theme_ids_for_range": [
+                14
+              ],
+              "theme_ids_for_syntax": [
+                14
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 15,
+              "range": [
+                112,
+                135
+              ],
+              "theme_ids_for_range": [
+                15
+              ],
+              "theme_ids_for_syntax": [
+                15
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 16,
+              "range": [
+                118,
+                135
+              ],
+              "theme_ids_for_range": [
+                16
+              ],
+              "theme_ids_for_syntax": [
+                16
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 17,
+              "range": [
+                137,
+                146
+              ],
+              "theme_ids_for_range": [
+                17
+              ],
+              "theme_ids_for_syntax": [
+                17
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 18,
+              "range": [
+                143,
+                146
+              ],
+              "theme_ids_for_range": [
+                18
+              ],
+              "theme_ids_for_syntax": [
+                18
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 19,
+              "range": [
+                153,
+                258
+              ],
+              "theme_ids_for_range": [
+                19
+              ],
+              "theme_ids_for_syntax": [
+                19
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 20,
+              "range": [
+                162,
+                258
+              ],
+              "theme_ids_for_range": [
+                20
+              ],
+              "theme_ids_for_syntax": [
+                20
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 21,
+              "range": [
+                172,
+                207
+              ],
+              "theme_ids_for_range": [
+                21
+              ],
+              "theme_ids_for_syntax": [
+                21
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 22,
+              "range": [
+                178,
+                207
+              ],
+              "theme_ids_for_range": [
+                22
+              ],
+              "theme_ids_for_syntax": [
+                22
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 23,
+              "range": [
+                216,
+                229
+              ],
+              "theme_ids_for_range": [
+                23
+              ],
+              "theme_ids_for_syntax": [
+                23
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 24,
+              "range": [
+                224,
+                229
+              ],
+              "theme_ids_for_range": [
+                24
+              ],
+              "theme_ids_for_syntax": [
+                24
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 25,
+              "range": [
+                238,
+                252
+              ],
+              "theme_ids_for_range": [
+                25
+              ],
+              "theme_ids_for_syntax": [
+                25
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 26,
+              "range": [
+                246,
+                252
+              ],
+              "theme_ids_for_range": [
+                26
+              ],
+              "theme_ids_for_syntax": [
+                26
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 27,
+              "range": [
+                263,
+                314
+              ],
+              "theme_ids_for_range": [
+                27
+              ],
+              "theme_ids_for_syntax": [
+                27
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 28,
+              "range": [
+                272,
+                314
+              ],
+              "theme_ids_for_range": [
+                28
+              ],
+              "theme_ids_for_syntax": [
+                28
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 29,
+              "range": [
+                274,
+                292
+              ],
+              "theme_ids_for_range": [
+                29
+              ],
+              "theme_ids_for_syntax": [
+                29
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 30,
+              "range": [
+                280,
+                292
+              ],
+              "theme_ids_for_range": [
+                30
+              ],
+              "theme_ids_for_syntax": [
+                30
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 31,
+              "range": [
+                294,
+                312
+              ],
+              "theme_ids_for_range": [
+                31
+              ],
+              "theme_ids_for_syntax": [
+                31
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 32,
+              "range": [
+                304,
+                312
+              ],
+              "theme_ids_for_range": [
+                32
+              ],
+              "theme_ids_for_syntax": [
+                32
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 33,
+              "range": [
+                319,
+                379
+              ],
+              "theme_ids_for_range": [
+                33
+              ],
+              "theme_ids_for_syntax": [
+                33
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 34,
+              "range": [
+                328,
+                379
+              ],
+              "theme_ids_for_range": [
+                34
+              ],
+              "theme_ids_for_syntax": [
+                34
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 35,
+              "range": [
+                330,
+                352
+              ],
+              "theme_ids_for_range": [
+                35
+              ],
+              "theme_ids_for_syntax": [
+                35
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 36,
+              "range": [
+                336,
+                352
+              ],
+              "theme_ids_for_range": [
+                36
+              ],
+              "theme_ids_for_syntax": [
+                36
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 37,
+              "range": [
+                354,
+                377
+              ],
+              "theme_ids_for_range": [
+                37
+              ],
+              "theme_ids_for_syntax": [
+                37
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 38,
+              "range": [
+                364,
+                377
+              ],
+              "theme_ids_for_range": [
+                38
+              ],
+              "theme_ids_for_syntax": [
+                38
+              ]
+            }
+          ]
+        },
+        "kind": "map/obsidian"
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-obsidian-all-shapes",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "derived { source = mauve }\nvariables {\n    variable { key = \"--color-base-00\", palette = crust }\n    variable { key = \"--color-red-rgb\", rgb = red }\n    variable {\n        key = \"--background-modifier-cover\"\n        color = crust\n        alpha = \"0.72\"\n    }\n    variable { key = \"--accent-h\", derived = accent_h }\n    variable { key = \"--scrollbar-bg\", literal = \"transparent\" }\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "Obsidian value-shape variants",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.3"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

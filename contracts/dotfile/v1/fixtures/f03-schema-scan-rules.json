@@ -1,0 +1,547 @@
+{
+  "domain": "secret_scan_rules",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [],
+        "diagnostics": [],
+        "domain": "secret_scan_rules",
+        "location": "Fixed",
+        "path": "config/scan.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "id": 1,
+          "kind": "secret_scan_rules",
+          "poison": [],
+          "rules": [
+            {
+              "id": 3,
+              "inspect": {
+                "id": 7,
+                "name": "inspect",
+                "poison": [],
+                "value": {
+                  "id": 8,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 62,
+                          "start": 59
+                        },
+                        "text": "path"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 62,
+                          "start": 59
+                        },
+                        "text": "path"
+                      }
+                    ],
+                    "value": "path"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 64,
+                    "start": 58
+                  },
+                  "type": "scan_inspect"
+                }
+              },
+              "pattern": {
+                "id": 5,
+                "name": "pattern",
+                "poison": [],
+                "value": {
+                  "id": 6,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 44,
+                          "start": 30
+                        },
+                        "text": "scripts/**/*.py"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 44,
+                          "start": 30
+                        },
+                        "text": "scripts/**/*.py"
+                      }
+                    ],
+                    "value": "scripts/**/*.py"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 46,
+                    "start": 29
+                  },
+                  "type": "scan_pattern"
+                }
+              },
+              "poison": []
+            },
+            {
+              "id": 9,
+              "inspect": {
+                "id": 13,
+                "name": "inspect",
+                "poison": [],
+                "value": {
+                  "id": 14,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 133,
+                          "start": 129
+                        },
+                        "text": "value"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 133,
+                          "start": 129
+                        },
+                        "text": "value"
+                      }
+                    ],
+                    "value": "value"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 135,
+                    "start": 128
+                  },
+                  "type": "scan_inspect"
+                }
+              },
+              "pattern": {
+                "id": 11,
+                "name": "pattern",
+                "poison": [],
+                "value": {
+                  "id": 12,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 114,
+                          "start": 89
+                        },
+                        "text": "shared/obsidian/plugins/**"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 114,
+                          "start": 89
+                        },
+                        "text": "shared/obsidian/plugins/**"
+                      }
+                    ],
+                    "value": "shared/obsidian/plugins/**"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 116,
+                    "start": 88
+                  },
+                  "type": "scan_pattern"
+                }
+              },
+              "poison": []
+            }
+          ]
+        },
+        "scopes": [
+          {
+            "bindings": [],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 0,
+            "range": {
+              "end": 140,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 2,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 12,
+            "range": {
+              "end": 139,
+              "start": 6
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 4,
+            "id": 2,
+            "parent": 1,
+            "poison": [],
+            "prologue_end": 19,
+            "range": {
+              "end": 66,
+              "start": 17
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 10,
+            "id": 3,
+            "parent": 1,
+            "poison": [],
+            "prologue_end": 78,
+            "range": {
+              "end": 137,
+              "start": 76
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 140,
+              "start": 0
+            },
+            "syntax": "NodeId(14)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 140,
+              "start": 0
+            },
+            "syntax": "NodeId(14)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              2
+            ],
+            "hir_ids_for_syntax": [
+              2
+            ],
+            "range": {
+              "end": 139,
+              "start": 6
+            },
+            "syntax": "NodeId(12)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 66,
+              "start": 12
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 66,
+              "start": 17
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 46,
+              "start": 19
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 46,
+              "start": 29
+            },
+            "syntax": "NodeId(0)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 64,
+              "start": 48
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 64,
+              "start": 58
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 137,
+              "start": 71
+            },
+            "syntax": "NodeId(11)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 137,
+              "start": 76
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 116,
+              "start": 78
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 12,
+            "hir_ids_for_range": [
+              12
+            ],
+            "hir_ids_for_syntax": [
+              12
+            ],
+            "range": {
+              "end": 116,
+              "start": 88
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 13,
+            "hir_ids_for_range": [
+              13
+            ],
+            "hir_ids_for_syntax": [
+              13
+            ],
+            "range": {
+              "end": 135,
+              "start": 118
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 14,
+            "hir_ids_for_range": [
+              14
+            ],
+            "hir_ids_for_syntax": [
+              14
+            ],
+            "range": {
+              "end": 135,
+              "start": 128
+            },
+            "syntax": "NodeId(8)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-scan-rules",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "allow {\n    rule { pattern = \"scripts/**/*.py\", inspect = \"path\" }\n    rule { pattern = \"shared/obsidian/plugins/**\", inspect = \"value\" }\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "ordered scan rules",
+      "path": "docs/dotfile-language.md",
+      "section": "26.2"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

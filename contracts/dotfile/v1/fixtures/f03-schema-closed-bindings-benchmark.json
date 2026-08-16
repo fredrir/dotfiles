@@ -1,0 +1,149 @@
+{
+  "domain": "benchmark_baselines",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 20,
+            "end_column": 21,
+            "end_line": 1,
+            "path": "benchmarks/baselines.dotfile",
+            "start_byte": 0,
+            "start_column": 1,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the binding declaration",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "binding declaration is not legal in this schema context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 54,
+            "end_column": 25,
+            "end_line": 3,
+            "path": "benchmarks/baselines.dotfile",
+            "start_byte": 34,
+            "start_column": 5,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the binding declaration",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "binding declaration is not legal in this schema context"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-closed-bindings-benchmark",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@let root = \"closed\"\narchie {\n    @let host = \"closed\"\n    10db7d1f = \"2026-08-13T11-34-32Z-10db7d1f\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "bindings are rejected at benchmark root and host blocks",
+      "path": "docs/dotfile-language.md",
+      "section": "6.2 and 26.3"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

@@ -1,0 +1,150 @@
+{
+  "domain": "profiles",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 115,
+            "end_column": 40,
+            "end_line": 5,
+            "path": "config/profiles.dotfile",
+            "start_byte": 99,
+            "start_column": 24,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 263,
+            "end_column": 42,
+            "end_line": 13,
+            "path": "config/profiles.dotfile",
+            "start_byte": 245,
+            "start_column": 24,
+            "start_line": 13
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-description-linebreak-profiles",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@dotfile-version = \"1\"\n@groups {\n    shared {\n        @directory = \"shared\"\n        @description = \"group\\u{b}line\"\n    }\n}\n@profiles {\n    workstation {\n        @groups = []\n        @manager = \"apt\"\n        @os = \"linux\"\n        @description = \"profile\\u{c}line\"\n    }\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "escaped line-break rejection in group and profile descriptions",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-023",
+      "section": "12.1 and 12.3"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

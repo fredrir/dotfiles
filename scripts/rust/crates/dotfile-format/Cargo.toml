@@ -1,0 +1,13 @@
+[package]
+name = "dotfile-format"
+version = "0.1.0"
+description = "Canonical authored-source formatter for the dotfile v1 language"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dotfile-schema = { path = "../dotfile-schema" }
+dotfile-source = { path = "../dotfile-source" }
+dotfile-syntax = { path = "../dotfile-syntax" }
+unicode-normalization.workspace = true

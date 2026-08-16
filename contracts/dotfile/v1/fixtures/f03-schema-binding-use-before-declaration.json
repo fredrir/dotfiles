@@ -1,0 +1,149 @@
+{
+  "domain": "group_root_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/binding",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 25,
+            "end_column": 26,
+            "end_line": 1,
+            "path": "shared/package.dotfile",
+            "start_byte": 20,
+            "start_column": 21,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move the declaration earlier in the prologue",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "binding is used before its declaration"
+        },
+        {
+          "actual": {},
+          "code": "schema/binding",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 64,
+            "end_column": 35,
+            "end_line": 2,
+            "path": "shared/package.dotfile",
+            "start_byte": 30,
+            "start_column": 1,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move the binding before the first non-binding entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "binding declaration appears after the block prologue"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-binding-use-before-declaration",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "wezterm { @pkg = \"${later}\" }\n@let later = \"org.example.wezterm\"\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "binding declaration order",
+      "path": "docs/dotfile-language.md",
+      "section": "8"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

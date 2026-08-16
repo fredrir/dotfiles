@@ -1,0 +1,219 @@
+{
+  "domain": "facet_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 28,
+            "end_column": 29,
+            "end_line": 1,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 15,
+            "start_column": 16,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 67,
+            "end_column": 39,
+            "end_line": 2,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 53,
+            "start_column": 25,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 130,
+            "end_column": 61,
+            "end_line": 3,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 110,
+            "start_column": 41,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 195,
+            "end_column": 63,
+            "end_line": 4,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 172,
+            "start_column": 40,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 265,
+            "end_column": 68,
+            "end_line": 5,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 237,
+            "start_column": 40,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `one_line_string`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-description-linebreak-requirements",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@description = \"facet\\nline\"\nentity { @description = \"entity\\rline\" }\n@font { @key = font_key, @description = \"resource\\u{85}line\" }\n@extend entity/entity { @description = \"extension\\u{2028}line\" }\n@extend font/font_key { @description = \"font-extension\\u{2029}line\" }\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "escaped line-break rejection in every requirement description context",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-023",
+      "section": "12.1"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

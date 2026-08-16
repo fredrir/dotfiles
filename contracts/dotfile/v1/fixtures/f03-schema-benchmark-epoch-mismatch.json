@@ -1,0 +1,126 @@
+{
+  "domain": "benchmark_baselines",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 55,
+            "end_column": 47,
+            "end_line": 2,
+            "path": "benchmarks/baselines.dotfile",
+            "start_byte": 24,
+            "start_column": 16,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the immutable producer run ID for this epoch",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "benchmark run ID is malformed or its epoch suffix does not match the key"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-benchmark-epoch-mismatch",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "archie {\n    10db7d1f = \"2026-08-13T11-34-32Z-deadbeef\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "benchmark epoch correlation",
+      "path": "docs/dotfile-language.md",
+      "section": "26.3"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

@@ -1,0 +1,1197 @@
+{
+  "domain": "theme_map_kde",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "document": {
+          "foregrounds": [
+            {
+              "key": {
+                "span": [
+                  112,
+                  130
+                ],
+                "value": "ForegroundActive"
+              },
+              "role": {
+                "name": "active",
+                "span": [
+                  139,
+                  145
+                ]
+              },
+              "span": [
+                98,
+                147
+              ]
+            }
+          ],
+          "groups": [
+            {
+              "key": {
+                "span": [
+                  27,
+                  42
+                ],
+                "value": "Colors:Window"
+              },
+              "roles": [
+                {
+                  "name": "window_bg",
+                  "span": [
+                    53,
+                    62
+                  ]
+                },
+                {
+                  "name": "window_alt",
+                  "span": [
+                    64,
+                    74
+                  ]
+                }
+              ],
+              "span": [
+                13,
+                77
+              ]
+            }
+          ],
+          "selection-foregrounds": [
+            {
+              "key": {
+                "span": [
+                  192,
+                  210
+                ],
+                "value": "ForegroundNormal"
+              },
+              "role": {
+                "name": "selection_fg",
+                "span": [
+                  219,
+                  231
+                ]
+              },
+              "span": [
+                178,
+                233
+              ]
+            }
+          ],
+          "span": [
+            0,
+            236
+          ],
+          "type": "map/kde"
+        },
+        "hir": {
+          "nodes": [
+            {
+              "children": [
+                1,
+                11,
+                19
+              ],
+              "id": 0,
+              "kind": {
+                "document": "KdeMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  236
+                ]
+              },
+              "parent": null,
+              "poison": [],
+              "range": [
+                0,
+                236
+              ]
+            },
+            {
+              "children": [
+                2
+              ],
+              "id": 1,
+              "kind": {
+                "authored": "Block",
+                "entry": "groups",
+                "expected": "Block(KdeGroups)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  79
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                0,
+                79
+              ]
+            },
+            {
+              "children": [
+                3
+              ],
+              "id": 2,
+              "kind": {
+                "container": "KdeGroups"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  7,
+                  79
+                ]
+              },
+              "parent": 1,
+              "poison": [],
+              "range": [
+                7,
+                79
+              ]
+            },
+            {
+              "children": [
+                4
+              ],
+              "id": 3,
+              "kind": {
+                "authored": "Block",
+                "entry": "entry",
+                "expected": "Block(KdeGroupEntry)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  13,
+                  77
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                13,
+                77
+              ]
+            },
+            {
+              "children": [
+                5,
+                7
+              ],
+              "id": 4,
+              "kind": {
+                "container": "KdeGroupEntry"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  19,
+                  77
+                ]
+              },
+              "parent": 3,
+              "poison": [],
+              "range": [
+                19,
+                77
+              ]
+            },
+            {
+              "children": [
+                6
+              ],
+              "id": 5,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(ExternalKey)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  21,
+                  42
+                ]
+              },
+              "parent": 4,
+              "poison": [],
+              "range": [
+                21,
+                42
+              ]
+            },
+            {
+              "children": [],
+              "id": 6,
+              "kind": {
+                "decoded": "Colors:Window",
+                "expected": "ExternalKey",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  27,
+                  42
+                ]
+              },
+              "parent": 5,
+              "poison": [],
+              "range": [
+                27,
+                42
+              ]
+            },
+            {
+              "children": [
+                8
+              ],
+              "id": 7,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "roles",
+                "expected": "Value(ReferencePair)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  44,
+                  75
+                ]
+              },
+              "parent": 4,
+              "poison": [],
+              "range": [
+                44,
+                75
+              ]
+            },
+            {
+              "children": [
+                9,
+                10
+              ],
+              "id": 8,
+              "kind": {
+                "decoded": null,
+                "expected": "ReferencePair",
+                "value": "List"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  52,
+                  75
+                ]
+              },
+              "parent": 7,
+              "poison": [],
+              "range": [
+                52,
+                75
+              ]
+            },
+            {
+              "children": [],
+              "id": 9,
+              "kind": {
+                "decoded": "window_bg",
+                "expected": "RoleReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  53,
+                  62
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                53,
+                62
+              ]
+            },
+            {
+              "children": [],
+              "id": 10,
+              "kind": {
+                "decoded": "window_alt",
+                "expected": "RoleReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  64,
+                  74
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                64,
+                74
+              ]
+            },
+            {
+              "children": [
+                12
+              ],
+              "id": 11,
+              "kind": {
+                "authored": "Block",
+                "entry": "foregrounds",
+                "expected": "Block(KdeRoleEntries)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  80,
+                  149
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                80,
+                149
+              ]
+            },
+            {
+              "children": [
+                13
+              ],
+              "id": 12,
+              "kind": {
+                "container": "KdeRoleEntries"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  92,
+                  149
+                ]
+              },
+              "parent": 11,
+              "poison": [],
+              "range": [
+                92,
+                149
+              ]
+            },
+            {
+              "children": [
+                14
+              ],
+              "id": 13,
+              "kind": {
+                "authored": "Block",
+                "entry": "entry",
+                "expected": "Block(KdeRoleEntry)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  98,
+                  147
+                ]
+              },
+              "parent": 12,
+              "poison": [],
+              "range": [
+                98,
+                147
+              ]
+            },
+            {
+              "children": [
+                15,
+                17
+              ],
+              "id": 14,
+              "kind": {
+                "container": "KdeRoleEntry"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  104,
+                  147
+                ]
+              },
+              "parent": 13,
+              "poison": [],
+              "range": [
+                104,
+                147
+              ]
+            },
+            {
+              "children": [
+                16
+              ],
+              "id": 15,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(ExternalKey)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  106,
+                  130
+                ]
+              },
+              "parent": 14,
+              "poison": [],
+              "range": [
+                106,
+                130
+              ]
+            },
+            {
+              "children": [],
+              "id": 16,
+              "kind": {
+                "decoded": "ForegroundActive",
+                "expected": "ExternalKey",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  112,
+                  130
+                ]
+              },
+              "parent": 15,
+              "poison": [],
+              "range": [
+                112,
+                130
+              ]
+            },
+            {
+              "children": [
+                18
+              ],
+              "id": 17,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "role",
+                "expected": "Value(RoleReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  132,
+                  145
+                ]
+              },
+              "parent": 14,
+              "poison": [],
+              "range": [
+                132,
+                145
+              ]
+            },
+            {
+              "children": [],
+              "id": 18,
+              "kind": {
+                "decoded": "active",
+                "expected": "RoleReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  139,
+                  145
+                ]
+              },
+              "parent": 17,
+              "poison": [],
+              "range": [
+                139,
+                145
+              ]
+            },
+            {
+              "children": [
+                20
+              ],
+              "id": 19,
+              "kind": {
+                "authored": "Block",
+                "entry": "selection-foregrounds",
+                "expected": "Block(KdeRoleEntries)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  150,
+                  235
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                150,
+                235
+              ]
+            },
+            {
+              "children": [
+                21
+              ],
+              "id": 20,
+              "kind": {
+                "container": "KdeRoleEntries"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  172,
+                  235
+                ]
+              },
+              "parent": 19,
+              "poison": [],
+              "range": [
+                172,
+                235
+              ]
+            },
+            {
+              "children": [
+                22
+              ],
+              "id": 21,
+              "kind": {
+                "authored": "Block",
+                "entry": "entry",
+                "expected": "Block(KdeRoleEntry)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  178,
+                  233
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                178,
+                233
+              ]
+            },
+            {
+              "children": [
+                23,
+                25
+              ],
+              "id": 22,
+              "kind": {
+                "container": "KdeRoleEntry"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  184,
+                  233
+                ]
+              },
+              "parent": 21,
+              "poison": [],
+              "range": [
+                184,
+                233
+              ]
+            },
+            {
+              "children": [
+                24
+              ],
+              "id": 23,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(ExternalKey)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  186,
+                  210
+                ]
+              },
+              "parent": 22,
+              "poison": [],
+              "range": [
+                186,
+                210
+              ]
+            },
+            {
+              "children": [],
+              "id": 24,
+              "kind": {
+                "decoded": "ForegroundNormal",
+                "expected": "ExternalKey",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  192,
+                  210
+                ]
+              },
+              "parent": 23,
+              "poison": [],
+              "range": [
+                192,
+                210
+              ]
+            },
+            {
+              "children": [
+                26
+              ],
+              "id": 25,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "role",
+                "expected": "Value(RoleReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  212,
+                  231
+                ]
+              },
+              "parent": 22,
+              "poison": [],
+              "range": [
+                212,
+                231
+              ]
+            },
+            {
+              "children": [],
+              "id": 26,
+              "kind": {
+                "decoded": "selection_fg",
+                "expected": "RoleReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  219,
+                  231
+                ]
+              },
+              "parent": 25,
+              "poison": [],
+              "range": [
+                219,
+                231
+              ]
+            }
+          ],
+          "root": 0,
+          "source_map": [
+            {
+              "authored": true,
+              "hir_id": 0,
+              "range": [
+                0,
+                236
+              ],
+              "theme_ids_for_range": [
+                0
+              ],
+              "theme_ids_for_syntax": [
+                0
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 1,
+              "range": [
+                0,
+                79
+              ],
+              "theme_ids_for_range": [
+                1
+              ],
+              "theme_ids_for_syntax": [
+                1
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 2,
+              "range": [
+                7,
+                79
+              ],
+              "theme_ids_for_range": [
+                2
+              ],
+              "theme_ids_for_syntax": [
+                2
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 3,
+              "range": [
+                13,
+                77
+              ],
+              "theme_ids_for_range": [
+                3
+              ],
+              "theme_ids_for_syntax": [
+                3
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 4,
+              "range": [
+                19,
+                77
+              ],
+              "theme_ids_for_range": [
+                4
+              ],
+              "theme_ids_for_syntax": [
+                4
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 5,
+              "range": [
+                21,
+                42
+              ],
+              "theme_ids_for_range": [
+                5
+              ],
+              "theme_ids_for_syntax": [
+                5
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 6,
+              "range": [
+                27,
+                42
+              ],
+              "theme_ids_for_range": [
+                6
+              ],
+              "theme_ids_for_syntax": [
+                6
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 7,
+              "range": [
+                44,
+                75
+              ],
+              "theme_ids_for_range": [
+                7
+              ],
+              "theme_ids_for_syntax": [
+                7
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 8,
+              "range": [
+                52,
+                75
+              ],
+              "theme_ids_for_range": [
+                8
+              ],
+              "theme_ids_for_syntax": [
+                8
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 9,
+              "range": [
+                53,
+                62
+              ],
+              "theme_ids_for_range": [
+                9
+              ],
+              "theme_ids_for_syntax": [
+                9
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 10,
+              "range": [
+                64,
+                74
+              ],
+              "theme_ids_for_range": [
+                10
+              ],
+              "theme_ids_for_syntax": [
+                10
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 11,
+              "range": [
+                80,
+                149
+              ],
+              "theme_ids_for_range": [
+                11
+              ],
+              "theme_ids_for_syntax": [
+                11
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 12,
+              "range": [
+                92,
+                149
+              ],
+              "theme_ids_for_range": [
+                12
+              ],
+              "theme_ids_for_syntax": [
+                12
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 13,
+              "range": [
+                98,
+                147
+              ],
+              "theme_ids_for_range": [
+                13
+              ],
+              "theme_ids_for_syntax": [
+                13
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 14,
+              "range": [
+                104,
+                147
+              ],
+              "theme_ids_for_range": [
+                14
+              ],
+              "theme_ids_for_syntax": [
+                14
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 15,
+              "range": [
+                106,
+                130
+              ],
+              "theme_ids_for_range": [
+                15
+              ],
+              "theme_ids_for_syntax": [
+                15
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 16,
+              "range": [
+                112,
+                130
+              ],
+              "theme_ids_for_range": [
+                16
+              ],
+              "theme_ids_for_syntax": [
+                16
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 17,
+              "range": [
+                132,
+                145
+              ],
+              "theme_ids_for_range": [
+                17
+              ],
+              "theme_ids_for_syntax": [
+                17
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 18,
+              "range": [
+                139,
+                145
+              ],
+              "theme_ids_for_range": [
+                18
+              ],
+              "theme_ids_for_syntax": [
+                18
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 19,
+              "range": [
+                150,
+                235
+              ],
+              "theme_ids_for_range": [
+                19
+              ],
+              "theme_ids_for_syntax": [
+                19
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 20,
+              "range": [
+                172,
+                235
+              ],
+              "theme_ids_for_range": [
+                20
+              ],
+              "theme_ids_for_syntax": [
+                20
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 21,
+              "range": [
+                178,
+                233
+              ],
+              "theme_ids_for_range": [
+                21
+              ],
+              "theme_ids_for_syntax": [
+                21
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 22,
+              "range": [
+                184,
+                233
+              ],
+              "theme_ids_for_range": [
+                22
+              ],
+              "theme_ids_for_syntax": [
+                22
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 23,
+              "range": [
+                186,
+                210
+              ],
+              "theme_ids_for_range": [
+                23
+              ],
+              "theme_ids_for_syntax": [
+                23
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 24,
+              "range": [
+                192,
+                210
+              ],
+              "theme_ids_for_range": [
+                24
+              ],
+              "theme_ids_for_syntax": [
+                24
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 25,
+              "range": [
+                212,
+                231
+              ],
+              "theme_ids_for_range": [
+                25
+              ],
+              "theme_ids_for_syntax": [
+                25
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 26,
+              "range": [
+                219,
+                231
+              ],
+              "theme_ids_for_range": [
+                26
+              ],
+              "theme_ids_for_syntax": [
+                26
+              ]
+            }
+          ]
+        },
+        "kind": "map/kde"
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-kde-map",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "groups {\n    entry { key = \"Colors:Window\", roles = [window_bg, window_alt] }\n}\nforegrounds {\n    entry { key = \"ForegroundActive\", role = active }\n}\nselection-foregrounds {\n    entry { key = \"ForegroundNormal\", role = selection_fg }\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "KDE map shapes",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.3"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

@@ -9,6 +9,8 @@
 //! closes multiple levels. Every loop consumes a token or inserts one
 //! missing token, and depth and work budgets are bounded.
 
+use std::sync::Arc;
+
 use dotfile_source::{
     ByteRange, Diagnostic, DiagnosticSink, LineIndex, RepoPath, Severity, SourceText, Stage,
 };
@@ -22,14 +24,60 @@ const MAX_DEPTH: u32 = 256;
 
 /// The result of parsing one file: the lossless CST, the combined lexer and
 /// parser diagnostics in canonical order, and the shared line index.
+///
+/// Its proof-bearing state is intentionally read-only. In particular,
+/// callers cannot remove a lexer diagnostic that lives only in trivia or
+/// replace CST storage while retaining the exact-source proof:
+///
+/// ```compile_fail
+/// use dotfile_source::{RepoPath, SourceText};
+/// use dotfile_syntax::parse;
+///
+/// let path = RepoPath::new("fixture.dotfile").unwrap();
+/// let source = SourceText::from("entry\r");
+/// let mut parsed = parse(&path, &source);
+/// parsed.diagnostics.clear();
+/// ```
+///
+/// ```compile_fail
+/// use dotfile_source::{RepoPath, SourceText};
+/// use dotfile_syntax::parse;
+///
+/// let path = RepoPath::new("fixture.dotfile").unwrap();
+/// let source = SourceText::from("entry\n");
+/// let mut parsed = parse(&path, &source);
+/// parsed.cst.tokens.clear();
+/// ```
 #[derive(Clone, Debug)]
 pub struct Parse {
-    pub cst: Cst,
-    pub diagnostics: Vec<Diagnostic>,
-    pub line_index: LineIndex,
+    path: RepoPath,
+    cst: Cst,
+    diagnostics: Vec<Diagnostic>,
+    line_index: LineIndex,
+    source_bytes: Arc<[u8]>,
 }
 
 impl Parse {
+    /// Repository path under which this parse and its diagnostics were built.
+    pub fn path(&self) -> &RepoPath {
+        &self.path
+    }
+
+    /// The immutable lossless CST built from this parse's exact source bytes.
+    pub fn cst(&self) -> &Cst {
+        &self.cst
+    }
+
+    /// Combined lexer and parser diagnostics in canonical order.
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    /// The line index built from this parse's exact source bytes.
+    pub fn line_index(&self) -> &LineIndex {
+        &self.line_index
+    }
+
     /// Whether any lex or parse error exists. An erroneous file never
     /// produces validated compiler IR or a lock.
     pub fn has_errors(&self) -> bool {
@@ -41,6 +89,17 @@ impl Parse {
     /// The generic AST view of the parsed file.
     pub fn ast<'a>(&'a self, source: &'a SourceText) -> crate::ast::File<'a> {
         crate::ast::File::new(&self.cst, source.as_bytes())
+    }
+
+    /// Whether this immutable syntax tree and its diagnostics were built from
+    /// exactly `path` and `source`.
+    ///
+    /// CST token ranges alone cannot prove this: two equal-length sources can
+    /// have the same token shapes while containing different identifier text,
+    /// and identical bytes at different paths have different diagnostic and
+    /// path-selected schema meaning.
+    pub fn was_parsed_from(&self, path: &RepoPath, source: &SourceText) -> bool {
+        self.path == *path && self.source_bytes.as_ref() == source.as_bytes()
     }
 }
 
@@ -69,9 +128,11 @@ pub fn parse(path: &RepoPath, source: &SourceText) -> Parse {
     let cst = cst::build(&events, tokens, gaps, strings, source.len());
     let diagnostics = sink.finish();
     Parse {
+        path: path.clone(),
         cst,
         diagnostics,
         line_index,
+        source_bytes: Arc::from(source.as_bytes()),
     }
 }
 
@@ -857,8 +918,41 @@ mod tests {
     fn empty_file() {
         let result = parse_str("");
         assert!(!result.has_errors());
-        assert_eq!(result.cst.replay(b""), b"");
-        assert_eq!(result.cst.dump(b""), "File 0..0\n");
+        assert_eq!(result.cst().replay(b""), b"");
+        assert_eq!(result.cst().dump(b""), "File 0..0\n");
+        assert_eq!(result.line_index().line_count(), 1);
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parsed_path_and_source_identity_is_exact_even_for_equal_token_shapes() {
+        let original = SourceText::from("one\n");
+        let other = SourceText::from("two\n");
+        let path = RepoPath::new("fixture.dotfile").unwrap();
+        let result = parse(&path, &original);
+
+        assert_eq!(result.path(), &path);
+        assert!(result.was_parsed_from(&path, &original));
+        assert!(!result.was_parsed_from(&path, &other));
+        assert!(!result.was_parsed_from(&RepoPath::new("other.dotfile").unwrap(), &original));
+    }
+
+    #[test]
+    fn lexer_only_invalid_trivia_cannot_hide_behind_an_error_free_cst() {
+        let source = SourceText::from("entry\r");
+        let path = RepoPath::new("fixture.dotfile").unwrap();
+        let result = parse(&path, &source);
+
+        // A bare CR is lossless trivia, so no parser recovery node represents
+        // it. The sealed diagnostic stream is therefore part of the proof
+        // that downstream validation must consult.
+        assert!(!result.cst().has_error());
+        assert!(result.has_errors());
+        assert!(result.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == "lex/encoding" && diagnostic.summary == "bare carriage return"
+        }));
+        assert_eq!(result.cst().replay(source.as_bytes()), source.as_bytes());
+        assert!(result.was_parsed_from(&path, &source));
     }
 
     #[test]
@@ -881,11 +975,15 @@ mod tests {
         ] {
             let result = parse_str(input);
             assert_eq!(
-                result.cst.replay(input.as_bytes()),
+                result.cst().replay(input.as_bytes()),
                 input.as_bytes(),
                 "{input:?}"
             );
-            assert!(!result.has_errors(), "{input:?}: {:?}", result.diagnostics);
+            assert!(
+                !result.has_errors(),
+                "{input:?}: {:?}",
+                result.diagnostics()
+            );
         }
     }
 
@@ -893,7 +991,7 @@ mod tests {
     fn soft_break_assignment() {
         let result = parse_str("brew =\n\"homebrew\"\n");
         assert!(!result.has_errors());
-        let dump = result.cst.dump("brew =\n\"homebrew\"\n".as_bytes());
+        let dump = result.cst().dump("brew =\n\"homebrew\"\n".as_bytes());
         assert!(dump.contains("NamedEntry"), "{dump}");
         assert!(dump.contains("StringExpr"), "{dump}");
     }
@@ -907,7 +1005,7 @@ mod tests {
         assert!(adjacent.has_errors());
         assert!(
             adjacent
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary
                     == "adjacent string atoms require horizontal whitespace")
@@ -920,7 +1018,7 @@ mod tests {
         assert!(result.has_errors());
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary == "top-level trailing comma")
         );
@@ -929,21 +1027,21 @@ mod tests {
     #[test]
     fn block_trailing_comma_is_valid() {
         let result = parse_str("foo {\n    bar,\n}\n");
-        assert!(!result.has_errors(), "{:?}", result.diagnostics);
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
     }
 
     #[test]
     fn missing_closer_at_eof() {
         let input = "foo {\n    bar\n";
         let result = parse_str(input);
-        assert_eq!(result.cst.replay(input.as_bytes()), input.as_bytes());
+        assert_eq!(result.cst().replay(input.as_bytes()), input.as_bytes());
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary == "missing closing brace")
         );
-        let dump = result.cst.dump(input.as_bytes());
+        let dump = result.cst().dump(input.as_bytes());
         assert!(dump.contains("Missing RightBrace"), "{dump}");
     }
 
@@ -951,10 +1049,10 @@ mod tests {
     fn unexpected_closer_never_closes_levels() {
         let input = "foo {\n    bar\n}\n}\n";
         let result = parse_str(input);
-        assert_eq!(result.cst.replay(input.as_bytes()), input.as_bytes());
+        assert_eq!(result.cst().replay(input.as_bytes()), input.as_bytes());
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary == "unexpected closer")
         );
@@ -964,14 +1062,14 @@ mod tests {
     fn list_missing_comma_recovery() {
         let input = "a = [\n    \"x\"\n    \"y\"\n]\n";
         let result = parse_str(input);
-        assert_eq!(result.cst.replay(input.as_bytes()), input.as_bytes());
+        assert_eq!(result.cst().replay(input.as_bytes()), input.as_bytes());
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary == "missing comma between list values")
         );
-        let dump = result.cst.dump(input.as_bytes());
+        let dump = result.cst().dump(input.as_bytes());
         assert!(dump.contains("Missing Comma"), "{dump}");
     }
 
@@ -979,8 +1077,8 @@ mod tests {
     fn list_outer_delimiter_inserts_missing_closer() {
         let input = "foo {\n    a = [\"x\"\n}\n";
         let result = parse_str(input);
-        assert_eq!(result.cst.replay(input.as_bytes()), input.as_bytes());
-        let dump = result.cst.dump(input.as_bytes());
+        assert_eq!(result.cst().replay(input.as_bytes()), input.as_bytes());
+        let dump = result.cst().dump(input.as_bytes());
         assert!(dump.contains("Missing RightBracket"), "{dump}");
         // The block still closes with its own brace.
         assert!(!dump.contains("Missing RightBrace"), "{dump}");
@@ -992,7 +1090,7 @@ mod tests {
         let result = parse_str(input);
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary == "expected a separator between entries")
         );
@@ -1028,7 +1126,7 @@ mod tests {
         assert!(result.has_errors());
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.summary == "expected a binding name after @let")
         );
@@ -1038,8 +1136,8 @@ mod tests {
     fn optional_entries_own_the_question_sigil() {
         let input = "?ncdu\n?./report { @deploy = \"none\" }\n?@font { @key = hack_nerd_font }\n";
         let result = parse_str(input);
-        assert!(!result.has_errors(), "{:?}", result.diagnostics);
-        let dump = result.cst.dump(input.as_bytes());
+        assert!(!result.has_errors(), "{:?}", result.diagnostics());
+        let dump = result.cst().dump(input.as_bytes());
         assert!(dump.contains("NamedEntry 0..5"), "{dump}");
         assert!(dump.contains("PathEntry"), "{dump}");
         assert!(dump.contains("SigilBlock"), "{dump}");
@@ -1049,7 +1147,7 @@ mod tests {
     fn optional_attribute_is_an_error() {
         let result = parse_str("?@groups = [macos]\n");
         assert!(result.has_errors());
-        assert!(result.diagnostics.iter().any(
+        assert!(result.diagnostics().iter().any(
             |diagnostic| diagnostic.summary == "an optional sigil is not valid on an attribute"
         ));
     }
@@ -1061,15 +1159,15 @@ mod tests {
         input.push_str(&"]".repeat(300));
         input.push_str("\nfoo\n");
         let result = parse_str(&input);
-        assert_eq!(result.cst.replay(input.as_bytes()), input.as_bytes());
+        assert_eq!(result.cst().replay(input.as_bytes()), input.as_bytes());
         assert!(
             result
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|diagnostic| diagnostic.detail.as_deref() == Some("resource_limit"))
         );
         // The entry after the deep construct still parses.
-        let dump = result.cst.dump(input.as_bytes());
+        let dump = result.cst().dump(input.as_bytes());
         assert!(dump.contains("NamedEntry"), "{dump}");
     }
 
@@ -1080,8 +1178,8 @@ mod tests {
             input.push_str("} ");
         }
         let result = parse_str(&input);
-        assert!(result.diagnostics.len() <= 512);
-        let last = result.diagnostics.last().unwrap();
+        assert!(result.diagnostics().len() <= 512);
+        let last = result.diagnostics().last().unwrap();
         assert_eq!(last.detail.as_deref(), Some("resource_limit"));
         assert!(last.actual.contains_key("suppressed_diagnostics"));
     }

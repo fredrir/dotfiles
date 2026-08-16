@@ -1,0 +1,128 @@
+{
+  "domain": "group_root_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "parse/syntax",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 10,
+            "end_column": 1,
+            "end_line": 2,
+            "path": "shared/package.dotfile",
+            "start_byte": 10,
+            "start_column": 1,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "close the block with `}`",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "parse",
+          "summary": "missing closing brace"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "exact_json",
+      "payload": {
+        "error": "invalid_syntax"
+      },
+      "state": "golden"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f11-format-invalid-syntax-refusal",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "wezterm {\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "syntax-invalid refusal",
+      "path": "docs/dotfile-language.md",
+      "section": "23"
+    }
+  ],
+  "operation": "format",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

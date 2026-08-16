@@ -377,6 +377,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotfile-format"
+version = "0.1.0"
+dependencies = [
+ "dotfile-schema",
+ "dotfile-source",
+ "dotfile-syntax",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "dotfile-schema"
+version = "0.1.0"
+dependencies = [
+ "dotfile-source",
+ "dotfile-syntax",
+ "serde_json",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "dotfile-source"
 version = "0.1.0"
 dependencies = [
@@ -397,9 +417,23 @@ name = "dotfile-test-support"
 version = "0.1.0"
 dependencies = [
  "blake2",
+ "dotfile-format",
+ "dotfile-schema",
+ "dotfile-source",
+ "dotfile-syntax",
+ "dotfile-theme",
+ "serde_json",
+]
+
+[[package]]
+name = "dotfile-theme"
+version = "0.1.0"
+dependencies = [
+ "dotfile-schema",
  "dotfile-source",
  "dotfile-syntax",
  "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

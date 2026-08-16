@@ -1,0 +1,1118 @@
+{
+  "domain": "theme_fonts",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "document": {
+          "applications": {
+            "entries": [
+              {
+                "name": {
+                  "span": [
+                    191,
+                    199
+                  ],
+                  "value": "obsidian"
+                },
+                "span": [
+                  191,
+                  211
+                ],
+                "state": {
+                  "span": [
+                    202,
+                    211
+                  ],
+                  "value": "enabled"
+                }
+              },
+              {
+                "name": {
+                  "span": [
+                    216,
+                    222
+                  ],
+                  "value": "vscode"
+                },
+                "span": [
+                  216,
+                  235
+                ],
+                "state": {
+                  "span": [
+                    225,
+                    235
+                  ],
+                  "value": "disabled"
+                }
+              }
+            ],
+            "span": [
+              185,
+              237
+            ]
+          },
+          "fonts": {
+            "entries": [
+              {
+                "family": {
+                  "span": [
+                    22,
+                    33
+                  ],
+                  "value": "Noto Sans"
+                },
+                "name": {
+                  "span": [
+                    12,
+                    19
+                  ],
+                  "value": "general"
+                },
+                "span": [
+                  12,
+                  33
+                ]
+              },
+              {
+                "family": {
+                  "span": [
+                    45,
+                    66
+                  ],
+                  "value": "Hack Nerd Font Mono"
+                },
+                "name": {
+                  "span": [
+                    38,
+                    42
+                  ],
+                  "value": "nerd"
+                },
+                "span": [
+                  38,
+                  66
+                ]
+              },
+              {
+                "family": {
+                  "span": [
+                    83,
+                    92
+                  ],
+                  "value": "Iosevka"
+                },
+                "name": {
+                  "span": [
+                    71,
+                    80
+                  ],
+                  "value": "monospace"
+                },
+                "span": [
+                  71,
+                  92
+                ]
+              }
+            ],
+            "span": [
+              6,
+              94
+            ]
+          },
+          "sizes": {
+            "interface": {
+              "span": [
+                163,
+                169
+              ],
+              "value": "10.5"
+            },
+            "span": [
+              101,
+              171
+            ],
+            "terminal": {
+              "span": [
+                118,
+                122
+              ],
+              "value": "12"
+            },
+            "terminal_mac": {
+              "span": [
+                142,
+                146
+              ],
+              "value": "13"
+            }
+          },
+          "span": [
+            0,
+            238
+          ],
+          "type": "fonts"
+        },
+        "hir": {
+          "nodes": [
+            {
+              "children": [
+                1,
+                9,
+                17
+              ],
+              "id": 0,
+              "kind": {
+                "document": "Fonts"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  238
+                ]
+              },
+              "parent": null,
+              "poison": [],
+              "range": [
+                0,
+                238
+              ]
+            },
+            {
+              "children": [
+                2
+              ],
+              "id": 1,
+              "kind": {
+                "authored": "Block",
+                "entry": "fonts",
+                "expected": "Block(FontMapRequired)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  94
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                0,
+                94
+              ]
+            },
+            {
+              "children": [
+                3,
+                5,
+                7
+              ],
+              "id": 2,
+              "kind": {
+                "container": "FontMapRequired"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  6,
+                  94
+                ]
+              },
+              "parent": 1,
+              "poison": [],
+              "range": [
+                6,
+                94
+              ]
+            },
+            {
+              "children": [
+                4
+              ],
+              "id": 3,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "general",
+                "expected": "Value(FontFamily)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  12,
+                  33
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                12,
+                33
+              ]
+            },
+            {
+              "children": [],
+              "id": 4,
+              "kind": {
+                "decoded": "Noto Sans",
+                "expected": "FontFamily",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  22,
+                  33
+                ]
+              },
+              "parent": 3,
+              "poison": [],
+              "range": [
+                22,
+                33
+              ]
+            },
+            {
+              "children": [
+                6
+              ],
+              "id": 5,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "nerd",
+                "expected": "Value(FontFamily)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  38,
+                  66
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                38,
+                66
+              ]
+            },
+            {
+              "children": [],
+              "id": 6,
+              "kind": {
+                "decoded": "Hack Nerd Font Mono",
+                "expected": "FontFamily",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  45,
+                  66
+                ]
+              },
+              "parent": 5,
+              "poison": [],
+              "range": [
+                45,
+                66
+              ]
+            },
+            {
+              "children": [
+                8
+              ],
+              "id": 7,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "monospace",
+                "expected": "Value(FontFamily)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  71,
+                  92
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                71,
+                92
+              ]
+            },
+            {
+              "children": [],
+              "id": 8,
+              "kind": {
+                "decoded": "Iosevka",
+                "expected": "FontFamily",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  83,
+                  92
+                ]
+              },
+              "parent": 7,
+              "poison": [],
+              "range": [
+                83,
+                92
+              ]
+            },
+            {
+              "children": [
+                10
+              ],
+              "id": 9,
+              "kind": {
+                "authored": "Block",
+                "entry": "sizes",
+                "expected": "Block(SizesRequired)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  95,
+                  171
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                95,
+                171
+              ]
+            },
+            {
+              "children": [
+                11,
+                13,
+                15
+              ],
+              "id": 10,
+              "kind": {
+                "container": "SizesRequired"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  101,
+                  171
+                ]
+              },
+              "parent": 9,
+              "poison": [],
+              "range": [
+                101,
+                171
+              ]
+            },
+            {
+              "children": [
+                12
+              ],
+              "id": 11,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "terminal",
+                "expected": "Value(PositiveDecimal)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  107,
+                  122
+                ]
+              },
+              "parent": 10,
+              "poison": [],
+              "range": [
+                107,
+                122
+              ]
+            },
+            {
+              "children": [],
+              "id": 12,
+              "kind": {
+                "decoded": "12",
+                "expected": "PositiveDecimal",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  118,
+                  122
+                ]
+              },
+              "parent": 11,
+              "poison": [],
+              "range": [
+                118,
+                122
+              ]
+            },
+            {
+              "children": [
+                14
+              ],
+              "id": 13,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "terminal_mac",
+                "expected": "Value(PositiveDecimal)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  127,
+                  146
+                ]
+              },
+              "parent": 10,
+              "poison": [],
+              "range": [
+                127,
+                146
+              ]
+            },
+            {
+              "children": [],
+              "id": 14,
+              "kind": {
+                "decoded": "13",
+                "expected": "PositiveDecimal",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  142,
+                  146
+                ]
+              },
+              "parent": 13,
+              "poison": [],
+              "range": [
+                142,
+                146
+              ]
+            },
+            {
+              "children": [
+                16
+              ],
+              "id": 15,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "interface",
+                "expected": "Value(PositiveDecimal)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  151,
+                  169
+                ]
+              },
+              "parent": 10,
+              "poison": [],
+              "range": [
+                151,
+                169
+              ]
+            },
+            {
+              "children": [],
+              "id": 16,
+              "kind": {
+                "decoded": "10.5",
+                "expected": "PositiveDecimal",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  163,
+                  169
+                ]
+              },
+              "parent": 15,
+              "poison": [],
+              "range": [
+                163,
+                169
+              ]
+            },
+            {
+              "children": [
+                18
+              ],
+              "id": 17,
+              "kind": {
+                "authored": "Block",
+                "entry": "applications",
+                "expected": "Block(Applications)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  172,
+                  237
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                172,
+                237
+              ]
+            },
+            {
+              "children": [
+                19,
+                21
+              ],
+              "id": 18,
+              "kind": {
+                "container": "Applications"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  185,
+                  237
+                ]
+              },
+              "parent": 17,
+              "poison": [],
+              "range": [
+                185,
+                237
+              ]
+            },
+            {
+              "children": [
+                20
+              ],
+              "id": 19,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "obsidian",
+                "expected": "Value(ApplicationState)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  191,
+                  211
+                ]
+              },
+              "parent": 18,
+              "poison": [],
+              "range": [
+                191,
+                211
+              ]
+            },
+            {
+              "children": [],
+              "id": 20,
+              "kind": {
+                "decoded": "enabled",
+                "expected": "ApplicationState",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  202,
+                  211
+                ]
+              },
+              "parent": 19,
+              "poison": [],
+              "range": [
+                202,
+                211
+              ]
+            },
+            {
+              "children": [
+                22
+              ],
+              "id": 21,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "vscode",
+                "expected": "Value(ApplicationState)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  216,
+                  235
+                ]
+              },
+              "parent": 18,
+              "poison": [],
+              "range": [
+                216,
+                235
+              ]
+            },
+            {
+              "children": [],
+              "id": 22,
+              "kind": {
+                "decoded": "disabled",
+                "expected": "ApplicationState",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  225,
+                  235
+                ]
+              },
+              "parent": 21,
+              "poison": [],
+              "range": [
+                225,
+                235
+              ]
+            }
+          ],
+          "root": 0,
+          "source_map": [
+            {
+              "authored": true,
+              "hir_id": 0,
+              "range": [
+                0,
+                238
+              ],
+              "theme_ids_for_range": [
+                0
+              ],
+              "theme_ids_for_syntax": [
+                0
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 1,
+              "range": [
+                0,
+                94
+              ],
+              "theme_ids_for_range": [
+                1
+              ],
+              "theme_ids_for_syntax": [
+                1
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 2,
+              "range": [
+                6,
+                94
+              ],
+              "theme_ids_for_range": [
+                2
+              ],
+              "theme_ids_for_syntax": [
+                2
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 3,
+              "range": [
+                12,
+                33
+              ],
+              "theme_ids_for_range": [
+                3
+              ],
+              "theme_ids_for_syntax": [
+                3
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 4,
+              "range": [
+                22,
+                33
+              ],
+              "theme_ids_for_range": [
+                4
+              ],
+              "theme_ids_for_syntax": [
+                4
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 5,
+              "range": [
+                38,
+                66
+              ],
+              "theme_ids_for_range": [
+                5
+              ],
+              "theme_ids_for_syntax": [
+                5
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 6,
+              "range": [
+                45,
+                66
+              ],
+              "theme_ids_for_range": [
+                6
+              ],
+              "theme_ids_for_syntax": [
+                6
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 7,
+              "range": [
+                71,
+                92
+              ],
+              "theme_ids_for_range": [
+                7
+              ],
+              "theme_ids_for_syntax": [
+                7
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 8,
+              "range": [
+                83,
+                92
+              ],
+              "theme_ids_for_range": [
+                8
+              ],
+              "theme_ids_for_syntax": [
+                8
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 9,
+              "range": [
+                95,
+                171
+              ],
+              "theme_ids_for_range": [
+                9
+              ],
+              "theme_ids_for_syntax": [
+                9
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 10,
+              "range": [
+                101,
+                171
+              ],
+              "theme_ids_for_range": [
+                10
+              ],
+              "theme_ids_for_syntax": [
+                10
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 11,
+              "range": [
+                107,
+                122
+              ],
+              "theme_ids_for_range": [
+                11
+              ],
+              "theme_ids_for_syntax": [
+                11
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 12,
+              "range": [
+                118,
+                122
+              ],
+              "theme_ids_for_range": [
+                12
+              ],
+              "theme_ids_for_syntax": [
+                12
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 13,
+              "range": [
+                127,
+                146
+              ],
+              "theme_ids_for_range": [
+                13
+              ],
+              "theme_ids_for_syntax": [
+                13
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 14,
+              "range": [
+                142,
+                146
+              ],
+              "theme_ids_for_range": [
+                14
+              ],
+              "theme_ids_for_syntax": [
+                14
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 15,
+              "range": [
+                151,
+                169
+              ],
+              "theme_ids_for_range": [
+                15
+              ],
+              "theme_ids_for_syntax": [
+                15
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 16,
+              "range": [
+                163,
+                169
+              ],
+              "theme_ids_for_range": [
+                16
+              ],
+              "theme_ids_for_syntax": [
+                16
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 17,
+              "range": [
+                172,
+                237
+              ],
+              "theme_ids_for_range": [
+                17
+              ],
+              "theme_ids_for_syntax": [
+                17
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 18,
+              "range": [
+                185,
+                237
+              ],
+              "theme_ids_for_range": [
+                18
+              ],
+              "theme_ids_for_syntax": [
+                18
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 19,
+              "range": [
+                191,
+                211
+              ],
+              "theme_ids_for_range": [
+                19
+              ],
+              "theme_ids_for_syntax": [
+                19
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 20,
+              "range": [
+                202,
+                211
+              ],
+              "theme_ids_for_range": [
+                20
+              ],
+              "theme_ids_for_syntax": [
+                20
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 21,
+              "range": [
+                216,
+                235
+              ],
+              "theme_ids_for_range": [
+                21
+              ],
+              "theme_ids_for_syntax": [
+                21
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 22,
+              "range": [
+                225,
+                235
+              ],
+              "theme_ids_for_range": [
+                22
+              ],
+              "theme_ids_for_syntax": [
+                22
+              ]
+            }
+          ]
+        },
+        "kind": "fonts"
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-fonts-complete",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "fonts {\n    general = \"Noto Sans\"\n    nerd = \"Hack Nerd Font Mono\"\n    monospace = \"Iosevka\"\n}\nsizes {\n    terminal = \"12\"\n    terminal_mac = \"13\"\n    interface = \"10.5\"\n}\napplications {\n    obsidian = \"enabled\"\n    vscode = \"disabled\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "shared font tree",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.1"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

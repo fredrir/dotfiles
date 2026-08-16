@@ -1,0 +1,407 @@
+{
+  "domain": "facet_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 28,
+            "end_column": 29,
+            "end_line": 1,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 12,
+            "start_column": 13,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "attribute is not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 72,
+            "end_column": 18,
+            "end_line": 4,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 59,
+            "start_column": 5,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "attribute is not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 102,
+            "end_column": 30,
+            "end_line": 5,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 77,
+            "start_column": 5,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "attribute is not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 122,
+            "end_column": 20,
+            "end_line": 6,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 107,
+            "start_column": 5,
+            "start_line": 6
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "attribute is not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 148,
+            "end_column": 26,
+            "end_line": 7,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 127,
+            "start_column": 5,
+            "start_line": 7
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "attribute is not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 179,
+            "end_column": 31,
+            "end_line": 8,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 153,
+            "start_column": 5,
+            "start_line": 8
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "entity demands are not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 212,
+            "end_column": 33,
+            "end_line": 9,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 184,
+            "start_column": 5,
+            "start_line": 9
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "resource demands are not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 258,
+            "end_column": 44,
+            "end_line": 11,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 242,
+            "start_column": 28,
+            "start_line": 11
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "attribute is not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 298,
+            "end_column": 18,
+            "end_line": 13,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 285,
+            "start_column": 5,
+            "start_line": 13
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the entity-only attribute",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "entity-only fact is not legal on a font extension"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 328,
+            "end_column": 30,
+            "end_line": 14,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 303,
+            "start_column": 5,
+            "start_line": 14
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the entity-only attribute",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "entity-only fact is not legal on a font extension"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 350,
+            "end_column": 22,
+            "end_line": 15,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 333,
+            "start_column": 5,
+            "start_line": 15
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the entity-only attribute",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "entity-only fact is not legal on a font extension"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 376,
+            "end_column": 26,
+            "end_line": 16,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 355,
+            "start_column": 5,
+            "start_line": 16
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the entity-only attribute",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "entity-only fact is not legal on a font extension"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 399,
+            "end_column": 21,
+            "end_line": 18,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 387,
+            "start_column": 9,
+            "start_line": 18
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use `entity/<name>` or `font/<key>`",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "extension target namespace is not registered in source version 1"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-requirement-context-illegal",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "badentity { @key = forbidden }\n@font {\n    @key = hack\n    @bin = \"hack\"\n    @service = \"hack.service\"\n    @scope = \"user\"\n    @path = \"/fonts/hack\"\n    nested { @pkg = \"nested\" }\n    @font { @key = nested_font }\n}\n@extend entity/badentity { @key = forbidden }\n@extend font/hack {\n    @bin = \"hack\"\n    @service = \"hack.service\"\n    @scope = \"system\"\n    @path = \"/fonts/hack\"\n}\n@extend service/hack { @pkg = \"hack\" }\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "resource nesting rejection and extension namespace closure",
+      "path": "docs/dotfile-language.md",
+      "section": "9.3-9.4"
+    },
+    {
+      "clause": "entity/resource/extension fact attribute legality matrix",
+      "path": "docs/dotfile-language.md",
+      "section": "12.1"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

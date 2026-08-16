@@ -1,0 +1,105 @@
+{
+  "domain": "theme_fonts",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "exact_bytes",
+      "payload": {
+        "encoding": "utf8",
+        "value": "sizes { terminal = \"9\" }\nfonts = \"wrong\"\n# attached to fonts\nfonts { general = \"First\" }\n# first duplicate sizes\nsizes { terminal = \"10\" }\n# second duplicate sizes\nsizes { terminal = \"11\" }\n# attached to applications\napplications { obsidian = \"enabled\" }\n"
+      },
+      "state": "golden"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f11-format-published-barrier-duplicate-comments",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "sizes{terminal=\"9\"}\nfonts=\"wrong\"\n# attached to fonts\nfonts{general=\"First\"}\n# first duplicate sizes\nsizes{terminal=\"10\"}\n# second duplicate sizes\nsizes{terminal=\"11\"}\n# attached to applications\napplications{obsidian=\"enabled\"}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "wrong-form Published barrier, stable duplicates, and attached comments",
+      "path": "docs/dotfile-language.md",
+      "section": "23"
+    }
+  ],
+  "operation": "format",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

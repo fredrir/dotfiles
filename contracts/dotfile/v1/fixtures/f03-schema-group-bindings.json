@@ -1,0 +1,1037 @@
+{
+  "domain": "group_root_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 28,
+                    "start": 18
+                  },
+                  "text": "org.example"
+                }
+              ],
+              "value": "org.example"
+            },
+            "hir": 1,
+            "id": 0,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 28,
+                  "start": 18
+                },
+                "text": "org.example"
+              }
+            ],
+            "name": "namespace",
+            "poison": [],
+            "range": {
+              "end": 30,
+              "start": 0
+            },
+            "scope": 0,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [
+                    {
+                      "binding": 0,
+                      "declaration_range": {
+                        "end": 14,
+                        "start": 5
+                      },
+                      "reference_range": {
+                        "end": 88,
+                        "start": 79
+                      }
+                    }
+                  ],
+                  "source_range": {
+                    "end": 28,
+                    "start": 18
+                  },
+                  "text": "org.example"
+                },
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 96,
+                    "start": 89
+                  },
+                  "text": ".wezterm"
+                }
+              ],
+              "value": "org.example.wezterm"
+            },
+            "hir": 7,
+            "id": 1,
+            "initializer": [
+              {
+                "kind": "binding",
+                "name": "namespace",
+                "range": {
+                  "end": 88,
+                  "start": 79
+                },
+                "resolution": "Resolved(BindingId(0))"
+              },
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 96,
+                  "start": 89
+                },
+                "text": ".wezterm"
+              }
+            ],
+            "name": "package",
+            "poison": [],
+            "range": {
+              "end": 98,
+              "start": 61
+            },
+            "scope": 1,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 303,
+                    "start": 297
+                  },
+                  "text": "wezterm"
+                }
+              ],
+              "value": "wezterm"
+            },
+            "hir": 22,
+            "id": 2,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 303,
+                  "start": 297
+                },
+                "text": "wezterm"
+              }
+            ],
+            "name": "formula",
+            "poison": [],
+            "range": {
+              "end": 305,
+              "start": 281
+            },
+            "scope": 3,
+            "used": true
+          }
+        ],
+        "diagnostics": [],
+        "domain": "group_root_requirements",
+        "location": "GroupRoot { group: \"shared\", directory: RepoPath(\"shared\") }",
+        "path": "shared/package.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "context": "group_root",
+          "entries": [
+            {
+              "id": 0,
+              "kind": "binding"
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 3,
+                "name": "@theme",
+                "poison": [],
+                "value": {
+                  "id": 4,
+                  "kind": {
+                    "kind": "reference",
+                    "name": "mocha",
+                    "namespace": "theme"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 45,
+                    "start": 40
+                  },
+                  "type": "theme_reference"
+                }
+              }
+            },
+            {
+              "assignment_sugar": false,
+              "entries": [
+                {
+                  "id": 1,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 8,
+                    "name": "@pkg",
+                    "poison": [],
+                    "value": {
+                      "id": 9,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 1,
+                                "declaration_range": {
+                                  "end": 73,
+                                  "start": 66
+                                },
+                                "reference_range": {
+                                  "end": 120,
+                                  "start": 113
+                                }
+                              },
+                              {
+                                "binding": 0,
+                                "declaration_range": {
+                                  "end": 14,
+                                  "start": 5
+                                },
+                                "reference_range": {
+                                  "end": 88,
+                                  "start": 79
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 28,
+                              "start": 18
+                            },
+                            "text": "org.example"
+                          },
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 1,
+                                "declaration_range": {
+                                  "end": 73,
+                                  "start": 66
+                                },
+                                "reference_range": {
+                                  "end": 120,
+                                  "start": 113
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 96,
+                              "start": 89
+                            },
+                            "text": ".wezterm"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "package",
+                            "range": {
+                              "end": 120,
+                              "start": 113
+                            },
+                            "resolution": "Resolved(BindingId(1))"
+                          }
+                        ],
+                        "value": "org.example.wezterm"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 122,
+                        "start": 110
+                      },
+                      "type": "string_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 10,
+                    "name": "@version",
+                    "poison": [],
+                    "value": {
+                      "id": 11,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 144,
+                              "start": 139
+                            },
+                            "text": "stable"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 144,
+                              "start": 139
+                            },
+                            "text": "stable"
+                          }
+                        ],
+                        "value": "stable"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 146,
+                        "start": 138
+                      },
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "id": 5,
+              "kind": "entity",
+              "name": "wezterm",
+              "optional": false,
+              "poison": [],
+              "scope": 1
+            },
+            {
+              "entries": [
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 14,
+                    "name": "@key",
+                    "poison": [],
+                    "value": {
+                      "id": 15,
+                      "kind": {
+                        "kind": "reference",
+                        "name": "hack_nerd_font",
+                        "namespace": "resource_key"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 183,
+                        "start": 169
+                      },
+                      "type": "bare_resource_key_reference"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 16,
+                    "name": "@family",
+                    "poison": [],
+                    "value": {
+                      "id": 17,
+                      "kind": {
+                        "kind": "list",
+                        "values": [
+                          {
+                            "id": 18,
+                            "kind": {
+                              "evaluated_segments": [
+                                {
+                                  "binding_edges": [],
+                                  "source_range": {
+                                    "end": 218,
+                                    "start": 200
+                                  },
+                                  "text": "Hack Nerd Font Mono"
+                                }
+                              ],
+                              "kind": "string",
+                              "poisoned": false,
+                              "segments": [
+                                {
+                                  "kind": "literal",
+                                  "range": {
+                                    "end": 218,
+                                    "start": 200
+                                  },
+                                  "text": "Hack Nerd Font Mono"
+                                }
+                              ],
+                              "value": "Hack Nerd Font Mono"
+                            },
+                            "poison": [],
+                            "range": {
+                              "end": 220,
+                              "start": 199
+                            },
+                            "type": "string"
+                          },
+                          {
+                            "id": 19,
+                            "kind": {
+                              "evaluated_segments": [
+                                {
+                                  "binding_edges": [],
+                                  "source_range": {
+                                    "end": 245,
+                                    "start": 223
+                                  },
+                                  "text": "JetBrainsMono Nerd Font"
+                                }
+                              ],
+                              "kind": "string",
+                              "poisoned": false,
+                              "segments": [
+                                {
+                                  "kind": "literal",
+                                  "range": {
+                                    "end": 245,
+                                    "start": 223
+                                  },
+                                  "text": "JetBrainsMono Nerd Font"
+                                }
+                              ],
+                              "value": "JetBrainsMono Nerd Font"
+                            },
+                            "poison": [],
+                            "range": {
+                              "end": 247,
+                              "start": 222
+                            },
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 248,
+                        "start": 198
+                      },
+                      "type": "string_or_string_list"
+                    }
+                  }
+                }
+              ],
+              "id": 12,
+              "key": {
+                "name": "hack_nerd_font",
+                "namespace": "resource_key",
+                "range": {
+                  "end": 183,
+                  "start": 169
+                }
+              },
+              "kind": "resource",
+              "optional": false,
+              "poison": [],
+              "resource_kind": "font",
+              "scope": 2
+            },
+            {
+              "entries": [
+                {
+                  "id": 2,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 23,
+                    "name": "@pkg",
+                    "poison": [],
+                    "value": {
+                      "id": 24,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 2,
+                                "declaration_range": {
+                                  "end": 293,
+                                  "start": 286
+                                },
+                                "reference_range": {
+                                  "end": 327,
+                                  "start": 320
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 303,
+                              "start": 297
+                            },
+                            "text": "wezterm"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "formula",
+                            "range": {
+                              "end": 327,
+                              "start": 320
+                            },
+                            "resolution": "Resolved(BindingId(2))"
+                          }
+                        ],
+                        "value": "wezterm"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 329,
+                        "start": 317
+                      },
+                      "type": "string_expression"
+                    }
+                  }
+                }
+              ],
+              "id": 20,
+              "kind": "extension",
+              "name": "wezterm",
+              "namespace": "entity",
+              "poison": [],
+              "scope": 3
+            }
+          ],
+          "id": 2,
+          "kind": "requirements",
+          "poison": [],
+          "scope": 0
+        },
+        "scopes": [
+          {
+            "bindings": [
+              0
+            ],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 31,
+            "range": {
+              "end": 332,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [
+              1
+            ],
+            "hir": 6,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 103,
+            "range": {
+              "end": 148,
+              "start": 55
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 13,
+            "id": 2,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 162,
+            "range": {
+              "end": 250,
+              "start": 156
+            }
+          },
+          {
+            "bindings": [
+              2
+            ],
+            "hir": 21,
+            "id": 3,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 310,
+            "range": {
+              "end": 331,
+              "start": 275
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 332,
+              "start": 0
+            },
+            "syntax": "NodeId(27)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              1
+            ],
+            "hir_ids_for_syntax": [
+              1
+            ],
+            "range": {
+              "end": 30,
+              "start": 0
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 332,
+              "start": 0
+            },
+            "syntax": "NodeId(27)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 45,
+              "start": 31
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 45,
+              "start": 40
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 148,
+              "start": 47
+            },
+            "syntax": "NodeId(11)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 148,
+              "start": 55
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 98,
+              "start": 61
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 122,
+              "start": 103
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 122,
+              "start": 110
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 146,
+              "start": 127
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 146,
+              "start": 138
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 12,
+            "hir_ids_for_range": [
+              12
+            ],
+            "hir_ids_for_syntax": [
+              12
+            ],
+            "range": {
+              "end": 250,
+              "start": 150
+            },
+            "syntax": "NodeId(19)"
+          },
+          {
+            "hir": 13,
+            "hir_ids_for_range": [
+              13
+            ],
+            "hir_ids_for_syntax": [
+              13
+            ],
+            "range": {
+              "end": 250,
+              "start": 156
+            },
+            "syntax": "NodeId(18)"
+          },
+          {
+            "hir": 14,
+            "hir_ids_for_range": [
+              14
+            ],
+            "hir_ids_for_syntax": [
+              14
+            ],
+            "range": {
+              "end": 183,
+              "start": 162
+            },
+            "syntax": "NodeId(13)"
+          },
+          {
+            "hir": 15,
+            "hir_ids_for_range": [
+              15
+            ],
+            "hir_ids_for_syntax": [
+              15
+            ],
+            "range": {
+              "end": 183,
+              "start": 169
+            },
+            "syntax": "NodeId(12)"
+          },
+          {
+            "hir": 16,
+            "hir_ids_for_range": [
+              16
+            ],
+            "hir_ids_for_syntax": [
+              16
+            ],
+            "range": {
+              "end": 248,
+              "start": 188
+            },
+            "syntax": "NodeId(17)"
+          },
+          {
+            "hir": 17,
+            "hir_ids_for_range": [
+              17
+            ],
+            "hir_ids_for_syntax": [
+              17
+            ],
+            "range": {
+              "end": 248,
+              "start": 198
+            },
+            "syntax": "NodeId(16)"
+          },
+          {
+            "hir": 18,
+            "hir_ids_for_range": [
+              18
+            ],
+            "hir_ids_for_syntax": [
+              18
+            ],
+            "range": {
+              "end": 220,
+              "start": 199
+            },
+            "syntax": "NodeId(14)"
+          },
+          {
+            "hir": 19,
+            "hir_ids_for_range": [
+              19
+            ],
+            "hir_ids_for_syntax": [
+              19
+            ],
+            "range": {
+              "end": 247,
+              "start": 222
+            },
+            "syntax": "NodeId(15)"
+          },
+          {
+            "hir": 20,
+            "hir_ids_for_range": [
+              20
+            ],
+            "hir_ids_for_syntax": [
+              20
+            ],
+            "range": {
+              "end": 331,
+              "start": 252
+            },
+            "syntax": "NodeId(26)"
+          },
+          {
+            "hir": 21,
+            "hir_ids_for_range": [
+              21
+            ],
+            "hir_ids_for_syntax": [
+              21
+            ],
+            "range": {
+              "end": 331,
+              "start": 275
+            },
+            "syntax": "NodeId(25)"
+          },
+          {
+            "hir": 22,
+            "hir_ids_for_range": [
+              22
+            ],
+            "hir_ids_for_syntax": [
+              22
+            ],
+            "range": {
+              "end": 305,
+              "start": 281
+            },
+            "syntax": "NodeId(22)"
+          },
+          {
+            "hir": 23,
+            "hir_ids_for_range": [
+              23
+            ],
+            "hir_ids_for_syntax": [
+              23
+            ],
+            "range": {
+              "end": 329,
+              "start": 310
+            },
+            "syntax": "NodeId(24)"
+          },
+          {
+            "hir": 24,
+            "hir_ids_for_range": [
+              24
+            ],
+            "hir_ids_for_syntax": [
+              24
+            ],
+            "range": {
+              "end": 329,
+              "start": 317
+            },
+            "syntax": "NodeId(23)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-group-bindings",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@let namespace = \"org.example\"\n@theme = mocha\n\nwezterm {\n    @let package = \"${namespace}.wezterm\"\n    @pkg = \"${package}\"\n    @version = \"stable\"\n}\n\n@font {\n    @key = hack_nerd_font\n    @family = [\"Hack Nerd Font Mono\", \"JetBrainsMono Nerd Font\"]\n}\n\n@extend entity/wezterm {\n    @let formula = \"wezterm\"\n    @pkg = \"${formula}\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "file-local bindings and group-root contexts",
+      "path": "docs/dotfile-language.md",
+      "section": "8, 9, and 12"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

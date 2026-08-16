@@ -1,0 +1,469 @@
+{
+  "domain": "hosts",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [],
+        "diagnostics": [],
+        "domain": "hosts",
+        "location": "Fixed",
+        "path": "config/hosts.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "hosts": [
+            {
+              "extensions": [],
+              "hostnames": {
+                "id": 4,
+                "name": "hostnames",
+                "poison": [],
+                "value": {
+                  "id": 5,
+                  "kind": {
+                    "kind": "list",
+                    "values": [
+                      {
+                        "id": 6,
+                        "kind": {
+                          "evaluated_segments": [
+                            {
+                              "binding_edges": [],
+                              "source_range": {
+                                "end": 33,
+                                "start": 27
+                              },
+                              "text": "ARCHIE."
+                            }
+                          ],
+                          "kind": "string",
+                          "poisoned": false,
+                          "segments": [
+                            {
+                              "kind": "literal",
+                              "range": {
+                                "end": 33,
+                                "start": 27
+                              },
+                              "text": "ARCHIE."
+                            }
+                          ],
+                          "value": "ARCHIE."
+                        },
+                        "poison": [],
+                        "range": {
+                          "end": 35,
+                          "start": 26
+                        },
+                        "type": "string"
+                      },
+                      {
+                        "id": 7,
+                        "kind": {
+                          "evaluated_segments": [
+                            {
+                              "binding_edges": [],
+                              "source_range": {
+                                "end": 49,
+                                "start": 38
+                              },
+                              "text": "archie.local"
+                            }
+                          ],
+                          "kind": "string",
+                          "poisoned": false,
+                          "segments": [
+                            {
+                              "kind": "literal",
+                              "range": {
+                                "end": 49,
+                                "start": 38
+                              },
+                              "text": "archie.local"
+                            }
+                          ],
+                          "value": "archie.local"
+                        },
+                        "poison": [],
+                        "range": {
+                          "end": 51,
+                          "start": 37
+                        },
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 52,
+                    "start": 25
+                  },
+                  "type": "hostnames"
+                }
+              },
+              "id": 2,
+              "name": "archie",
+              "poison": [],
+              "profile": {
+                "id": 10,
+                "name": "@profile",
+                "poison": [],
+                "value": {
+                  "id": 11,
+                  "kind": {
+                    "kind": "reference",
+                    "name": "workstation",
+                    "namespace": "profile"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 100,
+                    "start": 89
+                  },
+                  "type": "profile_reference"
+                }
+              },
+              "role": {
+                "id": 8,
+                "name": "role",
+                "poison": [],
+                "value": {
+                  "id": 9,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 71,
+                          "start": 65
+                        },
+                        "text": "desktop"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 71,
+                          "start": 65
+                        },
+                        "text": "desktop"
+                      }
+                    ],
+                    "value": "desktop"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 73,
+                    "start": 64
+                  },
+                  "type": "host_role"
+                }
+              },
+              "theme": null
+            }
+          ],
+          "id": 1,
+          "kind": "hosts",
+          "poison": []
+        },
+        "scopes": [
+          {
+            "bindings": [],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 0,
+            "range": {
+              "end": 103,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 3,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 13,
+            "range": {
+              "end": 102,
+              "start": 7
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 103,
+              "start": 0
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 103,
+              "start": 0
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              2
+            ],
+            "hir_ids_for_syntax": [
+              2
+            ],
+            "range": {
+              "end": 102,
+              "start": 0
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 102,
+              "start": 7
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 52,
+              "start": 13
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 52,
+              "start": 25
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 35,
+              "start": 26
+            },
+            "syntax": "NodeId(0)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 51,
+              "start": 37
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 73,
+              "start": 57
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 73,
+              "start": 64
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 100,
+              "start": 78
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 100,
+              "start": 89
+            },
+            "syntax": "NodeId(6)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-host-own-id-alias",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "archie {\n    hostnames = [\"ARCHIE.\", \"archie.local\"]\n    role = \"desktop\"\n    @profile = workstation\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "the stable host ID may be repeated as its own normalized explicit alias",
+      "path": "docs/dotfile-language.md",
+      "section": "14"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

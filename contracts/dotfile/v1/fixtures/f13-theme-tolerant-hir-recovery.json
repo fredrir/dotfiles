@@ -1,0 +1,1108 @@
+{
+  "domain": "theme_profile_poison_path",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "parse/syntax",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 16,
+            "end_column": 17,
+            "end_line": 1,
+            "path": "theme/profiles/poison.dotfile",
+            "start_byte": 15,
+            "start_column": 16,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "write a string, a reference, or a list",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:poison",
+          "severity": "Error",
+          "stage": "parse",
+          "summary": "expected a value"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 14,
+            "end_column": 15,
+            "end_line": 1,
+            "path": "theme/profiles/poison.dotfile",
+            "start_byte": 0,
+            "start_column": 1,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the value and structure required by this theme schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:poison",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "theme field `display-name` must be an assignment"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 108,
+            "end_column": 44,
+            "end_line": 4,
+            "path": "theme/profiles/poison.dotfile",
+            "start_byte": 99,
+            "start_column": 35,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the value and structure required by this theme schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:poison",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "palette `bad` must be lowercase `#[0-9a-f]{6}`"
+        },
+        {
+          "actual": {},
+          "code": "schema/duplicate",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 131,
+            "end_column": 67,
+            "end_line": 4,
+            "path": "theme/profiles/poison.dotfile",
+            "start_byte": 122,
+            "start_column": 58,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 91,
+              "end_column": 27,
+              "end_line": 4,
+              "path": "theme/profiles/poison.dotfile",
+              "start_byte": 82,
+              "start_column": 18,
+              "start_line": 4
+            }
+          ],
+          "remedy": "remove or rename the duplicate theme entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:poison",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "duplicate palette color value `#abcdef`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 144,
+            "end_column": 11,
+            "end_line": 5,
+            "path": "theme/profiles/poison.dotfile",
+            "start_byte": 134,
+            "start_column": 1,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the value and structure required by this theme schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:poison",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "unknown root field `unknown` in theme profile"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 145,
+            "end_column": 1,
+            "end_line": 6,
+            "path": "theme/profiles/poison.dotfile",
+            "start_byte": 145,
+            "start_column": 1,
+            "start_line": 6
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 145,
+              "end_column": 1,
+              "end_line": 6,
+              "path": "theme/profiles/poison.dotfile",
+              "start_byte": 0,
+              "start_column": 1,
+              "start_line": 1
+            }
+          ],
+          "remedy": "add the required field at this insertion point",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:poison",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "missing required theme field `icons`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "document": null,
+        "hir": {
+          "nodes": [
+            {
+              "children": [
+                1,
+                2,
+                4,
+                8,
+                16,
+                19,
+                20
+              ],
+              "id": 0,
+              "kind": {
+                "document": "Profile"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  145
+                ]
+              },
+              "parent": null,
+              "poison": [],
+              "range": [
+                0,
+                145
+              ]
+            },
+            {
+              "children": [
+                18
+              ],
+              "id": 1,
+              "kind": {
+                "authored": "Incomplete",
+                "entry": "display-name",
+                "expected": "Value(NonemptyString)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  14
+                ]
+              },
+              "parent": 0,
+              "poison": [
+                {
+                  "kind": "context",
+                  "range": [
+                    0,
+                    14
+                  ]
+                }
+              ],
+              "range": [
+                0,
+                14
+              ]
+            },
+            {
+              "children": [],
+              "id": 18,
+              "kind": {
+                "missing_value": "Value(NonemptyString)"
+              },
+              "origin": {
+                "authored": false,
+                "range": [
+                  14,
+                  14
+                ]
+              },
+              "parent": 1,
+              "poison": [
+                {
+                  "kind": "missing",
+                  "range": [
+                    14,
+                    14
+                  ]
+                },
+                {
+                  "kind": "syntax",
+                  "range": [
+                    14,
+                    14
+                  ]
+                }
+              ],
+              "range": [
+                14,
+                14
+              ]
+            },
+            {
+              "children": [
+                3
+              ],
+              "id": 2,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "appearance",
+                "expected": "Value(Appearance)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  17,
+                  36
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                17,
+                36
+              ]
+            },
+            {
+              "children": [],
+              "id": 3,
+              "kind": {
+                "decoded": "dark",
+                "expected": "Appearance",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  30,
+                  36
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                30,
+                36
+              ]
+            },
+            {
+              "children": [
+                5
+              ],
+              "id": 4,
+              "kind": {
+                "authored": "Block",
+                "entry": "nvim",
+                "expected": "Block(Nvim)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  37,
+                  64
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                37,
+                64
+              ]
+            },
+            {
+              "children": [
+                6
+              ],
+              "id": 5,
+              "kind": {
+                "container": "Nvim"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  42,
+                  64
+                ]
+              },
+              "parent": 4,
+              "poison": [],
+              "range": [
+                42,
+                64
+              ]
+            },
+            {
+              "children": [
+                7
+              ],
+              "id": 6,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "flavour",
+                "expected": "Value(NonemptyString)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  44,
+                  62
+                ]
+              },
+              "parent": 5,
+              "poison": [],
+              "range": [
+                44,
+                62
+              ]
+            },
+            {
+              "children": [],
+              "id": 7,
+              "kind": {
+                "decoded": "poison",
+                "expected": "NonemptyString",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  54,
+                  62
+                ]
+              },
+              "parent": 6,
+              "poison": [],
+              "range": [
+                54,
+                62
+              ]
+            },
+            {
+              "children": [
+                9
+              ],
+              "id": 8,
+              "kind": {
+                "authored": "Block",
+                "entry": "palette",
+                "expected": "Block(Palette)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  65,
+                  133
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                65,
+                133
+              ]
+            },
+            {
+              "children": [
+                10,
+                12,
+                14
+              ],
+              "id": 9,
+              "kind": {
+                "container": "Palette"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  73,
+                  133
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                73,
+                133
+              ]
+            },
+            {
+              "children": [
+                11
+              ],
+              "id": 10,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "good",
+                "expected": "Value(PaletteColor)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  75,
+                  91
+                ]
+              },
+              "parent": 9,
+              "poison": [],
+              "range": [
+                75,
+                91
+              ]
+            },
+            {
+              "children": [],
+              "id": 11,
+              "kind": {
+                "decoded": "#abcdef",
+                "expected": "PaletteColor",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  82,
+                  91
+                ]
+              },
+              "parent": 10,
+              "poison": [],
+              "range": [
+                82,
+                91
+              ]
+            },
+            {
+              "children": [
+                13
+              ],
+              "id": 12,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "bad",
+                "expected": "Value(PaletteColor)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  93,
+                  108
+                ]
+              },
+              "parent": 9,
+              "poison": [],
+              "range": [
+                93,
+                108
+              ]
+            },
+            {
+              "children": [],
+              "id": 13,
+              "kind": {
+                "decoded": "#ABCDEF",
+                "expected": "PaletteColor",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  99,
+                  108
+                ]
+              },
+              "parent": 12,
+              "poison": [
+                {
+                  "kind": "value",
+                  "range": [
+                    99,
+                    108
+                  ]
+                }
+              ],
+              "range": [
+                99,
+                108
+              ]
+            },
+            {
+              "children": [
+                15
+              ],
+              "id": 14,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "duplicate",
+                "expected": "Value(PaletteColor)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  110,
+                  131
+                ]
+              },
+              "parent": 9,
+              "poison": [],
+              "range": [
+                110,
+                131
+              ]
+            },
+            {
+              "children": [],
+              "id": 15,
+              "kind": {
+                "decoded": "#abcdef",
+                "expected": "PaletteColor",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  122,
+                  131
+                ]
+              },
+              "parent": 14,
+              "poison": [
+                {
+                  "kind": "duplicate",
+                  "range": [
+                    122,
+                    131
+                  ]
+                }
+              ],
+              "range": [
+                122,
+                131
+              ]
+            },
+            {
+              "children": [
+                17
+              ],
+              "id": 16,
+              "kind": {
+                "authored": "Block",
+                "entry": "unknown",
+                "expected": null
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  134,
+                  144
+                ]
+              },
+              "parent": 0,
+              "poison": [
+                {
+                  "kind": "context",
+                  "range": [
+                    134,
+                    144
+                  ]
+                }
+              ],
+              "range": [
+                134,
+                144
+              ]
+            },
+            {
+              "children": [],
+              "id": 17,
+              "kind": {
+                "container": "Unknown"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  142,
+                  144
+                ]
+              },
+              "parent": 16,
+              "poison": [],
+              "range": [
+                142,
+                144
+              ]
+            },
+            {
+              "children": [],
+              "id": 19,
+              "kind": {
+                "expected": "Value(NonemptyString)",
+                "missing_field": "icons"
+              },
+              "origin": {
+                "authored": false,
+                "range": [
+                  145,
+                  145
+                ]
+              },
+              "parent": 0,
+              "poison": [
+                {
+                  "kind": "missing",
+                  "range": [
+                    145,
+                    145
+                  ]
+                }
+              ],
+              "range": [
+                145,
+                145
+              ]
+            },
+            {
+              "children": [],
+              "id": 20,
+              "kind": "syntax_error",
+              "origin": {
+                "authored": false,
+                "range": [
+                  15,
+                  16
+                ]
+              },
+              "parent": 0,
+              "poison": [
+                {
+                  "kind": "syntax",
+                  "range": [
+                    15,
+                    16
+                  ]
+                }
+              ],
+              "range": [
+                15,
+                16
+              ]
+            }
+          ],
+          "root": 0,
+          "source_map": [
+            {
+              "authored": true,
+              "hir_id": 0,
+              "range": [
+                0,
+                145
+              ],
+              "theme_ids_for_range": [
+                0
+              ],
+              "theme_ids_for_syntax": [
+                0
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 1,
+              "range": [
+                0,
+                14
+              ],
+              "theme_ids_for_range": [
+                1
+              ],
+              "theme_ids_for_syntax": [
+                1
+              ]
+            },
+            {
+              "authored": false,
+              "hir_id": 18,
+              "range": [
+                14,
+                14
+              ],
+              "theme_ids_for_range": [
+                18
+              ],
+              "theme_ids_for_syntax": []
+            },
+            {
+              "authored": true,
+              "hir_id": 2,
+              "range": [
+                17,
+                36
+              ],
+              "theme_ids_for_range": [
+                2
+              ],
+              "theme_ids_for_syntax": [
+                2
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 3,
+              "range": [
+                30,
+                36
+              ],
+              "theme_ids_for_range": [
+                3
+              ],
+              "theme_ids_for_syntax": [
+                3
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 4,
+              "range": [
+                37,
+                64
+              ],
+              "theme_ids_for_range": [
+                4
+              ],
+              "theme_ids_for_syntax": [
+                4
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 5,
+              "range": [
+                42,
+                64
+              ],
+              "theme_ids_for_range": [
+                5
+              ],
+              "theme_ids_for_syntax": [
+                5
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 6,
+              "range": [
+                44,
+                62
+              ],
+              "theme_ids_for_range": [
+                6
+              ],
+              "theme_ids_for_syntax": [
+                6
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 7,
+              "range": [
+                54,
+                62
+              ],
+              "theme_ids_for_range": [
+                7
+              ],
+              "theme_ids_for_syntax": [
+                7
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 8,
+              "range": [
+                65,
+                133
+              ],
+              "theme_ids_for_range": [
+                8
+              ],
+              "theme_ids_for_syntax": [
+                8
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 9,
+              "range": [
+                73,
+                133
+              ],
+              "theme_ids_for_range": [
+                9
+              ],
+              "theme_ids_for_syntax": [
+                9
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 10,
+              "range": [
+                75,
+                91
+              ],
+              "theme_ids_for_range": [
+                10
+              ],
+              "theme_ids_for_syntax": [
+                10
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 11,
+              "range": [
+                82,
+                91
+              ],
+              "theme_ids_for_range": [
+                11
+              ],
+              "theme_ids_for_syntax": [
+                11
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 12,
+              "range": [
+                93,
+                108
+              ],
+              "theme_ids_for_range": [
+                12
+              ],
+              "theme_ids_for_syntax": [
+                12
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 13,
+              "range": [
+                99,
+                108
+              ],
+              "theme_ids_for_range": [
+                13
+              ],
+              "theme_ids_for_syntax": [
+                13
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 14,
+              "range": [
+                110,
+                131
+              ],
+              "theme_ids_for_range": [
+                14
+              ],
+              "theme_ids_for_syntax": [
+                14
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 15,
+              "range": [
+                122,
+                131
+              ],
+              "theme_ids_for_range": [
+                15
+              ],
+              "theme_ids_for_syntax": [
+                15
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 16,
+              "range": [
+                134,
+                144
+              ],
+              "theme_ids_for_range": [
+                16
+              ],
+              "theme_ids_for_syntax": [
+                16
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 17,
+              "range": [
+                142,
+                144
+              ],
+              "theme_ids_for_range": [
+                17
+              ],
+              "theme_ids_for_syntax": [
+                17
+              ]
+            },
+            {
+              "authored": false,
+              "hir_id": 19,
+              "range": [
+                145,
+                145
+              ],
+              "theme_ids_for_range": [
+                19
+              ],
+              "theme_ids_for_syntax": []
+            },
+            {
+              "authored": false,
+              "hir_id": 20,
+              "range": [
+                15,
+                16
+              ],
+              "theme_ids_for_range": [
+                20
+              ],
+              "theme_ids_for_syntax": []
+            }
+          ]
+        },
+        "kind": "profile",
+        "partial_document": null,
+        "validated": false
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-tolerant-hir-recovery",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "display-name = ,\nappearance = \"dark\"\nnvim { flavour = \"poison\" }\npalette { good = \"#abcdef\", bad = \"#ABCDEF\", duplicate = \"#abcdef\" }\nunknown {}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "tolerant theme HIR retains missing, invalid, duplicate, unknown, and independently valid syntax",
+      "path": "docs/dotfile-implementation-plan.md",
+      "section": "5-6"
+    },
+    {
+      "clause": "profile required fields, palette values, duplicates, and sparse override structure",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.2"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

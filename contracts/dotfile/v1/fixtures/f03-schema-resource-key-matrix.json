@@ -1,0 +1,276 @@
+{
+  "domain": "group_root_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/binding",
+          "detail": "unused_binding",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 13,
+            "end_column": 14,
+            "end_line": 1,
+            "path": "shared/package.dotfile",
+            "start_byte": 5,
+            "start_column": 6,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the binding or reference it from a string expression",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Warning",
+          "stage": "schema",
+          "summary": "unused binding `identity`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 64,
+            "end_column": 34,
+            "end_line": 2,
+            "path": "shared/package.dotfile",
+            "start_byte": 31,
+            "start_column": 1,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "add one `@key = resource_name` and remove duplicates",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "resource demand requires exactly one direct bare `@key`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 102,
+            "end_column": 38,
+            "end_line": 3,
+            "path": "shared/package.dotfile",
+            "start_byte": 65,
+            "start_column": 1,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "add one `@key = resource_name` and remove duplicates",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "resource demand requires exactly one direct bare `@key`"
+        },
+        {
+          "actual": {},
+          "code": "schema/duplicate",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 100,
+            "end_column": 36,
+            "end_line": 3,
+            "path": "shared/package.dotfile",
+            "start_byte": 87,
+            "start_column": 23,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 85,
+              "end_column": 21,
+              "end_line": 3,
+              "path": "shared/package.dotfile",
+              "start_byte": 73,
+              "start_column": 9,
+              "start_line": 3
+            }
+          ],
+          "remedy": "remove the duplicate entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "duplicate attribute `@key`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 141,
+            "end_column": 2,
+            "end_line": 6,
+            "path": "shared/package.dotfile",
+            "start_byte": 103,
+            "start_column": 1,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "add one `@key = resource_name` and remove duplicates",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "resource demand requires exactly one direct bare `@key`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 139,
+            "end_column": 29,
+            "end_line": 5,
+            "path": "shared/package.dotfile",
+            "start_byte": 115,
+            "start_column": 5,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "move or remove the entry so it matches the containing schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "entity demands are not legal in this requirement context"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 170,
+            "end_column": 29,
+            "end_line": 7,
+            "path": "shared/package.dotfile",
+            "start_byte": 157,
+            "start_column": 16,
+            "start_line": 7
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove quotes and provide one reference name",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "`bare_resource_key_reference` requires a bare typed reference"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-resource-key-matrix",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@let identity = \"interpolated\"\n@font { @family = \"Missing Key\" }\n@font { @key = first, @key = second }\n@font {\n    nested { @key = nested }\n}\n@font { @key = \"${identity}\" }\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "missing, duplicate, nested, and interpolated direct resource keys",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-018",
+      "section": "9.3"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

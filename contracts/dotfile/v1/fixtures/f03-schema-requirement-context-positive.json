@@ -1,0 +1,4683 @@
+{
+  "domain": "facet_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 25,
+                    "start": 13
+                  },
+                  "text": "/etc/dotfiles"
+                }
+              ],
+              "value": "/etc/dotfiles"
+            },
+            "hir": 1,
+            "id": 0,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 25,
+                  "start": 13
+                },
+                "text": "/etc/dotfiles"
+              }
+            ],
+            "name": "root",
+            "poison": [],
+            "range": {
+              "end": 27,
+              "start": 0
+            },
+            "scope": 0,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 270,
+                    "start": 246
+                  },
+                  "text": "/etc/dotfiles/tool/config"
+                }
+              ],
+              "value": "/etc/dotfiles/tool/config"
+            },
+            "hir": 23,
+            "id": 1,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 270,
+                  "start": 246
+                },
+                "text": "/etc/dotfiles/tool/config"
+              }
+            ],
+            "name": "target",
+            "poison": [],
+            "range": {
+              "end": 272,
+              "start": 231
+            },
+            "scope": 1,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 535,
+                    "start": 522
+                  },
+                  "text": "parent-package"
+                }
+              ],
+              "value": "parent-package"
+            },
+            "hir": 46,
+            "id": 2,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 535,
+                  "start": 522
+                },
+                "text": "parent-package"
+              }
+            ],
+            "name": "package",
+            "poison": [],
+            "range": {
+              "end": 537,
+              "start": 506
+            },
+            "scope": 3,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 881,
+                    "start": 870
+                  },
+                  "text": "font-package"
+                }
+              ],
+              "value": "font-package"
+            },
+            "hir": 74,
+            "id": 3,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 881,
+                  "start": 870
+                },
+                "text": "font-package"
+              }
+            ],
+            "name": "font_package",
+            "poison": [],
+            "range": {
+              "end": 883,
+              "start": 849
+            },
+            "scope": 5,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 1182,
+                    "start": 1167
+                  },
+                  "text": "parent-extension"
+                }
+              ],
+              "value": "parent-extension"
+            },
+            "hir": 92,
+            "id": 4,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 1182,
+                  "start": 1167
+                },
+                "text": "parent-extension"
+              }
+            ],
+            "name": "coordinate",
+            "poison": [],
+            "range": {
+              "end": 1184,
+              "start": 1148
+            },
+            "scope": 6,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 1513,
+                    "start": 1500
+                  },
+                  "text": "font-extension"
+                }
+              ],
+              "value": "font-extension"
+            },
+            "hir": 116,
+            "id": 5,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 1513,
+                  "start": 1500
+                },
+                "text": "font-extension"
+              }
+            ],
+            "name": "coordinate",
+            "poison": [],
+            "range": {
+              "end": 1515,
+              "start": 1481
+            },
+            "scope": 7,
+            "used": true
+          }
+        ],
+        "diagnostics": [],
+        "domain": "facet_requirements",
+        "location": "Facet { group: \"shared\", directory: RepoPath(\"shared\"), package: \"wezterm\" }",
+        "path": "shared/wezterm/package.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "context": "facet",
+          "entries": [
+            {
+              "id": 0,
+              "kind": "binding"
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 3,
+                "name": "@destination",
+                "poison": [],
+                "value": {
+                  "id": 4,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [
+                          {
+                            "binding": 0,
+                            "declaration_range": {
+                              "end": 9,
+                              "start": 5
+                            },
+                            "reference_range": {
+                              "end": 50,
+                              "start": 46
+                            }
+                          }
+                        ],
+                        "source_range": {
+                          "end": 25,
+                          "start": 13
+                        },
+                        "text": "/etc/dotfiles"
+                      },
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 55,
+                          "start": 51
+                        },
+                        "text": "/tool"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "binding",
+                        "name": "root",
+                        "range": {
+                          "end": 50,
+                          "start": 46
+                        },
+                        "resolution": "Resolved(BindingId(0))"
+                      },
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 55,
+                          "start": 51
+                        },
+                        "text": "/tool"
+                      }
+                    ],
+                    "value": "/etc/dotfiles/tool"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 57,
+                    "start": 43
+                  },
+                  "type": "destination_path_expression"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 5,
+                "name": "@deploy",
+                "poison": [],
+                "value": {
+                  "id": 6,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 72,
+                          "start": 69
+                        },
+                        "text": "copy"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 72,
+                          "start": 69
+                        },
+                        "text": "copy"
+                      }
+                    ],
+                    "value": "copy"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 74,
+                    "start": 68
+                  },
+                  "type": "deploy_enum"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 7,
+                "name": "@privilege",
+                "poison": [],
+                "value": {
+                  "id": 8,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 94,
+                          "start": 89
+                        },
+                        "text": "system"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 94,
+                          "start": 89
+                        },
+                        "text": "system"
+                      }
+                    ],
+                    "value": "system"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 96,
+                    "start": 88
+                  },
+                  "type": "privilege_enum"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 9,
+                "name": "@sensitivity",
+                "poison": [],
+                "value": {
+                  "id": 10,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 118,
+                          "start": 113
+                        },
+                        "text": "public"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 118,
+                          "start": 113
+                        },
+                        "text": "public"
+                      }
+                    ],
+                    "value": "public"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 120,
+                    "start": 112
+                  },
+                  "type": "sensitivity_enum"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 11,
+                "name": "@mode",
+                "poison": [],
+                "value": {
+                  "id": 12,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 133,
+                          "start": 130
+                        },
+                        "text": "0644"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 133,
+                          "start": 130
+                        },
+                        "text": "0644"
+                      }
+                    ],
+                    "value": "0644"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 135,
+                    "start": 129
+                  },
+                  "type": "mode_string"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 13,
+                "name": "@owner",
+                "poison": [],
+                "value": {
+                  "id": 14,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 149,
+                          "start": 146
+                        },
+                        "text": "root"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 149,
+                          "start": 146
+                        },
+                        "text": "root"
+                      }
+                    ],
+                    "value": "root"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 151,
+                    "start": 145
+                  },
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 15,
+                "name": "@group",
+                "poison": [],
+                "value": {
+                  "id": 16,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 165,
+                          "start": 162
+                        },
+                        "text": "root"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 165,
+                          "start": 162
+                        },
+                        "text": "root"
+                      }
+                    ],
+                    "value": "root"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 167,
+                    "start": 161
+                  },
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 17,
+                "name": "@description",
+                "poison": [],
+                "value": {
+                  "id": 18,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 197,
+                          "start": 184
+                        },
+                        "text": "Complete facet"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 197,
+                          "start": 184
+                        },
+                        "text": "Complete facet"
+                      }
+                    ],
+                    "value": "Complete facet"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 199,
+                    "start": 183
+                  },
+                  "type": "one_line_string"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 19,
+                "name": "@theme",
+                "poison": [],
+                "value": {
+                  "id": 20,
+                  "kind": {
+                    "kind": "reference",
+                    "name": "mocha",
+                    "namespace": "theme"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 214,
+                    "start": 209
+                  },
+                  "type": "theme_reference"
+                }
+              }
+            },
+            {
+              "entries": [
+                {
+                  "id": 1,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 24,
+                    "name": "@destination",
+                    "poison": [],
+                    "value": {
+                      "id": 25,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 1,
+                                "declaration_range": {
+                                  "end": 242,
+                                  "start": 236
+                                },
+                                "reference_range": {
+                                  "end": 299,
+                                  "start": 293
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 270,
+                              "start": 246
+                            },
+                            "text": "/etc/dotfiles/tool/config"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "target",
+                            "range": {
+                              "end": 299,
+                              "start": 293
+                            },
+                            "resolution": "Resolved(BindingId(1))"
+                          }
+                        ],
+                        "value": "/etc/dotfiles/tool/config"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 299,
+                        "start": 292
+                      },
+                      "type": "destination_path_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 26,
+                    "name": "@deploy",
+                    "poison": [],
+                    "value": {
+                      "id": 27,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 318,
+                              "start": 315
+                            },
+                            "text": "copy"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 318,
+                              "start": 315
+                            },
+                            "text": "copy"
+                          }
+                        ],
+                        "value": "copy"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 320,
+                        "start": 314
+                      },
+                      "type": "deploy_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 28,
+                    "name": "@privilege",
+                    "poison": [],
+                    "value": {
+                      "id": 29,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 344,
+                              "start": 339
+                            },
+                            "text": "system"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 344,
+                              "start": 339
+                            },
+                            "text": "system"
+                          }
+                        ],
+                        "value": "system"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 346,
+                        "start": 338
+                      },
+                      "type": "privilege_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 30,
+                    "name": "@sensitivity",
+                    "poison": [],
+                    "value": {
+                      "id": 31,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 372,
+                              "start": 367
+                            },
+                            "text": "public"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 372,
+                              "start": 367
+                            },
+                            "text": "public"
+                          }
+                        ],
+                        "value": "public"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 374,
+                        "start": 366
+                      },
+                      "type": "sensitivity_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 32,
+                    "name": "@mode",
+                    "poison": [],
+                    "value": {
+                      "id": 33,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 391,
+                              "start": 388
+                            },
+                            "text": "0644"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 391,
+                              "start": 388
+                            },
+                            "text": "0644"
+                          }
+                        ],
+                        "value": "0644"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 393,
+                        "start": 387
+                      },
+                      "type": "mode_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 34,
+                    "name": "@owner",
+                    "poison": [],
+                    "value": {
+                      "id": 35,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 411,
+                              "start": 408
+                            },
+                            "text": "root"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 411,
+                              "start": 408
+                            },
+                            "text": "root"
+                          }
+                        ],
+                        "value": "root"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 413,
+                        "start": 407
+                      },
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 36,
+                    "name": "@group",
+                    "poison": [],
+                    "value": {
+                      "id": 37,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 431,
+                              "start": 428
+                            },
+                            "text": "root"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 431,
+                              "start": 428
+                            },
+                            "text": "root"
+                          }
+                        ],
+                        "value": "root"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 433,
+                        "start": 427
+                      },
+                      "type": "string"
+                    }
+                  }
+                }
+              ],
+              "id": 21,
+              "kind": "path",
+              "optional": false,
+              "path": "config",
+              "poison": [],
+              "scope": 1
+            },
+            {
+              "entries": [
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 40,
+                    "name": "@deploy",
+                    "poison": [],
+                    "value": {
+                      "id": 41,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 464,
+                              "start": 461
+                            },
+                            "text": "none"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 464,
+                              "start": 461
+                            },
+                            "text": "none"
+                          }
+                        ],
+                        "value": "none"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 466,
+                        "start": 460
+                      },
+                      "type": "deploy_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 42,
+                    "name": "@expect",
+                    "poison": [],
+                    "value": {
+                      "id": 43,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 487,
+                              "start": 479
+                            },
+                            "text": "directory"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 487,
+                              "start": 479
+                            },
+                            "text": "directory"
+                          }
+                        ],
+                        "value": "directory"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 489,
+                        "start": 478
+                      },
+                      "type": "expect_enum"
+                    }
+                  }
+                }
+              ],
+              "id": 38,
+              "kind": "path",
+              "optional": false,
+              "path": "generated",
+              "poison": [],
+              "scope": 2
+            },
+            {
+              "assignment_sugar": false,
+              "entries": [
+                {
+                  "id": 2,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 47,
+                    "name": "@pkg",
+                    "poison": [],
+                    "value": {
+                      "id": 48,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 2,
+                                "declaration_range": {
+                                  "end": 518,
+                                  "start": 511
+                                },
+                                "reference_range": {
+                                  "end": 557,
+                                  "start": 550
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 535,
+                              "start": 522
+                            },
+                            "text": "parent-package"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "package",
+                            "range": {
+                              "end": 557,
+                              "start": 550
+                            },
+                            "resolution": "Resolved(BindingId(2))"
+                          }
+                        ],
+                        "value": "parent-package"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 557,
+                        "start": 549
+                      },
+                      "type": "string_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 49,
+                    "name": "@installer",
+                    "poison": [],
+                    "value": {
+                      "id": 50,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 580,
+                              "start": 576
+                            },
+                            "text": "cargo"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 580,
+                              "start": 576
+                            },
+                            "text": "cargo"
+                          }
+                        ],
+                        "value": "cargo"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 582,
+                        "start": 575
+                      },
+                      "type": "installer_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 51,
+                    "name": "@bin",
+                    "poison": [],
+                    "value": {
+                      "id": 52,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 600,
+                              "start": 595
+                            },
+                            "text": "parent"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 600,
+                              "start": 595
+                            },
+                            "text": "parent"
+                          }
+                        ],
+                        "value": "parent"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 602,
+                        "start": 594
+                      },
+                      "type": "command_name_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 53,
+                    "name": "@check",
+                    "poison": [],
+                    "value": {
+                      "id": 54,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 623,
+                              "start": 617
+                            },
+                            "text": "command"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 623,
+                              "start": 617
+                            },
+                            "text": "command"
+                          }
+                        ],
+                        "value": "command"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 625,
+                        "start": 616
+                      },
+                      "type": "check_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 55,
+                    "name": "@version",
+                    "poison": [],
+                    "value": {
+                      "id": 56,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 642,
+                              "start": 642
+                            },
+                            "text": "1"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 642,
+                              "start": 642
+                            },
+                            "text": "1"
+                          }
+                        ],
+                        "value": "1"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 644,
+                        "start": 641
+                      },
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 57,
+                    "name": "@family",
+                    "poison": [],
+                    "value": {
+                      "id": 58,
+                      "kind": {
+                        "kind": "list",
+                        "values": [
+                          {
+                            "id": 59,
+                            "kind": {
+                              "evaluated_segments": [
+                                {
+                                  "binding_edges": [],
+                                  "source_range": {
+                                    "end": 671,
+                                    "start": 661
+                                  },
+                                  "text": "Parent Sans"
+                                }
+                              ],
+                              "kind": "string",
+                              "poisoned": false,
+                              "segments": [
+                                {
+                                  "kind": "literal",
+                                  "range": {
+                                    "end": 671,
+                                    "start": 661
+                                  },
+                                  "text": "Parent Sans"
+                                }
+                              ],
+                              "value": "Parent Sans"
+                            },
+                            "poison": [],
+                            "range": {
+                              "end": 673,
+                              "start": 660
+                            },
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 674,
+                        "start": 659
+                      },
+                      "type": "string_or_string_list"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 60,
+                    "name": "@service",
+                    "poison": [],
+                    "value": {
+                      "id": 61,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 704,
+                              "start": 691
+                            },
+                            "text": "parent.service"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 704,
+                              "start": 691
+                            },
+                            "text": "parent.service"
+                          }
+                        ],
+                        "value": "parent.service"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 706,
+                        "start": 690
+                      },
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 62,
+                    "name": "@scope",
+                    "poison": [],
+                    "value": {
+                      "id": 63,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 724,
+                              "start": 721
+                            },
+                            "text": "user"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 724,
+                              "start": 721
+                            },
+                            "text": "user"
+                          }
+                        ],
+                        "value": "user"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 726,
+                        "start": 720
+                      },
+                      "type": "service_scope_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 64,
+                    "name": "@path",
+                    "poison": [],
+                    "value": {
+                      "id": 65,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 754,
+                              "start": 740
+                            },
+                            "text": "/var/lib/parent"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 754,
+                              "start": 740
+                            },
+                            "text": "/var/lib/parent"
+                          }
+                        ],
+                        "value": "/var/lib/parent"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 756,
+                        "start": 739
+                      },
+                      "type": "machine_path_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 66,
+                    "name": "@description",
+                    "poison": [],
+                    "value": {
+                      "id": 67,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 789,
+                              "start": 777
+                            },
+                            "text": "Parent entity"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 789,
+                              "start": 777
+                            },
+                            "text": "Parent entity"
+                          }
+                        ],
+                        "value": "Parent entity"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 791,
+                        "start": 776
+                      },
+                      "type": "one_line_string"
+                    }
+                  }
+                },
+                {
+                  "assignment_sugar": false,
+                  "entries": [
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 70,
+                        "name": "@pkg",
+                        "poison": [],
+                        "value": {
+                          "id": 71,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 824,
+                                  "start": 812
+                                },
+                                "text": "child-package"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 824,
+                                  "start": 812
+                                },
+                                "text": "child-package"
+                              }
+                            ],
+                            "value": "child-package"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 826,
+                            "start": 811
+                          },
+                          "type": "string_expression"
+                        }
+                      }
+                    }
+                  ],
+                  "id": 68,
+                  "kind": "entity",
+                  "name": "child",
+                  "optional": false,
+                  "poison": [],
+                  "scope": 4
+                },
+                {
+                  "entries": [
+                    {
+                      "id": 3,
+                      "kind": "binding"
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 75,
+                        "name": "@key",
+                        "poison": [],
+                        "value": {
+                          "id": 76,
+                          "kind": {
+                            "kind": "reference",
+                            "name": "hack_nerd_font",
+                            "namespace": "resource_key"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 913,
+                            "start": 899
+                          },
+                          "type": "bare_resource_key_reference"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 77,
+                        "name": "@pkg",
+                        "poison": [],
+                        "value": {
+                          "id": 78,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [
+                                  {
+                                    "binding": 3,
+                                    "declaration_range": {
+                                      "end": 866,
+                                      "start": 854
+                                    },
+                                    "reference_range": {
+                                      "end": 942,
+                                      "start": 930
+                                    }
+                                  }
+                                ],
+                                "source_range": {
+                                  "end": 881,
+                                  "start": 870
+                                },
+                                "text": "font-package"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "binding",
+                                "name": "font_package",
+                                "range": {
+                                  "end": 942,
+                                  "start": 930
+                                },
+                                "resolution": "Resolved(BindingId(3))"
+                              }
+                            ],
+                            "value": "font-package"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 942,
+                            "start": 929
+                          },
+                          "type": "string_expression"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 79,
+                        "name": "@installer",
+                        "poison": [],
+                        "value": {
+                          "id": 80,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 973,
+                                  "start": 965
+                                },
+                                "text": "brew-cask"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 973,
+                                  "start": 965
+                                },
+                                "text": "brew-cask"
+                              }
+                            ],
+                            "value": "brew-cask"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 975,
+                            "start": 964
+                          },
+                          "type": "installer_string"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 81,
+                        "name": "@check",
+                        "poison": [],
+                        "value": {
+                          "id": 82,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 997,
+                                  "start": 994
+                                },
+                                "text": "font"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 997,
+                                  "start": 994
+                                },
+                                "text": "font"
+                              }
+                            ],
+                            "value": "font"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 999,
+                            "start": 993
+                          },
+                          "type": "check_enum"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 83,
+                        "name": "@version",
+                        "poison": [],
+                        "value": {
+                          "id": 84,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 1020,
+                                  "start": 1020
+                                },
+                                "text": "1"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 1020,
+                                  "start": 1020
+                                },
+                                "text": "1"
+                              }
+                            ],
+                            "value": "1"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 1022,
+                            "start": 1019
+                          },
+                          "type": "string"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 85,
+                        "name": "@family",
+                        "poison": [],
+                        "value": {
+                          "id": 86,
+                          "kind": {
+                            "kind": "list",
+                            "values": [
+                              {
+                                "id": 87,
+                                "kind": {
+                                  "evaluated_segments": [
+                                    {
+                                      "binding_edges": [],
+                                      "source_range": {
+                                        "end": 1061,
+                                        "start": 1043
+                                      },
+                                      "text": "Hack Nerd Font Mono"
+                                    }
+                                  ],
+                                  "kind": "string",
+                                  "poisoned": false,
+                                  "segments": [
+                                    {
+                                      "kind": "literal",
+                                      "range": {
+                                        "end": 1061,
+                                        "start": 1043
+                                      },
+                                      "text": "Hack Nerd Font Mono"
+                                    }
+                                  ],
+                                  "value": "Hack Nerd Font Mono"
+                                },
+                                "poison": [],
+                                "range": {
+                                  "end": 1063,
+                                  "start": 1042
+                                },
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 1064,
+                            "start": 1041
+                          },
+                          "type": "string_or_string_list"
+                        }
+                      }
+                    },
+                    {
+                      "kind": "attribute",
+                      "value": {
+                        "id": 88,
+                        "name": "@description",
+                        "poison": [],
+                        "value": {
+                          "id": 89,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 1108,
+                                  "start": 1089
+                                },
+                                "text": "Nested font resource"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 1108,
+                                  "start": 1089
+                                },
+                                "text": "Nested font resource"
+                              }
+                            ],
+                            "value": "Nested font resource"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 1110,
+                            "start": 1088
+                          },
+                          "type": "one_line_string"
+                        }
+                      }
+                    }
+                  ],
+                  "id": 72,
+                  "key": {
+                    "name": "hack_nerd_font",
+                    "namespace": "resource_key",
+                    "range": {
+                      "end": 913,
+                      "start": 899
+                    }
+                  },
+                  "kind": "resource",
+                  "optional": false,
+                  "poison": [],
+                  "resource_kind": "font",
+                  "scope": 5
+                }
+              ],
+              "id": 44,
+              "kind": "entity",
+              "name": "parent",
+              "optional": false,
+              "poison": [],
+              "scope": 3
+            },
+            {
+              "entries": [
+                {
+                  "id": 4,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 93,
+                    "name": "@pkg",
+                    "poison": [],
+                    "value": {
+                      "id": 94,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 4,
+                                "declaration_range": {
+                                  "end": 1163,
+                                  "start": 1153
+                                },
+                                "reference_range": {
+                                  "end": 1207,
+                                  "start": 1197
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 1182,
+                              "start": 1167
+                            },
+                            "text": "parent-extension"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "coordinate",
+                            "range": {
+                              "end": 1207,
+                              "start": 1197
+                            },
+                            "resolution": "Resolved(BindingId(4))"
+                          }
+                        ],
+                        "value": "parent-extension"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1207,
+                        "start": 1196
+                      },
+                      "type": "string_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 95,
+                    "name": "@installer",
+                    "poison": [],
+                    "value": {
+                      "id": 96,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1230,
+                              "start": 1226
+                            },
+                            "text": "cargo"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1230,
+                              "start": 1226
+                            },
+                            "text": "cargo"
+                          }
+                        ],
+                        "value": "cargo"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1232,
+                        "start": 1225
+                      },
+                      "type": "installer_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 97,
+                    "name": "@bin",
+                    "poison": [],
+                    "value": {
+                      "id": 98,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1250,
+                              "start": 1245
+                            },
+                            "text": "parent"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1250,
+                              "start": 1245
+                            },
+                            "text": "parent"
+                          }
+                        ],
+                        "value": "parent"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1252,
+                        "start": 1244
+                      },
+                      "type": "command_name_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 99,
+                    "name": "@check",
+                    "poison": [],
+                    "value": {
+                      "id": 100,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1273,
+                              "start": 1267
+                            },
+                            "text": "command"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1273,
+                              "start": 1267
+                            },
+                            "text": "command"
+                          }
+                        ],
+                        "value": "command"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1275,
+                        "start": 1266
+                      },
+                      "type": "check_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 101,
+                    "name": "@version",
+                    "poison": [],
+                    "value": {
+                      "id": 102,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1292,
+                              "start": 1292
+                            },
+                            "text": "2"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1292,
+                              "start": 1292
+                            },
+                            "text": "2"
+                          }
+                        ],
+                        "value": "2"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1294,
+                        "start": 1291
+                      },
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 103,
+                    "name": "@family",
+                    "poison": [],
+                    "value": {
+                      "id": 104,
+                      "kind": {
+                        "kind": "list",
+                        "values": [
+                          {
+                            "id": 105,
+                            "kind": {
+                              "evaluated_segments": [
+                                {
+                                  "binding_edges": [],
+                                  "source_range": {
+                                    "end": 1320,
+                                    "start": 1310
+                                  },
+                                  "text": "Parent Sans"
+                                }
+                              ],
+                              "kind": "string",
+                              "poisoned": false,
+                              "segments": [
+                                {
+                                  "kind": "literal",
+                                  "range": {
+                                    "end": 1320,
+                                    "start": 1310
+                                  },
+                                  "text": "Parent Sans"
+                                }
+                              ],
+                              "value": "Parent Sans"
+                            },
+                            "poison": [],
+                            "range": {
+                              "end": 1322,
+                              "start": 1309
+                            },
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1322,
+                        "start": 1309
+                      },
+                      "type": "string_or_string_list"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 106,
+                    "name": "@service",
+                    "poison": [],
+                    "value": {
+                      "id": 107,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1352,
+                              "start": 1339
+                            },
+                            "text": "parent.service"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1352,
+                              "start": 1339
+                            },
+                            "text": "parent.service"
+                          }
+                        ],
+                        "value": "parent.service"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1354,
+                        "start": 1338
+                      },
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 108,
+                    "name": "@scope",
+                    "poison": [],
+                    "value": {
+                      "id": 109,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1374,
+                              "start": 1369
+                            },
+                            "text": "system"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1374,
+                              "start": 1369
+                            },
+                            "text": "system"
+                          }
+                        ],
+                        "value": "system"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1376,
+                        "start": 1368
+                      },
+                      "type": "service_scope_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 110,
+                    "name": "@path",
+                    "poison": [],
+                    "value": {
+                      "id": 111,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1404,
+                              "start": 1390
+                            },
+                            "text": "/var/lib/parent"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1404,
+                              "start": 1390
+                            },
+                            "text": "/var/lib/parent"
+                          }
+                        ],
+                        "value": "/var/lib/parent"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1406,
+                        "start": 1389
+                      },
+                      "type": "machine_path_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 112,
+                    "name": "@description",
+                    "poison": [],
+                    "value": {
+                      "id": 113,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1442,
+                              "start": 1427
+                            },
+                            "text": "Entity extension"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1442,
+                              "start": 1427
+                            },
+                            "text": "Entity extension"
+                          }
+                        ],
+                        "value": "Entity extension"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1444,
+                        "start": 1426
+                      },
+                      "type": "one_line_string"
+                    }
+                  }
+                }
+              ],
+              "id": 90,
+              "kind": "extension",
+              "name": "parent",
+              "namespace": "entity",
+              "poison": [],
+              "scope": 6
+            },
+            {
+              "entries": [
+                {
+                  "id": 5,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 117,
+                    "name": "@pkg",
+                    "poison": [],
+                    "value": {
+                      "id": 118,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 5,
+                                "declaration_range": {
+                                  "end": 1496,
+                                  "start": 1486
+                                },
+                                "reference_range": {
+                                  "end": 1538,
+                                  "start": 1528
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 1513,
+                              "start": 1500
+                            },
+                            "text": "font-extension"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "coordinate",
+                            "range": {
+                              "end": 1538,
+                              "start": 1528
+                            },
+                            "resolution": "Resolved(BindingId(5))"
+                          }
+                        ],
+                        "value": "font-extension"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1538,
+                        "start": 1527
+                      },
+                      "type": "string_expression"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 119,
+                    "name": "@installer",
+                    "poison": [],
+                    "value": {
+                      "id": 120,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1565,
+                              "start": 1557
+                            },
+                            "text": "brew-cask"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1565,
+                              "start": 1557
+                            },
+                            "text": "brew-cask"
+                          }
+                        ],
+                        "value": "brew-cask"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1567,
+                        "start": 1556
+                      },
+                      "type": "installer_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 121,
+                    "name": "@check",
+                    "poison": [],
+                    "value": {
+                      "id": 122,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1585,
+                              "start": 1582
+                            },
+                            "text": "font"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1585,
+                              "start": 1582
+                            },
+                            "text": "font"
+                          }
+                        ],
+                        "value": "font"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1587,
+                        "start": 1581
+                      },
+                      "type": "check_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 123,
+                    "name": "@version",
+                    "poison": [],
+                    "value": {
+                      "id": 124,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1604,
+                              "start": 1604
+                            },
+                            "text": "2"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1604,
+                              "start": 1604
+                            },
+                            "text": "2"
+                          }
+                        ],
+                        "value": "2"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1606,
+                        "start": 1603
+                      },
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 125,
+                    "name": "@family",
+                    "poison": [],
+                    "value": {
+                      "id": 126,
+                      "kind": {
+                        "kind": "list",
+                        "values": [
+                          {
+                            "id": 127,
+                            "kind": {
+                              "evaluated_segments": [
+                                {
+                                  "binding_edges": [],
+                                  "source_range": {
+                                    "end": 1640,
+                                    "start": 1622
+                                  },
+                                  "text": "Hack Nerd Font Mono"
+                                }
+                              ],
+                              "kind": "string",
+                              "poisoned": false,
+                              "segments": [
+                                {
+                                  "kind": "literal",
+                                  "range": {
+                                    "end": 1640,
+                                    "start": 1622
+                                  },
+                                  "text": "Hack Nerd Font Mono"
+                                }
+                              ],
+                              "value": "Hack Nerd Font Mono"
+                            },
+                            "poison": [],
+                            "range": {
+                              "end": 1642,
+                              "start": 1621
+                            },
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1642,
+                        "start": 1621
+                      },
+                      "type": "string_or_string_list"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 128,
+                    "name": "@description",
+                    "poison": [],
+                    "value": {
+                      "id": 129,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 1680,
+                              "start": 1663
+                            },
+                            "text": "Resource extension"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 1680,
+                              "start": 1663
+                            },
+                            "text": "Resource extension"
+                          }
+                        ],
+                        "value": "Resource extension"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 1682,
+                        "start": 1662
+                      },
+                      "type": "one_line_string"
+                    }
+                  }
+                }
+              ],
+              "id": 114,
+              "kind": "extension",
+              "name": "hack_nerd_font",
+              "namespace": "font",
+              "poison": [],
+              "scope": 7
+            }
+          ],
+          "id": 2,
+          "kind": "requirements",
+          "poison": [],
+          "scope": 0
+        },
+        "scopes": [
+          {
+            "bindings": [
+              0
+            ],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 28,
+            "range": {
+              "end": 1685,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [
+              1
+            ],
+            "hir": 22,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 277,
+            "range": {
+              "end": 435,
+              "start": 225
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 39,
+            "id": 2,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 450,
+            "range": {
+              "end": 491,
+              "start": 448
+            }
+          },
+          {
+            "bindings": [
+              2
+            ],
+            "hir": 45,
+            "id": 3,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 542,
+            "range": {
+              "end": 1118,
+              "start": 500
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 69,
+            "id": 4,
+            "parent": 3,
+            "poison": [],
+            "prologue_end": 804,
+            "range": {
+              "end": 828,
+              "start": 802
+            }
+          },
+          {
+            "bindings": [
+              3
+            ],
+            "hir": 73,
+            "id": 5,
+            "parent": 3,
+            "poison": [],
+            "prologue_end": 892,
+            "range": {
+              "end": 1116,
+              "start": 839
+            }
+          },
+          {
+            "bindings": [
+              4
+            ],
+            "hir": 91,
+            "id": 6,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 1189,
+            "range": {
+              "end": 1446,
+              "start": 1142
+            }
+          },
+          {
+            "bindings": [
+              5
+            ],
+            "hir": 115,
+            "id": 7,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 1520,
+            "range": {
+              "end": 1684,
+              "start": 1475
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 1685,
+              "start": 0
+            },
+            "syntax": "NodeId(139)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              1
+            ],
+            "hir_ids_for_syntax": [
+              1
+            ],
+            "range": {
+              "end": 27,
+              "start": 0
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 1685,
+              "start": 0
+            },
+            "syntax": "NodeId(139)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 57,
+              "start": 28
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 57,
+              "start": 43
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 74,
+              "start": 58
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 74,
+              "start": 68
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 96,
+              "start": 75
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 96,
+              "start": 88
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 120,
+              "start": 97
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 120,
+              "start": 112
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 135,
+              "start": 121
+            },
+            "syntax": "NodeId(11)"
+          },
+          {
+            "hir": 12,
+            "hir_ids_for_range": [
+              12
+            ],
+            "hir_ids_for_syntax": [
+              12
+            ],
+            "range": {
+              "end": 135,
+              "start": 129
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 13,
+            "hir_ids_for_range": [
+              13
+            ],
+            "hir_ids_for_syntax": [
+              13
+            ],
+            "range": {
+              "end": 151,
+              "start": 136
+            },
+            "syntax": "NodeId(13)"
+          },
+          {
+            "hir": 14,
+            "hir_ids_for_range": [
+              14
+            ],
+            "hir_ids_for_syntax": [
+              14
+            ],
+            "range": {
+              "end": 151,
+              "start": 145
+            },
+            "syntax": "NodeId(12)"
+          },
+          {
+            "hir": 15,
+            "hir_ids_for_range": [
+              15
+            ],
+            "hir_ids_for_syntax": [
+              15
+            ],
+            "range": {
+              "end": 167,
+              "start": 152
+            },
+            "syntax": "NodeId(15)"
+          },
+          {
+            "hir": 16,
+            "hir_ids_for_range": [
+              16
+            ],
+            "hir_ids_for_syntax": [
+              16
+            ],
+            "range": {
+              "end": 167,
+              "start": 161
+            },
+            "syntax": "NodeId(14)"
+          },
+          {
+            "hir": 17,
+            "hir_ids_for_range": [
+              17
+            ],
+            "hir_ids_for_syntax": [
+              17
+            ],
+            "range": {
+              "end": 199,
+              "start": 168
+            },
+            "syntax": "NodeId(17)"
+          },
+          {
+            "hir": 18,
+            "hir_ids_for_range": [
+              18
+            ],
+            "hir_ids_for_syntax": [
+              18
+            ],
+            "range": {
+              "end": 199,
+              "start": 183
+            },
+            "syntax": "NodeId(16)"
+          },
+          {
+            "hir": 19,
+            "hir_ids_for_range": [
+              19
+            ],
+            "hir_ids_for_syntax": [
+              19
+            ],
+            "range": {
+              "end": 214,
+              "start": 200
+            },
+            "syntax": "NodeId(19)"
+          },
+          {
+            "hir": 20,
+            "hir_ids_for_range": [
+              20
+            ],
+            "hir_ids_for_syntax": [
+              20
+            ],
+            "range": {
+              "end": 214,
+              "start": 209
+            },
+            "syntax": "NodeId(18)"
+          },
+          {
+            "hir": 21,
+            "hir_ids_for_range": [
+              21
+            ],
+            "hir_ids_for_syntax": [
+              21
+            ],
+            "range": {
+              "end": 435,
+              "start": 216
+            },
+            "syntax": "NodeId(38)"
+          },
+          {
+            "hir": 22,
+            "hir_ids_for_range": [
+              22
+            ],
+            "hir_ids_for_syntax": [
+              22
+            ],
+            "range": {
+              "end": 435,
+              "start": 225
+            },
+            "syntax": "NodeId(37)"
+          },
+          {
+            "hir": 23,
+            "hir_ids_for_range": [
+              23
+            ],
+            "hir_ids_for_syntax": [
+              23
+            ],
+            "range": {
+              "end": 272,
+              "start": 231
+            },
+            "syntax": "NodeId(21)"
+          },
+          {
+            "hir": 24,
+            "hir_ids_for_range": [
+              24
+            ],
+            "hir_ids_for_syntax": [
+              24
+            ],
+            "range": {
+              "end": 299,
+              "start": 277
+            },
+            "syntax": "NodeId(24)"
+          },
+          {
+            "hir": 25,
+            "hir_ids_for_range": [
+              25
+            ],
+            "hir_ids_for_syntax": [
+              25
+            ],
+            "range": {
+              "end": 299,
+              "start": 292
+            },
+            "syntax": "NodeId(23)"
+          },
+          {
+            "hir": 26,
+            "hir_ids_for_range": [
+              26
+            ],
+            "hir_ids_for_syntax": [
+              26
+            ],
+            "range": {
+              "end": 320,
+              "start": 304
+            },
+            "syntax": "NodeId(26)"
+          },
+          {
+            "hir": 27,
+            "hir_ids_for_range": [
+              27
+            ],
+            "hir_ids_for_syntax": [
+              27
+            ],
+            "range": {
+              "end": 320,
+              "start": 314
+            },
+            "syntax": "NodeId(25)"
+          },
+          {
+            "hir": 28,
+            "hir_ids_for_range": [
+              28
+            ],
+            "hir_ids_for_syntax": [
+              28
+            ],
+            "range": {
+              "end": 346,
+              "start": 325
+            },
+            "syntax": "NodeId(28)"
+          },
+          {
+            "hir": 29,
+            "hir_ids_for_range": [
+              29
+            ],
+            "hir_ids_for_syntax": [
+              29
+            ],
+            "range": {
+              "end": 346,
+              "start": 338
+            },
+            "syntax": "NodeId(27)"
+          },
+          {
+            "hir": 30,
+            "hir_ids_for_range": [
+              30
+            ],
+            "hir_ids_for_syntax": [
+              30
+            ],
+            "range": {
+              "end": 374,
+              "start": 351
+            },
+            "syntax": "NodeId(30)"
+          },
+          {
+            "hir": 31,
+            "hir_ids_for_range": [
+              31
+            ],
+            "hir_ids_for_syntax": [
+              31
+            ],
+            "range": {
+              "end": 374,
+              "start": 366
+            },
+            "syntax": "NodeId(29)"
+          },
+          {
+            "hir": 32,
+            "hir_ids_for_range": [
+              32
+            ],
+            "hir_ids_for_syntax": [
+              32
+            ],
+            "range": {
+              "end": 393,
+              "start": 379
+            },
+            "syntax": "NodeId(32)"
+          },
+          {
+            "hir": 33,
+            "hir_ids_for_range": [
+              33
+            ],
+            "hir_ids_for_syntax": [
+              33
+            ],
+            "range": {
+              "end": 393,
+              "start": 387
+            },
+            "syntax": "NodeId(31)"
+          },
+          {
+            "hir": 34,
+            "hir_ids_for_range": [
+              34
+            ],
+            "hir_ids_for_syntax": [
+              34
+            ],
+            "range": {
+              "end": 413,
+              "start": 398
+            },
+            "syntax": "NodeId(34)"
+          },
+          {
+            "hir": 35,
+            "hir_ids_for_range": [
+              35
+            ],
+            "hir_ids_for_syntax": [
+              35
+            ],
+            "range": {
+              "end": 413,
+              "start": 407
+            },
+            "syntax": "NodeId(33)"
+          },
+          {
+            "hir": 36,
+            "hir_ids_for_range": [
+              36
+            ],
+            "hir_ids_for_syntax": [
+              36
+            ],
+            "range": {
+              "end": 433,
+              "start": 418
+            },
+            "syntax": "NodeId(36)"
+          },
+          {
+            "hir": 37,
+            "hir_ids_for_range": [
+              37
+            ],
+            "hir_ids_for_syntax": [
+              37
+            ],
+            "range": {
+              "end": 433,
+              "start": 427
+            },
+            "syntax": "NodeId(35)"
+          },
+          {
+            "hir": 38,
+            "hir_ids_for_range": [
+              38
+            ],
+            "hir_ids_for_syntax": [
+              38
+            ],
+            "range": {
+              "end": 491,
+              "start": 436
+            },
+            "syntax": "NodeId(44)"
+          },
+          {
+            "hir": 39,
+            "hir_ids_for_range": [
+              39
+            ],
+            "hir_ids_for_syntax": [
+              39
+            ],
+            "range": {
+              "end": 491,
+              "start": 448
+            },
+            "syntax": "NodeId(43)"
+          },
+          {
+            "hir": 40,
+            "hir_ids_for_range": [
+              40
+            ],
+            "hir_ids_for_syntax": [
+              40
+            ],
+            "range": {
+              "end": 466,
+              "start": 450
+            },
+            "syntax": "NodeId(40)"
+          },
+          {
+            "hir": 41,
+            "hir_ids_for_range": [
+              41
+            ],
+            "hir_ids_for_syntax": [
+              41
+            ],
+            "range": {
+              "end": 466,
+              "start": 460
+            },
+            "syntax": "NodeId(39)"
+          },
+          {
+            "hir": 42,
+            "hir_ids_for_range": [
+              42
+            ],
+            "hir_ids_for_syntax": [
+              42
+            ],
+            "range": {
+              "end": 489,
+              "start": 468
+            },
+            "syntax": "NodeId(42)"
+          },
+          {
+            "hir": 43,
+            "hir_ids_for_range": [
+              43
+            ],
+            "hir_ids_for_syntax": [
+              43
+            ],
+            "range": {
+              "end": 489,
+              "start": 478
+            },
+            "syntax": "NodeId(41)"
+          },
+          {
+            "hir": 44,
+            "hir_ids_for_range": [
+              44
+            ],
+            "hir_ids_for_syntax": [
+              44
+            ],
+            "range": {
+              "end": 1118,
+              "start": 493
+            },
+            "syntax": "NodeId(94)"
+          },
+          {
+            "hir": 45,
+            "hir_ids_for_range": [
+              45
+            ],
+            "hir_ids_for_syntax": [
+              45
+            ],
+            "range": {
+              "end": 1118,
+              "start": 500
+            },
+            "syntax": "NodeId(93)"
+          },
+          {
+            "hir": 46,
+            "hir_ids_for_range": [
+              46
+            ],
+            "hir_ids_for_syntax": [
+              46
+            ],
+            "range": {
+              "end": 537,
+              "start": 506
+            },
+            "syntax": "NodeId(46)"
+          },
+          {
+            "hir": 47,
+            "hir_ids_for_range": [
+              47
+            ],
+            "hir_ids_for_syntax": [
+              47
+            ],
+            "range": {
+              "end": 557,
+              "start": 542
+            },
+            "syntax": "NodeId(49)"
+          },
+          {
+            "hir": 48,
+            "hir_ids_for_range": [
+              48
+            ],
+            "hir_ids_for_syntax": [
+              48
+            ],
+            "range": {
+              "end": 557,
+              "start": 549
+            },
+            "syntax": "NodeId(48)"
+          },
+          {
+            "hir": 49,
+            "hir_ids_for_range": [
+              49
+            ],
+            "hir_ids_for_syntax": [
+              49
+            ],
+            "range": {
+              "end": 582,
+              "start": 562
+            },
+            "syntax": "NodeId(51)"
+          },
+          {
+            "hir": 50,
+            "hir_ids_for_range": [
+              50
+            ],
+            "hir_ids_for_syntax": [
+              50
+            ],
+            "range": {
+              "end": 582,
+              "start": 575
+            },
+            "syntax": "NodeId(50)"
+          },
+          {
+            "hir": 51,
+            "hir_ids_for_range": [
+              51
+            ],
+            "hir_ids_for_syntax": [
+              51
+            ],
+            "range": {
+              "end": 602,
+              "start": 587
+            },
+            "syntax": "NodeId(53)"
+          },
+          {
+            "hir": 52,
+            "hir_ids_for_range": [
+              52
+            ],
+            "hir_ids_for_syntax": [
+              52
+            ],
+            "range": {
+              "end": 602,
+              "start": 594
+            },
+            "syntax": "NodeId(52)"
+          },
+          {
+            "hir": 53,
+            "hir_ids_for_range": [
+              53
+            ],
+            "hir_ids_for_syntax": [
+              53
+            ],
+            "range": {
+              "end": 625,
+              "start": 607
+            },
+            "syntax": "NodeId(55)"
+          },
+          {
+            "hir": 54,
+            "hir_ids_for_range": [
+              54
+            ],
+            "hir_ids_for_syntax": [
+              54
+            ],
+            "range": {
+              "end": 625,
+              "start": 616
+            },
+            "syntax": "NodeId(54)"
+          },
+          {
+            "hir": 55,
+            "hir_ids_for_range": [
+              55
+            ],
+            "hir_ids_for_syntax": [
+              55
+            ],
+            "range": {
+              "end": 644,
+              "start": 630
+            },
+            "syntax": "NodeId(57)"
+          },
+          {
+            "hir": 56,
+            "hir_ids_for_range": [
+              56
+            ],
+            "hir_ids_for_syntax": [
+              56
+            ],
+            "range": {
+              "end": 644,
+              "start": 641
+            },
+            "syntax": "NodeId(56)"
+          },
+          {
+            "hir": 57,
+            "hir_ids_for_range": [
+              57
+            ],
+            "hir_ids_for_syntax": [
+              57
+            ],
+            "range": {
+              "end": 674,
+              "start": 649
+            },
+            "syntax": "NodeId(60)"
+          },
+          {
+            "hir": 58,
+            "hir_ids_for_range": [
+              58
+            ],
+            "hir_ids_for_syntax": [
+              58
+            ],
+            "range": {
+              "end": 674,
+              "start": 659
+            },
+            "syntax": "NodeId(59)"
+          },
+          {
+            "hir": 59,
+            "hir_ids_for_range": [
+              59
+            ],
+            "hir_ids_for_syntax": [
+              59
+            ],
+            "range": {
+              "end": 673,
+              "start": 660
+            },
+            "syntax": "NodeId(58)"
+          },
+          {
+            "hir": 60,
+            "hir_ids_for_range": [
+              60
+            ],
+            "hir_ids_for_syntax": [
+              60
+            ],
+            "range": {
+              "end": 706,
+              "start": 679
+            },
+            "syntax": "NodeId(62)"
+          },
+          {
+            "hir": 61,
+            "hir_ids_for_range": [
+              61
+            ],
+            "hir_ids_for_syntax": [
+              61
+            ],
+            "range": {
+              "end": 706,
+              "start": 690
+            },
+            "syntax": "NodeId(61)"
+          },
+          {
+            "hir": 62,
+            "hir_ids_for_range": [
+              62
+            ],
+            "hir_ids_for_syntax": [
+              62
+            ],
+            "range": {
+              "end": 726,
+              "start": 711
+            },
+            "syntax": "NodeId(64)"
+          },
+          {
+            "hir": 63,
+            "hir_ids_for_range": [
+              63
+            ],
+            "hir_ids_for_syntax": [
+              63
+            ],
+            "range": {
+              "end": 726,
+              "start": 720
+            },
+            "syntax": "NodeId(63)"
+          },
+          {
+            "hir": 64,
+            "hir_ids_for_range": [
+              64
+            ],
+            "hir_ids_for_syntax": [
+              64
+            ],
+            "range": {
+              "end": 756,
+              "start": 731
+            },
+            "syntax": "NodeId(66)"
+          },
+          {
+            "hir": 65,
+            "hir_ids_for_range": [
+              65
+            ],
+            "hir_ids_for_syntax": [
+              65
+            ],
+            "range": {
+              "end": 756,
+              "start": 739
+            },
+            "syntax": "NodeId(65)"
+          },
+          {
+            "hir": 66,
+            "hir_ids_for_range": [
+              66
+            ],
+            "hir_ids_for_syntax": [
+              66
+            ],
+            "range": {
+              "end": 791,
+              "start": 761
+            },
+            "syntax": "NodeId(68)"
+          },
+          {
+            "hir": 67,
+            "hir_ids_for_range": [
+              67
+            ],
+            "hir_ids_for_syntax": [
+              67
+            ],
+            "range": {
+              "end": 791,
+              "start": 776
+            },
+            "syntax": "NodeId(67)"
+          },
+          {
+            "hir": 68,
+            "hir_ids_for_range": [
+              68
+            ],
+            "hir_ids_for_syntax": [
+              68
+            ],
+            "range": {
+              "end": 828,
+              "start": 796
+            },
+            "syntax": "NodeId(72)"
+          },
+          {
+            "hir": 69,
+            "hir_ids_for_range": [
+              69
+            ],
+            "hir_ids_for_syntax": [
+              69
+            ],
+            "range": {
+              "end": 828,
+              "start": 802
+            },
+            "syntax": "NodeId(71)"
+          },
+          {
+            "hir": 70,
+            "hir_ids_for_range": [
+              70
+            ],
+            "hir_ids_for_syntax": [
+              70
+            ],
+            "range": {
+              "end": 826,
+              "start": 804
+            },
+            "syntax": "NodeId(70)"
+          },
+          {
+            "hir": 71,
+            "hir_ids_for_range": [
+              71
+            ],
+            "hir_ids_for_syntax": [
+              71
+            ],
+            "range": {
+              "end": 826,
+              "start": 811
+            },
+            "syntax": "NodeId(69)"
+          },
+          {
+            "hir": 72,
+            "hir_ids_for_range": [
+              72
+            ],
+            "hir_ids_for_syntax": [
+              72
+            ],
+            "range": {
+              "end": 1116,
+              "start": 833
+            },
+            "syntax": "NodeId(92)"
+          },
+          {
+            "hir": 73,
+            "hir_ids_for_range": [
+              73
+            ],
+            "hir_ids_for_syntax": [
+              73
+            ],
+            "range": {
+              "end": 1116,
+              "start": 839
+            },
+            "syntax": "NodeId(91)"
+          },
+          {
+            "hir": 74,
+            "hir_ids_for_range": [
+              74
+            ],
+            "hir_ids_for_syntax": [
+              74
+            ],
+            "range": {
+              "end": 883,
+              "start": 849
+            },
+            "syntax": "NodeId(74)"
+          },
+          {
+            "hir": 75,
+            "hir_ids_for_range": [
+              75
+            ],
+            "hir_ids_for_syntax": [
+              75
+            ],
+            "range": {
+              "end": 913,
+              "start": 892
+            },
+            "syntax": "NodeId(76)"
+          },
+          {
+            "hir": 76,
+            "hir_ids_for_range": [
+              76
+            ],
+            "hir_ids_for_syntax": [
+              76
+            ],
+            "range": {
+              "end": 913,
+              "start": 899
+            },
+            "syntax": "NodeId(75)"
+          },
+          {
+            "hir": 77,
+            "hir_ids_for_range": [
+              77
+            ],
+            "hir_ids_for_syntax": [
+              77
+            ],
+            "range": {
+              "end": 942,
+              "start": 922
+            },
+            "syntax": "NodeId(79)"
+          },
+          {
+            "hir": 78,
+            "hir_ids_for_range": [
+              78
+            ],
+            "hir_ids_for_syntax": [
+              78
+            ],
+            "range": {
+              "end": 942,
+              "start": 929
+            },
+            "syntax": "NodeId(78)"
+          },
+          {
+            "hir": 79,
+            "hir_ids_for_range": [
+              79
+            ],
+            "hir_ids_for_syntax": [
+              79
+            ],
+            "range": {
+              "end": 975,
+              "start": 951
+            },
+            "syntax": "NodeId(81)"
+          },
+          {
+            "hir": 80,
+            "hir_ids_for_range": [
+              80
+            ],
+            "hir_ids_for_syntax": [
+              80
+            ],
+            "range": {
+              "end": 975,
+              "start": 964
+            },
+            "syntax": "NodeId(80)"
+          },
+          {
+            "hir": 81,
+            "hir_ids_for_range": [
+              81
+            ],
+            "hir_ids_for_syntax": [
+              81
+            ],
+            "range": {
+              "end": 999,
+              "start": 984
+            },
+            "syntax": "NodeId(83)"
+          },
+          {
+            "hir": 82,
+            "hir_ids_for_range": [
+              82
+            ],
+            "hir_ids_for_syntax": [
+              82
+            ],
+            "range": {
+              "end": 999,
+              "start": 993
+            },
+            "syntax": "NodeId(82)"
+          },
+          {
+            "hir": 83,
+            "hir_ids_for_range": [
+              83
+            ],
+            "hir_ids_for_syntax": [
+              83
+            ],
+            "range": {
+              "end": 1022,
+              "start": 1008
+            },
+            "syntax": "NodeId(85)"
+          },
+          {
+            "hir": 84,
+            "hir_ids_for_range": [
+              84
+            ],
+            "hir_ids_for_syntax": [
+              84
+            ],
+            "range": {
+              "end": 1022,
+              "start": 1019
+            },
+            "syntax": "NodeId(84)"
+          },
+          {
+            "hir": 85,
+            "hir_ids_for_range": [
+              85
+            ],
+            "hir_ids_for_syntax": [
+              85
+            ],
+            "range": {
+              "end": 1064,
+              "start": 1031
+            },
+            "syntax": "NodeId(88)"
+          },
+          {
+            "hir": 86,
+            "hir_ids_for_range": [
+              86
+            ],
+            "hir_ids_for_syntax": [
+              86
+            ],
+            "range": {
+              "end": 1064,
+              "start": 1041
+            },
+            "syntax": "NodeId(87)"
+          },
+          {
+            "hir": 87,
+            "hir_ids_for_range": [
+              87
+            ],
+            "hir_ids_for_syntax": [
+              87
+            ],
+            "range": {
+              "end": 1063,
+              "start": 1042
+            },
+            "syntax": "NodeId(86)"
+          },
+          {
+            "hir": 88,
+            "hir_ids_for_range": [
+              88
+            ],
+            "hir_ids_for_syntax": [
+              88
+            ],
+            "range": {
+              "end": 1110,
+              "start": 1073
+            },
+            "syntax": "NodeId(90)"
+          },
+          {
+            "hir": 89,
+            "hir_ids_for_range": [
+              89
+            ],
+            "hir_ids_for_syntax": [
+              89
+            ],
+            "range": {
+              "end": 1110,
+              "start": 1088
+            },
+            "syntax": "NodeId(89)"
+          },
+          {
+            "hir": 90,
+            "hir_ids_for_range": [
+              90
+            ],
+            "hir_ids_for_syntax": [
+              90
+            ],
+            "range": {
+              "end": 1446,
+              "start": 1120
+            },
+            "syntax": "NodeId(120)"
+          },
+          {
+            "hir": 91,
+            "hir_ids_for_range": [
+              91
+            ],
+            "hir_ids_for_syntax": [
+              91
+            ],
+            "range": {
+              "end": 1446,
+              "start": 1142
+            },
+            "syntax": "NodeId(119)"
+          },
+          {
+            "hir": 92,
+            "hir_ids_for_range": [
+              92
+            ],
+            "hir_ids_for_syntax": [
+              92
+            ],
+            "range": {
+              "end": 1184,
+              "start": 1148
+            },
+            "syntax": "NodeId(97)"
+          },
+          {
+            "hir": 93,
+            "hir_ids_for_range": [
+              93
+            ],
+            "hir_ids_for_syntax": [
+              93
+            ],
+            "range": {
+              "end": 1207,
+              "start": 1189
+            },
+            "syntax": "NodeId(100)"
+          },
+          {
+            "hir": 94,
+            "hir_ids_for_range": [
+              94
+            ],
+            "hir_ids_for_syntax": [
+              94
+            ],
+            "range": {
+              "end": 1207,
+              "start": 1196
+            },
+            "syntax": "NodeId(99)"
+          },
+          {
+            "hir": 95,
+            "hir_ids_for_range": [
+              95
+            ],
+            "hir_ids_for_syntax": [
+              95
+            ],
+            "range": {
+              "end": 1232,
+              "start": 1212
+            },
+            "syntax": "NodeId(102)"
+          },
+          {
+            "hir": 96,
+            "hir_ids_for_range": [
+              96
+            ],
+            "hir_ids_for_syntax": [
+              96
+            ],
+            "range": {
+              "end": 1232,
+              "start": 1225
+            },
+            "syntax": "NodeId(101)"
+          },
+          {
+            "hir": 97,
+            "hir_ids_for_range": [
+              97
+            ],
+            "hir_ids_for_syntax": [
+              97
+            ],
+            "range": {
+              "end": 1252,
+              "start": 1237
+            },
+            "syntax": "NodeId(104)"
+          },
+          {
+            "hir": 98,
+            "hir_ids_for_range": [
+              98
+            ],
+            "hir_ids_for_syntax": [
+              98
+            ],
+            "range": {
+              "end": 1252,
+              "start": 1244
+            },
+            "syntax": "NodeId(103)"
+          },
+          {
+            "hir": 99,
+            "hir_ids_for_range": [
+              99
+            ],
+            "hir_ids_for_syntax": [
+              99
+            ],
+            "range": {
+              "end": 1275,
+              "start": 1257
+            },
+            "syntax": "NodeId(106)"
+          },
+          {
+            "hir": 100,
+            "hir_ids_for_range": [
+              100
+            ],
+            "hir_ids_for_syntax": [
+              100
+            ],
+            "range": {
+              "end": 1275,
+              "start": 1266
+            },
+            "syntax": "NodeId(105)"
+          },
+          {
+            "hir": 101,
+            "hir_ids_for_range": [
+              101
+            ],
+            "hir_ids_for_syntax": [
+              101
+            ],
+            "range": {
+              "end": 1294,
+              "start": 1280
+            },
+            "syntax": "NodeId(108)"
+          },
+          {
+            "hir": 102,
+            "hir_ids_for_range": [
+              102
+            ],
+            "hir_ids_for_syntax": [
+              102
+            ],
+            "range": {
+              "end": 1294,
+              "start": 1291
+            },
+            "syntax": "NodeId(107)"
+          },
+          {
+            "hir": 103,
+            "hir_ids_for_range": [
+              103
+            ],
+            "hir_ids_for_syntax": [
+              103
+            ],
+            "range": {
+              "end": 1322,
+              "start": 1299
+            },
+            "syntax": "NodeId(110)"
+          },
+          {
+            "hir": 104,
+            "hir_ids_for_range": [
+              104,
+              105
+            ],
+            "hir_ids_for_syntax": [
+              104,
+              105
+            ],
+            "range": {
+              "end": 1322,
+              "start": 1309
+            },
+            "syntax": "NodeId(109)"
+          },
+          {
+            "hir": 105,
+            "hir_ids_for_range": [
+              104,
+              105
+            ],
+            "hir_ids_for_syntax": [
+              104,
+              105
+            ],
+            "range": {
+              "end": 1322,
+              "start": 1309
+            },
+            "syntax": "NodeId(109)"
+          },
+          {
+            "hir": 106,
+            "hir_ids_for_range": [
+              106
+            ],
+            "hir_ids_for_syntax": [
+              106
+            ],
+            "range": {
+              "end": 1354,
+              "start": 1327
+            },
+            "syntax": "NodeId(112)"
+          },
+          {
+            "hir": 107,
+            "hir_ids_for_range": [
+              107
+            ],
+            "hir_ids_for_syntax": [
+              107
+            ],
+            "range": {
+              "end": 1354,
+              "start": 1338
+            },
+            "syntax": "NodeId(111)"
+          },
+          {
+            "hir": 108,
+            "hir_ids_for_range": [
+              108
+            ],
+            "hir_ids_for_syntax": [
+              108
+            ],
+            "range": {
+              "end": 1376,
+              "start": 1359
+            },
+            "syntax": "NodeId(114)"
+          },
+          {
+            "hir": 109,
+            "hir_ids_for_range": [
+              109
+            ],
+            "hir_ids_for_syntax": [
+              109
+            ],
+            "range": {
+              "end": 1376,
+              "start": 1368
+            },
+            "syntax": "NodeId(113)"
+          },
+          {
+            "hir": 110,
+            "hir_ids_for_range": [
+              110
+            ],
+            "hir_ids_for_syntax": [
+              110
+            ],
+            "range": {
+              "end": 1406,
+              "start": 1381
+            },
+            "syntax": "NodeId(116)"
+          },
+          {
+            "hir": 111,
+            "hir_ids_for_range": [
+              111
+            ],
+            "hir_ids_for_syntax": [
+              111
+            ],
+            "range": {
+              "end": 1406,
+              "start": 1389
+            },
+            "syntax": "NodeId(115)"
+          },
+          {
+            "hir": 112,
+            "hir_ids_for_range": [
+              112
+            ],
+            "hir_ids_for_syntax": [
+              112
+            ],
+            "range": {
+              "end": 1444,
+              "start": 1411
+            },
+            "syntax": "NodeId(118)"
+          },
+          {
+            "hir": 113,
+            "hir_ids_for_range": [
+              113
+            ],
+            "hir_ids_for_syntax": [
+              113
+            ],
+            "range": {
+              "end": 1444,
+              "start": 1426
+            },
+            "syntax": "NodeId(117)"
+          },
+          {
+            "hir": 114,
+            "hir_ids_for_range": [
+              114
+            ],
+            "hir_ids_for_syntax": [
+              114
+            ],
+            "range": {
+              "end": 1684,
+              "start": 1447
+            },
+            "syntax": "NodeId(138)"
+          },
+          {
+            "hir": 115,
+            "hir_ids_for_range": [
+              115
+            ],
+            "hir_ids_for_syntax": [
+              115
+            ],
+            "range": {
+              "end": 1684,
+              "start": 1475
+            },
+            "syntax": "NodeId(137)"
+          },
+          {
+            "hir": 116,
+            "hir_ids_for_range": [
+              116
+            ],
+            "hir_ids_for_syntax": [
+              116
+            ],
+            "range": {
+              "end": 1515,
+              "start": 1481
+            },
+            "syntax": "NodeId(123)"
+          },
+          {
+            "hir": 117,
+            "hir_ids_for_range": [
+              117
+            ],
+            "hir_ids_for_syntax": [
+              117
+            ],
+            "range": {
+              "end": 1538,
+              "start": 1520
+            },
+            "syntax": "NodeId(126)"
+          },
+          {
+            "hir": 118,
+            "hir_ids_for_range": [
+              118
+            ],
+            "hir_ids_for_syntax": [
+              118
+            ],
+            "range": {
+              "end": 1538,
+              "start": 1527
+            },
+            "syntax": "NodeId(125)"
+          },
+          {
+            "hir": 119,
+            "hir_ids_for_range": [
+              119
+            ],
+            "hir_ids_for_syntax": [
+              119
+            ],
+            "range": {
+              "end": 1567,
+              "start": 1543
+            },
+            "syntax": "NodeId(128)"
+          },
+          {
+            "hir": 120,
+            "hir_ids_for_range": [
+              120
+            ],
+            "hir_ids_for_syntax": [
+              120
+            ],
+            "range": {
+              "end": 1567,
+              "start": 1556
+            },
+            "syntax": "NodeId(127)"
+          },
+          {
+            "hir": 121,
+            "hir_ids_for_range": [
+              121
+            ],
+            "hir_ids_for_syntax": [
+              121
+            ],
+            "range": {
+              "end": 1587,
+              "start": 1572
+            },
+            "syntax": "NodeId(130)"
+          },
+          {
+            "hir": 122,
+            "hir_ids_for_range": [
+              122
+            ],
+            "hir_ids_for_syntax": [
+              122
+            ],
+            "range": {
+              "end": 1587,
+              "start": 1581
+            },
+            "syntax": "NodeId(129)"
+          },
+          {
+            "hir": 123,
+            "hir_ids_for_range": [
+              123
+            ],
+            "hir_ids_for_syntax": [
+              123
+            ],
+            "range": {
+              "end": 1606,
+              "start": 1592
+            },
+            "syntax": "NodeId(132)"
+          },
+          {
+            "hir": 124,
+            "hir_ids_for_range": [
+              124
+            ],
+            "hir_ids_for_syntax": [
+              124
+            ],
+            "range": {
+              "end": 1606,
+              "start": 1603
+            },
+            "syntax": "NodeId(131)"
+          },
+          {
+            "hir": 125,
+            "hir_ids_for_range": [
+              125
+            ],
+            "hir_ids_for_syntax": [
+              125
+            ],
+            "range": {
+              "end": 1642,
+              "start": 1611
+            },
+            "syntax": "NodeId(134)"
+          },
+          {
+            "hir": 126,
+            "hir_ids_for_range": [
+              126,
+              127
+            ],
+            "hir_ids_for_syntax": [
+              126,
+              127
+            ],
+            "range": {
+              "end": 1642,
+              "start": 1621
+            },
+            "syntax": "NodeId(133)"
+          },
+          {
+            "hir": 127,
+            "hir_ids_for_range": [
+              126,
+              127
+            ],
+            "hir_ids_for_syntax": [
+              126,
+              127
+            ],
+            "range": {
+              "end": 1642,
+              "start": 1621
+            },
+            "syntax": "NodeId(133)"
+          },
+          {
+            "hir": 128,
+            "hir_ids_for_range": [
+              128
+            ],
+            "hir_ids_for_syntax": [
+              128
+            ],
+            "range": {
+              "end": 1682,
+              "start": 1647
+            },
+            "syntax": "NodeId(136)"
+          },
+          {
+            "hir": 129,
+            "hir_ids_for_range": [
+              129
+            ],
+            "hir_ids_for_syntax": [
+              129
+            ],
+            "range": {
+              "end": 1682,
+              "start": 1662
+            },
+            "syntax": "NodeId(135)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-requirement-context-positive",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@let root = \"/etc/dotfiles\"\n@destination = \"${root}/tool\"\n@deploy = \"copy\"\n@privilege = \"system\"\n@sensitivity = \"public\"\n@mode = \"0644\"\n@owner = \"root\"\n@group = \"root\"\n@description = \"Complete facet\"\n@theme = mocha\n\n./config {\n    @let target = \"/etc/dotfiles/tool/config\"\n    @destination = $target\n    @deploy = \"copy\"\n    @privilege = \"system\"\n    @sensitivity = \"public\"\n    @mode = \"0644\"\n    @owner = \"root\"\n    @group = \"root\"\n}\n./generated { @deploy = \"none\", @expect = \"directory\" }\n\nparent {\n    @let package = \"parent-package\"\n    @pkg = $package\n    @installer = \"cargo\"\n    @bin = \"parent\"\n    @check = \"command\"\n    @version = \"1\"\n    @family = [\"Parent Sans\"]\n    @service = \"parent.service\"\n    @scope = \"user\"\n    @path = \"/var/lib/parent\"\n    @description = \"Parent entity\"\n    child { @pkg = \"child-package\" }\n    @font {\n        @let font_package = \"font-package\"\n        @key = hack_nerd_font\n        @pkg = $font_package\n        @installer = \"brew-cask\"\n        @check = \"font\"\n        @version = \"1\"\n        @family = [\"Hack Nerd Font Mono\"]\n        @description = \"Nested font resource\"\n    }\n}\n\n@extend entity/parent {\n    @let coordinate = \"parent-extension\"\n    @pkg = $coordinate\n    @installer = \"cargo\"\n    @bin = \"parent\"\n    @check = \"command\"\n    @version = \"2\"\n    @family = \"Parent Sans\"\n    @service = \"parent.service\"\n    @scope = \"system\"\n    @path = \"/var/lib/parent\"\n    @description = \"Entity extension\"\n}\n@extend font/hack_nerd_font {\n    @let coordinate = \"font-extension\"\n    @pkg = $coordinate\n    @installer = \"brew-cask\"\n    @check = \"font\"\n    @version = \"2\"\n    @family = \"Hack Nerd Font Mono\"\n    @description = \"Resource extension\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "nested entity/resource demands and fact-only extensions",
+      "path": "docs/dotfile-language.md",
+      "section": "9.2-9.5"
+    },
+    {
+      "clause": "complete legal entity, resource, facet, and path attribute contexts",
+      "path": "docs/dotfile-language.md",
+      "section": "12.1-12.2"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

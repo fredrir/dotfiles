@@ -1,0 +1,159 @@
+{
+  "domain": "hosts",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 56,
+            "end_column": 49,
+            "end_line": 2,
+            "path": "config/hosts.dotfile",
+            "start_byte": 43,
+            "start_column": 36,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "remove the line break from the quoted alias",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "hostname alias must decode to one line"
+        },
+        {
+          "actual": {},
+          "code": "schema/duplicate",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 149,
+            "end_column": 35,
+            "end_line": 7,
+            "path": "config/hosts.dotfile",
+            "start_byte": 132,
+            "start_column": 18,
+            "start_line": 7
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 41,
+              "end_column": 34,
+              "end_line": 2,
+              "path": "config/hosts.dotfile",
+              "start_byte": 25,
+              "start_column": 18,
+              "start_line": 2
+            }
+          ],
+          "remedy": "remove the duplicate entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "duplicate hostname alias `shared.example`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-host-alias-negative-matrix",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "alpha {\n    hostnames = [\"shared.example\", \"line\\nbreak\"]\n    role = \"desktop\"\n    @profile = workstation\n}\nbeta {\n    hostnames = [\"SHARED.EXAMPLE.\"]\n    role = \"server\"\n    @profile = server\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "hostname aliases are one-line and globally unique after ASCII normalization",
+      "path": "docs/dotfile-language.md",
+      "section": "14"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

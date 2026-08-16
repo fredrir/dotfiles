@@ -1,0 +1,899 @@
+{
+  "domain": "profiles",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "parse/syntax",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 71,
+            "end_column": 25,
+            "end_line": 3,
+            "path": "config/profiles.dotfile",
+            "start_byte": 70,
+            "start_column": 24,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "separate entries with a newline or a comma",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "parse",
+          "summary": "expected a separator between entries"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 45,
+            "end_column": 23,
+            "end_line": 2,
+            "path": "config/profiles.dotfile",
+            "start_byte": 23,
+            "start_column": 1,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "write `@dotfile-version = \"1\"` on one physical line without escapes or interpolation",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "`@dotfile-version` must use the exact source-version preamble shape"
+        },
+        {
+          "actual": {},
+          "code": "schema/duplicate",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 45,
+            "end_column": 23,
+            "end_line": 2,
+            "path": "config/profiles.dotfile",
+            "start_byte": 23,
+            "start_column": 1,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 22,
+              "end_column": 23,
+              "end_line": 1,
+              "path": "config/profiles.dotfile",
+              "start_byte": 0,
+              "start_column": 1,
+              "start_line": 1
+            }
+          ],
+          "remedy": "remove the duplicate entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "duplicate `@dotfile-version` declaration"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 69,
+            "end_column": 23,
+            "end_line": 3,
+            "path": "config/profiles.dotfile",
+            "start_byte": 47,
+            "start_column": 1,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "write `@dotfile-version = \"1\"` on one physical line without escapes or interpolation",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "`@dotfile-version` must use the exact source-version preamble shape"
+        },
+        {
+          "actual": {},
+          "code": "schema/duplicate",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 69,
+            "end_column": 23,
+            "end_line": 3,
+            "path": "config/profiles.dotfile",
+            "start_byte": 47,
+            "start_column": 1,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 22,
+              "end_column": 23,
+              "end_line": 1,
+              "path": "config/profiles.dotfile",
+              "start_byte": 0,
+              "start_column": 1,
+              "start_line": 1
+            },
+            {
+              "end_byte": 45,
+              "end_column": 23,
+              "end_line": 2,
+              "path": "config/profiles.dotfile",
+              "start_byte": 23,
+              "start_column": 1,
+              "start_line": 2
+            }
+          ],
+          "remedy": "remove the duplicate entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "duplicate `@dotfile-version` declaration"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [],
+        "diagnostics": [
+          {
+            "actual": {},
+            "code": "schema/context",
+            "expected": {},
+            "primary_span": {
+              "end_byte": 45,
+              "end_column": 23,
+              "end_line": 2,
+              "path": "config/profiles.dotfile",
+              "start_byte": 23,
+              "start_column": 1,
+              "start_line": 2
+            },
+            "provenance": [],
+            "related_spans": [],
+            "remedy": "write `@dotfile-version = \"1\"` on one physical line without escapes or interpolation",
+            "scope": "source",
+            "secret_redacted": false,
+            "semantic_identity": "",
+            "severity": "Error",
+            "stage": "schema",
+            "summary": "`@dotfile-version` must use the exact source-version preamble shape"
+          },
+          {
+            "actual": {},
+            "code": "schema/duplicate",
+            "expected": {},
+            "primary_span": {
+              "end_byte": 45,
+              "end_column": 23,
+              "end_line": 2,
+              "path": "config/profiles.dotfile",
+              "start_byte": 23,
+              "start_column": 1,
+              "start_line": 2
+            },
+            "provenance": [],
+            "related_spans": [
+              {
+                "end_byte": 22,
+                "end_column": 23,
+                "end_line": 1,
+                "path": "config/profiles.dotfile",
+                "start_byte": 0,
+                "start_column": 1,
+                "start_line": 1
+              }
+            ],
+            "remedy": "remove the duplicate entry",
+            "scope": "source",
+            "secret_redacted": false,
+            "semantic_identity": "",
+            "severity": "Error",
+            "stage": "schema",
+            "summary": "duplicate `@dotfile-version` declaration"
+          },
+          {
+            "actual": {},
+            "code": "schema/context",
+            "expected": {},
+            "primary_span": {
+              "end_byte": 69,
+              "end_column": 23,
+              "end_line": 3,
+              "path": "config/profiles.dotfile",
+              "start_byte": 47,
+              "start_column": 1,
+              "start_line": 3
+            },
+            "provenance": [],
+            "related_spans": [],
+            "remedy": "write `@dotfile-version = \"1\"` on one physical line without escapes or interpolation",
+            "scope": "source",
+            "secret_redacted": false,
+            "semantic_identity": "",
+            "severity": "Error",
+            "stage": "schema",
+            "summary": "`@dotfile-version` must use the exact source-version preamble shape"
+          },
+          {
+            "actual": {},
+            "code": "schema/duplicate",
+            "expected": {},
+            "primary_span": {
+              "end_byte": 69,
+              "end_column": 23,
+              "end_line": 3,
+              "path": "config/profiles.dotfile",
+              "start_byte": 47,
+              "start_column": 1,
+              "start_line": 3
+            },
+            "provenance": [],
+            "related_spans": [
+              {
+                "end_byte": 22,
+                "end_column": 23,
+                "end_line": 1,
+                "path": "config/profiles.dotfile",
+                "start_byte": 0,
+                "start_column": 1,
+                "start_line": 1
+              },
+              {
+                "end_byte": 45,
+                "end_column": 23,
+                "end_line": 2,
+                "path": "config/profiles.dotfile",
+                "start_byte": 23,
+                "start_column": 1,
+                "start_line": 2
+              }
+            ],
+            "remedy": "remove the duplicate entry",
+            "scope": "source",
+            "secret_redacted": false,
+            "semantic_identity": "",
+            "severity": "Error",
+            "stage": "schema",
+            "summary": "duplicate `@dotfile-version` declaration"
+          }
+        ],
+        "domain": "profiles",
+        "location": "Fixed",
+        "path": "config/profiles.dotfile",
+        "poison": [
+          {
+            "kind": "syntax",
+            "range": {
+              "end": 143,
+              "start": 0
+            }
+          },
+          {
+            "kind": "context",
+            "range": {
+              "end": 143,
+              "start": 0
+            }
+          }
+        ],
+        "recovery": [
+          {
+            "kind": "attribute",
+            "value": {
+              "id": 4,
+              "name": "@dotfile-version",
+              "poison": [
+                {
+                  "kind": "value",
+                  "range": {
+                    "end": 45,
+                    "start": 23
+                  }
+                },
+                {
+                  "kind": "duplicate",
+                  "range": {
+                    "end": 45,
+                    "start": 23
+                  }
+                }
+              ],
+              "value": {
+                "id": 5,
+                "kind": {
+                  "evaluated_segments": [
+                    {
+                      "binding_edges": [],
+                      "source_range": {
+                        "end": 43,
+                        "start": 43
+                      },
+                      "text": "1"
+                    }
+                  ],
+                  "kind": "string",
+                  "poisoned": false,
+                  "segments": [
+                    {
+                      "kind": "literal",
+                      "range": {
+                        "end": 43,
+                        "start": 43
+                      },
+                      "text": "1"
+                    }
+                  ],
+                  "value": "1"
+                },
+                "poison": [],
+                "range": {
+                  "end": 45,
+                  "start": 42
+                },
+                "type": "dotfile_version_literal"
+              }
+            }
+          },
+          {
+            "kind": "attribute",
+            "value": {
+              "id": 6,
+              "name": "@dotfile-version",
+              "poison": [
+                {
+                  "kind": "value",
+                  "range": {
+                    "end": 69,
+                    "start": 47
+                  }
+                },
+                {
+                  "kind": "duplicate",
+                  "range": {
+                    "end": 69,
+                    "start": 47
+                  }
+                }
+              ],
+              "value": {
+                "id": 7,
+                "kind": {
+                  "evaluated_segments": [
+                    {
+                      "binding_edges": [],
+                      "source_range": {
+                        "end": 67,
+                        "start": 67
+                      },
+                      "text": "1"
+                    }
+                  ],
+                  "kind": "string",
+                  "poisoned": false,
+                  "segments": [
+                    {
+                      "kind": "literal",
+                      "range": {
+                        "end": 67,
+                        "start": 67
+                      },
+                      "text": "1"
+                    }
+                  ],
+                  "value": "1"
+                },
+                "poison": [],
+                "range": {
+                  "end": 69,
+                  "start": 66
+                },
+                "type": "dotfile_version_literal"
+              }
+            }
+          },
+          {
+            "id": 8,
+            "kind": "poison",
+            "poison": [
+              {
+                "kind": "syntax",
+                "range": {
+                  "end": 84,
+                  "start": 70
+                }
+              }
+            ],
+            "range": {
+              "end": 84,
+              "start": 70
+            }
+          }
+        ],
+        "root": {
+          "groups": [
+            {
+              "attributes": [
+                {
+                  "id": 12,
+                  "name": "@directory",
+                  "poison": [],
+                  "value": {
+                    "id": 13,
+                    "kind": {
+                      "evaluated_segments": [
+                        {
+                          "binding_edges": [],
+                          "source_range": {
+                            "end": 123,
+                            "start": 118
+                          },
+                          "text": "shared"
+                        }
+                      ],
+                      "kind": "string",
+                      "poisoned": false,
+                      "segments": [
+                        {
+                          "kind": "literal",
+                          "range": {
+                            "end": 123,
+                            "start": 118
+                          },
+                          "text": "shared"
+                        }
+                      ],
+                      "value": "shared"
+                    },
+                    "poison": [],
+                    "range": {
+                      "end": 125,
+                      "start": 117
+                    },
+                    "type": "repository_directory_string"
+                  }
+                }
+              ],
+              "children": [],
+              "id": 10,
+              "name": "shared",
+              "parent": null,
+              "poison": []
+            }
+          ],
+          "id": 1,
+          "kind": "profiles",
+          "poison": [
+            {
+              "kind": "syntax",
+              "range": {
+                "end": 84,
+                "start": 70
+              }
+            }
+          ],
+          "profiles": [],
+          "theme": null,
+          "version": {
+            "id": 2,
+            "name": "@dotfile-version",
+            "poison": [],
+            "value": {
+              "id": 3,
+              "kind": {
+                "evaluated_segments": [
+                  {
+                    "binding_edges": [],
+                    "source_range": {
+                      "end": 20,
+                      "start": 20
+                    },
+                    "text": "1"
+                  }
+                ],
+                "kind": "string",
+                "poisoned": false,
+                "segments": [
+                  {
+                    "kind": "literal",
+                    "range": {
+                      "end": 20,
+                      "start": 20
+                    },
+                    "text": "1"
+                  }
+                ],
+                "value": "1"
+              },
+              "poison": [],
+              "range": {
+                "end": 22,
+                "start": 19
+              },
+              "type": "dotfile_version_literal"
+            }
+          }
+        },
+        "scopes": [
+          {
+            "bindings": [],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 0,
+            "range": {
+              "end": 143,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 9,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 95,
+            "range": {
+              "end": 129,
+              "start": 93
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 11,
+            "id": 2,
+            "parent": 1,
+            "poison": [],
+            "prologue_end": 104,
+            "range": {
+              "end": 127,
+              "start": 102
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 14,
+            "id": 3,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 142,
+            "range": {
+              "end": 142,
+              "start": 140
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 143,
+              "start": 0
+            },
+            "syntax": "NodeId(15)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 143,
+              "start": 0
+            },
+            "syntax": "NodeId(15)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              2
+            ],
+            "hir_ids_for_syntax": [
+              2
+            ],
+            "range": {
+              "end": 22,
+              "start": 0
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 22,
+              "start": 19
+            },
+            "syntax": "NodeId(0)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 45,
+              "start": 23
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 45,
+              "start": 42
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 69,
+              "start": 47
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 69,
+              "start": 66
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 84,
+              "start": 70
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 129,
+              "start": 93
+            },
+            "syntax": "NodeId(11)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 127,
+              "start": 95
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 127,
+              "start": 102
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 12,
+            "hir_ids_for_range": [
+              12
+            ],
+            "hir_ids_for_syntax": [
+              12
+            ],
+            "range": {
+              "end": 125,
+              "start": 104
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 13,
+            "hir_ids_for_range": [
+              13
+            ],
+            "hir_ids_for_syntax": [
+              13
+            ],
+            "range": {
+              "end": 125,
+              "start": 117
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 14,
+            "hir_ids_for_range": [
+              14
+            ],
+            "hir_ids_for_syntax": [
+              14
+            ],
+            "range": {
+              "end": 142,
+              "start": 140
+            },
+            "syntax": "NodeId(13)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-bootstrap-sealing-matrix",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@dotfile-version = \"1\"\n@dotfile-version = \"1\",\n@dotfile-version = \"1\" @theme = mocha\n@groups { shared { @directory = \"shared\" } }\n@profiles {}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "the source-version preamble is an exact one-line declaration with no trailing comma or second entry",
+      "path": "docs/dotfile-language.md",
+      "section": "4"
+    },
+    {
+      "clause": "only a fully valid profiles source can seal the bootstrap authority used for group layout",
+      "path": "docs/dotfile-implementation-plan.md",
+      "section": "5-6"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

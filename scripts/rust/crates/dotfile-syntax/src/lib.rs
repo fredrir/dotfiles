@@ -13,8 +13,9 @@ mod parser;
 mod token;
 
 pub use ast::{
-    Atom, Attribute, Entry, ExtendEntry, File, LetDecl, List, NameError, NamedEntry, PathEntry,
-    QualifiedRef, Reference, SigilBlock, StringExpr, Value, VarRef, check_binding, check_ident,
+    Atom, Attribute, Block, Entry, ErrorEntry, ExtendEntry, File, LetDecl, List, NameError,
+    NamedEntry, PathEntry, QualifiedRef, Reference, SigilBlock, StringExpr, Value, VarRef,
+    check_binding, check_ident,
 };
 pub use cst::{Cst, Element, Node, NodeId, NodeKind};
 pub use lexer::lex;

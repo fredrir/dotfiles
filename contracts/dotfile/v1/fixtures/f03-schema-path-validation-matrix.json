@@ -1,0 +1,461 @@
+{
+  "domain": "facet_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 10,
+            "end_column": 10,
+            "end_line": 1,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 0,
+            "start_column": 1,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "rewrite the path using its NFC spelling",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "decoded source path is not Unicode NFC"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 74,
+            "end_column": 43,
+            "end_line": 2,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 59,
+            "start_column": 28,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 116,
+            "end_column": 40,
+            "end_line": 3,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 104,
+            "start_column": 28,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 158,
+            "end_column": 40,
+            "end_line": 4,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 146,
+            "start_column": 28,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 205,
+            "end_column": 45,
+            "end_line": 5,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 188,
+            "start_column": 28,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 250,
+            "end_column": 43,
+            "end_line": 6,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 235,
+            "start_column": 28,
+            "start_line": 6
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 295,
+            "end_column": 43,
+            "end_line": 7,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 280,
+            "start_column": 28,
+            "start_line": 7
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 345,
+            "end_column": 48,
+            "end_line": 8,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 325,
+            "start_column": 28,
+            "start_line": 8
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 394,
+            "end_column": 47,
+            "end_line": 9,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 375,
+            "start_column": 28,
+            "start_line": 9
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 447,
+            "end_column": 51,
+            "end_line": 10,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 424,
+            "start_column": 28,
+            "start_line": 10
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 490,
+            "end_column": 41,
+            "end_line": 11,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 477,
+            "start_column": 28,
+            "start_line": 11
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 536,
+            "end_column": 44,
+            "end_line": 12,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 520,
+            "start_column": 28,
+            "start_line": 12
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 569,
+            "end_column": 31,
+            "end_line": 13,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 566,
+            "start_column": 28,
+            "start_line": 13
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 601,
+            "end_column": 30,
+            "end_line": 14,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 599,
+            "start_column": 28,
+            "start_line": 14
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 640,
+            "end_column": 36,
+            "end_line": 15,
+            "path": "shared/wezterm/package.dotfile",
+            "start_byte": 631,
+            "start_column": 28,
+            "start_line": 15
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `destination_path_expression`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-path-validation-matrix",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "./\"café\" { @deploy = \"none\" }\n./case-01 { @destination = \"relative/path\" }\n./case-02 { @destination = \"~user/file\" }\n./case-03 { @destination = \"$HOME/file\" }\n./case-04 { @destination = \"~/dir~name/file\" }\n./case-05 { @destination = \"~/back\\\\slash\" }\n./case-06 { @destination = \"~/line\\nbreak\" }\n./case-07 { @destination = \"~/empty//component\" }\n./case-08 { @destination = \"~/dot/./component\" }\n./case-09 { @destination = \"~/parent/../component\" }\n./case-10 { @destination = \"~/trailing/\" }\n./case-11 { @destination = \"//server/share\" }\n./case-12 { @destination = \"/\" }\n./case-13 { @destination = \"\" }\n./case-14 { @destination = \"/café\" }\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "decoded source-path NFC rejection",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-016",
+      "section": "6.5"
+    },
+    {
+      "clause": "every forbidden destination spelling and NFC rejection",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-015",
+      "section": "6.6"
+    },
+    {
+      "clause": "destination path anchors",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-014",
+      "section": "6.6"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

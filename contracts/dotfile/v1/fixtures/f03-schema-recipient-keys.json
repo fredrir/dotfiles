@@ -1,0 +1,325 @@
+{
+  "domain": "recipient_keys",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [],
+        "diagnostics": [],
+        "domain": "recipient_keys",
+        "location": "Fixed",
+        "path": "config/keys.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "entries": [
+            {
+              "id": 3,
+              "name": "archpc",
+              "poison": [],
+              "value": {
+                "id": 4,
+                "kind": {
+                  "evaluated_segments": [
+                    {
+                      "binding_edges": [],
+                      "source_range": {
+                        "end": 88,
+                        "start": 27
+                      },
+                      "text": "age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d"
+                    }
+                  ],
+                  "kind": "string",
+                  "poisoned": false,
+                  "segments": [
+                    {
+                      "kind": "literal",
+                      "range": {
+                        "end": 88,
+                        "start": 27
+                      },
+                      "text": "age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d"
+                    }
+                  ],
+                  "value": "age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d"
+                },
+                "poison": [],
+                "range": {
+                  "end": 90,
+                  "start": 26
+                },
+                "type": "age_public_recipient"
+              }
+            },
+            {
+              "id": 5,
+              "name": "recovery2",
+              "poison": [],
+              "value": {
+                "id": 6,
+                "kind": {
+                  "evaluated_segments": [
+                    {
+                      "binding_edges": [],
+                      "source_range": {
+                        "end": 169,
+                        "start": 108
+                      },
+                      "text": "age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm"
+                    }
+                  ],
+                  "kind": "string",
+                  "poisoned": false,
+                  "segments": [
+                    {
+                      "kind": "literal",
+                      "range": {
+                        "end": 169,
+                        "start": 108
+                      },
+                      "text": "age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm"
+                    }
+                  ],
+                  "value": "age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm"
+                },
+                "poison": [],
+                "range": {
+                  "end": 171,
+                  "start": 107
+                },
+                "type": "age_public_recipient"
+              }
+            }
+          ],
+          "id": 1,
+          "kind": "recipient_keys",
+          "poison": []
+        },
+        "scopes": [
+          {
+            "bindings": [],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 0,
+            "range": {
+              "end": 174,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 2,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 17,
+            "range": {
+              "end": 173,
+              "start": 11
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 174,
+              "start": 0
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 174,
+              "start": 0
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              2
+            ],
+            "hir_ids_for_syntax": [
+              2
+            ],
+            "range": {
+              "end": 173,
+              "start": 11
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 90,
+              "start": 17
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 90,
+              "start": 26
+            },
+            "syntax": "NodeId(0)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 171,
+              "start": 95
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 171,
+              "start": 107
+            },
+            "syntax": "NodeId(2)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-recipient-keys",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "recipients {\n    archpc = \"age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d\"\n    recovery2 = \"age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "recipient keys shape",
+      "path": "docs/dotfile-language.md",
+      "section": "26.1"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

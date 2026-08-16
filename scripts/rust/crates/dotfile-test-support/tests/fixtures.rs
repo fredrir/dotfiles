@@ -1,4 +1,6 @@
-use dotfile_test_support::{load_fixtures, run_fixture};
+use std::collections::BTreeSet;
+
+use dotfile_test_support::{load_contract, load_fixtures, run_fixture};
 
 #[test]
 fn every_fixture_record_passes() {
@@ -29,4 +31,31 @@ fn fixture_ids_are_unique_sorted_and_match_filenames() {
             .iter()
             .all(|fixture| fixture.id.bytes().all(|byte| byte.is_ascii()))
     );
+}
+
+#[test]
+fn passing_status_and_manifest_claims_are_exactly_aligned() {
+    let fixtures = load_fixtures().unwrap();
+    let contract = load_contract("fixtures").unwrap();
+    let claims = &contract["implementation_claims"];
+    let implemented = claims["implemented_fixture_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    let claimed_passing = claims["passing_fixture_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value.as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    let status_passing = fixtures
+        .iter()
+        .filter(|fixture| fixture.status == "passing")
+        .map(|fixture| fixture.id.as_str())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(claimed_passing, status_passing);
+    assert!(claimed_passing.is_subset(&implemented));
 }

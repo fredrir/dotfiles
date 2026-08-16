@@ -6,9 +6,12 @@ members = [
   "crates/bench-workloads",
   "crates/count",
   "crates/dmux",
+  "crates/dotfile-format",
+  "crates/dotfile-schema",
   "crates/dotfile-source",
   "crates/dotfile-syntax",
   "crates/dotfile-test-support",
+  "crates/dotfile-theme",
   "crates/git/gdd",
   "crates/git/gitkit",
   "crates/git/gpp",
@@ -32,6 +35,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 unicode-width = "0.2"
+unicode-normalization = "0.1"
 workstation = { path = "crates/workstation" }
 gitkit = { path = "crates/git/gitkit" }
 

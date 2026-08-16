@@ -3,4 +3,7 @@ allow {
   scripts/python/tests/dotfile/test_secret_scan.py
   shared/obsidian/plugins/** value
   shared/skills/durable-objects/references/workers.md value
+  contracts/dotfile/v1/fixtures/f03-schema-recipient-private-identity.json age-identity
+  contracts/dotfile/v1/fixtures/f03-schema-recipient-syntax-matrix.json age-identity
+  scripts/rust/crates/dotfile-schema/src/validate.rs age-identity
 }

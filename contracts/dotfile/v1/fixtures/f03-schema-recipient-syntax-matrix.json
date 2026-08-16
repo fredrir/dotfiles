@@ -1,0 +1,298 @@
+{
+  "domain": "recipient_keys",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 155,
+            "end_column": 66,
+            "end_line": 3,
+            "path": "config/keys.dotfile",
+            "start_byte": 108,
+            "start_column": 19,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 217,
+            "end_column": 62,
+            "end_line": 4,
+            "path": "config/keys.dotfile",
+            "start_byte": 170,
+            "start_column": 15,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 305,
+            "end_column": 88,
+            "end_line": 5,
+            "path": "config/keys.dotfile",
+            "start_byte": 241,
+            "start_column": 24,
+            "start_line": 5
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 391,
+            "end_column": 86,
+            "end_line": 6,
+            "path": "config/keys.dotfile",
+            "start_byte": 326,
+            "start_column": 21,
+            "start_line": 6
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 476,
+            "end_column": 85,
+            "end_line": 7,
+            "path": "config/keys.dotfile",
+            "start_byte": 411,
+            "start_column": 20,
+            "start_line": 7
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 563,
+            "end_column": 87,
+            "end_line": 8,
+            "path": "config/keys.dotfile",
+            "start_byte": 498,
+            "start_column": 22,
+            "start_line": 8
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 656,
+            "end_column": 93,
+            "end_line": 9,
+            "path": "config/keys.dotfile",
+            "start_byte": 587,
+            "start_column": 24,
+            "start_line": 9
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use a value accepted by this field's source-version-1 schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "value is invalid for `age_public_recipient`"
+        },
+        {
+          "actual": {},
+          "code": "schema/duplicate",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 751,
+            "end_column": 14,
+            "end_line": 11,
+            "path": "config/keys.dotfile",
+            "start_byte": 742,
+            "start_column": 5,
+            "start_line": 11
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 670,
+              "end_column": 14,
+              "end_line": 10,
+              "path": "config/keys.dotfile",
+              "start_byte": 661,
+              "start_column": 5,
+              "start_line": 10
+            }
+          ],
+          "remedy": "remove the duplicate entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "duplicate recipient label `duplicate`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-recipient-syntax-matrix",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "recipients {\n    valid = \"age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d\"\n    ssh_ed25519 = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEexample\"\n    ssh_rsa = \"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQexample\"\n    uppercase_prefix = \"AGE15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d\"\n    leading_space = \" age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d\"\n    middle_space = \"age15wjewk6yjs5vsezah0sa9vz3gyl 569eexwj74l8dvrc2vlsxuq3q7hq52d\"\n    trailing_space = \"age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d \"\n    private_identity = \"AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ\"\n    duplicate = \"age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d\"\n    duplicate = \"age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "registered public-recipient prefix, exact bytes, whitespace rejection, private identity rejection, and unique labels",
+      "path": "docs/dotfile-language.md",
+      "rule_id": "DFV1-MUST-063",
+      "section": "26.1"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

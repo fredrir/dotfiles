@@ -1,0 +1,474 @@
+{
+  "domain": "group_root_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 20,
+                    "start": 16
+                  },
+                  "text": "outer"
+                }
+              ],
+              "value": "outer"
+            },
+            "hir": 1,
+            "id": 0,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 20,
+                  "start": 16
+                },
+                "text": "outer"
+              }
+            ],
+            "name": "package",
+            "poison": [],
+            "range": {
+              "end": 22,
+              "start": 0
+            },
+            "scope": 0,
+            "used": true
+          },
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [
+                    {
+                      "binding": 0,
+                      "declaration_range": {
+                        "end": 12,
+                        "start": 5
+                      },
+                      "reference_range": {
+                        "end": 63,
+                        "start": 56
+                      }
+                    }
+                  ],
+                  "source_range": {
+                    "end": 20,
+                    "start": 16
+                  },
+                  "text": "outer"
+                },
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 69,
+                    "start": 64
+                  },
+                  "text": ".inner"
+                }
+              ],
+              "value": "outer.inner"
+            },
+            "hir": 5,
+            "id": 1,
+            "initializer": [
+              {
+                "kind": "binding",
+                "name": "package",
+                "range": {
+                  "end": 63,
+                  "start": 56
+                },
+                "resolution": "Resolved(BindingId(0))"
+              },
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 69,
+                  "start": 64
+                },
+                "text": ".inner"
+              }
+            ],
+            "name": "package",
+            "poison": [],
+            "range": {
+              "end": 71,
+              "start": 38
+            },
+            "scope": 1,
+            "used": true
+          }
+        ],
+        "diagnostics": [],
+        "domain": "group_root_requirements",
+        "location": "GroupRoot { group: \"shared\", directory: RepoPath(\"shared\") }",
+        "path": "shared/package.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "context": "group_root",
+          "entries": [
+            {
+              "id": 0,
+              "kind": "binding"
+            },
+            {
+              "assignment_sugar": false,
+              "entries": [
+                {
+                  "id": 1,
+                  "kind": "binding"
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 6,
+                    "name": "@pkg",
+                    "poison": [],
+                    "value": {
+                      "id": 7,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 1,
+                                "declaration_range": {
+                                  "end": 50,
+                                  "start": 43
+                                },
+                                "reference_range": {
+                                  "end": 93,
+                                  "start": 86
+                                }
+                              },
+                              {
+                                "binding": 0,
+                                "declaration_range": {
+                                  "end": 12,
+                                  "start": 5
+                                },
+                                "reference_range": {
+                                  "end": 63,
+                                  "start": 56
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 20,
+                              "start": 16
+                            },
+                            "text": "outer"
+                          },
+                          {
+                            "binding_edges": [
+                              {
+                                "binding": 1,
+                                "declaration_range": {
+                                  "end": 50,
+                                  "start": 43
+                                },
+                                "reference_range": {
+                                  "end": 93,
+                                  "start": 86
+                                }
+                              }
+                            ],
+                            "source_range": {
+                              "end": 69,
+                              "start": 64
+                            },
+                            "text": ".inner"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "binding",
+                            "name": "package",
+                            "range": {
+                              "end": 93,
+                              "start": 86
+                            },
+                            "resolution": "Resolved(BindingId(1))"
+                          }
+                        ],
+                        "value": "outer.inner"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 95,
+                        "start": 83
+                      },
+                      "type": "string_expression"
+                    }
+                  }
+                }
+              ],
+              "id": 3,
+              "kind": "entity",
+              "name": "wezterm",
+              "optional": false,
+              "poison": [],
+              "scope": 1
+            }
+          ],
+          "id": 2,
+          "kind": "requirements",
+          "poison": [],
+          "scope": 0
+        },
+        "scopes": [
+          {
+            "bindings": [
+              0
+            ],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 24,
+            "range": {
+              "end": 98,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [
+              1
+            ],
+            "hir": 4,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 76,
+            "range": {
+              "end": 97,
+              "start": 32
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 98,
+              "start": 0
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              1
+            ],
+            "hir_ids_for_syntax": [
+              1
+            ],
+            "range": {
+              "end": 22,
+              "start": 0
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 98,
+              "start": 0
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 97,
+              "start": 24
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 97,
+              "start": 32
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 71,
+              "start": 38
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 95,
+              "start": 76
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 95,
+              "start": 83
+            },
+            "syntax": "NodeId(4)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-binding-shadow-outer-initializer",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@let package = \"outer\"\n\nwezterm {\n    @let package = \"${package}.inner\"\n    @pkg = \"${package}\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "inner binding initializer resolves an outer shadowed name",
+      "path": "docs/dotfile-language.md",
+      "section": "8"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

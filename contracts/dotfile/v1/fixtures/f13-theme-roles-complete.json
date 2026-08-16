@@ -1,0 +1,2358 @@
+{
+  "domain": "theme_roles",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "document": {
+          "eza": {
+            "categories": {
+              "entries": [
+                {
+                  "name": {
+                    "span": [
+                      236,
+                      241
+                    ],
+                    "value": "image"
+                  },
+                  "palette": {
+                    "name": "mauve",
+                    "span": [
+                      244,
+                      249
+                    ]
+                  },
+                  "span": [
+                    236,
+                    249
+                  ]
+                }
+              ],
+              "span": [
+                234,
+                251
+              ]
+            },
+            "direct": [
+              {
+                "name": {
+                  "span": [
+                    192,
+                    194
+                  ],
+                  "value": "fi"
+                },
+                "palette": {
+                  "name": "subtext",
+                  "span": [
+                    197,
+                    204
+                  ]
+                },
+                "span": [
+                  192,
+                  204
+                ]
+              },
+              {
+                "name": {
+                  "span": [
+                    209,
+                    211
+                  ],
+                  "value": "di"
+                },
+                "palette": {
+                  "name": "blue",
+                  "span": [
+                    214,
+                    218
+                  ]
+                },
+                "span": [
+                  209,
+                  218
+                ]
+              }
+            ],
+            "patterns": [
+              {
+                "key": {
+                  "span": [
+                    272,
+                    280
+                  ],
+                  "value": "*.toml"
+                },
+                "role": {
+                  "name": "orange",
+                  "span": [
+                    289,
+                    295
+                  ]
+                },
+                "span": [
+                  256,
+                  297
+                ]
+              },
+              {
+                "key": {
+                  "span": [
+                    318,
+                    326
+                  ],
+                  "value": "*.json"
+                },
+                "role": {
+                  "name": "yellow",
+                  "span": [
+                    335,
+                    341
+                  ]
+                },
+                "span": [
+                  302,
+                  343
+                ]
+              }
+            ],
+            "span": [
+              186,
+              345
+            ]
+          },
+          "kde": {
+            "entries": [
+              {
+                "name": {
+                  "span": [
+                    356,
+                    365
+                  ],
+                  "value": "window_bg"
+                },
+                "palette": {
+                  "name": "base",
+                  "span": [
+                    368,
+                    372
+                  ]
+                },
+                "span": [
+                  356,
+                  372
+                ]
+              },
+              {
+                "name": {
+                  "span": [
+                    377,
+                    387
+                  ],
+                  "value": "window_alt"
+                },
+                "palette": {
+                  "name": "mantle",
+                  "span": [
+                    390,
+                    396
+                  ]
+                },
+                "span": [
+                  377,
+                  396
+                ]
+              }
+            ],
+            "span": [
+              350,
+              398
+            ]
+          },
+          "konsole": {
+            "entries": [
+              {
+                "name": {
+                  "span": [
+                    409,
+                    419
+                  ],
+                  "value": "background"
+                },
+                "palette": {
+                  "name": "base",
+                  "span": [
+                    422,
+                    426
+                  ]
+                },
+                "span": [
+                  409,
+                  426
+                ]
+              }
+            ],
+            "span": [
+              407,
+              428
+            ]
+          },
+          "roles": {
+            "entries": [
+              {
+                "name": {
+                  "span": [
+                    12,
+                    26
+                  ],
+                  "value": "section_system"
+                },
+                "palette": {
+                  "name": "blue",
+                  "span": [
+                    29,
+                    33
+                  ]
+                },
+                "span": [
+                  12,
+                  33
+                ]
+              },
+              {
+                "name": {
+                  "span": [
+                    38,
+                    42
+                  ],
+                  "value": "sudo"
+                },
+                "palette": {
+                  "name": "red",
+                  "span": [
+                    45,
+                    48
+                  ]
+                },
+                "span": [
+                  38,
+                  48
+                ]
+              }
+            ],
+            "span": [
+              6,
+              50
+            ]
+          },
+          "span": [
+            0,
+            429
+          ],
+          "terminal": {
+            "ansi": {
+              "entries": [
+                {
+                  "name": {
+                    "span": [
+                      125,
+                      130
+                    ],
+                    "value": "black"
+                  },
+                  "palette": {
+                    "name": "surface1",
+                    "span": [
+                      133,
+                      141
+                    ]
+                  },
+                  "span": [
+                    125,
+                    141
+                  ]
+                },
+                {
+                  "name": {
+                    "span": [
+                      150,
+                      162
+                    ],
+                    "value": "bright_black"
+                  },
+                  "palette": {
+                    "name": "surface2",
+                    "span": [
+                      165,
+                      173
+                    ]
+                  },
+                  "span": [
+                    150,
+                    173
+                  ]
+                }
+              ],
+              "span": [
+                115,
+                179
+              ]
+            },
+            "direct": [
+              {
+                "name": {
+                  "span": [
+                    66,
+                    76
+                  ],
+                  "value": "foreground"
+                },
+                "palette": {
+                  "name": "text",
+                  "span": [
+                    79,
+                    83
+                  ]
+                },
+                "span": [
+                  66,
+                  83
+                ]
+              },
+              {
+                "name": {
+                  "span": [
+                    88,
+                    98
+                  ],
+                  "value": "background"
+                },
+                "palette": {
+                  "name": "base",
+                  "span": [
+                    101,
+                    105
+                  ]
+                },
+                "span": [
+                  88,
+                  105
+                ]
+              }
+            ],
+            "span": [
+              60,
+              181
+            ],
+            "tabs": null
+          },
+          "type": "roles"
+        },
+        "hir": {
+          "nodes": [
+            {
+              "children": [
+                1,
+                7,
+                19,
+                41,
+                47
+              ],
+              "id": 0,
+              "kind": {
+                "document": "Roles"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  429
+                ]
+              },
+              "parent": null,
+              "poison": [],
+              "range": [
+                0,
+                429
+              ]
+            },
+            {
+              "children": [
+                2
+              ],
+              "id": 1,
+              "kind": {
+                "authored": "Block",
+                "entry": "roles",
+                "expected": "Block(OpenRoleMap)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  0,
+                  50
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                0,
+                50
+              ]
+            },
+            {
+              "children": [
+                3,
+                5
+              ],
+              "id": 2,
+              "kind": {
+                "container": "OpenRoleMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  6,
+                  50
+                ]
+              },
+              "parent": 1,
+              "poison": [],
+              "range": [
+                6,
+                50
+              ]
+            },
+            {
+              "children": [
+                4
+              ],
+              "id": 3,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "section_system",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  12,
+                  33
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                12,
+                33
+              ]
+            },
+            {
+              "children": [],
+              "id": 4,
+              "kind": {
+                "decoded": "blue",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  29,
+                  33
+                ]
+              },
+              "parent": 3,
+              "poison": [],
+              "range": [
+                29,
+                33
+              ]
+            },
+            {
+              "children": [
+                6
+              ],
+              "id": 5,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "sudo",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  38,
+                  48
+                ]
+              },
+              "parent": 2,
+              "poison": [],
+              "range": [
+                38,
+                48
+              ]
+            },
+            {
+              "children": [],
+              "id": 6,
+              "kind": {
+                "decoded": "red",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  45,
+                  48
+                ]
+              },
+              "parent": 5,
+              "poison": [],
+              "range": [
+                45,
+                48
+              ]
+            },
+            {
+              "children": [
+                8
+              ],
+              "id": 7,
+              "kind": {
+                "authored": "Block",
+                "entry": "terminal",
+                "expected": "Block(TerminalRoles)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  51,
+                  181
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                51,
+                181
+              ]
+            },
+            {
+              "children": [
+                9,
+                11,
+                13
+              ],
+              "id": 8,
+              "kind": {
+                "container": "TerminalRoles"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  60,
+                  181
+                ]
+              },
+              "parent": 7,
+              "poison": [],
+              "range": [
+                60,
+                181
+              ]
+            },
+            {
+              "children": [
+                10
+              ],
+              "id": 9,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "foreground",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  66,
+                  83
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                66,
+                83
+              ]
+            },
+            {
+              "children": [],
+              "id": 10,
+              "kind": {
+                "decoded": "text",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  79,
+                  83
+                ]
+              },
+              "parent": 9,
+              "poison": [],
+              "range": [
+                79,
+                83
+              ]
+            },
+            {
+              "children": [
+                12
+              ],
+              "id": 11,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "background",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  88,
+                  105
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                88,
+                105
+              ]
+            },
+            {
+              "children": [],
+              "id": 12,
+              "kind": {
+                "decoded": "base",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  101,
+                  105
+                ]
+              },
+              "parent": 11,
+              "poison": [],
+              "range": [
+                101,
+                105
+              ]
+            },
+            {
+              "children": [
+                14
+              ],
+              "id": 13,
+              "kind": {
+                "authored": "Block",
+                "entry": "ansi",
+                "expected": "Block(OpenRoleMap)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  110,
+                  179
+                ]
+              },
+              "parent": 8,
+              "poison": [],
+              "range": [
+                110,
+                179
+              ]
+            },
+            {
+              "children": [
+                15,
+                17
+              ],
+              "id": 14,
+              "kind": {
+                "container": "OpenRoleMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  115,
+                  179
+                ]
+              },
+              "parent": 13,
+              "poison": [],
+              "range": [
+                115,
+                179
+              ]
+            },
+            {
+              "children": [
+                16
+              ],
+              "id": 15,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "black",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  125,
+                  141
+                ]
+              },
+              "parent": 14,
+              "poison": [],
+              "range": [
+                125,
+                141
+              ]
+            },
+            {
+              "children": [],
+              "id": 16,
+              "kind": {
+                "decoded": "surface1",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  133,
+                  141
+                ]
+              },
+              "parent": 15,
+              "poison": [],
+              "range": [
+                133,
+                141
+              ]
+            },
+            {
+              "children": [
+                18
+              ],
+              "id": 17,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "bright_black",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  150,
+                  173
+                ]
+              },
+              "parent": 14,
+              "poison": [],
+              "range": [
+                150,
+                173
+              ]
+            },
+            {
+              "children": [],
+              "id": 18,
+              "kind": {
+                "decoded": "surface2",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  165,
+                  173
+                ]
+              },
+              "parent": 17,
+              "poison": [],
+              "range": [
+                165,
+                173
+              ]
+            },
+            {
+              "children": [
+                20
+              ],
+              "id": 19,
+              "kind": {
+                "authored": "Block",
+                "entry": "eza",
+                "expected": "Block(EzaRoles)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  182,
+                  345
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                182,
+                345
+              ]
+            },
+            {
+              "children": [
+                21,
+                23,
+                25,
+                29,
+                35
+              ],
+              "id": 20,
+              "kind": {
+                "container": "EzaRoles"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  186,
+                  345
+                ]
+              },
+              "parent": 19,
+              "poison": [],
+              "range": [
+                186,
+                345
+              ]
+            },
+            {
+              "children": [
+                22
+              ],
+              "id": 21,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "fi",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  192,
+                  204
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                192,
+                204
+              ]
+            },
+            {
+              "children": [],
+              "id": 22,
+              "kind": {
+                "decoded": "subtext",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  197,
+                  204
+                ]
+              },
+              "parent": 21,
+              "poison": [],
+              "range": [
+                197,
+                204
+              ]
+            },
+            {
+              "children": [
+                24
+              ],
+              "id": 23,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "di",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  209,
+                  218
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                209,
+                218
+              ]
+            },
+            {
+              "children": [],
+              "id": 24,
+              "kind": {
+                "decoded": "blue",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  214,
+                  218
+                ]
+              },
+              "parent": 23,
+              "poison": [],
+              "range": [
+                214,
+                218
+              ]
+            },
+            {
+              "children": [
+                26
+              ],
+              "id": 25,
+              "kind": {
+                "authored": "Block",
+                "entry": "categories",
+                "expected": "Block(OpenRoleMap)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  223,
+                  251
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                223,
+                251
+              ]
+            },
+            {
+              "children": [
+                27
+              ],
+              "id": 26,
+              "kind": {
+                "container": "OpenRoleMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  234,
+                  251
+                ]
+              },
+              "parent": 25,
+              "poison": [],
+              "range": [
+                234,
+                251
+              ]
+            },
+            {
+              "children": [
+                28
+              ],
+              "id": 27,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "image",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  236,
+                  249
+                ]
+              },
+              "parent": 26,
+              "poison": [],
+              "range": [
+                236,
+                249
+              ]
+            },
+            {
+              "children": [],
+              "id": 28,
+              "kind": {
+                "decoded": "mauve",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  244,
+                  249
+                ]
+              },
+              "parent": 27,
+              "poison": [],
+              "range": [
+                244,
+                249
+              ]
+            },
+            {
+              "children": [
+                30
+              ],
+              "id": 29,
+              "kind": {
+                "authored": "Block",
+                "entry": "pattern",
+                "expected": "Block(EzaPattern)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  256,
+                  297
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                256,
+                297
+              ]
+            },
+            {
+              "children": [
+                31,
+                33
+              ],
+              "id": 30,
+              "kind": {
+                "container": "EzaPattern"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  264,
+                  297
+                ]
+              },
+              "parent": 29,
+              "poison": [],
+              "range": [
+                264,
+                297
+              ]
+            },
+            {
+              "children": [
+                32
+              ],
+              "id": 31,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(LiteralString)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  266,
+                  280
+                ]
+              },
+              "parent": 30,
+              "poison": [],
+              "range": [
+                266,
+                280
+              ]
+            },
+            {
+              "children": [],
+              "id": 32,
+              "kind": {
+                "decoded": "*.toml",
+                "expected": "LiteralString",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  272,
+                  280
+                ]
+              },
+              "parent": 31,
+              "poison": [],
+              "range": [
+                272,
+                280
+              ]
+            },
+            {
+              "children": [
+                34
+              ],
+              "id": 33,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "role",
+                "expected": "Value(RoleReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  282,
+                  295
+                ]
+              },
+              "parent": 30,
+              "poison": [],
+              "range": [
+                282,
+                295
+              ]
+            },
+            {
+              "children": [],
+              "id": 34,
+              "kind": {
+                "decoded": "orange",
+                "expected": "RoleReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  289,
+                  295
+                ]
+              },
+              "parent": 33,
+              "poison": [],
+              "range": [
+                289,
+                295
+              ]
+            },
+            {
+              "children": [
+                36
+              ],
+              "id": 35,
+              "kind": {
+                "authored": "Block",
+                "entry": "pattern",
+                "expected": "Block(EzaPattern)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  302,
+                  343
+                ]
+              },
+              "parent": 20,
+              "poison": [],
+              "range": [
+                302,
+                343
+              ]
+            },
+            {
+              "children": [
+                37,
+                39
+              ],
+              "id": 36,
+              "kind": {
+                "container": "EzaPattern"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  310,
+                  343
+                ]
+              },
+              "parent": 35,
+              "poison": [],
+              "range": [
+                310,
+                343
+              ]
+            },
+            {
+              "children": [
+                38
+              ],
+              "id": 37,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "key",
+                "expected": "Value(LiteralString)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  312,
+                  326
+                ]
+              },
+              "parent": 36,
+              "poison": [],
+              "range": [
+                312,
+                326
+              ]
+            },
+            {
+              "children": [],
+              "id": 38,
+              "kind": {
+                "decoded": "*.json",
+                "expected": "LiteralString",
+                "value": "String"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  318,
+                  326
+                ]
+              },
+              "parent": 37,
+              "poison": [],
+              "range": [
+                318,
+                326
+              ]
+            },
+            {
+              "children": [
+                40
+              ],
+              "id": 39,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "role",
+                "expected": "Value(RoleReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  328,
+                  341
+                ]
+              },
+              "parent": 36,
+              "poison": [],
+              "range": [
+                328,
+                341
+              ]
+            },
+            {
+              "children": [],
+              "id": 40,
+              "kind": {
+                "decoded": "yellow",
+                "expected": "RoleReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  335,
+                  341
+                ]
+              },
+              "parent": 39,
+              "poison": [],
+              "range": [
+                335,
+                341
+              ]
+            },
+            {
+              "children": [
+                42
+              ],
+              "id": 41,
+              "kind": {
+                "authored": "Block",
+                "entry": "kde",
+                "expected": "Block(OpenRoleMap)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  346,
+                  398
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                346,
+                398
+              ]
+            },
+            {
+              "children": [
+                43,
+                45
+              ],
+              "id": 42,
+              "kind": {
+                "container": "OpenRoleMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  350,
+                  398
+                ]
+              },
+              "parent": 41,
+              "poison": [],
+              "range": [
+                350,
+                398
+              ]
+            },
+            {
+              "children": [
+                44
+              ],
+              "id": 43,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "window_bg",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  356,
+                  372
+                ]
+              },
+              "parent": 42,
+              "poison": [],
+              "range": [
+                356,
+                372
+              ]
+            },
+            {
+              "children": [],
+              "id": 44,
+              "kind": {
+                "decoded": "base",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  368,
+                  372
+                ]
+              },
+              "parent": 43,
+              "poison": [],
+              "range": [
+                368,
+                372
+              ]
+            },
+            {
+              "children": [
+                46
+              ],
+              "id": 45,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "window_alt",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  377,
+                  396
+                ]
+              },
+              "parent": 42,
+              "poison": [],
+              "range": [
+                377,
+                396
+              ]
+            },
+            {
+              "children": [],
+              "id": 46,
+              "kind": {
+                "decoded": "mantle",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  390,
+                  396
+                ]
+              },
+              "parent": 45,
+              "poison": [],
+              "range": [
+                390,
+                396
+              ]
+            },
+            {
+              "children": [
+                48
+              ],
+              "id": 47,
+              "kind": {
+                "authored": "Block",
+                "entry": "konsole",
+                "expected": "Block(OpenRoleMap)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  399,
+                  428
+                ]
+              },
+              "parent": 0,
+              "poison": [],
+              "range": [
+                399,
+                428
+              ]
+            },
+            {
+              "children": [
+                49
+              ],
+              "id": 48,
+              "kind": {
+                "container": "OpenRoleMap"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  407,
+                  428
+                ]
+              },
+              "parent": 47,
+              "poison": [],
+              "range": [
+                407,
+                428
+              ]
+            },
+            {
+              "children": [
+                50
+              ],
+              "id": 49,
+              "kind": {
+                "authored": "Assignment",
+                "entry": "background",
+                "expected": "Value(PaletteReference)"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  409,
+                  426
+                ]
+              },
+              "parent": 48,
+              "poison": [],
+              "range": [
+                409,
+                426
+              ]
+            },
+            {
+              "children": [],
+              "id": 50,
+              "kind": {
+                "decoded": "base",
+                "expected": "PaletteReference",
+                "value": "Reference"
+              },
+              "origin": {
+                "authored": true,
+                "range": [
+                  422,
+                  426
+                ]
+              },
+              "parent": 49,
+              "poison": [],
+              "range": [
+                422,
+                426
+              ]
+            }
+          ],
+          "root": 0,
+          "source_map": [
+            {
+              "authored": true,
+              "hir_id": 0,
+              "range": [
+                0,
+                429
+              ],
+              "theme_ids_for_range": [
+                0
+              ],
+              "theme_ids_for_syntax": [
+                0
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 1,
+              "range": [
+                0,
+                50
+              ],
+              "theme_ids_for_range": [
+                1
+              ],
+              "theme_ids_for_syntax": [
+                1
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 2,
+              "range": [
+                6,
+                50
+              ],
+              "theme_ids_for_range": [
+                2
+              ],
+              "theme_ids_for_syntax": [
+                2
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 3,
+              "range": [
+                12,
+                33
+              ],
+              "theme_ids_for_range": [
+                3
+              ],
+              "theme_ids_for_syntax": [
+                3
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 4,
+              "range": [
+                29,
+                33
+              ],
+              "theme_ids_for_range": [
+                4
+              ],
+              "theme_ids_for_syntax": [
+                4
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 5,
+              "range": [
+                38,
+                48
+              ],
+              "theme_ids_for_range": [
+                5
+              ],
+              "theme_ids_for_syntax": [
+                5
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 6,
+              "range": [
+                45,
+                48
+              ],
+              "theme_ids_for_range": [
+                6
+              ],
+              "theme_ids_for_syntax": [
+                6
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 7,
+              "range": [
+                51,
+                181
+              ],
+              "theme_ids_for_range": [
+                7
+              ],
+              "theme_ids_for_syntax": [
+                7
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 8,
+              "range": [
+                60,
+                181
+              ],
+              "theme_ids_for_range": [
+                8
+              ],
+              "theme_ids_for_syntax": [
+                8
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 9,
+              "range": [
+                66,
+                83
+              ],
+              "theme_ids_for_range": [
+                9
+              ],
+              "theme_ids_for_syntax": [
+                9
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 10,
+              "range": [
+                79,
+                83
+              ],
+              "theme_ids_for_range": [
+                10
+              ],
+              "theme_ids_for_syntax": [
+                10
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 11,
+              "range": [
+                88,
+                105
+              ],
+              "theme_ids_for_range": [
+                11
+              ],
+              "theme_ids_for_syntax": [
+                11
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 12,
+              "range": [
+                101,
+                105
+              ],
+              "theme_ids_for_range": [
+                12
+              ],
+              "theme_ids_for_syntax": [
+                12
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 13,
+              "range": [
+                110,
+                179
+              ],
+              "theme_ids_for_range": [
+                13
+              ],
+              "theme_ids_for_syntax": [
+                13
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 14,
+              "range": [
+                115,
+                179
+              ],
+              "theme_ids_for_range": [
+                14
+              ],
+              "theme_ids_for_syntax": [
+                14
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 15,
+              "range": [
+                125,
+                141
+              ],
+              "theme_ids_for_range": [
+                15
+              ],
+              "theme_ids_for_syntax": [
+                15
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 16,
+              "range": [
+                133,
+                141
+              ],
+              "theme_ids_for_range": [
+                16
+              ],
+              "theme_ids_for_syntax": [
+                16
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 17,
+              "range": [
+                150,
+                173
+              ],
+              "theme_ids_for_range": [
+                17
+              ],
+              "theme_ids_for_syntax": [
+                17
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 18,
+              "range": [
+                165,
+                173
+              ],
+              "theme_ids_for_range": [
+                18
+              ],
+              "theme_ids_for_syntax": [
+                18
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 19,
+              "range": [
+                182,
+                345
+              ],
+              "theme_ids_for_range": [
+                19
+              ],
+              "theme_ids_for_syntax": [
+                19
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 20,
+              "range": [
+                186,
+                345
+              ],
+              "theme_ids_for_range": [
+                20
+              ],
+              "theme_ids_for_syntax": [
+                20
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 21,
+              "range": [
+                192,
+                204
+              ],
+              "theme_ids_for_range": [
+                21
+              ],
+              "theme_ids_for_syntax": [
+                21
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 22,
+              "range": [
+                197,
+                204
+              ],
+              "theme_ids_for_range": [
+                22
+              ],
+              "theme_ids_for_syntax": [
+                22
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 23,
+              "range": [
+                209,
+                218
+              ],
+              "theme_ids_for_range": [
+                23
+              ],
+              "theme_ids_for_syntax": [
+                23
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 24,
+              "range": [
+                214,
+                218
+              ],
+              "theme_ids_for_range": [
+                24
+              ],
+              "theme_ids_for_syntax": [
+                24
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 25,
+              "range": [
+                223,
+                251
+              ],
+              "theme_ids_for_range": [
+                25
+              ],
+              "theme_ids_for_syntax": [
+                25
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 26,
+              "range": [
+                234,
+                251
+              ],
+              "theme_ids_for_range": [
+                26
+              ],
+              "theme_ids_for_syntax": [
+                26
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 27,
+              "range": [
+                236,
+                249
+              ],
+              "theme_ids_for_range": [
+                27
+              ],
+              "theme_ids_for_syntax": [
+                27
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 28,
+              "range": [
+                244,
+                249
+              ],
+              "theme_ids_for_range": [
+                28
+              ],
+              "theme_ids_for_syntax": [
+                28
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 29,
+              "range": [
+                256,
+                297
+              ],
+              "theme_ids_for_range": [
+                29
+              ],
+              "theme_ids_for_syntax": [
+                29
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 30,
+              "range": [
+                264,
+                297
+              ],
+              "theme_ids_for_range": [
+                30
+              ],
+              "theme_ids_for_syntax": [
+                30
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 31,
+              "range": [
+                266,
+                280
+              ],
+              "theme_ids_for_range": [
+                31
+              ],
+              "theme_ids_for_syntax": [
+                31
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 32,
+              "range": [
+                272,
+                280
+              ],
+              "theme_ids_for_range": [
+                32
+              ],
+              "theme_ids_for_syntax": [
+                32
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 33,
+              "range": [
+                282,
+                295
+              ],
+              "theme_ids_for_range": [
+                33
+              ],
+              "theme_ids_for_syntax": [
+                33
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 34,
+              "range": [
+                289,
+                295
+              ],
+              "theme_ids_for_range": [
+                34
+              ],
+              "theme_ids_for_syntax": [
+                34
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 35,
+              "range": [
+                302,
+                343
+              ],
+              "theme_ids_for_range": [
+                35
+              ],
+              "theme_ids_for_syntax": [
+                35
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 36,
+              "range": [
+                310,
+                343
+              ],
+              "theme_ids_for_range": [
+                36
+              ],
+              "theme_ids_for_syntax": [
+                36
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 37,
+              "range": [
+                312,
+                326
+              ],
+              "theme_ids_for_range": [
+                37
+              ],
+              "theme_ids_for_syntax": [
+                37
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 38,
+              "range": [
+                318,
+                326
+              ],
+              "theme_ids_for_range": [
+                38
+              ],
+              "theme_ids_for_syntax": [
+                38
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 39,
+              "range": [
+                328,
+                341
+              ],
+              "theme_ids_for_range": [
+                39
+              ],
+              "theme_ids_for_syntax": [
+                39
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 40,
+              "range": [
+                335,
+                341
+              ],
+              "theme_ids_for_range": [
+                40
+              ],
+              "theme_ids_for_syntax": [
+                40
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 41,
+              "range": [
+                346,
+                398
+              ],
+              "theme_ids_for_range": [
+                41
+              ],
+              "theme_ids_for_syntax": [
+                41
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 42,
+              "range": [
+                350,
+                398
+              ],
+              "theme_ids_for_range": [
+                42
+              ],
+              "theme_ids_for_syntax": [
+                42
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 43,
+              "range": [
+                356,
+                372
+              ],
+              "theme_ids_for_range": [
+                43
+              ],
+              "theme_ids_for_syntax": [
+                43
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 44,
+              "range": [
+                368,
+                372
+              ],
+              "theme_ids_for_range": [
+                44
+              ],
+              "theme_ids_for_syntax": [
+                44
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 45,
+              "range": [
+                377,
+                396
+              ],
+              "theme_ids_for_range": [
+                45
+              ],
+              "theme_ids_for_syntax": [
+                45
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 46,
+              "range": [
+                390,
+                396
+              ],
+              "theme_ids_for_range": [
+                46
+              ],
+              "theme_ids_for_syntax": [
+                46
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 47,
+              "range": [
+                399,
+                428
+              ],
+              "theme_ids_for_range": [
+                47
+              ],
+              "theme_ids_for_syntax": [
+                47
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 48,
+              "range": [
+                407,
+                428
+              ],
+              "theme_ids_for_range": [
+                48
+              ],
+              "theme_ids_for_syntax": [
+                48
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 49,
+              "range": [
+                409,
+                426
+              ],
+              "theme_ids_for_range": [
+                49
+              ],
+              "theme_ids_for_syntax": [
+                49
+              ]
+            },
+            {
+              "authored": true,
+              "hir_id": 50,
+              "range": [
+                422,
+                426
+              ],
+              "theme_ids_for_range": [
+                50
+              ],
+              "theme_ids_for_syntax": [
+                50
+              ]
+            }
+          ]
+        },
+        "kind": "roles"
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-roles-complete",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "roles {\n    section_system = blue\n    sudo = red\n}\nterminal {\n    foreground = text\n    background = base\n    ansi {\n        black = surface1\n        bright_black = surface2\n    }\n}\neza {\n    fi = subtext\n    di = blue\n    categories { image = mauve }\n    pattern { key = \"*.toml\", role = orange }\n    pattern { key = \"*.json\", role = yellow }\n}\nkde {\n    window_bg = base\n    window_alt = mantle\n}\nkonsole { background = base }\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "shared role tree",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.1"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

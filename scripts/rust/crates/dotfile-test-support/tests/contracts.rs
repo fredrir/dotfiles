@@ -1,6 +1,6 @@
 use blake2::Blake2sVar;
 use blake2::digest::{Update, VariableOutput};
-use dotfile_test_support::{contract_directory, load_contract};
+use dotfile_test_support::{contract_directory, load_contract, representative_fixture_path};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
@@ -118,6 +118,22 @@ fn fixture_manifest_covers_every_required_family_and_test_class() {
             "claimed fixture {id} has no record on disk"
         );
     }
+}
+
+#[test]
+fn fixture_domain_paths_match_the_frozen_manifest() {
+    let contract = load_contract("fixtures").unwrap();
+    let paths = contract["fixture_record_contract"]["representative_repository_paths"]
+        .as_object()
+        .unwrap();
+    for (domain, expected) in paths {
+        assert_eq!(
+            representative_fixture_path(domain).unwrap().as_str(),
+            expected.as_str().unwrap(),
+            "{domain}",
+        );
+    }
+    assert_eq!(paths.len(), 26);
 }
 
 #[test]

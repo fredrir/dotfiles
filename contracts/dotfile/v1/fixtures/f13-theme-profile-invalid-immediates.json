@@ -1,0 +1,205 @@
+{
+  "domain": "theme_profiles",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 17,
+            "end_column": 18,
+            "end_line": 1,
+            "path": "theme/profiles/mocha.dotfile",
+            "start_byte": 15,
+            "start_column": 16,
+            "start_line": 1
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the value and structure required by this theme schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:mocha",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "theme field `display-name` must not be empty"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 38,
+            "end_column": 21,
+            "end_line": 2,
+            "path": "theme/profiles/mocha.dotfile",
+            "start_byte": 31,
+            "start_column": 14,
+            "start_line": 2
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the value and structure required by this theme schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:mocha",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "appearance must be `dark` or `light`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 61,
+            "end_column": 7,
+            "end_line": 4,
+            "path": "theme/profiles/mocha.dotfile",
+            "start_byte": 61,
+            "start_column": 7,
+            "start_line": 4
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 62,
+              "end_column": 8,
+              "end_line": 4,
+              "path": "theme/profiles/mocha.dotfile",
+              "start_byte": 60,
+              "start_column": 6,
+              "start_line": 4
+            }
+          ],
+          "remedy": "add the required field at this insertion point",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:mocha",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "missing required theme field `nvim.flavour`"
+        },
+        {
+          "actual": {},
+          "code": "schema/context",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 93,
+            "end_column": 21,
+            "end_line": 6,
+            "path": "theme/profiles/mocha.dotfile",
+            "start_byte": 84,
+            "start_column": 12,
+            "start_line": 6
+          },
+          "provenance": [],
+          "related_spans": [],
+          "remedy": "use the value and structure required by this theme schema",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "theme:mocha",
+          "severity": "Error",
+          "stage": "schema",
+          "summary": "palette `base` must be lowercase `#[0-9a-f]{6}`"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-profile-invalid-immediates",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "display-name = \"\"\nappearance = \"sepia\"\nicons = \"Icons\"\nnvim {}\npalette {\n    base = \"#ABCDEF\"\n    duplicate = \"#abcdef\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "profile required fields and values",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.2"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

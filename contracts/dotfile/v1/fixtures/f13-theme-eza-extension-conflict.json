@@ -1,0 +1,136 @@
+{
+  "domain": "theme_map_eza",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "exact_json",
+      "payload": [
+        {
+          "actual": {},
+          "code": "theme/map",
+          "expected": {},
+          "primary_span": {
+            "end_byte": 120,
+            "end_column": 49,
+            "end_line": 3,
+            "path": "theme/maps/eza.dotfile",
+            "start_byte": 115,
+            "start_column": 44,
+            "start_line": 3
+          },
+          "provenance": [],
+          "related_spans": [
+            {
+              "end_byte": 61,
+              "end_column": 49,
+              "end_line": 2,
+              "path": "theme/maps/eza.dotfile",
+              "start_byte": 56,
+              "start_column": 44,
+              "start_line": 2
+            }
+          ],
+          "remedy": "remove the conflicting application-map entry",
+          "scope": "source",
+          "secret_redacted": false,
+          "semantic_identity": "",
+          "severity": "Error",
+          "stage": "theme",
+          "summary": "Eza extension `png` belongs to more than one category"
+        }
+      ],
+      "state": "golden"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f13-theme-eza-extension-conflict",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "categories {\n    category { name = image, extensions = [\"png\", \"jpg\"] }\n    category { name = other, extensions = [\"png\"] }\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "Eza extension ownership",
+      "path": "docs/dotfile-language.md",
+      "section": "26.4.3"
+    }
+  ],
+  "operation": "schema",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

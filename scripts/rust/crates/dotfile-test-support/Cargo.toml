@@ -7,8 +7,11 @@ license.workspace = true
 publish = false
 
 [dependencies]
+dotfile-format = { path = "../dotfile-format" }
+dotfile-schema = { path = "../dotfile-schema" }
 dotfile-source = { path = "../dotfile-source" }
 dotfile-syntax = { path = "../dotfile-syntax" }
+dotfile-theme = { path = "../dotfile-theme" }
 serde_json.workspace = true
 
 [dev-dependencies]

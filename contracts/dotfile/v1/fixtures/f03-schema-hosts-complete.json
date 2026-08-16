@@ -1,0 +1,758 @@
+{
+  "domain": "hosts",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [],
+        "diagnostics": [],
+        "domain": "hosts",
+        "location": "Fixed",
+        "path": "config/hosts.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "hosts": [
+            {
+              "extensions": [
+                {
+                  "id": 14,
+                  "name": "CPU_VENDOR",
+                  "poison": [],
+                  "value": {
+                    "id": 15,
+                    "kind": {
+                      "kind": "list",
+                      "values": [
+                        {
+                          "id": 16,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 139,
+                                  "start": 137
+                                },
+                                "text": "AMD"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 139,
+                                  "start": 137
+                                },
+                                "text": "AMD"
+                              }
+                            ],
+                            "value": "AMD"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 141,
+                            "start": 136
+                          },
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "poison": [],
+                    "range": {
+                      "end": 141,
+                      "start": 136
+                    },
+                    "type": "host_extension"
+                  }
+                },
+                {
+                  "id": 17,
+                  "name": "MEMORY_MODULES",
+                  "poison": [],
+                  "value": {
+                    "id": 18,
+                    "kind": {
+                      "kind": "list",
+                      "values": [
+                        {
+                          "id": 19,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 171,
+                                  "start": 165
+                                },
+                                "text": "DIMM-A2"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 171,
+                                  "start": 165
+                                },
+                                "text": "DIMM-A2"
+                              }
+                            ],
+                            "value": "DIMM-A2"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 173,
+                            "start": 164
+                          },
+                          "type": "string"
+                        },
+                        {
+                          "id": 20,
+                          "kind": {
+                            "evaluated_segments": [
+                              {
+                                "binding_edges": [],
+                                "source_range": {
+                                  "end": 182,
+                                  "start": 176
+                                },
+                                "text": "DIMM-B2"
+                              }
+                            ],
+                            "kind": "string",
+                            "poisoned": false,
+                            "segments": [
+                              {
+                                "kind": "literal",
+                                "range": {
+                                  "end": 182,
+                                  "start": 176
+                                },
+                                "text": "DIMM-B2"
+                              }
+                            ],
+                            "value": "DIMM-B2"
+                          },
+                          "poison": [],
+                          "range": {
+                            "end": 184,
+                            "start": 175
+                          },
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "poison": [],
+                    "range": {
+                      "end": 185,
+                      "start": 163
+                    },
+                    "type": "host_extension"
+                  }
+                }
+              ],
+              "hostnames": {
+                "id": 4,
+                "name": "hostnames",
+                "poison": [],
+                "value": {
+                  "id": 5,
+                  "kind": {
+                    "kind": "list",
+                    "values": [
+                      {
+                        "id": 6,
+                        "kind": {
+                          "evaluated_segments": [
+                            {
+                              "binding_edges": [],
+                              "source_range": {
+                                "end": 32,
+                                "start": 27
+                              },
+                              "text": "archpc"
+                            }
+                          ],
+                          "kind": "string",
+                          "poisoned": false,
+                          "segments": [
+                            {
+                              "kind": "literal",
+                              "range": {
+                                "end": 32,
+                                "start": 27
+                              },
+                              "text": "archpc"
+                            }
+                          ],
+                          "value": "archpc"
+                        },
+                        "poison": [],
+                        "range": {
+                          "end": 34,
+                          "start": 26
+                        },
+                        "type": "string"
+                      },
+                      {
+                        "id": 7,
+                        "kind": {
+                          "evaluated_segments": [
+                            {
+                              "binding_edges": [],
+                              "source_range": {
+                                "end": 48,
+                                "start": 37
+                              },
+                              "text": "archie.local"
+                            }
+                          ],
+                          "kind": "string",
+                          "poisoned": false,
+                          "segments": [
+                            {
+                              "kind": "literal",
+                              "range": {
+                                "end": 48,
+                                "start": 37
+                              },
+                              "text": "archie.local"
+                            }
+                          ],
+                          "value": "archie.local"
+                        },
+                        "poison": [],
+                        "range": {
+                          "end": 50,
+                          "start": 36
+                        },
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 51,
+                    "start": 25
+                  },
+                  "type": "hostnames"
+                }
+              },
+              "id": 2,
+              "name": "archie",
+              "poison": [],
+              "profile": {
+                "id": 10,
+                "name": "@profile",
+                "poison": [],
+                "value": {
+                  "id": 11,
+                  "kind": {
+                    "kind": "reference",
+                    "name": "workstation",
+                    "namespace": "profile"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 99,
+                    "start": 88
+                  },
+                  "type": "profile_reference"
+                }
+              },
+              "role": {
+                "id": 8,
+                "name": "role",
+                "poison": [],
+                "value": {
+                  "id": 9,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 70,
+                          "start": 64
+                        },
+                        "text": "desktop"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 70,
+                          "start": 64
+                        },
+                        "text": "desktop"
+                      }
+                    ],
+                    "value": "desktop"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 72,
+                    "start": 63
+                  },
+                  "type": "host_role"
+                }
+              },
+              "theme": {
+                "id": 12,
+                "name": "@theme",
+                "poison": [],
+                "value": {
+                  "id": 13,
+                  "kind": {
+                    "kind": "reference",
+                    "name": "mocha",
+                    "namespace": "theme"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 118,
+                    "start": 113
+                  },
+                  "type": "theme_reference"
+                }
+              }
+            }
+          ],
+          "id": 1,
+          "kind": "hosts",
+          "poison": []
+        },
+        "scopes": [
+          {
+            "bindings": [],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 0,
+            "range": {
+              "end": 188,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 3,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 13,
+            "range": {
+              "end": 187,
+              "start": 7
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 188,
+              "start": 0
+            },
+            "syntax": "NodeId(18)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              0,
+              1
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              1
+            ],
+            "range": {
+              "end": 188,
+              "start": 0
+            },
+            "syntax": "NodeId(18)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              2
+            ],
+            "hir_ids_for_syntax": [
+              2
+            ],
+            "range": {
+              "end": 187,
+              "start": 0
+            },
+            "syntax": "NodeId(17)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 187,
+              "start": 7
+            },
+            "syntax": "NodeId(16)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 51,
+              "start": 13
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 51,
+              "start": 25
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 34,
+              "start": 26
+            },
+            "syntax": "NodeId(0)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 50,
+              "start": 36
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 72,
+              "start": 56
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 72,
+              "start": 63
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 99,
+              "start": 77
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 99,
+              "start": 88
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 12,
+            "hir_ids_for_range": [
+              12
+            ],
+            "hir_ids_for_syntax": [
+              12
+            ],
+            "range": {
+              "end": 118,
+              "start": 104
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 13,
+            "hir_ids_for_range": [
+              13
+            ],
+            "hir_ids_for_syntax": [
+              13
+            ],
+            "range": {
+              "end": 118,
+              "start": 113
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 14,
+            "hir_ids_for_range": [
+              14
+            ],
+            "hir_ids_for_syntax": [
+              14
+            ],
+            "range": {
+              "end": 141,
+              "start": 123
+            },
+            "syntax": "NodeId(11)"
+          },
+          {
+            "hir": 15,
+            "hir_ids_for_range": [
+              15,
+              16
+            ],
+            "hir_ids_for_syntax": [
+              15,
+              16
+            ],
+            "range": {
+              "end": 141,
+              "start": 136
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 16,
+            "hir_ids_for_range": [
+              15,
+              16
+            ],
+            "hir_ids_for_syntax": [
+              15,
+              16
+            ],
+            "range": {
+              "end": 141,
+              "start": 136
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 17,
+            "hir_ids_for_range": [
+              17
+            ],
+            "hir_ids_for_syntax": [
+              17
+            ],
+            "range": {
+              "end": 185,
+              "start": 146
+            },
+            "syntax": "NodeId(15)"
+          },
+          {
+            "hir": 18,
+            "hir_ids_for_range": [
+              18
+            ],
+            "hir_ids_for_syntax": [
+              18
+            ],
+            "range": {
+              "end": 185,
+              "start": 163
+            },
+            "syntax": "NodeId(14)"
+          },
+          {
+            "hir": 19,
+            "hir_ids_for_range": [
+              19
+            ],
+            "hir_ids_for_syntax": [
+              19
+            ],
+            "range": {
+              "end": 173,
+              "start": 164
+            },
+            "syntax": "NodeId(12)"
+          },
+          {
+            "hir": 20,
+            "hir_ids_for_range": [
+              20
+            ],
+            "hir_ids_for_syntax": [
+              20
+            ],
+            "range": {
+              "end": 184,
+              "start": 175
+            },
+            "syntax": "NodeId(13)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-hosts-complete",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "archie {\n    hostnames = [\"archpc\", \"archie.local\"]\n    role = \"desktop\"\n    @profile = workstation\n    @theme = mocha\n    CPU_VENDOR = \"AMD\"\n    MEMORY_MODULES = [\"DIMM-A2\", \"DIMM-B2\"]\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "host declaration shape",
+      "path": "docs/dotfile-language.md",
+      "section": "14"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}

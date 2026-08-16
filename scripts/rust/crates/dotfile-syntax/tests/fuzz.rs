@@ -132,20 +132,20 @@ fn check_invariants(input: &[u8]) {
     let second = parse(&path, &source);
 
     // Exact byte replay, including invalid and recovered regions.
-    assert_eq!(first.cst.replay(input), input, "replay mismatch");
+    assert_eq!(first.cst().replay(input), input, "replay mismatch");
     // Determinism across repeated runs.
     assert_eq!(
-        first.cst.dump(input),
-        second.cst.dump(input),
+        first.cst().dump(input),
+        second.cst().dump(input),
         "nondeterministic CST"
     );
     assert_eq!(
-        serde_json::to_value(&first.diagnostics).unwrap(),
-        serde_json::to_value(&second.diagnostics).unwrap(),
+        serde_json::to_value(first.diagnostics()).unwrap(),
+        serde_json::to_value(second.diagnostics()).unwrap(),
         "nondeterministic diagnostics"
     );
     // The retained-diagnostic limit holds.
-    assert!(first.diagnostics.len() <= 512);
+    assert!(first.diagnostics().len() <= 512);
     // Lexer gap/token invariants hold.
     first.lexed_invariants(input);
 }
@@ -156,8 +156,8 @@ trait LexedInvariants {
 
 impl LexedInvariants for dotfile_syntax::Parse {
     fn lexed_invariants(&self, input: &[u8]) {
-        let tokens = &self.cst.tokens;
-        let gaps = &self.cst.gaps;
+        let tokens = self.cst().tokens();
+        let gaps = self.cst().gaps();
         assert_eq!(gaps.len(), tokens.len() + 1);
         let mut cursor = 0;
         for (index, token) in tokens.iter().enumerate() {

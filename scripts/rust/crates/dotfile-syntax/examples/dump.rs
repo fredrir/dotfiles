@@ -45,26 +45,22 @@ fn main() {
         }
         "parse" => {
             let result = parse(&path, &source);
-            let tokens = dump_tokens(
-                &result.cst.tokens,
-                &result.cst.gaps,
-                &result.cst.strings,
-                source.as_bytes(),
-            );
-            let cst = result.cst.dump(source.as_bytes());
+            let cst = result.cst();
+            let tokens = dump_tokens(cst.tokens(), cst.gaps(), cst.strings(), source.as_bytes());
+            let cst = cst.dump(source.as_bytes());
             if json {
                 println!(
                     "{}",
                     serde_json::json!({
                         "tokens": tokens,
                         "cst": cst,
-                        "diagnostics": serde_json::to_value(&result.diagnostics).unwrap(),
+                        "diagnostics": serde_json::to_value(result.diagnostics()).unwrap(),
                     })
                 );
             } else {
                 println!("{tokens}");
                 println!("{cst}");
-                print_diagnostics(&result.diagnostics);
+                print_diagnostics(result.diagnostics());
             }
         }
         "bootstrap" => {

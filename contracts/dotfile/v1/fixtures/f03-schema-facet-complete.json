@@ -1,0 +1,894 @@
+{
+  "domain": "facet_requirements",
+  "expected": {
+    "cli": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "cst": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "diagnostics": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "edits": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "filesystem_mutations": {
+      "comparison": "empty",
+      "payload": [],
+      "state": "empty"
+    },
+    "ir": {
+      "comparison": "exact_json",
+      "payload": {
+        "bindings": [
+          {
+            "evaluated": {
+              "poisoned": false,
+              "segments": [
+                {
+                  "binding_edges": [],
+                  "source_range": {
+                    "end": 23,
+                    "start": 15
+                  },
+                  "text": "~/.config"
+                }
+              ],
+              "value": "~/.config"
+            },
+            "hir": 1,
+            "id": 0,
+            "initializer": [
+              {
+                "kind": "literal",
+                "range": {
+                  "end": 23,
+                  "start": 15
+                },
+                "text": "~/.config"
+              }
+            ],
+            "name": "config",
+            "poison": [],
+            "range": {
+              "end": 25,
+              "start": 0
+            },
+            "scope": 0,
+            "used": true
+          }
+        ],
+        "diagnostics": [],
+        "domain": "facet_requirements",
+        "location": "Facet { group: \"shared\", directory: RepoPath(\"shared\"), package: \"wezterm\" }",
+        "path": "shared/wezterm/package.dotfile",
+        "poison": [],
+        "recovery": [],
+        "root": {
+          "context": "facet",
+          "entries": [
+            {
+              "id": 0,
+              "kind": "binding"
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 3,
+                "name": "@destination",
+                "poison": [],
+                "value": {
+                  "id": 4,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [
+                          {
+                            "binding": 0,
+                            "declaration_range": {
+                              "end": 11,
+                              "start": 5
+                            },
+                            "reference_range": {
+                              "end": 50,
+                              "start": 44
+                            }
+                          }
+                        ],
+                        "source_range": {
+                          "end": 23,
+                          "start": 15
+                        },
+                        "text": "~/.config"
+                      },
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 58,
+                          "start": 51
+                        },
+                        "text": "/wezterm"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "binding",
+                        "name": "config",
+                        "range": {
+                          "end": 50,
+                          "start": 44
+                        },
+                        "resolution": "Resolved(BindingId(0))"
+                      },
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 58,
+                          "start": 51
+                        },
+                        "text": "/wezterm"
+                      }
+                    ],
+                    "value": "~/.config/wezterm"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 60,
+                    "start": 41
+                  },
+                  "type": "destination_path_expression"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 5,
+                "name": "@deploy",
+                "poison": [],
+                "value": {
+                  "id": 6,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 75,
+                          "start": 72
+                        },
+                        "text": "link"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 75,
+                          "start": 72
+                        },
+                        "text": "link"
+                      }
+                    ],
+                    "value": "link"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 77,
+                    "start": 71
+                  },
+                  "type": "deploy_enum"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 7,
+                "name": "@description",
+                "poison": [],
+                "value": {
+                  "id": 8,
+                  "kind": {
+                    "evaluated_segments": [
+                      {
+                        "binding_edges": [],
+                        "source_range": {
+                          "end": 115,
+                          "start": 94
+                        },
+                        "text": "Terminal configuration"
+                      }
+                    ],
+                    "kind": "string",
+                    "poisoned": false,
+                    "segments": [
+                      {
+                        "kind": "literal",
+                        "range": {
+                          "end": 115,
+                          "start": 94
+                        },
+                        "text": "Terminal configuration"
+                      }
+                    ],
+                    "value": "Terminal configuration"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 117,
+                    "start": 93
+                  },
+                  "type": "one_line_string"
+                }
+              }
+            },
+            {
+              "kind": "attribute",
+              "value": {
+                "id": 9,
+                "name": "@theme",
+                "poison": [],
+                "value": {
+                  "id": 10,
+                  "kind": {
+                    "kind": "reference",
+                    "name": "mocha",
+                    "namespace": "theme"
+                  },
+                  "poison": [],
+                  "range": {
+                    "end": 132,
+                    "start": 127
+                  },
+                  "type": "theme_reference"
+                }
+              }
+            },
+            {
+              "entries": [
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 13,
+                    "name": "@deploy",
+                    "poison": [],
+                    "value": {
+                      "id": 14,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 162,
+                              "start": 159
+                            },
+                            "text": "none"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 162,
+                              "start": 159
+                            },
+                            "text": "none"
+                          }
+                        ],
+                        "value": "none"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 164,
+                        "start": 158
+                      },
+                      "type": "deploy_enum"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 15,
+                    "name": "@expect",
+                    "poison": [],
+                    "value": {
+                      "id": 16,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 188,
+                              "start": 180
+                            },
+                            "text": "directory"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 188,
+                              "start": 180
+                            },
+                            "text": "directory"
+                          }
+                        ],
+                        "value": "directory"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 190,
+                        "start": 179
+                      },
+                      "type": "expect_enum"
+                    }
+                  }
+                }
+              ],
+              "id": 11,
+              "kind": "path",
+              "optional": false,
+              "path": "types",
+              "poison": [],
+              "scope": 1
+            },
+            {
+              "assignment_sugar": false,
+              "entries": [
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 19,
+                    "name": "@bin",
+                    "poison": [],
+                    "value": {
+                      "id": 20,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 222,
+                              "start": 216
+                            },
+                            "text": "wezterm"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 222,
+                              "start": 216
+                            },
+                            "text": "wezterm"
+                          }
+                        ],
+                        "value": "wezterm"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 224,
+                        "start": 215
+                      },
+                      "type": "command_name_string"
+                    }
+                  }
+                },
+                {
+                  "kind": "attribute",
+                  "value": {
+                    "id": 21,
+                    "name": "@check",
+                    "poison": [],
+                    "value": {
+                      "id": 22,
+                      "kind": {
+                        "evaluated_segments": [
+                          {
+                            "binding_edges": [],
+                            "source_range": {
+                              "end": 245,
+                              "start": 239
+                            },
+                            "text": "command"
+                          }
+                        ],
+                        "kind": "string",
+                        "poisoned": false,
+                        "segments": [
+                          {
+                            "kind": "literal",
+                            "range": {
+                              "end": 245,
+                              "start": 239
+                            },
+                            "text": "command"
+                          }
+                        ],
+                        "value": "command"
+                      },
+                      "poison": [],
+                      "range": {
+                        "end": 247,
+                        "start": 238
+                      },
+                      "type": "check_enum"
+                    }
+                  }
+                }
+              ],
+              "id": 17,
+              "kind": "entity",
+              "name": "wezterm",
+              "optional": false,
+              "poison": [],
+              "scope": 2
+            }
+          ],
+          "id": 2,
+          "kind": "requirements",
+          "poison": [],
+          "scope": 0
+        },
+        "scopes": [
+          {
+            "bindings": [
+              0
+            ],
+            "hir": 0,
+            "id": 0,
+            "parent": null,
+            "poison": [],
+            "prologue_end": 26,
+            "range": {
+              "end": 250,
+              "start": 0
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 12,
+            "id": 1,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 148,
+            "range": {
+              "end": 192,
+              "start": 142
+            }
+          },
+          {
+            "bindings": [],
+            "hir": 18,
+            "id": 2,
+            "parent": 0,
+            "poison": [],
+            "prologue_end": 208,
+            "range": {
+              "end": 249,
+              "start": 202
+            }
+          }
+        ],
+        "source_map": [
+          {
+            "hir": 0,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 250,
+              "start": 0
+            },
+            "syntax": "NodeId(22)"
+          },
+          {
+            "hir": 1,
+            "hir_ids_for_range": [
+              1
+            ],
+            "hir_ids_for_syntax": [
+              1
+            ],
+            "range": {
+              "end": 25,
+              "start": 0
+            },
+            "syntax": "NodeId(1)"
+          },
+          {
+            "hir": 2,
+            "hir_ids_for_range": [
+              0,
+              2
+            ],
+            "hir_ids_for_syntax": [
+              0,
+              2
+            ],
+            "range": {
+              "end": 250,
+              "start": 0
+            },
+            "syntax": "NodeId(22)"
+          },
+          {
+            "hir": 3,
+            "hir_ids_for_range": [
+              3
+            ],
+            "hir_ids_for_syntax": [
+              3
+            ],
+            "range": {
+              "end": 60,
+              "start": 26
+            },
+            "syntax": "NodeId(3)"
+          },
+          {
+            "hir": 4,
+            "hir_ids_for_range": [
+              4
+            ],
+            "hir_ids_for_syntax": [
+              4
+            ],
+            "range": {
+              "end": 60,
+              "start": 41
+            },
+            "syntax": "NodeId(2)"
+          },
+          {
+            "hir": 5,
+            "hir_ids_for_range": [
+              5
+            ],
+            "hir_ids_for_syntax": [
+              5
+            ],
+            "range": {
+              "end": 77,
+              "start": 61
+            },
+            "syntax": "NodeId(5)"
+          },
+          {
+            "hir": 6,
+            "hir_ids_for_range": [
+              6
+            ],
+            "hir_ids_for_syntax": [
+              6
+            ],
+            "range": {
+              "end": 77,
+              "start": 71
+            },
+            "syntax": "NodeId(4)"
+          },
+          {
+            "hir": 7,
+            "hir_ids_for_range": [
+              7
+            ],
+            "hir_ids_for_syntax": [
+              7
+            ],
+            "range": {
+              "end": 117,
+              "start": 78
+            },
+            "syntax": "NodeId(7)"
+          },
+          {
+            "hir": 8,
+            "hir_ids_for_range": [
+              8
+            ],
+            "hir_ids_for_syntax": [
+              8
+            ],
+            "range": {
+              "end": 117,
+              "start": 93
+            },
+            "syntax": "NodeId(6)"
+          },
+          {
+            "hir": 9,
+            "hir_ids_for_range": [
+              9
+            ],
+            "hir_ids_for_syntax": [
+              9
+            ],
+            "range": {
+              "end": 132,
+              "start": 118
+            },
+            "syntax": "NodeId(9)"
+          },
+          {
+            "hir": 10,
+            "hir_ids_for_range": [
+              10
+            ],
+            "hir_ids_for_syntax": [
+              10
+            ],
+            "range": {
+              "end": 132,
+              "start": 127
+            },
+            "syntax": "NodeId(8)"
+          },
+          {
+            "hir": 11,
+            "hir_ids_for_range": [
+              11
+            ],
+            "hir_ids_for_syntax": [
+              11
+            ],
+            "range": {
+              "end": 192,
+              "start": 134
+            },
+            "syntax": "NodeId(15)"
+          },
+          {
+            "hir": 12,
+            "hir_ids_for_range": [
+              12
+            ],
+            "hir_ids_for_syntax": [
+              12
+            ],
+            "range": {
+              "end": 192,
+              "start": 142
+            },
+            "syntax": "NodeId(14)"
+          },
+          {
+            "hir": 13,
+            "hir_ids_for_range": [
+              13
+            ],
+            "hir_ids_for_syntax": [
+              13
+            ],
+            "range": {
+              "end": 164,
+              "start": 148
+            },
+            "syntax": "NodeId(11)"
+          },
+          {
+            "hir": 14,
+            "hir_ids_for_range": [
+              14
+            ],
+            "hir_ids_for_syntax": [
+              14
+            ],
+            "range": {
+              "end": 164,
+              "start": 158
+            },
+            "syntax": "NodeId(10)"
+          },
+          {
+            "hir": 15,
+            "hir_ids_for_range": [
+              15
+            ],
+            "hir_ids_for_syntax": [
+              15
+            ],
+            "range": {
+              "end": 190,
+              "start": 169
+            },
+            "syntax": "NodeId(13)"
+          },
+          {
+            "hir": 16,
+            "hir_ids_for_range": [
+              16
+            ],
+            "hir_ids_for_syntax": [
+              16
+            ],
+            "range": {
+              "end": 190,
+              "start": 179
+            },
+            "syntax": "NodeId(12)"
+          },
+          {
+            "hir": 17,
+            "hir_ids_for_range": [
+              17
+            ],
+            "hir_ids_for_syntax": [
+              17
+            ],
+            "range": {
+              "end": 249,
+              "start": 194
+            },
+            "syntax": "NodeId(21)"
+          },
+          {
+            "hir": 18,
+            "hir_ids_for_range": [
+              18
+            ],
+            "hir_ids_for_syntax": [
+              18
+            ],
+            "range": {
+              "end": 249,
+              "start": 202
+            },
+            "syntax": "NodeId(20)"
+          },
+          {
+            "hir": 19,
+            "hir_ids_for_range": [
+              19
+            ],
+            "hir_ids_for_syntax": [
+              19
+            ],
+            "range": {
+              "end": 224,
+              "start": 208
+            },
+            "syntax": "NodeId(17)"
+          },
+          {
+            "hir": 20,
+            "hir_ids_for_range": [
+              20
+            ],
+            "hir_ids_for_syntax": [
+              20
+            ],
+            "range": {
+              "end": 224,
+              "start": 215
+            },
+            "syntax": "NodeId(16)"
+          },
+          {
+            "hir": 21,
+            "hir_ids_for_range": [
+              21
+            ],
+            "hir_ids_for_syntax": [
+              21
+            ],
+            "range": {
+              "end": 247,
+              "start": 229
+            },
+            "syntax": "NodeId(19)"
+          },
+          {
+            "hir": 22,
+            "hir_ids_for_range": [
+              22
+            ],
+            "hir_ids_for_syntax": [
+              22
+            ],
+            "range": {
+              "end": 247,
+              "start": 238
+            },
+            "syntax": "NodeId(18)"
+          }
+        ]
+      },
+      "state": "golden"
+    },
+    "lock_jcs": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lock_text": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "lsp": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tokens": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    },
+    "tree_sitter": {
+      "comparison": "none",
+      "payload": {},
+      "state": "not_applicable"
+    }
+  },
+  "format_version": "1",
+  "id": "f03-schema-facet-complete",
+  "input_bytes": {
+    "encoding": "utf8",
+    "value": "@let config = \"~/.config\"\n@destination = \"${config}/wezterm\"\n@deploy = \"link\"\n@description = \"Terminal configuration\"\n@theme = mocha\n\n./types {\n    @deploy = \"none\"\n    @expect = \"directory\"\n}\n\nwezterm {\n    @bin = \"wezterm\"\n    @check = \"command\"\n}\n"
+  },
+  "machine_state": {
+    "accounts": [],
+    "architecture": "",
+    "capabilities": {
+      "create_no_replace": false,
+      "guarded_prune": false,
+      "guarded_replace": false
+    },
+    "destinations": [],
+    "filesystem": {
+      "case_sensitivity": "",
+      "kind": "",
+      "volume_identity": ""
+    },
+    "host": "",
+    "os": "",
+    "profile": "",
+    "state_files": [],
+    "variants": {}
+  },
+  "normative_references": [
+    {
+      "clause": "facet and path contexts",
+      "path": "docs/dotfile-language.md",
+      "section": "9 and 12"
+    }
+  ],
+  "operation": "lower",
+  "repository_state": {
+    "git_index": [],
+    "no_follow_metadata": [],
+    "symlink_targets": [],
+    "tracked_ignores": [],
+    "worktree": []
+  },
+  "status": "passing"
+}
