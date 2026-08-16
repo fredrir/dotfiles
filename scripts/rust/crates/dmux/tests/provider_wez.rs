@@ -727,7 +727,7 @@ fn group_new_and_split_new_verify_parentage() {
     assert_eq!(new_row.0, root_window, "same sole window (plan §2.3)");
 
     let split = provider
-        .split_new(&scope, &group, &mux.boot_spec("alpha"))
+        .split_new(&scope, &group, &mux.boot_spec("alpha").into())
         .expect("split_new");
     let ProviderHandle::Wz(new_pane) = split else {
         panic!("wez pane handle expected, got {split}")
@@ -786,7 +786,7 @@ fn remove_converges_clean_and_leaves_neighbors() {
         .group_new(&scope, &binding, &mux.boot_spec("victim"))
         .expect("second tab");
     provider
-        .split_new(&scope, &binding.root_group, &mux.boot_spec("victim"))
+        .split_new(&scope, &binding.root_group, &mux.boot_spec("victim").into())
         .expect("split");
     mux.spawn_workspace("victim"); // second native window: multi_window
     assert!(mux.workspace_rows("victim").len() >= 4);
@@ -888,7 +888,7 @@ fn child_removes_refuse_hidden_space_cascade() {
         .group_new(&scope, &binding, &mux.boot_spec("alpha"))
         .expect("group_new");
     let split = provider
-        .split_new(&scope, &group, &mux.boot_spec("alpha"))
+        .split_new(&scope, &group, &mux.boot_spec("alpha").into())
         .expect("split_new");
     provider.split_remove(&scope, &split).expect("split_remove");
     provider.group_remove(&scope, &group).expect("group_remove");
@@ -935,7 +935,7 @@ fn epoch_mismatch_rejects_every_mutation_without_mutating() {
         (
             "split_new",
             provider
-                .split_new(&scope, &binding.root_group, &mux.boot_spec("alpha"))
+                .split_new(&scope, &binding.root_group, &mux.boot_spec("alpha").into())
                 .map(|_| ()),
         ),
         (

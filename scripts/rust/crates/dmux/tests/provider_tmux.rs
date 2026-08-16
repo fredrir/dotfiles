@@ -447,7 +447,8 @@ fn child_create_verifies_epoch_and_rejects_mismatch() {
                 native_token: String::new(),
                 cwd: None,
                 bootstrap_argv: bootstrap_argv(),
-            },
+            }
+            .into(),
         )
         .expect("split_new");
     assert_ne!(split, binding.root_split);

@@ -134,6 +134,59 @@ pub struct CreateSpec {
     pub bootstrap_argv: Vec<String>,
 }
 
+/// Placement of a new Split on its split axis (plan §7.2 `--direction`).
+/// `Down` is the CLI default and matches both backends' native default
+/// orientation (tmux `split-window`, wez `split-pane --bottom`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Split creation order (plan §7.2): the shared bootstrap spec plus
+/// placement. Adapters always emit the direction flag explicitly so the
+/// native argv is deterministic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitSpec {
+    pub spec: CreateSpec,
+    pub direction: SplitDirection,
+    /// New-pane size as a percentage of the split axis (1..=99); native
+    /// default when absent.
+    pub percent: Option<u8>,
+}
+
+impl From<CreateSpec> for SplitSpec {
+    fn from(spec: CreateSpec) -> Self {
+        SplitSpec {
+            spec,
+            direction: SplitDirection::Down,
+            percent: None,
+        }
+    }
+}
+
+/// Deterministic multi-window merge plan (plan §10.3): every pane of every
+/// extra window moves into the lowest-numbered window, ascending pane id.
+/// The plan is shown for confirmation before `normalize_apply` runs it
+/// under the caller's exclusive fence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizePlan {
+    /// Opaque workspace key (wez) the plan was computed for.
+    pub native_token: String,
+    /// Epoch the plan is valid in; apply re-verifies it.
+    pub server_epoch: ServerEpoch,
+    pub target_window: u64,
+    pub moves: Vec<NormalizeMove>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NormalizeMove {
+    pub pane_id: u64,
+    pub from_window: u64,
+}
+
 /// A verified native binding returned by create/adopt (plan §9.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeBinding {
@@ -275,11 +328,34 @@ pub trait Provider {
         &self,
         scope: &InventoryScope,
         group: &ProviderHandle,
-        spec: &CreateSpec,
+        spec: &SplitSpec,
     ) -> ProviderResult<ProviderHandle>;
     fn split_activate(&self, scope: &InventoryScope, handle: &ProviderHandle)
     -> ProviderResult<()>;
     fn split_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()>;
+
+    /// Wez-only (plan §10.3): compute the deterministic tab-to-window merge
+    /// plan for a multi-window resource. Read-only. Backends without the
+    /// concept (tmux never violates one-window) refuse with a typed error.
+    fn normalize_plan(
+        &self,
+        _scope: &InventoryScope,
+        native_token: &str,
+    ) -> ProviderResult<NormalizePlan> {
+        Err(ProviderError::NativeFailure {
+            detail: format!("normalize_unsupported:{native_token}"),
+        })
+    }
+
+    /// Apply a previously shown merge plan under the caller's exclusive
+    /// fence and prove exactly one resulting window. A drifted epoch, a
+    /// vanished pane, or a non-converging merge is an error, never a
+    /// silent partial success (plan §10.3: quarantined, not half-managed).
+    fn normalize_apply(&self, _scope: &InventoryScope, plan: &NormalizePlan) -> ProviderResult<()> {
+        Err(ProviderError::NativeFailure {
+            detail: format!("normalize_unsupported:{}", plan.native_token),
+        })
+    }
 
     fn inspect(
         &self,

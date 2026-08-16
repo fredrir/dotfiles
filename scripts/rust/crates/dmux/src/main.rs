@@ -201,6 +201,42 @@ enum Cmd {
         lock_dir: Option<String>,
     },
 
+    /// Internal: owner-agent RPC endpoint (plan §12.1). One JSON request
+    /// envelope on stdin, one response envelope on stdout, typed exit.
+    #[command(name = "_agent", hide = true)]
+    Agent {
+        /// Exact protocol version the caller speaks; v1 requires a match.
+        #[arg(long)]
+        protocol: u32,
+
+        /// Method name from the frozen envelope contract.
+        method: String,
+
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+    },
+
+    /// Internal: single-use-token PTY attach channel (plan §12.1). Verifies
+    /// the token and execs the exact owner-generated tmux attach argv.
+    #[command(name = "_attach", hide = true)]
+    Attach {
+        #[arg(long)]
+        token: String,
+
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+    },
+
     #[command(external_subcommand)]
     Other(Vec<String>),
 }
@@ -253,6 +289,32 @@ fn main() -> ExitCode {
             data_dir,
             lock_dir,
         }) => tmux_bootstrap_cmd(namespace, data_dir, lock_dir),
+        Some(Cmd::Agent {
+            protocol,
+            method,
+            data_dir,
+            lock_dir,
+        }) => {
+            let code = dmux::remote::agent::run(&dmux::remote::agent::AgentArgs {
+                protocol,
+                method,
+                data_dir: data_dir.map(std::path::PathBuf::from),
+                lock_dir: lock_dir.map(std::path::PathBuf::from),
+            });
+            Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))
+        }
+        Some(Cmd::Attach {
+            token,
+            data_dir,
+            lock_dir,
+        }) => {
+            let code = dmux::remote::attach::run(&dmux::remote::attach::AttachArgs {
+                token,
+                data_dir: data_dir.map(std::path::PathBuf::from),
+                lock_dir: lock_dir.map(std::path::PathBuf::from),
+            });
+            Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))
+        }
         Some(Cmd::Other(args)) => other(&context, &args),
     };
     match outcome {

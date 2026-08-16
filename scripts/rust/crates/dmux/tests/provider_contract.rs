@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use dmux::backend::{
     Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
     NativeInventory, NativeSpaceRow, NativeSplitRow, PresentationTarget, Provider, ProviderError,
-    ProviderResult,
+    ProviderResult, SplitSpec,
 };
 use dmux::model::{Backend, ProviderHandle, ServerEpoch};
 use uuid::Uuid;
@@ -184,7 +184,7 @@ impl Provider for FakeProvider {
         &self,
         _: &InventoryScope,
         _: &ProviderHandle,
-        _: &CreateSpec,
+        _: &SplitSpec,
     ) -> ProviderResult<ProviderHandle> {
         Ok(ProviderHandle::Wz(11))
     }

@@ -86,7 +86,7 @@ use uuid::Uuid;
 use crate::backend::{
     Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
     NativeInventory, NativeSpaceRow, NativeSplitRow, PresentationTarget, Provider, ProviderError,
-    ProviderResult,
+    ProviderResult, SplitDirection, SplitSpec,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch, WEZ_SENTINEL_PREFIX};
 
@@ -222,16 +222,32 @@ pub fn spawn_group_invocation(
 }
 
 /// Split create (plan §11.1): `split-pane --pane-id <exact-pane-id> -- ...`.
+/// The placement flag is always explicit so the argv is deterministic.
 pub fn split_pane_invocation(
     wezterm_bin: &str,
     config_file: &str,
     socket: &str,
     pane_id: u64,
+    direction: SplitDirection,
+    percent: Option<u8>,
     cwd: Option<&str>,
     bootstrap_argv: &[String],
 ) -> Result<WezInvocation, String> {
     require_bootstrap("split-pane", bootstrap_argv)?;
     let mut args: Vec<String> = vec!["split-pane".into(), "--pane-id".into(), pane_id.to_string()];
+    args.push(
+        match direction {
+            SplitDirection::Left => "--left",
+            SplitDirection::Right => "--right",
+            SplitDirection::Up => "--top",
+            SplitDirection::Down => "--bottom",
+        }
+        .into(),
+    );
+    if let Some(percent) = percent {
+        args.push("--percent".into());
+        args.push(percent.to_string());
+    }
     if let Some(cwd) = cwd {
         args.push("--cwd".into());
         args.push(cwd.into());
@@ -1722,8 +1738,9 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         &self,
         scope: &InventoryScope,
         group: &ProviderHandle,
-        spec: &CreateSpec,
+        split: &SplitSpec,
     ) -> ProviderResult<ProviderHandle> {
+        let spec = &split.spec;
         let ProviderHandle::Wz(tab_id) = group else {
             return Err(ProviderError::WrongInstance {
                 detail: format!("not a wez tab handle: {group}"),
@@ -1743,6 +1760,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
             &self.config_file,
             &scope.endpoint,
             anchor_pane,
+            split.direction,
+            split.percent,
             spec.cwd.as_deref(),
             &spec.bootstrap_argv,
         )
@@ -2754,11 +2773,21 @@ mod tests {
             ],
         );
         let handle = provider(&runner)
-            .split_new(&scope(None), &ProviderHandle::Wz(10), &spec("alpha"))
+            .split_new(&scope(None), &ProviderHandle::Wz(10), &spec("alpha").into())
             .expect("split_new");
         assert_eq!(handle, ProviderHandle::Wz(12));
         let calls = runner.run_calls.borrow();
-        let want = split_pane_invocation(BIN, CFG, SOCK, 100, None, &["/bin/true".into()]).unwrap();
+        let want = split_pane_invocation(
+            BIN,
+            CFG,
+            SOCK,
+            100,
+            SplitDirection::Down,
+            None,
+            None,
+            &["/bin/true".into()],
+        )
+        .unwrap();
         assert_eq!(calls[1].0, want, "split anchors the tab's first pane");
     }
 
@@ -2772,7 +2801,11 @@ mod tests {
                 ok(&canned(&[(1, 10, 100, "alpha"), (1, 11, 12, "alpha")])),
             ],
         );
-        match provider(&runner).split_new(&scope(None), &ProviderHandle::Wz(10), &spec("alpha")) {
+        match provider(&runner).split_new(
+            &scope(None),
+            &ProviderHandle::Wz(10),
+            &spec("alpha").into(),
+        ) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.contains("wanted tab 10"), "{detail}");
             }
@@ -2978,13 +3011,26 @@ mod tests {
         );
         assert_eq!(inv.argv, want);
 
-        let inv = split_pane_invocation(BIN, CFG, SOCK, 7, Some("/work"), &boot).expect("split");
+        let inv = split_pane_invocation(
+            BIN,
+            CFG,
+            SOCK,
+            7,
+            SplitDirection::Right,
+            Some(40),
+            Some("/work"),
+            &boot,
+        )
+        .expect("split");
         let mut want = cli_prefix();
         want.extend(
             [
                 "split-pane",
                 "--pane-id",
                 "7",
+                "--right",
+                "--percent",
+                "40",
                 "--cwd",
                 "/work",
                 "--",
@@ -3018,7 +3064,8 @@ mod tests {
         assert!(err.contains("bootstrap helper argv"), "{err}");
         let err = spawn_group_invocation(BIN, CFG, SOCK, 1, None, &[]).unwrap_err();
         assert!(err.contains("bootstrap helper argv"), "{err}");
-        let err = split_pane_invocation(BIN, CFG, SOCK, 1, None, &[]).unwrap_err();
+        let err = split_pane_invocation(BIN, CFG, SOCK, 1, SplitDirection::Down, None, None, &[])
+            .unwrap_err();
         assert!(err.contains("bootstrap helper argv"), "{err}");
         let err = spawn_workspace_invocation(BIN, CFG, SOCK, "", None, &boot).unwrap_err();
         assert!(err.contains("non-empty opaque key"), "{err}");

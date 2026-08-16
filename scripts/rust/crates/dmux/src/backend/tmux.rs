@@ -61,7 +61,7 @@ use uuid::Uuid;
 use crate::backend::{
     Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
     NativeInventory, NativeSpaceRow, NativeSplitRow, PresentationTarget, Provider, ProviderError,
-    ProviderResult,
+    ProviderResult, SplitDirection, SplitSpec,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch};
 
@@ -1541,8 +1541,9 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         &self,
         scope: &InventoryScope,
         group: &ProviderHandle,
-        spec: &CreateSpec,
+        split: &SplitSpec,
     ) -> ProviderResult<ProviderHandle> {
+        let spec = &split.spec;
         Self::scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(group)?;
@@ -1557,9 +1558,27 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
             "-P".into(),
             "-F".into(),
             SPAWN_FORMAT.into(),
-            "-t".into(),
-            target,
         ];
+        // Deterministic placement argv (plan §7.2): axis flag always
+        // explicit, `-b` for the before-side directions.
+        match split.direction {
+            SplitDirection::Down => args.push("-v".into()),
+            SplitDirection::Up => {
+                args.push("-v".into());
+                args.push("-b".into());
+            }
+            SplitDirection::Right => args.push("-h".into()),
+            SplitDirection::Left => {
+                args.push("-h".into());
+                args.push("-b".into());
+            }
+        }
+        if let Some(percent) = split.percent {
+            args.push("-l".into());
+            args.push(format!("{percent}%"));
+        }
+        args.push("-t".into());
+        args.push(target);
         if let Some(cwd) = &spec.cwd {
             args.push("-c".into());
             args.push(cwd.clone());
@@ -2118,7 +2137,7 @@ mod tests {
             bootstrap_argv: vec!["/bin/sh".into(), "-c".into(), "sleep 30".into()],
         };
         let handle = provider(&runner)
-            .split_new(&epoched_scope(), &ProviderHandle::Tx(9), &spec)
+            .split_new(&epoched_scope(), &ProviderHandle::Tx(9), &spec.into())
             .unwrap();
         assert_eq!(handle, ProviderHandle::Tx(13));
         assert_eq!(
@@ -2130,6 +2149,7 @@ mod tests {
                     "-P",
                     "-F",
                     "#{session_id}|#{window_id}|#{pane_id}",
+                    "-v",
                     "-t",
                     "%9",
                     "--",
@@ -2142,6 +2162,40 @@ mod tests {
     }
 
     #[test]
+    fn split_new_direction_and_percent_argv_is_deterministic() {
+        let runner = ScriptedRunner::new(vec![epoch_ok(), ok("$5|@7|%13\n")]);
+        let split = SplitSpec {
+            spec: CreateSpec {
+                native_token: String::new(),
+                cwd: None,
+                bootstrap_argv: vec!["/bin/true".into()],
+            },
+            direction: SplitDirection::Left,
+            percent: Some(30),
+        };
+        provider(&runner)
+            .split_new(&epoched_scope(), &ProviderHandle::Tx(9), &split)
+            .unwrap();
+        assert_eq!(
+            runner.calls.borrow()[1],
+            argv(&[
+                "split-window",
+                "-P",
+                "-F",
+                "#{session_id}|#{window_id}|#{pane_id}",
+                "-h",
+                "-b",
+                "-l",
+                "30%",
+                "-t",
+                "%9",
+                "--",
+                "/bin/true",
+            ]),
+        );
+    }
+
+    #[test]
     fn child_mutation_rechecks_epoch_immediately_before_and_fails_typed() {
         let runner = ScriptedRunner::new(vec![ok(&format!("{}\n", Uuid::nil()))]);
         let spec = CreateSpec {
@@ -2149,7 +2203,7 @@ mod tests {
             cwd: None,
             bootstrap_argv: vec!["/bin/true".into()],
         };
-        match provider(&runner).split_new(&epoched_scope(), &ProviderHandle::Tx(9), &spec) {
+        match provider(&runner).split_new(&epoched_scope(), &ProviderHandle::Tx(9), &spec.into()) {
             Err(ProviderError::EpochChanged { .. }) => {}
             other => panic!("expected epoch_changed, got {other:?}"),
         }
