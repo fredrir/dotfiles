@@ -220,6 +220,16 @@ enum Cmd {
         cmd: space_cli::ContextCmd,
     },
 
+    /// Enroll a host over SSH and open an interactive session (plan §12.2)
+    Ssh { target: String },
+
+    /// Enrolled hosts and their routes (plan §7.3)
+    #[command(name = "host")]
+    HostAdmin {
+        #[command(subcommand)]
+        cmd: space_cli::HostCmd,
+    },
+
     /// Internal: revalidate the invoking pane's markers (plan §13.1). Reads
     /// DMUX_SPACE_UID plus TMUX_PANE/WEZTERM_PANE from the environment and
     /// prints one validated marker JSON document; any mismatch is a typed
@@ -326,6 +336,11 @@ fn main() -> ExitCode {
         Some(Cmd::Group { cmd }) => space_cli::group(cmd),
         Some(Cmd::Split { cmd }) => space_cli::split(cmd),
         Some(Cmd::Context { cmd }) => space_cli::context(cmd),
+        Some(Cmd::Ssh { target }) => {
+            let code = dmux::remote::enroll::run(&target);
+            Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))
+        }
+        Some(Cmd::HostAdmin { cmd }) => space_cli::host(cmd),
         Some(Cmd::ContextInternal { data_dir, lock_dir }) => context_cmd(data_dir, lock_dir),
         Some(Cmd::Agent {
             protocol,
@@ -426,6 +441,9 @@ fn tmux_bootstrap_cmd(
     lock_dir: Option<String>,
 ) -> Result<ExitCode, String> {
     use dmux::operations::{self, OperationEnv};
+    // Over bare ssh a POSIX-locale tmux client mangles the provider's
+    // U+001F separators (P7 handoff risk 1); normalize like `_agent` does.
+    dmux::remote::normalize_utf8_locale();
     let namespace = namespace
         .or_else(|| {
             std::env::var("TMUX")

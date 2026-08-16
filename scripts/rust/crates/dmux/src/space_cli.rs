@@ -112,6 +112,117 @@ pub enum SplitCmd {
 }
 
 #[derive(Subcommand)]
+pub enum HostCmd {
+    /// List enrolled hosts and their routes
+    Ls {
+        /// Machine-readable listing
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Set a host's friendly label
+    Label { host: String, new_label: String },
+
+    /// Disable a host's routes and tombstone its refs (plan §12.2).
+    /// Cannot target the local host; re-enrollment reactivates it.
+    Forget {
+        host: String,
+
+        /// Forget without asking
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
+
+fn typed_fail(err: dmux::error::TypedError) -> Result<ExitCode, String> {
+    eprintln!("dmux: {}", err.message);
+    Ok(ExitCode::from(err.code.exit_status().code()))
+}
+
+pub fn host(cmd: HostCmd) -> Result<ExitCode, String> {
+    let env = OperationEnv::production().map_err(|e| e.to_string())?;
+    match cmd {
+        HostCmd::Ls { json } => {
+            let listings = match dmux::remote::hosts::list(&env) {
+                Ok(listings) => listings,
+                Err(err) => return typed_fail(err),
+            };
+            if json {
+                let doc: Vec<_> = listings
+                    .iter()
+                    .map(|l| {
+                        serde_json::json!({
+                            "host_uid": l.host.host_uid.0.to_string(),
+                            "alias": l.host.alias,
+                            "label": l.host.label,
+                            "lifecycle": l.host.lifecycle.as_str(),
+                            "enrolled_at": l.host.enrolled_at,
+                            "routes": l.routes.iter().map(|r| serde_json::json!({
+                                "transport": r.transport.as_str(),
+                                "endpoint": r.endpoint,
+                                "network_class": r.network_class.as_str(),
+                                "priority": r.priority,
+                                "enabled": r.enabled,
+                                "last_outcome": r.last_outcome,
+                            })).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string(&doc).map_err(|e| e.to_string())?
+                );
+            } else {
+                for l in &listings {
+                    println!(
+                        "{}\t{}\t{}\t{}",
+                        l.host.alias.as_deref().unwrap_or("-"),
+                        l.host.label.as_deref().unwrap_or("-"),
+                        l.host.lifecycle.as_str(),
+                        l.host.host_uid.0,
+                    );
+                    for r in &l.routes {
+                        println!(
+                            "  {}\t{}\t{}\tprio {}\t{}\t{}",
+                            r.transport.as_str(),
+                            r.endpoint,
+                            r.network_class.as_str(),
+                            r.priority,
+                            if r.enabled { "enabled" } else { "disabled" },
+                            r.last_outcome.as_deref().unwrap_or("-"),
+                        );
+                    }
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        HostCmd::Label { host, new_label } => {
+            match dmux::remote::hosts::label(&env, &host, &new_label) {
+                Ok(_) => Ok(ExitCode::SUCCESS),
+                Err(err) => typed_fail(err),
+            }
+        }
+        HostCmd::Forget { host, yes } => {
+            match confirm(&format!("Forget host {host:?} (disables its routes)?"), yes) {
+                Ok(_) => {}
+                Err(code) => return Ok(code),
+            }
+            match dmux::remote::hosts::forget(&env, &host, true) {
+                Ok(row) => {
+                    println!(
+                        "forgot {} ({})",
+                        row.alias.as_deref().unwrap_or("?"),
+                        row.host_uid.0
+                    );
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(err) => typed_fail(err),
+            }
+        }
+    }
+}
+
+#[derive(Subcommand)]
 pub enum ContextCmd {
     /// Acknowledge this pane's marker for an adopted Space (plan §10.3):
     /// derives the current epoch-qualified refs from the pane environment,
