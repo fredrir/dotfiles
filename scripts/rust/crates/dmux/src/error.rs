@@ -49,6 +49,10 @@ pub enum ErrorCode {
     BackendMismatch,
     IdentityConflict,
     RepairRequired,
+    /// P2 additive: another unfinished operation/lease holder owns the target.
+    OperationInProgress,
+    /// P2 additive: idempotency-key reuse with a different payload digest.
+    IdempotencyReuse,
     // 5 — confirmation
     ConfirmationRequired,
     ConfirmationDeclined,
@@ -77,7 +81,7 @@ impl ErrorCode {
             Usage | InvalidRef | InvalidName => ExitStatus::Usage,
             NotFound | SpaceAbsent | SpaceDeleted => ExitStatus::NotFound,
             AmbiguousTarget | NameConflict | BackendMismatch | IdentityConflict
-            | RepairRequired => ExitStatus::Conflict,
+            | RepairRequired | OperationInProgress | IdempotencyReuse => ExitStatus::Conflict,
             ConfirmationRequired | ConfirmationDeclined => ExitStatus::ConfirmationRequired,
             ProviderUnavailable | RouteUnavailable | BridgeUnavailable | AuthFailed
             | HostIdentityChanged | VersionMismatch | ProtocolMismatch => ExitStatus::Unavailable,
@@ -102,6 +106,8 @@ impl ErrorCode {
             BackendMismatch => "backend_mismatch",
             IdentityConflict => "identity_conflict",
             RepairRequired => "repair_required",
+            OperationInProgress => "operation_in_progress",
+            IdempotencyReuse => "idempotency_reuse",
             ConfirmationRequired => "confirmation_required",
             ConfirmationDeclined => "confirmation_declined",
             ProviderUnavailable => "provider_unavailable",
@@ -180,6 +186,19 @@ mod tests {
         for &(code, exit) in table {
             assert_eq!(code.exit_status().code(), exit, "{code:?}");
         }
+    }
+
+    #[test]
+    fn p2_additive_codes_map_to_conflict() {
+        // P2 registry additions: both are "someone else owns this" conflicts.
+        for code in [ErrorCode::OperationInProgress, ErrorCode::IdempotencyReuse] {
+            assert_eq!(code.exit_status().code(), 4, "{code:?}");
+        }
+        assert_eq!(
+            ErrorCode::OperationInProgress.as_str(),
+            "operation_in_progress"
+        );
+        assert_eq!(ErrorCode::IdempotencyReuse.as_str(), "idempotency_reuse");
     }
 
     #[test]

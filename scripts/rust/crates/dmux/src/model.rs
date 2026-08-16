@@ -210,6 +210,122 @@ impl Space {
 pub const WEZ_RESERVED_PREFIX: &str = "dmux:";
 pub const WEZ_SENTINEL_PREFIX: &str = "dmux:system:";
 
+/// Mutation-journal kinds — `operations.kind` in
+/// `docs/adr/dmux/registry-v1.sql` (P2 additive extension).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+    Create,
+    Rename,
+    Remove,
+    Adopt,
+    Rebind,
+    Normalize,
+    Stamp,
+}
+
+impl OperationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OperationKind::Create => "create",
+            OperationKind::Rename => "rename",
+            OperationKind::Remove => "remove",
+            OperationKind::Adopt => "adopt",
+            OperationKind::Rebind => "rebind",
+            OperationKind::Normalize => "normalize",
+            OperationKind::Stamp => "stamp",
+        }
+    }
+
+    pub fn parse(token: &str) -> Option<Self> {
+        Some(match token {
+            "create" => OperationKind::Create,
+            "rename" => OperationKind::Rename,
+            "remove" => OperationKind::Remove,
+            "adopt" => OperationKind::Adopt,
+            "rebind" => OperationKind::Rebind,
+            "normalize" => OperationKind::Normalize,
+            "stamp" => OperationKind::Stamp,
+            _ => return None,
+        })
+    }
+}
+
+impl fmt::Display for OperationKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Mutation-journal states (plan §10.2) — `operations.operation_state` in
+/// `docs/adr/dmux/registry-v1.sql` (P2 additive extension).
+/// `prepared`/`running`/`unknown` are the unfinished states the partial
+/// index `operations_one_unfinished_uq` counts; the rest are terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationState {
+    Prepared,
+    Running,
+    Unknown,
+    Completed,
+    Failed,
+    Aborted,
+    Conflict,
+}
+
+impl OperationState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OperationState::Prepared => "prepared",
+            OperationState::Running => "running",
+            OperationState::Unknown => "unknown",
+            OperationState::Completed => "completed",
+            OperationState::Failed => "failed",
+            OperationState::Aborted => "aborted",
+            OperationState::Conflict => "conflict",
+        }
+    }
+
+    pub fn parse(token: &str) -> Option<Self> {
+        Some(match token {
+            "prepared" => OperationState::Prepared,
+            "running" => OperationState::Running,
+            "unknown" => OperationState::Unknown,
+            "completed" => OperationState::Completed,
+            "failed" => OperationState::Failed,
+            "aborted" => OperationState::Aborted,
+            "conflict" => OperationState::Conflict,
+            _ => return None,
+        })
+    }
+
+    /// Counted by `operations_one_unfinished_uq`: at most one such row per
+    /// Space may exist at a time.
+    pub fn is_unfinished(self) -> bool {
+        matches!(
+            self,
+            OperationState::Prepared | OperationState::Running | OperationState::Unknown
+        )
+    }
+
+    pub fn is_terminal(self) -> bool {
+        !self.is_unfinished()
+    }
+
+    /// Legal journal transitions: an unfinished state may move to `running`,
+    /// `unknown`, or any terminal state; nothing leaves a terminal state;
+    /// nothing returns to `prepared`; a self-loop is not a transition.
+    pub fn can_transition_to(self, to: OperationState) -> bool {
+        self.is_unfinished() && to != OperationState::Prepared && to != self
+    }
+}
+
+impl fmt::Display for OperationState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +381,66 @@ mod tests {
         assert_eq!(ProviderHandle::Wz(3).to_string(), "wz-3");
         assert_eq!(ProviderHandle::Tx(7).to_string(), "tx-7");
         assert_eq!(ProviderHandle::Opaque("aGk".into()).to_string(), "x-aGk");
+    }
+
+    #[test]
+    fn operation_tokens_match_registry_contract() {
+        for kind in [
+            OperationKind::Create,
+            OperationKind::Rename,
+            OperationKind::Remove,
+            OperationKind::Adopt,
+            OperationKind::Rebind,
+            OperationKind::Normalize,
+            OperationKind::Stamp,
+        ] {
+            assert_eq!(OperationKind::parse(kind.as_str()), Some(kind));
+            assert_eq!(
+                serde_json::to_value(kind).unwrap(),
+                serde_json::Value::String(kind.as_str().into())
+            );
+        }
+        for state in [
+            OperationState::Prepared,
+            OperationState::Running,
+            OperationState::Unknown,
+            OperationState::Completed,
+            OperationState::Failed,
+            OperationState::Aborted,
+            OperationState::Conflict,
+        ] {
+            assert_eq!(OperationState::parse(state.as_str()), Some(state));
+        }
+        assert_eq!(OperationKind::parse("mkdir"), None);
+        assert_eq!(OperationState::parse("done"), None);
+    }
+
+    #[test]
+    fn operation_transition_matrix() {
+        use OperationState::*;
+        let unfinished = [Prepared, Running, Unknown];
+        let terminal = [Completed, Failed, Aborted, Conflict];
+        for from in unfinished {
+            assert!(from.is_unfinished() && !from.is_terminal());
+            // Never back to prepared, never a self-loop.
+            assert!(!from.can_transition_to(Prepared));
+            assert!(!from.can_transition_to(from));
+            for to in terminal {
+                assert!(from.can_transition_to(to), "{from:?} -> {to:?}");
+            }
+        }
+        assert!(Prepared.can_transition_to(Running));
+        assert!(Prepared.can_transition_to(Unknown));
+        assert!(Running.can_transition_to(Unknown));
+        assert!(Unknown.can_transition_to(Running));
+        for from in terminal {
+            assert!(from.is_terminal());
+            for to in [
+                Prepared, Running, Unknown, Completed, Failed, Aborted, Conflict,
+            ] {
+                assert!(!from.can_transition_to(to), "{from:?} -> {to:?}");
+            }
+        }
     }
 
     #[test]
