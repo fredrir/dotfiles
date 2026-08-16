@@ -199,10 +199,17 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
                 return Ok(ExitCode::SUCCESS);
             }
 
-            // Preview before any mutation (plan §10.3).
-            if json {
-                println!("{}", serde_json::json!({ "targets": targets }).to_string());
-            } else {
+            // §7.4/§16.2: JSON destructive commands never prompt and emit
+            // exactly ONE document — the preview travels inside it.
+            if json && !yes {
+                println!(
+                    "{}",
+                    serde_json::json!({ "confirmation_required": true, "targets": targets })
+                );
+                return Ok(ExitCode::from(5));
+            }
+            if !json {
+                // Preview before any mutation (plan §10.3).
                 for t in &targets {
                     println!(
                         "{}\t{}\t{} pane move{} into window {}",
@@ -215,21 +222,19 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
                         t.plan.target_window,
                     );
                 }
-            }
-            if json && !yes {
-                // §7.4: JSON destructive commands never prompt.
-                println!("{{\"confirmation_required\":true}}");
-                return Ok(ExitCode::from(5));
-            }
-            match confirm(&format!("Normalize {} resource(s)?", targets.len()), yes) {
-                Ok(_) => {}
-                Err(code) => return Ok(code),
+                match confirm(&format!("Normalize {} resource(s)?", targets.len()), yes) {
+                    Ok(_) => {}
+                    Err(code) => return Ok(code),
+                }
             }
 
             let results = operations::repair_normalize_batch(&env, &provider, &scope, &targets);
             let all_ok = results.iter().all(|r| r.ok);
             if json {
-                println!("{}", serde_json::json!({ "results": results }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "targets": targets, "results": results })
+                );
             } else {
                 for r in &results {
                     println!(
