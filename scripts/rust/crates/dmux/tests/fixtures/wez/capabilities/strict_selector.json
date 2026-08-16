@@ -1,0 +1,6 @@
+{
+  "capability": "strict_selector",
+  "source": "stock",
+  "mechanism": "non-empty WEZTERM_UNIX_SOCKET short-circuits wezterm cli to the exact socket path and --no-auto-start suppresses server spawn; dmux adds a child deadline, socket stat/peer-PID identity probe, and sentinel-in-list verification around every call",
+  "evidence": "docs/adr/dmux/001-strict-endpoint-selection.md"
+}

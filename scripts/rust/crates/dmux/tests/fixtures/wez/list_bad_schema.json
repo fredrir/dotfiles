@@ -1,0 +1,8 @@
+[
+  {
+    "window_id": 0,
+    "tab_id": 0,
+    "workspace": "dmux:system:12345678-9abc-def0-1234-56789abcdef0",
+    "note": "pane_id missing: schema drift must classify as malformed"
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "capability": "startup_suppression",
+  "source": "stock",
+  "mechanism": "unix_domains no_serve_automatically=true plus a mux-startup handler that spawns the reserved dmux:system:<epoch> sentinel workspace and writes a starting/ready descriptor; only the service manager starts the server",
+  "evidence": "docs/adr/dmux/002-service-sentinel-startup.md"
+}

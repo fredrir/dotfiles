@@ -1,0 +1,7 @@
+{
+  "capability": "cas_rename",
+  "source": "fork",
+  "mechanism": "wezterm cli rename-workspace --window-id N --if-workspace OLD [--if-sole-window] NEW: server-side compare-and-swap (RenameWorkspaceIf PDU ident 63 -> RenameWorkspaceIfResponse ident 64) with existence, expectation, and sole-window checks plus the rename under one windows write lock; every non-Renamed outcome guarantees zero mutation",
+  "codec_version": 46,
+  "evidence": "docs/adr/dmux/006-fork-adoption-primitive.md"
+}

@@ -1,0 +1,4 @@
+$0@0%0/Users/xhost.example
+$0@2%4/private/tmp
+$0@2%5title with | pipe
+$3@5%9/homeweirdtitle

@@ -13,6 +13,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Backend, ProviderHandle, ServerEpoch};
+pub mod tmux;
+pub mod wez;
 
 /// Typed inventory outcomes (plan §8.1, exhaustive). Only `Complete` or an
 /// owner-local, identity-checked `ServerStopped` establishes zero live native

@@ -54,11 +54,21 @@ resolving the interloper.
 
 ## Codec / compatibility
 
-- `CODEC_VERSION` bumped 45→46. The handshake is exact-match
-  (`wezterm-client/src/client.rs:1148-1176`); no capability negotiation
-  exists. Consequence: lockstep fork upgrade on both hosts (available — both
-  run the same fork build today), and the new build **fails closed** against
-  the installed codec-45 build — the desired strictness.
+- `CODEC_VERSION` bumped 45→46. The version handshake is exact-match but is
+  called **only on GUI attach paths** (`wezterm-gui/src/main.rs:556`,
+  `wezterm-client/src/domain.rs:969`); **`wezterm cli` performs no codec
+  handshake at all** (P3c demo evidence). A codec-45 `wezterm cli list`
+  works against a codec-46 server; version skew on the CLI path is
+  *silently half-capable*, not fail-closed.
+- The CAS verb itself is safe in every cross-version direction: a fork CLI
+  sending ident 63 to a codec-45 server gets a typed
+  `ErrorResponse { reason: "Error: invalid PDU Invalid { ident: 63 }" }`,
+  exit 1, zero mutation.
+- Consequence (amended at P3c): dmux must gate CAS use on a **positive
+  capability probe** — fork version match, or classifying the stable
+  `invalid PDU Invalid { ident: 63 }` error as `capability_missing` — and
+  never infer capability from connect success. Lockstep fork upgrade on both
+  hosts remains the rollout requirement for GUI attach compatibility.
 - Unknown idents decode to `Pdu::Invalid` and `wezterm cli proxy` is a raw
   byte pump, so the verb traverses SSH proxies unchanged.
 
