@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::BufRead;
@@ -7,9 +8,14 @@ use std::process::{self, Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use dmux::backend::wez::{
+    ProbeOutcome, RunError, RunOutput, WezInvocation, WezProvider, WezRunner,
+};
+use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
 use dmux::bootstrap::{self, BootstrapResult, HelperAck, PaneEnvRecord};
 use dmux::locks::{self, LockMode, LockScope};
-use dmux::model::{Backend, BackendInstanceUid, ServerEpoch, SpaceUid};
+use dmux::model::{Backend, BackendInstanceUid, Lifecycle, ServerEpoch, SpaceUid};
+use dmux::operations::{OperationEnv, remove_space};
 use dmux::recovery::{
     CreatedNode, MANIFEST_SCHEMA_VERSION, ManifestGroup, ManifestSpace, ManifestSplit,
     ManifestWindow, NativePane, NativeSnapshot, NativeTab, NativeWindow, RecoveryAction,
@@ -202,6 +208,95 @@ fn sentinel(epoch: ServerEpoch) -> NativeSnapshot {
                 }],
             }],
         }],
+    }
+}
+
+/// Stateful exact-CLI runner for one managed Wez Space.  The acceptance
+/// regression uses the real `WezProvider` and `operations::remove_space`;
+/// only the external mux process is replaced by this deterministic wire.
+struct FinalWezRunner {
+    epoch: ServerEpoch,
+    endpoint: String,
+    native_token: String,
+    live: Cell<bool>,
+    remove_calls: Cell<usize>,
+    list_calls: Cell<usize>,
+}
+
+impl FinalWezRunner {
+    fn new(world: &World) -> Self {
+        FinalWezRunner {
+            epoch: world.epoch,
+            endpoint: "/tmp/recovery-test.sock".into(),
+            native_token: world.manifest.spaces[0].opaque_key.clone(),
+            live: Cell::new(true),
+            remove_calls: Cell::new(0),
+            list_calls: Cell::new(0),
+        }
+    }
+
+    fn scope(&self) -> InventoryScope {
+        InventoryScope {
+            backend: Backend::Wez,
+            endpoint: self.endpoint.clone(),
+            expected_epoch: Some(self.epoch),
+        }
+    }
+}
+
+impl WezRunner for &FinalWezRunner {
+    fn probe(&self, socket_path: &str, expected_server_pid: Option<u32>) -> ProbeOutcome {
+        assert_eq!(socket_path, self.endpoint);
+        assert_eq!(expected_server_pid, None);
+        ProbeOutcome::Connectable
+    }
+
+    fn run(&self, invocation: &WezInvocation, _: Duration) -> Result<RunOutput, RunError> {
+        let command = invocation
+            .argv
+            .iter()
+            .position(|arg| arg == "list" || arg == "kill-pane")
+            .map(|index| (index, invocation.argv[index].as_str()))
+            .unwrap_or_else(|| panic!("unexpected Wez invocation: {:?}", invocation.argv));
+        let stdout = match command {
+            (_, "list") => {
+                self.list_calls.set(self.list_calls.get() + 1);
+                let mut rows = vec![serde_json::json!({
+                    "window_id": 1,
+                    "tab_id": 2,
+                    "pane_id": 3,
+                    "workspace": format!("dmux:system:{}", self.epoch.0),
+                })];
+                if self.live.get() {
+                    rows.push(serde_json::json!({
+                        "window_id": 20,
+                        "tab_id": 30,
+                        "pane_id": 40,
+                        "workspace": self.native_token,
+                        "tab_title": "dotfiles",
+                        "title": "shell",
+                        "cwd": "file:///root",
+                    }));
+                }
+                serde_json::to_vec(&rows).unwrap()
+            }
+            (index, "kill-pane") => {
+                assert_eq!(
+                    &invocation.argv[index..],
+                    &["kill-pane", "--pane-id", "40"],
+                    "whole-Space removal must target the exact listed pane"
+                );
+                assert!(self.live.replace(false), "native Space removed twice");
+                self.remove_calls.set(self.remove_calls.get() + 1);
+                Vec::new()
+            }
+            _ => unreachable!(),
+        };
+        Ok(RunOutput {
+            status: 0,
+            stdout,
+            stderr: Vec::new(),
+        })
     }
 }
 
@@ -776,6 +871,80 @@ fn no_manifest_is_ready_with_only_the_sentinel_and_nonempty_fails_immediately() 
         serde_json::from_slice(&fs::read(&nonempty.spool.status).unwrap()).unwrap();
     assert_eq!(status.state, RecoveryStatusState::Failed);
     assert!(status.error.unwrap().contains("not recovery-empty"));
+}
+
+#[test]
+fn explicit_final_wez_remove_records_empty_floor_and_blocks_old_manifest_in_fresh_epoch() {
+    let world = World::new(true);
+    let runner = FinalWezRunner::new(&world);
+    let provider =
+        WezProvider::with_runner("/test-only/wezterm", "/test-only/dmux-mux.lua", &runner);
+    let scope = runner.scope();
+    let space_uid = world.manifest.spaces[0].space_uid;
+    let operation_env = OperationEnv {
+        db_path: world.config.db_path.clone(),
+        lock_dir: world.config.lock_dir.clone(),
+    };
+
+    let before = provider.inventory(&scope);
+    assert!(
+        matches!(before, InventoryOutcome::Complete(ref inventory) if inventory.rows.len() == 1),
+        "the production removal seam must begin with one real native Wez Space: {before:?}"
+    );
+    remove_space(
+        &operation_env,
+        &provider,
+        &scope,
+        Backend::Wez,
+        space_uid,
+        Uuid::new_v4(),
+    )
+    .unwrap();
+    assert_eq!(runner.remove_calls.get(), 1);
+    assert_eq!(runner.list_calls.get(), 5);
+    assert!(!runner.live.get());
+
+    let registry = Registry::open(world.config.clone()).unwrap();
+    assert_eq!(
+        registry.space(space_uid).unwrap().lifecycle,
+        Lifecycle::Deleted
+    );
+    let floor = registry
+        .intentional_empty_revision(world.instance)
+        .unwrap()
+        .expect("removing the final Wez Space must publish an intentional-empty floor");
+    assert_eq!(floor, registry.authority_head().unwrap().revision);
+    assert!(
+        world.manifest.registry_revision <= floor,
+        "the pre-removal manifest must be at or below the empty floor"
+    );
+    drop(registry);
+
+    // Model a cold mux-server restart: a new epoch has only its reserved
+    // sentinel, while the old complete manifest remains on disk.  The
+    // coordinator must reject that manifest before publishing readiness.
+    let fresh_epoch = ServerEpoch(Uuid::new_v4());
+    let mut mux = InProcessMux::new(&world);
+    mux.snapshot = sentinel(fresh_epoch);
+    mux.spool = RecoverySpool::new(&world.runtime, fresh_epoch);
+    let mut options = world.options(Duration::from_secs(2));
+    options.server_epoch = fresh_epoch;
+    options.server_start_token = format!("restart-{}", Uuid::new_v4());
+    let coordinator = spawn_coordinator(options);
+    mux.drive_until(|| coordinator.is_finished());
+    let report = coordinator.join().unwrap().unwrap();
+
+    assert_eq!(report.outcome, RecoveryOutcome::NoEligibleManifest);
+    assert_eq!(report.restored_nodes, 0);
+    assert_eq!(report.generation_uid, None);
+    assert!(mux.restore_counts.is_empty());
+    assert!(mux.objects.is_empty());
+    assert_eq!(mux.snapshot, sentinel(fresh_epoch));
+    assert_eq!(mux.snapshot.panes().count(), 1);
+    let status: RecoveryStatus =
+        serde_json::from_slice(&fs::read(&mux.spool.status).unwrap()).unwrap();
+    assert_eq!(status.state, RecoveryStatusState::Ready);
+    assert_eq!(status.manifest_id, None);
 }
 
 #[test]

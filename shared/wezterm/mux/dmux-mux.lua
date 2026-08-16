@@ -28,6 +28,30 @@ local owner_resurrect_dmux = nil
 local owner_recovery_context = nil
 local owner_recovery_generation_uid = nil
 local snapshot_serial = 0
+
+-- `wezterm.background_child_process` injects the current mux endpoint into
+-- its child environment even when the service wrapper scrubbed it before
+-- starting the server.  Recovery helpers are deliberately registry/file
+-- only and reject every inherited pane or mux identity, so interpose the
+-- fixed system `env` binary for each helper launch.  Both supported owners
+-- (macOS and Arch Linux) provide `/usr/bin/env` with `-u`.
+local function registry_only_argv(argv)
+  local clean = {
+    '/usr/bin/env',
+    '-u',
+    'WEZTERM_UNIX_SOCKET',
+    '-u',
+    'WEZTERM_PANE',
+    '-u',
+    'TMUX',
+    '-u',
+    'TMUX_PANE',
+  }
+  for _, arg in ipairs(argv) do
+    table.insert(clean, arg)
+  end
+  return clean
+end
 local schedule_guarded_snapshot
 
 ---@class DmuxRecoveryCommand
@@ -137,6 +161,43 @@ local function write_json(path, value)
     f:close()
     os.remove(tmp)
     return false, 'cannot encode response: ' .. tostring(encoded)
+  end
+  f:write(encoded, '\n')
+  f:flush()
+  f:close()
+  local renamed, why = os.rename(tmp, path)
+  if not renamed then
+    os.remove(tmp)
+    return false, 'cannot publish ' .. path .. ': ' .. tostring(why)
+  end
+  return true
+end
+
+-- WezTerm's Lua JSON encoder cannot distinguish an empty sequence from an
+-- empty object: an empty Lua table always becomes `{}`.  The durable recovery
+-- manifest schema requires `spaces` to remain a JSON array even when an
+-- intentionally empty owner has nothing to snapshot.  Correct only that
+-- known field after encoding; every non-empty sequence is encoded normally.
+local function write_recovery_manifest(path, manifest)
+  local tmp = path .. '.tmp'
+  local f = io.open(tmp, 'w')
+  if not f then
+    return false, 'cannot open ' .. tmp
+  end
+  local ok, encoded = pcall(wezterm.json_encode, manifest)
+  if not ok then
+    f:close()
+    os.remove(tmp)
+    return false, 'cannot encode recovery manifest: ' .. tostring(encoded)
+  end
+  if type(manifest.spaces) == 'table' and next(manifest.spaces) == nil then
+    local replacements
+    encoded, replacements = encoded:gsub('"spaces":{}', '"spaces":[]', 1)
+    if replacements ~= 1 then
+      f:close()
+      os.remove(tmp)
+      return false, 'cannot preserve empty recovery manifest spaces array'
+    end
   end
   f:write(encoded, '\n')
   f:flush()
@@ -266,7 +327,7 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
     table.insert(argv, '--abort-failed')
   end
   local function spawn_coordinator()
-    local spawned, spawn_error = pcall(wezterm.background_child_process, argv)
+    local spawned, spawn_error = pcall(wezterm.background_child_process, registry_only_argv(argv))
     if not spawned then
       return false, 'cannot start registry-only coordinator: ' .. tostring(spawn_error)
     end
@@ -544,17 +605,20 @@ local function publish_guarded_snapshot(epoch)
   os.remove(candidate)
   os.remove(plan_path)
 
-  local spawned, spawn_error = pcall(wezterm.background_child_process, {
-    dmux_bin,
-    '_recovery',
-    'snapshot-publish',
-    '--backend-instance',
-    backend_instance,
-    '--candidate',
-    candidate,
-    '--destination',
-    destination,
-  })
+  local spawned, spawn_error = pcall(
+    wezterm.background_child_process,
+    registry_only_argv {
+      dmux_bin,
+      '_recovery',
+      'snapshot-publish',
+      '--backend-instance',
+      backend_instance,
+      '--candidate',
+      candidate,
+      '--destination',
+      destination,
+    }
+  )
   if not spawned then
     return false, 'cannot start fenced snapshot helper: ' .. tostring(spawn_error)
   end
@@ -586,7 +650,7 @@ local function publish_guarded_snapshot(epoch)
   if not manifest then
     return false, build_error or 'snapshot candidate capture failed'
   end
-  local written, write_error = write_json(candidate, manifest)
+  local written, write_error = write_recovery_manifest(candidate, manifest)
   if not written then
     return false, write_error
   end
