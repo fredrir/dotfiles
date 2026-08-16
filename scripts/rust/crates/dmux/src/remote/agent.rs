@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use crate::error::{ErrorCode, TypedError};
-use crate::remote::protocol::{Envelope, PROTOCOL_VERSION};
+use crate::remote::protocol::PROTOCOL_VERSION;
 
 /// Arguments the hidden `dmux _agent` subcommand collects. `data_dir` and
 /// `lock_dir` are the same test seams `_tmux-bootstrap` exposes; production

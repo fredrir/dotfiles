@@ -26,6 +26,7 @@ mod doctor;
 mod hosts;
 mod keys;
 mod list;
+mod space_cli;
 mod state;
 
 use std::ffi::{OsStr, OsString};
@@ -201,6 +202,39 @@ enum Cmd {
         lock_dir: Option<String>,
     },
 
+    /// Groups (tabs/windows) of a managed Space
+    Group {
+        #[command(subcommand)]
+        cmd: space_cli::GroupCmd,
+    },
+
+    /// Splits (panes) of a managed Space
+    Split {
+        #[command(subcommand)]
+        cmd: space_cli::SplitCmd,
+    },
+
+    /// Pane marker context for adopted Spaces (plan §10.3)
+    Context {
+        #[command(subcommand)]
+        cmd: space_cli::ContextCmd,
+    },
+
+    /// Internal: revalidate the invoking pane's markers (plan §13.1). Reads
+    /// DMUX_SPACE_UID plus TMUX_PANE/WEZTERM_PANE from the environment and
+    /// prints one validated marker JSON document; any mismatch is a typed
+    /// error and no marker (never a guess).
+    #[command(name = "_context", hide = true)]
+    ContextInternal {
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+    },
+
     /// Internal: owner-agent RPC endpoint (plan §12.1). One JSON request
     /// envelope on stdin, one response envelope on stdout, typed exit.
     #[command(name = "_agent", hide = true)]
@@ -289,6 +323,10 @@ fn main() -> ExitCode {
             data_dir,
             lock_dir,
         }) => tmux_bootstrap_cmd(namespace, data_dir, lock_dir),
+        Some(Cmd::Group { cmd }) => space_cli::group(cmd),
+        Some(Cmd::Split { cmd }) => space_cli::split(cmd),
+        Some(Cmd::Context { cmd }) => space_cli::context(cmd),
+        Some(Cmd::ContextInternal { data_dir, lock_dir }) => context_cmd(data_dir, lock_dir),
         Some(Cmd::Agent {
             protocol,
             method,
@@ -321,6 +359,62 @@ fn main() -> ExitCode {
         Ok(status) => status,
         Err(message) => workstation::fail(PROGRAM, message),
     }
+}
+
+/// `dmux _context` (plan §13.1): one validated marker JSON document on
+/// stdout, or a typed error and no output. The shell prompt hook consumes
+/// this; a failure must never fabricate markers.
+fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<ExitCode, String> {
+    use dmux::backend::InventoryScope;
+    use dmux::model::{Backend, SpaceUid};
+    use dmux::operations::{self, OperationEnv};
+
+    let env = match (data_dir, lock_dir) {
+        (Some(data), Some(lock)) => OperationEnv {
+            db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
+            lock_dir: std::path::PathBuf::from(lock),
+        },
+        _ => OperationEnv::production().map_err(|e| e.to_string())?,
+    };
+    let space_uid = std::env::var("DMUX_SPACE_UID")
+        .ok()
+        .and_then(|v| v.parse::<uuid::Uuid>().ok())
+        .map(SpaceUid)
+        .ok_or("no DMUX_SPACE_UID in this pane's environment")?;
+
+    let context = if let (Ok(tmux), Ok(pane)) = (std::env::var("TMUX"), std::env::var("TMUX_PANE"))
+    {
+        let namespace = operations::namespace_from_tmux_env(&tmux)
+            .ok_or("not a managed -L tmux server (pass --namespace paths explicitly)")?;
+        let provider = dmux::backend::tmux::TmuxProvider::new(namespace.clone());
+        let scope = InventoryScope {
+            backend: Backend::Tmux,
+            endpoint: namespace,
+            expected_epoch: None,
+        };
+        operations::context_read(&env, &provider, &scope, space_uid, &pane)
+    } else if let Ok(pane) = std::env::var("WEZTERM_PANE") {
+        let descriptor = dmux::runtime::read_wez_descriptor()
+            .map_err(|e| e.to_string())?
+            .ok_or("managed mux descriptor absent (service not running)")?;
+        let (bin, config) = space_cli::production_wez_paths();
+        let provider = dmux::backend::wez::WezProvider::new(&bin, config);
+        let scope = InventoryScope {
+            backend: Backend::Wez,
+            endpoint: descriptor.socket,
+            expected_epoch: None,
+        };
+        operations::context_read(&env, &provider, &scope, space_uid, &pane)
+    } else {
+        return Err("neither TMUX_PANE nor WEZTERM_PANE is set".into());
+    }
+    .map_err(|e| e.to_string())?;
+
+    println!(
+        "{}",
+        serde_json::to_string(&context).map_err(|e| e.to_string())?
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `dmux _tmux-bootstrap`: silent on success (the session-created hook's

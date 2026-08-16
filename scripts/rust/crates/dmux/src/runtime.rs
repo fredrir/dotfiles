@@ -121,6 +121,59 @@ fn reject(path: &Path, why: &str) -> io::Error {
     )
 }
 
+// ---------------------------------------------------------------------------
+// Managed-mux runtime descriptor (plan §15.1; ADR 002). Written by
+// `mux-startup` in the service config; owner-side callers read it to learn
+// the exact service socket and current epoch. Reading is advisory — every
+// consumer still verifies the endpoint identity through the normal
+// strict-selection checks before trusting a scan.
+
+pub const WEZ_DESCRIPTOR_FILE: &str = "wez-dmux.json";
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct WezMuxDescriptor {
+    pub descriptor_version: u32,
+    pub state: String,
+    pub epoch: String,
+    pub pid: u32,
+    pub socket: String,
+    pub start_token: String,
+    #[serde(default)]
+    pub boot_nonce: Option<String>,
+}
+
+/// Read the managed-mux descriptor from the verified runtime dir. `Ok(None)`
+/// when the service has never written one (stopped/uninstalled).
+pub fn read_wez_descriptor() -> io::Result<Option<WezMuxDescriptor>> {
+    read_wez_descriptor_in(&dmux_runtime_dir()?)
+}
+
+pub fn read_wez_descriptor_in(runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
+    let path = runtime_dir.join(WEZ_DESCRIPTOR_FILE);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let descriptor: WezMuxDescriptor = serde_json::from_slice(&bytes).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("descriptor {}: {e}", path.display()),
+        )
+    })?;
+    if descriptor.descriptor_version != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "descriptor {}: unsupported version {}",
+                path.display(),
+                descriptor.descriptor_version
+            ),
+        ));
+    }
+    Ok(Some(descriptor))
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
