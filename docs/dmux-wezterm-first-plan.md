@@ -242,7 +242,10 @@ dmux://<HOST_UID>/spaces/<SPACE_UID>/splits/<EPOCH_UUID>/<PROVIDER_HANDLE>
 
 ### 7.1 Top-level commands
 
+`--format human|json` is a global option accepted exactly once anywhere before the command's `--` program separator; canonical examples place it immediately after `dmux`. It applies to every bounded command. Picker/interactive attach commands reject JSON, except `new --no-connect`, which is bounded.
+
 ```text
+dmux [--format human|json] <COMMAND> ...
 dmux                                      # interactive picker; never implicit-create
 dmux <SPACE_REF>                          # shorthand for dmux con
 dmux -                                    # previous distinct Space by stable identity
@@ -320,6 +323,7 @@ dmux ssh HOST_OR_ADDRESS
 - `disconnect` is canonical. `detach` remains a deprecated alias for one release.
 - `con --create`, `ls --wez`, and `ls --tmux` emit migration hints before removal; replacements are `new` and `--backend`.
 - `--name` is the exact-name escape for an adopted legacy name that looks like a ref or subcommand. It is mutually exclusive with a positional Space ref and never performs fuzzy or cross-host search.
+- `--format json` is valid for `new` only with `--no-connect`; `con`, bare picker, and other terminal-handoff forms reject it before mutation. JSON destructive commands never prompt: without `--yes` they emit one `confirmation_required` document, change nothing, and exit 5.
 - Connecting a Wez Space without a live trusted GUI bridge exits 6 unless `--launch-gui` was explicitly requested. Automatic policy never launches a GUI implicitly.
 - When connection is requested, Wez presentation capability is preflighted before identity reservation or native creation. `--launch-gui` conflicts with `--no-connect` and is invalid for tmux. If verified creation succeeds but a later presentation step fails, report `created=true, connected=false` with the stable ref and partial exit 7; never abort/tombstone the live Space or fall back to tmux.
 - Managed create/rename rejects a cross-backend logical-name collision by default. `--allow-name-collision` is an explicit expert acknowledgement and never changes a Space's backend.
@@ -531,15 +535,21 @@ CREATE UNIQUE INDEX operations_one_unfinished_uq
   WHERE operation_state IN ('prepared','running','unknown');
 ```
 
-`leases` contains scope, holder request UID, monotonically increasing fencing token, holder process/service start token, boot ID, wall-clock expiry, last renewal, and state. Clock expiry alone never authorizes a destructive takeover: a contender must first acquire the non-stealable kernel lock and prove the old holder is gone as specified in §10.2, then increment the fence, scan, and reconcile before continuing or marking `unknown`/`conflict`.
+`leases` contains scope, holder request UID, monotonically increasing fencing token, holder process/service start token, boot ID, wall-clock expiry, last renewal, and state. SQLite rows record ownership/recovery; POSIX `fcntl` locks provide non-stealable exclusion. Clock expiry alone never authorizes takeover.
 
-Lease scopes include `decision:<owner>:<sha256-of-exact-name-bytes>`, `backend:<instance>`, `space:<uid>`, `recovery:<instance>`, `snapshot:<instance>`, and `maintenance`; the journal retains the original UTF-8 name. Normal name-changing mutations acquire decision locks in exact-byte lexical order, then backend, then Space, and release in reverse; they never acquire a decision lock while holding backend/Space. Recovery or snapshot acquires the backend lock first and then its mutually exclusive instance sublock, with no decision lock. Maintenance begins only when it can take the global lock with no other dmux lock held. This order is normative and deadlock-tested.
+All operations first take a shared authority-gate kernel lock; maintenance takes that same gate exclusively and therefore overlaps nothing. A normal name-changing mutation then takes decision locks (`decision:<owner>:<sha256-of-exact-name-bytes>`) in exact-byte lexical order, the common backend-instance kernel lock in exclusive mode, and any Space lock, releasing in reverse. Inventory takes a backend-instance lock shared. A command touching both backends acquires their instance locks by BackendInstanceUid; `new` finalization holds the selected backend exclusive and the other shared. Recovery, snapshot publication, adoption/reconciliation mutation, and ordinary backend mutation all use the same backend-instance exclusive lock—`recovery`/`snapshot` are database state scopes, not separate native-exclusion locks. No operation acquires a decision lock after backend/Space. This acquisition model is normative and deadlock-tested.
 
 ### 10.2 Allocation and mutation journal
 
-All owner mutations use a client-generated idempotency key. `BEGIN IMMEDIATE` protects each short database transition; it is not treated as a lock across a backend call. Before committing intent, the operation acquires both the SQLite lease/fencing token and the matching POSIX advisory kernel lock beneath `dmux_runtime_dir()`, held by one owner process/coordinator across every native action and postcondition scan. A paused live holder cannot be timed out and superseded: takeover is allowed only after the contender acquires the kernel lock (which proves the old process released/died), verifies the recorded PID/start token is no longer the holder, increments the database fence, and reconciles the old journal. A hung live holder must be explicitly diagnosed/terminated; expiry alone never permits concurrent native mutation.
+All owner mutations use a client-generated idempotency key. `BEGIN IMMEDIATE` protects each short database transition; it is not treated as a lock across a backend call. The exact takeover/operation sequence is:
 
-Every mutation, reconciliation/adoption scan, recovery step, and snapshot publication checks the database token immediately before using native IDs and again before committing results while still holding its kernel lock. Lock files are per exact decision/backend/recovery scope and follow the global order above. Remote callers never hold these locks; the owner `_agent`, attach broker, or service coordinator does. Replay uses the original request UID and journal; it never blindly repeats a non-idempotent spawn.
+1. Acquire the authority gate, applicable decision locks, and common backend-instance kernel lock(s) in §10.1 order/mode.
+2. Read the lease/journal under `BEGIN IMMEDIATE`. A same-request replay resumes it. For a different prior holder, verify its recorded PID/start token no longer owns a process/coordinator; acquiring the kernel lock proves it cannot later resume native work.
+3. Atomically advance the database fencing token and assign the new holder.
+4. While retaining the kernel lock, perform a complete provider scan and reconcile the predecessor's journal/postcondition. Continue only from a proven state; otherwise mark `unknown`/`conflict`.
+5. Recheck the token immediately before every native-ID action, perform the action, verify postconditions, commit the result, then release database lease and kernel locks in reverse order.
+
+A paused live holder retains the kernel lock and cannot be timed out/superseded. A hung holder must be explicitly diagnosed and terminated; expiry alone never permits concurrent native mutation. Remote callers never hold locks—the owner `_agent`, attach broker, or service coordinator does. Replay never blindly repeats a non-idempotent spawn.
 
 Create:
 
@@ -858,7 +868,7 @@ Required fork changes:
 The selected recovery protocol is:
 
 1. The service creates the fresh epoch/boot nonce before launch. `mux-startup` registers it, creates the reserved sentinel, and leaves the runtime descriptor `starting`.
-2. Acquire a renewable, fenced recovery lease for this Wez backend instance. While it is active, every Wez create/rename/remove/adopt/repair/child mutation, write-like reconciliation, snapshot publication, and other recovery attempt is excluded. Reads return `recovering` plus generation; no default user pane may spawn.
+2. Acquire the common backend-instance kernel lock exclusively plus its renewable fenced recovery lease. While held, every Wez create/rename/remove/adopt/repair/child mutation, write-like reconciliation, snapshot publication, and other recovery attempt is excluded. Reads observe the descriptor and return `recovering` plus generation; no default user pane may spawn.
 3. Inspect `wezterm.mux.all_windows()` in-process. Require exactly the valid sentinel and zero user panes; never recursively query the starting mux through `wezterm cli`.
 4. Load the newest complete manifest for this backend instance whose registry revision is newer than that instance's `intentional_empty_revision`.
 5. Create a durable recovery generation and journal keyed by server epoch, manifest ID, SpaceUid, and manifest node path. Exclude deleted, aborted, conflicted, unmanaged, and unhealthy Spaces.
