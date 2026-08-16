@@ -220,6 +220,12 @@ enum Cmd {
         cmd: space_cli::ContextCmd,
     },
 
+    /// Repair managed-plane state (plan §10.3)
+    Repair {
+        #[command(subcommand)]
+        cmd: space_cli::RepairCmd,
+    },
+
     /// Enroll a host over SSH and open an interactive session (plan §12.2)
     Ssh { target: String },
 
@@ -336,6 +342,7 @@ fn main() -> ExitCode {
         Some(Cmd::Group { cmd }) => space_cli::group(cmd),
         Some(Cmd::Split { cmd }) => space_cli::split(cmd),
         Some(Cmd::Context { cmd }) => space_cli::context(cmd),
+        Some(Cmd::Repair { cmd }) => space_cli::repair(cmd),
         Some(Cmd::Ssh { target }) => {
             let code = dmux::remote::enroll::run(&target);
             Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))

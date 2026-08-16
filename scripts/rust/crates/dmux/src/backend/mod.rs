@@ -171,7 +171,7 @@ impl From<CreateSpec> for SplitSpec {
 /// extra window moves into the lowest-numbered window, ascending pane id.
 /// The plan is shown for confirmation before `normalize_apply` runs it
 /// under the caller's exclusive fence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NormalizePlan {
     /// Opaque workspace key (wez) the plan was computed for.
     pub native_token: String,
@@ -181,7 +181,7 @@ pub struct NormalizePlan {
     pub moves: Vec<NormalizeMove>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NormalizeMove {
     pub pane_id: u64,
     pub from_window: u64,

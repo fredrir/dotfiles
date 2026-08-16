@@ -1955,6 +1955,102 @@ pub fn normalize_apply(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// P8b: batch repair — detect every multi-window Wez resource (managed or
+// unmanaged), record managed quarantine, and normalize in a previewed batch
+// (plan §10.3, §17 step 9, §18 P8b). The gate is "zero unresolved managed
+// multi-window Spaces".
+
+/// One multi-window resource found by a complete owner scan.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RepairTarget {
+    pub native_token: String,
+    /// The bound managed Space, when one exists (its health is recorded as
+    /// `multi_window` at detection time).
+    pub managed: Option<SpaceUid>,
+    pub plan: NormalizePlan,
+}
+
+/// Complete wez scan → every multi-window resource with its deterministic
+/// merge plan. Detection RECORDS managed quarantine (`health=multi_window`)
+/// so the state is visible even if the operator defers the merge.
+pub fn repair_scan_wez(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+) -> Result<Vec<RepairTarget>, OpError> {
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let rows = match provider.inventory(scope) {
+        InventoryOutcome::Complete(inv) => inv.rows,
+        other => return Err(OpError::Indeterminate(format!("wez scan: {other:?}"))),
+    };
+    let spaces = registry.spaces().map_err(reg_err)?;
+    let mut targets = Vec::new();
+    for row in rows.into_iter().filter(|r| r.multi_window) {
+        let mut managed = None;
+        for space in spaces
+            .iter()
+            .filter(|s| s.lifecycle == crate::model::Lifecycle::Active)
+        {
+            if let Some(binding) = registry.current_binding(space.space_uid).map_err(reg_err)?
+                && binding.native_token == row.native_token
+            {
+                managed = Some(space.space_uid);
+                if space.health != crate::model::Health::MultiWindow {
+                    registry
+                        .set_space_health(space.space_uid, crate::model::Health::MultiWindow)
+                        .map_err(reg_err)?;
+                }
+                break;
+            }
+        }
+        let plan = normalize_preview(provider, scope, &row.native_token)?;
+        targets.push(RepairTarget {
+            native_token: row.native_token,
+            managed,
+            plan,
+        });
+    }
+    Ok(targets)
+}
+
+/// Per-target batch outcome (plan §16: per-target results, partial success
+/// is visible, never silent).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RepairResult {
+    pub native_token: String,
+    pub managed: Option<SpaceUid>,
+    pub outcome: String,
+    pub ok: bool,
+}
+
+/// Apply every previewed plan; a failed target stays quarantined and never
+/// stops the rest. A healed managed Space's health is restored by
+/// `normalize_apply` itself.
+pub fn repair_normalize_batch(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    targets: &[RepairTarget],
+) -> Vec<RepairResult> {
+    targets
+        .iter()
+        .map(|target| {
+            let result = normalize_apply(env, provider, scope, &target.plan, Uuid::new_v4());
+            RepairResult {
+                native_token: target.native_token.clone(),
+                managed: target.managed,
+                outcome: match &result {
+                    Ok(()) => "normalized".to_string(),
+                    Err(e) => e.to_string(),
+                },
+                ok: result.is_ok(),
+            }
+        })
+        .collect()
+}
+
 /// Derive the `-L` namespace from a tmux socket path when the hook runs
 /// inside the server (`$TMUX` is `<socket-path>,<pid>,<session>`): sockets
 /// under the standard `tmux-<uid>` directory map to their basename; any

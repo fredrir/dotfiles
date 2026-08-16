@@ -121,6 +121,30 @@ fn reject(path: &Path, why: &str) -> io::Error {
     )
 }
 
+/// Owner-side Wez CLI selection for managed-mux operations (bin + config).
+/// Provisioning owns these paths; revisited at P9/P11 when the GUI bridge
+/// lands. In the lib (not the binary) so the remote owner agent can build
+/// a Wez provider (P8b).
+pub fn production_wez_paths() -> (String, String) {
+    // DMUX_WEZ_BIN / DMUX_WEZ_CONFIG are owner-side TEST SEAMS (like
+    // DMUX_RUNTIME_DIR): scratch servers substitute their bin/config
+    // without touching production resolution.
+    let bin = std::env::var("DMUX_WEZ_BIN").unwrap_or_else(|_| {
+        ["/opt/homebrew/bin/wezterm", "/usr/bin/wezterm"]
+            .iter()
+            .find(|p| Path::new(p).exists())
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "wezterm".to_string())
+    });
+    let config = std::env::var("DMUX_WEZ_CONFIG").unwrap_or_else(|_| {
+        format!(
+            "{}/dotfiles/shared/wezterm/mux/dmux-mux.lua",
+            std::env::var("HOME").unwrap_or_default()
+        )
+    });
+    (bin, config)
+}
+
 // ---------------------------------------------------------------------------
 // Managed-mux runtime descriptor (plan §15.1; ADR 002). Written by
 // `mux-startup` in the service config; owner-side callers read it to learn

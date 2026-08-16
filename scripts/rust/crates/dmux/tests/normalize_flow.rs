@@ -9,7 +9,10 @@ use std::time::{Duration, Instant};
 use dmux::backend::wez::WezProvider;
 use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
 use dmux::model::Backend;
-use dmux::operations::{OpError, OperationEnv, normalize_apply, normalize_preview};
+use dmux::operations::{
+    CreateRequest, OpError, OperationEnv, create_space, normalize_apply, normalize_preview,
+    repair_normalize_batch, repair_scan_wez,
+};
 use uuid::Uuid;
 
 const STOCK_WEZTERM: &str = "/opt/homebrew/bin/wezterm";
@@ -177,6 +180,127 @@ fn normalize_merges_and_is_idempotent_by_request_uid() {
     let plan = normalize_preview(&provider, &s.scope(), "sprawl").unwrap();
     assert!(plan.moves.is_empty());
     normalize_apply(&env, &provider, &s.scope(), &plan, Uuid::new_v4()).unwrap();
+}
+
+/// P8b gate: a MANAGED Space that grows a second native window is detected
+/// by the repair scan (health recorded as `multi_window`), healed by the
+/// previewed batch — here driven through the REAL `dmux repair normalize`
+/// CLI — and the re-scan proves zero unresolved managed multi-window
+/// Spaces.
+#[test]
+fn repair_batch_detects_and_heals_managed_multi_window() {
+    if !std::path::Path::new(STOCK_MUX_SERVER).exists() {
+        eprintln!("skipping: stock wezterm-mux-server not installed");
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let locks = tempfile::tempdir().unwrap();
+    let env = OperationEnv {
+        db_path: data.path().join("registry.sqlite3"),
+        lock_dir: locks.path().to_path_buf(),
+    };
+    let s = WezScratch::start("c");
+    let provider = s.provider();
+    s.wait_ready(&provider);
+
+    // Managed Space through the full broker (env shim per ADR 009 §4a).
+    let shim = data.path().join("helper-shim.sh");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\nexport DMUX_RUNTIME_DIR={}\nexec {} \"$@\"\n",
+            locks.path().display(),
+            env!("CARGO_BIN_EXE_pane-bootstrap")
+        ),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let created = create_space(
+        &env,
+        &provider,
+        &s.scope(),
+        Backend::Wez,
+        &CreateRequest {
+            request_uid: Uuid::new_v4(),
+            name: "proj".into(),
+            cwd: None,
+            program: vec!["sh".into(), "-c".into(), "exec sleep 300".into()],
+            helper_bin: shim.display().to_string(),
+        },
+    )
+    .unwrap();
+
+    // An external second window lands in the managed workspace.
+    s.spawn_window(&created.native_token);
+    assert!(s.row(&provider, &created.native_token).multi_window);
+
+    // Detection records managed quarantine.
+    let targets = repair_scan_wez(&env, &provider, &s.scope()).unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].managed, Some(created.space_uid));
+    let registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
+        &env.db_path,
+        &env.lock_dir,
+    ))
+    .unwrap();
+    assert_eq!(
+        registry.space(created.space_uid).unwrap().health,
+        dmux::model::Health::MultiWindow
+    );
+    drop(registry);
+
+    // Heal through the REAL CLI with --yes and the test seams.
+    let out = Command::new(env!("CARGO_BIN_EXE_dmux"))
+        .args([
+            "repair",
+            "normalize",
+            "--yes",
+            "--json",
+            "--data-dir",
+            data.path().to_str().unwrap(),
+            "--lock-dir",
+            locks.path().to_str().unwrap(),
+            "--socket",
+            &s.socket,
+        ])
+        .env("DMUX_WEZ_BIN", STOCK_WEZTERM)
+        .env("DMUX_WEZ_CONFIG", &s.config)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stdout: {} stderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("\"results\""), "{text}");
+    assert!(text.contains("normalized"), "{text}");
+
+    // Healed: one window, health restored, and the re-scan is empty —
+    // zero unresolved managed multi-window Spaces (P8b gate).
+    assert!(!s.row(&provider, &created.native_token).multi_window);
+    let registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
+        &env.db_path,
+        &env.lock_dir,
+    ))
+    .unwrap();
+    assert_eq!(
+        registry.space(created.space_uid).unwrap().health,
+        dmux::model::Health::Healthy
+    );
+    drop(registry);
+    assert!(
+        repair_scan_wez(&env, &provider, &s.scope())
+            .unwrap()
+            .is_empty()
+    );
+
+    // The batch API itself also runs clean on an empty target list.
+    assert!(repair_normalize_batch(&env, &provider, &s.scope(), &[]).is_empty());
 }
 
 #[test]

@@ -112,6 +112,147 @@ pub enum SplitCmd {
 }
 
 #[derive(Subcommand)]
+pub enum RepairCmd {
+    /// Preview and merge multi-window Wez resources to one window each
+    /// (plan §10.3): deterministic pane-preserving plans, confirmed before
+    /// any mutation; failures stay quarantined per target.
+    Normalize {
+        /// Restrict to these opaque workspace tokens (default: every
+        /// detected multi-window resource)
+        tokens: Vec<String>,
+
+        /// Apply without asking
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Machine-readable preview/results
+        #[arg(long)]
+        json: bool,
+
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+
+        /// Test seam: exact wez service socket.
+        #[arg(long, hide = true)]
+        socket: Option<String>,
+    },
+}
+
+pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
+    match cmd {
+        RepairCmd::Normalize {
+            tokens,
+            yes,
+            json,
+            data_dir,
+            lock_dir,
+            socket,
+        } => {
+            let env = match (data_dir, lock_dir) {
+                (Some(data), Some(lock)) => OperationEnv {
+                    db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
+                    lock_dir: std::path::PathBuf::from(lock),
+                },
+                _ => OperationEnv::production().map_err(|e| e.to_string())?,
+            };
+            let socket = match socket {
+                Some(socket) => socket,
+                None => {
+                    dmux::runtime::read_wez_descriptor()
+                        .map_err(|e| e.to_string())?
+                        .ok_or("managed mux descriptor absent (service not running)")?
+                        .socket
+                }
+            };
+            let (bin, config) = production_wez_paths();
+            let provider = dmux::backend::wez::WezProvider::new(&bin, config);
+            let scope = InventoryScope {
+                backend: Backend::Wez,
+                endpoint: socket,
+                expected_epoch: None,
+            };
+
+            let mut targets = match operations::repair_scan_wez(&env, &provider, &scope) {
+                Ok(targets) => targets,
+                Err(e) => return fail(e),
+            };
+            if !tokens.is_empty() {
+                for wanted in &tokens {
+                    if !targets.iter().any(|t| t.native_token == *wanted) {
+                        eprintln!("dmux: {wanted:?} is not a multi-window wez resource");
+                        return Ok(ExitCode::from(3));
+                    }
+                }
+                targets.retain(|t| tokens.contains(&t.native_token));
+            }
+            if targets.is_empty() {
+                if json {
+                    println!("{{\"targets\":[]}}");
+                } else {
+                    println!("nothing to normalize");
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            // Preview before any mutation (plan §10.3).
+            if json {
+                println!("{}", serde_json::json!({ "targets": targets }).to_string());
+            } else {
+                for t in &targets {
+                    println!(
+                        "{}\t{}\t{} pane move{} into window {}",
+                        t.native_token,
+                        t.managed
+                            .map(|u| u.0.to_string())
+                            .unwrap_or_else(|| "unmanaged".into()),
+                        t.plan.moves.len(),
+                        if t.plan.moves.len() == 1 { "" } else { "s" },
+                        t.plan.target_window,
+                    );
+                }
+            }
+            if json && !yes {
+                // §7.4: JSON destructive commands never prompt.
+                println!("{{\"confirmation_required\":true}}");
+                return Ok(ExitCode::from(5));
+            }
+            match confirm(&format!("Normalize {} resource(s)?", targets.len()), yes) {
+                Ok(_) => {}
+                Err(code) => return Ok(code),
+            }
+
+            let results = operations::repair_normalize_batch(&env, &provider, &scope, &targets);
+            let all_ok = results.iter().all(|r| r.ok);
+            if json {
+                println!("{}", serde_json::json!({ "results": results }));
+            } else {
+                for r in &results {
+                    println!(
+                        "{}\t{}",
+                        r.native_token,
+                        if r.ok {
+                            "normalized"
+                        } else {
+                            r.outcome.as_str()
+                        }
+                    );
+                }
+            }
+            Ok(if all_ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(7)
+            })
+        }
+    }
+}
+
+#[derive(Subcommand)]
 pub enum HostCmd {
     /// List enrolled hosts and their routes
     Ls {
@@ -280,20 +421,9 @@ fn fail(err: OpError) -> Result<ExitCode, String> {
     Ok(op_exit(&err))
 }
 
-/// Owner-side Wez CLI selection for managed-mux operations. Provisioning
-/// owns these paths; revisited at P9/P11 when the GUI bridge lands.
-pub fn production_wez_paths() -> (String, String) {
-    let bin = ["/opt/homebrew/bin/wezterm", "/usr/bin/wezterm"]
-        .iter()
-        .find(|p| std::path::Path::new(p).exists())
-        .map(|p| p.to_string())
-        .unwrap_or_else(|| "wezterm".to_string());
-    let config = format!(
-        "{}/dotfiles/shared/wezterm/mux/dmux-mux.lua",
-        std::env::var("HOME").unwrap_or_default()
-    );
-    (bin, config)
-}
+/// Re-export kept for the binary's other callers; the resolution itself
+/// lives in the lib so the remote owner agent can build a Wez provider.
+pub use dmux::runtime::production_wez_paths;
 
 /// The pane-bootstrap helper is installed beside dmux.
 fn helper_bin() -> Result<String, String> {
