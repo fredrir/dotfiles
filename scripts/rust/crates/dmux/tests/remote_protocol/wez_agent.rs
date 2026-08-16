@@ -13,7 +13,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
-use dmux::model::{Backend, ChildKind};
+use dmux::model::{Backend, ChildKind, ServerEpoch};
 use dmux::operations::{CreatedChild, CreatedSpace, SpaceHierarchy};
 use dmux::remote::protocol::{self, SpacesInfo};
 use serde_json::json;
@@ -28,6 +28,7 @@ struct WezScratch {
     server: std::process::Child,
     socket: String,
     config: String,
+    epoch: Uuid,
     dir: tempfile::TempDir,
 }
 
@@ -69,6 +70,7 @@ return config
             server,
             socket,
             config: config_path.display().to_string(),
+            epoch,
             dir,
         }
     }
@@ -113,13 +115,16 @@ fn wez_remote_hierarchy_full_cycle_through_the_agent() {
         eprintln!("SKIP wez_agent: stock wezterm-mux-server not installed at {WEZ_MUX}");
         return;
     }
-    let scratch = Scratch::new("wez-agent");
+    // Keep a real managed tmux instance live as the opposite provider. This
+    // makes every Wez NEW below exercise the owner-fenced cross-backend seam
+    // (the owner scans both; the controller never guesses).
+    let scratch = Scratch::with_tmux("wez-agent");
     let wez = WezScratch::start("a", scratch.locks.path());
 
     // Owner-side setup: register the wez instance with the scratch socket
     // (the registry row is where the agent resolves the endpoint from).
     let mut registry = scratch.registry();
-    registry
+    let instance = registry
         .register_backend_instance(Backend::Wez, Some(&wez.socket), None)
         .unwrap();
     drop(registry);
@@ -155,13 +160,70 @@ fn wez_remote_hierarchy_full_cycle_through_the_agent() {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if let InventoryOutcome::Complete(inv) = provider.inventory(&scope)
-            && inv.server_epoch.is_some()
+            && inv.server_epoch == Some(ServerEpoch(wez.epoch))
         {
             break;
         }
         assert!(Instant::now() < deadline, "mux server never became ready");
         std::thread::sleep(Duration::from_millis(100));
     }
+
+    // P10 fail-fast identity seam: production learns this exact ready
+    // descriptor from the service coordinator. The scratch stock server
+    // cannot write dmux's descriptor itself, so publish the same identity
+    // explicitly before any owner RPC is allowed to probe it.
+    let mut registry = scratch.registry();
+    registry
+        .publish_backend_server(
+            instance,
+            ServerEpoch(wez.epoch),
+            Some(wez.server.id().into()),
+            Some("wez-agent-scratch"),
+            None,
+            None,
+        )
+        .unwrap();
+    drop(registry);
+    let descriptor = scratch.locks.path().join("wez-dmux.json");
+    std::fs::write(
+        &descriptor,
+        serde_json::to_vec(&json!({
+            "descriptor_version": 1,
+            "state": "ready",
+            "epoch": wez.epoch,
+            "pid": wez.server.id(),
+            "socket": wez.socket,
+            "start_token": "wez-agent-scratch",
+            "boot_nonce": Uuid::new_v4(),
+            "backend_instance_uid": instance,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    // An unmanaged exact-name row on the opposite provider refuses before
+    // Wez identity reservation or native allocation.
+    let native = scratch.tmux(&["new-session", "-d", "-s", "cross-collision"]);
+    assert!(
+        native.status.success(),
+        "{}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let (code, response) = scratch.agent_env(
+        &envelope(
+            protocol::methods::NEW,
+            Uuid::new_v4(),
+            json!({ "name": "cross-collision", "backend": "wez" }),
+        ),
+        &seams,
+    );
+    assert_eq!(code, 4, "{response:?}");
+    assert_eq!(error_code(&response), "name_conflict");
+    assert!(scratch.registry().spaces().unwrap().is_empty());
 
     // --- `new` with backend=wez through the agent (P8b lifts the v1
     // refusal): opaque workspace key, real helper, marker proven.

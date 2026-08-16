@@ -14,4 +14,13 @@ M.keys = {
   { key = 'p', mods = 'LEADER', action = act.ActivateCommandPalette },
 }
 
+if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+  M.keys = {
+    { key = '+', mods = 'CTRL', action = act.IncreaseFontSize },
+    { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },
+    { key = 'Backspace', mods = 'CTRL', action = act.ResetFontSize },
+    { key = 'f', mods = 'LEADER', action = act.ToggleFullScreen },
+  }
+end
+
 return M

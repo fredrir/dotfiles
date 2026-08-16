@@ -43,6 +43,7 @@
 pub mod bootstrap_journal;
 pub mod hosts;
 pub mod reconcile;
+pub mod recovery;
 pub mod remote;
 pub mod schema;
 pub mod sha256;
@@ -1117,6 +1118,28 @@ impl Registry {
     }
 
     // -- backend instances -------------------------------------------------
+
+    /// Resolve this authority's already-registered instance for `backend`
+    /// without creating or mutating anything. The one-per-owner unique index
+    /// makes zero-or-one rows a storage invariant; corrupt UUID text is never
+    /// accepted as an identity.
+    pub fn backend_instance_for_backend(
+        &self,
+        backend: Backend,
+    ) -> Result<Option<BackendInstanceUid>> {
+        self.conn
+            .query_row(
+                "SELECT b.backend_instance_uid FROM backend_instances AS b \
+                 JOIN meta AS m ON m.id = 1 AND m.host_uid = b.owner_host_uid \
+                 WHERE b.backend = ?1",
+                [backend.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .as_deref()
+            .map(|uid| parse_uuid(uid).map(BackendInstanceUid))
+            .transpose()
+    }
 
     /// Get-or-create the single managed instance for `backend` on this
     /// owner (plan §2.15; `backend_instances_one_per_owner_uq`).

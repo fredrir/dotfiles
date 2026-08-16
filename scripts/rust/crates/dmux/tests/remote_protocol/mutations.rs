@@ -4,7 +4,10 @@
 //! backend-instance/epoch verification matrix (stale claims refused,
 //! nothing created), rename/rm with cross-invocation replay.
 
-use dmux::model::{BackendInstanceUid, ServerEpoch};
+use std::time::{Duration, Instant};
+
+use dmux::locks::{LockMode, LockScope, OrderedLocks};
+use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
 use dmux::operations::CreatedSpace;
 use dmux::remote::protocol::{self, RenameResult, RmResult};
 use serde_json::json;
@@ -50,6 +53,83 @@ fn create_is_idempotent_by_envelope_request_uid() {
             .count(),
         1,
         "replay must not create a second session"
+    );
+}
+
+#[test]
+fn concurrent_same_name_serializes_and_concurrent_same_request_replays() {
+    let scratch = Scratch::with_tmux("create-races");
+
+    // Different requests for one exact name serialize on the owner decision
+    // lock. Exactly one allocates; the loser observes the winner through the
+    // locked cross-backend preflight and never invokes a second create.
+    let left = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        new_payload("decision-race"),
+    );
+    let right = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        new_payload("decision-race"),
+    );
+    let (left_result, right_result) = std::thread::scope(|threads| {
+        let left = threads.spawn(|| scratch.agent(&left));
+        let right = threads.spawn(|| scratch.agent(&right));
+        (left.join().unwrap(), right.join().unwrap())
+    });
+    let results = [left_result, right_result];
+    assert_eq!(results.iter().filter(|(code, _)| *code == 0).count(), 1);
+    let loser = results.iter().find(|(code, _)| *code != 0).unwrap();
+    assert_eq!(loser.0, 4, "{:?}", loser.1);
+    assert_eq!(error_code(&loser.1), "name_conflict");
+    assert_eq!(
+        scratch
+            .session_names()
+            .iter()
+            .filter(|name| *name == "decision-race")
+            .count(),
+        1
+    );
+    assert_eq!(
+        scratch
+            .registry()
+            .spaces()
+            .unwrap()
+            .iter()
+            .filter(|space| space.logical_name == "decision-race")
+            .count(),
+        1,
+        "the losing race must not allocate a reserved/aborted identity"
+    );
+
+    // Two in-flight deliveries of the same byte-identical request use the
+    // same decision fence. The waiter re-reads the ledger after acquiring
+    // it and returns the first invocation's result rather than classifying
+    // that result's native row as a collision.
+    let replay = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        new_payload("concurrent-replay"),
+    );
+    let (first, second) = std::thread::scope(|threads| {
+        let first = threads.spawn(|| scratch.agent(&replay));
+        let second = threads.spawn(|| scratch.agent(&replay));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    assert_eq!((first.0, second.0), (0, 0), "{first:?}\n{second:?}");
+    let first: CreatedSpace = serde_json::from_value(first.1.payload.unwrap()).unwrap();
+    let second: CreatedSpace = serde_json::from_value(second.1.payload.unwrap()).unwrap();
+    assert_eq!(first.space_uid, second.space_uid);
+    assert_eq!(first.native_token, second.native_token);
+    assert_ne!(first.replayed, second.replayed);
+    assert_eq!(
+        scratch
+            .session_names()
+            .iter()
+            .filter(|name| *name == "concurrent-replay")
+            .count(),
+        1
     );
 }
 
@@ -222,4 +302,130 @@ fn spaces_lists_registry_rows_with_a_complete_scan() {
         .expect("tmux scan summary");
     assert_eq!(scan.outcome, "complete");
     assert!(scan.server_epoch.is_some());
+}
+
+#[test]
+fn spaces_reports_recovering_without_native_ids_or_waiting_on_backend_exclusive() {
+    let scratch = Scratch::with_tmux("spaces-recovering");
+    let create = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        new_payload("fenced"),
+    );
+    let (code, response) = scratch.agent(&create);
+    assert_eq!(code, 0, "{response:?}");
+
+    let instance = scratch
+        .registry()
+        .register_backend_instance(Backend::Tmux, scratch.ns.as_deref(), None)
+        .unwrap();
+    let mut recovery_locks = OrderedLocks::new(scratch.locks.path());
+    recovery_locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .unwrap();
+    recovery_locks
+        .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
+        .unwrap();
+
+    let started = Instant::now();
+    let request = envelope(protocol::methods::SPACES, Uuid::new_v4(), json!({}));
+    let (code, response) = scratch.agent(&request);
+    assert_eq!(code, 0, "{response:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "spaces must fail fast on the non-blocking backend read fence"
+    );
+    let info: protocol::SpacesInfo = serde_json::from_value(response.payload.unwrap()).unwrap();
+    let row = info
+        .spaces
+        .iter()
+        .find(|space| space.name == "fenced")
+        .expect("logical registry row remains visible");
+    assert_eq!(row.backend, Backend::Tmux);
+    assert_eq!(row.native_token, None, "partial native IDs must be hidden");
+    let scan = info
+        .scans
+        .iter()
+        .find(|scan| scan.backend == Backend::Tmux)
+        .expect("tmux scan summary");
+    assert_eq!(scan.outcome, "recovering");
+    assert_eq!(scan.rows, None);
+    assert_eq!(scan.server_epoch, None);
+    assert!(scan.detail.as_deref().unwrap_or("").contains("recovering"));
+}
+
+#[test]
+fn remote_new_canonicalizes_only_a_valid_owner_directory_before_mutation() {
+    let scratch = Scratch::with_tmux("owner-cwd");
+    let owner_dir = scratch.data.path().join("owner-dir");
+    std::fs::create_dir(&owner_dir).unwrap();
+    let owner_alias = scratch.data.path().join("owner-alias");
+    std::os::unix::fs::symlink(&owner_dir, &owner_alias).unwrap();
+    let marker = scratch.data.path().join("owner-pwd");
+    let request = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        json!({
+            "name": "valid-owner-cwd",
+            "backend": "tmux",
+            "cwd": owner_alias,
+            "program": ["sh", "-c", format!("pwd > {}; exec sleep 300", marker.display())],
+        }),
+    );
+    let (code, response) = scratch.agent(&request);
+    assert_eq!(code, 0, "{response:?}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "owner cwd marker never appeared");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap().trim(),
+        std::fs::canonicalize(&owner_dir)
+            .unwrap()
+            .display()
+            .to_string()
+    );
+
+    let owner_file = scratch.data.path().join("not-a-directory");
+    std::fs::write(&owner_file, b"file").unwrap();
+    for (name, cwd, expected) in [
+        ("relative", "controller/relative".to_string(), "usage"),
+        (
+            "missing",
+            scratch.data.path().join("missing").display().to_string(),
+            "not_found",
+        ),
+        ("file", owner_file.display().to_string(), "usage"),
+        ("control", "/tmp/owner\nforged".to_string(), "usage"),
+    ] {
+        let (code, response) = scratch.agent(&envelope(
+            protocol::methods::NEW,
+            Uuid::new_v4(),
+            json!({
+                "name": name,
+                "backend": "tmux",
+                "cwd": cwd,
+                "program": ["sleep", "300"],
+            }),
+        ));
+        assert_ne!(code, 0, "{name}: {response:?}");
+        assert_eq!(error_code(&response), expected, "{name}: {response:?}");
+    }
+    let names = scratch.session_names();
+    assert!(names.contains(&"valid-owner-cwd".to_string()));
+    for rejected in ["relative", "missing", "file", "control"] {
+        assert!(
+            !names.contains(&rejected.to_string()),
+            "{rejected} allocated native identity"
+        );
+    }
+    let registry_names: Vec<_> = scratch
+        .registry()
+        .spaces()
+        .unwrap()
+        .into_iter()
+        .map(|space| space.logical_name)
+        .collect();
+    assert_eq!(registry_names, vec!["valid-owner-cwd"]);
 }

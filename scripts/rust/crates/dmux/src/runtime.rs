@@ -14,8 +14,8 @@
 //! Root-owned (plan §19).
 
 use std::fs;
-use std::io;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+use std::io::{self, Read};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 const SUBDIR: &str = "dmux";
@@ -164,6 +164,74 @@ pub struct WezMuxDescriptor {
     pub start_token: String,
     #[serde(default)]
     pub boot_nonce: Option<String>,
+    #[serde(default)]
+    pub backend_instance_uid: Option<String>,
+    #[serde(default)]
+    pub recovery_generation: Option<String>,
+    #[serde(default)]
+    pub sentinel_window_id: Option<u64>,
+    #[serde(default)]
+    pub sentinel_tab_id: Option<u64>,
+    #[serde(default)]
+    pub sentinel_pane_id: Option<u64>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+impl WezMuxDescriptor {
+    /// Presentation/recovery callers must not treat a syntactically valid
+    /// `starting`/`failed` descriptor as a usable managed server. This
+    /// validates the identity-bearing fields; the provider still performs
+    /// the exact-socket + sentinel scan before any native-ID action.
+    pub fn require_ready(&self) -> io::Result<()> {
+        if self.state != "ready" {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                format!(
+                    "managed Wez mux is {}{}",
+                    self.state,
+                    self.error
+                        .as_deref()
+                        .map(|e| format!(": {e}"))
+                        .unwrap_or_default()
+                ),
+            ));
+        }
+        parse_descriptor_uuid("epoch", &self.epoch)?;
+        let instance = self
+            .backend_instance_uid
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "managed Wez mux descriptor has no backend_instance_uid",
+                )
+            })?;
+        parse_descriptor_uuid("backend_instance_uid", instance)?;
+        if !Path::new(&self.socket).is_absolute() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux descriptor socket is not absolute",
+            ));
+        }
+        if self.start_token.is_empty() || self.pid == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux descriptor has no process witness",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn parse_descriptor_uuid(field: &str, value: &str) -> io::Result<uuid::Uuid> {
+    value.parse::<uuid::Uuid>().map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("managed Wez mux descriptor {field}: {e}"),
+        )
+    })
 }
 
 /// Read the managed-mux descriptor from the verified runtime dir. `Ok(None)`
@@ -174,11 +242,34 @@ pub fn read_wez_descriptor() -> io::Result<Option<WezMuxDescriptor>> {
 
 pub fn read_wez_descriptor_in(runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
     let path = runtime_dir.join(WEZ_DESCRIPTOR_FILE);
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
+    let mut file = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&path)
+    {
+        Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
+    let metadata = file.metadata()?;
+    let euid = unsafe { libc::geteuid() };
+    if !metadata.is_file() || metadata.uid() != euid || metadata.mode() & 0o777 != 0o600 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "descriptor {} must be a current-user-owned non-symlink file with mode 0600",
+                path.display()
+            ),
+        ));
+    }
+    if metadata.len() > 64 * 1024 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("descriptor {} exceeds 64 KiB", path.display()),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut bytes)?;
     let descriptor: WezMuxDescriptor = serde_json::from_slice(&bytes).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -257,6 +348,61 @@ mod tests {
         fs::create_dir(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(secured_runtime_subdir(base.path()).is_err());
+    }
+
+    #[test]
+    fn descriptor_requires_private_file_and_ready_identity() {
+        let base = scratch_base();
+        let path = base.path().join(WEZ_DESCRIPTOR_FILE);
+        let epoch = uuid::Uuid::new_v4();
+        let instance = uuid::Uuid::new_v4();
+        fs::write(
+            &path,
+            serde_json::json!({
+                "descriptor_version": 1,
+                "state": "ready",
+                "epoch": epoch,
+                "pid": 42,
+                "socket": "/tmp/dmux-test.sock",
+                "start_token": "42-token",
+                "backend_instance_uid": instance,
+                "boot_nonce": uuid::Uuid::new_v4(),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let descriptor = read_wez_descriptor_in(base.path()).unwrap().unwrap();
+        descriptor.require_ready().unwrap();
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            read_wez_descriptor_in(base.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+    }
+
+    #[test]
+    fn starting_descriptor_is_not_ready() {
+        let descriptor = WezMuxDescriptor {
+            descriptor_version: 1,
+            state: "starting".into(),
+            epoch: uuid::Uuid::new_v4().to_string(),
+            pid: 42,
+            socket: "/tmp/dmux-test.sock".into(),
+            start_token: "42-token".into(),
+            boot_nonce: None,
+            backend_instance_uid: Some(uuid::Uuid::new_v4().to_string()),
+            recovery_generation: Some("generation-1".into()),
+            sentinel_window_id: None,
+            sentinel_tab_id: None,
+            sentinel_pane_id: None,
+            error: None,
+        };
+        assert_eq!(
+            descriptor.require_ready().unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
     }
 
     #[cfg(target_os = "macos")]

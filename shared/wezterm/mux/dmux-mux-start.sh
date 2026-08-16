@@ -13,6 +13,8 @@
 #   - mint a fresh server epoch + boot nonce + process start token per start;
 #   - pre-write a `starting` descriptor stub (socket dev/ino unknown here:
 #     dmux verifies socket identity itself at probe time per ADR 001);
+#   - when the feature flag is on, resolve the durable Wez backend instance
+#     and provide the resurrection manifest/spool inputs to mux-startup;
 #   - exec wezterm-mux-server FOREGROUND (--daemonize contends the shared
 #     default ~/.local/share/wezterm pid lock, ADR 004; the service manager
 #     supplies restart/serialization).
@@ -46,6 +48,8 @@ chmod 0700 "$runtime"
 
 sock="$runtime/wez-dmux.sock"
 descriptor="$runtime/wez-dmux.json"
+DMUX_WEZ_FIRST="${DMUX_WEZ_FIRST:-0}"
+export DMUX_WEZ_FIRST
 
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 epoch=$(lowercase "$(uuidgen)")
@@ -76,6 +80,58 @@ if [ -z "$dmux_bin" ]; then
   echo 'dmux-mux-start: WARN no dmux with _mux-idle found; Lua sentinel fallback will be used' >&2
 fi
 
+# P9's acknowledged GUI bridge key must exist before a feature-gated GUI
+# evaluates its config.  The command creates/reuses the raw 0600 file and is
+# intentionally silent; never capture or print the key in this shell.
+if [ "$DMUX_WEZ_FIRST" = 1 ]; then
+  [ -n "$dmux_bin" ] || fail 'DMUX_WEZ_FIRST=1 requires dmux'
+  "$dmux_bin" _bridge-key >/dev/null || fail 'could not ensure mandatory GUI bridge key'
+fi
+
+# Cold recovery stays inert until the per-process feature flag is enabled.
+# In flag-on mode the service supplies a real, durable backend-instance UID;
+# an empty placeholder is not accepted by the recovery coordinator.
+backend_instance="${DMUX_BACKEND_INSTANCE:-}"
+manifest_dir="${DMUX_RECOVERY_MANIFEST_DIR:-}"
+pane_bootstrap=''
+if [ "$DMUX_WEZ_FIRST" = 1 ]; then
+  [ -n "$dmux_bin" ] || fail 'DMUX_WEZ_FIRST=1 requires dmux'
+  if [ -z "$backend_instance" ]; then
+    case "$(uname -s)" in
+    Darwin) service_label='com.fredrir.wezterm-mux' ;;
+    *) service_label='wezterm-mux.service' ;;
+    esac
+    backend_instance=$(
+      "$dmux_bin" _recovery instance \
+        --socket "$sock" \
+        --service-label "$service_label"
+    ) || fail 'could not resolve durable Wez backend instance'
+  fi
+  case "$backend_instance" in
+  ????????-????-????-????-????????????) ;;
+  *) fail 'recovery instance command returned a non-UUID value' ;;
+  esac
+
+  if [ -z "$manifest_dir" ]; then
+    case "$(uname -s)" in
+    Darwin)
+      manifest_dir="$HOME/Library/Application Support/wezterm/resurrect/dmux"
+      ;;
+    *)
+      state_base="${XDG_STATE_HOME:-$HOME/.local/state}"
+      manifest_dir="$state_base/wezterm/resurrect/dmux"
+      ;;
+    esac
+  fi
+  mkdir -p "$manifest_dir"
+  chmod 0700 "$manifest_dir"
+
+  pane_bootstrap=$(dirname -- "$dmux_bin")/pane-bootstrap
+  [ -x "$pane_bootstrap" ] || pane_bootstrap=$(command -v pane-bootstrap 2>/dev/null || true)
+  [ -n "$pane_bootstrap" ] && [ -x "$pane_bootstrap" ] || \
+    fail 'DMUX_WEZ_FIRST=1 requires pane-bootstrap beside dmux or on PATH'
+fi
+
 wez_mux=''
 for candidate in \
   "${DMUX_WEZTERM_MUX_SERVER:-}" \
@@ -95,7 +151,7 @@ done
 # a reader finds, which is the honest state.
 stub_tmp="$descriptor.tmp.$$"
 printf '{"descriptor_version":1,"state":"starting","epoch":"%s","pid":%d,"socket":"%s","socket_dev":null,"socket_ino":null,"start_token":"%s","backend_instance_uid":"%s","boot_nonce":"%s","written_by":"wrapper","written_at":"%s"}\n' \
-  "$epoch" "$$" "$sock" "$start_token" "${DMUX_BACKEND_INSTANCE:-}" "$boot_nonce" \
+  "$epoch" "$$" "$sock" "$start_token" "$backend_instance" "$boot_nonce" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$stub_tmp"
 mv -f "$stub_tmp" "$descriptor"
 
@@ -105,10 +161,13 @@ DMUX_DESCRIPTOR="$descriptor"
 DMUX_SERVER_EPOCH="$epoch"
 DMUX_START_TOKEN="$start_token"
 DMUX_BOOT_NONCE="$boot_nonce"
-DMUX_BACKEND_INSTANCE="${DMUX_BACKEND_INSTANCE:-}"
+DMUX_BACKEND_INSTANCE="$backend_instance"
 DMUX_BIN="$dmux_bin"
+DMUX_PANE_BOOTSTRAP="$pane_bootstrap"
+DMUX_RECOVERY_MANIFEST_DIR="$manifest_dir"
 export DMUX_SOCKET DMUX_RUNTIME_DIR DMUX_DESCRIPTOR DMUX_SERVER_EPOCH \
-  DMUX_START_TOKEN DMUX_BOOT_NONCE DMUX_BACKEND_INSTANCE DMUX_BIN
+  DMUX_START_TOKEN DMUX_BOOT_NONCE DMUX_BACKEND_INSTANCE DMUX_BIN \
+  DMUX_PANE_BOOTSTRAP DMUX_RECOVERY_MANIFEST_DIR DMUX_WEZ_FIRST
 
 # Hygiene: never inherit pane/endpoint identity from whoever started us.
 # WEZTERM_UNIX_SOCKET does NOT set a server's listen socket (ADR 004) -- only

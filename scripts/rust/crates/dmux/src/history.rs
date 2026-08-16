@@ -30,9 +30,22 @@ struct HostSlots {
     previous: Option<SpaceUid>,
 }
 
+/// The most recently presented Space across all owners. GUI summon needs a
+/// single stable identity; per-host previous/current slots cannot establish
+/// cross-host recency without guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuiHistoryTarget {
+    pub host_uid: HostUid,
+    pub space_uid: SpaceUid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct FileFormat {
     version: u32,
+    /// Updated only after an acknowledged GUI presentation. Older v1 files
+    /// omit it and remain valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    gui_current: Option<GuiHistoryTarget>,
     /// Keyed by owner HostUid (lowercase hyphenated).
     hosts: BTreeMap<String, HostSlots>,
 }
@@ -41,6 +54,7 @@ impl Default for FileFormat {
     fn default() -> Self {
         FileFormat {
             version: HISTORY_VERSION,
+            gui_current: None,
             hosts: BTreeMap::new(),
         }
     }
@@ -85,22 +99,42 @@ impl History {
         self.read().hosts.get(&host.0.to_string())?.current
     }
 
+    /// Last Space whose GUI presentation received a valid acknowledgement,
+    /// across every owner. The caller must still authority/live revalidate
+    /// this locator before using it.
+    pub fn last_gui_presented(&self) -> Option<GuiHistoryTarget> {
+        self.read().gui_current
+    }
+
     /// Record an attach: when the target differs from the recorded current,
     /// the old current becomes the toggle target. Reattaching the current
     /// Space moves nothing (same semantics the legacy state file had, but
     /// identity-stable).
     pub fn record_attach(&self, host: HostUid, space: SpaceUid) -> io::Result<()> {
         let mut format = self.read();
-        let slots = format.hosts.entry(host.0.to_string()).or_default();
-        match slots.current {
-            Some(current) if current == space => return Ok(()),
-            Some(current) => {
-                slots.previous = Some(current);
-                slots.current = Some(space);
-            }
-            None => slots.current = Some(space),
+        if !update_host_slots(&mut format, host, space) {
+            return Ok(());
         }
         self.write(&format)
+    }
+
+    /// Record an acknowledged GUI presentation and its per-owner toggle
+    /// ordering in one atomic file replacement.
+    pub fn record_gui_present(&self, host: HostUid, space: SpaceUid) -> io::Result<()> {
+        let mut format = self.read();
+        let host_changed = update_host_slots(&mut format, host, space);
+        let target = GuiHistoryTarget {
+            host_uid: host,
+            space_uid: space,
+        };
+        let gui_changed = format.gui_current != Some(target);
+        if gui_changed {
+            format.gui_current = Some(target);
+        }
+        if host_changed || gui_changed {
+            self.write(&format)?;
+        }
+        Ok(())
     }
 
     /// Same-directory temp file then rename: concurrent writers or a crash
@@ -113,6 +147,22 @@ impl History {
         temp.write_all(b"\n")?;
         temp.persist(self.path()).map_err(|e| e.error)?;
         Ok(())
+    }
+}
+
+fn update_host_slots(format: &mut FileFormat, host: HostUid, space: SpaceUid) -> bool {
+    let slots = format.hosts.entry(host.0.to_string()).or_default();
+    match slots.current {
+        Some(current) if current == space => false,
+        Some(current) => {
+            slots.previous = Some(current);
+            slots.current = Some(space);
+            true
+        }
+        None => {
+            slots.current = Some(space);
+            true
+        }
     }
 }
 

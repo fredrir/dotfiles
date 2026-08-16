@@ -11,6 +11,7 @@ local URL = 'https://github.com/fredrir/resurrect.wezterm'
 
 function M.apply(config)
   local resurrect = wezterm.plugin.require(URL)
+  local wez_first = os.getenv 'DMUX_WEZ_FIRST' == '1'
 
   local opts = {
     periodic_interval = 300,
@@ -32,7 +33,7 @@ function M.apply(config)
   -- off leaves opts exactly as above, so setup() behaves identically to the
   -- pre-dmux configuration. (The fork's dmux-split branch implements
   -- startup_restore; a plugin checkout without it ignores the extra key.)
-  if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+  if wez_first then
     opts.startup_restore = false
   end
 
@@ -63,11 +64,17 @@ function M.apply(config)
   end
 
   local keys = config.keys or {}
-  table.insert(keys, {
-    key = 'q',
-    mods = 'LEADER',
-    action = resurrect.fuzzy_loader.restore_action(),
-  })
+  -- A manual resurrection picker restores by spawning native Wez resources,
+  -- so it is a legacy-only UI.  In Wez-first mode cold recovery is the sole
+  -- restore path and is guarded by the owner coordinator; logical picker
+  -- behavior is provided by dmux's non-creating workspace picker instead.
+  if not wez_first then
+    table.insert(keys, {
+      key = 'q',
+      mods = 'LEADER',
+      action = resurrect.fuzzy_loader.restore_action(),
+    })
+  end
   table.insert(keys, {
     key = 'S',
     mods = 'LEADER|SHIFT',

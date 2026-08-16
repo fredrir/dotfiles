@@ -3,6 +3,13 @@ local act = wezterm.action
 
 local M = {}
 
+if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+  -- Native tabs are logical Groups in managed mode; final dmux bindings own
+  -- every create/select/rename/close chord.
+  M.keys = {}
+  return M
+end
+
 M.keys = {
   -- CTRL+T belongs to fzf's file widget; new tab lives on the shifted chord
   -- here and on CMD+T on mac.

@@ -3,6 +3,14 @@ local act = wezterm.action
 
 local M = {}
 
+if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+  -- Native Split actions bypass owner/epoch validation. The mandatory final
+  -- dmux layer installs their backend-aware replacements.
+  M.keys = {}
+  M.key_tables = {}
+  return M
+end
+
 -- Punctuation is bound by physical key: on the Norwegian layout the character
 -- a key produces differs from US, and a char binding would silently never fire.
 M.keys = {

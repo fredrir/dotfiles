@@ -11,7 +11,7 @@
 //! env -u WEZTERM_PANE -u TMUX -u TMUX_PANE \
 //!   WEZTERM_UNIX_SOCKET=<exact-socket> \
 //!   <wezterm-bin> --config-file <dmux-managed-config> \
-//!   cli --no-auto-start <subcmd> [--format json]
+//!   cli --no-auto-start [--prefer-mux] <subcmd> [--format json]
 //! ```
 //!
 //! Strictness rules (ADR 001, ADR 002):
@@ -71,10 +71,14 @@
 //! (`normalize_unconverged:` at the bound). Panes are moved, never killed,
 //! and panes outside the plan are never touched.
 //!
-//! Still typed-unimplemented here: `rename` (a Wez logical rename is
-//! registry-only, plan §2.5; native reassignment is the CAS adoption verb),
-//! `prepare_presentation`/`group_activate`/`split_activate` (GUI
-//! orchestration, P9).
+//! The legacy trait methods `prepare_presentation`/`group_activate`/
+//! `split_activate` remain GUI-orchestration boundaries. P9 owner-side keys
+//! use the separate exact APIs (`activate_group_exact`,
+//! `select_split_direction`, `resize_split_exact`,
+//! `toggle_split_zoom_exact`): all require a caller-pinned epoch, bracket
+//! the action with sentinel scans, and add `--prefer-mux` so an incidental
+//! GUI endpoint is never selected. `rename` remains registry-only (plan
+//! §2.5; native reassignment is the CAS adoption verb).
 //!
 //! CAS adoption verb (ADR 006, fork codec 46): [`WezProvider::cas_rename_workspace`]
 //! invokes `cli rename-workspace --window-id N --if-workspace OLD
@@ -97,9 +101,10 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::backend::{
-    Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
-    NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizeMove, NormalizePlan,
-    PresentationTarget, Provider, ProviderError, ProviderResult, SplitDirection, SplitSpec,
+    Capabilities, CreateSpec, GroupActivationResult, InventoryOutcome, InventoryScope,
+    NativeBinding, NativeGroupRow, NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizeMove,
+    NormalizePlan, PresentationTarget, Provider, ProviderError, ProviderResult, SplitDirection,
+    SplitDirectionResult, SplitResizeResult, SplitSpec, SplitZoomResult,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch, WEZ_SENTINEL_PREFIX};
 
@@ -108,8 +113,9 @@ use crate::model::{Backend, ProviderHandle, ServerEpoch, WEZ_SENTINEL_PREFIX};
 /// the ambient mux leak into endpoint selection.
 pub const SCRUBBED_ENV: [&str; 3] = ["WEZTERM_PANE", "TMUX", "TMUX_PANE"];
 
-/// The sole endpoint selector (ADR 001: config order and `--prefer-mux`
-/// play no part). Must always be set non-empty.
+/// The sole endpoint identity selector. `--prefer-mux` selects connection
+/// mode for P9 actions but never supplies or substitutes this exact socket.
+/// Must always be set non-empty.
 pub const SOCKET_ENV: &str = "WEZTERM_UNIX_SOCKET";
 
 /// Default per-child deadline. ADR 001: a silent socket hangs the stock CLI
@@ -172,6 +178,117 @@ pub fn cli_invocation(
         env_set: vec![(SOCKET_ENV.to_string(), socket.to_string())],
         env_remove: SCRUBBED_ENV.iter().map(|s| s.to_string()).collect(),
     })
+}
+
+/// P9 owner-control invocation. `--prefer-mux` is mandatory in addition to
+/// `--no-auto-start`: the exact socket is still supplied through
+/// `WEZTERM_UNIX_SOCKET`, and the CLI must not prefer an incidental GUI
+/// endpoint while applying owner-side pane layout operations.
+pub fn mux_cli_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    cli_args: &[&str],
+) -> Result<WezInvocation, String> {
+    let mut invocation = cli_invocation(wezterm_bin, config_file, socket, cli_args)?;
+    // Prefix is: BIN --config-file CFG cli --no-auto-start <subcommand>.
+    // `--prefer-mux` is a `cli` option and therefore precedes the subcommand.
+    invocation.argv.insert(5, "--prefer-mux".to_string());
+    Ok(invocation)
+}
+
+fn wez_direction(direction: SplitDirection) -> &'static str {
+    match direction {
+        SplitDirection::Left => "Left",
+        SplitDirection::Right => "Right",
+        SplitDirection::Up => "Up",
+        SplitDirection::Down => "Down",
+    }
+}
+
+pub fn activate_tab_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    tab_id: u64,
+) -> Result<WezInvocation, String> {
+    mux_cli_invocation(
+        wezterm_bin,
+        config_file,
+        socket,
+        &["activate-tab", "--tab-id", &tab_id.to_string()],
+    )
+}
+
+pub fn activate_pane_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    pane_id: u64,
+) -> Result<WezInvocation, String> {
+    mux_cli_invocation(
+        wezterm_bin,
+        config_file,
+        socket,
+        &["activate-pane", "--pane-id", &pane_id.to_string()],
+    )
+}
+
+pub fn get_pane_direction_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    pane_id: u64,
+    direction: SplitDirection,
+) -> Result<WezInvocation, String> {
+    mux_cli_invocation(
+        wezterm_bin,
+        config_file,
+        socket,
+        &[
+            "get-pane-direction",
+            "--pane-id",
+            &pane_id.to_string(),
+            wez_direction(direction),
+        ],
+    )
+}
+
+pub fn adjust_pane_size_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    pane_id: u64,
+    direction: SplitDirection,
+    amount: u16,
+) -> Result<WezInvocation, String> {
+    mux_cli_invocation(
+        wezterm_bin,
+        config_file,
+        socket,
+        &[
+            "adjust-pane-size",
+            "--pane-id",
+            &pane_id.to_string(),
+            "--amount",
+            &amount.to_string(),
+            wez_direction(direction),
+        ],
+    )
+}
+
+pub fn toggle_zoom_pane_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    pane_id: u64,
+) -> Result<WezInvocation, String> {
+    mux_cli_invocation(
+        wezterm_bin,
+        config_file,
+        socket,
+        &["zoom-pane", "--pane-id", &pane_id.to_string(), "--toggle"],
+    )
 }
 
 fn require_bootstrap(verb: &str, bootstrap_argv: &[String]) -> Result<(), String> {
@@ -832,13 +949,37 @@ impl<R: WezRunner> WezProvider<R> {
     /// sentinel/epoch handshake → grouped rows plus the raw user pane
     /// tuples mutations need (window ids, tab↔pane parentage).
     fn scan(&self, scope: &InventoryScope) -> Result<DetailedScan, ScanFail> {
+        self.scan_with_mux_preference(scope, false)
+    }
+
+    /// P9 owner-side action scan. Every CLI call in an exact child action,
+    /// including its pre/post witnesses, carries both no-auto-start and
+    /// prefer-mux; ordinary inventory retains its frozen P3 argv.
+    fn scan_prefer_mux(&self, scope: &InventoryScope) -> Result<DetailedScan, ScanFail> {
+        self.scan_with_mux_preference(scope, true)
+    }
+
+    fn scan_with_mux_preference(
+        &self,
+        scope: &InventoryScope,
+        prefer_mux: bool,
+    ) -> Result<DetailedScan, ScanFail> {
         self.preflight(scope)?;
-        let invocation = cli_invocation(
-            &self.wezterm_bin,
-            &self.config_file,
-            &scope.endpoint,
-            &["list", "--format", "json"],
-        )
+        let invocation = if prefer_mux {
+            mux_cli_invocation(
+                &self.wezterm_bin,
+                &self.config_file,
+                &scope.endpoint,
+                &["list", "--format", "json"],
+            )
+        } else {
+            cli_invocation(
+                &self.wezterm_bin,
+                &self.config_file,
+                &scope.endpoint,
+                &["list", "--format", "json"],
+            )
+        }
         .map_err(ScanFail::Malformed)?;
         let out = match self.runner.run(&invocation, self.deadline) {
             Ok(out) => out,
@@ -917,6 +1058,16 @@ impl<R: WezRunner> WezProvider<R> {
                 tab_id: r.tab_id,
                 pane_id: r.pane_id,
                 workspace: r.workspace.clone(),
+                geometry: r.size.as_ref().and_then(|size| {
+                    Some(PaneGeometry {
+                        cols: size.cols,
+                        rows: size.rows,
+                        left: r.left_col?,
+                        top: r.top_row?,
+                    })
+                }),
+                is_active: r.is_active,
+                is_zoomed: r.is_zoomed,
             })
             .collect();
         Ok(DetailedScan {
@@ -1033,6 +1184,372 @@ impl<R: WezRunner> WezProvider<R> {
             }),
         }
     }
+
+    fn required_action_epoch(scope: &InventoryScope) -> ProviderResult<ServerEpoch> {
+        if scope.backend != Backend::Wez {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("wez provider handed a {} scope", scope.backend),
+            });
+        }
+        scope.expected_epoch.ok_or(ProviderError::WrongInstance {
+            detail: "managed wez child action requires scope.expected_epoch; native child IDs \
+                     are unaddressable without a sentinel-proven incarnation"
+                .into(),
+        })
+    }
+
+    fn verified_action_scan(
+        &self,
+        scope: &InventoryScope,
+        expected: ServerEpoch,
+    ) -> ProviderResult<DetailedScan> {
+        let scan = self
+            .scan_prefer_mux(scope)
+            .map_err(|fail| fail.into_provider_error())?;
+        if scan.epoch != expected {
+            return Err(ProviderError::EpochChanged {
+                expected,
+                observed: Some(scan.epoch),
+            });
+        }
+        Ok(scan)
+    }
+
+    /// Execute one P9 owner-side primitive. The stable prefix distinguishes
+    /// an absent CLI/PDU capability from an ordinary native failure while
+    /// retaining [`ProviderError`] compatibility for existing callers.
+    fn run_owner_action(&self, verb: &str, invocation: WezInvocation) -> ProviderResult<String> {
+        let out = self.run_mutation(invocation)?;
+        if !out.ok() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let lower = stderr.to_ascii_lowercase();
+            let missing = lower.contains("unrecognized subcommand")
+                || lower.contains("unknown command")
+                || lower.contains("invalid pdu")
+                || lower.contains("unexpected argument");
+            let prefix = if missing {
+                "wez_owner_capability_missing"
+            } else {
+                "wez_owner_action_failed"
+            };
+            return Err(ProviderError::NativeFailure {
+                detail: format!("{prefix}:{verb}: exit {}: {}", out.status, stderr.trim()),
+            });
+        }
+        String::from_utf8(out.stdout).map_err(|error| ProviderError::NativeFailure {
+            detail: format!("wez_owner_action_failed:{verb}: non-utf8 stdout: {error}"),
+        })
+    }
+
+    fn require_same_pane_parent(
+        verb: &str,
+        before: &PaneRef,
+        after: &PaneRef,
+    ) -> ProviderResult<()> {
+        if before.workspace != after.workspace
+            || before.window_id != after.window_id
+            || before.tab_id != after.tab_id
+        {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez {verb}: pane {} changed parent from {:?}/window {}/tab {} to \
+                     {:?}/window {}/tab {}",
+                    before.pane_id,
+                    before.workspace,
+                    before.window_id,
+                    before.tab_id,
+                    after.workspace,
+                    after.window_id,
+                    after.tab_id
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// Activate one exact native tab under an epoch-pinned, sentinel-verified
+    /// mux socket. The owner command never creates a tab or workspace.
+    pub fn activate_group_exact(
+        &self,
+        scope: &InventoryScope,
+        group: &ProviderHandle,
+    ) -> ProviderResult<GroupActivationResult> {
+        let ProviderHandle::Wz(tab_id) = group else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez tab handle: {group}"),
+            });
+        };
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_action_scan(scope, expected)?;
+        let owner =
+            pre.tab_first_pane(*tab_id)
+                .cloned()
+                .ok_or_else(|| ProviderError::NotFound {
+                    native_ref: group.to_string(),
+                })?;
+        Self::sole_window(&pre, &owner.workspace)?;
+        let invocation = activate_tab_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *tab_id,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        self.run_owner_action("activate-tab", invocation)?;
+        let post = self.verified_action_scan(scope, expected)?;
+        Self::sole_window(&post, &owner.workspace)?;
+        let after =
+            post.tab_first_pane(*tab_id)
+                .ok_or_else(|| ProviderError::PostconditionFailed {
+                    detail: format!("wez group activation target tab {tab_id} vanished"),
+                })?;
+        Self::require_same_pane_parent("group activation", &owner, after)?;
+        Ok(GroupActivationResult {
+            server_epoch: expected,
+            target: group.clone(),
+        })
+    }
+
+    /// Resolve an adjacent Split from one exact pane, then activate only the
+    /// returned exact pane. The pinned CLI's get-direction handler computes
+    /// from the tab's active pane, so the origin is activated first; this is
+    /// part of the verified sequence, not an ordinal fallback.
+    pub fn select_split_direction(
+        &self,
+        scope: &InventoryScope,
+        origin: &ProviderHandle,
+        direction: SplitDirection,
+    ) -> ProviderResult<SplitDirectionResult> {
+        let ProviderHandle::Wz(origin_id) = origin else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez pane handle: {origin}"),
+            });
+        };
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_action_scan(scope, expected)?;
+        let origin_pre = pre
+            .pane(*origin_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: origin.to_string(),
+            })?;
+        Self::sole_window(&pre, &origin_pre.workspace)?;
+
+        let activate_origin = activate_pane_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *origin_id,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        self.run_owner_action("activate-pane(origin)", activate_origin)?;
+        let get = get_pane_direction_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *origin_id,
+            direction,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let stdout = self.run_owner_action("get-pane-direction", get)?;
+        let text = stdout.trim();
+        let target_id = if text.is_empty() {
+            None
+        } else {
+            Some(
+                text.parse::<u64>()
+                    .map_err(|_| ProviderError::PostconditionFailed {
+                        detail: format!(
+                            "wez get-pane-direction returned non-pane output {text:?} for pane \
+                         {origin_id}"
+                        ),
+                    })?,
+            )
+        };
+        if target_id == Some(*origin_id) {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez get-pane-direction returned its exact origin pane {origin_id}"
+                ),
+            });
+        }
+        if let Some(target_id) = target_id {
+            let target_pre =
+                pre.pane(target_id)
+                    .ok_or_else(|| ProviderError::PostconditionFailed {
+                        detail: format!(
+                            "wez get-pane-direction returned unlisted pane {target_id} from origin \
+                         {origin_id}"
+                        ),
+                    })?;
+            Self::require_same_pane_parent("directional selection", &origin_pre, target_pre)?;
+            let activate_target = activate_pane_invocation(
+                &self.wezterm_bin,
+                &self.config_file,
+                &scope.endpoint,
+                target_id,
+            )
+            .map_err(|detail| ProviderError::NativeFailure { detail })?;
+            self.run_owner_action("activate-pane(target)", activate_target)?;
+        }
+
+        let post = self.verified_action_scan(scope, expected)?;
+        Self::sole_window(&post, &origin_pre.workspace)?;
+        let origin_post =
+            post.pane(*origin_id)
+                .ok_or_else(|| ProviderError::PostconditionFailed {
+                    detail: format!("wez directional origin pane {origin_id} vanished"),
+                })?;
+        Self::require_same_pane_parent("directional selection", &origin_pre, origin_post)?;
+        let active_id = target_id.unwrap_or(*origin_id);
+        let active = post
+            .pane(active_id)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez directional target pane {active_id} vanished"),
+            })?;
+        Self::require_same_pane_parent("directional selection", &origin_pre, active)?;
+        if active.is_active != Some(true) {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez directional target pane {active_id} did not re-list active: {:?}",
+                    active.is_active
+                ),
+            });
+        }
+        Ok(SplitDirectionResult {
+            server_epoch: expected,
+            origin: origin.clone(),
+            target: target_id.map(ProviderHandle::Wz),
+        })
+    }
+
+    /// Resize an exact pane and return whether its stable list geometry
+    /// changed. A boundary-constrained no-op is still a verified success.
+    pub fn resize_split_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+        direction: SplitDirection,
+        amount: u16,
+    ) -> ProviderResult<SplitResizeResult> {
+        let ProviderHandle::Wz(pane_id) = split else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez pane handle: {split}"),
+            });
+        };
+        if amount == 0 {
+            return Err(ProviderError::NativeFailure {
+                detail: "wez split resize amount must be greater than zero".into(),
+            });
+        }
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_action_scan(scope, expected)?;
+        let before = pre
+            .pane(*pane_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: split.to_string(),
+            })?;
+        Self::sole_window(&pre, &before.workspace)?;
+        let before_geometry =
+            before
+                .geometry
+                .ok_or_else(|| ProviderError::PostconditionFailed {
+                    detail: format!(
+                        "wez resize pre-scan omitted stable geometry for pane {pane_id}"
+                    ),
+                })?;
+        let invocation = adjust_pane_size_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *pane_id,
+            direction,
+            amount,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        self.run_owner_action("adjust-pane-size", invocation)?;
+        let post = self.verified_action_scan(scope, expected)?;
+        Self::sole_window(&post, &before.workspace)?;
+        let after = post
+            .pane(*pane_id)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez resize target pane {pane_id} vanished"),
+            })?;
+        Self::require_same_pane_parent("resize", &before, after)?;
+        let after_geometry = after
+            .geometry
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez resize post-scan omitted stable geometry for pane {pane_id}"),
+            })?;
+        Ok(SplitResizeResult {
+            server_epoch: expected,
+            target: split.clone(),
+            changed: before_geometry != after_geometry,
+        })
+    }
+
+    /// Toggle zoom for one exact pane and prove the stable list flag flipped
+    /// in the same tab and server epoch.
+    pub fn toggle_split_zoom_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+    ) -> ProviderResult<SplitZoomResult> {
+        let ProviderHandle::Wz(pane_id) = split else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez pane handle: {split}"),
+            });
+        };
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_action_scan(scope, expected)?;
+        let before = pre
+            .pane(*pane_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: split.to_string(),
+            })?;
+        Self::sole_window(&pre, &before.workspace)?;
+        let before_zoomed = before
+            .is_zoomed
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez zoom pre-scan omitted zoom state for pane {pane_id}"),
+            })?;
+        let invocation = toggle_zoom_pane_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *pane_id,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        self.run_owner_action("zoom-pane", invocation)?;
+        let post = self.verified_action_scan(scope, expected)?;
+        Self::sole_window(&post, &before.workspace)?;
+        let after = post
+            .pane(*pane_id)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez zoom target pane {pane_id} vanished"),
+            })?;
+        Self::require_same_pane_parent("zoom", &before, after)?;
+        let zoomed = after
+            .is_zoomed
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez zoom post-scan omitted zoom state for pane {pane_id}"),
+            })?;
+        if zoomed == before_zoomed {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez zoom postcondition did not flip for pane {pane_id}: {before_zoomed} -> \
+                     {zoomed}"
+                ),
+            });
+        }
+        Ok(SplitZoomResult {
+            server_epoch: expected,
+            target: split.clone(),
+            zoomed,
+        })
+    }
 }
 
 /// One raw user pane tuple from a verified list (sentinel rows excluded).
@@ -1044,6 +1561,17 @@ struct PaneRef {
     tab_id: u64,
     pane_id: u64,
     workspace: String,
+    geometry: Option<PaneGeometry>,
+    is_active: Option<bool>,
+    is_zoomed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PaneGeometry {
+    cols: usize,
+    rows: usize,
+    left: usize,
+    top: usize,
 }
 
 /// One complete sentinel-verified scan: the proven epoch, the normalized
@@ -1242,6 +1770,22 @@ struct ListRow {
     cwd: Option<String>,
     #[serde(default)]
     tab_title: Option<String>,
+    #[serde(default)]
+    size: Option<ListSize>,
+    #[serde(default)]
+    left_col: Option<usize>,
+    #[serde(default)]
+    top_row: Option<usize>,
+    #[serde(default)]
+    is_active: Option<bool>,
+    #[serde(default)]
+    is_zoomed: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListSize {
+    rows: usize,
+    cols: usize,
 }
 
 /// Parse a wezterm cwd URI (`file://host/path`) into a plain path. Keeps
@@ -1866,6 +2410,41 @@ impl<R: WezRunner> Provider for WezProvider<R> {
 
     fn split_activate(&self, _: &InventoryScope, _: &ProviderHandle) -> ProviderResult<()> {
         Err(Self::gui_orchestration("split_activate"))
+    }
+
+    fn activate_group_exact(
+        &self,
+        scope: &InventoryScope,
+        group: &ProviderHandle,
+    ) -> ProviderResult<GroupActivationResult> {
+        WezProvider::activate_group_exact(self, scope, group)
+    }
+
+    fn select_split_direction(
+        &self,
+        scope: &InventoryScope,
+        origin: &ProviderHandle,
+        direction: SplitDirection,
+    ) -> ProviderResult<SplitDirectionResult> {
+        WezProvider::select_split_direction(self, scope, origin, direction)
+    }
+
+    fn resize_split_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+        direction: SplitDirection,
+        amount: u16,
+    ) -> ProviderResult<SplitResizeResult> {
+        WezProvider::resize_split_exact(self, scope, split, direction, amount)
+    }
+
+    fn toggle_split_zoom_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+    ) -> ProviderResult<SplitZoomResult> {
+        WezProvider::toggle_split_zoom_exact(self, scope, split)
     }
 
     /// Split removal: one exact `kill-pane` plus verified absence. Refuses
@@ -2814,6 +3393,23 @@ mod tests {
         canned_epoch(EPOCH, rows)
     }
 
+    /// Canned stable `cli list --format json` rows for P9 action witnesses.
+    /// `(window, tab, pane, workspace, cols, rows, left, top, active, zoomed)`.
+    fn action_canned(
+        rows: &[(u64, u64, u64, &str, usize, usize, usize, usize, bool, bool)],
+    ) -> String {
+        let mut out = format!(
+            r#"[{{"window_id":0,"tab_id":0,"pane_id":0,"workspace":"dmux:system:{EPOCH}"}}"#
+        );
+        for (window, tab, pane, workspace, cols, rows, left, top, active, zoomed) in rows {
+            out.push_str(&format!(
+                r#",{{"window_id":{window},"tab_id":{tab},"pane_id":{pane},"workspace":"{workspace}","size":{{"cols":{cols},"rows":{rows}}},"left_col":{left},"top_row":{top},"is_active":{active},"is_zoomed":{zoomed}}}"#
+            ));
+        }
+        out.push(']');
+        out
+    }
+
     fn fail(stderr: &str) -> Result<RunOutput, RunError> {
         Ok(RunOutput {
             status: 1,
@@ -2828,6 +3424,264 @@ mod tests {
             cwd: None,
             bootstrap_argv: vec!["/bin/true".into()],
         }
+    }
+
+    #[test]
+    fn owner_action_builders_are_exact_and_always_prefer_mux_without_auto_start() {
+        let invocations = [
+            activate_tab_invocation(BIN, CFG, SOCK, 10).unwrap(),
+            activate_pane_invocation(BIN, CFG, SOCK, 100).unwrap(),
+            get_pane_direction_invocation(BIN, CFG, SOCK, 100, SplitDirection::Left).unwrap(),
+            adjust_pane_size_invocation(BIN, CFG, SOCK, 100, SplitDirection::Down, 3).unwrap(),
+            toggle_zoom_pane_invocation(BIN, CFG, SOCK, 100).unwrap(),
+        ];
+        for invocation in &invocations {
+            assert_eq!(
+                &invocation.argv[..6],
+                [
+                    BIN,
+                    "--config-file",
+                    CFG,
+                    "cli",
+                    "--no-auto-start",
+                    "--prefer-mux"
+                ]
+            );
+            assert_eq!(invocation.env_set, vec![(SOCKET_ENV.into(), SOCK.into())]);
+            assert_eq!(invocation.env_remove, SCRUBBED_ENV.map(str::to_string));
+        }
+        assert_eq!(
+            invocations[2].argv,
+            [
+                BIN,
+                "--config-file",
+                CFG,
+                "cli",
+                "--no-auto-start",
+                "--prefer-mux",
+                "get-pane-direction",
+                "--pane-id",
+                "100",
+                "Left",
+            ]
+            .map(str::to_string)
+        );
+        assert_eq!(
+            invocations[3].argv,
+            [
+                BIN,
+                "--config-file",
+                CFG,
+                "cli",
+                "--no-auto-start",
+                "--prefer-mux",
+                "adjust-pane-size",
+                "--pane-id",
+                "100",
+                "--amount",
+                "3",
+                "Down",
+            ]
+            .map(str::to_string)
+        );
+        assert_eq!(
+            invocations[4].argv,
+            [
+                BIN,
+                "--config-file",
+                CFG,
+                "cli",
+                "--no-auto-start",
+                "--prefer-mux",
+                "zoom-pane",
+                "--pane-id",
+                "100",
+                "--toggle",
+            ]
+            .map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn exact_group_activation_dispatches_through_provider_trait_and_rechecks_epoch() {
+        let listing = action_canned(&[(1, 10, 100, "alpha", 80, 24, 0, 0, true, false)]);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&listing), ok(""), ok(&listing)],
+        );
+        let concrete = provider(&runner);
+        let provider: &dyn Provider = &concrete;
+        let result = provider
+            .activate_group_exact(&scope(Some(ServerEpoch(EPOCH))), &ProviderHandle::Wz(10))
+            .unwrap();
+        assert_eq!(
+            result,
+            GroupActivationResult {
+                server_epoch: ServerEpoch(EPOCH),
+                target: ProviderHandle::Wz(10),
+            }
+        );
+        let calls = runner.run_calls.borrow();
+        assert_eq!(
+            calls[0].0,
+            mux_cli_invocation(BIN, CFG, SOCK, &["list", "--format", "json"]).unwrap()
+        );
+        assert_eq!(
+            calls[1].0,
+            activate_tab_invocation(BIN, CFG, SOCK, 10).unwrap()
+        );
+        assert_eq!(calls[2].0, calls[0].0);
+    }
+
+    #[test]
+    fn exact_direction_selects_only_the_returned_pane_and_reports_edge_as_none() {
+        let pre = action_canned(&[
+            (1, 10, 100, "alpha", 40, 24, 0, 0, true, false),
+            (1, 10, 101, "alpha", 40, 24, 40, 0, false, false),
+        ]);
+        let post = action_canned(&[
+            (1, 10, 100, "alpha", 40, 24, 0, 0, false, false),
+            (1, 10, 101, "alpha", 40, 24, 40, 0, true, false),
+        ]);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&pre), ok(""), ok("101\n"), ok(""), ok(&post)],
+        );
+        let result = provider(&runner)
+            .select_split_direction(
+                &scope(Some(ServerEpoch(EPOCH))),
+                &ProviderHandle::Wz(100),
+                SplitDirection::Right,
+            )
+            .unwrap();
+        assert_eq!(result.target, Some(ProviderHandle::Wz(101)));
+        let calls = runner.run_calls.borrow();
+        assert_eq!(
+            calls[1].0,
+            activate_pane_invocation(BIN, CFG, SOCK, 100).unwrap()
+        );
+        assert_eq!(
+            calls[2].0,
+            get_pane_direction_invocation(BIN, CFG, SOCK, 100, SplitDirection::Right).unwrap()
+        );
+        assert_eq!(
+            calls[3].0,
+            activate_pane_invocation(BIN, CFG, SOCK, 101).unwrap()
+        );
+
+        let edge = action_canned(&[(1, 10, 100, "alpha", 80, 24, 0, 0, true, false)]);
+        let edge_runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&edge), ok(""), ok("\n"), ok(&edge)],
+        );
+        let result = provider(&edge_runner)
+            .select_split_direction(
+                &scope(Some(ServerEpoch(EPOCH))),
+                &ProviderHandle::Wz(100),
+                SplitDirection::Left,
+            )
+            .unwrap();
+        assert_eq!(result.target, None, "edge is a typed no-op, never a guess");
+        assert_eq!(
+            edge_runner.run_calls.borrow().len(),
+            4,
+            "no target activation"
+        );
+    }
+
+    #[test]
+    fn exact_resize_and_zoom_verify_geometry_and_zoom_postconditions() {
+        let resize_pre = action_canned(&[
+            (1, 10, 100, "alpha", 40, 24, 0, 0, true, false),
+            (1, 10, 101, "alpha", 40, 24, 40, 0, false, false),
+        ]);
+        let resize_post = action_canned(&[
+            (1, 10, 100, "alpha", 43, 24, 0, 0, true, false),
+            (1, 10, 101, "alpha", 37, 24, 43, 0, false, false),
+        ]);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&resize_pre), ok(""), ok(&resize_post)],
+        );
+        let resized = provider(&runner)
+            .resize_split_exact(
+                &scope(Some(ServerEpoch(EPOCH))),
+                &ProviderHandle::Wz(100),
+                SplitDirection::Right,
+                3,
+            )
+            .unwrap();
+        assert!(resized.changed);
+        assert_eq!(
+            runner.run_calls.borrow()[1].0,
+            adjust_pane_size_invocation(BIN, CFG, SOCK, 100, SplitDirection::Right, 3).unwrap()
+        );
+
+        let zoom_pre = action_canned(&[(1, 10, 100, "alpha", 80, 24, 0, 0, true, false)]);
+        let zoom_post = action_canned(&[(1, 10, 100, "alpha", 80, 24, 0, 0, true, true)]);
+        let zoom_runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&zoom_pre), ok(""), ok(&zoom_post)],
+        );
+        let zoomed = provider(&zoom_runner)
+            .toggle_split_zoom_exact(&scope(Some(ServerEpoch(EPOCH))), &ProviderHandle::Wz(100))
+            .unwrap();
+        assert!(zoomed.zoomed);
+        assert_eq!(
+            zoom_runner.run_calls.borrow()[1].0,
+            toggle_zoom_pane_invocation(BIN, CFG, SOCK, 100).unwrap()
+        );
+    }
+
+    #[test]
+    fn owner_capability_absence_and_failed_zoom_postcondition_are_typed() {
+        let pre = action_canned(&[(1, 10, 100, "alpha", 80, 24, 0, 0, true, false)]);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&pre), fail("error: unrecognized subcommand 'zoom-pane'")],
+        );
+        match provider(&runner)
+            .toggle_split_zoom_exact(&scope(Some(ServerEpoch(EPOCH))), &ProviderHandle::Wz(100))
+        {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(
+                    detail.starts_with("wez_owner_capability_missing:zoom-pane:"),
+                    "{detail}"
+                );
+            }
+            other => panic!("missing zoom primitive must be typed, got {other:?}"),
+        }
+
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&pre), ok(""), ok(&pre)],
+        );
+        match provider(&runner)
+            .toggle_split_zoom_exact(&scope(Some(ServerEpoch(EPOCH))), &ProviderHandle::Wz(100))
+        {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("did not flip"), "{detail}");
+            }
+            other => panic!("unchanged zoom state must fail postcondition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn owner_actions_refuse_unpinned_child_ids_without_spawning() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        match provider(&runner).resize_split_exact(
+            &scope(None),
+            &ProviderHandle::Wz(100),
+            SplitDirection::Right,
+            3,
+        ) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("expected_epoch"), "{detail}");
+            }
+            other => panic!("unpinned child action must fail closed, got {other:?}"),
+        }
+        assert!(runner.probe_calls.borrow().is_empty());
+        assert!(runner.run_calls.borrow().is_empty());
     }
 
     #[test]

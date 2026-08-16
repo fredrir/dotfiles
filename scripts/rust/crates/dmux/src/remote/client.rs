@@ -23,7 +23,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::error::{ErrorCode, TypedError};
-use crate::model::HostUid;
+use crate::model::{BackendInstanceUid, HostUid, ServerEpoch};
+use crate::recovery::{RecoveryControlAction, RecoveryControlRequest, RecoveryInspection};
 use crate::registry::{
     AuthorityHead, PeerCache, Registry, RegistryIdentity, RouteRow, now_rfc3339,
 };
@@ -35,6 +36,86 @@ use crate::remote::routes::outcome;
 
 /// Default dmux-imposed end-to-end deadline for one bounded RPC exchange.
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(30);
+
+// ---------------------------------------------------------------------------
+// Narrow owner-recovery controller surface
+
+/// The enrolled owner and, when already known, the exact Wez server
+/// incarnation a recovery command is allowed to address.  The owner still
+/// resolves its own registry and runtime paths; these qualifiers are only
+/// stale-target fences carried in the common envelope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryOwnerContext {
+    pub host_uid: HostUid,
+    pub backend_instance_uid: Option<BackendInstanceUid>,
+    pub server_epoch: Option<ServerEpoch>,
+}
+
+impl RecoveryOwnerContext {
+    /// Discover/inspect the owner's current Wez incarnation.
+    pub fn new(host_uid: HostUid) -> Self {
+        RecoveryOwnerContext {
+            host_uid,
+            backend_instance_uid: None,
+            server_epoch: None,
+        }
+    }
+
+    /// Fence a control request to an incarnation learned from a prior
+    /// inspection/hello.  A restart between the two calls is then refused.
+    pub fn qualified(
+        host_uid: HostUid,
+        backend_instance_uid: BackendInstanceUid,
+        server_epoch: ServerEpoch,
+    ) -> Self {
+        RecoveryOwnerContext {
+            host_uid,
+            backend_instance_uid: Some(backend_instance_uid),
+            server_epoch: Some(server_epoch),
+        }
+    }
+}
+
+/// Public recovery verbs mapped one-to-one to owner-agent methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryOwnerCommand {
+    Status,
+    Resume,
+    Abort,
+}
+
+impl RecoveryOwnerCommand {
+    fn method(self) -> &'static str {
+        match self {
+            RecoveryOwnerCommand::Status => protocol::methods::RECOVERY_STATUS,
+            RecoveryOwnerCommand::Resume => protocol::methods::RECOVERY_RESUME,
+            RecoveryOwnerCommand::Abort => protocol::methods::RECOVERY_ABORT,
+        }
+    }
+
+    fn control_action(self) -> Option<RecoveryControlAction> {
+        match self {
+            RecoveryOwnerCommand::Status => None,
+            RecoveryOwnerCommand::Resume => Some(RecoveryControlAction::Resume),
+            RecoveryOwnerCommand::Abort => Some(RecoveryControlAction::Abort),
+        }
+    }
+}
+
+/// Typed owner response.  No controller caller has to reproduce envelope,
+/// route-retry, peer-identity, or lineage validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecoveryOwnerReply {
+    Status(RecoveryInspection),
+    Control(RecoveryControlRequest),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryOwnerOutcome {
+    pub reply: RecoveryOwnerReply,
+    pub route_id: i64,
+    pub lineage: PeerLineage,
+}
 
 // ---------------------------------------------------------------------------
 // Request construction
@@ -600,6 +681,226 @@ pub fn call_over_routes(
         error.message
     );
     Err(error)
+}
+
+/// Call one already identity-verified, enabled route by its registry row id.
+///
+/// This is intentionally narrower than [`call_over_routes`]: it performs no
+/// fallback.  It exists for the interactive tmux attach channel, where a
+/// fresh hello first establishes the winning route and the subsequently
+/// minted single-use token must be bound to that exact route.  The common
+/// envelope, response identity, lineage, and typed-outcome validation remain
+/// identical to the normal route walk.
+pub fn call_over_pinned_route(
+    registry: &mut Registry,
+    expectation: &PeerExpectation,
+    route_id: i64,
+    request: &Envelope,
+    invoker: &dyn RouteInvoker,
+    invocation: &AgentInvocation,
+    deadline: Duration,
+) -> Result<RouteCallOutcome, TypedError> {
+    let routes = registry
+        .routes_for(expectation.host_uid)
+        .map_err(|e| TypedError::new(e.error_code(), e.to_string()))?;
+    let route = crate::remote::routes::eligible(routes, expectation.need_capability.as_deref())
+        .into_iter()
+        .find(|route| route.route_id == route_id)
+        .ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::RouteUnavailable,
+                format!(
+                    "verified route {route_id} is no longer enabled/eligible for host {}",
+                    expectation.host_uid.0
+                ),
+            )
+        })?;
+    let request_bytes = serde_json::to_vec(request)
+        .map_err(|e| TypedError::new(ErrorCode::OperationFailed, e.to_string()))?;
+    let argv = invoker.argv_for(&route, invocation);
+    match call_argv(&argv, &request_bytes, request.request_uid, deadline) {
+        Ok(envelope) => match validate_identity_and_lineage(registry, expectation, &envelope) {
+            Ok(lineage) => {
+                let _ = registry.record_route_outcome(route.route_id, outcome::OK);
+                Ok(RouteCallOutcome {
+                    envelope,
+                    route_id: route.route_id,
+                    lineage,
+                })
+            }
+            Err(failure) => {
+                let _ = registry.record_route_outcome(route.route_id, failure.outcome_token());
+                Err(failure.typed_error())
+            }
+        },
+        Err(failure) => {
+            let _ = registry.record_route_outcome(route.route_id, failure.outcome_token());
+            // Even a normally retryable transport class is terminal here:
+            // retrying another route would violate the token's route bind.
+            Err(failure.typed_error())
+        }
+    }
+}
+
+/// Call one recovery verb over production SSH transport.  The caller opens
+/// the production registry and resolves the enrolled HostUid; this helper
+/// owns every protocol/route/lineage detail after that point.
+pub fn call_recovery_owner(
+    registry: &mut Registry,
+    context: RecoveryOwnerContext,
+    command: RecoveryOwnerCommand,
+) -> Result<RecoveryOwnerOutcome, TypedError> {
+    let method = command.method();
+    call_recovery_owner_with(
+        registry,
+        context,
+        command,
+        &SshInvoker::default(),
+        &AgentInvocation::new(method),
+        DEFAULT_DEADLINE,
+    )
+}
+
+/// Injectable form of [`call_recovery_owner`] used by the real two-registry
+/// protocol tests.  `invocation` supplies only the transport binary and
+/// scratch owner paths: method/protocol are forcibly set from `command`, so
+/// a caller cannot make the argv disagree with the signed envelope.
+pub fn call_recovery_owner_with(
+    registry: &mut Registry,
+    context: RecoveryOwnerContext,
+    command: RecoveryOwnerCommand,
+    invoker: &dyn RouteInvoker,
+    invocation: &AgentInvocation,
+    deadline: Duration,
+) -> Result<RecoveryOwnerOutcome, TypedError> {
+    let method = command.method();
+    let identity = registry
+        .identity()
+        .map_err(|error| TypedError::new(error.error_code(), error.to_string()))?;
+    let head = registry
+        .authority_head()
+        .map_err(|error| TypedError::new(error.error_code(), error.to_string()))?;
+    let mut request = request_envelope(
+        &identity,
+        &head,
+        method,
+        Uuid::new_v4(),
+        serde_json::json!({}),
+    );
+    request.backend_instance_uid = context.backend_instance_uid;
+    request.server_epoch = context.server_epoch;
+
+    let mut exact_invocation = invocation.clone();
+    exact_invocation.method = method.to_string();
+    exact_invocation.protocol = PROTOCOL_VERSION;
+    let outcome = call_over_routes(
+        registry,
+        &PeerExpectation {
+            host_uid: context.host_uid,
+            need_capability: None,
+            claimed_current: false,
+        },
+        &request,
+        invoker,
+        &exact_invocation,
+        deadline,
+    )?;
+    if outcome.envelope.method != method {
+        return Err(recovery_protocol_error(format!(
+            "owner response method {:?} does not match request {method:?}",
+            outcome.envelope.method
+        )));
+    }
+    let payload = outcome.envelope.payload.clone().ok_or_else(|| {
+        recovery_protocol_error("successful owner recovery response omitted payload")
+    })?;
+
+    let reply = match command {
+        RecoveryOwnerCommand::Status => {
+            let inspection: RecoveryInspection =
+                serde_json::from_value(payload).map_err(|error| {
+                    recovery_protocol_error(format!("owner recovery_status payload: {error}"))
+                })?;
+            verify_recovery_incarnation(
+                context,
+                &outcome.envelope,
+                inspection.backend_instance_uid,
+                inspection.server_epoch,
+            )?;
+            RecoveryOwnerReply::Status(inspection)
+        }
+        RecoveryOwnerCommand::Resume | RecoveryOwnerCommand::Abort => {
+            let receipt: RecoveryControlRequest =
+                serde_json::from_value(payload).map_err(|error| {
+                    recovery_protocol_error(format!("owner {method} payload: {error}"))
+                })?;
+            verify_recovery_incarnation(
+                context,
+                &outcome.envelope,
+                receipt.backend_instance_uid,
+                Some(receipt.server_epoch),
+            )?;
+            let expected = command
+                .control_action()
+                .expect("control command has an expected action");
+            if receipt.action != expected {
+                return Err(recovery_protocol_error(format!(
+                    "owner {method} returned {:?} control receipt",
+                    receipt.action
+                )));
+            }
+            RecoveryOwnerReply::Control(receipt)
+        }
+    };
+    Ok(RecoveryOwnerOutcome {
+        reply,
+        route_id: outcome.route_id,
+        lineage: outcome.lineage,
+    })
+}
+
+fn verify_recovery_incarnation(
+    context: RecoveryOwnerContext,
+    envelope: &Envelope,
+    instance: BackendInstanceUid,
+    epoch: Option<ServerEpoch>,
+) -> Result<(), TypedError> {
+    if envelope.backend_instance_uid != Some(instance) {
+        return Err(recovery_protocol_error(format!(
+            "owner recovery payload names backend instance {} but envelope names {:?}",
+            instance.0,
+            envelope.backend_instance_uid.map(|value| value.0)
+        )));
+    }
+    if envelope.server_epoch != epoch {
+        return Err(recovery_protocol_error(format!(
+            "owner recovery payload names epoch {:?} but envelope names {:?}",
+            epoch.map(|value| value.0),
+            envelope.server_epoch.map(|value| value.0)
+        )));
+    }
+    if let Some(expected) = context.backend_instance_uid
+        && expected != instance
+    {
+        return Err(recovery_protocol_error(format!(
+            "owner response changed qualified backend instance {} to {}",
+            expected.0, instance.0
+        )));
+    }
+    if let Some(expected) = context.server_epoch
+        && Some(expected) != epoch
+    {
+        return Err(recovery_protocol_error(format!(
+            "owner response changed qualified server epoch {} to {:?}",
+            expected.0,
+            epoch.map(|value| value.0)
+        )));
+    }
+    Ok(())
+}
+
+fn recovery_protocol_error(message: impl Into<String>) -> TypedError {
+    TypedError::new(ErrorCode::ProtocolMismatch, message)
 }
 
 /// §12.1 response validation: enrolled HostUid, then RegistryUid + lineage

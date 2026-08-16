@@ -17,9 +17,9 @@
 //! unknown first word falls through to `con`, which only attaches sessions
 //! that already exist — a typo cannot create anything.
 //!
-//! `DMUX_DRY_RUN=1` prints the command a verb would exec instead of running
-//! it; it is how the tests, and a curious operator, inspect transport
-//! selection.
+//! `DMUX_DRY_RUN=1` prints legacy command plans. Wez-first presentation
+//! refuses previews before resolving a target because planning may itself
+//! authenticate a GUI or mint a single-use remote attach credential.
 
 mod attach;
 mod doctor;
@@ -31,9 +31,10 @@ mod state;
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
 use std::process::{Command as Process, ExitCode, Stdio};
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::CompleteEnv;
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 use workstation::{Completions, Style};
@@ -47,7 +48,7 @@ const PROGRAM: &str = "dmux";
     name = "dmux",
     about = "Wezterm-mux and tmux sessions: list, attach, create",
     after_long_help = "Environment:
-  DMUX_DRY_RUN=1  print the command a verb would exec instead of running it
+  DMUX_DRY_RUN=1  print legacy plans; Wez-first connect refuses safely
 
 Bare `dmux` opens a picker (or creates `main` when nothing runs); with --host
 it attaches the peer the way the old ssa/ssm did. `dmux <name>` attaches an
@@ -56,8 +57,8 @@ back to the previous one."
 )]
 struct Cli {
     /// Host whose sessions to use (default: this machine)
-    #[arg(short = 'H', long, global = true, value_enum)]
-    host: Option<Host>,
+    #[arg(short = 'H', long, global = true, value_name = "HOST")]
+    host: Option<String>,
 
     /// Print the version and exit
     #[arg(short = 'v', long = "version")]
@@ -94,9 +95,33 @@ enum Cmd {
     /// Attach an existing session ("continue")
     #[command(visible_aliases = ["attach", "a"])]
     Con {
-        /// Session name, or an index from `dmux ls`
-        #[arg(add = ArgValueCompleter::new(complete_sessions))]
-        target: String,
+        /// Stable Space ref (or legacy exact name when the Wez-first flag is off)
+        #[arg(
+            required_unless_present = "name",
+            conflicts_with = "name",
+            add = ArgValueCompleter::new(complete_sessions)
+        )]
+        target: Option<String>,
+
+        /// Treat VALUE as an exact logical Space name rather than parsing a ref
+        #[arg(long, value_name = "VALUE", required_unless_present = "target")]
+        name: Option<String>,
+
+        /// Require exactly this backend; never fall back to the other one
+        #[arg(long, value_enum)]
+        backend: Option<ConnectBackend>,
+
+        /// Focus this epoch-qualified Group after connecting
+        #[arg(long, value_name = "GROUP_REF", conflicts_with = "split")]
+        group: Option<String>,
+
+        /// Focus this epoch-qualified Split after connecting
+        #[arg(long, value_name = "SPLIT_REF", conflicts_with = "group")]
+        split: Option<String>,
+
+        /// Start a managed GUI and attach only to an existing Wez Space
+        #[arg(long)]
+        launch_gui: bool,
 
         /// Window to select after attaching
         #[arg(short, long)]
@@ -112,17 +137,44 @@ enum Cmd {
         /// Session name: letters, numbers, _ and -
         name: String,
 
+        /// Creation policy backend (automatic when omitted)
+        #[arg(long, value_enum)]
+        backend: Option<NewBackend>,
+
         /// Working directory for the new session
         #[arg(long, value_name = "PATH")]
         dir: Option<String>,
+
+        /// Create or select without presenting/attaching
+        #[arg(long, conflicts_with = "launch_gui")]
+        no_connect: bool,
+
+        /// Permit creation beside one selectable opposite-backend match
+        #[arg(long)]
+        allow_name_collision: bool,
+
+        /// Start a managed GUI and attach only to a Wez Space
+        #[arg(long, conflicts_with = "no_connect")]
+        launch_gui: bool,
 
         /// Command to run in the new session, after `--`
         #[arg(last = true, value_name = "CMD")]
         command: Vec<String>,
     },
 
-    /// Detach the current client from its tmux session
-    Detach,
+    /// Disconnect the invoking client/domain without removing owner panes.
+    #[command(visible_alias = "detach")]
+    Disconnect {
+        /// Detach the entire current imported Wez domain.
+        #[arg(long)]
+        domain: bool,
+    },
+
+    /// Inspect or control guarded Wez mux recovery
+    Recovery {
+        #[command(subcommand)]
+        cmd: RecoveryCmd,
+    },
 
     /// Kill sessions, or one window of a session with -w
     #[command(visible_aliases = ["kill", "delete"])]
@@ -183,6 +235,32 @@ enum Cmd {
     /// Never a Space, Group, or Split; excluded from all listings.
     #[command(name = "_mux-idle", hide = true)]
     MuxIdle,
+
+    /// Internal: provision the per-boot GUI bridge HMAC key beneath the
+    /// verified runtime directory. The raw key is never printed.
+    #[command(name = "_bridge-key", hide = true)]
+    BridgeKey,
+
+    /// Internal: authority-revalidated GUI controller. The trailing argv is
+    /// parsed by the library so every bounded invocation, including a verb
+    /// usage error, emits exactly one JSON response document.
+    #[command(name = "_gui", hide = true)]
+    GuiInternal {
+        #[arg(long)]
+        origin_json: Option<String>,
+
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
+
+    /// Internal: registry-only guarded cold-recovery service surface
+    /// (plan §15.3). The coordinator deliberately rejects inherited mux
+    /// endpoint variables before taking any recovery fence.
+    #[command(name = "_recovery", hide = true)]
+    RecoveryInternal {
+        #[command(subcommand)]
+        cmd: RecoveryInternalCmd,
+    },
 
     /// Internal: stamp a fresh server epoch on a managed tmux server and
     /// publish the binding (plan §11.2). Invoked by the managed-server
@@ -291,6 +369,140 @@ enum Cmd {
     Other(Vec<String>),
 }
 
+#[derive(Subcommand)]
+enum RecoveryInternalCmd {
+    /// Resolve or register the fixed local Wez backend instance.
+    Instance {
+        #[arg(long)]
+        socket: PathBuf,
+
+        #[arg(long)]
+        service_label: String,
+    },
+
+    /// Hold the instance fence while Lua restores one manifest generation.
+    Coordinate {
+        #[arg(long)]
+        backend_instance: uuid::Uuid,
+
+        #[arg(long)]
+        server_epoch: uuid::Uuid,
+
+        #[arg(long)]
+        runtime_dir: PathBuf,
+
+        #[arg(long)]
+        manifest_dir: PathBuf,
+
+        #[arg(long)]
+        server_pid: i64,
+
+        #[arg(long)]
+        server_start_token: String,
+
+        #[arg(long)]
+        helper_bin: String,
+
+        /// Explicit operator resume of a failed journal generation.
+        #[arg(long, conflicts_with = "abort_failed")]
+        resume_failed: bool,
+
+        /// Explicit operator abort of a failed journal generation.
+        #[arg(long, conflicts_with = "resume_failed")]
+        abort_failed: bool,
+    },
+
+    /// Validate and atomically publish one complete recovery manifest.
+    SnapshotPublish {
+        #[arg(long)]
+        backend_instance: uuid::Uuid,
+
+        #[arg(long)]
+        candidate: PathBuf,
+
+        #[arg(long)]
+        destination: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecoveryCmd {
+    /// Show the current owner's durable recovery state.
+    Status {
+        #[arg(long, value_enum, default_value_t = RecoveryFormat::Human)]
+        format: RecoveryFormat,
+    },
+
+    /// Resume the owner's failed recovery generation.
+    Resume,
+
+    /// Abort the owner's failed recovery generation without resurrecting it.
+    Abort {
+        /// Abort without an interactive confirmation.
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum RecoveryFormat {
+    Human,
+    Json,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum ConnectBackend {
+    Wez,
+    Tmux,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum NewBackend {
+    Auto,
+    Wez,
+    Tmux,
+}
+
+impl NewBackend {
+    fn constraint(self) -> Option<dmux::model::Backend> {
+        match self {
+            NewBackend::Auto => None,
+            NewBackend::Wez => Some(dmux::model::Backend::Wez),
+            NewBackend::Tmux => Some(dmux::model::Backend::Tmux),
+        }
+    }
+}
+
+impl From<ConnectBackend> for dmux::model::Backend {
+    fn from(value: ConnectBackend) -> Self {
+        match value {
+            ConnectBackend::Wez => Self::Wez,
+            ConnectBackend::Tmux => Self::Tmux,
+        }
+    }
+}
+
+struct ConnectCliArgs {
+    target: Option<String>,
+    name: Option<String>,
+    backend: Option<ConnectBackend>,
+    group: Option<String>,
+    split: Option<String>,
+    launch_gui: bool,
+    window: Option<String>,
+    create: bool,
+}
+
+struct NewCliArgs {
+    name: String,
+    backend: Option<NewBackend>,
+    dir: Option<String>,
+    no_connect: bool,
+    allow_name_collision: bool,
+    launch_gui: bool,
+    command: Vec<String>,
+}
+
 fn main() -> ExitCode {
     CompleteEnv::with_factory(Cli::command).complete();
     let cli = Cli::parse_from(normalized_args());
@@ -301,12 +513,33 @@ fn main() -> ExitCode {
         println!("{} (dmux)", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
-    let context = match Context::resolve(cli.host) {
+    let host_given = cli.host.is_some();
+    let dynamic_host_command = wez_first_enabled()
+        && matches!(
+            &cli.command,
+            Some(Cmd::Con { .. })
+                | Some(Cmd::New { .. })
+                | Some(Cmd::Recovery { .. })
+                | Some(Cmd::Other(_))
+        );
+    let legacy_host = match cli.host.as_deref().map(legacy_host) {
+        Some(Some(host)) => Some(host),
+        Some(None) if dynamic_host_command => None,
+        Some(None) => {
+            eprintln!(
+                "dmux: unknown legacy host {:?}; enrolled aliases/labels/UIDs require a Wez-first con/new command",
+                cli.host.as_deref().unwrap_or_default()
+            );
+            return ExitCode::from(2);
+        }
+        None => None,
+    };
+    let context = match Context::resolve(legacy_host) {
         Ok(context) => context,
         Err(message) => return workstation::fail(PROGRAM, message),
     };
     let outcome = match cli.command {
-        None => bare(cli.host.is_some(), &context),
+        None => bare(host_given, &context),
         Some(Cmd::Ls {
             tmux,
             wez,
@@ -315,13 +548,80 @@ fn main() -> ExitCode {
         }) => list::run(&context, tmux, wez, json, names),
         Some(Cmd::Con {
             target,
+            name,
+            backend,
+            group,
+            split,
+            launch_gui,
             window,
             create,
-        }) => attach::con(&context, &target, window.as_deref(), create),
-        Some(Cmd::New { name, dir, command }) => {
-            attach::new_session_in(&context, &name, dir.as_deref(), &command)
+        }) => {
+            if wez_first_enabled() {
+                Ok(connect_command(
+                    &context,
+                    cli.host.as_deref(),
+                    ConnectCliArgs {
+                        target,
+                        name,
+                        backend,
+                        group,
+                        split,
+                        launch_gui,
+                        window,
+                        create,
+                    },
+                ))
+            } else {
+                if name.is_some()
+                    || backend.is_some()
+                    || group.is_some()
+                    || split.is_some()
+                    || launch_gui
+                {
+                    Ok(render_connect_error(dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "--name/--backend/--group/--split/--launch-gui require DMUX_WEZ_FIRST=1",
+                    )))
+                } else {
+                    let target = target.expect("clap requires a con target");
+                    attach::con(&context, &target, window.as_deref(), create)
+                }
+            }
         }
-        Some(Cmd::Detach) => attach::detach(&context),
+        Some(Cmd::New {
+            name,
+            backend,
+            dir,
+            no_connect,
+            allow_name_collision,
+            launch_gui,
+            command,
+        }) => {
+            if wez_first_enabled() {
+                Ok(new_command(
+                    &context,
+                    cli.host.as_deref(),
+                    NewCliArgs {
+                        name,
+                        backend,
+                        dir,
+                        no_connect,
+                        allow_name_collision,
+                        launch_gui,
+                        command,
+                    },
+                ))
+            } else if backend.is_some() || no_connect || allow_name_collision || launch_gui {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "--backend/--no-connect/--allow-name-collision/--launch-gui require DMUX_WEZ_FIRST=1",
+                )))
+            } else {
+                attach::new_session_in(&context, &name, dir.as_deref(), &command)
+            }
+        }
+        Some(Cmd::Disconnect { domain }) => disconnect(&context, domain, host_given),
+        Some(Cmd::Recovery { cmd }) => Ok(recovery_cmd(&context, cli.host.as_deref(), cmd)),
         Some(Cmd::Rm {
             targets,
             all,
@@ -334,6 +634,15 @@ fn main() -> ExitCode {
         Some(Cmd::MuxIdle) => loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         },
+        Some(Cmd::BridgeKey) => (|| {
+            let runtime = dmux::runtime::dmux_runtime_dir().map_err(|e| e.to_string())?;
+            dmux::gui::ensure_bridge_key(&runtime).map_err(|e| e.to_string())?;
+            Ok(ExitCode::SUCCESS)
+        })(),
+        Some(Cmd::GuiInternal { origin_json, argv }) => Ok(ExitCode::from(
+            dmux::gui_cli::run_production_argv(origin_json.as_deref(), &argv),
+        )),
+        Some(Cmd::RecoveryInternal { cmd }) => Ok(recovery_internal_cmd(cmd)),
         Some(Cmd::TmuxBootstrap {
             namespace,
             data_dir,
@@ -375,11 +684,412 @@ fn main() -> ExitCode {
             });
             Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))
         }
-        Some(Cmd::Other(args)) => other(&context, &args),
+        Some(Cmd::Other(args)) => other(cli.host.as_deref(), &context, &args),
     };
     match outcome {
         Ok(status) => status,
         Err(message) => workstation::fail(PROGRAM, message),
+    }
+}
+
+/// Service-only recovery commands use one bounded JSON error on stderr and
+/// a stable exit class. Successful coordinator/publication calls emit one
+/// JSON document; `instance` is intentionally the single UUID line consumed
+/// by the service wrapper.
+fn recovery_internal_cmd(cmd: RecoveryInternalCmd) -> ExitCode {
+    use dmux::model::{BackendInstanceUid, ServerEpoch};
+    use dmux::recovery::{
+        RecoveryCoordinatorOptions, ensure_wez_backend_instance, publish_snapshot_manifest,
+        run_recovery_coordinator,
+    };
+    use dmux::registry::RegistryConfig;
+
+    let result = (|| -> dmux::recovery::Result<()> {
+        let config = RegistryConfig::production()?;
+        match cmd {
+            RecoveryInternalCmd::Instance {
+                socket,
+                service_label,
+            } => {
+                let instance = ensure_wez_backend_instance(config, &socket, &service_label)?;
+                println!("{}", instance.0);
+            }
+            RecoveryInternalCmd::Coordinate {
+                backend_instance,
+                server_epoch,
+                runtime_dir,
+                manifest_dir,
+                server_pid,
+                server_start_token,
+                helper_bin,
+                resume_failed,
+                abort_failed,
+            } => {
+                let mut options = RecoveryCoordinatorOptions::new(
+                    config,
+                    runtime_dir,
+                    manifest_dir,
+                    BackendInstanceUid(backend_instance),
+                    ServerEpoch(server_epoch),
+                    server_pid,
+                    server_start_token,
+                    helper_bin,
+                );
+                options.resume_failed = resume_failed;
+                options.abort_failed = abort_failed;
+                let report = run_recovery_coordinator(options)?;
+                println!("{}", serde_json::to_string(&report)?);
+            }
+            RecoveryInternalCmd::SnapshotPublish {
+                backend_instance,
+                candidate,
+                destination,
+            } => {
+                let report = publish_snapshot_manifest(
+                    config,
+                    BackendInstanceUid(backend_instance),
+                    &candidate,
+                    &destination,
+                )?;
+                println!("{}", serde_json::to_string(&report)?);
+            }
+        }
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                serde_json::json!({
+                    "schema_version": 1,
+                    "ok": false,
+                    "error": {
+                        "code": error.stable_code(),
+                        "message": error.to_string(),
+                    },
+                })
+            );
+            ExitCode::from(recovery_error_exit(&error))
+        }
+    }
+}
+
+/// Public recovery control always executes at the backend owner. A remote
+/// resume/abort first inspects the owner and then qualifies the mutation with
+/// that exact backend-instance/epoch pair, so a restart between the two calls
+/// is a stale-target refusal rather than an action against the replacement.
+fn recovery_cmd(context: &Context, explicit_host: Option<&str>, cmd: RecoveryCmd) -> ExitCode {
+    use dmux::error::{ErrorCode, TypedError};
+
+    let json = matches!(
+        cmd,
+        RecoveryCmd::Status {
+            format: RecoveryFormat::Json
+        }
+    );
+    if let RecoveryCmd::Abort { yes } = &cmd
+        && !*yes
+    {
+        if !io::stdin().is_terminal() {
+            let error = TypedError::new(
+                ErrorCode::ConfirmationRequired,
+                "recovery abort requires confirmation (re-run with --yes)",
+            );
+            return render_recovery_error(error, false);
+        }
+        eprint!(
+            "Abort the failed recovery generation on {}? [y/N] ",
+            explicit_host.unwrap_or_else(|| context.host.name())
+        );
+        let _ = io::stderr().flush();
+        let mut answer = String::new();
+        if io::stdin().read_line(&mut answer).is_err() || !answer.trim().eq_ignore_ascii_case("y") {
+            let error = TypedError::new(
+                ErrorCode::ConfirmationDeclined,
+                "recovery abort declined; nothing changed",
+            );
+            return render_recovery_error(error, false);
+        }
+    }
+
+    match cmd {
+        RecoveryCmd::Status { format } => match recovery_inspection(explicit_host) {
+            Ok(inspection) => {
+                if format == RecoveryFormat::Json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "schema_version": 1,
+                            "ok": true,
+                            "result": inspection,
+                        })
+                    );
+                } else {
+                    render_recovery_status(&inspection);
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => render_recovery_error(error, json),
+        },
+        RecoveryCmd::Resume => {
+            match recovery_control(
+                explicit_host,
+                dmux::remote::client::RecoveryOwnerCommand::Resume,
+            ) {
+                Ok(receipt) => {
+                    println!(
+                        "resume requested for recovery {} at epoch {}",
+                        receipt.request_uid, receipt.server_epoch.0
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => render_recovery_error(error, false),
+            }
+        }
+        RecoveryCmd::Abort { .. } => {
+            match recovery_control(
+                explicit_host,
+                dmux::remote::client::RecoveryOwnerCommand::Abort,
+            ) {
+                Ok(receipt) => {
+                    println!(
+                        "abort requested for recovery {} at epoch {}",
+                        receipt.request_uid, receipt.server_epoch.0
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => render_recovery_error(error, false),
+            }
+        }
+    }
+}
+
+fn recovery_inspection(
+    explicit_host: Option<&str>,
+) -> Result<dmux::recovery::RecoveryInspection, dmux::error::TypedError> {
+    use dmux::error::{ErrorCode, TypedError};
+    use dmux::model::Backend;
+    use dmux::registry::{Registry, RegistryConfig};
+    use dmux::remote::client::{
+        RecoveryOwnerCommand, RecoveryOwnerContext, RecoveryOwnerReply, call_recovery_owner,
+    };
+
+    let config = RegistryConfig::production().map_err(|error| {
+        TypedError::new(
+            ErrorCode::OperationFailed,
+            format!("recovery registry paths: {error}"),
+        )
+    })?;
+    let mut registry = Registry::open(config.clone()).map_err(TypedError::from)?;
+    let identity = registry.identity().map_err(TypedError::from)?;
+    let owner = match explicit_host {
+        Some(host_ref) => dmux::remote::hosts::resolve_host(&registry, host_ref)?.host_uid,
+        None => identity.host_uid,
+    };
+    if owner == identity.host_uid {
+        let instance = registry
+            .backend_instance_for_backend(Backend::Wez)
+            .map_err(TypedError::from)?
+            .ok_or_else(|| {
+                TypedError::new(
+                    ErrorCode::NotFound,
+                    "this owner has no registered Wez backend instance",
+                )
+            })?;
+        let runtime = dmux::runtime::dmux_runtime_dir().map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("recovery runtime directory: {error}"),
+            )
+        })?;
+        return dmux::recovery::inspect_recovery(config, &runtime, instance)
+            .map_err(recovery_typed_error);
+    }
+
+    let outcome = call_recovery_owner(
+        &mut registry,
+        RecoveryOwnerContext::new(owner),
+        RecoveryOwnerCommand::Status,
+    )?;
+    match outcome.reply {
+        RecoveryOwnerReply::Status(inspection) => Ok(inspection),
+        RecoveryOwnerReply::Control(_) => Err(TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            "recovery status returned a control receipt",
+        )),
+    }
+}
+
+fn recovery_control(
+    explicit_host: Option<&str>,
+    command: dmux::remote::client::RecoveryOwnerCommand,
+) -> Result<dmux::recovery::RecoveryControlRequest, dmux::error::TypedError> {
+    use dmux::error::{ErrorCode, TypedError};
+    use dmux::model::Backend;
+    use dmux::recovery::{request_recovery_abort, request_recovery_resume};
+    use dmux::registry::{Registry, RegistryConfig};
+    use dmux::remote::client::{
+        RecoveryOwnerCommand, RecoveryOwnerContext, RecoveryOwnerReply, call_recovery_owner,
+    };
+
+    let config = RegistryConfig::production().map_err(|error| {
+        TypedError::new(
+            ErrorCode::OperationFailed,
+            format!("recovery registry paths: {error}"),
+        )
+    })?;
+    let mut registry = Registry::open(config.clone()).map_err(TypedError::from)?;
+    let identity = registry.identity().map_err(TypedError::from)?;
+    let owner = match explicit_host {
+        Some(host_ref) => dmux::remote::hosts::resolve_host(&registry, host_ref)?.host_uid,
+        None => identity.host_uid,
+    };
+    if owner == identity.host_uid {
+        let instance = registry
+            .backend_instance_for_backend(Backend::Wez)
+            .map_err(TypedError::from)?
+            .ok_or_else(|| {
+                TypedError::new(
+                    ErrorCode::NotFound,
+                    "this owner has no registered Wez backend instance",
+                )
+            })?;
+        let runtime = dmux::runtime::dmux_runtime_dir().map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("recovery runtime directory: {error}"),
+            )
+        })?;
+        return match command {
+            RecoveryOwnerCommand::Resume => {
+                request_recovery_resume(config, &runtime, instance).map_err(recovery_typed_error)
+            }
+            RecoveryOwnerCommand::Abort => {
+                request_recovery_abort(config, &runtime, instance).map_err(recovery_typed_error)
+            }
+            RecoveryOwnerCommand::Status => Err(TypedError::new(
+                ErrorCode::Usage,
+                "status is not a recovery control action",
+            )),
+        };
+    }
+
+    let status = call_recovery_owner(
+        &mut registry,
+        RecoveryOwnerContext::new(owner),
+        RecoveryOwnerCommand::Status,
+    )?;
+    let inspection = match status.reply {
+        RecoveryOwnerReply::Status(inspection) => inspection,
+        RecoveryOwnerReply::Control(_) => {
+            return Err(TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                "recovery status returned a control receipt",
+            ));
+        }
+    };
+    let epoch = inspection.server_epoch.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "remote Wez backend has no running server epoch",
+        )
+    })?;
+    let outcome = call_recovery_owner(
+        &mut registry,
+        RecoveryOwnerContext::qualified(owner, inspection.backend_instance_uid, epoch),
+        command,
+    )?;
+    match outcome.reply {
+        RecoveryOwnerReply::Control(receipt) => Ok(receipt),
+        RecoveryOwnerReply::Status(_) => Err(TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            "recovery control returned a status payload",
+        )),
+    }
+}
+
+fn recovery_typed_error(error: dmux::recovery::RecoveryError) -> dmux::error::TypedError {
+    use dmux::error::{ErrorCode, TypedError};
+    use dmux::recovery::RecoveryError;
+
+    let code = match &error {
+        RecoveryError::Registry(inner) => inner.error_code(),
+        RecoveryError::InvalidManifest(_) | RecoveryError::InvalidSnapshot(_) => ErrorCode::Usage,
+        RecoveryError::NonEmpty(_) => ErrorCode::OperationInProgress,
+        RecoveryError::FenceLost(_) => ErrorCode::BackendEpochChanged,
+        RecoveryError::Protocol(_) => ErrorCode::ProtocolMismatch,
+        RecoveryError::TimedOut(_) => ErrorCode::ProviderUnavailable,
+        RecoveryError::Io(_) | RecoveryError::Json(_) | RecoveryError::Failed(_) => {
+            ErrorCode::OperationFailed
+        }
+    };
+    TypedError::new(code, error.to_string())
+}
+
+fn render_recovery_error(error: dmux::error::TypedError, json: bool) -> ExitCode {
+    let exit = error.code.exit_status().code();
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "schema_version": 1,
+                "ok": false,
+                "errors": [error],
+            })
+        );
+    } else {
+        eprintln!("dmux: {}", error.message);
+    }
+    ExitCode::from(exit)
+}
+
+fn render_recovery_status(inspection: &dmux::recovery::RecoveryInspection) {
+    let epoch = inspection
+        .server_epoch
+        .map(|value| value.0.to_string())
+        .unwrap_or_else(|| "stopped".into());
+    let durable = inspection
+        .journal
+        .iter()
+        .find(|row| row.manifest_node_path == dmux::recovery::GENERATION_ROOT_PATH)
+        .map(|row| row.node_state.as_str());
+    let state = inspection
+        .status
+        .as_ref()
+        .map(|status| match status.state {
+            dmux::recovery::RecoveryStatusState::Starting => "starting",
+            dmux::recovery::RecoveryStatusState::Recovering => "recovering",
+            dmux::recovery::RecoveryStatusState::Ready => "ready",
+            dmux::recovery::RecoveryStatusState::Failed => "failed",
+            dmux::recovery::RecoveryStatusState::Aborted => "aborted",
+        })
+        .or(durable)
+        .unwrap_or("idle");
+    println!(
+        "{state}\tinstance={}\tepoch={epoch}",
+        inspection.backend_instance_uid.0
+    );
+    if let Some(status) = &inspection.status {
+        if let Some(manifest) = &status.manifest_id {
+            println!("manifest\t{manifest}");
+        }
+        if let Some(node) = &status.current_node {
+            println!("node\t{node}");
+        }
+        if let Some(error) = &status.error {
+            println!("error\t{error}");
+        }
+    }
+}
+
+fn recovery_error_exit(error: &dmux::recovery::RecoveryError) -> u8 {
+    match error.stable_code() {
+        "recovery_manifest_invalid" | "recovery_protocol_error" => 2,
+        "operation_in_progress" | "recovery_ineligible" | "recovery_fence_lost" => 4,
+        "recovery_timeout" => 6,
+        _ => 1,
     }
 }
 
@@ -437,6 +1147,62 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
         serde_json::to_string(&context).map_err(|e| e.to_string())?
     );
     Ok(ExitCode::SUCCESS)
+}
+
+/// Canonical non-destructive disconnect. Inside tmux the process itself is
+/// the only trustworthy source of the invoking client identity, so the
+/// native current-client path is used and `--domain` is meaningless. Inside
+/// a managed Wez pane the signed GUI broker performs the owner/heartbeat
+/// correlation. A headless invocation is an idempotent no-op.
+fn disconnect(context: &Context, domain: bool, host_given: bool) -> Result<ExitCode, String> {
+    if host_given || !context.local {
+        eprintln!("dmux: disconnect operates on the invoking local client and rejects --host");
+        return Ok(ExitCode::from(2));
+    }
+    if context.inside_tmux {
+        if domain {
+            eprintln!("dmux: --domain is only valid for an imported Wez domain");
+            return Ok(ExitCode::from(2));
+        }
+        return attach::detach(context);
+    }
+    if context.inside_wezterm && std::env::var("DMUX_WEZ_FIRST").as_deref() == Ok("1") {
+        let response =
+            dmux::gui_cli::dispatch_ambient_production(&dmux::gui_cli::GuiCommand::Disconnect {
+                domain,
+            });
+        let exit = response.exit_code();
+        if response.ok {
+            if let Some(message) = gui_response_message(&response) {
+                println!("{message}");
+            }
+        } else {
+            eprintln!(
+                "dmux: {}",
+                response
+                    .message
+                    .as_deref()
+                    .unwrap_or("GUI disconnect failed closed")
+            );
+        }
+        return Ok(ExitCode::from(exit));
+    }
+    if context.inside_wezterm {
+        return attach::detach(context);
+    }
+    println!("nothing attached");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn gui_response_message(response: &dmux::gui_cli::GuiResponse) -> Option<&str> {
+    response.message.as_deref().or_else(|| {
+        response.result.as_ref().and_then(|result| {
+            result
+                .get("message")
+                .or_else(|| result.get("hint"))
+                .and_then(serde_json::Value::as_str)
+        })
+    })
 }
 
 /// `dmux _tmux-bootstrap`: silent on success (the session-created hook's
@@ -504,7 +1270,48 @@ fn toggle_position(args: &[OsString]) -> Option<usize> {
     None
 }
 
-fn other(context: &Context, args: &[String]) -> Result<ExitCode, String> {
+fn other(
+    explicit_host: Option<&str>,
+    context: &Context,
+    args: &[String],
+) -> Result<ExitCode, String> {
+    if wez_first_enabled() {
+        return match args {
+            [word] if word == "@prev" => Ok(connect_selector(
+                context,
+                explicit_host,
+                dmux::connect_cli::ConnectSelector::Previous,
+                None,
+                None,
+                false,
+            )),
+            [word, ..] if word == "@prev" => {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "`dmux -` takes no arguments",
+                )))
+            }
+            [target] => Ok(connect_selector(
+                context,
+                explicit_host,
+                dmux::connect_cli::ConnectSelector::Ref(target.clone()),
+                None,
+                None,
+                false,
+            )),
+            [_, ..] => Ok(render_connect_error(dmux::error::TypedError::new(
+                dmux::error::ErrorCode::Usage,
+                format!(
+                    "unexpected arguments: {}; use `dmux con --help` for child/backend options",
+                    args.join(" ")
+                ),
+            ))),
+            [] => Ok(render_connect_error(dmux::error::TypedError::new(
+                dmux::error::ErrorCode::Usage,
+                "unexpected arguments",
+            ))),
+        };
+    }
     match args {
         [word] if word == "@prev" => attach::toggle(context),
         [word, ..] if word == "@prev" => Err("`dmux -` takes no arguments".to_string()),
@@ -515,6 +1322,207 @@ fn other(context: &Context, args: &[String]) -> Result<ExitCode, String> {
         },
         [] => Err("unexpected arguments".to_string()),
     }
+}
+
+fn wez_first_enabled() -> bool {
+    std::env::var("DMUX_WEZ_FIRST").as_deref() == Ok("1")
+}
+
+fn legacy_host(raw: &str) -> Option<Host> {
+    match raw {
+        "macie" => Some(Host::Macie),
+        "archie" => Some(Host::Archie),
+        _ => None,
+    }
+}
+
+fn authority_host_selector(raw: &str) -> dmux::connect_cli::HostSelector {
+    use dmux::connect_cli::HostSelector;
+
+    if let Ok(uid) = uuid::Uuid::parse_str(raw)
+        && raw == uid.to_string()
+    {
+        return HostSelector::Uid(dmux::model::HostUid(uid));
+    }
+    if let (Some(requested), Ok(local)) = (legacy_host(raw), Host::this()) {
+        let alias = if requested == local { "a" } else { "b" };
+        return HostSelector::AliasOrLabel(alias.to_string());
+    }
+    HostSelector::AliasOrLabel(raw.to_string())
+}
+
+fn new_command(_context: &Context, explicit_host: Option<&str>, args: NewCliArgs) -> ExitCode {
+    use dmux::error::{ErrorCode, TypedError};
+    use dmux::new_cli::{NewFailure, NewOutcome, NewRequest, plan_new_production};
+
+    let backend_constraint = args.backend.and_then(NewBackend::constraint);
+    if args.allow_name_collision && backend_constraint.is_none() {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "--allow-name-collision requires explicit --backend wez|tmux",
+        ));
+    }
+    if args.launch_gui && args.no_connect {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "--launch-gui conflicts with --no-connect",
+        ));
+    }
+    if args.launch_gui && backend_constraint == Some(dmux::model::Backend::Tmux) {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "--launch-gui is valid only with the Wez backend",
+        ));
+    }
+    if attach::dry_run() {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "DMUX_DRY_RUN cannot preview a Wez-first new operation without risking identity reservation, native creation, presentation, or bearer minting",
+        ));
+    }
+    let request = NewRequest {
+        name: args.name,
+        explicit_host: explicit_host.map(authority_host_selector),
+        backend_constraint,
+        cwd: args.dir,
+        no_connect: args.no_connect,
+        allow_name_collision: args.allow_name_collision,
+        launch_gui: args.launch_gui,
+        program: args.command,
+    };
+    match plan_new_production(&request) {
+        Ok(NewOutcome::Completed { result, .. }) => {
+            render_new_receipt(&result);
+            ExitCode::SUCCESS
+        }
+        Ok(NewOutcome::Exec { plan, .. }) => {
+            if let Err(error) = dmux::connect_cli::commit_production_exec_history(&plan) {
+                return render_connect_error(error);
+            }
+            attach::exec_plan(plan.into_argv(), &[])
+        }
+        Err(NewFailure { error, result }) => {
+            if let Some(result) = result {
+                render_new_receipt(&result);
+                eprintln!("dmux: {}", error.message);
+                ExitCode::from(7)
+            } else {
+                render_connect_error(error)
+            }
+        }
+    }
+}
+
+fn render_new_receipt(result: &dmux::new_cli::NewReceipt) {
+    println!(
+        "{}\tbackend={}\tcreated={}\tconnected={}\treplayed={}",
+        result.stable_ref, result.backend, result.created, result.connected, result.replayed
+    );
+}
+
+fn connect_command(
+    context: &Context,
+    explicit_host: Option<&str>,
+    args: ConnectCliArgs,
+) -> ExitCode {
+    use dmux::connect_cli::{ConnectSelector, parse_requested_child};
+    use dmux::error::{ErrorCode, TypedError};
+    use dmux::model::ChildKind;
+
+    if args.create {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "`con --create` is disabled in Wez-first mode; use the explicit `dmux new` policy",
+        ));
+    }
+    if args.window.is_some() {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "native window selectors are disabled in Wez-first mode; use --group or --split",
+        ));
+    }
+    if args.launch_gui && args.backend == Some(ConnectBackend::Tmux) {
+        return render_connect_error(TypedError::new(
+            ErrorCode::Usage,
+            "--launch-gui is valid only for a Wez Space",
+        ));
+    }
+    let child = match (args.group.as_deref(), args.split.as_deref()) {
+        (Some(group), None) => parse_requested_child(group, ChildKind::Group).map(Some),
+        (None, Some(split)) => parse_requested_child(split, ChildKind::Split).map(Some),
+        (None, None) => Ok(None),
+        (Some(_), Some(_)) => Err(TypedError::new(
+            ErrorCode::Usage,
+            "--group and --split are mutually exclusive",
+        )),
+    };
+    let child = match child {
+        Ok(value) => value,
+        Err(error) => return render_connect_error(error),
+    };
+    let selector = match (args.target, args.name) {
+        (Some(target), None) => ConnectSelector::Ref(target),
+        (None, Some(name)) => ConnectSelector::ExactName(name),
+        _ => {
+            return render_connect_error(TypedError::new(
+                ErrorCode::Usage,
+                "provide exactly one Space ref or --name",
+            ));
+        }
+    };
+    connect_selector(
+        context,
+        explicit_host,
+        selector,
+        args.backend.map(Into::into),
+        child,
+        args.launch_gui,
+    )
+}
+
+fn connect_selector(
+    _context: &Context,
+    explicit_host: Option<&str>,
+    selector: dmux::connect_cli::ConnectSelector,
+    backend_constraint: Option<dmux::model::Backend>,
+    child: Option<dmux::connect_cli::RequestedChild>,
+    launch_gui: bool,
+) -> ExitCode {
+    use dmux::connect_cli::{
+        ConnectOutcome, ConnectRequest, commit_production_exec_history, plan_connect_production,
+    };
+
+    if attach::dry_run() {
+        return render_connect_error(dmux::error::TypedError::new(
+            dmux::error::ErrorCode::Usage,
+            "DMUX_DRY_RUN cannot preview a Wez-first connection without performing presentation or minting a bearer token",
+        ));
+    }
+    let request = ConnectRequest {
+        selector,
+        explicit_host: explicit_host.map(authority_host_selector),
+        backend_constraint,
+        child,
+        launch_gui,
+    };
+    let outcome = match plan_connect_production(&request) {
+        Ok(outcome) => outcome,
+        Err(error) => return render_connect_error(error),
+    };
+    match outcome {
+        ConnectOutcome::Completed(_) => ExitCode::SUCCESS,
+        ConnectOutcome::Exec(plan) => {
+            if let Err(error) = commit_production_exec_history(&plan) {
+                return render_connect_error(error);
+            }
+            attach::exec_plan(plan.into_argv(), &[])
+        }
+    }
+}
+
+fn render_connect_error(error: dmux::error::TypedError) -> ExitCode {
+    eprintln!("dmux: {}", error.message);
+    ExitCode::from(error.code.exit_status().code())
 }
 
 /// The one flag the fallthrough shares with `con`: `-w/--window`, in every
@@ -729,6 +1737,95 @@ mod tests {
         assert_eq!(
             fzf_outcome(Some(2), "", ""),
             Err("fzf failed (exit 2)".to_string())
+        );
+    }
+
+    #[test]
+    fn gui_internal_preserves_the_origin_and_trailing_verb_argv() {
+        let parsed = Cli::try_parse_from([
+            "dmux",
+            "_gui",
+            "--origin-json",
+            r#"{"protocol_version":1}"#,
+            "split-resize",
+            "--direction",
+            "left",
+            "--amount",
+            "3",
+        ])
+        .unwrap();
+        let Some(Cmd::GuiInternal { origin_json, argv }) = parsed.command else {
+            panic!("expected hidden GUI command")
+        };
+        assert_eq!(origin_json.as_deref(), Some(r#"{"protocol_version":1}"#));
+        assert_eq!(
+            argv,
+            ["split-resize", "--direction", "left", "--amount", "3"]
+        );
+    }
+
+    #[test]
+    fn gui_internal_allows_empty_argv_for_one_json_usage_response() {
+        let parsed = Cli::try_parse_from(["dmux", "_gui"]).unwrap();
+        let Some(Cmd::GuiInternal { origin_json, argv }) = parsed.command else {
+            panic!("expected hidden GUI command")
+        };
+        assert!(origin_json.is_none());
+        assert!(argv.is_empty());
+    }
+
+    #[test]
+    fn public_recovery_contract_parses_status_resume_and_confirmed_abort() {
+        let parsed = Cli::try_parse_from([
+            "dmux", "--host", "archie", "recovery", "status", "--format", "json",
+        ])
+        .unwrap();
+        assert!(matches!(
+            parsed.command,
+            Some(Cmd::Recovery {
+                cmd: RecoveryCmd::Status {
+                    format: RecoveryFormat::Json
+                }
+            })
+        ));
+
+        let parsed = Cli::try_parse_from(["dmux", "recovery", "resume"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Some(Cmd::Recovery {
+                cmd: RecoveryCmd::Resume
+            })
+        ));
+
+        let parsed = Cli::try_parse_from(["dmux", "recovery", "abort", "--yes"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Some(Cmd::Recovery {
+                cmd: RecoveryCmd::Abort { yes: true }
+            })
+        ));
+    }
+
+    #[test]
+    fn disconnect_is_canonical_and_detach_is_its_compatible_alias() {
+        for command in ["disconnect", "detach"] {
+            let parsed = Cli::try_parse_from(["dmux", command, "--domain"]).unwrap();
+            assert!(matches!(
+                parsed.command,
+                Some(Cmd::Disconnect { domain: true })
+            ));
+        }
+    }
+
+    #[test]
+    fn disconnect_renders_the_nothing_else_to_present_domain_hint() {
+        let response = dmux::gui_cli::GuiResponse::success(serde_json::json!({
+            "outcome": "nothing_else_to_present",
+            "hint": "use --domain to detach the current imported domain",
+        }));
+        assert_eq!(
+            gui_response_message(&response),
+            Some("use --domain to detach the current imported domain")
         );
     }
 }

@@ -1,0 +1,969 @@
+//! Fixed-service and zero-window GUI lifecycle for the managed Wez backend.
+//!
+//! This module is deliberately narrower than presentation.  It may start the
+//! one platform service, prove that service's descriptor/registry/inventory
+//! identity, and launch ADR 003's attach-only GUI.  It never selects a Space,
+//! signs a bridge action, or mutates an owner resource.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
+use std::fs;
+use std::io;
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use uuid::Uuid;
+
+use crate::backend::wez::{
+    IdentityExpectation, SCRUBBED_ENV, SOCKET_ENV, SystemRunner as WezSystemRunner, WezProvider,
+};
+use crate::backend::{InventoryOutcome, InventoryScope, Provider};
+use crate::error::{ErrorCode, TypedError};
+use crate::gui::{self, BridgeInstanceSelection};
+use crate::model::{Backend, BackendInstanceUid, ServerEpoch};
+use crate::registry::Registry;
+use crate::runtime::{self, WezMuxDescriptor};
+
+pub const SERVICE_READY_TIMEOUT: Duration = Duration::from_secs(15);
+pub const GUI_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
+pub const POLL_INTERVAL: Duration = Duration::from_millis(25);
+pub const SERVICE_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+
+pub const MACOS_SERVICE_LABEL: &str = "com.fredrir.wezterm-mux";
+pub const LINUX_SERVICE_LABEL: &str = "wezterm-mux.service";
+
+/// Identity returned only after the private descriptor, durable authority,
+/// and one complete sentinel-verified exact-socket inventory all agree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadyWezService {
+    pub socket: String,
+    pub backend_instance_uid: BackendInstanceUid,
+    pub server_epoch: ServerEpoch,
+}
+
+/// The newly launched GUI process correlated to its exact fresh bridge
+/// heartbeat.  Presentation remains a separate signed bridge operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchedGui {
+    pub instance: BridgeInstanceSelection,
+    pub launcher_request_uid: Uuid,
+    pub class: String,
+}
+
+/// Pure command description used by both the real runner and deterministic
+/// tests.  `env_remove` and `env_set` are deltas: ADR 003 requires removal of
+/// ambient mux selectors while retaining the user's normal GUI environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LifecycleCommand {
+    pub program: OsString,
+    pub args: Vec<OsString>,
+    pub env_remove: Vec<OsString>,
+    pub env_set: BTreeMap<OsString, OsString>,
+}
+
+impl LifecycleCommand {
+    fn new(program: impl Into<OsString>, args: impl IntoIterator<Item = OsString>) -> Self {
+        Self {
+            program: program.into(),
+            args: args.into_iter().collect(),
+            env_remove: Vec::new(),
+            env_set: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandExit {
+    pub success: bool,
+    pub code: Option<i32>,
+}
+
+/// Retained child handle for a cold GUI launch.  A failed correlation must
+/// terminate and reap this exact process instead of stranding an extra GUI.
+pub trait LifecycleChild {
+    fn pid(&self) -> u32;
+    fn process_start_token(&self) -> &str;
+    fn terminate_and_reap(&mut self) -> io::Result<()>;
+}
+
+/// Injectable command seam.  The production implementation never invokes a
+/// shell and bounds the service-manager child separately from readiness.
+pub trait LifecycleCommandRunner {
+    fn run_bounded(&self, command: &LifecycleCommand, timeout: Duration)
+    -> io::Result<CommandExit>;
+
+    fn spawn(&self, command: &LifecycleCommand) -> io::Result<Box<dyn LifecycleChild>>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemCommandRunner;
+
+impl LifecycleCommandRunner for SystemCommandRunner {
+    fn run_bounded(
+        &self,
+        command: &LifecycleCommand,
+        timeout: Duration,
+    ) -> io::Result<CommandExit> {
+        let mut child = system_command(command).spawn()?;
+        let started = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Ok(CommandExit {
+                    success: status.success(),
+                    code: status.code(),
+                });
+            }
+            if started.elapsed() >= timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!(
+                        "{} did not finish within {} ms",
+                        Path::new(&command.program).display(),
+                        timeout.as_millis()
+                    ),
+                ));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn spawn(&self, command: &LifecycleCommand) -> io::Result<Box<dyn LifecycleChild>> {
+        let mut child = system_command(command).spawn()?;
+        let pid = child.id();
+        let process_start_token = match process_start_token(pid) {
+            Ok(token) => token,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        Ok(Box::new(SystemLifecycleChild {
+            child: Some(child),
+            process_start_token,
+        }))
+    }
+}
+
+struct SystemLifecycleChild {
+    child: Option<Child>,
+    process_start_token: String,
+}
+
+impl LifecycleChild for SystemLifecycleChild {
+    fn pid(&self) -> u32 {
+        self.child.as_ref().map(Child::id).unwrap_or(0)
+    }
+
+    fn process_start_token(&self) -> &str {
+        &self.process_start_token
+    }
+
+    fn terminate_and_reap(&mut self) -> io::Result<()> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(());
+        };
+        if child.try_wait()?.is_none() {
+            if let Err(error) = child.kill()
+                && error.kind() != io::ErrorKind::InvalidInput
+            {
+                return Err(error);
+            }
+            let _ = child.wait()?;
+        }
+        self.child = None;
+        Ok(())
+    }
+}
+
+/// Match the bridge consumer's process-instance token byte-for-byte.  The
+/// Lua side uses this same fixed `/bin/ps` query under `LC_ALL=C`.
+fn process_start_token(pid: u32) -> io::Result<String> {
+    let output = Command::new("/bin/ps")
+        .env_clear()
+        .env("LC_ALL", "C")
+        .args(["-p", &pid.to_string(), "-o", "lstart="])
+        .stdin(Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "/bin/ps could not identify launched GUI pid {pid}"
+        )));
+    }
+    let token = std::str::from_utf8(&output.stdout)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "/bin/ps output is not UTF-8"))?
+        .trim()
+        .to_string();
+    if token.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("launched GUI pid {pid} has no process start token"),
+        ));
+    }
+    Ok(token)
+}
+
+fn system_command(spec: &LifecycleCommand) -> Command {
+    let mut command = Command::new(&spec.program);
+    command
+        .args(&spec.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    for key in &spec.env_remove {
+        command.env_remove(key);
+    }
+    for (key, value) in &spec.env_set {
+        command.env(key, value);
+    }
+    command
+}
+
+/// Monotonic clock seam.  Synchronous polling is intentional: dmux is a
+/// short-lived CLI and owns no async runtime; tests advance this clock
+/// without sleeping.
+pub trait LifecycleClock {
+    fn now(&self) -> Duration;
+    fn sleep(&self, duration: Duration);
+}
+
+#[derive(Debug)]
+pub struct SystemClock {
+    started: Instant,
+}
+
+impl Default for SystemClock {
+    fn default() -> Self {
+        Self {
+            started: Instant::now(),
+        }
+    }
+}
+
+impl LifecycleClock for SystemClock {
+    fn now(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        thread::sleep(duration);
+    }
+}
+
+pub trait DescriptorSource {
+    fn read(&self, runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RuntimeDescriptorSource;
+
+impl DescriptorSource for RuntimeDescriptorSource {
+    fn read(&self, runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
+        runtime::read_wez_descriptor_in(runtime_dir)
+    }
+}
+
+/// Inventory seam whose production implementation constructs a Wez provider
+/// with the descriptor's exact process witness.  A `Complete` result from
+/// this seam therefore includes the provider's sentinel-in-list handshake;
+/// the sentinel itself is intentionally filtered from returned user rows.
+pub trait WezServiceInventory {
+    fn inventory(&self, scope: &InventoryScope, descriptor: &WezMuxDescriptor) -> InventoryOutcome;
+}
+
+#[derive(Debug, Clone)]
+pub struct SystemWezServiceInventory {
+    wezterm_bin: String,
+    mux_config: String,
+}
+
+impl SystemWezServiceInventory {
+    pub fn new(wezterm_bin: impl Into<String>, mux_config: impl Into<String>) -> Self {
+        Self {
+            wezterm_bin: wezterm_bin.into(),
+            mux_config: mux_config.into(),
+        }
+    }
+}
+
+impl WezServiceInventory for SystemWezServiceInventory {
+    fn inventory(&self, scope: &InventoryScope, descriptor: &WezMuxDescriptor) -> InventoryOutcome {
+        let provider: WezProvider<WezSystemRunner> =
+            WezProvider::new(&self.wezterm_bin, &self.mux_config).with_identity(
+                IdentityExpectation {
+                    server_pid: Some(descriptor.pid),
+                    start_token: Some(descriptor.start_token.clone()),
+                },
+            );
+        provider.inventory(scope)
+    }
+}
+
+pub trait HeartbeatSource {
+    fn live_instances(
+        &self,
+        runtime_dir: &Path,
+    ) -> Result<Vec<BridgeInstanceSelection>, TypedError>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RuntimeHeartbeatSource;
+
+impl HeartbeatSource for RuntimeHeartbeatSource {
+    fn live_instances(
+        &self,
+        runtime_dir: &Path,
+    ) -> Result<Vec<BridgeInstanceSelection>, TypedError> {
+        let instances = gui::bridge_root(runtime_dir).join("instances");
+        let metadata = match fs::symlink_metadata(&instances) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(bridge_io("reading GUI instance directory", error)),
+        };
+        let euid = unsafe { libc::geteuid() };
+        if !metadata.is_dir() || metadata.uid() != euid || metadata.mode() & 0o777 != 0o700 {
+            return Err(TypedError::new(
+                ErrorCode::BridgeUnavailable,
+                format!(
+                    "GUI instance directory {} must be a current-user-owned non-symlink mode-0700 directory",
+                    instances.display()
+                ),
+            ));
+        }
+
+        let entries = fs::read_dir(&instances)
+            .map_err(|error| bridge_io("enumerating GUI instances", error))?;
+        let mut live = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| bridge_io("enumerating GUI instances", error))?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            // Stale or malformed instance directories are not live.  The
+            // public reader performs private-dir, schema, timestamp, and
+            // process-instance validation before yielding a heartbeat.
+            if let Ok(heartbeat) = gui::read_instance_heartbeat(runtime_dir, &name) {
+                live.push(BridgeInstanceSelection {
+                    gui_instance: heartbeat.gui_instance,
+                    pid: heartbeat.pid,
+                    process_start_token: heartbeat.process_start_token,
+                    domains: heartbeat.domains,
+                });
+            }
+        }
+        live.sort_by_key(instance_key);
+        Ok(live)
+    }
+}
+
+fn bridge_io(context: &str, error: io::Error) -> TypedError {
+    TypedError::new(ErrorCode::BridgeUnavailable, format!("{context}: {error}"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixedServicePlatform {
+    MacOs { uid: u32 },
+    Linux,
+}
+
+impl FixedServicePlatform {
+    pub fn current() -> Result<Self, TypedError> {
+        #[cfg(target_os = "macos")]
+        {
+            return Ok(Self::MacOs {
+                uid: unsafe { libc::geteuid() },
+            });
+        }
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(Self::Linux);
+        }
+        #[allow(unreachable_code)]
+        Err(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "managed Wez service startup is supported only on macOS and Linux",
+        ))
+    }
+
+    pub fn service_label(self) -> &'static str {
+        match self {
+            Self::MacOs { .. } => MACOS_SERVICE_LABEL,
+            Self::Linux => LINUX_SERVICE_LABEL,
+        }
+    }
+
+    pub fn start_command(self) -> LifecycleCommand {
+        match self {
+            Self::MacOs { uid } => LifecycleCommand::new(
+                "/bin/launchctl",
+                [
+                    OsString::from("kickstart"),
+                    OsString::from(format!("gui/{uid}/{MACOS_SERVICE_LABEL}")),
+                ],
+            ),
+            Self::Linux => LifecycleCommand::new(
+                "/usr/bin/systemctl",
+                [
+                    OsString::from("--user"),
+                    OsString::from("start"),
+                    OsString::from(LINUX_SERVICE_LABEL),
+                ],
+            ),
+        }
+    }
+}
+
+pub struct ServiceEnsureDeps<'a> {
+    pub command: &'a dyn LifecycleCommandRunner,
+    pub descriptor: &'a dyn DescriptorSource,
+    pub inventory: &'a dyn WezServiceInventory,
+    pub clock: &'a dyn LifecycleClock,
+}
+
+pub struct GuiLaunchDeps<'a> {
+    pub command: &'a dyn LifecycleCommandRunner,
+    pub heartbeats: &'a dyn HeartbeatSource,
+    pub clock: &'a dyn LifecycleClock,
+}
+
+/// Production fixed-service ensure.  The caller supplies only executable and
+/// config paths; no service label or arbitrary command is accepted.
+pub fn ensure_ready_wez_service(
+    registry: &Registry,
+    runtime_dir: &Path,
+    wezterm_bin: &str,
+    mux_config: &str,
+) -> Result<ReadyWezService, TypedError> {
+    if !runtime_dir.is_absolute()
+        || !Path::new(wezterm_bin).is_absolute()
+        || !Path::new(mux_config).is_absolute()
+    {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "managed Wez ensure requires absolute runtime, wezterm binary, and mux-config paths",
+        ));
+    }
+    let platform = FixedServicePlatform::current()?;
+    let command = SystemCommandRunner;
+    let descriptor = RuntimeDescriptorSource;
+    let inventory = SystemWezServiceInventory::new(wezterm_bin, mux_config);
+    let clock = SystemClock::default();
+    ensure_ready_wez_service_with(
+        registry,
+        runtime_dir,
+        platform,
+        ServiceEnsureDeps {
+            command: &command,
+            descriptor: &descriptor,
+            inventory: &inventory,
+            clock: &clock,
+        },
+        SERVICE_READY_TIMEOUT,
+    )
+}
+
+/// Injectable form used by focused fault tests.  It still constructs the
+/// fixed service command itself, so an injected runner cannot turn this API
+/// into an arbitrary service starter.
+pub fn ensure_ready_wez_service_with(
+    registry: &Registry,
+    runtime_dir: &Path,
+    platform: FixedServicePlatform,
+    deps: ServiceEnsureDeps<'_>,
+    timeout: Duration,
+) -> Result<ReadyWezService, TypedError> {
+    let start = platform.start_command();
+    let exit = deps
+        .command
+        .run_bounded(&start, SERVICE_COMMAND_TIMEOUT)
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                format!("could not start fixed Wez service: {error}"),
+            )
+        })?;
+    if !exit.success {
+        return Err(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            format!(
+                "fixed Wez service start failed{}",
+                exit.code
+                    .map(|code| format!(" with exit {code}"))
+                    .unwrap_or_else(|| " after a signal".to_string())
+            ),
+        ));
+    }
+
+    let deadline = deadline(deps.clock.now(), timeout);
+    loop {
+        let not_ready = match deps.descriptor.read(runtime_dir) {
+            Ok(None) => TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "fixed Wez service has not published a private descriptor",
+            ),
+            Err(error) => return Err(bridge_descriptor_error(error)),
+            Ok(Some(descriptor)) => match descriptor.state.as_str() {
+                "starting" | "recovering" => TypedError::new(
+                    ErrorCode::ProviderUnavailable,
+                    format!("managed Wez service is {}", descriptor.state),
+                ),
+                "failed" => {
+                    return Err(TypedError::new(
+                        ErrorCode::ProviderUnavailable,
+                        format!(
+                            "managed Wez service failed{}",
+                            descriptor
+                                .error
+                                .as_deref()
+                                .map(|detail| format!(": {detail}"))
+                                .unwrap_or_default()
+                        ),
+                    ));
+                }
+                "ready" => {
+                    match validate_ready_descriptor(registry, platform, deps.inventory, &descriptor)
+                    {
+                        Ok(ready) => return Ok(ready),
+                        Err(error) if retryable_ready_error(error.code) => error,
+                        Err(error) => return Err(error),
+                    }
+                }
+                other => {
+                    return Err(TypedError::new(
+                        ErrorCode::ProtocolMismatch,
+                        format!("managed Wez descriptor has unknown state {other:?}"),
+                    ));
+                }
+            },
+        };
+
+        if deps.clock.now() >= deadline {
+            return Err(TypedError::new(
+                not_ready.code,
+                format!(
+                    "timed out after {} ms waiting for managed Wez service: {detail}",
+                    timeout.as_millis(),
+                    detail = not_ready.message
+                ),
+            ));
+        }
+        deps.clock
+            .sleep(next_sleep(deps.clock.now(), deadline, POLL_INTERVAL));
+    }
+}
+
+fn retryable_ready_error(code: ErrorCode) -> bool {
+    matches!(
+        code,
+        ErrorCode::ProviderUnavailable | ErrorCode::BackendEpochChanged
+    )
+}
+
+fn validate_ready_descriptor(
+    registry: &Registry,
+    platform: FixedServicePlatform,
+    inventory: &dyn WezServiceInventory,
+    descriptor: &WezMuxDescriptor,
+) -> Result<ReadyWezService, TypedError> {
+    if descriptor.descriptor_version != 1 {
+        return Err(TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            format!(
+                "managed Wez descriptor version {} is unsupported",
+                descriptor.descriptor_version
+            ),
+        ));
+    }
+    descriptor
+        .require_ready()
+        .map_err(bridge_descriptor_error)?;
+    let descriptor_instance = descriptor
+        .backend_instance_uid
+        .as_deref()
+        .expect("require_ready checked backend_instance_uid")
+        .parse::<Uuid>()
+        .map(BackendInstanceUid)
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                format!("managed Wez descriptor backend instance is invalid: {error}"),
+            )
+        })?;
+    let descriptor_epoch = descriptor
+        .epoch
+        .parse::<Uuid>()
+        .map(ServerEpoch)
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                format!("managed Wez descriptor epoch is invalid: {error}"),
+            )
+        })?;
+
+    let registry_instance = registry
+        .backend_instance_for_backend(Backend::Wez)
+        .map_err(registry_error)?
+        .ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::WrongBackendInstance,
+                "registry has no managed Wez backend instance",
+            )
+        })?;
+    if registry_instance != descriptor_instance {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            format!(
+                "descriptor backend instance {} differs from registry {}",
+                descriptor_instance.0, registry_instance.0
+            ),
+        ));
+    }
+
+    let info = registry
+        .backend_instance_info(registry_instance)
+        .map_err(registry_error)?;
+    if info.backend != Backend::Wez
+        || info.socket_path.as_deref() != Some(descriptor.socket.as_str())
+        || info.service_label.as_deref() != Some(platform.service_label())
+    {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            format!(
+                "descriptor socket/service does not match registered Wez instance {}",
+                registry_instance.0
+            ),
+        ));
+    }
+
+    let server = registry
+        .backend_server(registry_instance)
+        .map_err(registry_error)?;
+    if server.server_epoch != Some(descriptor_epoch) {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "descriptor epoch {} differs from registry epoch {}",
+                descriptor_epoch.0,
+                server
+                    .server_epoch
+                    .map(|epoch| epoch.0.to_string())
+                    .unwrap_or_else(|| "<unpublished>".to_string())
+            ),
+        ));
+    }
+    if server.server_pid != Some(i64::from(descriptor.pid))
+        || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
+    {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            "descriptor process witness differs from the registry-published server incarnation",
+        ));
+    }
+
+    let scope = InventoryScope {
+        backend: Backend::Wez,
+        endpoint: descriptor.socket.clone(),
+        expected_epoch: Some(descriptor_epoch),
+    };
+    match inventory.inventory(&scope, descriptor) {
+        InventoryOutcome::Complete(complete) => {
+            if complete.server_epoch != Some(descriptor_epoch) {
+                return Err(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    "sentinel-verified inventory epoch differs from descriptor epoch",
+                ));
+            }
+            // Nonempty user rows are valid here.  The provider has already
+            // excluded exactly one sentinel and this lifecycle seam must not
+            // mistake existing Spaces for a failed readiness check.
+        }
+        other => return Err(inventory_error(other)),
+    }
+
+    Ok(ReadyWezService {
+        socket: descriptor.socket.clone(),
+        backend_instance_uid: registry_instance,
+        server_epoch: descriptor_epoch,
+    })
+}
+
+fn registry_error(error: crate::registry::RegistryError) -> TypedError {
+    TypedError::new(error.error_code(), error.to_string())
+}
+
+fn bridge_descriptor_error(error: io::Error) -> TypedError {
+    let code = match error.kind() {
+        io::ErrorKind::PermissionDenied => ErrorCode::BridgeUnavailable,
+        io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput => ErrorCode::ProtocolMismatch,
+        _ => ErrorCode::ProviderUnavailable,
+    };
+    TypedError::new(code, format!("managed Wez descriptor: {error}"))
+}
+
+fn inventory_error(outcome: InventoryOutcome) -> TypedError {
+    let (code, detail) = match outcome {
+        InventoryOutcome::Complete(_) => unreachable!("handled by caller"),
+        InventoryOutcome::ServerStopped { detail }
+        | InventoryOutcome::Unreachable { detail }
+        | InventoryOutcome::CommandMissing { detail }
+        | InventoryOutcome::Timeout { detail }
+        | InventoryOutcome::PermissionFailure { detail } => {
+            (ErrorCode::ProviderUnavailable, detail)
+        }
+        InventoryOutcome::AuthFailed { detail } => (ErrorCode::AuthFailed, detail),
+        InventoryOutcome::HostKeyIdentityFailed { detail } => {
+            (ErrorCode::HostIdentityChanged, detail)
+        }
+        InventoryOutcome::VersionMismatch { detail } => (ErrorCode::VersionMismatch, detail),
+        InventoryOutcome::ProtocolMismatch { detail } => (ErrorCode::ProtocolMismatch, detail),
+        InventoryOutcome::Malformed { detail } => (ErrorCode::PostconditionFailed, detail),
+    };
+    TypedError::new(
+        code,
+        format!("managed Wez readiness inventory failed: {detail}"),
+    )
+}
+
+/// Production ADR-003 cold GUI launcher.  It attaches only to the already
+/// verified `dmux` domain and returns only after correlating a unique new
+/// heartbeat to the spawned process.
+pub fn launch_attach_only_gui(
+    runtime_dir: &Path,
+    ready: &ReadyWezService,
+    wezterm_bin: &str,
+    gui_config: &Path,
+    launcher_request_uid: Uuid,
+) -> Result<LaunchedGui, TypedError> {
+    let command = SystemCommandRunner;
+    let heartbeats = RuntimeHeartbeatSource;
+    let clock = SystemClock::default();
+    launch_attach_only_gui_with(
+        runtime_dir,
+        ready,
+        wezterm_bin,
+        gui_config,
+        launcher_request_uid,
+        GuiLaunchDeps {
+            command: &command,
+            heartbeats: &heartbeats,
+            clock: &clock,
+        },
+        GUI_HEARTBEAT_TIMEOUT,
+    )
+}
+
+pub fn launch_attach_only_gui_with(
+    runtime_dir: &Path,
+    ready: &ReadyWezService,
+    wezterm_bin: &str,
+    gui_config: &Path,
+    launcher_request_uid: Uuid,
+    deps: GuiLaunchDeps<'_>,
+    timeout: Duration,
+) -> Result<LaunchedGui, TypedError> {
+    validate_launch_inputs(
+        runtime_dir,
+        ready,
+        wezterm_bin,
+        gui_config,
+        launcher_request_uid,
+    )?;
+    let class = format!("dmux-{}", launcher_request_uid.simple());
+    let requested_instance = format!("gui-{}", launcher_request_uid.simple());
+    let baseline = deps.heartbeats.live_instances(runtime_dir)?;
+    if baseline
+        .iter()
+        .any(|instance| instance.gui_instance == requested_instance)
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            format!("requested GUI instance {requested_instance} is already live"),
+        ));
+    }
+    let baseline_keys: BTreeSet<_> = baseline.iter().map(instance_key).collect();
+
+    let launch = attach_only_command(
+        runtime_dir,
+        ready,
+        wezterm_bin,
+        gui_config,
+        &class,
+        &requested_instance,
+    );
+    let spawned = deps.command.spawn(&launch).map_err(|error| {
+        TypedError::new(
+            ErrorCode::BridgeUnavailable,
+            format!("could not launch attach-only Wez GUI: {error}"),
+        )
+    })?;
+    if spawned.pid() == 0 {
+        return Err(cleanup_launched(
+            spawned,
+            TypedError::new(
+                ErrorCode::BridgeUnavailable,
+                "attach-only GUI launcher returned process id zero",
+            ),
+        ));
+    }
+    let spawned_pid = spawned.pid();
+    let spawned_start_token = spawned.process_start_token().to_string();
+
+    let deadline = deadline(deps.clock.now(), timeout);
+    loop {
+        let current = match deps.heartbeats.live_instances(runtime_dir) {
+            Ok(current) => current,
+            Err(error) => return Err(cleanup_launched(spawned, error)),
+        };
+        let newly_live: Vec<_> = current
+            .into_iter()
+            .filter(|instance| !baseline_keys.contains(&instance_key(instance)))
+            .collect();
+        match newly_live.as_slice() {
+            [] => {}
+            [instance]
+                if instance.gui_instance == requested_instance
+                    && instance.pid == spawned_pid
+                    && instance.process_start_token == spawned_start_token =>
+            {
+                return Ok(LaunchedGui {
+                    instance: instance.clone(),
+                    launcher_request_uid,
+                    class,
+                });
+            }
+            [instance] => {
+                return Err(cleanup_launched(
+                    spawned,
+                    TypedError::new(
+                        ErrorCode::IdentityConflict,
+                        format!(
+                            "new GUI heartbeat {} pid {}/start-token does not match requested instance {} pid {}/start-token",
+                            instance.gui_instance, instance.pid, requested_instance, spawned_pid
+                        ),
+                    ),
+                ));
+            }
+            many => {
+                return Err(cleanup_launched(
+                    spawned,
+                    TypedError::new(
+                        ErrorCode::IdentityConflict,
+                        format!(
+                            "{} new GUI process instances appeared; refusing to guess which launch to use",
+                            many.len()
+                        ),
+                    ),
+                ));
+            }
+        }
+
+        if deps.clock.now() >= deadline {
+            return Err(cleanup_launched(
+                spawned,
+                TypedError::new(
+                    ErrorCode::BridgeUnavailable,
+                    format!(
+                        "timed out after {} ms waiting for fresh GUI instance {requested_instance}",
+                        timeout.as_millis()
+                    ),
+                ),
+            ));
+        }
+        deps.clock
+            .sleep(next_sleep(deps.clock.now(), deadline, POLL_INTERVAL));
+    }
+}
+
+fn cleanup_launched(mut child: Box<dyn LifecycleChild>, mut error: TypedError) -> TypedError {
+    let pid = child.pid();
+    if let Err(cleanup) = child.terminate_and_reap() {
+        error.message.push_str(&format!(
+            "; additionally failed to terminate/reap launched GUI pid {}: {cleanup}",
+            pid
+        ));
+    }
+    error
+}
+
+fn validate_launch_inputs(
+    runtime_dir: &Path,
+    ready: &ReadyWezService,
+    wezterm_bin: &str,
+    gui_config: &Path,
+    request_uid: Uuid,
+) -> Result<(), TypedError> {
+    if request_uid.is_nil()
+        || !Path::new(wezterm_bin).is_absolute()
+        || !runtime_dir.is_absolute()
+        || !gui_config.is_absolute()
+        || ready.socket.is_empty()
+        || !Path::new(&ready.socket).is_absolute()
+    {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "attach-only GUI launch requires a non-nil request UID and absolute runtime/wezterm/config/socket paths",
+        ));
+    }
+    Ok(())
+}
+
+fn attach_only_command(
+    runtime_dir: &Path,
+    ready: &ReadyWezService,
+    wezterm_bin: &str,
+    gui_config: &Path,
+    class: &str,
+    requested_instance: &str,
+) -> LifecycleCommand {
+    let mut command = LifecycleCommand::new(
+        wezterm_bin,
+        [
+            OsString::from("--config-file"),
+            gui_config.as_os_str().to_owned(),
+            OsString::from("start"),
+            OsString::from("--class"),
+            OsString::from(class),
+            OsString::from("--always-new-process"),
+            OsString::from("--domain"),
+            OsString::from("dmux"),
+            OsString::from("--attach"),
+        ],
+    );
+    command.env_remove = SCRUBBED_ENV.iter().map(OsString::from).collect();
+    command
+        .env_set
+        .insert(OsString::from(SOCKET_ENV), OsString::from(&ready.socket));
+    command.env_set.insert(
+        OsString::from("DMUX_RUNTIME_DIR"),
+        runtime_dir.as_os_str().to_owned(),
+    );
+    command.env_set.insert(
+        OsString::from("DMUX_GUI_INSTANCE"),
+        OsString::from(requested_instance),
+    );
+    command
+        .env_set
+        .insert(OsString::from("DMUX_WEZ_FIRST"), OsString::from("1"));
+    command
+}
+
+fn instance_key(instance: &BridgeInstanceSelection) -> (String, u32, String) {
+    (
+        instance.gui_instance.clone(),
+        instance.pid,
+        instance.process_start_token.clone(),
+    )
+}
+
+fn deadline(now: Duration, timeout: Duration) -> Duration {
+    now.checked_add(timeout).unwrap_or(Duration::MAX)
+}
+
+fn next_sleep(now: Duration, deadline: Duration, interval: Duration) -> Duration {
+    deadline.saturating_sub(now).min(interval)
+}

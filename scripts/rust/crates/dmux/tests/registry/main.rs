@@ -25,6 +25,8 @@ mod journal;
 mod leases;
 mod lineage;
 mod migrate_v2;
+mod migrate_v3;
 mod peer_cache;
+mod recovery;
 mod routes;
 mod stamps;

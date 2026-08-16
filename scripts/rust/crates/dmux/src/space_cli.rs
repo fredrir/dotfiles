@@ -304,12 +304,18 @@ pub fn host(cmd: HostCmd) -> Result<ExitCode, String> {
                             "lifecycle": l.host.lifecycle.as_str(),
                             "enrolled_at": l.host.enrolled_at,
                             "routes": l.routes.iter().map(|r| serde_json::json!({
+                                "route_id": r.route_id,
                                 "transport": r.transport.as_str(),
                                 "endpoint": r.endpoint,
+                                "username": r.username,
+                                "wez_domain": r.wez_domain,
                                 "network_class": r.network_class.as_str(),
                                 "priority": r.priority,
+                                "required_capability": r.required_capability,
+                                "trust_fingerprint": r.trust_fingerprint,
                                 "enabled": r.enabled,
                                 "last_outcome": r.last_outcome,
+                                "last_outcome_at": r.last_outcome_at,
                             })).collect::<Vec<_>>(),
                         })
                     })
@@ -329,12 +335,14 @@ pub fn host(cmd: HostCmd) -> Result<ExitCode, String> {
                     );
                     for r in &l.routes {
                         println!(
-                            "  {}\t{}\t{}\tprio {}\t{}\t{}",
+                            "  {}\t{}\t{}\tprio {}\t{}\tdomain={}\tuser={}\t{}",
                             r.transport.as_str(),
                             r.endpoint,
                             r.network_class.as_str(),
                             r.priority,
                             if r.enabled { "enabled" } else { "disabled" },
+                            r.wez_domain.as_deref().unwrap_or("-"),
+                            r.username.as_deref().unwrap_or("-"),
                             r.last_outcome.as_deref().unwrap_or("-"),
                         );
                     }

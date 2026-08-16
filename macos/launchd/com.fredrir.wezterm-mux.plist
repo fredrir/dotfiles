@@ -8,6 +8,8 @@
     exclusion, so a manual wezterm-mux-server on the same socket silently
     steals it. Install: launchctl bootstrap gui/$UID <this file>.
     Restart: launchctl kickstart -k gui/$UID/com.fredrir.wezterm-mux.
+    W6 canary: launchctl setenv DMUX_WEZ_FIRST 1 before bootstrapping the
+    job. With no value, the wrapper defaults to the inert flag-off path.
   -->
   <key>Label</key>
   <string>com.fredrir.wezterm-mux</string>

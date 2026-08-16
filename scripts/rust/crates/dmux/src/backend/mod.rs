@@ -145,6 +145,42 @@ pub enum SplitDirection {
     Down,
 }
 
+/// Same-epoch witness for an exact native Group activation.  P9 callers
+/// carry this back across the owner protocol rather than treating a zero
+/// exit status as proof that the requested native ID was still current.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupActivationResult {
+    pub server_epoch: ServerEpoch,
+    pub target: ProviderHandle,
+}
+
+/// Result of selecting the Split adjacent to an exact origin. `None` is a
+/// successful edge no-op (there is no Split in that direction); it is never
+/// replaced with an ordinal or first/last-pane guess.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SplitDirectionResult {
+    pub server_epoch: ServerEpoch,
+    pub origin: ProviderHandle,
+    pub target: Option<ProviderHandle>,
+}
+
+/// Same-epoch result of one exact Split resize. Native layout constraints
+/// may make a valid resize a no-op, which is represented by `changed=false`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SplitResizeResult {
+    pub server_epoch: ServerEpoch,
+    pub target: ProviderHandle,
+    pub changed: bool,
+}
+
+/// Same-epoch result of toggling zoom for one exact Split.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SplitZoomResult {
+    pub server_epoch: ServerEpoch,
+    pub target: ProviderHandle,
+    pub zoomed: bool,
+}
+
 /// Split creation order (plan §7.2): the shared bootstrap spec plus
 /// placement. Adapters always emit the direction flag explicitly so the
 /// native argv is deterministic.
@@ -332,6 +368,53 @@ pub trait Provider {
     ) -> ProviderResult<ProviderHandle>;
     fn split_activate(&self, scope: &InventoryScope, handle: &ProviderHandle)
     -> ProviderResult<()>;
+
+    /// P9 exact-child control. These methods are defaulted so older/custom
+    /// providers fail closed without a source-breaking trait update. The two
+    /// built-in providers override them with epoch-pinned pre/post scans.
+    fn activate_group_exact(
+        &self,
+        _scope: &InventoryScope,
+        group: &ProviderHandle,
+    ) -> ProviderResult<GroupActivationResult> {
+        Err(ProviderError::NativeFailure {
+            detail: format!("exact_group_activation_unsupported:{group}"),
+        })
+    }
+
+    fn select_split_direction(
+        &self,
+        _scope: &InventoryScope,
+        origin: &ProviderHandle,
+        _direction: SplitDirection,
+    ) -> ProviderResult<SplitDirectionResult> {
+        Err(ProviderError::NativeFailure {
+            detail: format!("directional_split_selection_unsupported:{origin}"),
+        })
+    }
+
+    fn resize_split_exact(
+        &self,
+        _scope: &InventoryScope,
+        split: &ProviderHandle,
+        _direction: SplitDirection,
+        _amount: u16,
+    ) -> ProviderResult<SplitResizeResult> {
+        Err(ProviderError::NativeFailure {
+            detail: format!("exact_split_resize_unsupported:{split}"),
+        })
+    }
+
+    fn toggle_split_zoom_exact(
+        &self,
+        _scope: &InventoryScope,
+        split: &ProviderHandle,
+    ) -> ProviderResult<SplitZoomResult> {
+        Err(ProviderError::NativeFailure {
+            detail: format!("exact_split_zoom_unsupported:{split}"),
+        })
+    }
+
     fn split_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()>;
 
     /// Wez-only (plan §10.3): compute the deterministic tab-to-window merge

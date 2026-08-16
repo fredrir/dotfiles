@@ -6,6 +6,10 @@
 Description=dmux-managed WezTerm multiplexer server
 
 [Service]
+# `systemctl --user import-environment DMUX_WEZ_FIRST` can opt a scratch or
+# canary service into the guarded W6 path.  With no imported value the wrapper
+# defaults to 0, preserving the pre-cutover sentinel-only behavior.
+PassEnvironment=DMUX_WEZ_FIRST DMUX_RECOVERY_MANIFEST_DIR
 # The wrapper resolves $XDG_RUNTIME_DIR/dmux, mints a fresh server epoch,
 # start token, and boot nonce, pre-writes the runtime descriptor, and execs
 # wezterm-mux-server FOREGROUND with the dmux mux config (--daemonize

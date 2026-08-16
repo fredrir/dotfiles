@@ -59,9 +59,10 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::backend::{
-    Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
-    NativeInventory, NativeSpaceRow, NativeSplitRow, PresentationTarget, Provider, ProviderError,
-    ProviderResult, SplitDirection, SplitSpec,
+    Capabilities, CreateSpec, GroupActivationResult, InventoryOutcome, InventoryScope,
+    NativeBinding, NativeGroupRow, NativeInventory, NativeSpaceRow, NativeSplitRow,
+    PresentationTarget, Provider, ProviderError, ProviderResult, SplitDirection,
+    SplitDirectionResult, SplitResizeResult, SplitSpec, SplitZoomResult,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch};
 
@@ -90,6 +91,13 @@ const SESSIONS_FORMAT: &str = "#{session_id}\u{1f}#{session_name}";
 const WINDOWS_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{window_name}";
 const PANES_FORMAT: &str =
     "#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}#{pane_current_path}\u{1f}#{pane_title}";
+/// Numeric-only action scans.  These are deliberately separate from the
+/// user-content inventory formats so an embedded separator in a title can
+/// never affect focus/layout postcondition parsing.
+const ACTION_WINDOWS_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{window_active}";
+const ACTION_PANES_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}\
+#{pane_active}\u{1f}#{pane_width}\u{1f}#{pane_height}\u{1f}#{pane_left}\u{1f}\
+#{pane_top}\u{1f}#{window_zoomed_flag}";
 
 /// Session marker options stamped at adoption/creation (plan §10.3). Exact
 /// markers plus the immutable `$N` preserve identity across external rename.
@@ -664,6 +672,257 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         let text = utf8(&out.stdout).map_err(|detail| ProviderError::NativeFailure { detail })?;
         Ok(!text.lines().any(|l| l == needle))
     }
+
+    fn action_windows(&self, endpoint: &str) -> ProviderResult<Vec<ActionWindowRow>> {
+        let listing = self.run_ok(
+            endpoint,
+            &["list-windows", "-a", "-F", ACTION_WINDOWS_FORMAT],
+        )?;
+        parse_action_windows(&listing).map_err(malformed_scan)
+    }
+
+    fn action_panes(&self, endpoint: &str) -> ProviderResult<Vec<ActionPaneRow>> {
+        let listing = self.run_ok(endpoint, &["list-panes", "-a", "-F", ACTION_PANES_FORMAT])?;
+        parse_action_panes(&listing).map_err(malformed_scan)
+    }
+
+    /// Activate one exact immutable window ID under an epoch-pinned tmux
+    /// namespace, then prove that same window is active in the same session.
+    pub fn activate_group_exact(
+        &self,
+        scope: &InventoryScope,
+        group: &ProviderHandle,
+    ) -> ProviderResult<GroupActivationResult> {
+        Self::scope_check(scope)?;
+        let expected = Self::required_epoch(scope)?;
+        let target = window_target(group)?;
+        let group_id = tmux_handle_id(group)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let before = self.action_windows(&scope.endpoint)?;
+        let before = before
+            .iter()
+            .find(|row| row.window == group_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: target.clone(),
+            })?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        self.run_ok(&scope.endpoint, &["select-window", "-t", &target])?;
+        let after = self.action_windows(&scope.endpoint)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let after = after
+            .iter()
+            .find(|row| row.window == before.window)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("tmux group activation target {target} vanished after select"),
+            })?;
+        if after.session != before.session || !after.active {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "tmux group activation postcondition failed for {target}: before session {}, \
+                     after session {} active={}",
+                    before.session, after.session, after.active
+                ),
+            });
+        }
+        Ok(GroupActivationResult {
+            server_epoch: expected,
+            target: group.clone(),
+        })
+    }
+
+    /// Select an adjacent pane relative to one exact pane ID. At an edge the
+    /// origin remains active and `target=None`; no pane ordinal is guessed.
+    pub fn select_split_direction(
+        &self,
+        scope: &InventoryScope,
+        origin: &ProviderHandle,
+        direction: SplitDirection,
+    ) -> ProviderResult<SplitDirectionResult> {
+        Self::scope_check(scope)?;
+        let expected = Self::required_epoch(scope)?;
+        let origin_target = pane_target(origin)?;
+        let origin_id = tmux_handle_id(origin)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let before = self.action_panes(&scope.endpoint)?;
+        let before = before
+            .iter()
+            .find(|row| row.pane == origin_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: origin_target.clone(),
+            })?;
+        self.check_epoch(&scope.endpoint, expected)?;
+
+        // Make the supplied origin authoritative before applying the native
+        // directional verb. This also makes the edge result deterministic if
+        // another pane happened to be active beforehand.
+        self.run_ok(&scope.endpoint, &["select-pane", "-t", &origin_target])?;
+        let flag = match direction {
+            SplitDirection::Left => "-L",
+            SplitDirection::Right => "-R",
+            SplitDirection::Up => "-U",
+            SplitDirection::Down => "-D",
+        };
+        self.run_ok(
+            &scope.endpoint,
+            &["select-pane", "-t", &origin_target, flag],
+        )?;
+        let after = self.action_panes(&scope.endpoint)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let origin_after = after
+            .iter()
+            .find(|row| row.pane == before.pane)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("tmux directional origin {origin_target} vanished after select"),
+            })?;
+        if origin_after.session != before.session || origin_after.window != before.window {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "tmux directional origin {origin_target} changed parent from {}:@{} to {}:@{}",
+                    before.session, before.window, origin_after.session, origin_after.window
+                ),
+            });
+        }
+        let active: Vec<&ActionPaneRow> = after
+            .iter()
+            .filter(|row| {
+                row.session == before.session && row.window == before.window && row.active
+            })
+            .collect();
+        let [active] = active.as_slice() else {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "tmux directional select for {origin_target} found {} active panes in {}:@{}",
+                    active.len(),
+                    before.session,
+                    before.window
+                ),
+            });
+        };
+        let target = (active.pane != before.pane).then(|| ProviderHandle::Tx(active.pane));
+        Ok(SplitDirectionResult {
+            server_epoch: expected,
+            origin: origin.clone(),
+            target,
+        })
+    }
+
+    /// Resize one exact pane by a positive cell amount and re-list its exact
+    /// identity/geometry. A native boundary no-op is represented explicitly.
+    pub fn resize_split_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+        direction: SplitDirection,
+        amount: u16,
+    ) -> ProviderResult<SplitResizeResult> {
+        Self::scope_check(scope)?;
+        if amount == 0 {
+            return Err(ProviderError::NativeFailure {
+                detail: "tmux split resize amount must be greater than zero".into(),
+            });
+        }
+        let expected = Self::required_epoch(scope)?;
+        let target = pane_target(split)?;
+        let split_id = tmux_handle_id(split)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let before = self.action_panes(&scope.endpoint)?;
+        let before = before
+            .iter()
+            .find(|row| row.pane == split_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: target.clone(),
+            })?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let flag = match direction {
+            SplitDirection::Left => "-L",
+            SplitDirection::Right => "-R",
+            SplitDirection::Up => "-U",
+            SplitDirection::Down => "-D",
+        };
+        let amount = amount.to_string();
+        self.run_ok(
+            &scope.endpoint,
+            &["resize-pane", "-t", &target, flag, &amount],
+        )?;
+        let after = self.action_panes(&scope.endpoint)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let after = after
+            .iter()
+            .find(|row| row.pane == before.pane)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("tmux resize target {target} vanished after resize-pane"),
+            })?;
+        if after.session != before.session || after.window != before.window {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "tmux resize target {target} changed parent from {}:@{} to {}:@{}",
+                    before.session, before.window, after.session, after.window
+                ),
+            });
+        }
+        Ok(SplitResizeResult {
+            server_epoch: expected,
+            target: split.clone(),
+            changed: before.geometry() != after.geometry(),
+        })
+    }
+
+    /// Toggle zoom for one exact pane and require the window zoom flag to
+    /// flip in a same-epoch postcondition scan.
+    pub fn toggle_split_zoom_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+    ) -> ProviderResult<SplitZoomResult> {
+        Self::scope_check(scope)?;
+        let expected = Self::required_epoch(scope)?;
+        let target = pane_target(split)?;
+        let split_id = tmux_handle_id(split)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let before = self.action_panes(&scope.endpoint)?;
+        let before = before
+            .iter()
+            .find(|row| row.pane == split_id)
+            .cloned()
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: target.clone(),
+            })?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        self.run_ok(&scope.endpoint, &["resize-pane", "-Z", "-t", &target])?;
+        let after = self.action_panes(&scope.endpoint)?;
+        self.check_epoch(&scope.endpoint, expected)?;
+        let after = after
+            .iter()
+            .find(|row| row.pane == before.pane)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("tmux zoom target {target} vanished after resize-pane -Z"),
+            })?;
+        if after.session != before.session
+            || after.window != before.window
+            || after.zoomed == before.zoomed
+        {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "tmux zoom postcondition failed for {target}: parent {}:@{} -> {}:@{}, \
+                     zoomed {} -> {}",
+                    before.session,
+                    before.window,
+                    after.session,
+                    after.window,
+                    before.zoomed,
+                    after.zoomed
+                ),
+            });
+        }
+        Ok(SplitZoomResult {
+            server_epoch: expected,
+            target: split.clone(),
+            zoomed: after.zoomed,
+        })
+    }
 }
 
 /// One tmux server incarnation on one exact socket (plan §11.2, P5): the
@@ -782,6 +1041,15 @@ fn window_target(handle: &ProviderHandle) -> ProviderResult<String> {
     }
 }
 
+fn tmux_handle_id(handle: &ProviderHandle) -> ProviderResult<u64> {
+    match handle {
+        ProviderHandle::Tx(n) => Ok(*n),
+        other => Err(ProviderError::WrongInstance {
+            detail: format!("not a tmux native handle: {other}"),
+        }),
+    }
+}
+
 fn pane_target(handle: &ProviderHandle) -> ProviderResult<String> {
     match handle {
         ProviderHandle::Tx(n) => Ok(format!("%{n}")),
@@ -871,6 +1139,120 @@ fn parse_windows(text: &str) -> Result<Vec<(String, u64, String)>, String> {
 }
 
 type PaneRow = (String, u64, u64, Option<String>, Option<String>);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActionWindowRow {
+    session: String,
+    window: u64,
+    active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActionPaneRow {
+    session: String,
+    window: u64,
+    pane: u64,
+    active: bool,
+    width: u32,
+    height: u32,
+    left: u32,
+    top: u32,
+    zoomed: bool,
+}
+
+impl ActionPaneRow {
+    fn geometry(&self) -> (u32, u32, u32, u32) {
+        (self.width, self.height, self.left, self.top)
+    }
+}
+
+fn parse_tmux_bool(field: &str, row: &str) -> Result<bool, String> {
+    match field {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => Err(format!("bad boolean {field:?} in action row {row:?}")),
+    }
+}
+
+fn parse_action_u32(field: &str, name: &str, row: &str) -> Result<u32, String> {
+    field
+        .parse()
+        .map_err(|e| format!("bad {name} in action row {row:?}: {e}"))
+}
+
+fn parse_action_windows(text: &str) -> Result<Vec<ActionWindowRow>, String> {
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let mut fields = line.split(SEP);
+        let (Some(session), Some(window), Some(active), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            return Err(format!(
+                "window action row with wrong field count: {line:?}"
+            ));
+        };
+        if parse_sigil_id(session, '$').is_none() {
+            return Err(format!("bad session id in window action row: {line:?}"));
+        }
+        let window = parse_sigil_id(window, '@')
+            .ok_or_else(|| format!("bad window id in action row: {line:?}"))?;
+        if rows
+            .iter()
+            .any(|row: &ActionWindowRow| row.window == window)
+        {
+            return Err(format!("duplicate window id @{window} in action listing"));
+        }
+        rows.push(ActionWindowRow {
+            session: session.to_string(),
+            window,
+            active: parse_tmux_bool(active, line)?,
+        });
+    }
+    Ok(rows)
+}
+
+fn parse_action_panes(text: &str) -> Result<Vec<ActionPaneRow>, String> {
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split(SEP).collect();
+        let [
+            session,
+            window,
+            pane,
+            active,
+            width,
+            height,
+            left,
+            top,
+            zoomed,
+        ] = fields.as_slice()
+        else {
+            return Err(format!("pane action row with wrong field count: {line:?}"));
+        };
+        if parse_sigil_id(session, '$').is_none() {
+            return Err(format!("bad session id in pane action row: {line:?}"));
+        }
+        let window = parse_sigil_id(window, '@')
+            .ok_or_else(|| format!("bad window id in pane action row: {line:?}"))?;
+        let pane = parse_sigil_id(pane, '%')
+            .ok_or_else(|| format!("bad pane id in action row: {line:?}"))?;
+        if rows.iter().any(|row: &ActionPaneRow| row.pane == pane) {
+            return Err(format!("duplicate pane id %{pane} in action listing"));
+        }
+        rows.push(ActionPaneRow {
+            session: (*session).to_string(),
+            window,
+            pane,
+            active: parse_tmux_bool(active, line)?,
+            width: parse_action_u32(width, "pane width", line)?,
+            height: parse_action_u32(height, "pane height", line)?,
+            left: parse_action_u32(left, "pane left", line)?,
+            top: parse_action_u32(top, "pane top", line)?,
+            zoomed: parse_tmux_bool(zoomed, line)?,
+        });
+    }
+    Ok(rows)
+}
 
 /// `#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{pane_current_path}\x1f
 /// #{pane_title}`; the title is the remainder field, so a title embedding
@@ -1604,6 +1986,41 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         Ok(())
     }
 
+    fn activate_group_exact(
+        &self,
+        scope: &InventoryScope,
+        group: &ProviderHandle,
+    ) -> ProviderResult<GroupActivationResult> {
+        TmuxProvider::activate_group_exact(self, scope, group)
+    }
+
+    fn select_split_direction(
+        &self,
+        scope: &InventoryScope,
+        origin: &ProviderHandle,
+        direction: SplitDirection,
+    ) -> ProviderResult<SplitDirectionResult> {
+        TmuxProvider::select_split_direction(self, scope, origin, direction)
+    }
+
+    fn resize_split_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+        direction: SplitDirection,
+        amount: u16,
+    ) -> ProviderResult<SplitResizeResult> {
+        TmuxProvider::resize_split_exact(self, scope, split, direction, amount)
+    }
+
+    fn toggle_split_zoom_exact(
+        &self,
+        scope: &InventoryScope,
+        split: &ProviderHandle,
+    ) -> ProviderResult<SplitZoomResult> {
+        TmuxProvider::toggle_split_zoom_exact(self, scope, split)
+    }
+
     /// `kill-pane -t '%N'` with verified absence (ADR 005 semantics).
     fn split_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()> {
         Self::scope_check(scope)?;
@@ -1745,6 +2162,34 @@ mod tests {
             root_group: ProviderHandle::Tx(7),
             root_split: ProviderHandle::Tx(9),
         }
+    }
+
+    fn action_windows(rows: &[(&str, u64, bool)]) -> String {
+        rows.iter()
+            .map(|(session, window, active)| {
+                format!("{session}{SEP}@{window}{SEP}{}", u8::from(*active))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    }
+
+    /// `(session, window, pane, active, width, height, left, top, zoomed)`.
+    fn action_panes(rows: &[(&str, u64, u64, bool, u32, u32, u32, u32, bool)]) -> String {
+        rows.iter()
+            .map(
+                |(session, window, pane, active, width, height, left, top, zoomed)| {
+                    format!(
+                        "{session}{SEP}@{window}{SEP}%{pane}{SEP}{}{SEP}{width}{SEP}{height}\
+                         {SEP}{left}{SEP}{top}{SEP}{}",
+                        u8::from(*active),
+                        u8::from(*zoomed)
+                    )
+                },
+            )
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
     }
 
     // -- inventory ----------------------------------------------------------
@@ -2256,6 +2701,193 @@ mod tests {
                 "#{session_id}\u{1f}#{window_id}\u{1f}#{window_name}",
             ]),
         );
+    }
+
+    #[test]
+    fn exact_group_activation_dispatches_through_trait_and_verifies_active_window() {
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&action_windows(&[("$5", 7, false)])),
+            epoch_ok(),
+            ok(""),
+            ok(&action_windows(&[("$5", 7, true)])),
+            epoch_ok(),
+        ]);
+        let concrete = provider(&runner);
+        let provider: &dyn Provider = &concrete;
+        let result = provider
+            .activate_group_exact(&epoched_scope(), &ProviderHandle::Tx(7))
+            .unwrap();
+        assert_eq!(
+            result,
+            GroupActivationResult {
+                server_epoch: ServerEpoch(EPOCH),
+                target: ProviderHandle::Tx(7),
+            }
+        );
+        assert_eq!(
+            *runner.calls.borrow(),
+            vec![
+                epoch_read_argv(),
+                argv(&["list-windows", "-a", "-F", ACTION_WINDOWS_FORMAT]),
+                epoch_read_argv(),
+                argv(&["select-window", "-t", "@7"]),
+                argv(&["list-windows", "-a", "-F", ACTION_WINDOWS_FORMAT]),
+                epoch_read_argv(),
+            ]
+        );
+    }
+
+    #[test]
+    fn exact_direction_selects_from_origin_and_returns_exact_target_or_edge_none() {
+        let pre = action_panes(&[
+            ("$5", 7, 9, true, 40, 24, 0, 0, false),
+            ("$5", 7, 10, false, 40, 24, 40, 0, false),
+        ]);
+        let post = action_panes(&[
+            ("$5", 7, 9, false, 40, 24, 0, 0, false),
+            ("$5", 7, 10, true, 40, 24, 40, 0, false),
+        ]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&pre),
+            epoch_ok(),
+            ok(""),
+            ok(""),
+            ok(&post),
+            epoch_ok(),
+        ]);
+        let result = provider(&runner)
+            .select_split_direction(
+                &epoched_scope(),
+                &ProviderHandle::Tx(9),
+                SplitDirection::Right,
+            )
+            .unwrap();
+        assert_eq!(result.target, Some(ProviderHandle::Tx(10)));
+        let calls = runner.calls.borrow();
+        assert_eq!(calls[3], argv(&["select-pane", "-t", "%9"]));
+        assert_eq!(calls[4], argv(&["select-pane", "-t", "%9", "-R"]));
+
+        let edge = action_panes(&[("$5", 7, 9, true, 80, 24, 0, 0, false)]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&edge),
+            epoch_ok(),
+            ok(""),
+            ok(""),
+            ok(&edge),
+            epoch_ok(),
+        ]);
+        let result = provider(&runner)
+            .select_split_direction(
+                &epoched_scope(),
+                &ProviderHandle::Tx(9),
+                SplitDirection::Left,
+            )
+            .unwrap();
+        assert_eq!(
+            result.target, None,
+            "edge is a no-op, never an ordinal guess"
+        );
+    }
+
+    #[test]
+    fn exact_resize_and_zoom_emit_exact_argv_and_verify_postconditions() {
+        let resize_pre = action_panes(&[
+            ("$5", 7, 9, true, 40, 24, 0, 0, false),
+            ("$5", 7, 10, false, 40, 24, 40, 0, false),
+        ]);
+        let resize_post = action_panes(&[
+            ("$5", 7, 9, true, 43, 24, 0, 0, false),
+            ("$5", 7, 10, false, 37, 24, 43, 0, false),
+        ]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&resize_pre),
+            epoch_ok(),
+            ok(""),
+            ok(&resize_post),
+            epoch_ok(),
+        ]);
+        let result = provider(&runner)
+            .resize_split_exact(
+                &epoched_scope(),
+                &ProviderHandle::Tx(9),
+                SplitDirection::Right,
+                3,
+            )
+            .unwrap();
+        assert!(result.changed);
+        assert_eq!(
+            runner.calls.borrow()[3],
+            argv(&["resize-pane", "-t", "%9", "-R", "3"])
+        );
+
+        let zoom_pre = action_panes(&[("$5", 7, 9, true, 80, 24, 0, 0, false)]);
+        let zoom_post = action_panes(&[("$5", 7, 9, true, 80, 24, 0, 0, true)]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&zoom_pre),
+            epoch_ok(),
+            ok(""),
+            ok(&zoom_post),
+            epoch_ok(),
+        ]);
+        let result = provider(&runner)
+            .toggle_split_zoom_exact(&epoched_scope(), &ProviderHandle::Tx(9))
+            .unwrap();
+        assert!(result.zoomed);
+        assert_eq!(
+            runner.calls.borrow()[3],
+            argv(&["resize-pane", "-Z", "-t", "%9"])
+        );
+    }
+
+    #[test]
+    fn exact_actions_fail_typed_on_native_failure_and_bad_postcondition() {
+        let listing = action_windows(&[("$5", 7, false)]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&listing),
+            epoch_ok(),
+            fail(1, "can't select window"),
+        ]);
+        assert!(matches!(
+            provider(&runner).activate_group_exact(&epoched_scope(), &ProviderHandle::Tx(7)),
+            Err(ProviderError::NativeFailure { .. })
+        ));
+
+        let zoom = action_panes(&[("$5", 7, 9, true, 80, 24, 0, 0, false)]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(&zoom),
+            epoch_ok(),
+            ok(""),
+            ok(&zoom),
+            epoch_ok(),
+        ]);
+        match provider(&runner).toggle_split_zoom_exact(&epoched_scope(), &ProviderHandle::Tx(9)) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("zoom postcondition failed"), "{detail}");
+            }
+            other => panic!("unchanged zoom must fail postcondition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn exact_actions_refuse_unpinned_ids_without_spawning() {
+        let runner = ScriptedRunner::new(vec![]);
+        assert!(matches!(
+            provider(&runner).resize_split_exact(
+                &scope(None),
+                &ProviderHandle::Tx(9),
+                SplitDirection::Right,
+                3,
+            ),
+            Err(ProviderError::WrongInstance { .. })
+        ));
+        assert!(runner.calls.borrow().is_empty());
     }
 
     // -- rename/remove ------------------------------------------------------

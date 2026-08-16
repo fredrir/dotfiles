@@ -1,6 +1,7 @@
 //! Versioned SQLite migrations implementing the frozen storage contract
-//! `docs/adr/dmux/registry-v1.sql` (plan §10.1) plus the v2 extension frozen
-//! in `docs/adr/dmux/009-w5-dispatch.md` §3 (attach tokens, pane stamps).
+//! `docs/adr/dmux/registry-v1.sql` (plan §10.1), the v2 extension frozen
+//! in `docs/adr/dmux/009-w5-dispatch.md` §3 (attach tokens, pane stamps),
+//! and the v3 durable terminal-abort extension for cold recovery.
 //!
 //! The v1 DDL below is the contract file transcribed verbatim — identical
 //! index names, identical semantics, including every `-- REQUIRED` partial
@@ -16,9 +17,9 @@ use rusqlite::Connection;
 
 /// Current schema version. Each entry in [`MIGRATIONS`] moves
 /// `user_version` from `n-1` to `n`.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL), (2, V2_DDL)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL), (2, V2_DDL), (3, V3_DDL)];
 
 /// registry-v1.sql, verbatim semantics (contract: equivalent index names
 /// allowed, weaker semantics not — the names are kept identical anyway).
@@ -308,6 +309,39 @@ CREATE TABLE pane_stamps (
 -- database enforces the same key.
 CREATE UNIQUE INDEX routes_host_transport_endpoint_uq
   ON routes(host_uid, transport, endpoint);
+"#;
+
+/// Schema v3: recovery abort is an explicit, durable terminal state. SQLite
+/// cannot alter a CHECK constraint in place, so rebuild the leaf table in the
+/// migration transaction. The replacement has the same columns, foreign
+/// keys, and composite primary key; every v2 row is copied byte-for-byte.
+const V3_DDL: &str = r#"
+CREATE TABLE recovery_journal_v3 (
+  generation_uid        TEXT NOT NULL,
+  backend_instance_id   TEXT NOT NULL REFERENCES backend_instances(backend_instance_uid),
+  server_epoch          TEXT NOT NULL,
+  manifest_id           TEXT NOT NULL,
+  space_uid             TEXT REFERENCES spaces(space_uid),
+  manifest_node_path    TEXT NOT NULL,
+  node_state            TEXT NOT NULL CHECK
+    (node_state IN ('pending', 'preparing', 'restoring', 'completed', 'failed', 'skipped',
+                    'aborted')),
+  bootstrap_request_uid TEXT REFERENCES bootstrap_requests(request_uid),
+  updated_at            TEXT NOT NULL,
+  PRIMARY KEY (generation_uid, manifest_node_path)
+);
+
+INSERT INTO recovery_journal_v3 (
+  generation_uid, backend_instance_id, server_epoch, manifest_id, space_uid,
+  manifest_node_path, node_state, bootstrap_request_uid, updated_at
+)
+SELECT
+  generation_uid, backend_instance_id, server_epoch, manifest_id, space_uid,
+  manifest_node_path, node_state, bootstrap_request_uid, updated_at
+FROM recovery_journal;
+
+DROP TABLE recovery_journal;
+ALTER TABLE recovery_journal_v3 RENAME TO recovery_journal;
 "#;
 
 /// Apply the normative per-connection settings from the contract header:

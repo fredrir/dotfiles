@@ -22,7 +22,7 @@
 //!   test seams (like `DMUX_RUNTIME_DIR`), never client input.
 
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::OptionalExtension;
 use serde_json::Value;
@@ -32,11 +32,14 @@ use crate::backend::tmux::{TmuxProvider, TmuxServerIdentity};
 use crate::backend::wez::WezProvider;
 use crate::backend::{InventoryOutcome, InventoryScope, Provider, ProviderError, SplitDirection};
 use crate::error::{ErrorCode, TypedError};
+use crate::locks::{LockMode, LockScope, OrderedLocks};
 use crate::model::{
-    Backend, BackendInstanceUid, ChildKind, HostUid, RegistryUid, ServerEpoch, SpaceUid,
+    Backend, BackendInstanceUid, ChildKind, HostUid, ProviderHandle, RegistryUid, ServerEpoch,
+    SpaceUid,
 };
 use crate::operations::{
-    self as ops, CreateRequest, OpError, OperationEnv, create_space, remove_space, rename_space,
+    self as ops, CreateRequest, OpError, OperationEnv, OwnerCreateTarget,
+    create_space_owner_fenced, lookup_new_owner_fenced, remove_space, rename_space,
 };
 use crate::refs::{ChildRefShape, parse_ref};
 use crate::registry::{
@@ -44,10 +47,13 @@ use crate::registry::{
     SpaceRow, now_rfc3339, rfc3339_utc,
 };
 use crate::remote::protocol::{
-    self, AttachPlan, AttachPlanPayload, BackendStatus, ChainLink, Envelope, GroupNewPayload,
-    GroupRenamePayload, GroupRenameResult, GroupRmPayload, HelloInfo, HelloPayload,
-    HierarchyPayload, NewPayload, PROTOCOL_VERSION, RenamePayload, RenameResult, RmPayload,
-    RmResult, ScanSummary, SpaceInfo, SpacesInfo, SplitNewPayload, SplitRmPayload,
+    self, AttachChildRequest, AttachPlan, AttachPlanChild, AttachPlanPayload, BackendStatus,
+    ChainLink, Envelope, GroupActivatePayload, GroupNewPayload, GroupRenamePayload,
+    GroupRenameResult, GroupRmPayload, HelloInfo, HelloPayload, HierarchyPayload,
+    NewLookupBlockReason, NewLookupClass, NewLookupPayload, NewLookupResult, NewPayload,
+    PROTOCOL_VERSION, RecoveryAbortPayload, RecoveryResumePayload, RecoveryStatusPayload,
+    RenamePayload, RenameResult, RmPayload, RmResult, ScanSummary, SpaceInfo, SpacesInfo,
+    SplitDirectionPayload, SplitNewPayload, SplitResizePayload, SplitRmPayload, SplitZoomPayload,
     canonical_payload_sha256,
 };
 
@@ -110,6 +116,10 @@ pub fn resolve_env(args: &AgentArgs) -> std::io::Result<OperationEnv> {
 struct AgentCx {
     env: OperationEnv,
     registry: Registry,
+    /// Frozen for this one-document endpoint invocation.  In particular,
+    /// the bounded WezTerm build/argv probe runs once, so the hello payload
+    /// and its enclosing envelope cannot disagree.
+    capabilities: Vec<String>,
 }
 
 /// What one handler produced: the response payload plus the identity
@@ -152,7 +162,16 @@ fn serve(args: &AgentArgs, raw: &str) -> (Envelope, i32) {
             );
         }
     };
-    let mut cx = AgentCx { env, registry };
+    // Only `hello` is the compatibility handshake consumed by P9.  Keep
+    // ordinary RPC responses on the existing cheap coarse capability set:
+    // otherwise every hierarchy mutation would pay two child probes and
+    // acquire a new failure surface unrelated to the mutation result.
+    let capabilities = capabilities(&registry, args.method == protocol::methods::HELLO);
+    let mut cx = AgentCx {
+        env,
+        registry,
+        capabilities,
+    };
 
     let request: Envelope = match serde_json::from_str(raw.trim()) {
         Ok(envelope) => envelope,
@@ -234,16 +253,24 @@ fn dispatch(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Repl
     match request.method.as_str() {
         protocol::methods::HELLO => hello(cx, payload),
         protocol::methods::SPACES => spaces(cx),
+        protocol::methods::NEW_LOOKUP => new_lookup(cx, request, payload),
         protocol::methods::NEW => new_space(cx, request, payload),
         protocol::methods::RENAME => rename(cx, request, payload),
         protocol::methods::RM => remove(cx, request, payload),
         protocol::methods::ATTACH_PLAN => attach_plan(cx, request, payload),
         protocol::methods::HIERARCHY => hierarchy_read(cx, request, payload),
         protocol::methods::GROUP_NEW => group_new(cx, request, payload),
+        protocol::methods::GROUP_ACTIVATE => group_activate(cx, request, payload),
         protocol::methods::GROUP_RENAME => group_rename(cx, request, payload),
         protocol::methods::GROUP_RM => group_rm(cx, request, payload),
         protocol::methods::SPLIT_NEW => split_new(cx, request, payload),
+        protocol::methods::SPLIT_DIRECTION => split_direction(cx, request, payload),
+        protocol::methods::SPLIT_RESIZE => split_resize(cx, request, payload),
+        protocol::methods::SPLIT_ZOOM => split_zoom(cx, request, payload),
         protocol::methods::SPLIT_RM => split_rm(cx, request, payload),
+        protocol::methods::RECOVERY_STATUS => recovery_status(cx, request, payload),
+        protocol::methods::RECOVERY_RESUME => recovery_resume(cx, request, payload),
+        protocol::methods::RECOVERY_ABORT => recovery_abort(cx, request, payload),
         other => Err(TypedError::new(
             ErrorCode::Usage,
             format!("unknown agent method {other:?}"),
@@ -300,7 +327,7 @@ fn respond(
         authority_head_hash: head_hash,
         backend_instance_uid: backend_instance,
         server_epoch,
-        capabilities: capabilities(&cx.registry),
+        capabilities: cx.capabilities.clone(),
         payload,
         error,
     };
@@ -333,11 +360,29 @@ fn degraded(request_uid: Uuid, method: &str, error: TypedError) -> (Envelope, i3
     )
 }
 
-fn capabilities(registry: &Registry) -> Vec<String> {
-    let mut caps = vec![format!("proto:{PROTOCOL_VERSION}")];
-    for backend in [Backend::Tmux, Backend::Wez] {
-        if let Ok(Some(_)) = find_instance(registry, backend) {
-            caps.push(backend.as_str().to_string());
+fn capabilities(registry: &Registry, positive_wez_hello: bool) -> Vec<String> {
+    let mut caps = vec![
+        format!("proto:{PROTOCOL_VERSION}"),
+        protocol::CAP_NEW_LOOKUP.to_string(),
+        protocol::CAP_NEW_FENCED_COLLISION.to_string(),
+    ];
+    if let Ok(Some(_)) = find_instance(registry, Backend::Tmux) {
+        caps.push(crate::remote::wez_compat::CAP_TMUX.to_string());
+    }
+    if let Ok(Some(_)) = find_instance(registry, Backend::Wez) {
+        if !positive_wez_hello {
+            caps.push(crate::remote::wez_compat::CAP_WEZ.to_string());
+        } else {
+            // A registry row alone is not a positive compatibility report.
+            // Probe only the installed executable through fixed, bounded,
+            // non-mutating argv; neither command can select/auto-start a mux.
+            let (bin, _) = wez_paths();
+            if let Ok(report) = crate::remote::wez_compat::probe_wezterm_capabilities(
+                &bin,
+                crate::remote::wez_compat::DEFAULT_PROBE_DEADLINE,
+            ) {
+                caps.extend(report.capabilities);
+            }
         }
     }
     caps
@@ -428,6 +473,17 @@ fn typed_op(e: OpError) -> TypedError {
     }
 }
 
+fn typed_recovery(error: crate::recovery::RecoveryError) -> TypedError {
+    let code = match error.stable_code() {
+        "registry_busy" => ErrorCode::RegistryBusy,
+        "operation_in_progress" => ErrorCode::OperationInProgress,
+        "recovery_ineligible" | "recovery_fence_lost" => ErrorCode::RepairRequired,
+        "recovery_timeout" => ErrorCode::ProviderUnavailable,
+        _ => ErrorCode::OperationFailed,
+    };
+    TypedError::new(code, error.to_string())
+}
+
 fn parse_payload<T: serde::de::DeserializeOwned>(payload: Value) -> Result<T, TypedError> {
     serde_json::from_value(payload)
         .map_err(|e| TypedError::new(ErrorCode::Usage, format!("payload: {e}")))
@@ -505,13 +561,14 @@ fn wez_paths() -> (String, String) {
 /// instance/epoch is a typed refusal.
 fn verified_target(
     registry: &Registry,
+    runtime_dir: &Path,
     backend: Backend,
     claimed_instance: Option<BackendInstanceUid>,
     claimed_epoch: Option<ServerEpoch>,
 ) -> Result<(Target, Box<dyn Provider>), TypedError> {
     match backend {
         Backend::Tmux => verified_tmux_target(registry, claimed_instance, claimed_epoch),
-        Backend::Wez => verified_wez_target(registry, claimed_instance, claimed_epoch),
+        Backend::Wez => verified_wez_target(registry, runtime_dir, claimed_instance, claimed_epoch),
     }
 }
 
@@ -606,6 +663,7 @@ fn verified_tmux_target(
 /// instance/epoch refuses.
 fn verified_wez_target(
     registry: &Registry,
+    runtime_dir: &Path,
     claimed_instance: Option<BackendInstanceUid>,
     claimed_epoch: Option<ServerEpoch>,
 ) -> Result<(Target, Box<dyn Provider>), TypedError> {
@@ -615,19 +673,6 @@ fn verified_wez_target(
             "no managed wez backend instance on this owner",
         )
     })?;
-    let endpoint = socket
-        .or_else(|| {
-            crate::runtime::read_wez_descriptor()
-                .ok()
-                .flatten()
-                .map(|d| d.socket)
-        })
-        .ok_or_else(|| {
-            TypedError::new(
-                ErrorCode::ProviderUnavailable,
-                "managed wez instance has no recorded socket and no runtime descriptor",
-            )
-        })?;
     if let Some(claimed) = claimed_instance
         && claimed != instance
     {
@@ -639,14 +684,22 @@ fn verified_wez_target(
             ),
         ));
     }
+    let (endpoint, epoch) = ready_wez_identity(
+        registry,
+        runtime_dir,
+        instance,
+        socket.as_deref(),
+        claimed_epoch,
+    )
+    .map_err(WezIdentityError::into_typed)?;
     let (bin, config) = wez_paths();
     let provider = WezProvider::new(bin, config);
     let probe = InventoryScope {
         backend: Backend::Wez,
         endpoint: endpoint.clone(),
-        expected_epoch: None,
+        expected_epoch: Some(epoch),
     };
-    let epoch = match provider.inventory(&probe) {
+    let observed_epoch = match provider.inventory(&probe) {
         InventoryOutcome::Complete(inv) => inv.server_epoch.ok_or_else(|| {
             TypedError::new(
                 ErrorCode::ProviderUnavailable,
@@ -660,28 +713,12 @@ fn verified_wez_target(
             ));
         }
     };
-    // A published incarnation that no longer matches the live sentinel is a
-    // replaced server: refuse rather than serve stale identity.
-    let record = registry.backend_server(instance).map_err(typed_registry)?;
-    if let Some(published) = record.server_epoch
-        && published != epoch
-    {
+    if observed_epoch != epoch {
         return Err(TypedError::new(
             ErrorCode::BackendEpochChanged,
             format!(
-                "published wez epoch {} but the live sentinel epoch is {}",
-                published.0, epoch.0
-            ),
-        ));
-    }
-    if let Some(claimed) = claimed_epoch
-        && claimed != epoch
-    {
-        return Err(TypedError::new(
-            ErrorCode::BackendEpochChanged,
-            format!(
-                "claimed server epoch {} but the live verified epoch is {}",
-                claimed.0, epoch.0
+                "ready descriptor/published wez epoch {} but the live sentinel epoch is {}",
+                epoch.0, observed_epoch.0
             ),
         ));
     }
@@ -694,6 +731,136 @@ fn verified_wez_target(
         },
         Box::new(provider),
     ))
+}
+
+/// Require the service-published ready descriptor before *any* Wez provider
+/// probe.  A registry socket is never allowed to bypass `starting` /
+/// recovery state, and the descriptor is not a fallback source of identity:
+/// its instance, socket, and epoch must exactly match the registry plus any
+/// caller claim first.
+#[derive(Debug)]
+enum WezIdentityError {
+    /// A syntactically valid descriptor explicitly says the service is not
+    /// ready. Read scans expose this as `recovering`; mutations fail before
+    /// touching the provider.
+    Recovering(TypedError),
+    /// Missing/malformed/mismatched identity is terminal rather than an
+    /// observation of an in-progress recovery.
+    Refused(TypedError),
+}
+
+impl WezIdentityError {
+    fn into_typed(self) -> TypedError {
+        match self {
+            WezIdentityError::Recovering(error) | WezIdentityError::Refused(error) => error,
+        }
+    }
+}
+
+fn ready_wez_identity(
+    registry: &Registry,
+    runtime_dir: &Path,
+    instance: BackendInstanceUid,
+    registered_socket: Option<&str>,
+    claimed_epoch: Option<ServerEpoch>,
+) -> Result<(String, ServerEpoch), WezIdentityError> {
+    let descriptor = crate::runtime::read_wez_descriptor_in(runtime_dir)
+        .map_err(|error| {
+            WezIdentityError::Refused(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                format!("managed Wez descriptor cannot be read: {error}"),
+            ))
+        })?
+        .ok_or_else(|| {
+            WezIdentityError::Refused(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "managed Wez descriptor is absent; the service is stopped or not provisioned",
+            ))
+        })?;
+    descriptor.require_ready().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            WezIdentityError::Recovering(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                format!("managed Wez descriptor is recovering/not ready: {error}"),
+            ))
+        } else {
+            WezIdentityError::Refused(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                format!("managed Wez descriptor is invalid: {error}"),
+            ))
+        }
+    })?;
+
+    let descriptor_instance = BackendInstanceUid(
+        descriptor
+            .backend_instance_uid
+            .as_deref()
+            .expect("require_ready checked backend_instance_uid")
+            .parse::<Uuid>()
+            .expect("require_ready parsed backend_instance_uid"),
+    );
+    if descriptor_instance != instance {
+        return Err(WezIdentityError::Refused(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            format!(
+                "ready Wez descriptor names backend instance {} but the registry names {}",
+                descriptor_instance.0, instance.0
+            ),
+        )));
+    }
+    let endpoint = registered_socket.ok_or_else(|| {
+        WezIdentityError::Refused(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "managed Wez registry instance has no socket; the descriptor cannot replace registry identity",
+        ))
+    })?;
+    if descriptor.socket != endpoint {
+        return Err(WezIdentityError::Refused(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            format!(
+                "ready Wez descriptor socket {:?} does not match registered socket {:?}",
+                descriptor.socket, endpoint
+            ),
+        )));
+    }
+
+    let descriptor_epoch = ServerEpoch(
+        descriptor
+            .epoch
+            .parse::<Uuid>()
+            .expect("require_ready parsed epoch"),
+    );
+    let published_epoch = registry
+        .backend_server(instance)
+        .map_err(|error| WezIdentityError::Refused(typed_registry(error)))?
+        .server_epoch
+        .ok_or_else(|| {
+            WezIdentityError::Refused(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "managed Wez registry instance has no published server epoch",
+            ))
+        })?;
+    if descriptor_epoch != published_epoch {
+        return Err(WezIdentityError::Refused(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "ready Wez descriptor epoch {} does not match registry-published epoch {}",
+                descriptor_epoch.0, published_epoch.0
+            ),
+        )));
+    }
+    if let Some(claimed) = claimed_epoch
+        && claimed != descriptor_epoch
+    {
+        return Err(WezIdentityError::Refused(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "claimed server epoch {} but the ready verified epoch is {}",
+                claimed.0, descriptor_epoch.0
+            ),
+        )));
+    }
+    Ok((endpoint.to_string(), descriptor_epoch))
 }
 
 /// Resolve a Space's OWN backend target (children inherit; the client never
@@ -710,6 +877,7 @@ fn space_target(
         .map_err(typed_registry)?;
     let (target, provider) = verified_target(
         &cx.registry,
+        &cx.env.lock_dir,
         info.backend,
         request.backend_instance_uid,
         request.server_epoch,
@@ -834,7 +1002,7 @@ fn hello(cx: &mut AgentCx, payload: Value) -> Result<Reply, TypedError> {
         authority_head_hash: head.head_hash,
         protocol_version: PROTOCOL_VERSION,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
-        capabilities: capabilities(&cx.registry),
+        capabilities: cx.capabilities.clone(),
         backends,
         revision_chain: chain,
         nonce: hello.nonce,
@@ -845,6 +1013,15 @@ fn hello(cx: &mut AgentCx, payload: Value) -> Result<Reply, TypedError> {
 }
 
 fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
+    let mut scan_locks = OrderedLocks::new(&cx.env.lock_dir);
+    scan_locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("authority scan lock: {error}"),
+            )
+        })?;
     let rows = cx.registry.spaces().map_err(typed_registry)?;
     let mut spaces = Vec::with_capacity(rows.len());
     for row in rows {
@@ -853,11 +1030,6 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
             .backend_instance_info(row.backend_instance)
             .map_err(typed_registry)?
             .backend;
-        let native_token = cx
-            .registry
-            .current_binding(row.space_uid)
-            .map_err(typed_registry)?
-            .map(|binding| binding.native_token);
         spaces.push(SpaceInfo {
             space_uid: row.space_uid,
             space_no: row.space_no.get(),
@@ -866,63 +1038,252 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
             backend_instance_uid: row.backend_instance,
             lifecycle: row.lifecycle,
             health: row.health,
-            native_token,
+            // Filled only while the exact backend-instance SHARED read
+            // fence is held. A recovery/mutation holder produces a
+            // `recovering` scan and deliberately exposes no native IDs.
+            native_token: None,
         });
     }
     let mut scans = Vec::new();
     match find_instance(&cx.registry, Backend::Tmux)? {
-        Some((_, Some(namespace))) => {
-            let provider = TmuxProvider::new(namespace.clone());
-            let scope = InventoryScope {
-                backend: Backend::Tmux,
-                endpoint: namespace,
-                expected_epoch: None,
-            };
-            scans.push(scan_summary(Backend::Tmux, &provider.inventory(&scope)));
-        }
-        Some((_, None)) => scans.push(ScanSummary {
-            backend: Backend::Tmux,
-            outcome: "unavailable".into(),
-            detail: Some("managed instance has no recorded namespace".into()),
-            rows: None,
-            server_epoch: None,
-        }),
-        None => {}
-    }
-    match find_instance(&cx.registry, Backend::Wez)? {
-        Some((_, socket)) => {
-            let endpoint = socket.or_else(|| {
-                crate::runtime::read_wez_descriptor()
-                    .ok()
-                    .flatten()
-                    .map(|d| d.socket)
-            });
-            match endpoint {
-                Some(endpoint) => {
-                    let (bin, config) = wez_paths();
-                    let provider = WezProvider::new(bin, config);
-                    let scope = InventoryScope {
-                        backend: Backend::Wez,
-                        endpoint,
-                        expected_epoch: None,
-                    };
-                    scans.push(scan_summary(Backend::Wez, &provider.inventory(&scope)));
+        Some((instance, namespace)) => {
+            if !try_backend_scan_lock(&mut scan_locks, instance)? {
+                scans.push(recovering_summary(Backend::Tmux, instance));
+            } else {
+                populate_native_tokens(&cx.registry, &mut spaces, instance)?;
+                match namespace {
+                    Some(namespace) => {
+                        let provider = TmuxProvider::new(namespace.clone());
+                        let scope = InventoryScope {
+                            backend: Backend::Tmux,
+                            endpoint: namespace,
+                            expected_epoch: None,
+                        };
+                        scans.push(scan_summary(Backend::Tmux, &provider.inventory(&scope)));
+                    }
+                    None => scans.push(ScanSummary {
+                        backend: Backend::Tmux,
+                        outcome: "unavailable".into(),
+                        detail: Some("managed instance has no recorded namespace".into()),
+                        rows: None,
+                        server_epoch: None,
+                    }),
                 }
-                None => scans.push(ScanSummary {
-                    backend: Backend::Wez,
-                    outcome: "unavailable".into(),
-                    detail: Some("no recorded socket and no runtime descriptor".into()),
-                    rows: None,
-                    server_epoch: None,
-                }),
+                scan_locks.release_last();
             }
         }
         None => {}
     }
+    match find_instance(&cx.registry, Backend::Wez)? {
+        Some((instance, socket)) => {
+            if !try_backend_scan_lock(&mut scan_locks, instance)? {
+                scans.push(recovering_summary(Backend::Wez, instance));
+            } else {
+                match ready_wez_identity(
+                    &cx.registry,
+                    &cx.env.lock_dir,
+                    instance,
+                    socket.as_deref(),
+                    None,
+                ) {
+                    Ok((endpoint, epoch)) => {
+                        populate_native_tokens(&cx.registry, &mut spaces, instance)?;
+                        let (bin, config) = wez_paths();
+                        let provider = WezProvider::new(bin, config);
+                        let scope = InventoryScope {
+                            backend: Backend::Wez,
+                            endpoint,
+                            expected_epoch: Some(epoch),
+                        };
+                        scans.push(scan_summary(Backend::Wez, &provider.inventory(&scope)));
+                    }
+                    Err(WezIdentityError::Recovering(_)) => {
+                        scans.push(recovering_summary(Backend::Wez, instance));
+                    }
+                    Err(error) => scans.push(ScanSummary {
+                        backend: Backend::Wez,
+                        outcome: "unavailable".into(),
+                        detail: Some(error.into_typed().message),
+                        rows: None,
+                        server_epoch: None,
+                    }),
+                }
+                scan_locks.release_last();
+            }
+        }
+        None => {}
+    }
+    spaces.sort_by_key(|space| space.space_no);
     let info = SpacesInfo { spaces, scans };
     Ok(Reply::plain(serde_json::to_value(info).map_err(|e| {
         TypedError::new(ErrorCode::OperationFailed, e.to_string())
     })?))
+}
+
+fn lookup_wire(class: crate::resolve::ClassSummary) -> NewLookupClass {
+    match class {
+        crate::resolve::ClassSummary::NoMatch => NewLookupClass::NoMatch,
+        crate::resolve::ClassSummary::Selectable { space, no } => NewLookupClass::Selectable {
+            space_uid: space,
+            space_no: no.get(),
+        },
+        crate::resolve::ClassSummary::Blocking { reason, space } => {
+            use crate::resolve::BlockReason as B;
+            let reason = match reason {
+                B::LifecycleReserved => NewLookupBlockReason::LifecycleReserved,
+                B::LifecycleDeleting => NewLookupBlockReason::LifecycleDeleting,
+                B::LifecycleConflict => NewLookupBlockReason::LifecycleConflict,
+                B::OperationInProgress => NewLookupBlockReason::OperationInProgress,
+                B::Unhealthy(health) => NewLookupBlockReason::Unhealthy(health),
+                B::NoBinding => NewLookupBlockReason::NoBinding,
+                B::ActiveAbsent => NewLookupBlockReason::ActiveAbsent,
+                B::ServerStopped => NewLookupBlockReason::ServerStopped,
+                B::IndeterminateObservation => NewLookupBlockReason::IndeterminateObservation,
+                B::UnmanagedSameName => NewLookupBlockReason::UnmanagedSameName,
+                B::MultiWindow => NewLookupBlockReason::MultiWindow,
+            };
+            NewLookupClass::Blocking {
+                reason,
+                space_uid: space,
+            }
+        }
+        crate::resolve::ClassSummary::Indeterminate => NewLookupClass::Indeterminate,
+    }
+}
+
+/// Build an exact owner inventory target without requiring the server to be
+/// live. NEW_LOOKUP must be able to classify stopped/indeterminate state;
+/// the mutating NEW path separately uses `verified_target` before creation.
+struct OwnerLookupTarget {
+    target: Target,
+    provider: Box<dyn Provider>,
+    scope: InventoryScope,
+}
+
+fn owner_lookup_target(
+    registry: &Registry,
+    backend: Backend,
+) -> Result<Option<OwnerLookupTarget>, TypedError> {
+    let Some((instance, endpoint)) = find_instance(registry, backend)? else {
+        return Ok(None);
+    };
+    let endpoint = endpoint.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            format!("managed {backend} instance has no recorded inventory endpoint"),
+        )
+    })?;
+    let epoch = registry
+        .backend_server(instance)
+        .map_err(typed_registry)?
+        .server_epoch;
+    let target = Target {
+        backend,
+        instance,
+        endpoint: endpoint.clone(),
+        epoch: epoch.unwrap_or(ServerEpoch(Uuid::nil())),
+    };
+    let provider: Box<dyn Provider> = match backend {
+        Backend::Tmux => Box::new(TmuxProvider::new(endpoint.clone())),
+        Backend::Wez => {
+            let (bin, config) = wez_paths();
+            Box::new(WezProvider::new(bin, config))
+        }
+    };
+    let scope = InventoryScope {
+        backend,
+        endpoint,
+        expected_epoch: epoch,
+    };
+    Ok(Some(OwnerLookupTarget {
+        target,
+        provider,
+        scope,
+    }))
+}
+
+fn new_lookup(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    if request.backend_instance_uid.is_some() || request.server_epoch.is_some() {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "new_lookup spans both owner backends and accepts no claimed instance/epoch",
+        ));
+    }
+    let lookup: NewLookupPayload = parse_payload(payload)?;
+    let wez = owner_lookup_target(&cx.registry, Backend::Wez)?;
+    let tmux = owner_lookup_target(&cx.registry, Backend::Tmux)?;
+    let result = lookup_new_owner_fenced(
+        &cx.env,
+        wez.as_ref().map(|lookup| OwnerCreateTarget {
+            backend: lookup.target.backend,
+            instance: lookup.target.instance,
+            provider: lookup.provider.as_ref(),
+            scope: &lookup.scope,
+        }),
+        tmux.as_ref().map(|lookup| OwnerCreateTarget {
+            backend: lookup.target.backend,
+            instance: lookup.target.instance,
+            provider: lookup.provider.as_ref(),
+            scope: &lookup.scope,
+        }),
+        &lookup.name,
+    )
+    .map_err(typed_op)?;
+    Ok(Reply::plain(
+        serde_json::to_value(NewLookupResult {
+            wez: lookup_wire(result.wez),
+            tmux: lookup_wire(result.tmux),
+        })
+        .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+    ))
+}
+
+/// Read-only owner scan fence. The authority gate follows the normal shared
+/// acquisition path; the exact backend-instance read lock is deliberately
+/// non-blocking so a recovery/mutation holder is observable as `recovering`
+/// instead of delaying or exposing a half-mutated provider tree.
+fn try_backend_scan_lock(
+    locks: &mut OrderedLocks,
+    instance: BackendInstanceUid,
+) -> Result<bool, TypedError> {
+    locks
+        .try_acquire(LockScope::BackendInstance(instance), LockMode::Shared)
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("backend scan lock: {error}"),
+            )
+        })
+}
+
+fn populate_native_tokens(
+    registry: &Registry,
+    spaces: &mut [SpaceInfo],
+    instance: BackendInstanceUid,
+) -> Result<(), TypedError> {
+    for space in spaces
+        .iter_mut()
+        .filter(|space| space.backend_instance_uid == instance)
+    {
+        space.native_token = registry
+            .current_binding(space.space_uid)
+            .map_err(typed_registry)?
+            .map(|binding| binding.native_token);
+    }
+    Ok(())
+}
+
+fn recovering_summary(backend: Backend, instance: BackendInstanceUid) -> ScanSummary {
+    ScanSummary {
+        backend,
+        outcome: "recovering".into(),
+        detail: Some(format!(
+            "backend instance {} is recovering or mutating",
+            instance.0
+        )),
+        rows: None,
+        server_epoch: None,
+    }
 }
 
 fn scan_summary(backend: Backend, outcome: &InventoryOutcome) -> ScanSummary {
@@ -969,25 +1330,241 @@ fn scan_summary(backend: Backend, outcome: &InventoryOutcome) -> ScanSummary {
     }
 }
 
+// ---------------------------------------------------------------------------
+// P10 owner recovery control. These methods resolve the owner's one managed
+// Wez instance and this endpoint's verified production/scratch runtime; no
+// controller path, socket, epoch, or generation is accepted in the payload.
+
+fn recovery_target(
+    registry: &Registry,
+    request: &Envelope,
+) -> Result<(BackendInstanceUid, Option<ServerEpoch>), TypedError> {
+    let (instance, _) = find_instance(registry, Backend::Wez)?.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "owner has no managed Wez backend instance for recovery control",
+        )
+    })?;
+    if let Some(claimed) = request.backend_instance_uid
+        && claimed != instance
+    {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            format!(
+                "recovery request claims backend instance {} but owner manages {}",
+                claimed.0, instance.0
+            ),
+        ));
+    }
+    let published = registry
+        .backend_server(instance)
+        .map_err(typed_registry)?
+        .server_epoch;
+    if let Some(claimed) = request.server_epoch
+        && Some(claimed) != published
+    {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "recovery request claims epoch {} but owner publishes {:?}",
+                claimed.0,
+                published.map(|epoch| epoch.0)
+            ),
+        ));
+    }
+    Ok((instance, published))
+}
+
+fn recovery_status(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let _: RecoveryStatusPayload = parse_payload(payload)?;
+    let (instance, _) = recovery_target(&cx.registry, request)?;
+    let inspection = crate::recovery::inspect_recovery(
+        RegistryConfig::new(&cx.env.db_path, &cx.env.lock_dir),
+        &cx.env.lock_dir,
+        instance,
+    )
+    .map_err(typed_recovery)?;
+    Ok(Reply {
+        payload: serde_json::to_value(&inspection)
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        backend_instance: Some(instance),
+        server_epoch: inspection.server_epoch,
+    })
+}
+
+fn recovery_resume(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let _: RecoveryResumePayload = parse_payload(payload)?;
+    recovery_control(cx, request, crate::recovery::RecoveryControlAction::Resume)
+}
+
+fn recovery_abort(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let _: RecoveryAbortPayload = parse_payload(payload)?;
+    recovery_control(cx, request, crate::recovery::RecoveryControlAction::Abort)
+}
+
+fn recovery_control(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    action: crate::recovery::RecoveryControlAction,
+) -> Result<Reply, TypedError> {
+    let (instance, published_epoch) = recovery_target(&cx.registry, request)?;
+    let disposition = cx
+        .registry
+        .record_rpc_request(
+            request.request_uid,
+            &request.method,
+            &request.payload_sha256,
+        )
+        .map_err(typed_registry)?;
+    if matches!(
+        &disposition,
+        RpcDisposition::Replay {
+            result_state: RpcResultState::Final,
+            result_json: None,
+        }
+    ) {
+        return Err(TypedError::new(
+            ErrorCode::OperationFailed,
+            format!("final {} request has no stored receipt", request.method),
+        ));
+    }
+    if let RpcDisposition::Replay {
+        result_state: RpcResultState::Final,
+        result_json: Some(stored),
+    } = disposition
+    {
+        let receipt: crate::recovery::RecoveryControlRequest = serde_json::from_value(stored)
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+        if receipt.action != action {
+            return Err(TypedError::new(
+                ErrorCode::OperationFailed,
+                format!(
+                    "stored {} receipt has action {:?}, expected {:?}",
+                    request.method, receipt.action, action
+                ),
+            ));
+        }
+        if receipt.backend_instance_uid != instance || Some(receipt.server_epoch) != published_epoch
+        {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                format!(
+                    "stored {} receipt belongs to an older backend incarnation",
+                    request.method
+                ),
+            ));
+        }
+        return Ok(Reply {
+            payload: serde_json::to_value(&receipt)
+                .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+            backend_instance: Some(instance),
+            server_epoch: Some(receipt.server_epoch),
+        });
+    }
+
+    // The owner APIs publish control.json with create-new and return an
+    // exact already-pending same-action receipt, so an unknown RPC replay
+    // reconciles instead of replacing/toggling anything. A conflicting
+    // resume/abort sidecar is refused by the owner API.
+    let config = RegistryConfig::new(&cx.env.db_path, &cx.env.lock_dir);
+    let receipt = match action {
+        crate::recovery::RecoveryControlAction::Resume => {
+            crate::recovery::request_recovery_resume(config, &cx.env.lock_dir, instance)
+        }
+        crate::recovery::RecoveryControlAction::Abort => {
+            crate::recovery::request_recovery_abort(config, &cx.env.lock_dir, instance)
+        }
+    }
+    .map_err(typed_recovery)?;
+    if receipt.action != action
+        || receipt.backend_instance_uid != instance
+        || Some(receipt.server_epoch) != published_epoch
+    {
+        return Err(TypedError::new(
+            ErrorCode::OperationFailed,
+            format!(
+                "owner recovery control returned a receipt inconsistent with {}",
+                request.method
+            ),
+        ));
+    }
+    cx.registry
+        .finish_rpc_request(
+            request.request_uid,
+            &serde_json::to_value(&receipt)
+                .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+            None,
+        )
+        .map_err(typed_registry)?;
+    Ok(Reply {
+        payload: serde_json::to_value(&receipt)
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        backend_instance: Some(instance),
+        server_epoch: Some(receipt.server_epoch),
+    })
+}
+
 fn new_space(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
-    let new: NewPayload = parse_payload(payload)?;
+    let mut new: NewPayload = parse_payload(payload)?;
+    new.cwd = canonical_owner_cwd(new.cwd)?;
     // `backend` is the client's PRODUCT-level choice (ADR 009 §4); native
     // details are owner-resolved through the verification matrix. A backend
     // the owner cannot serve is a typed refusal, never a fallback.
     let (target, provider) = verified_target(
         &cx.registry,
+        &cx.env.lock_dir,
         new.backend,
         request.backend_instance_uid,
         request.server_epoch,
     )?;
     let scope = scope_for(&target);
+    let opposite_backend = match target.backend {
+        Backend::Wez => Backend::Tmux,
+        Backend::Tmux => Backend::Wez,
+    };
+    // `None` is only a discovery hint.  The operation seam re-queries under
+    // the exact-name decision lock and permits it solely when no durable
+    // opposite instance row exists.  When a row exists the owner, not the
+    // controller, resolves and verifies its provider target.
+    let opposite = if find_instance(&cx.registry, opposite_backend)?.is_some() {
+        let (opposite_target, opposite_provider) =
+            verified_target(&cx.registry, &cx.env.lock_dir, opposite_backend, None, None)?;
+        let opposite_scope = scope_for(&opposite_target);
+        Some((opposite_target, opposite_provider, opposite_scope))
+    } else {
+        None
+    };
     // End-to-end idempotency: the ENVELOPE request UID is the operation
     // request UID; create_space owns the ledger row for method "new".
-    let created = create_space(
+    let created = create_space_owner_fenced(
         &cx.env,
-        provider.as_ref(),
-        &scope,
-        target.backend,
+        OwnerCreateTarget {
+            backend: target.backend,
+            instance: target.instance,
+            provider: provider.as_ref(),
+            scope: &scope,
+        },
+        opposite
+            .as_ref()
+            .map(|(target, provider, scope)| OwnerCreateTarget {
+                backend: target.backend,
+                instance: target.instance,
+                provider: provider.as_ref(),
+                scope,
+            }),
+        new.allow_name_collision,
         &CreateRequest {
             request_uid: request.request_uid,
             name: new.name,
@@ -1003,6 +1580,48 @@ fn new_space(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Rep
         backend_instance: Some(target.instance),
         server_epoch: Some(target.epoch),
     })
+}
+
+/// A remote create cwd is interpreted and proven on the OWNER. Controller
+/// paths (including local zoxide results) are never forwarded as if they
+/// were owner facts, and a relative path cannot inherit ssh's incidental
+/// process cwd.
+fn canonical_owner_cwd(cwd: Option<String>) -> Result<Option<String>, TypedError> {
+    let Some(cwd) = cwd else {
+        return Ok(None);
+    };
+    if cwd.chars().any(char::is_control) {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "remote owner cwd contains a control character",
+        ));
+    }
+    let supplied = Path::new(&cwd);
+    if !supplied.is_absolute() {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            format!("remote owner cwd must be absolute, got {cwd:?}"),
+        ));
+    }
+    let canonical = std::fs::canonicalize(supplied).map_err(|error| {
+        let code = match error.kind() {
+            std::io::ErrorKind::NotFound => ErrorCode::NotFound,
+            std::io::ErrorKind::InvalidInput => ErrorCode::Usage,
+            _ => ErrorCode::OperationFailed,
+        };
+        TypedError::new(code, format!("owner cwd {cwd:?}: {error}"))
+    })?;
+    if !canonical.is_dir() {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            format!("owner cwd {} is not a directory", canonical.display()),
+        ));
+    }
+    let canonical = canonical
+        .into_os_string()
+        .into_string()
+        .map_err(|_| TypedError::new(ErrorCode::Usage, "owner cwd is not valid UTF-8"))?;
+    Ok(Some(canonical))
 }
 
 fn rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
@@ -1199,26 +1818,16 @@ fn remove(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
                 if op.kind == crate::model::OperationKind::Remove
                     && op.request_uid == request.request_uid =>
             {
-                if let Some(binding) = cx
-                    .registry
-                    .current_binding(rm.space_uid)
-                    .map_err(typed_registry)?
-                {
-                    let native = crate::backend::NativeBinding {
-                        native_token: binding.native_token,
-                        server_epoch: target.epoch,
-                        root_group: crate::model::ProviderHandle::Tx(0),
-                        root_split: crate::model::ProviderHandle::Tx(0),
-                    };
-                    match provider.remove(&scope, &native) {
-                        Ok(()) => {}
-                        Err(ProviderError::NotFound { .. }) => {}
-                        Err(e) => return Err(typed_provider(e)),
-                    }
-                }
-                cx.registry
-                    .complete_remove(rm.space_uid, op.operation_uid)
-                    .map_err(typed_registry)?;
+                ops::resume_remove_space(
+                    &cx.env,
+                    provider.as_ref(),
+                    &scope,
+                    target.backend,
+                    rm.space_uid,
+                    request.request_uid,
+                    op.operation_uid,
+                )
+                .map_err(typed_op)?;
                 return finish(cx, false);
             }
             _ => {
@@ -1245,6 +1854,123 @@ fn remove(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
         server_epoch: Some(target.epoch),
         ..reply
     })
+}
+
+fn owner_attach_child_focus(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    native_token: &str,
+    expected_epoch: ServerEpoch,
+    requested: Option<&AttachChildRequest>,
+) -> Result<(Vec<String>, Option<AttachPlanChild>), TypedError> {
+    let Some(requested) = requested else {
+        return Ok((Vec::new(), None));
+    };
+    if requested.epoch != expected_epoch {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "attach child epoch {} differs from live tmux epoch {}",
+                requested.epoch.0, expected_epoch.0
+            ),
+        ));
+    }
+    let ProviderHandle::Tx(requested_id) = &requested.handle else {
+        return Err(TypedError::new(
+            ErrorCode::InvalidRef,
+            "tmux attach child must carry a tx-* provider handle",
+        ));
+    };
+    let requested_id = *requested_id;
+    let hierarchy = ops::hierarchy(env, provider, scope, space_uid).map_err(typed_op)?;
+    if hierarchy.server_epoch != expected_epoch {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            "tmux epoch changed while resolving attach child",
+        ));
+    }
+    match requested.kind {
+        ChildKind::Group => {
+            let mut matched = None;
+            for group in &hierarchy.groups {
+                let child = parse_child(&group.group_ref, ChildKind::Group)?;
+                if child.handle == ProviderHandle::Tx(requested_id) {
+                    if matched.replace(child).is_some() {
+                        return Err(TypedError::new(
+                            ErrorCode::IdentityConflict,
+                            "tmux Group handle is duplicated in the live hierarchy",
+                        ));
+                    }
+                }
+            }
+            let child = matched.ok_or_else(|| {
+                TypedError::new(
+                    ErrorCode::NotFound,
+                    format!("tmux Group tx-{requested_id} is not live in the Space"),
+                )
+            })?;
+            Ok((
+                vec![
+                    "select-window".to_string(),
+                    "-t".to_string(),
+                    format!("{native_token}:@{requested_id}"),
+                    ";".to_string(),
+                ],
+                Some(AttachPlanChild::Group {
+                    epoch: child.epoch,
+                    handle: child.handle,
+                }),
+            ))
+        }
+        ChildKind::Split => {
+            let mut matched: Option<(ChildRefShape, ChildRefShape)> = None;
+            for group in &hierarchy.groups {
+                let group_ref = parse_child(&group.group_ref, ChildKind::Group)?;
+                for split in &group.splits {
+                    let split_ref = parse_child(&split.split_ref, ChildKind::Split)?;
+                    if split_ref.handle == ProviderHandle::Tx(requested_id) {
+                        if matched.replace((group_ref.clone(), split_ref)).is_some() {
+                            return Err(TypedError::new(
+                                ErrorCode::IdentityConflict,
+                                "tmux Split handle is duplicated in the live hierarchy",
+                            ));
+                        }
+                    }
+                }
+            }
+            let (group, split) = matched.ok_or_else(|| {
+                TypedError::new(
+                    ErrorCode::NotFound,
+                    format!("tmux Split tx-{requested_id} is not live in the Space"),
+                )
+            })?;
+            let ProviderHandle::Tx(group_id) = group.handle else {
+                return Err(TypedError::new(
+                    ErrorCode::ProtocolMismatch,
+                    "tmux hierarchy returned a non-tmux Group handle",
+                ));
+            };
+            Ok((
+                vec![
+                    "select-window".to_string(),
+                    "-t".to_string(),
+                    format!("{native_token}:@{group_id}"),
+                    ";".to_string(),
+                    "select-pane".to_string(),
+                    "-t".to_string(),
+                    format!("%{requested_id}"),
+                    ";".to_string(),
+                ],
+                Some(AttachPlanChild::Split {
+                    epoch: split.epoch,
+                    group: ProviderHandle::Tx(group_id),
+                    split: split.handle,
+                }),
+            ))
+        }
+    }
 }
 
 fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
@@ -1335,6 +2061,15 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
         root_split: crate::model::ProviderHandle::Tx(0),
     };
     provider.inspect(&scope, &native).map_err(typed_provider)?;
+    let (focus_argv, child) = owner_attach_child_focus(
+        &cx.env,
+        provider.as_ref(),
+        &scope,
+        plan_req.space_uid,
+        &binding.native_token,
+        target.epoch,
+        plan_req.child.as_ref(),
+    )?;
 
     // Mint the single-use token; only its sha256 is ever persisted.
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
@@ -1344,14 +2079,17 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
         std::time::SystemTime::now() + std::time::Duration::from_secs(ATTACH_TOKEN_TTL_SECS),
     );
     let route = plan_req.route.unwrap_or_else(|| "local".to_string());
-    let attach_argv = vec![
+    let mut attach_argv = vec![
         "tmux".to_string(),
         "-L".to_string(),
         target.endpoint.clone(),
+    ];
+    attach_argv.extend(focus_argv);
+    attach_argv.extend([
         "attach-session".to_string(),
         "-t".to_string(),
         binding.native_token.clone(),
-    ];
+    ]);
     cx.registry
         .issue_attach_token(&AttachTokenSpec {
             token_hash,
@@ -1373,6 +2111,7 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
         route,
         expires_at,
         token,
+        child,
         replayed: false,
     };
     // Persist the token-FREE plan in the idempotency ledger.
@@ -1467,6 +2206,94 @@ fn split_new(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Rep
     )
     .map_err(typed_op)?;
     to_reply(&target, &created)
+}
+
+// P9 exact child-control RPCs use the same mutation fence as hierarchy
+// writes: authority gate SHARED → exact backend instance EXCLUSIVE → exact
+// Space EXCLUSIVE, with the durable recovery guard checked before touching
+// native state. Their public results carry canonical dmux refs only.
+
+fn group_activate(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let p: GroupActivatePayload = parse_payload(payload)?;
+    let group = parse_child(&p.group_ref, ChildKind::Group)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let result = ops::group_activate_exact(
+        &cx.env,
+        provider.as_ref(),
+        &scope_for(&target),
+        p.space_uid,
+        &group,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &result)
+}
+
+fn split_direction(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let p: SplitDirectionPayload = parse_payload(payload)?;
+    let origin = parse_child(&p.split_ref, ChildKind::Split)?;
+    let direction = parse_direction(Some(&p.direction))?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let result = ops::split_direction(
+        &cx.env,
+        provider.as_ref(),
+        &scope_for(&target),
+        p.space_uid,
+        &origin,
+        direction,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &result)
+}
+
+fn split_resize(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: SplitResizePayload = parse_payload(payload)?;
+    if p.amount == 0 {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "split resize amount must be greater than zero",
+        ));
+    }
+    let split = parse_child(&p.split_ref, ChildKind::Split)?;
+    let direction = parse_direction(Some(&p.direction))?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let result = ops::split_resize(
+        &cx.env,
+        provider.as_ref(),
+        &scope_for(&target),
+        p.space_uid,
+        &split,
+        direction,
+        p.amount,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &result)
+}
+
+fn split_zoom(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
+    let p: SplitZoomPayload = parse_payload(payload)?;
+    let split = parse_child(&p.split_ref, ChildKind::Split)?;
+    let (_space, target, provider) = space_target(cx, p.space_uid, request)?;
+    let result = ops::split_zoom(
+        &cx.env,
+        provider.as_ref(),
+        &scope_for(&target),
+        p.space_uid,
+        &split,
+        request.request_uid,
+    )
+    .map_err(typed_op)?;
+    to_reply(&target, &result)
 }
 
 fn group_rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {

@@ -7,9 +7,11 @@
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
+use dmux::model::{ChildKind, ProviderHandle, ServerEpoch};
 use dmux::operations::CreatedSpace;
+use dmux::refs::parse_ref;
 use dmux::registry::{AttachTokenSpec, sha256::sha256_hex};
-use dmux::remote::protocol::{self, AttachPlan};
+use dmux::remote::protocol::{self, AttachChildRequest, AttachPlan, AttachPlanChild};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -177,6 +179,131 @@ fn attach_plan_replay_returns_the_stored_plan_without_the_token() {
     assert!(replayed.token.is_empty());
     assert_eq!(replayed.space_uid, plan.space_uid);
     assert_eq!(replayed.server_epoch, plan.server_epoch);
+}
+
+#[test]
+fn child_attach_plan_correlates_parent_and_stores_focus_before_final_attach() {
+    let scratch = Scratch::with_tmux("plan-child");
+    let created = create_space(&scratch, "focused");
+    let group = parse_ref(&format!("x/{}", created.group_ref))
+        .unwrap()
+        .child
+        .unwrap();
+    let split = parse_ref(&format!("x/{}", created.split_ref))
+        .unwrap()
+        .child
+        .unwrap();
+    let request_uid = Uuid::new_v4();
+    let request = envelope(
+        protocol::methods::ATTACH_PLAN,
+        request_uid,
+        json!({
+            "space_uid": created.space_uid,
+            "route": "test-direct",
+            "child": AttachChildRequest {
+                kind: ChildKind::Split,
+                epoch: split.epoch,
+                handle: split.handle.clone(),
+            },
+        }),
+    );
+    let (code, response) = scratch.agent(&request);
+    assert_eq!(code, 0, "{response:?}");
+    let plan: AttachPlan = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(
+        plan.child,
+        Some(AttachPlanChild::Split {
+            epoch: split.epoch,
+            group: group.handle.clone(),
+            split: split.handle.clone(),
+        })
+    );
+
+    let ProviderHandle::Tx(group_id) = group.handle else {
+        panic!("scratch tmux Group must use tx handle")
+    };
+    let ProviderHandle::Tx(split_id) = split.handle else {
+        panic!("scratch tmux Split must use tx handle")
+    };
+    let registry = scratch.registry();
+    let (native_token, argv_json): (String, String) = registry
+        .raw_connection()
+        .query_row(
+            "SELECT s.native_token, a.attach_argv \
+             FROM attach_tokens a \
+             JOIN native_bindings s ON s.space_uid = a.space_uid \
+               AND s.binding_state = 'current' \
+             WHERE a.request_uid = ?1",
+            [request_uid.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let argv: Vec<String> = serde_json::from_str(&argv_json).unwrap();
+    assert_eq!(
+        argv,
+        vec![
+            "tmux",
+            "-L",
+            scratch.ns.as_deref().unwrap(),
+            "select-window",
+            "-t",
+            &format!("{native_token}:@{group_id}"),
+            ";",
+            "select-pane",
+            "-t",
+            &format!("%{split_id}"),
+            ";",
+            "attach-session",
+            "-t",
+            &native_token,
+        ]
+    );
+    assert_eq!(argv.last(), Some(&native_token));
+}
+
+#[test]
+fn stale_or_missing_attach_child_mints_no_token() {
+    let scratch = Scratch::with_tmux("plan-child-refusal");
+    let created = create_space(&scratch, "focused");
+    let split = parse_ref(&format!("x/{}", created.split_ref))
+        .unwrap()
+        .child
+        .unwrap();
+    for child in [
+        AttachChildRequest {
+            kind: ChildKind::Split,
+            epoch: ServerEpoch(Uuid::from_u128(999)),
+            handle: split.handle.clone(),
+        },
+        AttachChildRequest {
+            kind: ChildKind::Split,
+            epoch: split.epoch,
+            handle: ProviderHandle::Tx(u64::MAX),
+        },
+    ] {
+        let request_uid = Uuid::new_v4();
+        let request = envelope(
+            protocol::methods::ATTACH_PLAN,
+            request_uid,
+            json!({
+                "space_uid": created.space_uid,
+                "child": child,
+            }),
+        );
+        let (code, response) = scratch.agent(&request);
+        assert!(code == 1 || code == 3, "{response:?}");
+        assert!(response.error.is_some(), "{response:?}");
+        let registry = scratch.registry();
+        let count: i64 = registry
+            .raw_connection()
+            .query_row(
+                "SELECT COUNT(*) FROM attach_tokens WHERE request_uid = ?1",
+                [request_uid.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "refused child must mint no token");
+    }
 }
 
 #[test]

@@ -1,12 +1,161 @@
 local wezterm = require 'wezterm'
 local act = wezterm.action
 local platform = require 'wez.platform'
+local json = require 'wez.dmux_bridge.json'
 
 -- Native mux to the peer machine. Both ssh domains reach the same
 -- wezterm-mux-server, so windows and panes are identical through either
 -- path: when the cable dies mid-session, attaching the -ts domain resumes
 -- exactly where the -usb session stopped.
 local M = {}
+
+local function dmux_enabled()
+  return os.getenv 'DMUX_WEZ_FIRST' == '1'
+end
+
+local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$'
+
+local DOMAIN_ROW_KEYS = {
+  alternate_domains = true,
+  backend_instance_uid = true,
+  compatible = true,
+  host_uid = true,
+  name = true,
+  network_class = true,
+  priority = true,
+  remote_address = true,
+  remote_wezterm_path = true,
+  route_id = true,
+  transport = true,
+  unavailable_reason = true,
+  username = true,
+}
+
+local function exact_keys(value, allowed)
+  if type(value) ~= 'table' then
+    return false
+  end
+  for key in pairs(value) do
+    if type(key) ~= 'string' or not allowed[key] then
+      return false
+    end
+  end
+  return true
+end
+
+local function bounded_string(value, maximum)
+  return type(value) == 'string' and #value > 0 and #value <= maximum and not value:find '[%z\1-\31\127]'
+end
+
+local function valid_domain(value)
+  return bounded_string(value, 128) and value:match '^[A-Za-z0-9][A-Za-z0-9_.:-]*$' ~= nil
+end
+
+local function valid_integer(value)
+  return type(value) == 'number' and value % 1 == 0 and math.abs(value) <= 9007199254740991
+end
+
+local function dense_array(value, validator)
+  if type(value) ~= 'table' or not json.is_array(value) then
+    return false
+  end
+  for index, item in ipairs(value) do
+    if not validator(item, index) then
+      return false
+    end
+  end
+  for key in pairs(value) do
+    if type(key) ~= 'number' or key % 1 ~= 0 or key < 1 or key > #value then
+      return false
+    end
+  end
+  return true
+end
+
+local function valid_manifest_row(row)
+  if not exact_keys(row, DOMAIN_ROW_KEYS) then
+    return false
+  end
+  local transport = { openssh = true, ['wez-ssh'] = true }
+  local network_class = { usb = true, tailscale = true, lan = true, other = true }
+  if
+    not valid_domain(row.name)
+    or not bounded_string(row.remote_address, 1024)
+    or not bounded_string(row.username, 256)
+    or type(row.host_uid) ~= 'string'
+    or not row.host_uid:match(UUID)
+    or type(row.backend_instance_uid) ~= 'string'
+    or not row.backend_instance_uid:match(UUID)
+    or not valid_integer(row.route_id)
+    or row.route_id <= 0
+    or not valid_integer(row.priority)
+    or not transport[row.transport]
+    or not network_class[row.network_class]
+    or type(row.compatible) ~= 'boolean'
+    or not dense_array(row.alternate_domains, function(name)
+      return valid_domain(name)
+    end)
+  then
+    return false
+  end
+  if
+    row.remote_wezterm_path ~= nil
+    and (not bounded_string(row.remote_wezterm_path, 1024) or row.remote_wezterm_path:sub(1, 1) ~= '/')
+  then
+    return false
+  end
+  if row.compatible then
+    return row.remote_wezterm_path ~= nil and row.unavailable_reason == nil
+  end
+  return bounded_string(row.unavailable_reason, 4096)
+end
+
+local function validate_manifest(rows)
+  if not dense_array(rows, valid_manifest_row) then
+    return false
+  end
+  local names, route_ids = {}, {}
+  for _, row in ipairs(rows) do
+    if names[row.name] or route_ids[row.route_id] then
+      return false
+    end
+    names[row.name], route_ids[row.route_id] = true, true
+    local seen = {}
+    for _, alternate in ipairs(row.alternate_domains) do
+      if alternate == row.name or seen[alternate] then
+        return false
+      end
+      seen[alternate] = true
+    end
+  end
+  for _, row in ipairs(rows) do
+    local expected = {}
+    for _, other in ipairs(rows) do
+      if
+        other.name ~= row.name
+        and other.host_uid == row.host_uid
+        and other.backend_instance_uid == row.backend_instance_uid
+        and other.compatible
+      then
+        table.insert(expected, other.name)
+      end
+    end
+    if #expected ~= #row.alternate_domains then
+      return false
+    end
+    for index, name in ipairs(expected) do
+      if row.alternate_domains[index] ~= name then
+        return false
+      end
+    end
+  end
+  return true
+end
 
 local PEER = platform.pick {
   mac = {
@@ -32,6 +181,48 @@ local function domain_name(suffix)
 end
 
 function M.domains()
+  if dmux_enabled() then
+    local bin = os.getenv 'DMUX_BIN' or (wezterm.home_dir .. '/.local/bin/dmux')
+    local spawned, ok, stdout, stderr = pcall(wezterm.run_child_process, { bin, '_gui', 'domains' })
+    if not spawned or not ok then
+      wezterm.log_error('dmux domain manifest unavailable: ' .. tostring(spawned and stderr or ok))
+      return {}
+    end
+    if type(stdout) ~= 'string' or #stdout > 64 * 1024 then
+      wezterm.log_error 'dmux domain manifest exceeds the bounded response size'
+      return {}
+    end
+    local response = json.decode(stdout)
+    if
+      type(response) ~= 'table'
+      or not exact_keys(response, { schema_version = true, ok = true, result = true })
+      or response.schema_version ~= 1
+      or response.ok ~= true
+      or type(response.result) ~= 'table'
+      or not exact_keys(response.result, { domains = true })
+      or type(response.result.domains) ~= 'table'
+      or not validate_manifest(response.result.domains)
+    then
+      wezterm.log_error 'dmux domain manifest is malformed'
+      return {}
+    end
+    local domains = {}
+    for _, row in ipairs(response.result.domains) do
+      if row.compatible then
+        table.insert(domains, {
+          name = row.name,
+          remote_address = row.remote_address,
+          username = row.username,
+          multiplexing = 'WezTerm',
+          remote_wezterm_path = row.remote_wezterm_path,
+          assume_shell = 'Posix',
+        })
+      else
+        wezterm.log_warn(string.format('dmux GUI domain %s unavailable: %s', row.name, row.unavailable_reason))
+      end
+    end
+    return domains
+  end
   if not PEER then
     return {}
   end
@@ -53,6 +244,9 @@ function M.domains()
 end
 
 function M.usb_reachable()
+  if dmux_enabled() then
+    return false
+  end
   if not PEER then
     return false
   end
@@ -64,6 +258,9 @@ end
 -- Spawning a tab in the domain attaches it, which also brings along every
 -- window already live on the remote mux server.
 function M.attach_action()
+  if dmux_enabled() then
+    return require('wez.plugins.workspace_picker').action()
+  end
   return wezterm.action_callback(function(window, pane)
     if not PEER then
       return

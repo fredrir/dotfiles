@@ -9,11 +9,15 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use dmux::backend::tmux::TmuxProvider;
-use dmux::backend::{InventoryScope, Provider};
+use dmux::backend::{InventoryScope, SplitDirection};
+use dmux::bootstrap::MarkerContext;
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
-    CreateRequest, OpError, OperationEnv, create_space, remove_space, rename_space, tmux_bootstrap,
+    CreateRequest, OpError, OperationEnv, SplitNewRequest, create_space, group_activate_exact,
+    remove_space, rename_space, resume_remove_space, split_direction, split_new, split_resize,
+    split_zoom, tmux_bootstrap, validate_marker_context,
 };
+use dmux::refs::{ChildRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
 use uuid::Uuid;
 
@@ -110,7 +114,7 @@ impl Drop for Scratch {
     }
 }
 
-fn request(s: &Scratch, name: &str, marker: &std::path::Path) -> CreateRequest {
+fn request(_s: &Scratch, name: &str, marker: &std::path::Path) -> CreateRequest {
     CreateRequest {
         request_uid: Uuid::new_v4(),
         name: name.to_string(),
@@ -125,6 +129,13 @@ fn request(s: &Scratch, name: &str, marker: &std::path::Path) -> CreateRequest {
         ],
         helper_bin: env!("CARGO_BIN_EXE_pane-bootstrap").to_string(),
     }
+}
+
+fn child_shape(child_ref: &str) -> ChildRefShape {
+    parse_ref(&format!("x/{child_ref}"))
+        .expect("child ref parses")
+        .child
+        .expect("child ref is present")
 }
 
 #[test]
@@ -156,6 +167,31 @@ fn create_replay_rename_remove_full_cycle() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(stamped, created.space_uid.0.to_string());
+
+    // A GUI marker is only a locator. Revalidation must bind its complete
+    // tuple to the authority row, published epoch, and exact live child
+    // parentage before keys/status/presentation may consume it.
+    let identity = s.registry().identity().unwrap();
+    let marker_context = MarkerContext {
+        host_uid: identity.host_uid,
+        space_uid: created.space_uid,
+        space_no: created.space_no,
+        backend: Backend::Tmux,
+        domain: None,
+        server_epoch: epoch,
+        group_ref: created.group_ref.clone(),
+        split_ref: created.split_ref.clone(),
+    };
+    let validated = validate_marker_context(&s.env(), &provider, &scope, &marker_context).unwrap();
+    assert_eq!(validated.logical_name, "proj");
+    assert_eq!((validated.group_count, validated.split_count), (1, 1));
+    assert_eq!(validated.context, marker_context);
+    let mut mismatched_parent = marker_context.clone();
+    mismatched_parent.group_ref = format!("g{}.tx-999999", epoch.0);
+    assert!(matches!(
+        validate_marker_context(&s.env(), &provider, &scope, &mismatched_parent),
+        Err(OpError::StaleRef(_))
+    ));
 
     // Registry: active + bound + bootstrap completed.
     let registry = s.registry();
@@ -300,4 +336,195 @@ fn failure_injection_conflict_and_wrong_epoch() {
     )
     .unwrap_err();
     assert!(matches!(err, OpError::NameConflict(_)), "{err}");
+}
+
+#[test]
+fn remove_resume_requires_the_exact_journal_owner_and_uses_the_fenced_path() {
+    let s = Scratch::new("remove-resume");
+    let epoch = s.epoch();
+    let scope = s.scope(epoch);
+    let provider = TmuxProvider::new(s.ns.clone());
+    let created = create_space(
+        &s.env(),
+        &provider,
+        &scope,
+        Backend::Tmux,
+        &request(&s, "resume-me", &s.data.path().join("resume-marker")),
+    )
+    .unwrap();
+
+    // Simulate a crash after durable deleting intent but before the native
+    // remove/ack. Only this operation/request pair may resume it.
+    let request_uid = Uuid::new_v4();
+    let operation_uid = s
+        .registry()
+        .begin_remove(created.space_uid, request_uid)
+        .unwrap();
+    let wrong = resume_remove_space(
+        &s.env(),
+        &provider,
+        &scope,
+        Backend::Tmux,
+        created.space_uid,
+        Uuid::new_v4(),
+        operation_uid,
+    )
+    .unwrap_err();
+    assert!(matches!(wrong, OpError::Refused(_)), "{wrong}");
+    assert!(s.session_names().contains(&"resume-me".to_string()));
+
+    resume_remove_space(
+        &s.env(),
+        &provider,
+        &scope,
+        Backend::Tmux,
+        created.space_uid,
+        request_uid,
+        operation_uid,
+    )
+    .unwrap();
+    assert!(!s.session_names().contains(&"resume-me".to_string()));
+    assert_eq!(
+        s.registry().space(created.space_uid).unwrap().lifecycle,
+        dmux::model::Lifecycle::Deleted
+    );
+}
+
+#[test]
+fn exact_child_actions_are_fenced_and_ack_replay_does_not_toggle_twice() {
+    let s = Scratch::new("exact-actions");
+    let epoch = s.epoch();
+    let scope = s.scope(epoch);
+    let provider = TmuxProvider::new(s.ns.clone());
+    let created = create_space(
+        &s.env(),
+        &provider,
+        &scope,
+        Backend::Tmux,
+        &request(&s, "actions", &s.data.path().join("action-marker")),
+    )
+    .unwrap();
+
+    let root_group = child_shape(&created.group_ref);
+    let root_split = child_shape(&created.split_ref);
+    let second = split_new(
+        &s.env(),
+        &provider,
+        &scope,
+        &SplitNewRequest {
+            request_uid: Uuid::new_v4(),
+            space_uid: created.space_uid,
+            group: root_group.clone(),
+            direction: SplitDirection::Right,
+            percent: Some(40),
+            cwd: None,
+            program: vec!["sh".into(), "-c".into(), "exec sleep 300".into()],
+            helper_bin: env!("CARGO_BIN_EXE_pane-bootstrap").into(),
+        },
+    )
+    .unwrap();
+    let second_split = child_shape(&second.split_ref);
+
+    let activate_uid = Uuid::new_v4();
+    let activated = group_activate_exact(
+        &s.env(),
+        &provider,
+        &scope,
+        created.space_uid,
+        &root_group,
+        activate_uid,
+    )
+    .unwrap();
+    assert_eq!(activated.group_ref, created.group_ref);
+    assert!(!activated.replayed);
+    assert!(
+        group_activate_exact(
+            &s.env(),
+            &provider,
+            &scope,
+            created.space_uid,
+            &root_group,
+            activate_uid,
+        )
+        .unwrap()
+        .replayed
+    );
+
+    let selected = split_direction(
+        &s.env(),
+        &provider,
+        &scope,
+        created.space_uid,
+        &second_split,
+        SplitDirection::Left,
+        Uuid::new_v4(),
+    )
+    .unwrap();
+    assert_eq!(selected.group_ref, created.group_ref);
+    assert_eq!(
+        selected.split_ref.as_deref(),
+        Some(created.split_ref.as_str())
+    );
+
+    let resized = split_resize(
+        &s.env(),
+        &provider,
+        &scope,
+        created.space_uid,
+        &second_split,
+        SplitDirection::Left,
+        3,
+        Uuid::new_v4(),
+    )
+    .unwrap();
+    assert_eq!(resized.split_ref, second.split_ref);
+
+    // Zoom is deliberately non-idempotent at the backend. Once the first
+    // result is durably recorded, an acknowledgement-loss retry must replay
+    // the result instead of invoking tmux's toggle a second time.
+    let zoom_uid = Uuid::new_v4();
+    let zoomed = split_zoom(
+        &s.env(),
+        &provider,
+        &scope,
+        created.space_uid,
+        &second_split,
+        zoom_uid,
+    )
+    .unwrap();
+    assert!(zoomed.zoomed);
+    assert_eq!(
+        s.tmux(&["display-message", "-p", "#{window_zoomed_flag}"])
+            .trim(),
+        "1"
+    );
+    let replayed = split_zoom(
+        &s.env(),
+        &provider,
+        &scope,
+        created.space_uid,
+        &second_split,
+        zoom_uid,
+    )
+    .unwrap();
+    assert!(replayed.replayed && replayed.zoomed);
+    assert_eq!(
+        s.tmux(&["display-message", "-p", "#{window_zoomed_flag}"])
+            .trim(),
+        "1"
+    );
+
+    let mut stale = root_split;
+    stale.epoch = ServerEpoch(Uuid::new_v4());
+    assert!(matches!(
+        split_zoom(
+            &s.env(),
+            &provider,
+            &scope,
+            created.space_uid,
+            &stale,
+            Uuid::new_v4(),
+        ),
+        Err(OpError::StaleRef(_))
+    ));
 }

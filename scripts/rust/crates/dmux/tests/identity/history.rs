@@ -58,6 +58,38 @@ fn history_is_identity_keyed_and_per_host() {
 }
 
 #[test]
+fn gui_history_records_one_cross_host_last_presented_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let history = History::new(dir.path());
+    let (h1, h2) = (host(), host());
+    let (a, b) = (space(), space());
+
+    // Ordinary terminal attachment history must not silently become a GUI
+    // summon target.
+    history.record_attach(h1, a).unwrap();
+    assert_eq!(history.last_gui_presented(), None);
+
+    history.record_gui_present(h1, a).unwrap();
+    assert_eq!(
+        history.last_gui_presented(),
+        Some(dmux::history::GuiHistoryTarget {
+            host_uid: h1,
+            space_uid: a,
+        })
+    );
+    history.record_gui_present(h2, b).unwrap();
+    assert_eq!(
+        history.last_gui_presented(),
+        Some(dmux::history::GuiHistoryTarget {
+            host_uid: h2,
+            space_uid: b,
+        })
+    );
+    assert_eq!(history.current(h1), Some(a));
+    assert_eq!(history.current(h2), Some(b));
+}
+
+#[test]
 fn history_persists_across_instances_and_survives_corruption() {
     let dir = tempfile::tempdir().unwrap();
     let h = host();

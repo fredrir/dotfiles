@@ -21,7 +21,7 @@ use crate::registry::{
 use crate::remote::client::{self, AgentInvocation, RouteInvoker, SshInvoker, request_envelope};
 use crate::remote::lineage::{self, PeerLineage, PresentedPeer};
 use crate::remote::protocol::{self, Envelope, HelloInfo, HelloPayload};
-use crate::remote::routes::{classify_endpoint, default_priority, outcome};
+use crate::remote::routes::{classify_endpoint, default_priority, outcome, wez_domain_name};
 
 /// What a completed enrollment recorded.
 #[derive(Debug, Clone)]
@@ -181,24 +181,10 @@ pub fn enroll_target(
     }
 
     // Route record: class heuristic + §8.4 priority; user@ split into the
-    // route's username field.
-    let (username, endpoint) = split_target(target);
-    let network_class = classify_endpoint(target);
-    let route_id = registry
-        .upsert_route(&RouteSpec {
-            host_uid: hello.host_uid,
-            transport: Transport::Openssh,
-            endpoint: endpoint.to_string(),
-            username: username.map(str::to_string),
-            wez_domain: None,
-            network_class,
-            priority: default_priority(network_class),
-            required_capability: None,
-            trust_fingerprint: None,
-            enabled: true,
-        })
-        .map_err(|e| TypedError::new(e.error_code(), e.to_string()))?;
-    let _ = registry.record_route_outcome(route_id, outcome::OK);
+    // route's username field. Re-enrollment is also the explicit backfill
+    // path for pre-P9 rows whose wez_domain is NULL; read-only route listing
+    // deliberately never mutates them.
+    let (route_id, network_class) = record_enrolled_route(&mut registry, hello.host_uid, target)?;
 
     Ok(Enrollment {
         host: enrolled,
@@ -207,6 +193,36 @@ pub fn enroll_target(
         hello,
         lineage: assessment,
     })
+}
+
+/// Record the OpenSSH route learned by enrollment. Kept separate from the
+/// handshake so idempotency of the persisted route identity and P9 domain
+/// name can be tested without faking the external ssh process.
+fn record_enrolled_route(
+    registry: &mut Registry,
+    host_uid: crate::model::HostUid,
+    target: &str,
+) -> Result<(i64, NetworkClass), TypedError> {
+    let (username, endpoint) = split_target(target);
+    let network_class = classify_endpoint(target);
+    let route_id = registry
+        .upsert_route(&RouteSpec {
+            host_uid,
+            transport: Transport::Openssh,
+            endpoint: endpoint.to_string(),
+            username: username.map(str::to_string),
+            wez_domain: Some(wez_domain_name(host_uid, Transport::Openssh, endpoint)),
+            network_class,
+            priority: default_priority(network_class),
+            required_capability: None,
+            trust_fingerprint: None,
+            enabled: true,
+        })
+        .map_err(|e| TypedError::new(e.error_code(), e.to_string()))?;
+    // Outcome recording is diagnostic and intentionally does not advance
+    // the authority chain. A failure here cannot invalidate enrollment.
+    let _ = registry.record_route_outcome(route_id, outcome::OK);
+    Ok((route_id, network_class))
 }
 
 /// One fresh nonce-bound hello exchange with `target`, validated end to
@@ -319,6 +335,16 @@ fn label_candidate(target: &str) -> Option<&str> {
 mod tests {
     use super::*;
 
+    fn registry() -> (tempfile::TempDir, Registry) {
+        let scratch = tempfile::tempdir().unwrap();
+        let registry = Registry::open(RegistryConfig::new(
+            scratch.path().join("registry.sqlite3"),
+            scratch.path().join("locks"),
+        ))
+        .unwrap();
+        (scratch, registry)
+    }
+
     #[test]
     fn target_splitting_and_label_candidates() {
         assert_eq!(split_target("archie"), (None, "archie"));
@@ -328,5 +354,86 @@ mod tests {
         assert_eq!(label_candidate("10.77.77.2"), None);
         assert_eq!(label_candidate("fredrir@archie"), None);
         assert_eq!(label_candidate("Archie"), None);
+    }
+
+    #[test]
+    fn enrollment_route_is_idempotent_and_backfills_a_stable_domain() {
+        let (_scratch, mut registry) = registry();
+        let host_uid = crate::model::HostUid(Uuid::from_u128(0x00112233445566778899aabbccddeeff));
+        let enrolled = registry.enroll_host(host_uid, Some("archie")).unwrap();
+
+        // Model an existing pre-P9 enrollment row. Re-enrollment of that
+        // exact address updates it in place instead of allocating a route.
+        let route_id = registry
+            .upsert_route(&RouteSpec {
+                host_uid,
+                transport: Transport::Openssh,
+                endpoint: "10.77.77.2".into(),
+                username: Some("fredrir".into()),
+                wez_domain: None,
+                network_class: NetworkClass::Usb,
+                priority: default_priority(NetworkClass::Usb),
+                required_capability: None,
+                trust_fingerprint: None,
+                enabled: true,
+            })
+            .unwrap();
+        let before_listing = registry.authority_head().unwrap().revision;
+        assert!(
+            registry.routes_for(host_uid).unwrap()[0]
+                .wez_domain
+                .is_none()
+        );
+        assert_eq!(
+            registry.authority_head().unwrap().revision,
+            before_listing,
+            "read-only listing must leave legacy NULL rows untouched"
+        );
+
+        let (backfilled_id, class) =
+            record_enrolled_route(&mut registry, host_uid, "fredrir@10.77.77.2").unwrap();
+        assert_eq!(backfilled_id, route_id);
+        assert_eq!(class, NetworkClass::Usb);
+        let backfilled = registry.routes_for(host_uid).unwrap().remove(0);
+        let domain = backfilled
+            .wez_domain
+            .expect("re-enrollment backfills domain");
+        assert_eq!(
+            domain,
+            wez_domain_name(host_uid, Transport::Openssh, "10.77.77.2")
+        );
+
+        // Same HostUid/address is a pure route upsert; changing mutable
+        // username metadata still cannot change its native domain.
+        let (again_id, _) =
+            record_enrolled_route(&mut registry, host_uid, "another@10.77.77.2").unwrap();
+        assert_eq!(again_id, route_id);
+        let again = registry.routes_for(host_uid).unwrap().remove(0);
+        assert_eq!(again.username.as_deref(), Some("another"));
+        assert_eq!(again.wez_domain.as_deref(), Some(domain.as_str()));
+        let before_identical = registry.authority_head().unwrap().revision;
+        let (identical_id, _) =
+            record_enrolled_route(&mut registry, host_uid, "another@10.77.77.2").unwrap();
+        assert_eq!(identical_id, route_id);
+        assert_eq!(
+            registry.authority_head().unwrap().revision,
+            before_identical,
+            "identical re-enrollment is an authority no-op"
+        );
+        assert_eq!(
+            registry.enroll_host(host_uid, None).unwrap().alias,
+            enrolled.alias
+        );
+
+        // A second physical route to the same HostUid has its own stable
+        // native domain but does not allocate a second host/alias.
+        let (tailscale_id, tailscale_class) =
+            record_enrolled_route(&mut registry, host_uid, "100.101.5.9").unwrap();
+        assert_ne!(tailscale_id, route_id);
+        assert_eq!(tailscale_class, NetworkClass::Tailscale);
+        let routes = registry.routes_for(host_uid).unwrap();
+        assert_eq!(routes.len(), 2);
+        assert_ne!(routes[0].wez_domain, routes[1].wez_domain);
+        assert_eq!(registry.hosts().unwrap().len(), 2, "local plus one peer");
     }
 }

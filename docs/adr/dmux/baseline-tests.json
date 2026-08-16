@@ -486,5 +486,13 @@
    ]
   }
  },
- "retirements": []
+ "retirements": [
+  {
+   "id": "cli::detach_outside_tmux_refuses",
+   "rationale": "Plan section 14 makes headless disconnect an idempotent success; detach is its one-release compatibility alias.",
+   "replacement_tests": [
+    "cli::disconnect_and_legacy_detach_outside_clients_are_idempotent"
+   ]
+  }
+ ]
 }

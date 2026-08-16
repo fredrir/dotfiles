@@ -60,9 +60,22 @@ impl Sandbox {
         command
             .args(args)
             .env("PATH", self.bin.path())
+            .env("XDG_DATA_HOME", self.state.path())
             .env("XDG_STATE_HOME", self.state.path())
+            .env("XDG_RUNTIME_DIR", self.state.path())
             .env("DMUX_DRY_RUN", "1")
             .env_remove("TMUX")
+            .env_remove("TMUX_PANE")
+            .env_remove("DMUX_WEZ_FIRST")
+            .env_remove("DMUX_CONTEXT_VERSION")
+            .env_remove("DMUX_BACKEND")
+            .env_remove("DMUX_HOST_UID")
+            .env_remove("DMUX_SPACE_UID")
+            .env_remove("DMUX_SPACE_NO")
+            .env_remove("DMUX_DOMAIN")
+            .env_remove("DMUX_SERVER_EPOCH")
+            .env_remove("DMUX_GROUP_REF")
+            .env_remove("DMUX_SPLIT_REF")
             .env_remove("WEZTERM_UNIX_SOCKET")
             .env_remove("WEZTERM_PANE")
             .env_remove("TERM_PROGRAM")
@@ -419,11 +432,14 @@ fn detach_inside_tmux_detaches_the_client() {
 }
 
 #[test]
-fn detach_outside_tmux_refuses() {
+fn disconnect_and_legacy_detach_outside_clients_are_idempotent() {
     let sandbox = Sandbox::empty();
-    let output = sandbox.dmux(&["detach"]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(stderr(&output).contains("nothing to detach"));
+    for command in ["disconnect", "detach"] {
+        let output = sandbox.dmux(&[command]);
+        assert!(output.status.success(), "{command}");
+        assert_eq!(stdout(&output), "nothing attached\n", "{command}");
+        assert!(stderr(&output).is_empty(), "{command}");
+    }
 }
 
 /// A wezterm window is not attached the way a tmux client is; detach says so

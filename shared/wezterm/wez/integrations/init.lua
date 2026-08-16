@@ -9,7 +9,13 @@ local SOURCES = {
 }
 
 local function each(fn)
-  for _, name in ipairs(SOURCES) do
+  local sources = SOURCES
+  if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+    -- ssh_hosts populates spawn-capable launch-menu entries and the custom
+    -- command palette spawns tabs. clean-copy is presentation-neutral.
+    sources = { 'wez.integrations.clean_copy' }
+  end
+  for _, name in ipairs(sources) do
     -- Per integration, so one failure costs only its own feature.
     local ok, err = pcall(function()
       fn(require(name))

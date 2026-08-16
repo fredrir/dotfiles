@@ -12,9 +12,12 @@
 mod util;
 
 mod attach;
+mod capability_gate;
 mod hierarchy;
 mod local_agent;
 mod mutations;
+mod new_lookup;
+mod recovery_control;
 mod route_matrix;
 mod two_host;
 mod wez_agent;

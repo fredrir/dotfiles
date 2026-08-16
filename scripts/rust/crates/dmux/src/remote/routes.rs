@@ -3,7 +3,28 @@
 //! network-class heuristic. Route ROWS live in the registry; this module is
 //! the policy layer above them.
 
-use crate::registry::{NetworkClass, RouteRow};
+use crate::model::HostUid;
+use crate::registry::{NetworkClass, RouteRow, Transport, sha256::sha256_hex};
+
+/// Build the stable WezTerm domain name for one registry route.
+///
+/// Route identity is the registry's immutable upsert key:
+/// `(HostUid, transport, endpoint)`.  Username, friendly host labels,
+/// network-class guesses, priority, and the database-local `route_id` are
+/// deliberately excluded, so editing presentation/policy metadata cannot
+/// rename an attached domain.  The full HostUid plus a 96-bit digest keeps
+/// the result below the DNS-label length limit and restricted to lowercase
+/// ASCII, digits, and `-`, which is safe for every Wez provider/config seam.
+pub fn wez_domain_name(host_uid: HostUid, transport: Transport, endpoint: &str) -> String {
+    let identity = format!(
+        "dmux-wez-domain-v1\0{}\0{}\0{}",
+        host_uid.0,
+        transport.as_str(),
+        endpoint
+    );
+    let digest = sha256_hex(identity.as_bytes());
+    format!("dmux-{}-{}", host_uid.0.simple(), &digest[..24])
+}
 
 /// Stable typed outcome tokens recorded via
 /// `Registry::record_route_outcome` on EVERY attempt (ADR 009 §4).
@@ -179,6 +200,32 @@ mod tests {
                 NetworkClass::Lan,
                 NetworkClass::Other
             ]
+        );
+    }
+
+    #[test]
+    fn wez_domain_names_are_stable_restricted_route_identities() {
+        let host = HostUid(Uuid::from_u128(0x00112233445566778899aabbccddeeff));
+        let usb = wez_domain_name(host, Transport::Openssh, "10.77.77.2");
+        assert_eq!(usb, wez_domain_name(host, Transport::Openssh, "10.77.77.2"));
+        assert_eq!(usb.len(), 62);
+        assert!(usb.starts_with("dmux-00112233445566778899aabbccddeeff-"));
+        assert!(
+            usb.bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        );
+
+        // Two paths to one authority must remain separate native domains.
+        let tailscale = wez_domain_name(host, Transport::Openssh, "100.101.5.9");
+        assert_ne!(usb, tailscale);
+        assert_ne!(usb, wez_domain_name(host, Transport::WezSsh, "10.77.77.2"));
+        assert_ne!(
+            usb,
+            wez_domain_name(
+                HostUid(Uuid::from_u128(0x10112233445566778899aabbccddeeff)),
+                Transport::Openssh,
+                "10.77.77.2"
+            )
         );
     }
 }

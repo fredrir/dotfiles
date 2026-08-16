@@ -14,6 +14,7 @@ pub mod hosts;
 pub mod lineage;
 pub mod protocol;
 pub mod routes;
+pub mod wez_compat;
 
 /// Non-interactive ssh sessions arrive with a POSIX locale on Linux, and a
 /// POSIX-locale tmux CLIENT sanitizes the provider's U+001F field

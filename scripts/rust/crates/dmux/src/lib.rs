@@ -12,14 +12,20 @@
 
 pub mod backend;
 pub mod bootstrap;
+pub mod connect_cli;
 pub mod error;
+pub mod gui;
+pub mod gui_cli;
+pub mod gui_lifecycle;
 pub mod history;
 pub mod inventory;
 pub mod locks;
 pub mod model;
+pub mod new_cli;
 pub mod operations;
 pub mod output;
 pub mod policy;
+pub mod recovery;
 pub mod refs;
 pub mod registry;
 pub mod remote;

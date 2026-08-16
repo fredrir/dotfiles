@@ -41,6 +41,20 @@ if platform.is_mac then
       action = act.ActivateTab(index - 1),
     })
   end
+  if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+    -- Keep only application/clipboard/view operations. Logical creation,
+    -- selection, close, and quit are installed by the mandatory dmux layer.
+    M.keys = {
+      { key = 'm', mods = 'CMD', action = act.Hide },
+      { key = 'c', mods = 'CMD', action = actions.copy_or(nil) },
+      { key = 'v', mods = 'CMD', action = act.PasteFrom 'Clipboard' },
+      { key = 'f', mods = 'CMD', action = act.Search 'CurrentSelectionOrEmptyString' },
+      { key = 'k', mods = 'CMD', action = act.ClearScrollback 'ScrollbackOnly' },
+      { key = '+', mods = 'CMD', action = act.IncreaseFontSize },
+      { key = '-', mods = 'CMD', action = act.DecreaseFontSize },
+      { key = '0', mods = 'CMD', action = act.ResetFontSize },
+    }
+  end
 end
 
 return M

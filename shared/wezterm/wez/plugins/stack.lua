@@ -8,6 +8,11 @@ local M = {}
 local URL = 'https://github.com/fredrir/stack.wez'
 
 function M.apply(config)
+  if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+    -- SpawnPane bypasses dmux identity/owner validation. The managed-mode
+    -- replacement is the logical Split actions installed by the bridge.
+    return
+  end
   local stack = wezterm.plugin.require(URL)
 
   -- Deliberately not calling stack.apply_to_config: it would only register

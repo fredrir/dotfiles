@@ -11,7 +11,9 @@ use dmux::backend::InventoryScope;
 use dmux::backend::tmux::TmuxProvider;
 use dmux::model::{Backend, ChildKind, ServerEpoch};
 use dmux::operations::{CreatedChild, CreatedSpace, RemovedChild, SpaceHierarchy};
-use dmux::remote::protocol::{self};
+use dmux::remote::protocol::{
+    self, GroupActivateResult, SplitDirectionResult, SplitResizeResult, SplitZoomResult,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -83,6 +85,41 @@ fn pane_count(scratch: &Scratch, session: &str) -> usize {
     )
     .lines()
     .count()
+}
+
+fn qualify(scratch: &Scratch, mut request: protocol::Envelope) -> protocol::Envelope {
+    let mut registry = scratch.registry();
+    let instance = registry
+        .register_backend_instance(Backend::Tmux, None, None)
+        .unwrap();
+    let epoch = registry
+        .backend_server(instance)
+        .unwrap()
+        .server_epoch
+        .unwrap();
+    request.backend_instance_uid = Some(instance);
+    request.server_epoch = Some(epoch);
+    request
+}
+
+fn pane_geometry(scratch: &Scratch, session: &str) -> Vec<String> {
+    let mut rows: Vec<String> = String::from_utf8_lossy(
+        &scratch
+            .tmux(&[
+                "list-panes",
+                "-s",
+                "-t",
+                session,
+                "-F",
+                "#{pane_id}:#{pane_width}x#{pane_height}:#{pane_left},#{pane_top}",
+            ])
+            .stdout,
+    )
+    .lines()
+    .map(str::to_string)
+    .collect();
+    rows.sort();
+    rows
 }
 
 #[test]
@@ -336,4 +373,168 @@ fn unstamped_adopted_space_refuses_child_mutations() {
             .contains("acknowledges its marker"),
         "{response:?}"
     );
+}
+
+#[test]
+fn exact_child_control_rpcs_are_qualified_fenced_and_replay_safe() {
+    let scratch = Scratch::with_tmux("rcontrol");
+    let created = create(&scratch, "controls");
+
+    let (code, response) = scratch.agent(&envelope(
+        protocol::methods::GROUP_NEW,
+        Uuid::new_v4(),
+        json!({
+            "space_uid": created.space_uid,
+            "program": ["sleep", "300"],
+        }),
+    ));
+    assert_eq!(code, 0, "{response:?}");
+    let second_group: CreatedChild = serde_json::from_value(response.payload.unwrap()).unwrap();
+
+    let (code, response) = scratch.agent(&envelope(
+        protocol::methods::SPLIT_NEW,
+        Uuid::new_v4(),
+        json!({
+            "space_uid": created.space_uid,
+            "group_ref": created.group_ref,
+            "direction": "right",
+            "percent": 50,
+            "program": ["sleep", "300"],
+        }),
+    ));
+    assert_eq!(code, 0, "{response:?}");
+    let second_split: CreatedChild = serde_json::from_value(response.payload.unwrap()).unwrap();
+
+    // Exact Group activation carries owner instance/epoch claims and its
+    // replay returns the stored logical ref without selecting twice.
+    let activate = qualify(
+        &scratch,
+        envelope(
+            protocol::methods::GROUP_ACTIVATE,
+            Uuid::new_v4(),
+            json!({
+                "space_uid": created.space_uid,
+                "group_ref": second_group.group_ref,
+            }),
+        ),
+    );
+    let (code, response) = scratch.agent(&activate);
+    assert_eq!(code, 0, "{response:?}");
+    let activated: GroupActivateResult =
+        serde_json::from_value(response.payload.clone().unwrap()).unwrap();
+    assert_eq!(activated.group_ref, second_group.group_ref);
+    assert!(!activated.replayed);
+    assert!(
+        response
+            .payload
+            .as_ref()
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .keys()
+            .all(|key| !key.contains("native")),
+        "native IDs must not be response fields"
+    );
+    let (code, response) = scratch.agent(&activate);
+    assert_eq!(code, 0, "{response:?}");
+    let replay: GroupActivateResult = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.group_ref, activated.group_ref);
+
+    // Resolve an adjacent Split relative to the exact origin and return
+    // its canonical parent/child refs (never an ordinal/native ID).
+    let direction = qualify(
+        &scratch,
+        envelope(
+            protocol::methods::SPLIT_DIRECTION,
+            Uuid::new_v4(),
+            json!({
+                "space_uid": created.space_uid,
+                "split_ref": created.split_ref,
+                "direction": "right",
+            }),
+        ),
+    );
+    let (code, response) = scratch.agent(&direction);
+    assert_eq!(code, 0, "{response:?}");
+    let selected: SplitDirectionResult = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(selected.group_ref, created.group_ref);
+    assert_eq!(
+        selected.split_ref.as_deref(),
+        Some(&*second_split.split_ref)
+    );
+    let (code, response) = scratch.agent(&direction);
+    assert_eq!(code, 0, "{response:?}");
+    let selected_replay: SplitDirectionResult =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(selected_replay.replayed);
+    assert_eq!(selected_replay.split_ref, selected.split_ref);
+
+    // Resize once; replay is ledger-only and therefore cannot apply the
+    // relative resize twice.
+    let resize = qualify(
+        &scratch,
+        envelope(
+            protocol::methods::SPLIT_RESIZE,
+            Uuid::new_v4(),
+            json!({
+                "space_uid": created.space_uid,
+                "split_ref": second_split.split_ref,
+                "direction": "left",
+                "amount": 2,
+            }),
+        ),
+    );
+    let before = pane_geometry(&scratch, "controls");
+    let (code, response) = scratch.agent(&resize);
+    assert_eq!(code, 0, "{response:?}");
+    let resized: SplitResizeResult = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(resized.split_ref, second_split.split_ref);
+    let after = pane_geometry(&scratch, "controls");
+    assert_eq!(resized.changed, before != after);
+    let (code, response) = scratch.agent(&resize);
+    assert_eq!(code, 0, "{response:?}");
+    let resized_replay: SplitResizeResult =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(resized_replay.replayed);
+    assert_eq!(pane_geometry(&scratch, "controls"), after);
+
+    // Zoom toggles once and returns the final verified state; a replay
+    // cannot toggle it back.
+    let zoom = qualify(
+        &scratch,
+        envelope(
+            protocol::methods::SPLIT_ZOOM,
+            Uuid::new_v4(),
+            json!({
+                "space_uid": created.space_uid,
+                "split_ref": second_split.split_ref,
+            }),
+        ),
+    );
+    let (code, response) = scratch.agent(&zoom);
+    assert_eq!(code, 0, "{response:?}");
+    let zoomed: SplitZoomResult = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(zoomed.zoomed);
+    let (code, response) = scratch.agent(&zoom);
+    assert_eq!(code, 0, "{response:?}");
+    let zoom_replay: SplitZoomResult = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(zoom_replay.replayed && zoom_replay.zoomed);
+
+    // A stale exact claim is terminal before any child action.
+    let mut stale = qualify(
+        &scratch,
+        envelope(
+            protocol::methods::GROUP_ACTIVATE,
+            Uuid::new_v4(),
+            json!({
+                "space_uid": created.space_uid,
+                "group_ref": created.group_ref,
+            }),
+        ),
+    );
+    stale.server_epoch = Some(ServerEpoch(Uuid::new_v4()));
+    let (code, response) = scratch.agent(&stale);
+    assert_eq!(code, 1, "{response:?}");
+    assert_eq!(error_code(&response), "backend_epoch_changed");
 }

@@ -158,9 +158,10 @@ use crate::backend::{CreateSpec, InventoryOutcome, InventoryScope, Provider};
 use crate::bootstrap::{
     self, BootstrapJournal, BootstrapResult, BootstrapState, IssuedRequest, MarkerContext,
 };
-use crate::model::{ChildKind, ProviderHandle, SpaceNo, SpaceUid};
+use crate::model::{BackendInstanceUid, ChildKind, HostUid, ProviderHandle, SpaceNo, SpaceUid};
 use crate::refs::{ChildRefShape, child_suffix};
 use crate::registry::{NativeBindingSpec, NativeKind, sha256::sha256_hex};
+use crate::resolve::{ClassSummary, summarize_backend};
 
 #[derive(Debug)]
 pub enum OpError {
@@ -202,6 +203,34 @@ fn reg_err(e: impl std::fmt::Display) -> OpError {
     OpError::Registry(e.to_string())
 }
 
+/// A recovery generation is durable authority state, not merely the
+/// coordinator's kernel-lock lifetime.  Every write path calls this after
+/// taking the common backend-instance lock and before touching native state;
+/// otherwise a crashed/failed coordinator could drop its process lock and
+/// ordinary mutations would run through its still-unfinished journal.
+fn require_no_unfinished_recovery(
+    registry: &Registry,
+    instance: crate::model::BackendInstanceUid,
+) -> Result<(), OpError> {
+    if let Some((generation, rows)) = registry
+        .unfinished_recovery_for_instance(instance)
+        .map_err(reg_err)?
+    {
+        let root_state = rows
+            .iter()
+            .find(|row| {
+                row.manifest_node_path == crate::registry::recovery::RECOVERY_GENERATION_PATH
+            })
+            .map(|row| row.node_state.as_str())
+            .unwrap_or("unknown");
+        return Err(OpError::Refused(format!(
+            "backend instance {} has unfinished recovery generation {} ({root_state}); use `dmux recovery status` and explicitly resume or abort it",
+            instance.0, generation.generation_uid
+        )));
+    }
+    Ok(())
+}
+
 pub struct CreateRequest {
     /// Client idempotency key: a replay returns the original result.
     pub request_uid: Uuid,
@@ -226,6 +255,64 @@ pub struct CreatedSpace {
     pub replayed: bool,
 }
 
+/// One owner-verified provider target supplied to the cross-backend create
+/// seam.  The caller may discover endpoints and instantiate adapters, but
+/// this structure is not authority: [`create_space_owner_fenced`] checks the
+/// backend/instance/endpoint tuple against the registry again while holding
+/// the exact-name decision lock.
+#[derive(Clone, Copy)]
+pub struct OwnerCreateTarget<'a> {
+    pub backend: Backend,
+    pub instance: BackendInstanceUid,
+    pub provider: &'a dyn Provider,
+    pub scope: &'a InventoryScope,
+}
+
+fn create_digest(backend: Backend, req: &CreateRequest) -> String {
+    sha256_hex(
+        format!(
+            "new\x1f{}\x1f{}\x1f{:?}\x1f{:?}",
+            req.name, backend, req.cwd, req.program
+        )
+        .as_bytes(),
+    )
+}
+
+fn replayed_create(
+    registry: &mut Registry,
+    req: &CreateRequest,
+    backend: Backend,
+    allow_opposite_selectable: Option<bool>,
+) -> Result<Option<CreatedSpace>, OpError> {
+    let digest = match allow_opposite_selectable {
+        None => create_digest(backend, req),
+        Some(allow) => sha256_hex(
+            format!(
+                "{}\x1fallow_opposite_selectable={allow}",
+                create_digest(backend, req)
+            )
+            .as_bytes(),
+        ),
+    };
+    match registry
+        .record_rpc_request(req.request_uid, "new", &digest)
+        .map_err(reg_err)?
+    {
+        crate::registry::RpcDisposition::Replay {
+            result_json: Some(result),
+            ..
+        } => {
+            let mut replayed: CreatedSpace =
+                serde_json::from_value(result).map_err(|e| OpError::Registry(e.to_string()))?;
+            replayed.replayed = true;
+            Ok(Some(replayed))
+        }
+        // New request, or an unknown-state row being resumed with the same
+        // request UID: both proceed into the fenced flow below.
+        _ => Ok(None),
+    }
+}
+
 /// The §10.2 create sequence: idempotency ledger → §10.1 lock order →
 /// same-name guard against durable + complete live inventory → reserve →
 /// journaled bootstrap → provider create (spawns the helper, never the user
@@ -244,29 +331,8 @@ pub fn create_space(
         .register_backend_instance(backend, Some(&scope.endpoint), None)
         .map_err(reg_err)?;
 
-    let digest = sha256_hex(
-        format!(
-            "new\x1f{}\x1f{}\x1f{:?}\x1f{:?}",
-            req.name, backend, req.cwd, req.program
-        )
-        .as_bytes(),
-    );
-    match registry
-        .record_rpc_request(req.request_uid, "new", &digest)
-        .map_err(reg_err)?
-    {
-        crate::registry::RpcDisposition::Replay {
-            result_json: Some(result),
-            ..
-        } => {
-            let mut replayed: CreatedSpace =
-                serde_json::from_value(result).map_err(|e| OpError::Registry(e.to_string()))?;
-            replayed.replayed = true;
-            return Ok(replayed);
-        }
-        // New request, or an unknown-state row being resumed with the same
-        // request UID: both proceed into the fenced flow below.
-        _ => {}
+    if let Some(replayed) = replayed_create(&mut registry, req, backend, None)? {
+        return Ok(replayed);
     }
 
     let mut locks = OrderedLocks::new(&env.lock_dir);
@@ -279,6 +345,7 @@ pub fn create_space(
     locks
         .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
 
     // Durable same-name guard (the live-name unique index backs this).
     if let Some(existing) = registry
@@ -307,11 +374,46 @@ pub fn create_space(
         other => return Err(OpError::Indeterminate(format!("{backend} scan: {other:?}"))),
     };
 
+    create_space_locked(
+        env,
+        &mut registry,
+        identity.host_uid,
+        provider,
+        scope,
+        backend,
+        instance,
+        epoch,
+        req,
+        |_, _, _| Ok(()),
+    )
+}
+
+/// Reservation, bootstrap correlation, native creation and finalization.
+/// Its caller retains every §10.1 lock for the full call.  `postcheck` runs
+/// after the helper acknowledgement but before registry finalization, so a
+/// cross-backend caller can prove both inventories again without opening a
+/// race window.
+#[allow(clippy::too_many_arguments)]
+fn create_space_locked<F>(
+    env: &OperationEnv,
+    registry: &mut Registry,
+    owner: HostUid,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    backend: Backend,
+    instance: BackendInstanceUid,
+    epoch: ServerEpoch,
+    req: &CreateRequest,
+    postcheck: F,
+) -> Result<CreatedSpace, OpError>
+where
+    F: FnOnce(&Registry, &crate::backend::NativeBinding, SpaceUid) -> Result<(), OpError>,
+{
     let reservation = registry
         .reserve_space(&req.name, instance, req.request_uid)
         .map_err(reg_err)?;
     let native_token = match backend {
-        Backend::Wez => format!("dmux:{}:{}", identity.host_uid.0, reservation.space_uid.0),
+        Backend::Wez => format!("dmux:{}:{}", owner.0, reservation.space_uid.0),
         Backend::Tmux => req.name.clone(),
     };
 
@@ -353,7 +455,7 @@ pub fn create_space(
         Ok(binding) => binding,
         Err(e) => {
             return Err(fail(
-                &mut registry,
+                registry,
                 BootstrapState::Aborted,
                 OpError::Provider(format!("{e:?}")),
             ));
@@ -385,7 +487,7 @@ pub fn create_space(
             && !witness_matches(&binding.root_split, env_id)
         {
             return Err(fail(
-                &mut registry,
+                registry,
                 BootstrapState::Conflict,
                 OpError::Bootstrap(format!(
                     "helper inherited pane {env_id} but the provider verified {}",
@@ -412,7 +514,7 @@ pub fn create_space(
     let payload = BootstrapResult {
         request_uid: boot_uid,
         context: MarkerContext {
-            host_uid: identity.host_uid,
+            host_uid: owner,
             space_uid: reservation.space_uid,
             space_no: reservation.space_no,
             backend,
@@ -424,7 +526,7 @@ pub fn create_space(
     };
     if let Err(e) = bootstrap::send_result(&paths, &payload, std::time::Duration::from_secs(10)) {
         return Err(fail(
-            &mut registry,
+            registry,
             BootstrapState::Timeout,
             OpError::Bootstrap(format!("helper gone before payload: {e:?}")),
         ));
@@ -434,7 +536,7 @@ pub fn create_space(
         .is_none()
     {
         return Err(fail(
-            &mut registry,
+            registry,
             BootstrapState::Timeout,
             OpError::Bootstrap("helper never acknowledged the payload".into()),
         ));
@@ -442,6 +544,18 @@ pub fn create_space(
     registry
         .bootstrap_state(boot_uid, BootstrapState::Acked)
         .map_err(|e| OpError::Bootstrap(e.message))?;
+
+    if let Err(error) = postcheck(registry, &binding, reservation.space_uid) {
+        // Native state exists, so aborting the reservation would turn the
+        // resource into an unmanaged orphan.  Keep the create journal
+        // unfinished and mark the bootstrap witness conflicted; repair can
+        // now inspect the exact reservation/binding attempt.  The retained
+        // decision/backend locks ensure no competing owner mutation ran
+        // between the post-scan and this durable refusal.
+        let _ = registry.bootstrap_state(boot_uid, BootstrapState::Conflict);
+        bootstrap::cleanup(&paths);
+        return Err(error);
+    }
 
     registry
         .finalize_create(
@@ -479,6 +593,571 @@ pub fn create_space(
         )
         .map_err(reg_err)?;
     Ok(created)
+}
+
+fn validate_owner_create_target(
+    registry: &Registry,
+    owner: HostUid,
+    target: OwnerCreateTarget<'_>,
+) -> Result<(), OpError> {
+    if target.scope.backend != target.backend {
+        return Err(OpError::Refused(format!(
+            "{} provider target carries a {} inventory scope",
+            target.backend, target.scope.backend
+        )));
+    }
+    let info = registry
+        .backend_instance_info(target.instance)
+        .map_err(reg_err)?;
+    if info.owner != owner || info.backend != target.backend {
+        return Err(OpError::Refused(format!(
+            "backend instance {} is not this owner's {} instance",
+            target.instance.0, target.backend
+        )));
+    }
+    if info.socket_path.as_deref() != Some(target.scope.endpoint.as_str()) {
+        return Err(OpError::Refused(format!(
+            "{} target endpoint {:?} does not equal the owner registry endpoint {:?}",
+            target.backend, target.scope.endpoint, info.socket_path
+        )));
+    }
+    Ok(())
+}
+
+fn scan_epoch_for_create(
+    target: OwnerCreateTarget<'_>,
+    outcome: &InventoryOutcome,
+    selected: bool,
+) -> Result<Option<ServerEpoch>, OpError> {
+    match outcome {
+        InventoryOutcome::Complete(inventory) => {
+            let epoch = inventory.server_epoch.ok_or_else(|| {
+                OpError::Indeterminate(format!(
+                    "{} managed inventory is complete but unepoched",
+                    target.backend
+                ))
+            })?;
+            if let Some(expected) = target.scope.expected_epoch
+                && expected != epoch
+            {
+                return Err(OpError::Indeterminate(format!(
+                    "{} scan changed epoch: expected {} observed {}",
+                    target.backend, expected.0, epoch.0
+                )));
+            }
+            Ok(Some(epoch))
+        }
+        InventoryOutcome::ServerStopped { .. } if !selected => Ok(None),
+        other => Err(OpError::Indeterminate(format!(
+            "{} scan: {other:?}",
+            target.backend
+        ))),
+    }
+}
+
+fn exact_name_candidates(
+    registry: &Registry,
+    instance: BackendInstanceUid,
+    name: &str,
+) -> Result<
+    Vec<(
+        crate::registry::SpaceRow,
+        Option<crate::registry::BindingRow>,
+        bool,
+    )>,
+    OpError,
+> {
+    registry
+        .spaces()
+        .map_err(reg_err)?
+        .into_iter()
+        .filter(|space| space.backend_instance == instance && space.logical_name == name)
+        .map(|space| {
+            let binding = registry.current_binding(space.space_uid).map_err(reg_err)?;
+            let unfinished = registry
+                .unfinished_operation(space.space_uid)
+                .map_err(reg_err)?
+                .is_some();
+            Ok((space, binding, unfinished))
+        })
+        .collect()
+}
+
+fn summarize_owner_target(
+    registry: &Registry,
+    target: OwnerCreateTarget<'_>,
+    scan: &InventoryOutcome,
+    name: &str,
+) -> Result<ClassSummary, OpError> {
+    let candidates = exact_name_candidates(registry, target.instance, name)?;
+    Ok(summarize_backend(scan, &candidates, name))
+}
+
+/// Result of one owner decision-fenced exact-name lookup. It contains only
+/// stable managed identities and typed partition state; native tokens never
+/// cross the owner boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OwnerNewLookup {
+    pub wez: ClassSummary,
+    pub tmux: ClassSummary,
+}
+
+/// Owner-side implementation of remote/local NEW_LOOKUP. Both provider
+/// inventories are obtained while the exact logical-name decision lease and
+/// all registered backend-instance shared locks are held in canonical order.
+/// A missing backend target is accepted only when the registry proves that
+/// no durable instance of that kind exists.
+pub fn lookup_new_owner_fenced(
+    env: &OperationEnv,
+    wez: Option<OwnerCreateTarget<'_>>,
+    tmux: Option<OwnerCreateTarget<'_>>,
+    name: &str,
+) -> Result<OwnerNewLookup, OpError> {
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let identity = registry.identity().map_err(reg_err)?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|error| OpError::Lock(error.to_string()))?;
+    locks
+        .acquire_decisions(identity.host_uid, &[name], LockMode::Exclusive)
+        .map_err(|error| OpError::Lock(error.to_string()))?;
+
+    let mut targets = Vec::new();
+    for (backend, supplied) in [(Backend::Wez, wez), (Backend::Tmux, tmux)] {
+        let durable = registry
+            .backend_instance_for_backend(backend)
+            .map_err(reg_err)?;
+        match (durable, supplied) {
+            (None, None) => {}
+            (None, Some(_)) => {
+                return Err(OpError::Refused(format!(
+                    "caller supplied an unregistered {backend} lookup target"
+                )));
+            }
+            (Some(instance), None) => {
+                return Err(OpError::Indeterminate(format!(
+                    "owner has durable {backend} instance {}; its inventory target is required",
+                    instance.0
+                )));
+            }
+            (Some(instance), Some(target)) if target.instance != instance => {
+                return Err(OpError::Refused(format!(
+                    "{backend} lookup target {} is not durable instance {}",
+                    target.instance.0, instance.0
+                )));
+            }
+            (Some(_), Some(target)) if target.backend != backend => {
+                return Err(OpError::Refused(format!(
+                    "lookup target kind is {}, expected {backend}",
+                    target.backend
+                )));
+            }
+            (Some(_), Some(target)) => {
+                validate_owner_create_target(&registry, identity.host_uid, target)?;
+                targets.push(target);
+            }
+        }
+    }
+    targets.sort_by_key(|target| target.instance.0);
+    for target in &targets {
+        locks
+            .acquire(
+                LockScope::BackendInstance(target.instance),
+                LockMode::Shared,
+            )
+            .map_err(|error| OpError::Lock(error.to_string()))?;
+        require_no_unfinished_recovery(&registry, target.instance)?;
+    }
+
+    // Obtain every observation before classifying either side. This is
+    // synchronous owner code today; neither failure can become proof that
+    // the opposite backend is empty.
+    let wez_scan = wez.map(|target| target.provider.inventory(target.scope));
+    let tmux_scan = tmux.map(|target| target.provider.inventory(target.scope));
+    let wez = match (wez, wez_scan.as_ref()) {
+        (Some(target), Some(scan)) => summarize_owner_target(&registry, target, scan, name)?,
+        (None, None) => ClassSummary::NoMatch,
+        _ => unreachable!(),
+    };
+    let tmux = match (tmux, tmux_scan.as_ref()) {
+        (Some(target), Some(scan)) => summarize_owner_target(&registry, target, scan, name)?,
+        (None, None) => ClassSummary::NoMatch,
+        _ => unreachable!(),
+    };
+    Ok(OwnerNewLookup { wez, tmux })
+}
+
+fn postcheck_owner_create(
+    registry: &Registry,
+    selected: OwnerCreateTarget<'_>,
+    opposite: Option<OwnerCreateTarget<'_>>,
+    name: &str,
+    space_uid: SpaceUid,
+    binding: &crate::backend::NativeBinding,
+    allowed_opposite: Option<(SpaceUid, String)>,
+) -> Result<(), OpError> {
+    // Obtain both observations before classifying either.  A failure on one
+    // provider never turns the other one's result into proof of absence.
+    let selected_scan = selected.provider.inventory(selected.scope);
+    let opposite_scan = opposite.map(|target| target.provider.inventory(target.scope));
+    let selected_epoch = scan_epoch_for_create(selected, &selected_scan, true)?
+        .expect("a selected complete scan has an epoch");
+    if selected_epoch != binding.server_epoch {
+        return Err(OpError::Indeterminate(format!(
+            "{} create returned epoch {} but its locked post-scan observed {}",
+            selected.backend, binding.server_epoch.0, selected_epoch.0
+        )));
+    }
+    if let (Some(target), Some(scan)) = (opposite, opposite_scan.as_ref()) {
+        scan_epoch_for_create(target, scan, false)?;
+    }
+
+    let InventoryOutcome::Complete(selected_inventory) = &selected_scan else {
+        unreachable!("selected scan was classified complete above")
+    };
+    let exact_binding_rows = selected_inventory
+        .rows
+        .iter()
+        .filter(|row| row.native_token == binding.native_token)
+        .count();
+    if exact_binding_rows != 1 {
+        return Err(OpError::NameConflict(format!(
+            "{} create post-scan found {exact_binding_rows} rows for native token {:?}",
+            selected.backend, binding.native_token
+        )));
+    }
+    if selected_inventory
+        .rows
+        .iter()
+        .any(|row| row.native_name == name && row.native_token != binding.native_token)
+    {
+        return Err(OpError::NameConflict(format!(
+            "an external {} resource raced creation of name {:?}",
+            selected.backend, name
+        )));
+    }
+    if let Some(scan) = opposite_scan.as_ref() {
+        let InventoryOutcome::Complete(inventory) = scan else {
+            // A stopped opposite server has no live allowed binding; it
+            // cannot accompany an approved selectable opposite Space.
+            if allowed_opposite.is_some() {
+                return Err(OpError::Indeterminate(
+                    "approved opposite Space stopped during create".into(),
+                ));
+            }
+            // No live opposite exact-name row to compare.
+            return postcheck_registry_names(
+                registry,
+                selected,
+                opposite,
+                name,
+                space_uid,
+                allowed_opposite.as_ref(),
+            );
+        };
+        let same_name: Vec<_> = inventory
+            .rows
+            .iter()
+            .filter(|row| row.native_name == name)
+            .collect();
+        match (&allowed_opposite, same_name.as_slice()) {
+            (None, []) => {}
+            (Some((_, allowed_token)), [row]) if &row.native_token == allowed_token => {}
+            _ => {
+                return Err(OpError::NameConflict(format!(
+                    "opposite-backend exact-name rows changed during creation of {:?}",
+                    name
+                )));
+            }
+        }
+    }
+
+    postcheck_registry_names(
+        registry,
+        selected,
+        opposite,
+        name,
+        space_uid,
+        allowed_opposite.as_ref(),
+    )
+}
+
+fn postcheck_registry_names(
+    registry: &Registry,
+    selected: OwnerCreateTarget<'_>,
+    opposite: Option<OwnerCreateTarget<'_>>,
+    name: &str,
+    space_uid: SpaceUid,
+    allowed_opposite: Option<&(SpaceUid, String)>,
+) -> Result<(), OpError> {
+    let selected_row = registry
+        .live_space_by_name(selected.instance, name)
+        .map_err(reg_err)?
+        .ok_or_else(|| {
+            OpError::Registry(format!(
+                "reserved Space {} vanished before create finalization",
+                space_uid.0
+            ))
+        })?;
+    if selected_row.space_uid != space_uid {
+        return Err(OpError::NameConflict(format!(
+            "name {:?} was rebound to Space {} during create",
+            name, selected_row.space_uid.0
+        )));
+    }
+    if let Some(opposite) = opposite {
+        let current = registry
+            .live_space_by_name(opposite.instance, name)
+            .map_err(reg_err)?;
+        match (allowed_opposite, current) {
+            (None, None) => {}
+            (Some((allowed_uid, allowed_token)), Some(row)) if row.space_uid == *allowed_uid => {
+                let current_binding = registry
+                    .current_binding(row.space_uid)
+                    .map_err(reg_err)?
+                    .ok_or_else(|| {
+                        OpError::NameConflict(
+                            "approved opposite Space lost its current binding".into(),
+                        )
+                    })?;
+                if current_binding.native_token != *allowed_token {
+                    return Err(OpError::NameConflict(
+                        "approved opposite Space changed its native binding".into(),
+                    ));
+                }
+            }
+            _ => {
+                return Err(OpError::NameConflict(format!(
+                    "opposite backend name {:?} changed during create",
+                    name
+                )));
+            }
+        }
+    } else {
+        let opposite_backend = match selected.backend {
+            Backend::Wez => Backend::Tmux,
+            Backend::Tmux => Backend::Wez,
+        };
+        if let Some(instance) = registry
+            .backend_instance_for_backend(opposite_backend)
+            .map_err(reg_err)?
+        {
+            return Err(OpError::NameConflict(format!(
+                "opposite {opposite_backend} instance {} appeared during create",
+                instance.0
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Exact owner-fenced cross-backend create used by GUI inherited-backend
+/// creation and by the remote owner RPC (plan §8.2 / §10.1).
+///
+/// This is intentionally create-only: callers resolve an existing Space
+/// before entering it.  Any live managed or unmanaged exact-name match on
+/// either backend refuses before reservation.  `selected` is the inherited
+/// backend and is the only adapter whose `create` method can be invoked;
+/// there is no opposite-backend fallback path.
+///
+/// `opposite=None` is authoritative only when this function proves, while
+/// holding the exact-name decision lock, that no durable opposite managed
+/// instance row exists.  If such a row exists, its exact target is required
+/// and both inventories are scanned under all instance locks.
+pub fn create_space_owner_fenced(
+    env: &OperationEnv,
+    selected: OwnerCreateTarget<'_>,
+    opposite: Option<OwnerCreateTarget<'_>>,
+    allow_opposite_selectable: bool,
+    req: &CreateRequest,
+) -> Result<CreatedSpace, OpError> {
+    if opposite.is_some_and(|target| target.backend == selected.backend) {
+        return Err(OpError::Refused(
+            "opposite create target names the selected backend".into(),
+        ));
+    }
+
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let identity = registry.identity().map_err(reg_err)?;
+    if let Some(replayed) = replayed_create(
+        &mut registry,
+        req,
+        selected.backend,
+        Some(allow_opposite_selectable),
+    )? {
+        return Ok(replayed);
+    }
+
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|error| OpError::Lock(error.to_string()))?;
+    locks
+        .acquire_decisions(identity.host_uid, &[req.name.as_str()], LockMode::Exclusive)
+        .map_err(|error| OpError::Lock(error.to_string()))?;
+
+    // A concurrent retry with the same request UID may have completed while
+    // this invocation waited for the decision lock.  Re-read the ledger
+    // before treating its now-live native row as a name collision.
+    if let Some(replayed) = replayed_create(
+        &mut registry,
+        req,
+        selected.backend,
+        Some(allow_opposite_selectable),
+    )? {
+        return Ok(replayed);
+    }
+
+    let durable_selected = registry
+        .backend_instance_for_backend(selected.backend)
+        .map_err(reg_err)?
+        .ok_or_else(|| {
+            OpError::Refused(format!(
+                "owner has no durable {} backend instance",
+                selected.backend
+            ))
+        })?;
+    if durable_selected != selected.instance {
+        return Err(OpError::Refused(format!(
+            "selected {} instance {} is not the owner's durable instance {}",
+            selected.backend, selected.instance.0, durable_selected.0
+        )));
+    }
+    validate_owner_create_target(&registry, identity.host_uid, selected)?;
+
+    let opposite_backend = match selected.backend {
+        Backend::Wez => Backend::Tmux,
+        Backend::Tmux => Backend::Wez,
+    };
+    let durable_opposite = registry
+        .backend_instance_for_backend(opposite_backend)
+        .map_err(reg_err)?;
+    let opposite = match (durable_opposite, opposite) {
+        (None, None) => None,
+        (None, Some(_)) => {
+            return Err(OpError::Refused(format!(
+                "caller supplied an unregistered {opposite_backend} create target"
+            )));
+        }
+        (Some(instance), None) => {
+            return Err(OpError::Refused(format!(
+                "owner has durable {opposite_backend} instance {}; its determinate inventory is required",
+                instance.0
+            )));
+        }
+        (Some(instance), Some(target)) if target.instance != instance => {
+            return Err(OpError::Refused(format!(
+                "opposite {opposite_backend} target {} is not the owner's durable instance {}",
+                target.instance.0, instance.0
+            )));
+        }
+        (Some(_), Some(target)) if target.backend != opposite_backend => {
+            return Err(OpError::Refused(format!(
+                "opposite target is {}, expected {opposite_backend}",
+                target.backend
+            )));
+        }
+        (Some(_), Some(target)) => {
+            validate_owner_create_target(&registry, identity.host_uid, target)?;
+            Some(target)
+        }
+    };
+
+    // §10.1: selected exclusive, opposite shared, always in canonical
+    // BackendInstanceUid order.  Opposite creates need that shared lock
+    // exclusively, so the decision remains stable through our post-scan.
+    let mut instance_locks = vec![(selected.instance, LockMode::Exclusive)];
+    if let Some(target) = opposite {
+        if target.instance == selected.instance {
+            return Err(OpError::Refused(
+                "both backend kinds resolve to one backend instance".into(),
+            ));
+        }
+        instance_locks.push((target.instance, LockMode::Shared));
+    }
+    instance_locks.sort_by_key(|(instance, _)| instance.0);
+    for (instance, mode) in instance_locks {
+        locks
+            .acquire(LockScope::BackendInstance(instance), mode)
+            .map_err(|error| OpError::Lock(error.to_string()))?;
+    }
+    require_no_unfinished_recovery(&registry, selected.instance)?;
+    if let Some(target) = opposite {
+        require_no_unfinished_recovery(&registry, target.instance)?;
+    }
+
+    // Read both providers before classifying either result.  A determinate
+    // stopped opposite server is empty; the selected server must be a
+    // complete, epoched inventory because it is about to mutate.
+    let selected_scan = selected.provider.inventory(selected.scope);
+    let opposite_scan = opposite.map(|target| target.provider.inventory(target.scope));
+    let selected_epoch = scan_epoch_for_create(selected, &selected_scan, true)?
+        .expect("a selected complete scan has an epoch");
+    if let (Some(target), Some(scan)) = (opposite, opposite_scan.as_ref()) {
+        scan_epoch_for_create(target, scan, false)?;
+    }
+
+    // Join the determinate native scans with durable authority state before
+    // consuming SpaceUid/SpaceNo. Selected must be empty. The explicit
+    // collision acknowledgement may preserve exactly one opposite managed,
+    // selectable row; it never waives unmanaged/blocking/indeterminate state.
+    match summarize_owner_target(&registry, selected, &selected_scan, &req.name)? {
+        ClassSummary::NoMatch => {}
+        summary => {
+            return Err(OpError::NameConflict(format!(
+                "selected {} exact-name state is {summary:?}",
+                selected.backend
+            )));
+        }
+    }
+    let mut allowed_opposite = None;
+    if let (Some(target), Some(scan)) = (opposite, opposite_scan.as_ref()) {
+        match summarize_owner_target(&registry, target, scan, &req.name)? {
+            ClassSummary::NoMatch => {}
+            ClassSummary::Selectable { space, .. } if allow_opposite_selectable => {
+                let binding = registry
+                    .current_binding(space)
+                    .map_err(reg_err)?
+                    .ok_or_else(|| {
+                        OpError::NameConflict(
+                            "selectable opposite Space lost its current binding".into(),
+                        )
+                    })?;
+                allowed_opposite = Some((space, binding.native_token));
+            }
+            summary => {
+                return Err(OpError::NameConflict(format!(
+                    "opposite {opposite_backend} exact-name state is {summary:?}"
+                )));
+            }
+        }
+    }
+
+    create_space_locked(
+        env,
+        &mut registry,
+        identity.host_uid,
+        selected.provider,
+        selected.scope,
+        selected.backend,
+        selected.instance,
+        selected_epoch,
+        req,
+        |registry, binding, space_uid| {
+            postcheck_owner_create(
+                registry,
+                selected,
+                opposite,
+                &req.name,
+                space_uid,
+                binding,
+                allowed_opposite.clone(),
+            )
+        },
+    )
 }
 
 /// A provider handle and a helper-inherited pane id agree when their
@@ -528,6 +1207,7 @@ pub fn rename_space(
     locks
         .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
 
     if let Some(existing) = registry
         .live_space_by_name(instance, new_name)
@@ -575,15 +1255,58 @@ pub fn remove_space(
     space_uid: SpaceUid,
     request_uid: Uuid,
 ) -> Result<(), OpError> {
+    remove_space_inner(env, provider, scope, backend, space_uid, request_uid, None)
+}
+
+/// Resume only the exact unfinished remove after acknowledgement/process
+/// loss.  This is intentionally a separate seam: callers may not turn an
+/// arbitrary `deleting` row into authority to kill.  The same lock order,
+/// recovery-journal guard, native absence proof, and final-Wez empty floor
+/// as a fresh remove are applied before the tombstone is completed.
+pub fn resume_remove_space(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    backend: Backend,
+    space_uid: SpaceUid,
+    request_uid: Uuid,
+    operation_uid: Uuid,
+) -> Result<(), OpError> {
+    remove_space_inner(
+        env,
+        provider,
+        scope,
+        backend,
+        space_uid,
+        request_uid,
+        Some(operation_uid),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn remove_space_inner(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    backend: Backend,
+    space_uid: SpaceUid,
+    request_uid: Uuid,
+    resume_operation: Option<Uuid>,
+) -> Result<(), OpError> {
     let mut registry =
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
     let instance = registry
         .register_backend_instance(backend, Some(&scope.endpoint), None)
         .map_err(reg_err)?;
-    let _space = registry
+    let space = registry
         .space(space_uid)
         .map_err(|e| OpError::NotFound(e.to_string()))?;
-    let binding = registry.current_binding(space_uid).map_err(reg_err)?;
+    if space.backend_instance != instance {
+        return Err(OpError::Refused(format!(
+            "Space {} belongs to backend instance {}, not {}",
+            space_uid.0, space.backend_instance.0, instance.0
+        )));
+    }
 
     let mut locks = OrderedLocks::new(&env.lock_dir);
     locks
@@ -592,13 +1315,33 @@ pub fn remove_space(
     locks
         .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
     locks
         .acquire(LockScope::Space(space_uid), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
 
-    let operation_uid = registry
-        .begin_remove(space_uid, request_uid)
-        .map_err(reg_err)?;
+    let operation_uid = match resume_operation {
+        None => registry
+            .begin_remove(space_uid, request_uid)
+            .map_err(reg_err)?,
+        Some(operation_uid) => {
+            let current = registry.space(space_uid).map_err(reg_err)?;
+            let operation = registry.operation(operation_uid).map_err(reg_err)?;
+            if current.lifecycle != crate::model::Lifecycle::Deleting
+                || operation.space_uid != space_uid
+                || operation.kind != crate::model::OperationKind::Remove
+                || operation.request_uid != request_uid
+                || operation.state.is_terminal()
+            {
+                return Err(OpError::Refused(format!(
+                    "remove resume {} does not own the exact unfinished delete for Space {}",
+                    operation_uid, space_uid.0
+                )));
+            }
+            operation_uid
+        }
+    };
+    let binding = registry.current_binding(space_uid).map_err(reg_err)?;
     if let Some(binding) = binding {
         let native = crate::backend::NativeBinding {
             native_token: binding.native_token,
@@ -608,15 +1351,79 @@ pub fn remove_space(
             root_group: ProviderHandle::Tx(0),
             root_split: ProviderHandle::Tx(0),
         };
-        if let Err(e) = provider.remove(scope, &native) {
-            // Non-convergence or provider failure: the operation stays
-            // journaled (deleting + unfinished op); never tombstone.
-            return Err(OpError::Provider(format!("{e:?}")));
+        match provider.remove(scope, &native) {
+            Ok(()) => {}
+            Err(crate::backend::ProviderError::NotFound { .. }) if resume_operation.is_some() => {}
+            Err(e) => {
+                // Non-convergence or provider failure: the operation stays
+                // journaled (deleting + unfinished op); never tombstone.
+                return Err(OpError::Provider(format!("{e:?}")));
+            }
         }
     }
+
+    // P10 intentional-empty guard (§15.3).  The tombstone must be durable
+    // before its revision can become the recovery floor, but we first prove
+    // emptiness while the exact backend-instance lock still excludes every
+    // create/restore/snapshot writer.  If this is the final durable Wez
+    // Space, an indeterminate scan is not a successful remove: leaving the
+    // journal in `deleting` is safer than allowing a later cold start to
+    // resurrect a manifest we could not fence below.
+    let final_wez_empty_epoch = if backend == Backend::Wez {
+        let final_durable_space = !registry.spaces().map_err(reg_err)?.iter().any(|row| {
+            row.backend_instance == instance
+                && row.space_uid != space_uid
+                && row.lifecycle == crate::model::Lifecycle::Active
+        });
+        if final_durable_space {
+            classify_final_wez_empty_scan(scope.expected_epoch, provider.inventory(scope))?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     registry
         .complete_remove(space_uid, operation_uid)
-        .map_err(reg_err)
+        .map_err(reg_err)?;
+
+    if let Some(epoch) = final_wez_empty_epoch {
+        let backend_scope = LockScope::BackendInstance(instance);
+        let kernel = locks.held(&backend_scope).ok_or_else(|| {
+            OpError::Lock("intentional-empty update lost its backend-instance lock".into())
+        })?;
+        registry
+            .record_current_intentional_empty_revision(instance, epoch, kernel)
+            .map_err(reg_err)?;
+    }
+    Ok(())
+}
+
+fn classify_final_wez_empty_scan(
+    expected_epoch: Option<ServerEpoch>,
+    outcome: InventoryOutcome,
+) -> Result<Option<ServerEpoch>, OpError> {
+    match outcome {
+        InventoryOutcome::Complete(inv) => {
+            let live_epoch = inv.server_epoch.ok_or_else(|| {
+                OpError::Indeterminate("final Wez removal requires an epoched empty scan".into())
+            })?;
+            let expected = expected_epoch.ok_or_else(|| {
+                OpError::Indeterminate("final Wez removal requires the current server epoch".into())
+            })?;
+            if live_epoch != expected {
+                return Err(OpError::Indeterminate(format!(
+                    "final Wez removal scan changed epoch from {} to {}",
+                    expected.0, live_epoch.0
+                )));
+            }
+            Ok(inv.rows.is_empty().then_some(live_epoch))
+        }
+        other => Err(OpError::Indeterminate(format!(
+            "final Wez removal could not prove intentional empty: {other:?}"
+        ))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -680,6 +1487,7 @@ pub fn adopt_tmux<R: crate::backend::tmux::TmuxRunner>(
     locks
         .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
 
     if let Some(existing) = registry
         .live_space_by_name(instance, &name)
@@ -801,6 +1609,7 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
     locks
         .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
 
     if let Some(existing) = registry
         .live_space_by_name(instance, &name)
@@ -949,6 +1758,22 @@ pub struct HierarchySplit {
     pub cwd: Option<String>,
 }
 
+/// Authority-backed interpretation of one GUI pane marker.  The marker is
+/// still only a locator: callers may use these display fields or construct a
+/// signed presentation request only after this function has matched the
+/// durable Space, published backend incarnation, and exact live Group/Split
+/// parentage under the common backend read fence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedMarker {
+    pub context: crate::bootstrap::MarkerContext,
+    pub logical_name: String,
+    pub backend_instance: crate::model::BackendInstanceUid,
+    pub health: crate::model::Health,
+    pub group_count: usize,
+    pub split_count: usize,
+    pub group_name: Option<String>,
+}
+
 /// Load an Active, currently bound Space or fail typed.
 fn load_bound_space(
     registry: &mut Registry,
@@ -1038,6 +1863,7 @@ impl ChildLocks {
     /// authority names.
     fn acquire(
         locks: &mut OrderedLocks,
+        registry: &Registry,
         instance: crate::model::BackendInstanceUid,
         space: SpaceUid,
     ) -> Result<(), OpError> {
@@ -1047,6 +1873,7 @@ impl ChildLocks {
         locks
             .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
             .map_err(|e| OpError::Lock(e.to_string()))?;
+        require_no_unfinished_recovery(registry, instance)?;
         locks
             .acquire(LockScope::Space(space), LockMode::Exclusive)
             .map_err(|e| OpError::Lock(e.to_string()))?;
@@ -1200,7 +2027,7 @@ pub fn group_new(
     require_child_mutable(&row)?;
 
     let mut locks = OrderedLocks::new(&env.lock_dir);
-    ChildLocks::acquire(&mut locks, instance, req.space_uid)?;
+    ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     if let Some(expected) = scope.expected_epoch
@@ -1395,7 +2222,7 @@ pub fn split_new(
     require_child_mutable(&row)?;
 
     let mut locks = OrderedLocks::new(&env.lock_dir);
-    ChildLocks::acquire(&mut locks, instance, req.space_uid)?;
+    ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     require_live_epoch(&req.group, epoch)?;
@@ -1557,7 +2384,7 @@ pub fn group_rename(
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
-    ChildLocks::acquire(&mut locks, row.backend_instance, space_uid)?;
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     require_live_epoch(group, epoch)?;
     if !native_row.groups.iter().any(|g| g.handle == group.handle) {
@@ -1598,7 +2425,7 @@ pub fn group_remove(
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
-    ChildLocks::acquire(&mut locks, row.backend_instance, space_uid)?;
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     require_live_epoch(group, epoch)?;
     if !native_row.groups.iter().any(|g| g.handle == group.handle) {
@@ -1656,7 +2483,7 @@ pub fn split_remove(
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
-    ChildLocks::acquire(&mut locks, row.backend_instance, space_uid)?;
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     require_live_epoch(split, epoch)?;
     let parent = native_row
@@ -1695,8 +2522,357 @@ pub fn split_remove(
     Ok(removed)
 }
 
+// ---------------------------------------------------------------------------
+// P9 exact logical child control. These are owner mutations/presentation
+// state changes, so provider methods are never called naked: every path uses
+// gate shared -> backend-instance exclusive -> Space exclusive, refuses a
+// durable unfinished recovery, validates the epoch-qualified child against
+// one complete Space tree, and journals same-request replay.
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ActivatedGroup {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub group_ref: String,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SelectedSplit {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub group_ref: String,
+    /// `None` is the native edge no-op; an ordinal fallback is forbidden.
+    pub split_ref: Option<String>,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ResizedSplit {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub split_ref: String,
+    pub changed: bool,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ZoomedSplit {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub split_ref: String,
+    pub zoomed: bool,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
+fn require_exact_action_epoch(
+    scope: &InventoryScope,
+    live_epoch: ServerEpoch,
+) -> Result<(), OpError> {
+    match scope.expected_epoch {
+        Some(expected) if expected == live_epoch => Ok(()),
+        Some(expected) => Err(OpError::StaleRef(format!(
+            "action expected server epoch {} but the live server is {}",
+            expected.0, live_epoch.0
+        ))),
+        None => Err(OpError::Indeterminate(
+            "exact logical child actions require a pinned server epoch".into(),
+        )),
+    }
+}
+
+fn split_parent<'a>(
+    native: &'a crate::backend::NativeSpaceRow,
+    split: &ProviderHandle,
+) -> Option<&'a crate::backend::NativeGroupRow> {
+    native
+        .groups
+        .iter()
+        .find(|group| group.splits.iter().any(|row| &row.handle == split))
+}
+
+pub fn group_activate_exact(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    group: &ChildRefShape,
+    request_uid: Uuid,
+) -> Result<ActivatedGroup, OpError> {
+    if group.kind != ChildKind::Group {
+        return Err(OpError::Refused(
+            "group activation requires a Group ref".into(),
+        ));
+    }
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let digest =
+        sha256_hex(format!("group_activate\x1f{}\x1f{}", space_uid.0, group.handle).as_bytes());
+    if let Some(replayed) = child_replay::<ActivatedGroup>(
+        &mut registry,
+        request_uid,
+        "group_activate",
+        &digest,
+        |value| value.replayed = true,
+    )? {
+        return Ok(replayed);
+    }
+    let (row, binding) = load_bound_space(&mut registry, space_uid)?;
+    require_child_mutable(&row)?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
+    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_exact_action_epoch(scope, epoch)?;
+    require_live_epoch(group, epoch)?;
+    if !native.groups.iter().any(|row| row.handle == group.handle) {
+        return Err(OpError::NotFound(format!(
+            "group {} is not part of {}",
+            group.handle, binding.native_token
+        )));
+    }
+    let witness = provider
+        .activate_group_exact(scope, &group.handle)
+        .map_err(|error| OpError::Provider(format!("{error:?}")))?;
+    if witness.server_epoch != epoch || witness.target != group.handle {
+        return Err(OpError::Provider(
+            "exact group activation returned a mismatched witness".into(),
+        ));
+    }
+    let result = ActivatedGroup {
+        space_uid,
+        server_epoch: epoch,
+        group_ref: make_ref(ChildKind::Group, epoch, &group.handle),
+        replayed: false,
+    };
+    registry
+        .finish_rpc_request(
+            request_uid,
+            &serde_json::to_value(&result).map_err(|error| OpError::Registry(error.to_string()))?,
+            None,
+        )
+        .map_err(reg_err)?;
+    Ok(result)
+}
+
+pub fn split_direction(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    origin: &ChildRefShape,
+    direction: crate::backend::SplitDirection,
+    request_uid: Uuid,
+) -> Result<SelectedSplit, OpError> {
+    if origin.kind != ChildKind::Split {
+        return Err(OpError::Refused(
+            "directional selection requires a Split ref".into(),
+        ));
+    }
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let digest = sha256_hex(
+        format!(
+            "split_direction\x1f{}\x1f{}\x1f{direction:?}",
+            space_uid.0, origin.handle
+        )
+        .as_bytes(),
+    );
+    if let Some(replayed) = child_replay::<SelectedSplit>(
+        &mut registry,
+        request_uid,
+        "split_direction",
+        &digest,
+        |value| value.replayed = true,
+    )? {
+        return Ok(replayed);
+    }
+    let (row, binding) = load_bound_space(&mut registry, space_uid)?;
+    require_child_mutable(&row)?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
+    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_exact_action_epoch(scope, epoch)?;
+    require_live_epoch(origin, epoch)?;
+    let parent = split_parent(&native, &origin.handle).ok_or_else(|| {
+        OpError::NotFound(format!(
+            "split {} is not part of {}",
+            origin.handle, binding.native_token
+        ))
+    })?;
+    let witness = provider
+        .select_split_direction(scope, &origin.handle, direction)
+        .map_err(|error| OpError::Provider(format!("{error:?}")))?;
+    if witness.server_epoch != epoch || witness.origin != origin.handle {
+        return Err(OpError::Provider(
+            "directional selection returned a mismatched origin witness".into(),
+        ));
+    }
+    if let Some(target) = &witness.target
+        && !parent.splits.iter().any(|split| &split.handle == target)
+    {
+        return Err(OpError::Provider(format!(
+            "directional target {target} is outside the origin Group"
+        )));
+    }
+    let result = SelectedSplit {
+        space_uid,
+        server_epoch: epoch,
+        group_ref: make_ref(ChildKind::Group, epoch, &parent.handle),
+        split_ref: witness
+            .target
+            .as_ref()
+            .map(|target| make_ref(ChildKind::Split, epoch, target)),
+        replayed: false,
+    };
+    registry
+        .finish_rpc_request(
+            request_uid,
+            &serde_json::to_value(&result).map_err(|error| OpError::Registry(error.to_string()))?,
+            None,
+        )
+        .map_err(reg_err)?;
+    Ok(result)
+}
+
+pub fn split_resize(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    split: &ChildRefShape,
+    direction: crate::backend::SplitDirection,
+    amount: u16,
+    request_uid: Uuid,
+) -> Result<ResizedSplit, OpError> {
+    if split.kind != ChildKind::Split || amount == 0 {
+        return Err(OpError::Refused(
+            "split resize requires a Split ref and positive amount".into(),
+        ));
+    }
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let digest = sha256_hex(
+        format!(
+            "split_resize\x1f{}\x1f{}\x1f{direction:?}\x1f{amount}",
+            space_uid.0, split.handle
+        )
+        .as_bytes(),
+    );
+    if let Some(replayed) = child_replay::<ResizedSplit>(
+        &mut registry,
+        request_uid,
+        "split_resize",
+        &digest,
+        |value| value.replayed = true,
+    )? {
+        return Ok(replayed);
+    }
+    let (row, binding) = load_bound_space(&mut registry, space_uid)?;
+    require_child_mutable(&row)?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
+    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_exact_action_epoch(scope, epoch)?;
+    require_live_epoch(split, epoch)?;
+    split_parent(&native, &split.handle).ok_or_else(|| {
+        OpError::NotFound(format!(
+            "split {} is not part of {}",
+            split.handle, binding.native_token
+        ))
+    })?;
+    let witness = provider
+        .resize_split_exact(scope, &split.handle, direction, amount)
+        .map_err(|error| OpError::Provider(format!("{error:?}")))?;
+    if witness.server_epoch != epoch || witness.target != split.handle {
+        return Err(OpError::Provider(
+            "split resize returned a mismatched witness".into(),
+        ));
+    }
+    let result = ResizedSplit {
+        space_uid,
+        server_epoch: epoch,
+        split_ref: make_ref(ChildKind::Split, epoch, &split.handle),
+        changed: witness.changed,
+        replayed: false,
+    };
+    registry
+        .finish_rpc_request(
+            request_uid,
+            &serde_json::to_value(&result).map_err(|error| OpError::Registry(error.to_string()))?,
+            None,
+        )
+        .map_err(reg_err)?;
+    Ok(result)
+}
+
+pub fn split_zoom(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    split: &ChildRefShape,
+    request_uid: Uuid,
+) -> Result<ZoomedSplit, OpError> {
+    if split.kind != ChildKind::Split {
+        return Err(OpError::Refused("split zoom requires a Split ref".into()));
+    }
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let digest =
+        sha256_hex(format!("split_zoom\x1f{}\x1f{}", space_uid.0, split.handle).as_bytes());
+    if let Some(replayed) =
+        child_replay::<ZoomedSplit>(&mut registry, request_uid, "split_zoom", &digest, |value| {
+            value.replayed = true
+        })?
+    {
+        return Ok(replayed);
+    }
+    let (row, binding) = load_bound_space(&mut registry, space_uid)?;
+    require_child_mutable(&row)?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
+    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_exact_action_epoch(scope, epoch)?;
+    require_live_epoch(split, epoch)?;
+    split_parent(&native, &split.handle).ok_or_else(|| {
+        OpError::NotFound(format!(
+            "split {} is not part of {}",
+            split.handle, binding.native_token
+        ))
+    })?;
+    let witness = provider
+        .toggle_split_zoom_exact(scope, &split.handle)
+        .map_err(|error| OpError::Provider(format!("{error:?}")))?;
+    if witness.server_epoch != epoch || witness.target != split.handle {
+        return Err(OpError::Provider(
+            "split zoom returned a mismatched witness".into(),
+        ));
+    }
+    let result = ZoomedSplit {
+        space_uid,
+        server_epoch: epoch,
+        split_ref: make_ref(ChildKind::Split, epoch, &split.handle),
+        zoomed: witness.zoomed,
+        replayed: false,
+    };
+    registry
+        .finish_rpc_request(
+            request_uid,
+            &serde_json::to_value(&result).map_err(|error| OpError::Registry(error.to_string()))?,
+            None,
+        )
+        .map_err(reg_err)?;
+    Ok(result)
+}
+
 /// Read-only hierarchy of one Space (plan §7.2 listings): registry row plus
-/// complete same-epoch scan, no locks beyond the shared gate.
+/// complete same-epoch scan under the common backend read fence. Recovery
+/// is surfaced immediately rather than observing or waiting on a partial
+/// tree.
 pub fn hierarchy(
     env: &OperationEnv,
     provider: &dyn Provider,
@@ -1705,11 +2881,21 @@ pub fn hierarchy(
 ) -> Result<SpaceHierarchy, OpError> {
     let mut registry =
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
-    let (_row, binding) = load_bound_space(&mut registry, space_uid)?;
+    let instance = registry.space(space_uid).map_err(reg_err)?.backend_instance;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     locks
         .acquire(LockScope::AuthorityGate, LockMode::Shared)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    if !locks
+        .try_acquire(LockScope::BackendInstance(instance), LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?
+    {
+        return Err(OpError::Indeterminate(format!(
+            "backend instance {} is recovering or mutating",
+            instance.0
+        )));
+    }
+    let (_row, binding) = load_bound_space(&mut registry, space_uid)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     Ok(SpaceHierarchy {
         space_uid,
@@ -1734,6 +2920,114 @@ pub fn hierarchy(
     })
 }
 
+/// Revalidate an untrusted v1 GUI marker against the local owner authority
+/// and a complete live scan.  A recovery holder makes the non-blocking
+/// backend read fence unavailable, which is reported as `recovering`
+/// instead of waiting on or observing a half-restored tree.
+pub fn validate_marker_context(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    marker: &crate::bootstrap::MarkerContext,
+) -> Result<ValidatedMarker, OpError> {
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let identity = registry.identity().map_err(reg_err)?;
+    if marker.host_uid != identity.host_uid {
+        return Err(OpError::Refused(format!(
+            "marker HostUid {} is not this authority {}",
+            marker.host_uid.0, identity.host_uid.0
+        )));
+    }
+
+    // Resolve the backend-instance scope once, then re-read all mutable rows
+    // after the fence is held.  An authority mutation of this same instance
+    // necessarily takes the conflicting exclusive backend lock.
+    let initial = registry.space(marker.space_uid).map_err(reg_err)?;
+    let instance = initial.backend_instance;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    if !locks
+        .try_acquire(LockScope::BackendInstance(instance), LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?
+    {
+        return Err(OpError::Indeterminate(format!(
+            "backend instance {} is recovering or mutating",
+            instance.0
+        )));
+    }
+
+    let (row, binding) = load_bound_space(&mut registry, marker.space_uid)?;
+    if row.backend_instance != instance
+        || row.space_no != marker.space_no
+        || scope.backend != marker.backend
+    {
+        return Err(OpError::StaleRef(
+            "marker Space number/backend no longer matches its authority row".into(),
+        ));
+    }
+    let info = registry.backend_instance_info(instance).map_err(reg_err)?;
+    if info.owner != marker.host_uid || info.backend != marker.backend {
+        return Err(OpError::StaleRef(
+            "marker owner/backend does not match its backend instance".into(),
+        ));
+    }
+
+    let (live_epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
+    if live_epoch != marker.server_epoch {
+        return Err(OpError::StaleRef(format!(
+            "marker epoch {} does not match live epoch {}",
+            marker.server_epoch.0, live_epoch.0
+        )));
+    }
+    let published = registry.backend_server(instance).map_err(reg_err)?;
+    if published.server_epoch != Some(live_epoch) {
+        return Err(OpError::Indeterminate(format!(
+            "live epoch {} is not the registry-published backend incarnation",
+            live_epoch.0
+        )));
+    }
+
+    let group_count = native.groups.len();
+    let split_count = native.groups.iter().map(|group| group.splits.len()).sum();
+    let mut group_name = None;
+    let mut split_parents = Vec::new();
+    let mut matching_groups = 0usize;
+    for group in &native.groups {
+        let group_ref = make_ref(ChildKind::Group, live_epoch, &group.handle);
+        if group_ref == marker.group_ref {
+            matching_groups += 1;
+            group_name = group.title.clone();
+        }
+        for split in &group.splits {
+            if make_ref(ChildKind::Split, live_epoch, &split.handle) == marker.split_ref {
+                split_parents.push(group_ref.clone());
+            }
+        }
+    }
+    if matching_groups != 1
+        || split_parents.len() != 1
+        || split_parents.first() != Some(&marker.group_ref)
+    {
+        return Err(OpError::StaleRef(format!(
+            "marker child correlation is not unique (group matches {matching_groups}, split parents {:?})",
+            split_parents
+        )));
+    }
+
+    Ok(ValidatedMarker {
+        context: marker.clone(),
+        logical_name: row.logical_name,
+        backend_instance: instance,
+        health: row.health,
+        group_count,
+        split_count,
+        group_name,
+    })
+}
+
 /// `dmux _context` (plan §13.1): revalidate the invoking pane against the
 /// authoritative registry and a complete same-epoch scan, then return the
 /// current marker set. Works on unstamped (adopted) Spaces — that is how
@@ -1749,6 +3043,20 @@ pub fn context_read(
     let mut registry =
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
     let identity = registry.identity().map_err(reg_err)?;
+    let instance = registry.space(space_uid).map_err(reg_err)?.backend_instance;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    if !locks
+        .try_acquire(LockScope::BackendInstance(instance), LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?
+    {
+        return Err(OpError::Indeterminate(format!(
+            "backend instance {} is recovering or mutating",
+            instance.0
+        )));
+    }
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     let (group, split) = native_row
@@ -1800,6 +3108,9 @@ pub fn context_stamp(
     let mut registry =
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
     let identity = registry.identity().map_err(reg_err)?;
+    let instance = registry.space(space_uid).map_err(reg_err)?.backend_instance;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    ChildLocks::acquire(&mut locks, &registry, instance, space_uid)?;
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     let (group, split) = native_row
@@ -1928,6 +3239,7 @@ pub fn normalize_apply(
     locks
         .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
     if let Some(row) = &managed {
         locks
             .acquire(LockScope::Space(row.space_uid), LockMode::Exclusive)
@@ -1981,6 +3293,22 @@ pub fn repair_scan_wez(
 ) -> Result<Vec<RepairTarget>, OpError> {
     let mut registry =
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    if scope.backend != Backend::Wez {
+        return Err(OpError::Refused(
+            "multi-window repair is defined only for Wez".into(),
+        ));
+    }
+    let instance = registry
+        .register_backend_instance(Backend::Wez, Some(&scope.endpoint), None)
+        .map_err(reg_err)?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    locks
+        .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
     let rows = match provider.inventory(scope) {
         InventoryOutcome::Complete(inv) => inv.rows,
         other => return Err(OpError::Indeterminate(format!("wez scan: {other:?}"))),
@@ -2068,7 +3396,632 @@ pub fn namespace_from_tmux_env(tmux_env: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::backend::{
+        Capabilities, NativeBinding, NativeGroupRow, NativeInventory, NativeSpaceRow,
+        NativeSplitRow, PresentationTarget, ProviderError, ProviderResult, SplitSpec,
+    };
+
     use super::*;
+
+    struct CreateGateProvider {
+        backend: Backend,
+        outcome: InventoryOutcome,
+        scans: AtomicUsize,
+        creates: AtomicUsize,
+    }
+
+    impl CreateGateProvider {
+        fn new(backend: Backend, outcome: InventoryOutcome) -> Self {
+            Self {
+                backend,
+                outcome,
+                scans: AtomicUsize::new(0),
+                creates: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl Provider for CreateGateProvider {
+        fn capabilities(&self) -> Capabilities {
+            Capabilities {
+                backend: self.backend,
+                cas_rename: false,
+                probed: Vec::new(),
+            }
+        }
+
+        fn inventory(&self, _scope: &InventoryScope) -> InventoryOutcome {
+            self.scans.fetch_add(1, Ordering::SeqCst);
+            self.outcome.clone()
+        }
+
+        fn create(
+            &self,
+            _scope: &InventoryScope,
+            _spec: &CreateSpec,
+        ) -> ProviderResult<NativeBinding> {
+            self.creates.fetch_add(1, Ordering::SeqCst);
+            Err(ProviderError::NativeFailure {
+                detail: "create must not be reached by a preflight gate test".into(),
+            })
+        }
+
+        fn prepare_presentation(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+            _child: Option<&ProviderHandle>,
+        ) -> ProviderResult<PresentationTarget> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn rename(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+            _new_native_name: &str,
+        ) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn remove(&self, _scope: &InventoryScope, _binding: &NativeBinding) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn group_list(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+        ) -> ProviderResult<Vec<NativeGroupRow>> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn group_new(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+            _spec: &CreateSpec,
+        ) -> ProviderResult<ProviderHandle> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn group_activate(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn group_rename(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+            _title: &str,
+        ) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn group_remove(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn split_list(
+            &self,
+            _scope: &InventoryScope,
+            _group: &ProviderHandle,
+        ) -> ProviderResult<Vec<NativeSplitRow>> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn split_new(
+            &self,
+            _scope: &InventoryScope,
+            _group: &ProviderHandle,
+            _spec: &SplitSpec,
+        ) -> ProviderResult<ProviderHandle> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn split_activate(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn split_remove(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+
+        fn inspect(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+        ) -> ProviderResult<NativeSpaceRow> {
+            Err(ProviderError::NativeFailure {
+                detail: "unused".into(),
+            })
+        }
+    }
+
+    fn empty_inventory(epoch: ServerEpoch) -> InventoryOutcome {
+        InventoryOutcome::Complete(NativeInventory {
+            server_epoch: Some(epoch),
+            rows: Vec::new(),
+        })
+    }
+
+    fn gate_test_env() -> (tempfile::TempDir, tempfile::TempDir, OperationEnv) {
+        let data = tempfile::tempdir().unwrap();
+        let locks = tempfile::tempdir().unwrap();
+        let env = OperationEnv {
+            db_path: data.path().join("registry.sqlite3"),
+            lock_dir: locks.path().to_path_buf(),
+        };
+        (data, locks, env)
+    }
+
+    fn gate_request(name: &str) -> CreateRequest {
+        CreateRequest {
+            request_uid: Uuid::new_v4(),
+            name: name.into(),
+            cwd: None,
+            program: Vec::new(),
+            helper_bin: "/unused/pane-bootstrap".into(),
+        }
+    }
+
+    #[test]
+    fn owner_fenced_create_scans_both_and_refuses_opposite_managed_name_before_allocation() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let tmux_instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-gate"), None)
+            .unwrap();
+        let wez_instance = registry
+            .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        let held = registry
+            .reserve_space("collision", wez_instance, Uuid::new_v4())
+            .unwrap();
+        drop(registry);
+
+        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let wez = CreateGateProvider::new(Backend::Wez, empty_inventory(epoch));
+        let tmux_scope = InventoryScope {
+            backend: Backend::Tmux,
+            endpoint: "tmux-gate".into(),
+            expected_epoch: Some(epoch),
+        };
+        let wez_scope = InventoryScope {
+            backend: Backend::Wez,
+            endpoint: "/tmp/wez-gate.sock".into(),
+            expected_epoch: Some(epoch),
+        };
+        let error = create_space_owner_fenced(
+            &env,
+            OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &tmux,
+                scope: &tmux_scope,
+            },
+            Some(OwnerCreateTarget {
+                backend: Backend::Wez,
+                instance: wez_instance,
+                provider: &wez,
+                scope: &wez_scope,
+            }),
+            false,
+            &gate_request("collision"),
+        )
+        .unwrap_err();
+        assert!(matches!(error, OpError::NameConflict(_)), "{error}");
+        assert_eq!(tmux.scans.load(Ordering::SeqCst), 1);
+        assert_eq!(wez.scans.load(Ordering::SeqCst), 1);
+        assert_eq!(tmux.creates.load(Ordering::SeqCst), 0);
+        let spaces = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+            .unwrap()
+            .spaces()
+            .unwrap();
+        assert_eq!(spaces.len(), 1, "refusal must not allocate another Space");
+        assert_eq!(spaces[0].space_uid, held.space_uid);
+    }
+
+    #[test]
+    fn owner_lookup_surfaces_selectable_and_unmanaged_exact_name_without_native_ids() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(72));
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let tmux_instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-gate"), None)
+            .unwrap();
+        let wez_instance = registry
+            .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("collision", wez_instance, Uuid::new_v4())
+            .unwrap();
+        registry
+            .finalize_create(
+                reservation.space_uid,
+                reservation.operation_uid,
+                &NativeBindingSpec {
+                    native_token: "managed-opposite".into(),
+                    native_kind: NativeKind::WezWorkspaceKey,
+                    server_epoch: Some(epoch),
+                },
+            )
+            .unwrap();
+        drop(registry);
+
+        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let wez = CreateGateProvider::new(
+            Backend::Wez,
+            InventoryOutcome::Complete(NativeInventory {
+                server_epoch: Some(epoch),
+                rows: vec![NativeSpaceRow {
+                    native_token: "managed-opposite".into(),
+                    native_name: "collision".into(),
+                    groups: Vec::new(),
+                    multi_window: false,
+                }],
+            }),
+        );
+        let tmux_scope = InventoryScope {
+            backend: Backend::Tmux,
+            endpoint: "tmux-gate".into(),
+            expected_epoch: Some(epoch),
+        };
+        let wez_scope = InventoryScope {
+            backend: Backend::Wez,
+            endpoint: "/tmp/wez-gate.sock".into(),
+            expected_epoch: Some(epoch),
+        };
+        let lookup = lookup_new_owner_fenced(
+            &env,
+            Some(OwnerCreateTarget {
+                backend: Backend::Wez,
+                instance: wez_instance,
+                provider: &wez,
+                scope: &wez_scope,
+            }),
+            Some(OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &tmux,
+                scope: &tmux_scope,
+            }),
+            "collision",
+        )
+        .unwrap();
+        assert_eq!(
+            lookup.wez,
+            ClassSummary::Selectable {
+                space: reservation.space_uid,
+                no: reservation.space_no,
+            }
+        );
+        assert_eq!(lookup.tmux, ClassSummary::NoMatch);
+
+        let unmanaged_tmux = CreateGateProvider::new(
+            Backend::Tmux,
+            InventoryOutcome::Complete(NativeInventory {
+                server_epoch: Some(epoch),
+                rows: vec![NativeSpaceRow {
+                    native_token: "external".into(),
+                    native_name: "collision".into(),
+                    groups: Vec::new(),
+                    multi_window: false,
+                }],
+            }),
+        );
+        let lookup = lookup_new_owner_fenced(
+            &env,
+            Some(OwnerCreateTarget {
+                backend: Backend::Wez,
+                instance: wez_instance,
+                provider: &wez,
+                scope: &wez_scope,
+            }),
+            Some(OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &unmanaged_tmux,
+                scope: &tmux_scope,
+            }),
+            "collision",
+        )
+        .unwrap();
+        assert_eq!(
+            lookup.tmux,
+            ClassSummary::Blocking {
+                reason: crate::resolve::BlockReason::UnmanagedSameName,
+                space: None,
+            }
+        );
+    }
+
+    #[test]
+    fn collision_acknowledgement_allows_only_opposite_selectable_managed_row() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(73));
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let tmux_instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-gate"), None)
+            .unwrap();
+        let wez_instance = registry
+            .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("collision", wez_instance, Uuid::new_v4())
+            .unwrap();
+        registry
+            .finalize_create(
+                reservation.space_uid,
+                reservation.operation_uid,
+                &NativeBindingSpec {
+                    native_token: "managed-opposite".into(),
+                    native_kind: NativeKind::WezWorkspaceKey,
+                    server_epoch: Some(epoch),
+                },
+            )
+            .unwrap();
+        drop(registry);
+        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let wez = CreateGateProvider::new(
+            Backend::Wez,
+            InventoryOutcome::Complete(NativeInventory {
+                server_epoch: Some(epoch),
+                rows: vec![NativeSpaceRow {
+                    native_token: "managed-opposite".into(),
+                    native_name: "collision".into(),
+                    groups: Vec::new(),
+                    multi_window: false,
+                }],
+            }),
+        );
+        let tmux_scope = InventoryScope {
+            backend: Backend::Tmux,
+            endpoint: "tmux-gate".into(),
+            expected_epoch: Some(epoch),
+        };
+        let wez_scope = InventoryScope {
+            backend: Backend::Wez,
+            endpoint: "/tmp/wez-gate.sock".into(),
+            expected_epoch: Some(epoch),
+        };
+        let refused_request = gate_request("collision");
+        let refused = create_space_owner_fenced(
+            &env,
+            OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &tmux,
+                scope: &tmux_scope,
+            },
+            Some(OwnerCreateTarget {
+                backend: Backend::Wez,
+                instance: wez_instance,
+                provider: &wez,
+                scope: &wez_scope,
+            }),
+            false,
+            &refused_request,
+        )
+        .unwrap_err();
+        assert!(matches!(refused, OpError::NameConflict(_)), "{refused}");
+        assert_eq!(tmux.creates.load(Ordering::SeqCst), 0);
+        let changed_replay = create_space_owner_fenced(
+            &env,
+            OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &tmux,
+                scope: &tmux_scope,
+            },
+            Some(OwnerCreateTarget {
+                backend: Backend::Wez,
+                instance: wez_instance,
+                provider: &wez,
+                scope: &wez_scope,
+            }),
+            true,
+            &refused_request,
+        )
+        .unwrap_err();
+        assert!(matches!(changed_replay, OpError::Registry(_)));
+
+        let request = gate_request("collision");
+        let error = create_space_owner_fenced(
+            &env,
+            OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &tmux,
+                scope: &tmux_scope,
+            },
+            Some(OwnerCreateTarget {
+                backend: Backend::Wez,
+                instance: wez_instance,
+                provider: &wez,
+                scope: &wez_scope,
+            }),
+            true,
+            &request,
+        )
+        .unwrap_err();
+        assert!(matches!(error, OpError::Provider(_)), "{error}");
+        assert_eq!(tmux.creates.load(Ordering::SeqCst), 1);
+        assert_eq!(wez.creates.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn owner_fenced_create_refuses_opposite_unmanaged_name_and_indeterminate_scan_without_allocation()
+     {
+        for (tag, opposite_outcome, expected) in [
+            (
+                "unmanaged",
+                InventoryOutcome::Complete(NativeInventory {
+                    server_epoch: Some(ServerEpoch(Uuid::from_u128(71))),
+                    rows: vec![NativeSpaceRow {
+                        native_token: "external-opposite".into(),
+                        native_name: "collision".into(),
+                        groups: Vec::new(),
+                        multi_window: false,
+                    }],
+                }),
+                "name",
+            ),
+            (
+                "indeterminate",
+                InventoryOutcome::Unreachable {
+                    detail: "injected opposite outage".into(),
+                },
+                "indeterminate",
+            ),
+        ] {
+            let (_data, _locks, env) = gate_test_env();
+            let epoch = ServerEpoch(Uuid::from_u128(71));
+            let mut registry =
+                Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+            let tmux_instance = registry
+                .register_backend_instance(Backend::Tmux, Some("tmux-gate"), None)
+                .unwrap();
+            let wez_instance = registry
+                .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+                .unwrap();
+            drop(registry);
+            let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+            let wez = CreateGateProvider::new(Backend::Wez, opposite_outcome);
+            let tmux_scope = InventoryScope {
+                backend: Backend::Tmux,
+                endpoint: "tmux-gate".into(),
+                expected_epoch: Some(epoch),
+            };
+            let wez_scope = InventoryScope {
+                backend: Backend::Wez,
+                endpoint: "/tmp/wez-gate.sock".into(),
+                expected_epoch: Some(epoch),
+            };
+            let error = create_space_owner_fenced(
+                &env,
+                OwnerCreateTarget {
+                    backend: Backend::Tmux,
+                    instance: tmux_instance,
+                    provider: &tmux,
+                    scope: &tmux_scope,
+                },
+                Some(OwnerCreateTarget {
+                    backend: Backend::Wez,
+                    instance: wez_instance,
+                    provider: &wez,
+                    scope: &wez_scope,
+                }),
+                false,
+                &gate_request("collision"),
+            )
+            .unwrap_err();
+            match expected {
+                "name" => assert!(matches!(error, OpError::NameConflict(_)), "{tag}: {error}"),
+                _ => assert!(matches!(error, OpError::Indeterminate(_)), "{tag}: {error}"),
+            }
+            assert_eq!(tmux.scans.load(Ordering::SeqCst), 1, "{tag}");
+            assert_eq!(wez.scans.load(Ordering::SeqCst), 1, "{tag}");
+            assert_eq!(tmux.creates.load(Ordering::SeqCst), 0, "{tag}");
+            assert!(
+                Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+                    .unwrap()
+                    .spaces()
+                    .unwrap()
+                    .is_empty(),
+                "{tag}: a preflight refusal must consume no identity"
+            );
+        }
+    }
+
+    #[test]
+    fn owner_fenced_create_requires_every_durable_opposite_target() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let tmux_instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-gate"), None)
+            .unwrap();
+        registry
+            .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        drop(registry);
+        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let scope = InventoryScope {
+            backend: Backend::Tmux,
+            endpoint: "tmux-gate".into(),
+            expected_epoch: Some(epoch),
+        };
+        let error = create_space_owner_fenced(
+            &env,
+            OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance: tmux_instance,
+                provider: &tmux,
+                scope: &scope,
+            },
+            None,
+            false,
+            &gate_request("missing-opposite"),
+        )
+        .unwrap_err();
+        assert!(matches!(error, OpError::Refused(_)), "{error}");
+        assert_eq!(tmux.scans.load(Ordering::SeqCst), 0);
+        assert!(
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+                .unwrap()
+                .spaces()
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn namespace_derivation_from_tmux_env() {
@@ -2083,5 +4036,120 @@ mod tests {
         // -S servers outside the standard dir are not -L namespaces.
         assert_eq!(namespace_from_tmux_env("/var/run/custom.sock,1,2"), None);
         assert_eq!(namespace_from_tmux_env(""), None);
+    }
+
+    #[test]
+    fn final_wez_empty_floor_requires_complete_same_epoch_zero_rows() {
+        let epoch = ServerEpoch(Uuid::from_u128(41));
+        let empty = InventoryOutcome::Complete(crate::backend::NativeInventory {
+            server_epoch: Some(epoch),
+            rows: Vec::new(),
+        });
+        assert_eq!(
+            classify_final_wez_empty_scan(Some(epoch), empty).unwrap(),
+            Some(epoch)
+        );
+
+        let nonempty = InventoryOutcome::Complete(crate::backend::NativeInventory {
+            server_epoch: Some(epoch),
+            rows: vec![crate::backend::NativeSpaceRow {
+                native_token: "dmux:still-live".into(),
+                native_name: "dmux:still-live".into(),
+                groups: Vec::new(),
+                multi_window: false,
+            }],
+        });
+        assert_eq!(
+            classify_final_wez_empty_scan(Some(epoch), nonempty).unwrap(),
+            None
+        );
+
+        let changed = InventoryOutcome::Complete(crate::backend::NativeInventory {
+            server_epoch: Some(ServerEpoch(Uuid::from_u128(42))),
+            rows: Vec::new(),
+        });
+        assert!(classify_final_wez_empty_scan(Some(epoch), changed).is_err());
+        assert!(
+            classify_final_wez_empty_scan(
+                Some(epoch),
+                InventoryOutcome::Unreachable {
+                    detail: "fault".into(),
+                },
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_durable_old_epoch_recovery_blocks_after_restart_and_process_lock_drop() {
+        use std::time::Duration;
+
+        use crate::locks::{LockMode, LockScope, acquire};
+        use crate::registry::recovery::RecoveryGenerationSpec;
+        use crate::registry::{LeaseHolder, LeaseScope};
+
+        let data = tempfile::tempdir().unwrap();
+        let lock_dir = tempfile::tempdir().unwrap();
+        let mut registry = Registry::open(RegistryConfig::new(
+            data.path().join("registry.sqlite3"),
+            lock_dir.path(),
+        ))
+        .unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Wez, Some("/tmp/recovery.sock"), Some("test"))
+            .unwrap();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        registry
+            .publish_backend_server(instance, epoch, Some(123), Some("start"), None, None)
+            .unwrap();
+
+        let kernel = acquire(
+            lock_dir.path(),
+            LockScope::BackendInstance(instance),
+            LockMode::Exclusive,
+        )
+        .unwrap();
+        let holder = LeaseHolder::current(Uuid::new_v4());
+        let lease = registry
+            .acquire_lease(
+                &LeaseScope::Recovery(instance),
+                &holder,
+                Duration::from_secs(30),
+                &kernel,
+                None,
+            )
+            .unwrap();
+        let generation = RecoveryGenerationSpec {
+            generation_uid: Uuid::new_v4(),
+            backend_instance: instance,
+            server_epoch: epoch,
+            manifest_id: "sha256:unfinished".into(),
+        };
+        registry.begin_recovery(&generation, &[], &lease).unwrap();
+        drop(kernel); // coordinator crash: process fence is gone, journal is not.
+
+        // A backend restart must not hide the durable generation merely
+        // because the newly published incarnation has a different epoch.
+        let restarted_epoch = ServerEpoch(Uuid::new_v4());
+        registry
+            .publish_backend_server(
+                instance,
+                restarted_epoch,
+                Some(456),
+                Some("restart"),
+                None,
+                None,
+            )
+            .unwrap();
+        assert_ne!(restarted_epoch, generation.server_epoch);
+
+        let error = require_no_unfinished_recovery(&registry, instance).unwrap_err();
+        assert!(matches!(error, OpError::Refused(_)));
+        assert!(
+            error
+                .to_string()
+                .contains(&generation.generation_uid.to_string())
+        );
+        assert!(error.to_string().contains("pending"));
     }
 }

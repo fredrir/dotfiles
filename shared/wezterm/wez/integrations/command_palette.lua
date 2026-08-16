@@ -35,6 +35,11 @@ local function commands()
 end
 
 function M.setup()
+  if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+    -- Every legacy entry spawns a native tab. Managed mode leaves them out;
+    -- tools remain runnable inside a pane in the ordinary way.
+    return
+  end
   wezterm.on('augment-command-palette', function(_window, _pane)
     return commands()
   end)

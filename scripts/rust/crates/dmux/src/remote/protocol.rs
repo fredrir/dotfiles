@@ -16,9 +16,14 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::error::TypedError;
-use crate::model::{BackendInstanceUid, HostUid, RegistryUid, ServerEpoch, SpaceUid};
+use crate::model::{
+    BackendInstanceUid, ChildKind, Health, HostUid, ProviderHandle, RegistryUid, ServerEpoch,
+    SpaceUid,
+};
 
 pub const PROTOCOL_VERSION: u32 = 1;
+pub const CAP_NEW_LOOKUP: &str = "new_lookup_v1";
+pub const CAP_NEW_FENCED_COLLISION: &str = "new_fenced_collision_v1";
 
 /// Method names carried in the envelope. The set grows per phase; the
 /// envelope shape is what P1 freezes. `hello` (enrollment/lineage handshake,
@@ -27,6 +32,7 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub mod methods {
     pub const HELLO: &str = "hello";
     pub const SPACES: &str = "spaces";
+    pub const NEW_LOOKUP: &str = "new_lookup";
     pub const NEW: &str = "new";
     pub const RENAME: &str = "rename";
     pub const RM: &str = "rm";
@@ -34,10 +40,18 @@ pub mod methods {
     // P8b remote hierarchy (additive).
     pub const HIERARCHY: &str = "hierarchy";
     pub const GROUP_NEW: &str = "group_new";
+    pub const GROUP_ACTIVATE: &str = "group_activate";
     pub const GROUP_RENAME: &str = "group_rename";
     pub const GROUP_RM: &str = "group_rm";
     pub const SPLIT_NEW: &str = "split_new";
+    pub const SPLIT_DIRECTION: &str = "split_direction";
+    pub const SPLIT_RESIZE: &str = "split_resize";
+    pub const SPLIT_ZOOM: &str = "split_zoom";
     pub const SPLIT_RM: &str = "split_rm";
+    // P10 owner recovery control (additive, registry/runtime scoped).
+    pub const RECOVERY_STATUS: &str = "recovery_status";
+    pub const RECOVERY_RESUME: &str = "recovery_resume";
+    pub const RECOVERY_ABORT: &str = "recovery_abort";
 }
 
 /// Canonical payload bytes for `payload_sha256`: the exact `payload` value
@@ -110,10 +124,40 @@ pub struct AttachPlan {
     /// persisted), so the caller must mint a fresh plan under a fresh
     /// request UID.
     pub token: String,
+    /// Exact owner-correlated child focus stored in the token's native argv.
+    /// Absent for a Space-only attach and in pre-P9 response documents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<AttachPlanChild>,
     /// True when this response replayed the idempotency ledger (P7
     /// additive; absent means false).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub replayed: bool,
+}
+
+/// Epoch-qualified child requested by the client.  A Split's Group parent is
+/// intentionally not supplied: only the owner may discover it from a live
+/// same-epoch hierarchy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachChildRequest {
+    pub kind: ChildKind,
+    pub epoch: ServerEpoch,
+    pub handle: ProviderHandle,
+}
+
+/// Child focus the owner proved and embedded in the single-use token's exact
+/// native argv.  Split responses include the owner-discovered Group parent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttachPlanChild {
+    Group {
+        epoch: ServerEpoch,
+        handle: ProviderHandle,
+    },
+    Split {
+        epoch: ServerEpoch,
+        group: ProviderHandle,
+        split: ProviderHandle,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +251,55 @@ pub struct SpacesInfo {
     pub scans: Vec<ScanSummary>,
 }
 
+/// Owner-scoped literal exact-name lookup request. The owner computes both
+/// backend partitions under its decision/instance fences; SpacesInfo cannot
+/// substitute because it intentionally omits unmanaged native names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewLookupPayload {
+    pub name: String,
+}
+
+/// Provider-neutral wire form of one §8.2 exact-name partition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "class", rename_all = "snake_case")]
+pub enum NewLookupClass {
+    NoMatch,
+    Selectable {
+        space_uid: SpaceUid,
+        space_no: u64,
+    },
+    Blocking {
+        reason: NewLookupBlockReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space_uid: Option<SpaceUid>,
+    },
+    Indeterminate,
+}
+
+/// Exact typed blocking reason, intentionally excluding every provider
+/// native token/handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "reason", content = "health", rename_all = "snake_case")]
+pub enum NewLookupBlockReason {
+    LifecycleReserved,
+    LifecycleDeleting,
+    LifecycleConflict,
+    OperationInProgress,
+    Unhealthy(Health),
+    NoBinding,
+    ActiveAbsent,
+    ServerStopped,
+    IndeterminateObservation,
+    UnmanagedSameName,
+    MultiWindow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewLookupResult {
+    pub wez: NewLookupClass,
+    pub tmux: NewLookupClass,
+}
+
 /// `new` request payload. `backend` is the client's product-level choice;
 /// native details (namespace, socket, helper, epochs) NEVER come from the
 /// client — the owner resolves them (ADR 009 §4).
@@ -219,6 +312,10 @@ pub struct NewPayload {
     /// User program argv; empty means a login shell.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub program: Vec<String>,
+    /// Valid only with an explicitly selected backend. The owner may retain
+    /// one opposite managed selectable row, never an unmanaged/blocking one.
+    #[serde(default)]
+    pub allow_name_collision: bool,
 }
 
 /// `rename` request payload. The Space's backend/instance come from the
@@ -261,6 +358,8 @@ pub struct AttachPlanPayload {
     pub space_uid: SpaceUid,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<AttachChildRequest>,
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +390,25 @@ pub struct GroupNewPayload {
     pub program: Vec<String>,
 }
 
+/// `group_activate` targets one exact epoch-qualified Group. Presentation
+/// focus is owner-side; the client never supplies a native window ID.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupActivatePayload {
+    pub space_uid: SpaceUid,
+    pub group_ref: String,
+}
+
+/// Idempotently stored result of exact Group activation. The response
+/// contains only canonical dmux refs, never raw backend IDs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupActivateResult {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub group_ref: String,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
 /// `split_new` request payload. `direction` is one of
 /// `left|right|up|down` (absent means `down`, the CLI default);
 /// `percent` is 1..=99.
@@ -307,6 +425,68 @@ pub struct SplitNewPayload {
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub program: Vec<String>,
+}
+
+/// `split_direction` selects the exact Split adjacent to `split_ref` in
+/// `direction`. At an edge the result has no target; no ordinal or wrap
+/// guess is permitted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitDirectionPayload {
+    pub space_uid: SpaceUid,
+    pub split_ref: String,
+    pub direction: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitDirectionResult {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    /// Canonical parent Group of the exact origin/target.
+    pub group_ref: String,
+    /// Canonical adjacent target, or `None` for the verified edge no-op.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_ref: Option<String>,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
+/// `split_resize` resizes one exact epoch-qualified Split by a positive
+/// number of cells. Native layout boundaries are reported as
+/// `changed=false`, not guessed as success-with-change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitResizePayload {
+    pub space_uid: SpaceUid,
+    pub split_ref: String,
+    pub direction: String,
+    pub amount: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitResizeResult {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub split_ref: String,
+    pub changed: bool,
+    #[serde(default)]
+    pub replayed: bool,
+}
+
+/// `split_zoom` toggles zoom for one exact epoch-qualified Split and
+/// returns the verified final state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitZoomPayload {
+    pub space_uid: SpaceUid,
+    pub split_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SplitZoomResult {
+    pub space_uid: SpaceUid,
+    pub server_epoch: ServerEpoch,
+    pub split_ref: String,
+    pub zoomed: bool,
+    #[serde(default)]
+    pub replayed: bool,
 }
 
 /// `group_rename` request payload (presentation title, not an authority
@@ -341,6 +521,24 @@ pub struct SplitRmPayload {
     pub space_uid: SpaceUid,
     pub split_ref: String,
 }
+
+// ---------------------------------------------------------------------------
+// P10 owner recovery control. Targets are deliberately empty: the owner
+// resolves its one managed Wez backend instance and production/scratch
+// runtime. A controller can qualify the common envelope with the expected
+// backend-instance/epoch, but can never submit owner filesystem paths.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryStatusPayload {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryResumePayload {}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryAbortPayload {}
 
 #[cfg(test)]
 mod tests {
@@ -426,7 +624,23 @@ mod tests {
             "name": "proj", "backend": "tmux"
         }))
         .unwrap();
-        assert!(new.program.is_empty() && new.cwd.is_none());
+        assert!(new.program.is_empty() && new.cwd.is_none() && !new.allow_name_collision);
+        let lookup = NewLookupResult {
+            wez: NewLookupClass::Blocking {
+                reason: NewLookupBlockReason::UnmanagedSameName,
+                space_uid: None,
+            },
+            tmux: NewLookupClass::Selectable {
+                space_uid: SpaceUid(Uuid::nil()),
+                space_no: 7,
+            },
+        };
+        let lookup_json = serde_json::to_value(&lookup).unwrap();
+        assert!(!lookup_json.to_string().contains("native"));
+        assert_eq!(
+            serde_json::from_value::<NewLookupResult>(lookup_json).unwrap(),
+            lookup
+        );
         let rename = RenamePayload {
             space_uid: SpaceUid(Uuid::nil()),
             new_name: "after".into(),
