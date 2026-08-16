@@ -1,8 +1,16 @@
+# dmux managed WezTerm mux server (plan §15.1, ADR 002).
+# systemd is the ONLY legitimate starter: WezTerm has no unix-socket mutual
+# exclusion, so a manual wezterm-mux-server on the same socket silently
+# steals it and orphans this service's panes. Never start the server by hand.
 [Unit]
-Description=WezTerm multiplexer server
+Description=dmux-managed WezTerm multiplexer server
 
 [Service]
-ExecStart=/usr/bin/wezterm-mux-server
+# The wrapper resolves $XDG_RUNTIME_DIR/dmux, mints a fresh server epoch,
+# start token, and boot nonce, pre-writes the runtime descriptor, and execs
+# wezterm-mux-server FOREGROUND with the dmux mux config (--daemonize
+# contends the shared default pid-file lock, ADR 004).
+ExecStart=%h/dotfiles/shared/wezterm/mux/dmux-mux-start.sh
 Restart=on-failure
 RestartSec=2
 

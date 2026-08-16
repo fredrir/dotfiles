@@ -12,7 +12,7 @@ local URL = 'https://github.com/fredrir/resurrect.wezterm'
 function M.apply(config)
   local resurrect = wezterm.plugin.require(URL)
 
-  resurrect.setup(config, {
+  local opts = {
     periodic_interval = 300,
     keybindings = false,
     -- wez.appearance.status owns update-right-status.
@@ -24,7 +24,19 @@ function M.apply(config)
     -- gate checks process.name but executes process.argv, so a tampered
     -- state file could otherwise run arbitrary commands.
     safe_restore_processes = { replace = {} },
-  })
+  }
+
+  -- dmux wez-first flag (plan §15.2, P5): when the GUI is an attach-only
+  -- client of the service-owned mux, gui-startup must not restore state into
+  -- the already-populated server; the mux service owns cold recovery. Flag
+  -- off leaves opts exactly as above, so setup() behaves identically to the
+  -- pre-dmux configuration. (The fork's dmux-split branch implements
+  -- startup_restore; a plugin checkout without it ignores the extra key.)
+  if os.getenv 'DMUX_WEZ_FIRST' == '1' then
+    opts.startup_restore = false
+  end
+
+  resurrect.setup(config, opts)
 
   -- Keep state local-only: strip remote-domain markers (the archie/macie
   -- mux domains) at save time. Their panes restore as local shells in the

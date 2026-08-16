@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    dmux managed WezTerm mux server (plan §15.1, ADR 002).
+    launchd is the ONLY legitimate starter: WezTerm has no unix-socket mutual
+    exclusion, so a manual wezterm-mux-server on the same socket silently
+    steals it. Install: launchctl bootstrap gui/$UID <this file>.
+    Restart: launchctl kickstart -k gui/$UID/com.fredrir.wezterm-mux.
+  -->
+  <key>Label</key>
+  <string>com.fredrir.wezterm-mux</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/fredrir/dotfiles/shared/wezterm/mux/dmux-mux-start.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <!-- Wrapper diagnostics only; the server logs under the runtime dir
+       (<darwin-user-temp>/dmux/wez-dmux.log), which launchd cannot express
+       in a static plist. -->
+  <key>StandardOutPath</key>
+  <string>/tmp/com.fredrir.wezterm-mux.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/com.fredrir.wezterm-mux.err.log</string>
+</dict>
+</plist>
