@@ -78,7 +78,7 @@ function M.apply(config)
 
   if platform.is_linux then
     config.enable_wayland = true
-    config.kde_window_background_blur = true
+    config.wayland_window_background_blur = true
     config.freetype_load_target = 'Light'
     config.freetype_render_target = 'HorizontalLcd'
   end
