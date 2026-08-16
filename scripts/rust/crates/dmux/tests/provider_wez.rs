@@ -23,7 +23,8 @@ use std::time::{Duration, Instant};
 
 use dmux::backend::wez::{CasRenameOutcome, SystemRunner, WezProvider, WezRunner, cli_invocation};
 use dmux::backend::{
-    CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, Provider, ProviderError,
+    CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NormalizePlan, Provider,
+    ProviderError, SplitDirection, SplitSpec,
 };
 use dmux::model::{Backend, ProviderHandle, ServerEpoch};
 use uuid::Uuid;
@@ -120,6 +121,11 @@ config.unix_domains = {{
 -- ADR 002 canary: an unmanaged default shell would surface under the
 -- 'default' workspace and trip the missing-sentinel classification.
 config.default_prog = {{ '/bin/sh', '-c', 'echo UNMANAGED-DEFAULT-SHELL; exec /bin/sleep 600' }}
+-- Pin the headless window geometry the split direction/percent tests
+-- assert against (matches the stock defaults; pinned so a default change
+-- upstream cannot silently move the geometry assertions).
+config.initial_cols = 80
+config.initial_rows = 24
 -- Keep every artifact away from ~/.local/share/wezterm (live GUI owns it).
 config.daemon_options = {{
   pid_file = '{dir}/daemon.pid',
@@ -306,6 +312,50 @@ return config
             cwd: None,
             bootstrap_argv: vec!["/bin/sh".into(), "-c".into(), "sleep 300".into()],
         }
+    }
+
+    /// `boot_spec` with an explicit owner-validated cwd (plan §11.3
+    /// pass-through coverage).
+    fn boot_spec_cwd(&self, token: &str, cwd: &Path) -> CreateSpec {
+        CreateSpec {
+            cwd: Some(cwd.to_str().expect("utf8 cwd").to_string()),
+            ..self.boot_spec(token)
+        }
+    }
+
+    /// `(left_col, top_row, size.rows, size.cols)` of one pane from the raw
+    /// list JSON. Live-pinned observability fact: a headless mux server DOES
+    /// expose pane geometry in `cli list --format json` (`left_col`,
+    /// `top_row`, `size{rows,cols,...}`), with windows sized by
+    /// `initial_cols`/`initial_rows` and a 1-cell divider per split.
+    fn pane_geometry(&self, pane_id: u64) -> (u64, u64, u64, u64) {
+        let list = self.raw_list();
+        let row = list
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|r| r["pane_id"] == pane_id)
+            .unwrap_or_else(|| panic!("pane {pane_id} not listed"));
+        (
+            row["left_col"].as_u64().expect("left_col"),
+            row["top_row"].as_u64().expect("top_row"),
+            row["size"]["rows"].as_u64().expect("size.rows"),
+            row["size"]["cols"].as_u64().expect("size.cols"),
+        )
+    }
+
+    /// Raw `cwd` field of one pane row (live-pinned shape: a `file://` URI
+    /// with the macOS-canonicalized path and a trailing slash).
+    fn pane_cwd_uri(&self, pane_id: u64) -> String {
+        self.raw_list()
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|r| r["pane_id"] == pane_id)
+            .unwrap_or_else(|| panic!("pane {pane_id} not listed"))["cwd"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
     }
 
     fn window_id_of_workspace(&self, workspace: &str) -> u64 {
@@ -957,6 +1007,18 @@ fn epoch_mismatch_rejects_every_mutation_without_mutating() {
                 .cas_rename_workspace(&scope, 0, "alpha", "beta", false)
                 .map(|_| ()),
         ),
+        (
+            "normalize_apply",
+            provider.normalize_apply(
+                &scope,
+                &NormalizePlan {
+                    native_token: "alpha".into(),
+                    server_epoch: wrong_epoch,
+                    target_window: 0,
+                    moves: vec![],
+                },
+            ),
+        ),
     ];
     for (verb, result) in results {
         match result {
@@ -966,6 +1028,390 @@ fn epoch_mismatch_rejects_every_mutation_without_mutating() {
     }
     assert_eq!(mux.raw_list(), before, "zero native mutation happened");
     assert!(mux.workspace_rows("fresh").is_empty(), "no spawn leaked");
+}
+
+// ---------------------------------------------------------------------------
+// P8a gate tests: normalization (plan §10.3) + placement/cwd (stock server)
+// ---------------------------------------------------------------------------
+
+/// Gate (plan §10.3, P8a): a 3-window workspace (one window holding a
+/// 2-pane split) normalizes to exactly ONE window — the lowest window id —
+/// with every pane surviving the merge (panes are moved into tabs of the
+/// target window, never killed) and a neighbor workspace untouched.
+#[test]
+fn normalize_merges_three_windows_preserving_every_pane() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+
+    let p1 = mux.spawn_workspace("mw");
+    let p2 = mux.spawn_workspace("mw");
+    let p3 = mux.spawn_workspace("mw");
+    let p4 = mux.split_pane(p2);
+    provider
+        .create(&scope, &mux.boot_spec("keeper"))
+        .expect("create keeper");
+    let keeper_rows = mux.workspace_rows("keeper");
+
+    let before = mux.workspace_rows("mw");
+    let mut windows_before: Vec<u64> = before.iter().map(|(w, _, _)| *w).collect();
+    windows_before.sort_unstable();
+    windows_before.dedup();
+    assert_eq!(windows_before.len(), 3, "three native windows");
+    let target = windows_before[0];
+    let mut panes_before: Vec<u64> = before.iter().map(|(_, _, p)| *p).collect();
+    panes_before.sort_unstable();
+    let mut spawned = vec![p1, p2, p3, p4];
+    spawned.sort_unstable();
+    assert_eq!(panes_before, spawned, "4 panes across 3 windows");
+
+    let plan = provider.normalize_plan(&scope, "mw").expect("plan");
+    assert_eq!(plan.native_token, "mw");
+    assert_eq!(plan.server_epoch, mux.epoch);
+    assert_eq!(plan.target_window, target, "lowest window id is the target");
+    let mut expected_moves: Vec<(u64, u64)> = before
+        .iter()
+        .filter(|(w, _, _)| *w != target)
+        .map(|(w, _, p)| (*w, *p))
+        .collect();
+    expected_moves.sort_unstable();
+    assert_eq!(
+        plan.moves
+            .iter()
+            .map(|m| (m.from_window, m.pane_id))
+            .collect::<Vec<_>>(),
+        expected_moves,
+        "every extra-window pane, ascending (window_id, pane_id)"
+    );
+
+    provider.normalize_apply(&scope, &plan).expect("apply");
+
+    let after = mux.workspace_rows("mw");
+    let mut windows_after: Vec<u64> = after.iter().map(|(w, _, _)| *w).collect();
+    windows_after.sort_unstable();
+    windows_after.dedup();
+    assert_eq!(
+        windows_after,
+        vec![target],
+        "exactly one window: the target"
+    );
+    let mut panes_after: Vec<u64> = after.iter().map(|(_, _, p)| *p).collect();
+    panes_after.sort_unstable();
+    assert_eq!(
+        panes_after, panes_before,
+        "pane-count preservation: every pane survived, nothing was killed"
+    );
+
+    let inv = expect_complete(provider.inventory(&scope));
+    let row = inv
+        .rows
+        .iter()
+        .find(|r| r.native_token == "mw")
+        .expect("mw row");
+    assert!(
+        !row.multi_window,
+        "one-window invariant restored (plan §2.3)"
+    );
+
+    assert_eq!(
+        mux.workspace_rows("keeper"),
+        keeper_rows,
+        "neighbor workspace untouched"
+    );
+}
+
+/// Gate (plan §10.3): a sole-window workspace plans zero moves and apply is
+/// a verified no-op success; an absent opaque key is typed NotFound.
+#[test]
+fn normalize_sole_window_plan_is_empty_and_apply_is_noop() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&scope, &mux.boot_spec("solo"))
+        .expect("create");
+    provider
+        .group_new(&scope, &binding, &mux.boot_spec("solo"))
+        .expect("second tab");
+    let before = mux.workspace_rows("solo");
+
+    let plan = provider.normalize_plan(&scope, "solo").expect("plan");
+    assert_eq!(plan.target_window, before[0].0);
+    assert!(plan.moves.is_empty(), "sole window: nothing to do");
+    provider
+        .normalize_apply(&scope, &plan)
+        .expect("empty plan applies as a no-op success");
+    assert_eq!(mux.workspace_rows("solo"), before, "zero mutation");
+
+    match provider.normalize_plan(&scope, "missing") {
+        Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "missing"),
+        other => panic!("zero rows must be NotFound, got {other:?}"),
+    }
+}
+
+/// Gate (plan §10.3): drift between confirmation and apply — an extra
+/// window spawned into the workspace — refuses `normalize_drift:` with
+/// ZERO mutation, and a stale plan epoch is EpochChanged (IDs discarded).
+/// Re-planning against the drifted tree then applying converges.
+#[test]
+fn normalize_apply_refuses_drift_and_stale_epoch_then_replan_converges() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    mux.spawn_workspace("drift");
+    mux.spawn_workspace("drift");
+
+    let plan = provider.normalize_plan(&scope, "drift").expect("plan");
+    assert_eq!(plan.moves.len(), 1, "one extra-window pane planned");
+
+    // Stale plan epoch: typed EpochChanged before any move.
+    let stale = NormalizePlan {
+        server_epoch: ServerEpoch(Uuid::new_v4()),
+        ..plan.clone()
+    };
+    let snapshot = mux.workspace_rows("drift");
+    match provider.normalize_apply(&scope, &stale) {
+        Err(ProviderError::EpochChanged { .. }) => {}
+        other => panic!("stale plan epoch must be EpochChanged, got {other:?}"),
+    }
+    assert_eq!(mux.workspace_rows("drift"), snapshot, "zero mutation");
+
+    // Drift: a third window appears after the plan was confirmed.
+    mux.spawn_workspace("drift");
+    let snapshot = mux.workspace_rows("drift");
+    match provider.normalize_apply(&scope, &plan) {
+        Err(ProviderError::PostconditionFailed { detail }) => {
+            assert!(detail.starts_with("normalize_drift:"), "{detail}");
+        }
+        other => panic!("drifted tree must refuse typed, got {other:?}"),
+    }
+    assert_eq!(
+        mux.workspace_rows("drift"),
+        snapshot,
+        "zero mutation on the drift refusal"
+    );
+
+    // Re-plan against the live tree; the fresh plan applies and converges.
+    let plan2 = provider.normalize_plan(&scope, "drift").expect("re-plan");
+    assert_eq!(plan2.moves.len(), 2, "both extra windows planned now");
+    provider
+        .normalize_apply(&scope, &plan2)
+        .expect("apply after re-plan");
+    let after = mux.workspace_rows("drift");
+    let mut windows: Vec<u64> = after.iter().map(|(w, _, _)| *w).collect();
+    windows.sort_unstable();
+    windows.dedup();
+    assert_eq!(windows, vec![plan2.target_window], "merged to the target");
+    assert_eq!(after.len(), snapshot.len(), "every pane survived");
+}
+
+/// Gate (plan §7.2 placement): each split direction lands the new pane on
+/// the geometrically correct side of its anchor, and `--percent` sizes the
+/// new pane's share of the split axis. Live-pinned observability: a
+/// headless mux server exposes `left_col`/`top_row`/`size{rows,cols}` in
+/// `cli list --format json`; windows are `initial_cols`x`initial_rows`
+/// (pinned 80x24 in the scratch config) with a 1-cell divider per split.
+#[test]
+fn split_new_directions_and_percent_land_geometrically() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+
+    for (direction, name) in [
+        (SplitDirection::Down, "down"),
+        (SplitDirection::Up, "up"),
+        (SplitDirection::Right, "right"),
+        (SplitDirection::Left, "left"),
+    ] {
+        let token = format!("geo-{name}");
+        let binding = provider
+            .create(&scope, &mux.boot_spec(&token))
+            .expect("create");
+        let ProviderHandle::Wz(anchor) = binding.root_split else {
+            panic!("wez pane handle expected");
+        };
+        let split = provider
+            .split_new(
+                &scope,
+                &binding.root_group,
+                &SplitSpec {
+                    spec: mux.boot_spec(&token),
+                    direction,
+                    percent: None,
+                },
+            )
+            .expect("split_new");
+        let ProviderHandle::Wz(new_pane) = split else {
+            panic!("wez pane handle expected");
+        };
+        let (a_left, a_top, a_rows, a_cols) = mux.pane_geometry(anchor);
+        let (n_left, n_top, n_rows, n_cols) = mux.pane_geometry(new_pane);
+        match direction {
+            SplitDirection::Down => {
+                assert_eq!(n_left, a_left, "{name}: same column band");
+                assert!(n_top > a_top, "{name}: new pane below ({n_top} vs {a_top})");
+                assert_eq!(n_cols, a_cols, "{name}: full-width halves");
+            }
+            SplitDirection::Up => {
+                assert_eq!(n_left, a_left, "{name}: same column band");
+                assert!(n_top < a_top, "{name}: new pane above ({n_top} vs {a_top})");
+                assert_eq!(n_cols, a_cols, "{name}: full-width halves");
+            }
+            SplitDirection::Right => {
+                assert_eq!(n_top, a_top, "{name}: same row band");
+                assert!(
+                    n_left > a_left,
+                    "{name}: new pane right of anchor ({n_left} vs {a_left})"
+                );
+                assert_eq!(n_rows, a_rows, "{name}: full-height halves");
+            }
+            SplitDirection::Left => {
+                assert_eq!(n_top, a_top, "{name}: same row band");
+                assert!(
+                    n_left < a_left,
+                    "{name}: new pane left of anchor ({n_left} vs {a_left})"
+                );
+                assert_eq!(n_rows, a_rows, "{name}: full-height halves");
+            }
+        }
+    }
+
+    // --percent 25 --bottom on a fresh 24-row window: the new pane gets
+    // exactly 6 rows (25% of 24, live-pinned) and the anchor keeps 17
+    // (24 minus the new pane and the 1-row divider).
+    let binding = provider
+        .create(&scope, &mux.boot_spec("geo-pct"))
+        .expect("create");
+    let ProviderHandle::Wz(anchor) = binding.root_split else {
+        panic!("wez pane handle expected");
+    };
+    let split = provider
+        .split_new(
+            &scope,
+            &binding.root_group,
+            &SplitSpec {
+                spec: mux.boot_spec("geo-pct"),
+                direction: SplitDirection::Down,
+                percent: Some(25),
+            },
+        )
+        .expect("split_new percent");
+    let ProviderHandle::Wz(new_pane) = split else {
+        panic!("wez pane handle expected");
+    };
+    let (_, _, a_rows, _) = mux.pane_geometry(anchor);
+    let (_, _, n_rows, _) = mux.pane_geometry(new_pane);
+    assert_eq!(n_rows, 6, "25% of the pinned 24-row window");
+    assert_eq!(a_rows, 17, "anchor keeps the rest minus the 1-row divider");
+}
+
+/// Gate (plan §11.3 pass-through): create/group_new/split_new with an
+/// explicit cwd start the pane there. Live-pinned observability: the list
+/// JSON exposes cwd as a `file://` URI with the canonicalized process path
+/// (macOS `/tmp` -> `/private/tmp`) and a TRAILING slash; the provider's
+/// normalized rows carry the parsed plain path.
+#[test]
+fn explicit_cwd_reaches_every_created_pane() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+
+    let dir_a = mux.dir.path().join("cwd-a");
+    let dir_b = mux.dir.path().join("cwd-b");
+    let dir_c = mux.dir.path().join("cwd-c");
+    for dir in [&dir_a, &dir_b, &dir_c] {
+        std::fs::create_dir_all(dir).expect("mk cwd dir");
+    }
+    let canon = |dir: &Path| {
+        std::fs::canonicalize(dir)
+            .expect("canonicalize")
+            .to_str()
+            .expect("utf8")
+            .to_string()
+    };
+
+    let binding = provider
+        .create(&scope, &mux.boot_spec_cwd("cwdws", &dir_a))
+        .expect("create");
+    let group = provider
+        .group_new(&scope, &binding, &mux.boot_spec_cwd("cwdws", &dir_b))
+        .expect("group_new");
+    let split = provider
+        .split_new(
+            &scope,
+            &group,
+            &SplitSpec {
+                spec: mux.boot_spec_cwd("cwdws", &dir_c),
+                direction: SplitDirection::Down,
+                percent: None,
+            },
+        )
+        .expect("split_new");
+
+    // cwd surfaces from process inspection; poll briefly, then assert.
+    let read_cwds = || {
+        let row = provider.inspect(&scope, &binding).expect("inspect");
+        let trimmed = |cwd: Option<String>| cwd.map(|c| c.trim_end_matches('/').to_string());
+        let cwd_of = |handle: &ProviderHandle| {
+            row.groups
+                .iter()
+                .flat_map(|g| &g.splits)
+                .find(|s| s.handle == *handle)
+                .and_then(|s| s.cwd.clone())
+        };
+        // group_new returned the TAB handle; its anchor pane is the split
+        // row of that group that is not the new split pane.
+        let anchor_cwd = row
+            .groups
+            .iter()
+            .find(|g| g.handle == group)
+            .and_then(|g| g.splits.iter().find(|s| s.handle != split))
+            .and_then(|s| s.cwd.clone());
+        (
+            trimmed(cwd_of(&binding.root_split)),
+            trimmed(anchor_cwd),
+            trimmed(cwd_of(&split)),
+        )
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (got_a, got_b, got_c) = loop {
+        let got = read_cwds();
+        let done = got.0.as_deref() == Some(canon(&dir_a).as_str())
+            && got.1.as_deref() == Some(canon(&dir_b).as_str())
+            && got.2.as_deref() == Some(canon(&dir_c).as_str());
+        if done || Instant::now() >= deadline {
+            break got;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    assert_eq!(got_a.as_deref(), Some(canon(&dir_a).as_str()), "create cwd");
+    assert_eq!(
+        got_b.as_deref(),
+        Some(canon(&dir_b).as_str()),
+        "group_new cwd"
+    );
+    assert_eq!(
+        got_c.as_deref(),
+        Some(canon(&dir_c).as_str()),
+        "split_new cwd"
+    );
+
+    let ProviderHandle::Wz(root_pane) = binding.root_split.clone() else {
+        panic!("wez pane handle expected");
+    };
+    let uri = mux.pane_cwd_uri(root_pane);
+    assert!(uri.starts_with("file://"), "cwd is a file:// URI: {uri}");
+    assert!(uri.ends_with('/'), "live-pinned trailing slash: {uri}");
 }
 
 // ---------------------------------------------------------------------------

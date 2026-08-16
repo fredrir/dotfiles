@@ -13,7 +13,7 @@ use dmux::backend::tmux::{
 };
 use dmux::backend::{
     CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, PresentationTarget, Provider,
-    ProviderError,
+    ProviderError, SplitDirection, SplitSpec,
 };
 use dmux::model::{Backend, ProviderHandle, ServerEpoch};
 use uuid::Uuid;
@@ -27,6 +27,13 @@ fn tmux_available() -> bool {
 /// Scratch namespace with guaranteed `kill-server` cleanup (also on panic).
 struct ScratchServer {
     ns: String,
+    /// When set, every harness command carries `-f /dev/null`, so the
+    /// command that starts the server pins default config. The P8a geometry
+    /// and cwd tests need this: the user's tmux.conf must not leak
+    /// base-index, default-size, status, or border settings into pane
+    /// coordinate assertions. (Config is only read at server start; the
+    /// provider's own commands run against the already-started server.)
+    default_config: bool,
 }
 
 impl ScratchServer {
@@ -43,14 +50,25 @@ impl ScratchServer {
                 std::process::id(),
                 COUNTER.fetch_add(1, Ordering::SeqCst)
             ),
+            default_config: false,
         }
     }
 
+    /// P8a behavioral tests: `dmux-p8a-<pid>-<n>` namespace started with
+    /// `-f /dev/null` for deterministic geometry.
+    fn p8a() -> Self {
+        let mut srv = Self::with_prefix("dmux-p8a");
+        srv.default_config = true;
+        srv
+    }
+
     fn tmux(&self, args: &[&str]) -> std::process::Output {
-        Command::new("tmux")
-            .arg("-L")
-            .arg(&self.ns)
-            .args(args)
+        let mut cmd = Command::new("tmux");
+        cmd.arg("-L").arg(&self.ns);
+        if self.default_config {
+            cmd.arg("-f").arg("/dev/null");
+        }
+        cmd.args(args)
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
             .output()
@@ -797,4 +815,676 @@ fn fresh_incarnation_has_no_epoch_and_a_new_identity() {
     provider
         .verify_epoch(&srv.ns, e2, &id2)
         .expect("new binding verifies");
+}
+
+// -- P8a child-operation behavior (plan §7.2, §11.2, §11.3) -------------------
+//
+// Live pins the Group/Split orchestration relies on: real split geometry for
+// every direction plus `-l N%`, exact-pane target semantics, cwd inheritance
+// (explicit and None), typed NotFound for stale handles, and marker/handle
+// stability across `move-window` and session rename. Scratch servers use
+// `-f /dev/null` (ScratchServer::p8a) so geometry is deterministic.
+
+/// Unwrap a tmux numeric handle.
+fn tx(handle: &ProviderHandle) -> u64 {
+    match handle {
+        ProviderHandle::Tx(n) => *n,
+        other => panic!("expected tmux handle, got {other}"),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Geom {
+    left: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+}
+
+/// Real pane geometry by exact pane id. Uses a filtered `list-panes -a`
+/// because `display-message -p -t %N` silently ignores a bad pane target on
+/// tmux 3.7b (probed: it prints the message with exit 0).
+fn pane_geometry(srv: &ScratchServer, pane: u64) -> Geom {
+    let listing = srv.tmux_ok(&[
+        "list-panes",
+        "-a",
+        "-F",
+        "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}",
+    ]);
+    let needle = format!("%{pane} ");
+    let row = listing
+        .lines()
+        .find(|l| l.starts_with(&needle))
+        .unwrap_or_else(|| panic!("pane %{pane} not listed:\n{listing}"));
+    let nums: Vec<u32> = row
+        .split_whitespace()
+        .skip(1)
+        .map(|n| n.parse().expect("numeric geometry field"))
+        .collect();
+    Geom {
+        left: nums[0],
+        top: nums[1],
+        width: nums[2],
+        height: nums[3],
+    }
+}
+
+/// Real pane cwd by exact pane id (`#{pane_current_path}`).
+fn pane_cwd(srv: &ScratchServer, pane: u64) -> String {
+    let listing = srv.tmux_ok(&[
+        "list-panes",
+        "-a",
+        "-F",
+        "#{pane_id}\u{1f}#{pane_current_path}",
+    ]);
+    let needle = format!("%{pane}\u{1f}");
+    listing
+        .lines()
+        .find_map(|l| l.strip_prefix(&needle))
+        .unwrap_or_else(|| panic!("pane %{pane} not listed:\n{listing}"))
+        .to_string()
+}
+
+fn split_spec(direction: SplitDirection, percent: Option<u8>, cwd: Option<String>) -> SplitSpec {
+    SplitSpec {
+        spec: CreateSpec {
+            native_token: String::new(),
+            cwd,
+            bootstrap_argv: bootstrap_argv(),
+        },
+        direction,
+        percent,
+    }
+}
+
+#[test]
+fn split_new_directions_and_percent_shape_real_geometry() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::p8a();
+    srv.start_with_holder();
+    let epoch = fresh_epoch();
+    srv.set_epoch(epoch);
+    let provider = srv.provider();
+    let scope = srv.scope(Some(epoch));
+    let binding = provider
+        .create(
+            &scope,
+            &CreateSpec {
+                native_token: "geometry".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("create");
+
+    const PERCENT: u8 = 30;
+    for direction in [
+        SplitDirection::Down,
+        SplitDirection::Up,
+        SplitDirection::Right,
+        SplitDirection::Left,
+    ] {
+        // Fresh single-pane window per direction: clean 80x24 geometry.
+        let group = provider
+            .group_new(
+                &scope,
+                &binding,
+                &CreateSpec {
+                    native_token: String::new(),
+                    cwd: None,
+                    bootstrap_argv: bootstrap_argv(),
+                },
+            )
+            .expect("group_new");
+        let splits = provider.split_list(&scope, &group).expect("split_list");
+        assert_eq!(splits.len(), 1, "fresh window has exactly the root pane");
+        let target = splits[0].handle.clone();
+        let before = pane_geometry(&srv, tx(&target));
+
+        let new = provider
+            .split_new(&scope, &target, &split_spec(direction, Some(PERCENT), None))
+            .expect("split_new");
+        assert_ne!(new, target);
+        let new_g = pane_geometry(&srv, tx(&new));
+        let target_g = pane_geometry(&srv, tx(&target));
+
+        // Placement relative to the (resized) target pane, plus off-axis
+        // sanity: a vertical split never moves the horizontal edges and
+        // vice versa.
+        match direction {
+            SplitDirection::Down => {
+                assert!(
+                    new_g.top > target_g.top,
+                    "{direction:?}: {new_g:?} vs {target_g:?}"
+                );
+                assert_eq!(new_g.left, before.left, "{direction:?}");
+                assert_eq!(new_g.width, before.width, "{direction:?}");
+            }
+            SplitDirection::Up => {
+                assert!(
+                    new_g.top < target_g.top,
+                    "{direction:?}: {new_g:?} vs {target_g:?}"
+                );
+                assert_eq!(new_g.left, before.left, "{direction:?}");
+                assert_eq!(new_g.width, before.width, "{direction:?}");
+            }
+            SplitDirection::Right => {
+                assert!(
+                    new_g.left > target_g.left,
+                    "{direction:?}: {new_g:?} vs {target_g:?}"
+                );
+                assert_eq!(new_g.top, before.top, "{direction:?}");
+                assert_eq!(new_g.height, before.height, "{direction:?}");
+            }
+            SplitDirection::Left => {
+                assert!(
+                    new_g.left < target_g.left,
+                    "{direction:?}: {new_g:?} vs {target_g:?}"
+                );
+                assert_eq!(new_g.top, before.top, "{direction:?}");
+                assert_eq!(new_g.height, before.height, "{direction:?}");
+            }
+        }
+
+        // `-l N%` sizes the NEW pane at N% of the target's pre-split extent
+        // on the split axis (probed on 3.7b: 30% of h24 -> 7, of w80 -> 24);
+        // allow +-2 cells for integer truncation and the border line.
+        let (new_size, before_size) = match direction {
+            SplitDirection::Down | SplitDirection::Up => (new_g.height, before.height),
+            SplitDirection::Right | SplitDirection::Left => (new_g.width, before.width),
+        };
+        let wanted = (before_size * u32::from(PERCENT)) / 100;
+        assert!(
+            new_size.abs_diff(wanted) <= 2,
+            "{direction:?}: new pane size {new_size} not within 2 of {PERCENT}% of {before_size}"
+        );
+
+        // The target shrank on the split axis; both panes tile its extent.
+        let target_size = match direction {
+            SplitDirection::Down | SplitDirection::Up => target_g.height,
+            SplitDirection::Right | SplitDirection::Left => target_g.width,
+        };
+        assert_eq!(
+            target_size + new_size + 1,
+            before_size,
+            "{direction:?}: target+new+border must tile the pre-split extent"
+        );
+    }
+}
+
+#[test]
+fn split_and_group_cwd_explicit_wins_and_none_inherits_client_cwd() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::p8a();
+    srv.start_with_holder();
+    let epoch = fresh_epoch();
+    srv.set_epoch(epoch);
+    let provider = srv.provider();
+    let scope = srv.scope(Some(epoch));
+
+    // Canonicalized scratch dirs (macOS /tmp and /var are symlinks;
+    // #{pane_current_path} reports the resolved path).
+    let mk = |tag: &str| {
+        let dir = std::env::temp_dir().join(format!("dmux-p8a-cwd-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        dir.canonicalize().expect("canonicalize")
+    };
+    let dir_a = mk("a");
+    let dir_b = mk("b");
+    let client_cwd = std::env::current_dir()
+        .expect("current_dir")
+        .canonicalize()
+        .expect("canonicalize cwd");
+    assert_ne!(dir_a, client_cwd);
+    assert_ne!(dir_b, client_cwd);
+
+    // Space created with an explicit cwd: the root pane starts there and it
+    // becomes the session working directory.
+    let binding = provider
+        .create(
+            &scope,
+            &CreateSpec {
+                native_token: "cwd-space".into(),
+                cwd: Some(dir_a.display().to_string()),
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("create");
+    assert_eq!(
+        pane_cwd(&srv, tx(&binding.root_split)),
+        dir_a.display().to_string()
+    );
+
+    // group_new with an explicit cwd starts its pane there.
+    let group = provider
+        .group_new(
+            &scope,
+            &binding,
+            &CreateSpec {
+                native_token: String::new(),
+                cwd: Some(dir_b.display().to_string()),
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("group_new");
+    let group_pane = provider.split_list(&scope, &group).expect("split_list")[0]
+        .handle
+        .clone();
+    assert_eq!(pane_cwd(&srv, tx(&group_pane)), dir_b.display().to_string());
+
+    // split_new with an explicit cwd starts its pane there, wherever the
+    // target pane lives.
+    let explicit = provider
+        .split_new(
+            &scope,
+            &group_pane,
+            &split_spec(
+                SplitDirection::Down,
+                None,
+                Some(dir_a.display().to_string()),
+            ),
+        )
+        .expect("split_new explicit cwd");
+    assert_eq!(pane_cwd(&srv, tx(&explicit)), dir_a.display().to_string());
+
+    // PINNED: with cwd None, tmux resolves the start directory from the
+    // invoking COMMAND CLIENT's cwd (this process) — NOT the target pane's
+    // path (dir_b) and NOT the session working directory (dir_a). tmux
+    // server_client_get_cwd prefers a sessionless client's cwd; the provider
+    // spawns `tmux split-window`/`new-window` as such a client. Orchestration
+    // must therefore always compute and pass the §11.3 inheritance cwd
+    // (target Split cwd / Space default) explicitly; None is only
+    // "wherever the dmux process happens to run".
+    let inherited_split = provider
+        .split_new(
+            &scope,
+            &group_pane,
+            &split_spec(SplitDirection::Down, None, None),
+        )
+        .expect("split_new cwd None");
+    let observed = pane_cwd(&srv, tx(&inherited_split));
+    assert_eq!(observed, client_cwd.display().to_string());
+    assert_ne!(observed, dir_a.display().to_string());
+    assert_ne!(observed, dir_b.display().to_string());
+
+    // Same pin for group_new with cwd None.
+    let inherited_group = provider
+        .group_new(
+            &scope,
+            &binding,
+            &CreateSpec {
+                native_token: String::new(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("group_new cwd None");
+    let pane = provider
+        .split_list(&scope, &inherited_group)
+        .expect("split_list")[0]
+        .handle
+        .clone();
+    assert_eq!(pane_cwd(&srv, tx(&pane)), client_cwd.display().to_string());
+
+    let _ = std::fs::remove_dir(&dir_a);
+    let _ = std::fs::remove_dir(&dir_b);
+}
+
+#[test]
+fn split_new_targets_the_exact_pane_and_reads_window_numbers_as_panes() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::p8a();
+    srv.start_with_holder(); // $0 @0 %0
+    let epoch = fresh_epoch();
+    srv.set_epoch(epoch);
+    let provider = srv.provider();
+    let scope = srv.scope(Some(epoch));
+    let binding = provider
+        .create(
+            &scope,
+            &CreateSpec {
+                native_token: "target-space".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("create"); // $1 @1 %1
+    let pane_a = binding.root_split.clone();
+
+    // First split makes pane B — which is now the window's ACTIVE pane
+    // (split-window without -d activates the new pane).
+    let pane_b = provider
+        .split_new(
+            &scope,
+            &pane_a,
+            &split_spec(SplitDirection::Down, None, None),
+        )
+        .expect("first split");
+    let active = srv.tmux_ok(&[
+        "display-message",
+        "-p",
+        "-t",
+        &binding.native_token,
+        "#{pane_id}",
+    ]);
+    assert_eq!(
+        active.trim(),
+        format!("%{}", tx(&pane_b)),
+        "precondition: the NEW pane is the active pane"
+    );
+
+    // PINNED: splitting pane A splits exactly A — not the active pane B.
+    let a_before = pane_geometry(&srv, tx(&pane_a));
+    let b_before = pane_geometry(&srv, tx(&pane_b));
+    let pane_c = provider
+        .split_new(
+            &scope,
+            &pane_a,
+            &split_spec(SplitDirection::Right, None, None),
+        )
+        .expect("split of non-active pane A");
+    let a_after = pane_geometry(&srv, tx(&pane_a));
+    let c_geom = pane_geometry(&srv, tx(&pane_c));
+    assert!(a_after.width < a_before.width, "A was split: {a_after:?}");
+    assert_eq!(a_after.top, a_before.top);
+    assert!(
+        c_geom.left > a_before.left && c_geom.left < a_before.left + a_before.width,
+        "C sits inside A's former horizontal extent: {c_geom:?} vs {a_before:?}"
+    );
+    assert_eq!(
+        pane_geometry(&srv, tx(&pane_b)),
+        b_before,
+        "the active pane B is untouched — targeting is exact, never active-pane fallback"
+    );
+
+    // PINNED: handle kinds are positional (`ProviderHandle::Tx` carries only
+    // a number), so split_new ALWAYS interprets its parent handle in the
+    // PANE namespace (`%N`). A window handle `@N` cannot be expressed
+    // distinctly: passing a Group's number targets pane %N. Construct a live
+    // window @W whose number-twin pane %W is dead and prove the split fails
+    // NotFound on the pane while the window exists.
+    let group_w = provider
+        .group_new(
+            &scope,
+            &binding,
+            &CreateSpec {
+                native_token: "alive-window".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("group_new"); // window @2, pane %3
+    let w = tx(&group_w);
+    // Pane %W lives in a DIFFERENT window (it is one of $1's root-window
+    // panes) — kill it while window @W stays alive.
+    let listing = srv.tmux_ok(&["list-panes", "-a", "-F", "#{pane_id}"]);
+    assert!(
+        listing.lines().any(|l| l == format!("%{w}")),
+        "test topology: pane %{w} must exist before the kill:\n{listing}"
+    );
+    provider
+        .split_remove(&scope, &ProviderHandle::Tx(w))
+        .expect("kill number-twin pane");
+    let groups = provider.group_list(&scope, &binding).expect("group_list");
+    assert!(
+        groups.iter().any(|g| g.handle == group_w),
+        "window @{w} must still be alive"
+    );
+    match provider.split_new(
+        &scope,
+        &group_w,
+        &split_spec(SplitDirection::Down, None, None),
+    ) {
+        Err(ProviderError::NotFound { native_ref }) => {
+            assert!(
+                native_ref.contains("pane"),
+                "the lookup failed in the PANE namespace, proving a window \
+                 handle is never split: {native_ref}"
+            );
+        }
+        other => panic!("expected not_found for pane %{w}, got {other:?}"),
+    }
+}
+
+#[test]
+fn stale_child_handles_fail_typed_not_found() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::p8a();
+    srv.start_with_holder();
+    let epoch = fresh_epoch();
+    srv.set_epoch(epoch);
+    let provider = srv.provider();
+    let scope = srv.scope(Some(epoch));
+    let binding = provider
+        .create(
+            &scope,
+            &CreateSpec {
+                native_token: "stale-space".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("create");
+
+    // A pane killed behind dmux's back: every pane-targeting operation
+    // returns typed NotFound, never NativeFailure.
+    let dead_pane = provider
+        .split_new(
+            &scope,
+            &binding.root_split,
+            &split_spec(SplitDirection::Down, None, None),
+        )
+        .expect("split_new");
+    srv.tmux_ok(&["kill-pane", "-t", &format!("%{}", tx(&dead_pane))]);
+    match provider.split_new(
+        &scope,
+        &dead_pane,
+        &split_spec(SplitDirection::Down, None, None),
+    ) {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("split_new on dead pane: expected not_found, got {other:?}"),
+    }
+    match provider.split_activate(&scope, &dead_pane) {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("split_activate on dead pane: expected not_found, got {other:?}"),
+    }
+    // Removes converge on benign absence instead (ADR 005 pin).
+    provider
+        .split_remove(&scope, &dead_pane)
+        .expect("split_remove of an already-dead pane is success-equivalent");
+
+    // A window killed behind dmux's back.
+    let dead_group = provider
+        .group_new(
+            &scope,
+            &binding,
+            &CreateSpec {
+                native_token: "doomed".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("group_new");
+    srv.tmux_ok(&["kill-window", "-t", &format!("@{}", tx(&dead_group))]);
+    match provider.group_activate(&scope, &dead_group) {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("group_activate on dead window: expected not_found, got {other:?}"),
+    }
+    match provider.group_rename(&scope, &dead_group, "zombie") {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("group_rename on dead window: expected not_found, got {other:?}"),
+    }
+    match provider.split_list(&scope, &dead_group) {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("split_list on dead window: expected not_found, got {other:?}"),
+    }
+    provider
+        .group_remove(&scope, &dead_group)
+        .expect("group_remove of an already-dead window is success-equivalent");
+
+    // A session killed behind dmux's back: session-scoped child operations
+    // are NotFound too.
+    srv.tmux_ok(&["kill-session", "-t", &binding.native_token]);
+    match provider.group_list(&scope, &binding) {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("group_list on dead session: expected not_found, got {other:?}"),
+    }
+    match provider.group_new(
+        &scope,
+        &binding,
+        &CreateSpec {
+            native_token: String::new(),
+            cwd: None,
+            bootstrap_argv: bootstrap_argv(),
+        },
+    ) {
+        Err(ProviderError::NotFound { .. }) => {}
+        other => panic!("group_new on dead session: expected not_found, got {other:?}"),
+    }
+}
+
+#[test]
+fn markers_and_child_handles_survive_move_window_and_rename() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::p8a();
+    srv.start_with_holder();
+    let epoch = fresh_epoch();
+    srv.set_epoch(epoch);
+    let provider = srv.provider();
+    let scope = srv.scope(Some(epoch));
+
+    let mk_space = |name: &str| {
+        provider
+            .create(
+                &scope,
+                &CreateSpec {
+                    native_token: name.into(),
+                    cwd: None,
+                    bootstrap_argv: bootstrap_argv(),
+                },
+            )
+            .expect("create")
+    };
+    let mk_markers = |no: &str| SpaceMarkers {
+        host_uid: Uuid::new_v4().to_string(),
+        registry_uid: Uuid::new_v4().to_string(),
+        space_uid: Uuid::new_v4().to_string(),
+        space_no: no.into(),
+    };
+    let src = mk_space("src");
+    let dst = mk_space("dst");
+    let src_markers = mk_markers("1");
+    let dst_markers = mk_markers("2");
+    provider
+        .stamp_markers(&scope, &src.native_token, &src_markers)
+        .expect("stamp src");
+    provider
+        .stamp_markers(&scope, &dst.native_token, &dst_markers)
+        .expect("stamp dst");
+
+    // A Group created in src, then moved across sessions externally.
+    let moved = provider
+        .group_new(
+            &scope,
+            &src,
+            &CreateSpec {
+                native_token: "mover".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("group_new");
+    let moved_pane = provider.split_list(&scope, &moved).expect("split_list")[0]
+        .handle
+        .clone();
+    srv.tmux_ok(&[
+        "move-window",
+        "-s",
+        &format!("@{}", tx(&moved)),
+        "-t",
+        &format!("{}:9", dst.native_token),
+    ]);
+
+    // Markers are session-scoped options keyed by `$N`: unaffected on both
+    // sides of the move.
+    let src_back = provider
+        .read_markers(&scope, &src.native_token)
+        .expect("read src");
+    assert_eq!(
+        src_back.space_uid.as_deref(),
+        Some(src_markers.space_uid.as_str())
+    );
+    assert_eq!(src_back.space_no.as_deref(), Some("1"));
+    let dst_back = provider
+        .read_markers(&scope, &dst.native_token)
+        .expect("read dst");
+    assert_eq!(
+        dst_back.space_uid.as_deref(),
+        Some(dst_markers.space_uid.as_str())
+    );
+    assert_eq!(dst_back.space_no.as_deref(), Some("2"));
+
+    // PINNED: `move-window` preserves the window id `@N` and its pane ids;
+    // group_list/split_list reflect the post-move parentage exactly.
+    let src_groups = provider.group_list(&scope, &src).expect("src group_list");
+    assert!(
+        !src_groups.iter().any(|g| g.handle == moved),
+        "moved window must leave the source session"
+    );
+    let dst_groups = provider.group_list(&scope, &dst).expect("dst group_list");
+    let moved_row = dst_groups
+        .iter()
+        .find(|g| g.handle == moved)
+        .expect("moved window listed under destination with the SAME @N");
+    assert_eq!(moved_row.title.as_deref(), Some("mover"));
+    let moved_splits = provider
+        .split_list(&scope, &moved)
+        .expect("moved split_list");
+    assert_eq!(
+        moved_splits.iter().map(|s| &s.handle).collect::<Vec<_>>(),
+        vec![&moved_pane],
+        "pane ids survive the move"
+    );
+
+    // External session rename after the move changes nothing addressed by
+    // immutable ids: markers, group_list, split_list, inspect all still work.
+    srv.tmux_ok(&["rename-session", "-t", &dst.native_token, "renamed dst"]);
+    let renamed_back = provider
+        .read_markers(&scope, &dst.native_token)
+        .expect("read after rename");
+    assert_eq!(
+        renamed_back.space_uid.as_deref(),
+        Some(dst_markers.space_uid.as_str())
+    );
+    let renamed_groups = provider
+        .group_list(&scope, &dst)
+        .expect("group_list after rename");
+    assert!(renamed_groups.iter().any(|g| g.handle == moved));
+    let row = provider
+        .inspect(&scope, &dst)
+        .expect("inspect after rename");
+    assert_eq!(row.native_name, "renamed dst");
+    assert_eq!(row.native_token, dst.native_token);
+    assert!(
+        provider
+            .split_list(&scope, &moved)
+            .expect("split_list after rename")
+            .iter()
+            .any(|s| s.handle == moved_pane)
+    );
 }

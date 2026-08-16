@@ -58,6 +58,19 @@
 //! (acknowledgement-loss replay protection, plan §10.2): the existing state
 //! comes back inside a typed [`ProviderError::PostconditionFailed`].
 //!
+//! Normalization (P8a, plan §10.3): `normalize_plan` computes the
+//! deterministic multi-window merge plan from one verified same-epoch scan
+//! — target = the LOWEST native window id of the workspace, moves = every
+//! pane of every other window in ascending (window_id, pane_id) order; a
+//! sole-window workspace plans zero moves. `normalize_apply` re-scans
+//! pinned to the plan's epoch, re-derives the plan and requires EQUALITY
+//! with the confirmed one (any drift refuses `normalize_drift:` with zero
+//! mutation), executes each move through the exact `move-pane-to-new-tab
+//! --pane-id P --window-id <target>` argv, and proves single-window
+//! convergence with the bounded ADR 005 re-list pattern
+//! (`normalize_unconverged:` at the bound). Panes are moved, never killed,
+//! and panes outside the plan are never touched.
+//!
 //! Still typed-unimplemented here: `rename` (a Wez logical rename is
 //! registry-only, plan §2.5; native reassignment is the CAS adoption verb),
 //! `prepare_presentation`/`group_activate`/`split_activate` (GUI
@@ -85,8 +98,8 @@ use uuid::Uuid;
 
 use crate::backend::{
     Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
-    NativeInventory, NativeSpaceRow, NativeSplitRow, PresentationTarget, Provider, ProviderError,
-    ProviderResult, SplitDirection, SplitSpec,
+    NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizeMove, NormalizePlan,
+    PresentationTarget, Provider, ProviderError, ProviderResult, SplitDirection, SplitSpec,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch, WEZ_SENTINEL_PREFIX};
 
@@ -104,7 +117,8 @@ pub const SOCKET_ENV: &str = "WEZTERM_UNIX_SOCKET";
 const DEFAULT_DEADLINE: Duration = Duration::from_secs(10);
 
 /// ADR 005 removal bound: max re-list/kill rounds before returning a typed
-/// partial (`PostconditionFailed` with the surviving pane ids).
+/// partial (`PostconditionFailed` with the surviving pane ids). Reused as
+/// the §10.3 normalize-apply re-list/move bound (`normalize_unconverged:`).
 pub const REMOVE_MAX_ROUNDS: usize = 5;
 
 /// Stable stderr emitted by a stock (codec-45) server answering the fork CAS
@@ -288,6 +302,32 @@ pub fn kill_pane_invocation(
         config_file,
         socket,
         &["kill-pane", "--pane-id", &pane_id.to_string()],
+    )
+}
+
+/// Normalization move (plan §10.3): `move-pane-to-new-tab --pane-id <P>
+/// --window-id <target>`. Moves one exact pane into a NEW tab of the
+/// target window; the source window dies natively once its last pane has
+/// moved out. Stock CLI verb (present in the pinned fork build too);
+/// `normalize_apply` drives the bounded re-list convergence over it.
+pub fn move_pane_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    pane_id: u64,
+    window_id: u64,
+) -> Result<WezInvocation, String> {
+    cli_invocation(
+        wezterm_bin,
+        config_file,
+        socket,
+        &[
+            "move-pane-to-new-tab",
+            "--pane-id",
+            &pane_id.to_string(),
+            "--window-id",
+            &window_id.to_string(),
+        ],
     )
 }
 
@@ -1074,6 +1114,40 @@ impl DetailedScan {
             .collect()
     }
 
+    /// Deterministic §10.3 merge plan derived from THIS verified scan:
+    /// target = the LOWEST native window id of the workspace, moves = every
+    /// pane of every OTHER window in ascending (window_id, pane_id) order.
+    /// Zero rows for the key is a typed [`ProviderError::NotFound`]; a
+    /// sole-window workspace derives an empty move list ("nothing to do",
+    /// never an error). Pure derivation — `normalize_apply` re-derives and
+    /// compares for drift, so determinism here IS the drift detector.
+    fn derive_normalize_plan(&self, token: &str) -> ProviderResult<NormalizePlan> {
+        let panes: Vec<&PaneRef> = self.panes.iter().filter(|p| p.workspace == token).collect();
+        let target_window =
+            panes
+                .iter()
+                .map(|p| p.window_id)
+                .min()
+                .ok_or_else(|| ProviderError::NotFound {
+                    native_ref: token.to_string(),
+                })?;
+        let mut moves: Vec<NormalizeMove> = panes
+            .iter()
+            .filter(|p| p.window_id != target_window)
+            .map(|p| NormalizeMove {
+                pane_id: p.pane_id,
+                from_window: p.window_id,
+            })
+            .collect();
+        moves.sort_unstable_by_key(|m| (m.from_window, m.pane_id));
+        Ok(NormalizePlan {
+            native_token: token.to_string(),
+            server_epoch: self.epoch,
+            target_window,
+            moves,
+        })
+    }
+
     /// Workspace one native window currently lists under, if any.
     fn window_workspace(&self, window_id: u64) -> Option<&str> {
         self.panes
@@ -1840,6 +1914,133 @@ impl<R: WezRunner> Provider for WezProvider<R> {
             Self::sole_window(&post, &workspace)?;
         }
         Ok(())
+    }
+
+    /// Local Wez normalization plan (plan §10.3, P8a): one verified
+    /// same-epoch scan, then the deterministic merge plan — target is the
+    /// LOWEST native window id of the workspace, moves are every pane of
+    /// every OTHER window in ascending (window_id, pane_id) order. Strictly
+    /// read-only: the plan is rendered for confirmation above this layer
+    /// and applied by [`Provider::normalize_apply`] under the caller's
+    /// exclusive fence. A sole-window workspace returns Ok with zero moves
+    /// ("nothing to do"); zero rows for the opaque key is a typed
+    /// [`ProviderError::NotFound`].
+    fn normalize_plan(
+        &self,
+        scope: &InventoryScope,
+        native_token: &str,
+    ) -> ProviderResult<NormalizePlan> {
+        let scan = self.verified_scan(scope, None)?;
+        scan.derive_normalize_plan(native_token)
+    }
+
+    /// Apply a previously confirmed merge plan (plan §10.3): re-scan pinned
+    /// to `plan.server_epoch` (a flip is [`ProviderError::EpochChanged`];
+    /// native IDs discarded), re-derive the plan from the live tree and
+    /// require it to EQUAL the confirmed plan — any drift (a new pane, a
+    /// vanished pane, a changed window set) refuses with the stable
+    /// `normalize_drift:` detail prefix and ZERO mutation. Then each move
+    /// runs the exact `move-pane-to-new-tab --pane-id P --window-id
+    /// <target>` argv (exit status is diagnostics only, ADR 001/005), and
+    /// bounded re-list rounds ([`REMOVE_MAX_ROUNDS`], the ADR 005 kill-
+    /// convergence pattern) must PROVE exactly one remaining window — the
+    /// target — with every planned pane surviving in it. Rounds re-issue
+    /// only PLANNED moves still pending: panes outside the plan are never
+    /// touched and nothing is ever killed. Hitting the bound is a typed
+    /// `normalize_unconverged:` partial — quarantined, never half-managed.
+    /// An empty (sole-window) plan is a verified no-op success.
+    fn normalize_apply(&self, scope: &InventoryScope, plan: &NormalizePlan) -> ProviderResult<()> {
+        let token = plan.native_token.as_str();
+        let pre = self.verified_scan(scope, Some(plan.server_epoch))?;
+        let derived = match pre.derive_normalize_plan(token) {
+            Ok(derived) => derived,
+            Err(ProviderError::NotFound { .. }) => {
+                return Err(ProviderError::PostconditionFailed {
+                    detail: format!(
+                        "normalize_drift: workspace {token:?} has zero live panes in the \
+                         same-epoch re-list (confirmed plan: target window {}, {} \
+                         move(s)); re-plan required",
+                        plan.target_window,
+                        plan.moves.len()
+                    ),
+                });
+            }
+            Err(other) => return Err(other),
+        };
+        if derived != *plan {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "normalize_drift: confirmed plan for {token:?} no longer matches the \
+                     live tree: planned target {} moves {:?}; derived target {} moves \
+                     {:?}; re-plan required",
+                    plan.target_window, plan.moves, derived.target_window, derived.moves
+                ),
+            });
+        }
+        if plan.moves.is_empty() {
+            // Sole-window workspace: verified nothing-to-do success.
+            return Ok(());
+        }
+        for mv in &plan.moves {
+            let invocation = move_pane_invocation(
+                &self.wezterm_bin,
+                &self.config_file,
+                &scope.endpoint,
+                mv.pane_id,
+                plan.target_window,
+            )
+            .map_err(|detail| ProviderError::NativeFailure { detail })?;
+            // Exit status intentionally unused (ADR 001/005 pattern): the
+            // bounded verified re-list below is the sole postcondition
+            // authority; runner failures stay typed.
+            let _ = self.run_mutation(invocation)?;
+        }
+        let mut last_windows: Vec<u64> = Vec::new();
+        let mut last_missing: Vec<u64> = Vec::new();
+        for _round in 0..REMOVE_MAX_ROUNDS {
+            let scan = self.verified_scan(scope, Some(plan.server_epoch))?;
+            let windows = scan.workspace_windows(token);
+            let missing: Vec<u64> = plan
+                .moves
+                .iter()
+                .map(|m| m.pane_id)
+                .filter(|id| scan.pane(*id).is_none_or(|p| p.workspace != token))
+                .collect();
+            let converged = matches!(windows.as_slice(), [w] if *w == plan.target_window);
+            if converged && missing.is_empty() {
+                return Ok(());
+            }
+            // Re-issue only PLANNED moves still pending; a pane outside the
+            // plan is never touched (it makes convergence impossible and
+            // the bound below reports it typed).
+            for mv in &plan.moves {
+                let pending = scan
+                    .pane(mv.pane_id)
+                    .is_some_and(|p| p.workspace == token && p.window_id != plan.target_window);
+                if pending {
+                    let invocation = move_pane_invocation(
+                        &self.wezterm_bin,
+                        &self.config_file,
+                        &scope.endpoint,
+                        mv.pane_id,
+                        plan.target_window,
+                    )
+                    .map_err(|detail| ProviderError::NativeFailure { detail })?;
+                    let _ = self.run_mutation(invocation)?;
+                }
+            }
+            last_windows = windows;
+            last_missing = missing;
+        }
+        Err(ProviderError::PostconditionFailed {
+            detail: format!(
+                "normalize_unconverged: workspace {token:?} still spans window(s) \
+                 {last_windows:?} (target {}) with planned pane(s) {last_missing:?} \
+                 missing after {REMOVE_MAX_ROUNDS} re-list/move rounds (ADR 005 \
+                 bound); partial — quarantined, never half-managed",
+                plan.target_window
+            ),
+        })
     }
 
     /// Re-list and return the one row for `binding.native_token`. The whole
@@ -2947,6 +3148,303 @@ mod tests {
         assert_eq!(
             calls[1].0,
             kill_pane_invocation(BIN, CFG, SOCK, 101).unwrap()
+        );
+    }
+
+    // -- normalization (plan §10.3, P8a) -------------------------------------
+
+    /// The confirmed plan the scripted apply tests execute: workspace `mw`
+    /// merging window 2's two panes into target window 1.
+    fn mw_plan() -> NormalizePlan {
+        NormalizePlan {
+            native_token: "mw".into(),
+            server_epoch: ServerEpoch(EPOCH),
+            target_window: 1,
+            moves: vec![
+                NormalizeMove {
+                    pane_id: 200,
+                    from_window: 2,
+                },
+                NormalizeMove {
+                    pane_id: 201,
+                    from_window: 2,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn move_pane_invocation_argv_is_exact() {
+        let inv = move_pane_invocation(BIN, CFG, SOCK, 42, 7).expect("move pane");
+        let mut want = cli_prefix();
+        want.extend(
+            [
+                "move-pane-to-new-tab",
+                "--pane-id",
+                "42",
+                "--window-id",
+                "7",
+            ]
+            .map(String::from),
+        );
+        assert_eq!(inv.argv, want);
+        assert_eq!(
+            inv.env_set,
+            vec![(SOCKET_ENV.to_string(), SOCK.to_string())]
+        );
+        assert_eq!(inv.env_remove, vec!["WEZTERM_PANE", "TMUX", "TMUX_PANE"]);
+        let err = move_pane_invocation(BIN, CFG, "", 42, 7).unwrap_err();
+        assert!(err.contains("empty WEZTERM_UNIX_SOCKET"), "{err}");
+    }
+
+    #[test]
+    fn normalize_plan_is_deterministic_lowest_window_ascending_moves() {
+        // Windows deliberately listed out of order: the target is the
+        // LOWEST window id and moves come in ascending (window_id, pane_id)
+        // order regardless of list order; other workspaces are ignored.
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[
+                (9, 90, 901, "mw"),
+                (2, 20, 200, "mw"),
+                (9, 90, 900, "mw"),
+                (2, 21, 201, "mw"),
+                (5, 50, 500, "mw"),
+                (1, 10, 100, "other"),
+            ]))],
+        );
+        let plan = provider(&runner)
+            .normalize_plan(&scope(Some(ServerEpoch(EPOCH))), "mw")
+            .expect("plan");
+        assert_eq!(plan.native_token, "mw");
+        assert_eq!(plan.server_epoch, ServerEpoch(EPOCH));
+        assert_eq!(plan.target_window, 2, "lowest window id wins");
+        assert_eq!(
+            plan.moves,
+            vec![
+                NormalizeMove {
+                    pane_id: 500,
+                    from_window: 5
+                },
+                NormalizeMove {
+                    pane_id: 900,
+                    from_window: 9
+                },
+                NormalizeMove {
+                    pane_id: 901,
+                    from_window: 9
+                },
+            ]
+        );
+        assert_eq!(
+            runner.run_calls.borrow().len(),
+            1,
+            "one verified list; planning is strictly read-only"
+        );
+    }
+
+    #[test]
+    fn normalize_plan_sole_window_is_empty_and_absent_is_not_found() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(3, 30, 300, "solo"), (3, 31, 301, "solo")])),
+                ok(&canned(&[(3, 30, 300, "solo")])),
+            ],
+        );
+        let p = provider(&runner);
+        let plan = p.normalize_plan(&scope(None), "solo").expect("plan");
+        assert_eq!(plan.target_window, 3);
+        assert!(plan.moves.is_empty(), "sole window: nothing to do");
+        match p.normalize_plan(&scope(None), "missing") {
+            Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "missing"),
+            other => panic!("zero rows must be NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normalize_apply_moves_planned_panes_and_converges() {
+        let pre = canned(&[(1, 10, 100, "mw"), (2, 20, 200, "mw"), (2, 21, 201, "mw")]);
+        let post = canned(&[(1, 10, 100, "mw"), (1, 30, 200, "mw"), (1, 31, 201, "mw")]);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&pre), ok(""), ok(""), ok(&post)],
+        );
+        provider(&runner)
+            .normalize_apply(&scope(Some(ServerEpoch(EPOCH))), &mw_plan())
+            .expect("normalize_apply");
+        let calls = runner.run_calls.borrow();
+        assert_eq!(calls.len(), 4, "gate list, move, move, verifying re-list");
+        assert_eq!(
+            calls[1].0,
+            move_pane_invocation(BIN, CFG, SOCK, 200, 1).unwrap()
+        );
+        assert_eq!(
+            calls[2].0,
+            move_pane_invocation(BIN, CFG, SOCK, 201, 1).unwrap()
+        );
+    }
+
+    #[test]
+    fn normalize_apply_epoch_flip_is_epoch_changed_without_mutation() {
+        let other = Uuid::from_u128(0xdead_beef);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned_epoch(
+                other,
+                &[(1, 10, 100, "mw"), (2, 20, 200, "mw")],
+            ))],
+        );
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(ServerEpoch(other)));
+            }
+            other => panic!("epoch flip must be EpochChanged, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, zero moves");
+    }
+
+    #[test]
+    fn normalize_apply_drift_is_refused_without_mutation() {
+        // A pane spawned since the plan was confirmed.
+        let drifted = canned(&[
+            (1, 10, 100, "mw"),
+            (2, 20, 200, "mw"),
+            (2, 21, 201, "mw"),
+            (7, 70, 700, "mw"),
+        ]);
+        let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&drifted)]);
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("normalize_drift:"), "{detail}");
+                assert!(detail.contains("re-plan"), "{detail}");
+            }
+            other => panic!("new pane must refuse as drift, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, zero moves");
+
+        // A planned pane vanished.
+        let vanished = canned(&[(1, 10, 100, "mw"), (2, 20, 200, "mw")]);
+        let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&vanished)]);
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("normalize_drift:"), "{detail}");
+            }
+            other => panic!("vanished pane must refuse as drift, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1);
+
+        // The whole workspace vanished between plan and apply.
+        let gone = canned(&[(1, 10, 100, "other")]);
+        let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&gone)]);
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("normalize_drift:"), "{detail}");
+                assert!(detail.contains("zero live panes"), "{detail}");
+            }
+            other => panic!("vanished workspace must refuse as drift, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn normalize_apply_sole_window_plan_is_verified_noop() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "solo"), (1, 11, 101, "solo")]))],
+        );
+        let plan = NormalizePlan {
+            native_token: "solo".into(),
+            server_epoch: ServerEpoch(EPOCH),
+            target_window: 1,
+            moves: vec![],
+        };
+        provider(&runner)
+            .normalize_apply(&scope(None), &plan)
+            .expect("empty plan is a verified no-op success");
+        assert_eq!(
+            runner.run_calls.borrow().len(),
+            1,
+            "one verifying list, zero mutation"
+        );
+    }
+
+    #[test]
+    fn normalize_apply_never_touches_unplanned_panes_and_reports_unconverged() {
+        // The gate passes against the exact planned tree; an interloper
+        // window appears mid-apply. Rounds must never move pane 700 (it is
+        // outside the plan) and the bound reports unconverged typed.
+        let pre = canned(&[(1, 10, 100, "mw"), (2, 20, 200, "mw"), (2, 21, 201, "mw")]);
+        let stuck = canned(&[
+            (1, 10, 100, "mw"),
+            (1, 30, 200, "mw"),
+            (1, 31, 201, "mw"),
+            (7, 70, 700, "mw"),
+        ]);
+        let mut probes = vec![ProbeOutcome::Connectable];
+        let mut runs = vec![ok(&pre), ok(""), ok("")];
+        for _ in 0..REMOVE_MAX_ROUNDS {
+            probes.push(ProbeOutcome::Connectable);
+            runs.push(ok(&stuck));
+        }
+        let runner = ScriptedRunner::new(probes, runs);
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("normalize_unconverged:"), "{detail}");
+                assert!(detail.contains("window(s) [1, 7]"), "{detail}");
+                assert!(detail.contains("never half-managed"), "{detail}");
+            }
+            other => panic!("interloper must leave unconverged typed, got {other:?}"),
+        }
+        let calls = runner.run_calls.borrow();
+        // gate list, move 200, move 201, then bare re-lists every round:
+        // the planned panes already sit in the target, so nothing is
+        // pending and the unplanned pane is never moved.
+        assert_eq!(calls.len(), 3 + REMOVE_MAX_ROUNDS);
+        for (invocation, _) in calls.iter().skip(3) {
+            assert!(
+                invocation.argv.contains(&"list".to_string()),
+                "no move for the unplanned pane: {:?}",
+                invocation.argv
+            );
+        }
+    }
+
+    #[test]
+    fn normalize_apply_bound_hit_reissues_only_the_pending_planned_move() {
+        // Pane 201 never actually arrives (server-side race): each round
+        // re-issues exactly that planned move until the bound trips typed.
+        let pre = canned(&[(1, 10, 100, "mw"), (2, 20, 200, "mw"), (2, 21, 201, "mw")]);
+        let half = canned(&[(1, 10, 100, "mw"), (1, 30, 200, "mw"), (2, 21, 201, "mw")]);
+        let mut probes = vec![ProbeOutcome::Connectable];
+        let mut runs = vec![ok(&pre), ok(""), ok("")];
+        for _ in 0..REMOVE_MAX_ROUNDS {
+            probes.push(ProbeOutcome::Connectable);
+            runs.push(ok(&half));
+            runs.push(ok("")); // re-issued move for pane 201
+        }
+        let runner = ScriptedRunner::new(probes, runs);
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("normalize_unconverged:"), "{detail}");
+                assert!(detail.contains("target 1"), "{detail}");
+            }
+            other => panic!("bound hit must be typed partial, got {other:?}"),
+        }
+        let calls = runner.run_calls.borrow();
+        let want = move_pane_invocation(BIN, CFG, SOCK, 201, 1).unwrap();
+        let reissues = calls.iter().filter(|(inv, _)| *inv == want).count();
+        assert_eq!(
+            reissues,
+            1 + REMOVE_MAX_ROUNDS,
+            "initial move plus one re-issue per round for the pending pane"
+        );
+        let moved = move_pane_invocation(BIN, CFG, SOCK, 200, 1).unwrap();
+        assert_eq!(
+            calls.iter().filter(|(inv, _)| *inv == moved).count(),
+            1,
+            "an already-arrived pane is never re-moved"
         );
     }
 
