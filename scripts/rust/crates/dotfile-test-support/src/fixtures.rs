@@ -237,7 +237,7 @@ fn decode_hex(value: &str) -> Option<Vec<u8>> {
 
 fn decode_base64(value: &str) -> Option<Vec<u8>> {
     let bytes = value.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut output = Vec::with_capacity(bytes.len() / 4 * 3);
@@ -251,13 +251,9 @@ fn decode_base64(value: &str) -> Option<Vec<u8>> {
                 b'0'..=b'9' => u32::from(byte - b'0') + 52,
                 b'+' => 62,
                 b'/' => 63,
-                b'=' => {
-                    if index == bytes.len() / 4 - 1 && position >= 2 {
-                        padded += 1;
-                        0
-                    } else {
-                        return None;
-                    }
+                b'=' if index == bytes.len() / 4 - 1 && position >= 2 => {
+                    padded += 1;
+                    0
                 }
                 _ => return None,
             };
