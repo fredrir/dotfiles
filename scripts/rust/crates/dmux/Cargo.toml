@@ -9,8 +9,10 @@ license.workspace = true
 clap = { workspace = true, features = ["unstable-ext"] }
 clap_complete = { workspace = true, features = ["unstable-dynamic"] }
 libc.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 unicode-width.workspace = true
+uuid.workspace = true
 workstation.workspace = true
