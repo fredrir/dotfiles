@@ -33,7 +33,12 @@
 //! authoritative is identity, exactly like registering the instance was)
 //! advance the chain (one row per committed mutation transaction). Journal
 //! state bookkeeping (operations and bootstrap_requests), lease
-//! grants/renewals, and the RPC ledger do not advance it.
+//! grants/renewals, and the RPC ledger do not advance it. Space health
+//! updates ([`Registry::set_space_health`]) do not advance it either:
+//! health is observation-derived (pane-stamp acknowledgements and scans,
+//! plan §10.3), not identity — the identity-bearing adoption transition is
+//! [`Registry::finalize_adopt`] itself, a lifecycle+binding mutation that
+//! does advance the chain.
 
 pub mod bootstrap_journal;
 pub mod reconcile;
@@ -103,6 +108,14 @@ pub enum RegistryError {
         from: OperationState,
         to: OperationState,
     },
+    /// The journal kind is not legal for the called API: a fresh
+    /// reservation may journal only create/adopt/rebind
+    /// ([`Registry::reserve_space_kind`]), and adoption finalization
+    /// accepts only adopt/rebind rows ([`Registry::finalize_adopt`]).
+    KindNotAllowed {
+        kind: OperationKind,
+        allowed: &'static str,
+    },
     /// Illegal bootstrap-journal transition (plan §11.1, ADR 004; see
     /// [`bootstrap_journal`] for the matrix).
     InvalidBootstrapTransition {
@@ -136,6 +149,7 @@ impl RegistryError {
             | RegistryError::BootstrapRequestExists { .. } => ErrorCode::IdentityConflict,
             RegistryError::IdempotencyReuse { .. } => ErrorCode::IdempotencyReuse,
             RegistryError::NotFound { .. } => ErrorCode::NotFound,
+            RegistryError::KindNotAllowed { .. } => ErrorCode::Usage,
             RegistryError::KernelLockMismatch { .. }
             | RegistryError::InvalidTransition { .. }
             | RegistryError::InvalidBootstrapTransition { .. }
@@ -184,6 +198,12 @@ impl fmt::Display for RegistryError {
             }
             RegistryError::InvalidTransition { from, to } => {
                 write!(f, "illegal journal transition {from} -> {to}")
+            }
+            RegistryError::KindNotAllowed { kind, allowed } => {
+                write!(
+                    f,
+                    "operation kind {kind} not allowed here (expected {allowed})"
+                )
             }
             RegistryError::InvalidBootstrapTransition { from, to } => {
                 write!(
@@ -1146,6 +1166,35 @@ impl Registry {
         backend_instance: BackendInstanceUid,
         request_uid: Uuid,
     ) -> Result<SpaceReservation> {
+        self.reserve_space_kind(name, backend_instance, request_uid, OperationKind::Create)
+    }
+
+    /// [`Registry::reserve_space`] with an explicit journal kind: `create`
+    /// for `dmux new`, `adopt`/`rebind` for the explicit external-adoption
+    /// entry points (plan §10.3), which reserve identity exactly like a
+    /// create but must be reconciled by their own resume duty. Kinds that
+    /// operate on an EXISTING Space (rename/remove/normalize/stamp) make no
+    /// sense for a fresh reservation and are rejected with the typed
+    /// [`RegistryError::KindNotAllowed`], no side effects.
+    pub fn reserve_space_kind(
+        &mut self,
+        name: &str,
+        backend_instance: BackendInstanceUid,
+        request_uid: Uuid,
+        kind: OperationKind,
+    ) -> Result<SpaceReservation> {
+        match kind {
+            OperationKind::Create | OperationKind::Adopt | OperationKind::Rebind => {}
+            OperationKind::Rename
+            | OperationKind::Remove
+            | OperationKind::Normalize
+            | OperationKind::Stamp => {
+                return Err(RegistryError::KindNotAllowed {
+                    kind,
+                    allowed: "create/adopt/rebind",
+                });
+            }
+        }
         let space_uid = SpaceUid(Uuid::now_v7());
         let operation_uid = Uuid::new_v4();
         let payload = serde_json::json!({
@@ -1187,10 +1236,11 @@ impl Registry {
             tx.execute(
                 "INSERT INTO operations (operation_uid, space_uid, kind, operation_state, \
                  request_uid, payload_json, started_at, updated_at) \
-                 VALUES (?1, ?2, 'create', 'prepared', ?3, ?4, ?5, ?5)",
+                 VALUES (?1, ?2, ?3, 'prepared', ?4, ?5, ?6, ?6)",
                 params![
                     operation_uid.to_string(),
                     space_uid.0.to_string(),
+                    kind.as_str(),
                     request_uid.to_string(),
                     payload,
                     now
@@ -1209,20 +1259,66 @@ impl Registry {
 
     /// Complete a create: stamp/bind the verified live native resource,
     /// mark the Space active, finish the journal row (plan §10.2 create
-    /// steps 4–5).
+    /// steps 4–5). A dmux-created resource starts fully stamped: `healthy`.
     pub fn finalize_create(
         &mut self,
         space_uid: SpaceUid,
         operation_uid: Uuid,
         binding: &NativeBindingSpec,
     ) -> Result<()> {
+        self.finalize_reservation(
+            space_uid,
+            operation_uid,
+            binding,
+            &[OperationKind::Create],
+            "create",
+            Health::Healthy,
+        )
+    }
+
+    /// Complete an adoption or expert rebind: bind the verified native
+    /// resource and mark the Space `active`, but `health = unstamped`
+    /// (plan §10.3): after stamping/binding, an adopted Space stays
+    /// active+live+unstamped until a complete scan proves every live pane
+    /// acknowledged its stamp — [`Registry::set_space_health`] flips it to
+    /// `healthy` only then. Requires the reservation's journal row to be
+    /// kind adopt/rebind; anything else is the typed
+    /// [`RegistryError::KindNotAllowed`].
+    pub fn finalize_adopt(
+        &mut self,
+        space_uid: SpaceUid,
+        operation_uid: Uuid,
+        binding: &NativeBindingSpec,
+    ) -> Result<()> {
+        self.finalize_reservation(
+            space_uid,
+            operation_uid,
+            binding,
+            &[OperationKind::Adopt, OperationKind::Rebind],
+            "adopt/rebind",
+            Health::Unstamped,
+        )
+    }
+
+    /// Shared finalization for reservation-consuming kinds: reserved →
+    /// active with the given health, current binding inserted, journal row
+    /// completed, revision advanced — one transaction.
+    fn finalize_reservation(
+        &mut self,
+        space_uid: SpaceUid,
+        operation_uid: Uuid,
+        binding: &NativeBindingSpec,
+        allowed: &[OperationKind],
+        allowed_names: &'static str,
+        health: Health,
+    ) -> Result<()> {
         self.immediate(|tx| {
             let now = now_rfc3339();
-            require_unfinished_op(tx, operation_uid, space_uid, OperationKind::Create)?;
+            require_unfinished_op_of(tx, operation_uid, space_uid, allowed, allowed_names)?;
             let changed = tx.execute(
-                "UPDATE spaces SET lifecycle = 'active', health = 'healthy', updated_at = ?2 \
+                "UPDATE spaces SET lifecycle = 'active', health = ?3, updated_at = ?2 \
                  WHERE space_uid = ?1 AND lifecycle = 'reserved'",
-                params![space_uid.0.to_string(), now],
+                params![space_uid.0.to_string(), now, health_token(health)],
             )?;
             if changed != 1 {
                 return Err(RegistryError::NotFound {
@@ -1259,12 +1355,23 @@ impl Registry {
         })
     }
 
-    /// Abort a create: the reservation becomes `aborted`, permanently
-    /// consuming its SpaceUid and SpaceNo (gaps are intentional).
+    /// Abort a reservation (create, adopt, or rebind): it becomes
+    /// `aborted`, permanently consuming its SpaceUid and SpaceNo (gaps are
+    /// intentional).
     pub fn abort_create(&mut self, space_uid: SpaceUid, operation_uid: Uuid) -> Result<()> {
         self.immediate(|tx| {
             let now = now_rfc3339();
-            require_unfinished_op(tx, operation_uid, space_uid, OperationKind::Create)?;
+            require_unfinished_op_of(
+                tx,
+                operation_uid,
+                space_uid,
+                &[
+                    OperationKind::Create,
+                    OperationKind::Adopt,
+                    OperationKind::Rebind,
+                ],
+                "create/adopt/rebind",
+            )?;
             let changed = tx.execute(
                 "UPDATE spaces SET lifecycle = 'aborted', updated_at = ?2 \
                  WHERE space_uid = ?1 AND lifecycle = 'reserved'",
@@ -1277,6 +1384,38 @@ impl Registry {
             }
             finish_op(tx, operation_uid, OperationState::Aborted, &now)?;
             advance_revision(tx, &now)?;
+            Ok(())
+        })
+    }
+
+    // -- health --------------------------------------------------------------
+
+    /// Set a Space's health (e.g. `unstamped` → `healthy` once a complete
+    /// scan proves every live pane acknowledged its stamp, plan §10.3, or
+    /// `healthy` → `multi_window` on a one-window-invariant violation).
+    /// Valid only for non-terminal lifecycles: a `deleted`/`aborted` row is
+    /// immutable history and rejects with [`RegistryError::NotFound`].
+    /// Advances `updated_at`.
+    ///
+    /// Revision policy (pinned by test): health does NOT advance the
+    /// authority chain. It is observation-derived state — pane-stamp
+    /// acknowledgements and scans — like binding observations and journal
+    /// bookkeeping, not identity; the identity-bearing adoption transition
+    /// is [`Registry::finalize_adopt`], which does advance.
+    pub fn set_space_health(&mut self, space_uid: SpaceUid, health: Health) -> Result<()> {
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            let changed = tx.execute(
+                "UPDATE spaces SET health = ?2, updated_at = ?3 \
+                 WHERE space_uid = ?1 \
+                   AND lifecycle IN ('reserved','active','deleting','conflict')",
+                params![space_uid.0.to_string(), health_token(health), now],
+            )?;
+            if changed != 1 {
+                return Err(RegistryError::NotFound {
+                    what: format!("non-terminal space {}", space_uid.0),
+                });
+            }
             Ok(())
         })
     }
@@ -2157,6 +2296,20 @@ fn require_unfinished_op(
     space_uid: SpaceUid,
     kind: OperationKind,
 ) -> Result<OperationRow> {
+    require_unfinished_op_of(tx, operation_uid, space_uid, &[kind], kind.as_str())
+}
+
+/// [`require_unfinished_op`] accepting a set of kinds: a wrong Space or a
+/// finished row is [`RegistryError::Corrupt`] (the caller's handle does not
+/// describe reality); a live row of the wrong kind is the typed
+/// [`RegistryError::KindNotAllowed`].
+fn require_unfinished_op_of(
+    tx: &Connection,
+    operation_uid: Uuid,
+    space_uid: SpaceUid,
+    allowed: &[OperationKind],
+    allowed_names: &'static str,
+) -> Result<OperationRow> {
     let raw = tx
         .query_row(
             &format!("SELECT {OP_COLUMNS} FROM operations WHERE operation_uid = ?1"),
@@ -2168,13 +2321,31 @@ fn require_unfinished_op(
             what: format!("operation {operation_uid}"),
         })?;
     let row = finish_operation_row(raw)?;
-    if row.space_uid != space_uid || row.kind != kind || row.state.is_terminal() {
+    if row.space_uid != space_uid || row.state.is_terminal() {
         return Err(RegistryError::Corrupt(format!(
             "operation {operation_uid} is {} {} on {}, expected unfinished {} on {}",
-            row.kind, row.state, row.space_uid.0, kind, space_uid.0
+            row.kind, row.state, row.space_uid.0, allowed_names, space_uid.0
         )));
     }
+    if !allowed.contains(&row.kind) {
+        return Err(RegistryError::KindNotAllowed {
+            kind: row.kind,
+            allowed: allowed_names,
+        });
+    }
     Ok(row)
+}
+
+/// The exact `spaces.health` token for a [`Health`] (registry-v1.sql CHECK
+/// set).
+fn health_token(health: Health) -> &'static str {
+    match health {
+        Health::Healthy => "healthy",
+        Health::MultiWindow => "multi_window",
+        Health::NativeKeyCollision => "native_key_collision",
+        Health::Unstamped => "unstamped",
+        Health::Unknown => "unknown",
+    }
 }
 
 fn finish_op(tx: &Connection, operation_uid: Uuid, to: OperationState, now: &str) -> Result<()> {

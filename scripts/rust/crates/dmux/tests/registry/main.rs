@@ -2,10 +2,13 @@
 //! allocation uniqueness/monotonicity, tombstone non-reuse, journal crash
 //! points, idempotency, SQLITE_BUSY typing, WAL-safe online backup, the
 //! authority revision chain, and fenced leases. The P5 identity slice adds
-//! the bootstrap journal and server-epoch publication in [`bootstrap`].
+//! the bootstrap journal and server-epoch publication in [`bootstrap`];
+//! the P6 adoption surface (kind-explicit reservation, unstamped
+//! finalization, health transitions) lives in [`adopt`].
 
 mod util;
 
+mod adopt;
 mod alloc;
 mod backup;
 mod bootstrap;

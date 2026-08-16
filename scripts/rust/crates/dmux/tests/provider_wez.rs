@@ -1,7 +1,10 @@
-//! Real wezterm-mux-server integration tests for the P3b strict Wez read
-//! adapter (plan §18 P3b gate: two-domain isolation, socket replacement,
-//! no auto-start from list, unique tab counts, malformed/stopped
-//! classification).
+//! Real wezterm-mux-server integration tests for the strict Wez adapter:
+//! the P3b read gate (two-domain isolation, socket replacement, no
+//! auto-start from list, unique tab counts, malformed/stopped
+//! classification) plus the P6 mutation slice (verified create/group/split
+//! mutations, ADR 005 kill convergence with adversarial failure injection,
+//! epoch-mismatch injection, acknowledgement-loss keyed-conflict, and the
+//! ADR 006 fork CAS verb/probe against fork and stock scratch servers).
 //!
 //! Every test runs against scratch servers with SHORT socket paths under a
 //! `mkdtemp`-style `/tmp/dmux-p3b-*` directory (macOS `sun_path` is ~104
@@ -18,13 +21,23 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use dmux::backend::wez::{SystemRunner, WezProvider, WezRunner, cli_invocation};
-use dmux::backend::{InventoryOutcome, InventoryScope, NativeBinding, Provider, ProviderError};
+use dmux::backend::wez::{CasRenameOutcome, SystemRunner, WezProvider, WezRunner, cli_invocation};
+use dmux::backend::{
+    CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, Provider, ProviderError,
+};
 use dmux::model::{Backend, ProviderHandle, ServerEpoch};
 use uuid::Uuid;
 
 const WEZTERM: &str = "wezterm";
 const MUX_SERVER: &str = "wezterm-mux-server";
+/// Pinned fork build with the ADR 006 CAS verb (codec 46, tree-identical to
+/// dmux-primitives@72f3fd755). The fork `wezterm` CLI is the only binary
+/// that can EMIT the CAS PDU; the fork server is the only one that accepts
+/// it. P3c gate: the pinned build must exist before downstream use, so the
+/// fork suite soft-skips when it is absent.
+const FORK_WEZTERM: &str = "/Users/fredrir/packages/wezterm-dmux-p0/target/debug/wezterm";
+const FORK_MUX_SERVER: &str =
+    "/Users/fredrir/packages/wezterm-dmux-p0/target/debug/wezterm-mux-server";
 const CLI_DEADLINE: Duration = Duration::from_secs(10);
 
 fn wez_available() -> bool {
@@ -42,10 +55,24 @@ fn wez_available() -> bool {
             .is_ok()
 }
 
+fn fork_available() -> bool {
+    Path::new(FORK_WEZTERM).is_file() && Path::new(FORK_MUX_SERVER).is_file()
+}
+
 macro_rules! require_wez {
     () => {
         if !wez_available() {
             eprintln!("skipping: wezterm/wezterm-mux-server not installed");
+            return;
+        }
+    };
+}
+
+macro_rules! require_fork {
+    () => {
+        require_wez!();
+        if !fork_available() {
+            eprintln!("skipping: pinned fork build not present at {FORK_WEZTERM}");
             return;
         }
     };
@@ -59,10 +86,25 @@ struct ScratchMux {
     sock: PathBuf,
     epoch: ServerEpoch,
     child: Option<Child>,
+    /// Which `wezterm-mux-server` binary `start` launches (stock by
+    /// default; the pinned fork build for the CAS suite).
+    mux_server: String,
 }
 
 impl ScratchMux {
     fn new() -> Self {
+        Self::with_server(MUX_SERVER)
+    }
+
+    /// Scratch server running the pinned fork build (ADR 006 CAS suite).
+    /// Reads still go through the stock CLI (a codec-45 CLI lists fine
+    /// against a codec-46 server, ADR 006); only CAS calls need the fork
+    /// CLI, wired per-provider via `with_cas_binary`.
+    fn fork() -> Self {
+        Self::with_server(FORK_MUX_SERVER)
+    }
+
+    fn with_server(mux_server: &str) -> Self {
         let dir = tempfile::Builder::new()
             .prefix("dmux-p3b-")
             .tempdir_in("/tmp")
@@ -103,13 +145,14 @@ return config
             sock,
             epoch: ServerEpoch(Uuid::new_v4()),
             child: None,
+            mux_server: mux_server.to_string(),
         }
     }
 
     fn start(&mut self) {
         let stdout = std::fs::File::create(self.dir.path().join("server-stdout.log")).unwrap();
         let stderr = std::fs::File::create(self.dir.path().join("server-stderr.log")).unwrap();
-        let child = Command::new(MUX_SERVER)
+        let child = Command::new(&self.mux_server)
             .arg("--config-file")
             .arg(&self.cfg)
             .env_remove("WEZTERM_PANE")
@@ -235,6 +278,34 @@ return config
     /// the provider's normalized rows).
     fn raw_list(&self) -> serde_json::Value {
         serde_json::from_str(&self.cli_ok(&["list", "--format", "json"])).expect("list json")
+    }
+
+    /// `(window_id, tab_id, pane_id)` tuples of one workspace, list order.
+    fn workspace_rows(&self, workspace: &str) -> Vec<(u64, u64, u64)> {
+        self.raw_list()
+            .as_array()
+            .expect("array")
+            .iter()
+            .filter(|row| row["workspace"] == workspace)
+            .map(|row| {
+                (
+                    row["window_id"].as_u64().expect("window_id"),
+                    row["tab_id"].as_u64().expect("tab_id"),
+                    row["pane_id"].as_u64().expect("pane_id"),
+                )
+            })
+            .collect()
+    }
+
+    /// Provider-facing create spec: a plain long-lived shell stands in for
+    /// the bootstrap helper argv (the broker handshake is orchestration
+    /// above the provider; the provider only requires a non-empty argv).
+    fn boot_spec(&self, token: &str) -> CreateSpec {
+        CreateSpec {
+            native_token: token.into(),
+            cwd: None,
+            bootstrap_argv: vec!["/bin/sh".into(), "-c".into(), "sleep 300".into()],
+        }
     }
 
     fn window_id_of_workspace(&self, workspace: &str) -> u64 {
@@ -580,4 +651,434 @@ fn multi_window_workspace_is_flagged() {
     assert_eq!(row.native_token, "mw");
     assert!(row.multi_window, "two distinct window_ids in one workspace");
     assert_eq!(row.groups.len(), 2, "still grouped by unique tab_id");
+}
+
+// ---------------------------------------------------------------------------
+// P6 gate tests: verified mutations (stock server)
+// ---------------------------------------------------------------------------
+
+/// Gate: `create` spawns exactly once, verifies one window/one tab/one pane
+/// in a same-epoch re-list, and returns the exact native binding. A repeated
+/// identical create finds the existing key in the complete keyed pre-scan
+/// and returns a typed conflict WITHOUT a second spawn (acknowledgement-loss
+/// replay shape, plan §10.2).
+#[test]
+fn create_verifies_binding_and_repeat_is_keyed_conflict() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let spec = mux.boot_spec("dmux:h:s1");
+
+    let binding = provider.create(&scope, &spec).expect("create");
+    assert_eq!(binding.native_token, "dmux:h:s1");
+    assert_eq!(binding.server_epoch, mux.epoch);
+    let rows = mux.workspace_rows("dmux:h:s1");
+    assert_eq!(rows.len(), 1, "exactly one pane row");
+    let (_, tab, pane) = rows[0];
+    assert_eq!(binding.root_group, ProviderHandle::Wz(tab));
+    assert_eq!(binding.root_split, ProviderHandle::Wz(pane));
+
+    // Acknowledgement-loss shape: identical create again. The keyed re-list
+    // must find the existing workspace and refuse to spawn.
+    match provider.create(&scope, &spec) {
+        Err(ProviderError::PostconditionFailed { detail }) => {
+            assert!(detail.starts_with("workspace_exists"), "{detail}");
+            assert!(
+                detail.contains(&format!("{pane}")),
+                "existing pane id surfaces for journal rebind: {detail}"
+            );
+        }
+        other => panic!("repeated create must be typed conflict, got {other:?}"),
+    }
+    let rows_after = mux.workspace_rows("dmux:h:s1");
+    assert_eq!(rows_after, rows, "no second window/pane was spawned");
+}
+
+/// Gate: group_new spawns into the workspace's sole window and verifies the
+/// pane landed in a NEW tab there; split_new anchors the group's first pane
+/// and verifies the new pane landed in the SAME tab.
+#[test]
+fn group_new_and_split_new_verify_parentage() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&scope, &mux.boot_spec("alpha"))
+        .expect("create");
+    let root_window = mux.workspace_rows("alpha")[0].0;
+
+    let group = provider
+        .group_new(&scope, &binding, &mux.boot_spec("alpha"))
+        .expect("group_new");
+    assert_ne!(group, binding.root_group, "a fresh Group (new tab)");
+    let ProviderHandle::Wz(new_tab) = group else {
+        panic!("wez tab handle expected, got {group}")
+    };
+    let rows = mux.workspace_rows("alpha");
+    assert_eq!(rows.len(), 2);
+    let new_row = rows
+        .iter()
+        .find(|(_, t, _)| *t == new_tab)
+        .expect("new tab listed");
+    assert_eq!(new_row.0, root_window, "same sole window (plan §2.3)");
+
+    let split = provider
+        .split_new(&scope, &group, &mux.boot_spec("alpha"))
+        .expect("split_new");
+    let ProviderHandle::Wz(new_pane) = split else {
+        panic!("wez pane handle expected, got {split}")
+    };
+    let rows = mux.workspace_rows("alpha");
+    assert_eq!(rows.len(), 3);
+    let split_row = rows
+        .iter()
+        .find(|(_, _, p)| *p == new_pane)
+        .expect("split listed");
+    assert_eq!(split_row.1, new_tab, "split stays in its parent Group");
+
+    let groups = provider.group_list(&scope, &binding).expect("group_list");
+    assert_eq!(groups.len(), 2);
+    let splits = provider.split_list(&scope, &group).expect("split_list");
+    assert_eq!(splits.len(), 2, "anchor pane + new split");
+}
+
+/// Gate: group_rename sets the tab title and proves it in the re-list.
+#[test]
+fn group_rename_is_verified_in_relist() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&scope, &mux.boot_spec("alpha"))
+        .expect("create");
+
+    provider
+        .group_rename(&scope, &binding.root_group, "editor")
+        .expect("group_rename");
+    let groups = provider.group_list(&scope, &binding).expect("group_list");
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].title.as_deref(), Some("editor"));
+}
+
+/// Gate: whole-Space removal converges cleanly over tabs, splits, AND a
+/// second native window (§2.3 sanctions whole-Space removal of a
+/// multi-window resource as repair), leaving other workspaces untouched.
+#[test]
+fn remove_converges_clean_and_leaves_neighbors() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&scope, &mux.boot_spec("victim"))
+        .expect("create victim");
+    let keeper = provider
+        .create(&scope, &mux.boot_spec("keeper"))
+        .expect("create keeper");
+    provider
+        .group_new(&scope, &binding, &mux.boot_spec("victim"))
+        .expect("second tab");
+    provider
+        .split_new(&scope, &binding.root_group, &mux.boot_spec("victim"))
+        .expect("split");
+    mux.spawn_workspace("victim"); // second native window: multi_window
+    assert!(mux.workspace_rows("victim").len() >= 4);
+
+    provider.remove(&scope, &binding).expect("remove converges");
+    assert!(mux.workspace_rows("victim").is_empty(), "workspace gone");
+    assert_eq!(mux.workspace_rows("keeper").len(), 1, "neighbor untouched");
+    provider
+        .inspect(&scope, &keeper)
+        .expect("keeper still inspectable");
+}
+
+/// Gate (ADR 005 matrix through the provider): an adversary spawning fresh
+/// windows into the workspace defeats convergence — the bounded loop hits
+/// its round limit and returns a typed partial naming survivors, and never
+/// tombstone-material success. After the adversary stops, the identical
+/// remove converges.
+#[test]
+fn remove_bound_hit_under_adversary_then_converges() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&scope, &mux.boot_spec("contested"))
+        .expect("create");
+
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let outcome = std::thread::scope(|s| {
+        for _ in 0..2 {
+            s.spawn(|| {
+                // Hot adversary: keep recreating panes/windows in the
+                // workspace until told to stop (spawn recreates the
+                // workspace even after it was fully killed).
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = mux.cli(&[
+                        "spawn",
+                        "--new-window",
+                        "--workspace",
+                        "contested",
+                        "--",
+                        "/bin/sh",
+                        "-c",
+                        "sleep 300",
+                    ]);
+                }
+            });
+        }
+        let outcome = provider.remove(&scope, &binding);
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        outcome
+    });
+    match outcome {
+        Err(ProviderError::PostconditionFailed { detail }) => {
+            assert!(detail.starts_with("remove_unconverged"), "{detail}");
+            assert!(detail.contains("pane(s) ["), "survivors listed: {detail}");
+        }
+        other => panic!("adversarial remove must hit the bound typed, got {other:?}"),
+    }
+
+    // Adversary stopped: the same remove now converges and verifies absence.
+    provider
+        .remove(&scope, &binding)
+        .expect("remove after adversary stops");
+    assert!(mux.workspace_rows("contested").is_empty());
+}
+
+/// Gate: the provider never deletes a Space through a child remove — the
+/// workspace's last Split and last Group are refused typed (plan §7.2), and
+/// legitimate child removals verify absence.
+#[test]
+fn child_removes_refuse_hidden_space_cascade() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&scope, &mux.boot_spec("alpha"))
+        .expect("create");
+
+    match provider.split_remove(&scope, &binding.root_split) {
+        Err(ProviderError::NativeFailure { detail }) => {
+            assert!(detail.starts_with("refused_last_pane"), "{detail}");
+        }
+        other => panic!("last split must refuse, got {other:?}"),
+    }
+    match provider.group_remove(&scope, &binding.root_group) {
+        Err(ProviderError::NativeFailure { detail }) => {
+            assert!(detail.starts_with("refused_last_group"), "{detail}");
+        }
+        other => panic!("last group must refuse, got {other:?}"),
+    }
+    assert_eq!(mux.workspace_rows("alpha").len(), 1, "nothing was killed");
+
+    // With a second Group present both child removals become legal.
+    let group = provider
+        .group_new(&scope, &binding, &mux.boot_spec("alpha"))
+        .expect("group_new");
+    let split = provider
+        .split_new(&scope, &group, &mux.boot_spec("alpha"))
+        .expect("split_new");
+    provider.split_remove(&scope, &split).expect("split_remove");
+    provider.group_remove(&scope, &group).expect("group_remove");
+    let rows = mux.workspace_rows("alpha");
+    assert_eq!(rows.len(), 1, "back to the root pane only");
+    assert_eq!(ProviderHandle::Wz(rows[0].2), binding.root_split);
+}
+
+/// Gate: epoch-mismatch injection — every mutation with a wrong expected
+/// epoch is rejected typed by the sentinel handshake with ZERO native
+/// mutation.
+#[test]
+fn epoch_mismatch_rejects_every_mutation_without_mutating() {
+    require_wez!();
+    let mut mux = ScratchMux::new();
+    mux.start();
+    let provider = mux.provider();
+    let good_scope = mux.scope(Some(mux.epoch));
+    let binding = provider
+        .create(&good_scope, &mux.boot_spec("alpha"))
+        .expect("create");
+    provider
+        .group_new(&good_scope, &binding, &mux.boot_spec("alpha"))
+        .expect("second tab");
+    let before = mux.raw_list();
+
+    let wrong_epoch = ServerEpoch(Uuid::new_v4());
+    let scope = mux.scope(Some(wrong_epoch));
+    let stale = NativeBinding {
+        server_epoch: wrong_epoch,
+        ..binding.clone()
+    };
+    let results: Vec<(&str, Result<(), ProviderError>)> = vec![
+        (
+            "create",
+            provider.create(&scope, &mux.boot_spec("fresh")).map(|_| ()),
+        ),
+        (
+            "group_new",
+            provider
+                .group_new(&scope, &stale, &mux.boot_spec("alpha"))
+                .map(|_| ()),
+        ),
+        (
+            "split_new",
+            provider
+                .split_new(&scope, &binding.root_group, &mux.boot_spec("alpha"))
+                .map(|_| ()),
+        ),
+        (
+            "group_rename",
+            provider.group_rename(&scope, &binding.root_group, "x"),
+        ),
+        ("remove", provider.remove(&scope, &stale)),
+        (
+            "group_remove",
+            provider.group_remove(&scope, &binding.root_group),
+        ),
+        (
+            "split_remove",
+            provider.split_remove(&scope, &binding.root_split),
+        ),
+        (
+            "cas_rename_workspace",
+            provider
+                .cas_rename_workspace(&scope, 0, "alpha", "beta", false)
+                .map(|_| ()),
+        ),
+    ];
+    for (verb, result) in results {
+        match result {
+            Err(ProviderError::EpochChanged { .. }) => {}
+            other => panic!("{verb} with wrong epoch must be EpochChanged, got {other:?}"),
+        }
+    }
+    assert_eq!(mux.raw_list(), before, "zero native mutation happened");
+    assert!(mux.workspace_rows("fresh").is_empty(), "no spawn leaked");
+}
+
+// ---------------------------------------------------------------------------
+// P6 gate tests: ADR 006 CAS verb and capability probe (fork + stock)
+// ---------------------------------------------------------------------------
+
+/// Gate: against a scratch server running the pinned fork build, the
+/// positive capability probe answers true and the CAS verb walks the full
+/// ADR 006 demo matrix (Renamed / WorkspaceMismatch / NoSuchWindow /
+/// NotSoleWindow), every non-Renamed outcome mutation-free.
+#[test]
+fn fork_server_probe_true_and_cas_matrix() {
+    require_fork!();
+    let mut mux = ScratchMux::fork();
+    mux.start();
+    // Reads through the stock CLI (codec-45 list against the codec-46
+    // server works, ADR 006); CAS through the fork CLI via `with_cas_binary`.
+    let provider = mux.provider().with_cas_binary(FORK_WEZTERM);
+    let scope = mux.scope(Some(mux.epoch));
+
+    assert!(
+        provider.probe_cas_rename(&scope).expect("probe"),
+        "fork server must probe capable"
+    );
+
+    mux.spawn_workspace("old");
+    // The adopt-flow lookup: sole_window_id feeds the CAS call, live.
+    let window = provider
+        .sole_window_id(&scope, "old")
+        .expect("sole_window_id");
+    assert_eq!(window, mux.window_id_of_workspace("old"), "raw cross-check");
+    match provider.sole_window_id(&scope, "no-such-workspace") {
+        Err(ProviderError::NotFound { native_ref }) => {
+            assert_eq!(native_ref, "no-such-workspace");
+        }
+        other => panic!("absent workspace must be NotFound, got {other:?}"),
+    }
+
+    // Renamed (with the sole-window fence held).
+    let outcome = provider
+        .cas_rename_workspace(&scope, window, "old", "dmux:h:adopted", true)
+        .expect("cas rename");
+    assert_eq!(outcome, CasRenameOutcome::Renamed);
+    assert!(mux.workspace_rows("old").is_empty());
+    assert_eq!(mux.window_id_of_workspace("dmux:h:adopted"), window);
+
+    // Stale expectation: typed mismatch naming the actual key, no mutation.
+    let outcome = provider
+        .cas_rename_workspace(&scope, window, "old", "other", false)
+        .expect("cas mismatch is a typed outcome");
+    assert_eq!(
+        outcome,
+        CasRenameOutcome::WorkspaceMismatch {
+            actual: "dmux:h:adopted".into()
+        }
+    );
+    assert_eq!(mux.window_id_of_workspace("dmux:h:adopted"), window);
+
+    // Nonexistent window.
+    let outcome = provider
+        .cas_rename_workspace(&scope, u64::MAX, "dmux:h:adopted", "x", false)
+        .expect("cas no-such-window is a typed outcome");
+    assert_eq!(outcome, CasRenameOutcome::NoSuchWindow);
+
+    // Interloper window in the same workspace defeats --if-sole-window.
+    mux.spawn_workspace("dmux:h:adopted");
+    let windows = |mux: &ScratchMux| -> std::collections::HashSet<u64> {
+        mux.workspace_rows("dmux:h:adopted")
+            .iter()
+            .map(|(w, _, _)| *w)
+            .collect()
+    };
+    let before = windows(&mux);
+    assert_eq!(before.len(), 2, "target + interloper windows");
+    assert!(before.contains(&window));
+    match provider.sole_window_id(&scope, "dmux:h:adopted") {
+        Err(ProviderError::MultiWindow { window_count, .. }) => assert_eq!(window_count, 2),
+        other => panic!("interloper must make sole_window_id MultiWindow, got {other:?}"),
+    }
+    let outcome = provider
+        .cas_rename_workspace(&scope, window, "dmux:h:adopted", "x", true)
+        .expect("cas not-sole-window is a typed outcome");
+    assert_eq!(outcome, CasRenameOutcome::NotSoleWindow);
+    assert_eq!(windows(&mux), before, "no mutation on NotSoleWindow");
+}
+
+/// Gate: the fork CLI against a STOCK scratch server classifies the stable
+/// invalid-PDU rejection as capability-missing — probe false, zero
+/// mutation, and the CAS method itself fails typed.
+#[test]
+fn stock_server_probe_false_via_invalid_pdu() {
+    require_fork!();
+    let mut mux = ScratchMux::new(); // stock server
+    mux.start();
+    let provider = mux.provider().with_cas_binary(FORK_WEZTERM);
+    let scope = mux.scope(Some(mux.epoch));
+
+    assert!(
+        !provider.probe_cas_rename(&scope).expect("probe"),
+        "stock server must probe not-capable via the invalid-PDU reason"
+    );
+
+    mux.spawn_workspace("old");
+    let window = mux.window_id_of_workspace("old");
+    match provider.cas_rename_workspace(&scope, window, "old", "new", false) {
+        Err(ProviderError::NativeFailure { detail }) => {
+            assert!(detail.starts_with("cas_capability_missing"), "{detail}");
+        }
+        other => panic!("CAS on stock server must fail typed, got {other:?}"),
+    }
+    assert_eq!(
+        mux.workspace_rows("old").len(),
+        1,
+        "zero mutation on capability-missing"
+    );
 }

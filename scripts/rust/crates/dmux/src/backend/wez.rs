@@ -44,11 +44,33 @@
 //! (ADR 001): typed outcomes come from the dmux-side probe, the sentinel
 //! handshake, and JSON parsing of the response actually consumed.
 //!
-//! Mutations (create/rename/remove/group_*/split_*/presentation) land in P6
-//! under fenced journals/leases; P3b freezes their exact argv builders
-//! ([`spawn_workspace_invocation`] and friends) so P6 wires them under the
-//! fences without re-deriving the template. Until then the trait's mutation
-//! verbs return a typed [`ProviderError::NativeFailure`] naming P6.
+//! Mutations (P6, plan §11.1/§14): create/group_new/split_new/group_rename/
+//! remove/group_remove/split_remove are implemented here over the frozen
+//! P3b argv builders. The provider layer is pure native semantics — exact
+//! locators in, typed results out; the root's fenced journals/leases live
+//! ABOVE this module. Every mutation brackets the native call with complete
+//! sentinel-verified scans: epoch verified before and after (a flip is
+//! [`ProviderError::EpochChanged`]), the one-window invariant (plan §2.3)
+//! checked before and after (violations are [`ProviderError::MultiWindow`];
+//! whole-Space `remove` is the sanctioned exception), and postconditions
+//! re-listed — never inferred from exit codes. `create` performs a keyed
+//! lookup first and NEVER spawns when the workspace key already exists
+//! (acknowledgement-loss replay protection, plan §10.2): the existing state
+//! comes back inside a typed [`ProviderError::PostconditionFailed`].
+//!
+//! Still typed-unimplemented here: `rename` (a Wez logical rename is
+//! registry-only, plan §2.5; native reassignment is the CAS adoption verb),
+//! `prepare_presentation`/`group_activate`/`split_activate` (GUI
+//! orchestration, P9).
+//!
+//! CAS adoption verb (ADR 006, fork codec 46): [`WezProvider::cas_rename_workspace`]
+//! invokes `cli rename-workspace --window-id N --if-workspace OLD
+//! [--if-sole-window] NEW` through the configured [`WezProvider::with_cas_binary`]
+//! fork CLI and classifies the frozen stderr shapes into
+//! [`CasRenameOutcome`]. [`WezProvider::probe_cas_rename`] is the amended
+//! positive capability probe: a CAS against the known-nonexistent window id
+//! `u64::MAX` where `no_such_window` proves the verb exists (zero mutation
+//! possible) and the stable invalid-PDU reason proves it does not.
 //!
 //! Specialist-owned (plan §19, W2); the trait and result types in
 //! `backend/mod.rs` are the frozen root-owned contract.
@@ -80,6 +102,10 @@ pub const SOCKET_ENV: &str = "WEZTERM_UNIX_SOCKET";
 /// Default per-child deadline. ADR 001: a silent socket hangs the stock CLI
 /// for >12s with no built-in timeout; dmux kills the child at the deadline.
 const DEFAULT_DEADLINE: Duration = Duration::from_secs(10);
+
+/// ADR 005 removal bound: max re-list/kill rounds before returning a typed
+/// partial (`PostconditionFailed` with the surviving pane ids).
+pub const REMOVE_MAX_ROUNDS: usize = 5;
 
 /// Stable stderr emitted by a stock (codec-45) server answering the fork CAS
 /// verb (ADR 006). Classifying this exact error as capability-missing is the
@@ -249,36 +275,115 @@ pub fn kill_pane_invocation(
     )
 }
 
-// ---------------------------------------------------------------------------
-// CAS capability probe seam (ADR 006, wired in P6)
-// ---------------------------------------------------------------------------
-
-/// Classification of one fork-CAS capability probe response. Capability is
-/// proven only by a **positive** probe (`wezterm cli` has no codec
-/// handshake; connect success is silently half-capable, never proof).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CasProbe {
-    /// The CAS verb executed (exit 0): fork primitive present.
-    Capable,
-    /// The stable stock-server rejection of PDU ident 63: capability
-    /// missing, guaranteed zero mutation (ADR 006).
-    Missing,
-    /// Anything else: not evidence in either direction.
-    Indeterminate(String),
+/// CAS adoption verb (ADR 006, fork codec 46): `cli --no-auto-start
+/// rename-workspace --window-id N --if-workspace OLD [--if-sole-window] NEW`.
+/// Only meaningful through the fork `wezterm` CLI; the stock CLI rejects the
+/// `--window-id/--if-workspace` arguments at argv parse.
+pub fn cas_rename_invocation(
+    wezterm_bin: &str,
+    config_file: &str,
+    socket: &str,
+    window_id: u64,
+    expected_workspace: &str,
+    expect_sole_window: bool,
+    new_workspace: &str,
+) -> Result<WezInvocation, String> {
+    if expected_workspace.is_empty() || new_workspace.is_empty() {
+        return Err("cas rename requires non-empty expected and new workspace keys".into());
+    }
+    let window = window_id.to_string();
+    let mut args: Vec<&str> = vec![
+        "rename-workspace",
+        "--window-id",
+        &window,
+        "--if-workspace",
+        expected_workspace,
+    ];
+    if expect_sole_window {
+        args.push("--if-sole-window");
+    }
+    args.push(new_workspace);
+    cli_invocation(wezterm_bin, config_file, socket, &args)
 }
 
-/// Pure classifier for the P6 capability probe. This is the one sanctioned
-/// use of stderr in classification: ADR 006 froze the exact
-/// `invalid PDU Invalid {{ ident: 63 }}` reason as the capability-missing
-/// signal; everything else stays indeterminate diagnostics.
-pub fn classify_cas_probe(exit_ok: bool, stderr: &str) -> CasProbe {
+// ---------------------------------------------------------------------------
+// CAS classification (ADR 006, live-verified stderr shapes)
+// ---------------------------------------------------------------------------
+
+/// Stable marker preceding every typed fork-CAS failure token on stderr
+/// (live-verified against the pinned fork build, e.g.
+/// `ERROR wezterm > rename-workspace-if failed: workspace_mismatch
+/// window_id=1 actual="new"; terminating`).
+pub const CAS_FAILED_MARKER: &str = "rename-workspace-if failed: ";
+
+/// Typed outcome of one fork CAS rename (mirrors the wire enum, ADR 006).
+/// Every non-`Renamed` variant is a server-guaranteed zero-mutation result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CasRenameOutcome {
+    Renamed,
+    /// The window's workspace was not `expected_workspace`; `actual` is the
+    /// server-reported current key.
+    WorkspaceMismatch {
+        actual: String,
+    },
+    NoSuchWindow,
+    /// `--if-sole-window` was requested and other windows share the
+    /// workspace.
+    NotSoleWindow,
+}
+
+/// Classification of one CAS CLI exchange. Pure so unit tests pin the frozen
+/// stderr shapes byte-for-byte. This is the one sanctioned use of stderr in
+/// classification (ADR 006 froze the failure prefixes and the stock-server
+/// `invalid PDU Invalid {{ ident: 63 }}` reason); anything else is
+/// `Unclassified` diagnostics, never a guess.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CasClassification {
+    Outcome(CasRenameOutcome),
+    /// The stable stock-server rejection of PDU ident 63: capability
+    /// missing, guaranteed zero mutation (ADR 006).
+    CapabilityMissing,
+    /// Not evidence in either direction (connect failures, argv-parse
+    /// errors from a non-fork CLI, unparseable mismatch payloads, ...).
+    Unclassified(String),
+}
+
+/// Pure classifier for one fork-CAS invocation result.
+pub fn classify_cas_rename(exit_ok: bool, stderr: &str) -> CasClassification {
     if exit_ok {
-        return CasProbe::Capable;
+        return CasClassification::Outcome(CasRenameOutcome::Renamed);
     }
     if stderr.contains(CAS_MISSING_PDU_STDERR) {
-        return CasProbe::Missing;
+        return CasClassification::CapabilityMissing;
     }
-    CasProbe::Indeterminate(stderr.trim().to_string())
+    let Some(idx) = stderr.find(CAS_FAILED_MARKER) else {
+        return CasClassification::Unclassified(stderr.trim().to_string());
+    };
+    let rest = &stderr[idx + CAS_FAILED_MARKER.len()..];
+    if rest.starts_with("no_such_window") {
+        return CasClassification::Outcome(CasRenameOutcome::NoSuchWindow);
+    }
+    if rest.starts_with("not_sole_window") {
+        return CasClassification::Outcome(CasRenameOutcome::NotSoleWindow);
+    }
+    if rest.starts_with("workspace_mismatch") {
+        // Frozen shape: `workspace_mismatch window_id=N actual="<key>"`.
+        // A key containing a double quote would truncate here; opaque dmux
+        // keys never contain one, and an unparseable payload stays
+        // unclassified rather than guessed.
+        if let Some(at) = rest.find("actual=\"")
+            && let Some(end) = rest[at + 8..].find('"')
+        {
+            return CasClassification::Outcome(CasRenameOutcome::WorkspaceMismatch {
+                actual: rest[at + 8..at + 8 + end].to_string(),
+            });
+        }
+        return CasClassification::Unclassified(format!(
+            "workspace_mismatch without parseable actual: {}",
+            rest.trim()
+        ));
+    }
+    CasClassification::Unclassified(rest.trim().to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +687,13 @@ pub struct WezProvider<R: WezRunner> {
     config_file: String,
     deadline: Duration,
     identity: IdentityExpectation,
+    /// Optional fork `wezterm` CLI used ONLY for the CAS adoption verb and
+    /// its capability probe (ADR 006). The CAS PDU exists solely in the
+    /// pinned fork build; reads keep using `wezterm_bin` (a codec-45 CLI
+    /// lists fine against a codec-46 server). When unset, CAS calls fall
+    /// back to `wezterm_bin` — against a stock CLI the argv parse fails and
+    /// classifies as a typed unclassified failure, never a guess.
+    cas_binary: Option<String>,
 }
 
 impl WezProvider<SystemRunner> {
@@ -602,6 +714,7 @@ impl<R: WezRunner> WezProvider<R> {
             config_file: config_file.into(),
             deadline: DEFAULT_DEADLINE,
             identity: IdentityExpectation::default(),
+            cas_binary: None,
         }
     }
 
@@ -616,9 +729,20 @@ impl<R: WezRunner> WezProvider<R> {
         self
     }
 
-    /// One verified scan: probe → exact-socket `list --format json` →
-    /// sentinel/epoch handshake → grouped rows.
-    fn scan(&self, scope: &InventoryScope) -> Result<NativeInventory, ScanFail> {
+    /// Install the fork `wezterm` CLI path used for CAS operations (ADR
+    /// 006). See the field docs on [`WezProvider`] for the fallback rule.
+    pub fn with_cas_binary(mut self, cas_binary: impl Into<String>) -> Self {
+        self.cas_binary = Some(cas_binary.into());
+        self
+    }
+
+    fn cas_bin(&self) -> &str {
+        self.cas_binary.as_deref().unwrap_or(&self.wezterm_bin)
+    }
+
+    /// Scope validation plus the dmux-side endpoint identity probe (ADR
+    /// 001): shared by every scan and by the CAS capability probe.
+    fn preflight(&self, scope: &InventoryScope) -> Result<(), ScanFail> {
         if scope.backend != Backend::Wez {
             return Err(ScanFail::WrongInstance(format!(
                 "wez provider handed a {} scope",
@@ -632,26 +756,27 @@ impl<R: WezRunner> WezProvider<R> {
             )));
         }
         match self.runner.probe(&scope.endpoint, self.identity.server_pid) {
-            ProbeOutcome::Connectable => {}
+            ProbeOutcome::Connectable => Ok(()),
             ProbeOutcome::Absent { detail } => {
-                return Err(ScanFail::Stopped(format!("socket absent: {detail}")));
+                Err(ScanFail::Stopped(format!("socket absent: {detail}")))
             }
             ProbeOutcome::Refused { detail } => {
-                return Err(ScanFail::Stopped(format!("connection refused: {detail}")));
+                Err(ScanFail::Stopped(format!("connection refused: {detail}")))
             }
             ProbeOutcome::NotSocket { detail } => {
-                return Err(ScanFail::Malformed(format!("invalid endpoint: {detail}")));
+                Err(ScanFail::Malformed(format!("invalid endpoint: {detail}")))
             }
-            ProbeOutcome::Denied { detail } => {
-                return Err(ScanFail::Permission(detail));
-            }
-            ProbeOutcome::WrongPeer { detail } => {
-                return Err(ScanFail::WrongInstance(detail));
-            }
-            ProbeOutcome::Failed { detail } => {
-                return Err(ScanFail::Unreachable(detail));
-            }
+            ProbeOutcome::Denied { detail } => Err(ScanFail::Permission(detail)),
+            ProbeOutcome::WrongPeer { detail } => Err(ScanFail::WrongInstance(detail)),
+            ProbeOutcome::Failed { detail } => Err(ScanFail::Unreachable(detail)),
         }
+    }
+
+    /// One verified scan: probe → exact-socket `list --format json` →
+    /// sentinel/epoch handshake → grouped rows plus the raw user pane
+    /// tuples mutations need (window ids, tab↔pane parentage).
+    fn scan(&self, scope: &InventoryScope) -> Result<DetailedScan, ScanFail> {
+        self.preflight(scope)?;
         let invocation = cli_invocation(
             &self.wezterm_bin,
             &self.config_file,
@@ -728,16 +853,43 @@ impl<R: WezRunner> WezProvider<R> {
             .iter()
             .filter(|r| !r.workspace.starts_with(WEZ_SENTINEL_PREFIX))
             .collect();
-        let rows = assemble_rows(&user_rows).map_err(ScanFail::Malformed)?;
-        Ok(NativeInventory {
-            server_epoch: Some(epoch),
-            rows,
+        let assembled = assemble_rows(&user_rows).map_err(ScanFail::Malformed)?;
+        let panes = user_rows
+            .iter()
+            .map(|r| PaneRef {
+                window_id: r.window_id,
+                tab_id: r.tab_id,
+                pane_id: r.pane_id,
+                workspace: r.workspace.clone(),
+            })
+            .collect();
+        Ok(DetailedScan {
+            epoch,
+            rows: assembled,
+            panes,
         })
     }
 
-    /// Scan mapped for `ProviderResult` read verbs.
-    fn scan_complete(&self, scope: &InventoryScope) -> ProviderResult<NativeInventory> {
-        self.scan(scope).map_err(|f| f.into_provider_error())
+    /// Scan mapped for `ProviderResult` verbs, with an optional epoch pin:
+    /// when `expected` is given the sentinel-proven epoch must match, else
+    /// the typed [`ProviderError::EpochChanged`]. Mutations call this twice
+    /// — before (pin from scope/binding) and after (pin from the pre-scan) —
+    /// so a server restart mid-mutation can never pass verification.
+    fn verified_scan(
+        &self,
+        scope: &InventoryScope,
+        expected: Option<ServerEpoch>,
+    ) -> ProviderResult<DetailedScan> {
+        let scan = self.scan(scope).map_err(|f| f.into_provider_error())?;
+        if let Some(expected) = expected
+            && expected != scan.epoch
+        {
+            return Err(ProviderError::EpochChanged {
+                expected,
+                observed: Some(scan.epoch),
+            });
+        }
+        Ok(scan)
     }
 
     /// Cross-check a stale binding against the caller's scope before use.
@@ -756,17 +908,162 @@ impl<R: WezRunner> WezProvider<R> {
         Ok(binding.server_epoch)
     }
 
-    /// P6 boundary: every Wez mutation runs under the fenced operation
-    /// journal/lease machinery that lands in P6. The argv builders above are
-    /// frozen now precisely so P6 wires them under those fences; calling a
-    /// mutation verb today is a typed failure, never a silent no-op.
-    fn mutation_unimplemented(verb: &str) -> ProviderError {
+    /// GUI-orchestration boundary: presentation/activation verbs are never
+    /// owner-provider operations (plan §9.3, §11.1); they land with the P9
+    /// bridge. Calling one here is a typed failure, never a silent no-op.
+    fn gui_orchestration(verb: &str) -> ProviderError {
         ProviderError::NativeFailure {
             detail: format!(
-                "wez {verb}: wez mutations land in P6 (fenced journal/lease \
-                 integration); P3b freezes the argv builders only"
+                "wez {verb}: GUI orchestration (plan §9.3/§11.1, P9 bridge); \
+                 never an owner-provider operation"
             ),
         }
+    }
+
+    /// Execute one mutation invocation under the dmux deadline, mapping
+    /// runner failures to typed provider errors. Exit status is returned for
+    /// diagnostics; postconditions always come from re-list verification.
+    fn run_mutation(&self, invocation: WezInvocation) -> ProviderResult<RunOutput> {
+        match self.runner.run(&invocation, self.deadline) {
+            Ok(out) => Ok(out),
+            Err(RunError::MissingBinary { detail }) => Err(ProviderError::NativeFailure {
+                detail: format!("wezterm binary missing: {detail}"),
+            }),
+            Err(RunError::Timeout { detail }) => Err(ProviderError::Timeout { detail }),
+            Err(RunError::Io { detail }) => Err(ProviderError::NativeFailure { detail }),
+        }
+    }
+
+    /// Parse the ADR 004 frozen spawn-return format (`<pane_id>\n` only).
+    /// A nonzero exit is a typed native failure (nothing spawned to
+    /// correlate); exit 0 with unparseable stdout means the mutation likely
+    /// happened but the binding is indeterminate — `PostconditionFailed`, so
+    /// the journal reconciles via keyed re-list instead of respawning.
+    fn parse_spawn_pane_id(verb: &str, out: &RunOutput) -> ProviderResult<u64> {
+        if !out.ok() {
+            return Err(ProviderError::NativeFailure {
+                detail: format!(
+                    "wez {verb} exited {}: {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ),
+            });
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let trimmed = text.trim();
+        trimmed
+            .parse()
+            .map_err(|_| ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez {verb} exited 0 but returned unparseable spawn output {trimmed:?} \
+                     (ADR 004 freezes `<pane_id>\\n`); native state indeterminate — \
+                     reconcile via keyed re-list, never respawn"
+                ),
+            })
+    }
+
+    /// One-window invariant guard (plan §2.3): the workspace must span
+    /// exactly one native mux window. Returns the sole window id.
+    fn sole_window(scan: &DetailedScan, token: &str) -> ProviderResult<u64> {
+        let windows = scan.workspace_windows(token);
+        match windows.as_slice() {
+            [] => Err(ProviderError::NotFound {
+                native_ref: token.to_string(),
+            }),
+            [one] => Ok(*one),
+            many => Err(ProviderError::MultiWindow {
+                native_ref: token.to_string(),
+                window_count: many.len() as u32,
+            }),
+        }
+    }
+}
+
+/// One raw user pane tuple from a verified list (sentinel rows excluded).
+/// Mutations need the native window ids and tab↔pane parentage that the
+/// normalized [`NativeSpaceRow`] deliberately hides.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PaneRef {
+    window_id: u64,
+    tab_id: u64,
+    pane_id: u64,
+    workspace: String,
+}
+
+/// One complete sentinel-verified scan: the proven epoch, the normalized
+/// rows the trait returns, and the raw pane tuples mutation verification
+/// consumes. Internal to the adapter; the trait surface stays frozen.
+struct DetailedScan {
+    epoch: ServerEpoch,
+    rows: Vec<NativeSpaceRow>,
+    panes: Vec<PaneRef>,
+}
+
+impl DetailedScan {
+    fn into_inventory(self) -> NativeInventory {
+        NativeInventory {
+            server_epoch: Some(self.epoch),
+            rows: self.rows,
+        }
+    }
+
+    fn row(&self, token: &str) -> Option<&NativeSpaceRow> {
+        self.rows.iter().find(|r| r.native_token == token)
+    }
+
+    /// Distinct native window ids of one workspace, first-seen order.
+    fn workspace_windows(&self, token: &str) -> Vec<u64> {
+        let mut windows = Vec::new();
+        for pane in self.panes.iter().filter(|p| p.workspace == token) {
+            if !windows.contains(&pane.window_id) {
+                windows.push(pane.window_id);
+            }
+        }
+        windows
+    }
+
+    fn workspace_panes(&self, token: &str) -> Vec<u64> {
+        self.panes
+            .iter()
+            .filter(|p| p.workspace == token)
+            .map(|p| p.pane_id)
+            .collect()
+    }
+
+    /// Distinct tab ids of one workspace, first-seen order.
+    fn workspace_tabs(&self, token: &str) -> Vec<u64> {
+        let mut tabs = Vec::new();
+        for pane in self.panes.iter().filter(|p| p.workspace == token) {
+            if !tabs.contains(&pane.tab_id) {
+                tabs.push(pane.tab_id);
+            }
+        }
+        tabs
+    }
+
+    fn pane(&self, pane_id: u64) -> Option<&PaneRef> {
+        self.panes.iter().find(|p| p.pane_id == pane_id)
+    }
+
+    /// First-listed pane of one tab (the deterministic split anchor).
+    fn tab_first_pane(&self, tab_id: u64) -> Option<&PaneRef> {
+        self.panes.iter().find(|p| p.tab_id == tab_id)
+    }
+
+    fn tab_panes(&self, tab_id: u64) -> Vec<u64> {
+        self.panes
+            .iter()
+            .filter(|p| p.tab_id == tab_id)
+            .map(|p| p.pane_id)
+            .collect()
+    }
+
+    /// Workspace one native window currently lists under, if any.
+    fn window_workspace(&self, window_id: u64) -> Option<&str> {
+        self.panes
+            .iter()
+            .find(|p| p.window_id == window_id)
+            .map(|p| p.workspace.as_str())
     }
 }
 
@@ -998,14 +1295,14 @@ fn assemble_rows(rows: &[&ListRow]) -> Result<Vec<NativeSpaceRow>, String> {
 // ---------------------------------------------------------------------------
 
 impl<R: WezRunner> Provider for WezProvider<R> {
-    /// Static P3b capabilities. `probed` names the checks every inventory
+    /// Static capabilities. `probed` names the checks every inventory
     /// enforces (dmux-side socket classification and the sentinel-in-list
-    /// handshake). `cas_rename` stays `false` until P6 runs the POSITIVE
-    /// capability probe against the pinned fork build — fork version match,
-    /// or [`classify_cas_probe`] on a live CAS attempt (ADR 006: `wezterm
-    /// cli` has no codec handshake, so connect success never proves the
-    /// primitive; the stock server answers ident 63 with the stable
-    /// [`CAS_MISSING_PDU_STDERR`] reason and zero mutation).
+    /// handshake). `cas_rename` stays statically `false` HERE by design:
+    /// capability is a property of one live server endpoint, and this
+    /// method receives no scope/endpoint to probe — a cached answer would
+    /// silently survive a server swap. The explicit per-endpoint API is
+    /// [`WezProvider::probe_cas_rename`] (positive probe, ADR 006 amended);
+    /// orchestration calls it under its own fences and carries the result.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             backend: Backend::Wez,
@@ -1024,13 +1321,92 @@ impl<R: WezRunner> Provider for WezProvider<R> {
     /// `window_id`s.
     fn inventory(&self, scope: &InventoryScope) -> InventoryOutcome {
         match self.scan(scope) {
-            Ok(inv) => InventoryOutcome::Complete(inv),
+            Ok(scan) => InventoryOutcome::Complete(scan.into_inventory()),
             Err(fail) => fail.into_outcome(),
         }
     }
 
-    fn create(&self, _: &InventoryScope, _: &CreateSpec) -> ProviderResult<NativeBinding> {
-        Err(Self::mutation_unimplemented("create"))
+    /// Space create (plan §11.1): complete keyed pre-scan, ONE `spawn
+    /// --new-window --workspace <key>`, complete same-epoch post-scan
+    /// verifying exactly one window / one tab / one pane carrying the
+    /// returned pane id. An already-present key is a typed
+    /// `PostconditionFailed` carrying the existing state — never a second
+    /// spawn (acknowledgement-loss replay, plan §10.2): journal replay must
+    /// rebind through the keyed lookup or report conflict.
+    fn create(&self, scope: &InventoryScope, spec: &CreateSpec) -> ProviderResult<NativeBinding> {
+        let pre = self.verified_scan(scope, None)?;
+        if let Some(row) = pre.row(&spec.native_token) {
+            let windows = pre.workspace_windows(&spec.native_token);
+            let panes = pre.workspace_panes(&spec.native_token);
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "workspace_exists: key {:?} already present under epoch {} with \
+                     window(s) {:?}, {} group(s), pane(s) {:?}; create never respawns — \
+                     journal replay must rebind via keyed lookup or report conflict",
+                    spec.native_token,
+                    pre.epoch.0,
+                    windows,
+                    row.groups.len(),
+                    panes
+                ),
+            });
+        }
+        let invocation = spawn_workspace_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            &spec.native_token,
+            spec.cwd.as_deref(),
+            &spec.bootstrap_argv,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let out = self.run_mutation(invocation)?;
+        let pane_id = Self::parse_spawn_pane_id("create (spawn --new-window)", &out)?;
+
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let row =
+            post.row(&spec.native_token)
+                .ok_or_else(|| ProviderError::PostconditionFailed {
+                    detail: format!(
+                        "wez create: workspace {:?} absent in the same-epoch re-list after \
+                     spawn returned pane {pane_id}",
+                        spec.native_token
+                    ),
+                })?;
+        Self::sole_window(&post, &spec.native_token)?;
+        let (group, split) = match row.groups.as_slice() {
+            [group] => match group.splits.as_slice() {
+                [split] if split.handle == ProviderHandle::Wz(pane_id) => {
+                    (group.handle.clone(), split.handle.clone())
+                }
+                splits => {
+                    return Err(ProviderError::PostconditionFailed {
+                        detail: format!(
+                            "wez create: workspace {:?} re-listed with splits {:?} instead \
+                             of exactly the spawned pane {pane_id}",
+                            spec.native_token,
+                            splits.iter().map(|s| s.handle.clone()).collect::<Vec<_>>()
+                        ),
+                    });
+                }
+            },
+            groups => {
+                return Err(ProviderError::PostconditionFailed {
+                    detail: format!(
+                        "wez create: workspace {:?} re-listed with {} groups instead of \
+                         exactly one (spawned pane {pane_id})",
+                        spec.native_token,
+                        groups.len()
+                    ),
+                });
+            }
+        };
+        Ok(NativeBinding {
+            native_token: spec.native_token.clone(),
+            server_epoch: post.epoch,
+            root_group: group,
+            root_split: split,
+        })
     }
 
     /// Wez presentation is GUI orchestration over the bridge/`--launch-gui`
@@ -1042,20 +1418,75 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         _: &NativeBinding,
         _: Option<&ProviderHandle>,
     ) -> ProviderResult<PresentationTarget> {
-        Err(Self::mutation_unimplemented(
-            "prepare_presentation (GUI orchestration, P9)",
-        ))
+        Err(Self::gui_orchestration("prepare_presentation"))
     }
 
-    /// A Wez logical rename is registry-only (plan §2.5); the native CAS
-    /// rename exists solely for adoption/repair and is P6 work gated on the
-    /// fork capability probe (ADR 006).
+    /// Always a typed rejection: a Wez logical rename is registry-only
+    /// (plan §2.5) — the opaque native workspace key never changes, so
+    /// there is nothing for the provider to rename. Native workspace
+    /// reassignment exists solely for adoption/repair through the fork CAS
+    /// verb: run [`WezProvider::probe_cas_rename`] and, on a positive
+    /// probe, [`WezProvider::cas_rename_workspace`] (ADR 006).
     fn rename(&self, _: &InventoryScope, _: &NativeBinding, _: &str) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("rename"))
+        Err(ProviderError::NativeFailure {
+            detail: "wez rename: a Wez logical rename is registry-only (plan §2.5); the \
+                     opaque native workspace key never changes. Native reassignment is \
+                     the adoption/repair CAS verb — probe_cas_rename then \
+                     cas_rename_workspace (ADR 006)"
+                .to_string(),
+        })
     }
 
-    fn remove(&self, _: &InventoryScope, _: &NativeBinding) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("remove"))
+    /// Whole-Space removal (plan §14, ADR 005): bounded re-list/kill
+    /// convergence, max [`REMOVE_MAX_ROUNDS`] rounds. Each round is a full
+    /// sentinel/epoch-verified scan → exact `kill-pane` per listed pane
+    /// (an already-dead exit-1 is a benign race; the next re-list decides) →
+    /// re-list. Observed absence is confirmed by one FINAL verification
+    /// list before returning Ok. Hitting the bound is a typed
+    /// `PostconditionFailed` naming the surviving pane ids — the layer
+    /// above reports partial and never tombstones. Multi-window workspaces
+    /// are removable: §2.3 sanctions confirmed whole-Space removal as
+    /// repair, so no one-window guard applies here.
+    fn remove(&self, scope: &InventoryScope, binding: &NativeBinding) -> ProviderResult<()> {
+        let expected = Self::binding_epoch(scope, binding)?;
+        let mut survivors: Vec<u64> = Vec::new();
+        for _round in 0..REMOVE_MAX_ROUNDS {
+            let scan = self.verified_scan(scope, Some(expected))?;
+            let panes = scan.workspace_panes(&binding.native_token);
+            if panes.is_empty() {
+                // Converged at observation time — ADR 005: exit 0 is
+                // point-in-time only, so confirm with a final list.
+                let fin = self.verified_scan(scope, Some(expected))?;
+                let resurfaced = fin.workspace_panes(&binding.native_token);
+                if resurfaced.is_empty() {
+                    return Ok(());
+                }
+                survivors = resurfaced;
+                continue;
+            }
+            for pane in &panes {
+                let invocation = kill_pane_invocation(
+                    &self.wezterm_bin,
+                    &self.config_file,
+                    &scope.endpoint,
+                    *pane,
+                )
+                .map_err(|detail| ProviderError::NativeFailure { detail })?;
+                // Exit status intentionally unused (ADR 001/005): the
+                // already-dead race exits 1 benignly and the next verified
+                // re-list is the only truth; runner failures stay typed.
+                let _ = self.run_mutation(invocation)?;
+            }
+            survivors = panes;
+        }
+        Err(ProviderError::PostconditionFailed {
+            detail: format!(
+                "remove_unconverged: workspace {:?} still holds pane(s) {:?} after \
+                 {REMOVE_MAX_ROUNDS} re-list/kill rounds (ADR 005 bound); partial — \
+                 report, never tombstone",
+                binding.native_token, survivors
+            ),
+        })
     }
 
     fn group_list(
@@ -1064,14 +1495,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         binding: &NativeBinding,
     ) -> ProviderResult<Vec<NativeGroupRow>> {
         let expected = Self::binding_epoch(scope, binding)?;
-        let inv = self.scan_complete(scope)?;
-        if inv.server_epoch != Some(expected) {
-            return Err(ProviderError::EpochChanged {
-                expected,
-                observed: inv.server_epoch,
-            });
-        }
-        inv.rows
+        let scan = self.verified_scan(scope, Some(expected))?;
+        scan.rows
             .into_iter()
             .find(|r| r.native_token == binding.native_token)
             .map(|r| r.groups)
@@ -1080,27 +1505,191 @@ impl<R: WezRunner> Provider for WezProvider<R> {
             })
     }
 
+    /// Group create (plan §11.1): `spawn --window-id <only-window-id>` into
+    /// the workspace's sole window, then same-epoch re-list verifying the
+    /// spawned pane landed in a NEW tab of that workspace/window. One-window
+    /// invariant checked before (it also yields the target window id) and
+    /// after.
     fn group_new(
         &self,
-        _: &InventoryScope,
-        _: &NativeBinding,
-        _: &CreateSpec,
+        scope: &InventoryScope,
+        binding: &NativeBinding,
+        spec: &CreateSpec,
     ) -> ProviderResult<ProviderHandle> {
-        Err(Self::mutation_unimplemented("group_new"))
+        let expected = Self::binding_epoch(scope, binding)?;
+        let pre = self.verified_scan(scope, Some(expected))?;
+        if pre.row(&binding.native_token).is_none() {
+            return Err(ProviderError::NotFound {
+                native_ref: binding.native_token.clone(),
+            });
+        }
+        let window = Self::sole_window(&pre, &binding.native_token)?;
+        let pre_tabs = pre.workspace_tabs(&binding.native_token);
+        let invocation = spawn_group_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            window,
+            spec.cwd.as_deref(),
+            &spec.bootstrap_argv,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let out = self.run_mutation(invocation)?;
+        let pane_id = Self::parse_spawn_pane_id("group_new (spawn --window-id)", &out)?;
+
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        Self::sole_window(&post, &binding.native_token)?;
+        let pane = post
+            .pane(pane_id)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez group_new: spawned pane {pane_id} absent in the same-epoch re-list"
+                ),
+            })?;
+        if pane.workspace != binding.native_token
+            || pane.window_id != window
+            || pre_tabs.contains(&pane.tab_id)
+        {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez group_new: pane {pane_id} re-listed in workspace {:?} window {} \
+                     tab {} (wanted a NEW tab of workspace {:?} window {window}, \
+                     existing tabs {pre_tabs:?})",
+                    pane.workspace, pane.window_id, pane.tab_id, binding.native_token
+                ),
+            });
+        }
+        Ok(ProviderHandle::Wz(pane.tab_id))
     }
 
     /// Wez Group/Split activation is GUI-local correlation after import
     /// (plan §11.1), not an owner-provider mutation.
     fn group_activate(&self, _: &InventoryScope, _: &ProviderHandle) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("group_activate"))
+        Err(Self::gui_orchestration("group_activate"))
     }
 
-    fn group_rename(&self, _: &InventoryScope, _: &ProviderHandle, _: &str) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("group_rename"))
+    /// Group rename (plan §11.1): `set-tab-title --tab-id`, bracketed by
+    /// verified scans; the post-scan must re-list the tab with the new
+    /// title (empty title normalizes to None).
+    fn group_rename(
+        &self,
+        scope: &InventoryScope,
+        handle: &ProviderHandle,
+        title: &str,
+    ) -> ProviderResult<()> {
+        let ProviderHandle::Wz(tab_id) = handle else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez tab handle: {handle}"),
+            });
+        };
+        let pre = self.verified_scan(scope, None)?;
+        let owner = pre
+            .tab_first_pane(*tab_id)
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: handle.to_string(),
+            })?;
+        let workspace = owner.workspace.clone();
+        Self::sole_window(&pre, &workspace)?;
+        let invocation = set_tab_title_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *tab_id,
+            title,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let out = self.run_mutation(invocation)?;
+        if !out.ok() {
+            return Err(ProviderError::NativeFailure {
+                detail: format!(
+                    "wez group_rename (set-tab-title --tab-id {tab_id}) exited {}: {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ),
+            });
+        }
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        Self::sole_window(&post, &workspace)?;
+        let row = post
+            .row(&workspace)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez group_rename: workspace {workspace:?} absent in the re-list"),
+            })?;
+        let group = row
+            .groups
+            .iter()
+            .find(|g| g.handle == *handle)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!("wez group_rename: tab {tab_id} absent in the re-list"),
+            })?;
+        let want = (!title.is_empty()).then(|| title.to_string());
+        if group.title != want {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez group_rename: tab {tab_id} re-listed with title {:?}, wanted {:?}",
+                    group.title, want
+                ),
+            });
+        }
+        Ok(())
     }
 
-    fn group_remove(&self, _: &InventoryScope, _: &ProviderHandle) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("group_remove"))
+    /// Group removal: exact kills of the tab's listed panes plus verified
+    /// absence. Refuses (typed) when the tab is the workspace's last Group:
+    /// that would delete the Space through a hidden cascade (plan §7.2) —
+    /// whole-Space removal must go through `remove`.
+    fn group_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()> {
+        let ProviderHandle::Wz(tab_id) = handle else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez tab handle: {handle}"),
+            });
+        };
+        let pre = self.verified_scan(scope, None)?;
+        let owner = pre
+            .tab_first_pane(*tab_id)
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: handle.to_string(),
+            })?;
+        let workspace = owner.workspace.clone();
+        Self::sole_window(&pre, &workspace)?;
+        let tabs = pre.workspace_tabs(&workspace);
+        if tabs == [*tab_id] {
+            return Err(ProviderError::NativeFailure {
+                detail: format!(
+                    "refused_last_group: tab {tab_id} is the last Group of workspace \
+                     {workspace:?}; removing it would delete the Space through a hidden \
+                     cascade (plan §7.2) — use whole-Space remove"
+                ),
+            });
+        }
+        for pane in pre.tab_panes(*tab_id) {
+            let invocation =
+                kill_pane_invocation(&self.wezterm_bin, &self.config_file, &scope.endpoint, pane)
+                    .map_err(|detail| ProviderError::NativeFailure { detail })?;
+            // Already-dead exit-1 is a benign race (ADR 005); the verified
+            // re-list below is the only postcondition authority.
+            let _ = self.run_mutation(invocation)?;
+        }
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let remaining = post.tab_panes(*tab_id);
+        if !remaining.is_empty() {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez group_remove: tab {tab_id} still holds pane(s) {remaining:?} \
+                     after exact kills"
+                ),
+            });
+        }
+        if post.row(&workspace).is_none() {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez group_remove: workspace {workspace:?} vanished while removing \
+                     tab {tab_id} (concurrent removal?)"
+                ),
+            });
+        }
+        Self::sole_window(&post, &workspace)?;
+        Ok(())
     }
 
     fn split_list(
@@ -1113,8 +1702,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 detail: format!("not a wez tab handle: {group}"),
             });
         };
-        let inv = self.scan_complete(scope)?;
-        inv.rows
+        let scan = self.verified_scan(scope, None)?;
+        scan.rows
             .into_iter()
             .flat_map(|r| r.groups)
             .find(|g| g.handle == *group)
@@ -1124,21 +1713,114 @@ impl<R: WezRunner> Provider for WezProvider<R> {
             })
     }
 
+    /// Split create (plan §11.1): `split-pane --pane-id <anchor>` where the
+    /// anchor is the group's first-listed pane (deterministic; targeting a
+    /// specific pane is a later CLI-layer concern), then same-epoch re-list
+    /// verifying the new pane landed in the SAME tab. One-window invariant
+    /// checked before and after.
     fn split_new(
         &self,
-        _: &InventoryScope,
-        _: &ProviderHandle,
-        _: &CreateSpec,
+        scope: &InventoryScope,
+        group: &ProviderHandle,
+        spec: &CreateSpec,
     ) -> ProviderResult<ProviderHandle> {
-        Err(Self::mutation_unimplemented("split_new"))
+        let ProviderHandle::Wz(tab_id) = group else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez tab handle: {group}"),
+            });
+        };
+        let pre = self.verified_scan(scope, None)?;
+        let anchor = pre
+            .tab_first_pane(*tab_id)
+            .ok_or_else(|| ProviderError::NotFound {
+                native_ref: group.to_string(),
+            })?;
+        let workspace = anchor.workspace.clone();
+        let anchor_pane = anchor.pane_id;
+        Self::sole_window(&pre, &workspace)?;
+        let invocation = split_pane_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            anchor_pane,
+            spec.cwd.as_deref(),
+            &spec.bootstrap_argv,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let out = self.run_mutation(invocation)?;
+        let pane_id = Self::parse_spawn_pane_id("split_new (split-pane --pane-id)", &out)?;
+
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        Self::sole_window(&post, &workspace)?;
+        let pane = post
+            .pane(pane_id)
+            .ok_or_else(|| ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez split_new: split pane {pane_id} absent in the same-epoch re-list"
+                ),
+            })?;
+        if pane.tab_id != *tab_id || pane.workspace != workspace {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!(
+                    "wez split_new: pane {pane_id} re-listed in workspace {:?} tab {} \
+                     (wanted tab {tab_id} of workspace {workspace:?})",
+                    pane.workspace, pane.tab_id
+                ),
+            });
+        }
+        Ok(ProviderHandle::Wz(pane_id))
     }
 
     fn split_activate(&self, _: &InventoryScope, _: &ProviderHandle) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("split_activate"))
+        Err(Self::gui_orchestration("split_activate"))
     }
 
-    fn split_remove(&self, _: &InventoryScope, _: &ProviderHandle) -> ProviderResult<()> {
-        Err(Self::mutation_unimplemented("split_remove"))
+    /// Split removal: one exact `kill-pane` plus verified absence. Refuses
+    /// (typed) when the pane is the workspace's last Split: the provider
+    /// never silently deletes a Space through split_remove (plan §7.2; the
+    /// Group-level cascade of a last-pane-in-tab is the CLI's refusal, not
+    /// the provider's).
+    fn split_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()> {
+        let ProviderHandle::Wz(pane_id) = handle else {
+            return Err(ProviderError::WrongInstance {
+                detail: format!("not a wez pane handle: {handle}"),
+            });
+        };
+        let pre = self.verified_scan(scope, None)?;
+        let pane = pre.pane(*pane_id).ok_or_else(|| ProviderError::NotFound {
+            native_ref: handle.to_string(),
+        })?;
+        let workspace = pane.workspace.clone();
+        Self::sole_window(&pre, &workspace)?;
+        if pre.workspace_panes(&workspace) == [*pane_id] {
+            return Err(ProviderError::NativeFailure {
+                detail: format!(
+                    "refused_last_pane: pane {pane_id} is the last Split of workspace \
+                     {workspace:?}; removing it would delete the Space through a hidden \
+                     cascade (plan §7.2) — use whole-Space remove"
+                ),
+            });
+        }
+        let invocation = kill_pane_invocation(
+            &self.wezterm_bin,
+            &self.config_file,
+            &scope.endpoint,
+            *pane_id,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        // Already-dead exit-1 is a benign race (ADR 005); the verified
+        // re-list below is the only postcondition authority.
+        let _ = self.run_mutation(invocation)?;
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        if post.pane(*pane_id).is_some() {
+            return Err(ProviderError::PostconditionFailed {
+                detail: format!("wez split_remove: pane {pane_id} still listed after kill-pane"),
+            });
+        }
+        if post.row(&workspace).is_some() {
+            Self::sole_window(&post, &workspace)?;
+        }
+        Ok(())
     }
 
     /// Re-list and return the one row for `binding.native_token`. The whole
@@ -1150,19 +1832,154 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         binding: &NativeBinding,
     ) -> ProviderResult<NativeSpaceRow> {
         let expected = Self::binding_epoch(scope, binding)?;
-        let inv = self.scan_complete(scope)?;
-        if inv.server_epoch != Some(expected) {
-            return Err(ProviderError::EpochChanged {
-                expected,
-                observed: inv.server_epoch,
-            });
-        }
-        inv.rows
+        let scan = self.verified_scan(scope, Some(expected))?;
+        scan.rows
             .into_iter()
             .find(|r| r.native_token == binding.native_token)
             .ok_or_else(|| ProviderError::NotFound {
                 native_ref: binding.native_token.clone(),
             })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CAS adoption verb and capability probe (ADR 006, inherent — not on the
+// frozen trait; orchestration reaches these through the concrete provider)
+// ---------------------------------------------------------------------------
+
+/// Expected-workspace token used by the capability probe. The probed window
+/// id is `u64::MAX`, which never exists (`WindowId` is process-monotonic,
+/// ADR 006), so no mutation is possible regardless of these tokens.
+const CAS_PROBE_WORKSPACE: &str = "dmux:probe:cas";
+
+impl<R: WezRunner> WezProvider<R> {
+    /// Sole native window id of one workspace token, from a sentinel/epoch-
+    /// verified scan (scope epoch enforced when pinned). [`NativeSpaceRow`]
+    /// deliberately hides window ids, but the adopt flow needs one to feed
+    /// [`WezProvider::cas_rename_workspace`] — this is the sanctioned
+    /// lookup. Absent workspace ⇒ typed [`ProviderError::NotFound`];
+    /// spanning multiple windows ⇒ [`ProviderError::MultiWindow`] with the
+    /// exact count (plan §2.3: such a resource permits only listing,
+    /// inspect/export, normalization repair, or confirmed removal).
+    /// Point-in-time like every read: the CAS call itself re-verifies
+    /// `(window_id, expected_workspace, sole-window)` atomically server-side
+    /// (ADR 006), so a stale answer can never mutate the wrong window.
+    pub fn sole_window_id(
+        &self,
+        scope: &InventoryScope,
+        native_token: &str,
+    ) -> ProviderResult<u64> {
+        let scan = self.verified_scan(scope, None)?;
+        Self::sole_window(&scan, native_token)
+    }
+
+    /// Positive CAS capability probe (amended ADR 006): issue the CAS verb
+    /// through the configured fork CLI against the known-nonexistent window
+    /// id `u64::MAX` and classify the result.
+    ///
+    /// - `no_such_window` ⇒ `Ok(true)`: the verb executed server-side, and
+    ///   against a nonexistent window zero mutation was possible.
+    /// - the stable `invalid PDU Invalid {{ ident: 63 }}` reason ⇒
+    ///   `Ok(false)`: stock codec-45 server, capability missing, zero
+    ///   mutation guaranteed.
+    /// - anything else (connect failures, a non-fork CLI rejecting the
+    ///   argv, an impossible `Renamed`) ⇒ typed error — never a guess.
+    ///
+    /// Connect success is never proof (`wezterm cli` performs no codec
+    /// handshake), which is why [`Provider::capabilities`] stays statically
+    /// `cas_rename: false` and this per-endpoint probe is the explicit API.
+    pub fn probe_cas_rename(&self, scope: &InventoryScope) -> ProviderResult<bool> {
+        self.preflight(scope)
+            .map_err(ScanFail::into_provider_error)?;
+        let invocation = cas_rename_invocation(
+            self.cas_bin(),
+            &self.config_file,
+            &scope.endpoint,
+            u64::MAX,
+            CAS_PROBE_WORKSPACE,
+            false,
+            CAS_PROBE_WORKSPACE,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let out = self.run_mutation(invocation)?;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        match classify_cas_rename(out.ok(), &stderr) {
+            CasClassification::Outcome(CasRenameOutcome::NoSuchWindow) => Ok(true),
+            CasClassification::CapabilityMissing => Ok(false),
+            other => Err(ProviderError::NativeFailure {
+                detail: format!(
+                    "cas_probe_indeterminate: CAS against window id u64::MAX classified \
+                     as {other:?} instead of no_such_window/invalid-PDU; capability \
+                     unknown (never guessed)"
+                ),
+            }),
+        }
+    }
+
+    /// Fork CAS workspace reassignment (ADR 006): `cli rename-workspace
+    /// --window-id N --if-workspace OLD [--if-sole-window] NEW` through the
+    /// configured fork CLI, bracketed by sentinel/epoch-verified scans (the
+    /// dmux-side epoch bracket ADR 006 requires). Typed CAS outcomes come
+    /// back as [`CasRenameOutcome`] — every non-`Renamed` variant is a
+    /// server-guaranteed zero-mutation result. A `Renamed` outcome is
+    /// additionally verified in the post-scan (the window must list under
+    /// `new_workspace`). A stock server rejecting PDU ident 63 is a typed
+    /// `NativeFailure` whose detail starts `cas_capability_missing:` —
+    /// callers gate on [`WezProvider::probe_cas_rename`] first.
+    pub fn cas_rename_workspace(
+        &self,
+        scope: &InventoryScope,
+        window_id: u64,
+        expected_workspace: &str,
+        new_workspace: &str,
+        expect_sole_window: bool,
+    ) -> ProviderResult<CasRenameOutcome> {
+        let pre = self.verified_scan(scope, None)?;
+        let invocation = cas_rename_invocation(
+            self.cas_bin(),
+            &self.config_file,
+            &scope.endpoint,
+            window_id,
+            expected_workspace,
+            expect_sole_window,
+            new_workspace,
+        )
+        .map_err(|detail| ProviderError::NativeFailure { detail })?;
+        let out = self.run_mutation(invocation)?;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let outcome = match classify_cas_rename(out.ok(), &stderr) {
+            CasClassification::Outcome(outcome) => outcome,
+            CasClassification::CapabilityMissing => {
+                return Err(ProviderError::NativeFailure {
+                    detail: format!(
+                        "cas_capability_missing: server rejected PDU ident 63 \
+                         ({CAS_MISSING_PDU_STDERR}); stock codec-45 server, zero \
+                         mutation (ADR 006) — gate on probe_cas_rename"
+                    ),
+                });
+            }
+            CasClassification::Unclassified(detail) => {
+                return Err(ProviderError::NativeFailure {
+                    detail: format!("cas_rename_unclassified: {detail}"),
+                });
+            }
+        };
+        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        if outcome == CasRenameOutcome::Renamed {
+            match post.window_workspace(window_id) {
+                Some(ws) if ws == new_workspace => {}
+                observed => {
+                    return Err(ProviderError::PostconditionFailed {
+                        detail: format!(
+                            "wez cas_rename: server reported Renamed but window \
+                             {window_id} re-lists under {observed:?} instead of \
+                             {new_workspace:?}"
+                        ),
+                    });
+                }
+            }
+        }
+        Ok(outcome)
     }
 }
 
@@ -1725,42 +2542,379 @@ mod tests {
         }
     }
 
-    // -- mutation boundary --------------------------------------------------
+    // -- non-provider verbs stay typed ---------------------------------------
 
     #[test]
-    fn mutation_verbs_fail_typed_until_p6() {
+    fn gui_and_rename_verbs_stay_typed() {
         let runner = ScriptedRunner::new(vec![], vec![]);
         let p = provider(&runner);
         let s = scope(Some(ServerEpoch(EPOCH)));
         let b = binding("alpha", EPOCH);
-        let spec = CreateSpec {
-            native_token: "dmux:h:s".into(),
-            cwd: None,
-            bootstrap_argv: vec!["/bin/true".into()],
-        };
         let handle = ProviderHandle::Wz(10);
-        let results: Vec<Result<(), ProviderError>> = vec![
-            p.create(&s, &spec).map(|_| ()),
+        for r in [
             p.prepare_presentation(&s, &b, None).map(|_| ()),
-            p.rename(&s, &b, "x"),
-            p.remove(&s, &b),
-            p.group_new(&s, &b, &spec).map(|_| ()),
             p.group_activate(&s, &handle),
-            p.group_rename(&s, &handle, "x"),
-            p.group_remove(&s, &handle),
-            p.split_new(&s, &handle, &spec).map(|_| ()),
             p.split_activate(&s, &handle),
-            p.split_remove(&s, &handle),
-        ];
-        for r in results {
+        ] {
             match r {
                 Err(ProviderError::NativeFailure { detail }) => {
-                    assert!(detail.contains("land in P6"), "{detail}");
+                    assert!(detail.contains("GUI orchestration"), "{detail}");
                 }
-                other => panic!("mutation must fail typed, got {other:?}"),
+                other => panic!("GUI verb must fail typed, got {other:?}"),
             }
         }
+        match p.rename(&s, &b, "x") {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.contains("registry-only"), "{detail}");
+                assert!(detail.contains("cas_rename_workspace"), "{detail}");
+            }
+            other => panic!("wez rename must fail typed, got {other:?}"),
+        }
         assert!(runner.run_calls.borrow().is_empty(), "no child spawned");
+    }
+
+    // -- scripted mutations ---------------------------------------------------
+
+    /// Canned list JSON: the ADR 002 sentinel under `epoch` plus the given
+    /// `(window_id, tab_id, pane_id, workspace)` user rows.
+    fn canned_epoch(epoch: Uuid, rows: &[(u64, u64, u64, &str)]) -> String {
+        let mut out = format!(
+            r#"[{{"window_id":0,"tab_id":0,"pane_id":0,"workspace":"dmux:system:{epoch}"}}"#
+        );
+        for (w, t, p, ws) in rows {
+            out.push_str(&format!(
+                r#",{{"window_id":{w},"tab_id":{t},"pane_id":{p},"workspace":"{ws}"}}"#
+            ));
+        }
+        out.push(']');
+        out
+    }
+
+    fn canned(rows: &[(u64, u64, u64, &str)]) -> String {
+        canned_epoch(EPOCH, rows)
+    }
+
+    fn fail(stderr: &str) -> Result<RunOutput, RunError> {
+        Ok(RunOutput {
+            status: 1,
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        })
+    }
+
+    fn spec(token: &str) -> CreateSpec {
+        CreateSpec {
+            native_token: token.into(),
+            cwd: None,
+            bootstrap_argv: vec!["/bin/true".into()],
+        }
+    }
+
+    #[test]
+    fn create_spawns_once_and_returns_verified_binding() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[])),
+                ok("7\n"),
+                ok(&canned(&[(3, 4, 7, "dmux:h:s")])),
+            ],
+        );
+        let binding = provider(&runner)
+            .create(&scope(Some(ServerEpoch(EPOCH))), &spec("dmux:h:s"))
+            .expect("create");
+        assert_eq!(binding.native_token, "dmux:h:s");
+        assert_eq!(binding.server_epoch, ServerEpoch(EPOCH));
+        assert_eq!(binding.root_group, ProviderHandle::Wz(4));
+        assert_eq!(binding.root_split, ProviderHandle::Wz(7));
+        let calls = runner.run_calls.borrow();
+        assert_eq!(calls.len(), 3, "list, spawn, list");
+        let want =
+            spawn_workspace_invocation(BIN, CFG, SOCK, "dmux:h:s", None, &["/bin/true".into()])
+                .unwrap();
+        assert_eq!(calls[1].0, want, "spawn uses the frozen builder");
+    }
+
+    #[test]
+    fn create_existing_key_is_typed_conflict_without_spawn() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(3, 4, 7, "dmux:h:s")]))],
+        );
+        match provider(&runner).create(&scope(None), &spec("dmux:h:s")) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("workspace_exists"), "{detail}");
+                assert!(detail.contains("never respawns"), "{detail}");
+            }
+            other => panic!("existing key must be typed conflict, got {other:?}"),
+        }
+        assert_eq!(
+            runner.run_calls.borrow().len(),
+            1,
+            "keyed lookup only — a second spawn is forbidden"
+        );
+    }
+
+    #[test]
+    fn create_epoch_flip_after_spawn_is_epoch_changed() {
+        let other = Uuid::from_u128(0xdead_beef);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[])),
+                ok("7\n"),
+                ok(&canned_epoch(other, &[(3, 4, 7, "dmux:h:s")])),
+            ],
+        );
+        match provider(&runner).create(&scope(None), &spec("dmux:h:s")) {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(ServerEpoch(other)));
+            }
+            other => panic!("epoch flip must be EpochChanged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn create_multi_window_result_is_typed() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[])),
+                ok("7\n"),
+                ok(&canned(&[(3, 4, 7, "k"), (5, 6, 8, "k")])),
+            ],
+        );
+        match provider(&runner).create(&scope(None), &spec("k")) {
+            Err(ProviderError::MultiWindow {
+                native_ref,
+                window_count,
+            }) => {
+                assert_eq!(native_ref, "k");
+                assert_eq!(window_count, 2);
+            }
+            other => panic!("multi-window create must be typed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn create_unparseable_spawn_output_is_postcondition_failed() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[])), ok("")],
+        );
+        match provider(&runner).create(&scope(None), &spec("k")) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("unparseable spawn output"), "{detail}");
+            }
+            other => panic!("lost pane id must be indeterminate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn group_new_verifies_parent_and_new_tab() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "alpha")])),
+                ok("9\n"),
+                ok(&canned(&[(1, 10, 100, "alpha"), (1, 11, 9, "alpha")])),
+            ],
+        );
+        let handle = provider(&runner)
+            .group_new(&scope(None), &binding("alpha", EPOCH), &spec("alpha"))
+            .expect("group_new");
+        assert_eq!(handle, ProviderHandle::Wz(11));
+        let calls = runner.run_calls.borrow();
+        let want = spawn_group_invocation(BIN, CFG, SOCK, 1, None, &["/bin/true".into()]).unwrap();
+        assert_eq!(calls[1].0, want, "spawn targets the sole window id");
+    }
+
+    #[test]
+    fn group_new_multi_window_before_is_refused() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "mw"), (2, 11, 101, "mw")]))],
+        );
+        match provider(&runner).group_new(&scope(None), &binding("mw", EPOCH), &spec("mw")) {
+            Err(ProviderError::MultiWindow { window_count, .. }) => assert_eq!(window_count, 2),
+            other => panic!("multi-window parent must refuse, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, no spawn");
+    }
+
+    #[test]
+    fn split_new_lands_in_same_tab() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "alpha")])),
+                ok("12\n"),
+                ok(&canned(&[(1, 10, 100, "alpha"), (1, 10, 12, "alpha")])),
+            ],
+        );
+        let handle = provider(&runner)
+            .split_new(&scope(None), &ProviderHandle::Wz(10), &spec("alpha"))
+            .expect("split_new");
+        assert_eq!(handle, ProviderHandle::Wz(12));
+        let calls = runner.run_calls.borrow();
+        let want = split_pane_invocation(BIN, CFG, SOCK, 100, None, &["/bin/true".into()]).unwrap();
+        assert_eq!(calls[1].0, want, "split anchors the tab's first pane");
+    }
+
+    #[test]
+    fn split_new_wrong_tab_result_is_postcondition_failed() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "alpha")])),
+                ok("12\n"),
+                ok(&canned(&[(1, 10, 100, "alpha"), (1, 11, 12, "alpha")])),
+            ],
+        );
+        match provider(&runner).split_new(&scope(None), &ProviderHandle::Wz(10), &spec("alpha")) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("wanted tab 10"), "{detail}");
+            }
+            other => panic!("stray split must be typed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn group_rename_verifies_title_in_relist() {
+        let post = format!(
+            r#"[{{"window_id":0,"tab_id":0,"pane_id":0,"workspace":"dmux:system:{EPOCH}"}},
+                {{"window_id":1,"tab_id":10,"pane_id":100,"workspace":"alpha","tab_title":"editor"}}]"#
+        );
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "alpha")])), ok(""), ok(&post)],
+        );
+        provider(&runner)
+            .group_rename(&scope(None), &ProviderHandle::Wz(10), "editor")
+            .expect("group_rename");
+        let calls = runner.run_calls.borrow();
+        let want = set_tab_title_invocation(BIN, CFG, SOCK, 10, "editor").unwrap();
+        assert_eq!(calls[1].0, want);
+    }
+
+    #[test]
+    fn group_rename_title_mismatch_is_postcondition_failed() {
+        let post = format!(
+            r#"[{{"window_id":0,"tab_id":0,"pane_id":0,"workspace":"dmux:system:{EPOCH}"}},
+                {{"window_id":1,"tab_id":10,"pane_id":100,"workspace":"alpha","tab_title":"other"}}]"#
+        );
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "alpha")])), ok(""), ok(&post)],
+        );
+        match provider(&runner).group_rename(&scope(None), &ProviderHandle::Wz(10), "editor") {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("wanted"), "{detail}");
+            }
+            other => panic!("title mismatch must be typed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn remove_converges_with_final_verification() {
+        let runner = ScriptedRunner::new(
+            vec![
+                ProbeOutcome::Connectable,
+                ProbeOutcome::Connectable,
+                ProbeOutcome::Connectable,
+            ],
+            vec![
+                ok(&canned(&[(1, 10, 100, "alpha"), (1, 10, 101, "alpha")])),
+                ok(""),
+                ok(""),
+                ok(&canned(&[])),
+                ok(&canned(&[])),
+            ],
+        );
+        provider(&runner)
+            .remove(&scope(None), &binding("alpha", EPOCH))
+            .expect("remove");
+        let calls = runner.run_calls.borrow();
+        assert_eq!(calls.len(), 5, "list, kill, kill, re-list, FINAL list");
+        assert_eq!(
+            calls[1].0,
+            kill_pane_invocation(BIN, CFG, SOCK, 100).unwrap()
+        );
+        assert_eq!(
+            calls[2].0,
+            kill_pane_invocation(BIN, CFG, SOCK, 101).unwrap()
+        );
+    }
+
+    #[test]
+    fn remove_bound_hit_reports_survivors() {
+        let mut probes = Vec::new();
+        let mut runs = Vec::new();
+        for round in 0..REMOVE_MAX_ROUNDS as u64 {
+            probes.push(ProbeOutcome::Connectable);
+            runs.push(ok(&canned(&[(1, 10, 100 + round, "alpha")])));
+            runs.push(ok("")); // kill
+        }
+        let runner = ScriptedRunner::new(probes, runs);
+        match provider(&runner).remove(&scope(None), &binding("alpha", EPOCH)) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.starts_with("remove_unconverged"), "{detail}");
+                assert!(detail.contains("104"), "last survivors named: {detail}");
+                assert!(detail.contains("never tombstone"), "{detail}");
+            }
+            other => panic!("bound hit must be typed partial, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn split_remove_last_pane_refused_without_kill() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "alpha")]))],
+        );
+        match provider(&runner).split_remove(&scope(None), &ProviderHandle::Wz(100)) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.starts_with("refused_last_pane"), "{detail}");
+            }
+            other => panic!("last pane must refuse, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, no kill");
+    }
+
+    #[test]
+    fn group_remove_last_group_refused_without_kill() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "alpha"), (1, 10, 101, "alpha")]))],
+        );
+        match provider(&runner).group_remove(&scope(None), &ProviderHandle::Wz(10)) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.starts_with("refused_last_group"), "{detail}");
+            }
+            other => panic!("last group must refuse, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, no kill");
+    }
+
+    #[test]
+    fn split_remove_kills_exactly_and_verifies_absence() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "alpha"), (1, 10, 101, "alpha")])),
+                fail("Error: no such pane"), // already-dead race is benign
+                ok(&canned(&[(1, 10, 100, "alpha")])),
+            ],
+        );
+        provider(&runner)
+            .split_remove(&scope(None), &ProviderHandle::Wz(101))
+            .expect("split_remove");
+        let calls = runner.run_calls.borrow();
+        assert_eq!(
+            calls[1].0,
+            kill_pane_invocation(BIN, CFG, SOCK, 101).unwrap()
+        );
     }
 
     // -- argv builders ------------------------------------------------------
@@ -1887,16 +3041,245 @@ mod tests {
         );
     }
 
+    // Live-captured fork/stock stderr lines (pinned fork build, 2026-08-16).
+    const LIVE_MISMATCH: &str = "15:50:23.031  ERROR  wezterm > rename-workspace-if failed: \
+                                 workspace_mismatch window_id=1 actual=\"new\"; terminating";
+    const LIVE_NO_WINDOW: &str = "15:50:23.087  ERROR  wezterm > rename-workspace-if failed: \
+                                  no_such_window window_id=18446744073709551615; terminating";
+    const LIVE_NOT_SOLE: &str = "15:50:23.193  ERROR  wezterm > rename-workspace-if failed: \
+                                 not_sole_window window_id=1 other_window_ids=[2]; terminating";
+    const LIVE_INVALID_PDU: &str = "15:50:44.993  ERROR  wezterm > unexpected response Ok(ErrorResponse(ErrorResponse { \
+         reason: \"Error: invalid PDU Invalid { ident: 63 }\" })); terminating";
+    const LIVE_STOCK_CLAP: &str = "error: unexpected argument '--window-id' found";
+
     #[test]
-    fn cas_probe_classifier_matches_adr_006() {
-        assert_eq!(classify_cas_probe(true, ""), CasProbe::Capable);
+    fn cas_classifier_matches_live_fork_stderr() {
         assert_eq!(
-            classify_cas_probe(false, "Error: invalid PDU Invalid { ident: 63 }"),
-            CasProbe::Missing
+            classify_cas_rename(true, ""),
+            CasClassification::Outcome(CasRenameOutcome::Renamed)
         );
-        match classify_cas_probe(false, "failed to connect") {
-            CasProbe::Indeterminate(detail) => assert_eq!(detail, "failed to connect"),
-            other => panic!("unknown stderr must stay indeterminate, got {other:?}"),
+        assert_eq!(
+            classify_cas_rename(false, LIVE_MISMATCH),
+            CasClassification::Outcome(CasRenameOutcome::WorkspaceMismatch {
+                actual: "new".into()
+            })
+        );
+        assert_eq!(
+            classify_cas_rename(false, LIVE_NO_WINDOW),
+            CasClassification::Outcome(CasRenameOutcome::NoSuchWindow)
+        );
+        assert_eq!(
+            classify_cas_rename(false, LIVE_NOT_SOLE),
+            CasClassification::Outcome(CasRenameOutcome::NotSoleWindow)
+        );
+        assert_eq!(
+            classify_cas_rename(false, LIVE_INVALID_PDU),
+            CasClassification::CapabilityMissing
+        );
+        for unclassified in [LIVE_STOCK_CLAP, "failed to connect", ""] {
+            match classify_cas_rename(false, unclassified) {
+                CasClassification::Unclassified(_) => {}
+                other => panic!("{unclassified:?} must stay unclassified, got {other:?}"),
+            }
+        }
+        // A mismatch whose actual cannot be parsed is never guessed.
+        match classify_cas_rename(false, "rename-workspace-if failed: workspace_mismatch huh") {
+            CasClassification::Unclassified(detail) => {
+                assert!(detail.contains("without parseable actual"), "{detail}");
+            }
+            other => panic!("unparseable actual must stay unclassified, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cas_rename_invocation_argv_is_exact() {
+        let inv = cas_rename_invocation(BIN, CFG, SOCK, 7, "old", true, "new").unwrap();
+        let mut want = cli_prefix();
+        want.extend(
+            [
+                "rename-workspace",
+                "--window-id",
+                "7",
+                "--if-workspace",
+                "old",
+                "--if-sole-window",
+                "new",
+            ]
+            .map(String::from),
+        );
+        assert_eq!(inv.argv, want);
+        let inv = cas_rename_invocation(BIN, CFG, SOCK, 7, "old", false, "new").unwrap();
+        assert!(!inv.argv.contains(&"--if-sole-window".to_string()));
+        assert!(cas_rename_invocation(BIN, CFG, SOCK, 7, "", false, "new").is_err());
+        assert!(cas_rename_invocation(BIN, CFG, SOCK, 7, "old", false, "").is_err());
+    }
+
+    #[test]
+    fn probe_cas_rename_classifies_positive_negative_and_indeterminate() {
+        // no_such_window against u64::MAX ⇒ capable.
+        let runner =
+            ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![fail(LIVE_NO_WINDOW)]);
+        assert!(provider(&runner).probe_cas_rename(&scope(None)).unwrap());
+        let calls = runner.run_calls.borrow();
+        let want = cas_rename_invocation(
+            BIN,
+            CFG,
+            SOCK,
+            u64::MAX,
+            "dmux:probe:cas",
+            false,
+            "dmux:probe:cas",
+        )
+        .unwrap();
+        assert_eq!(calls[0].0, want, "probe targets the impossible window id");
+        drop(calls);
+
+        // invalid PDU ⇒ not capable.
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![fail(LIVE_INVALID_PDU)],
+        );
+        assert!(!provider(&runner).probe_cas_rename(&scope(None)).unwrap());
+
+        // Anything else ⇒ typed error, never a guess.
+        let runner =
+            ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![fail(LIVE_STOCK_CLAP)]);
+        match provider(&runner).probe_cas_rename(&scope(None)) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.starts_with("cas_probe_indeterminate"), "{detail}");
+            }
+            other => panic!("indeterminate probe must be typed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cas_rename_workspace_uses_cas_binary_and_verifies_renamed() {
+        let fork = "/fork/wezterm";
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "old")])),
+                ok(""),
+                ok(&canned(&[(1, 10, 100, "new")])),
+            ],
+        );
+        let outcome = provider(&runner)
+            .with_cas_binary(fork)
+            .cas_rename_workspace(&scope(None), 1, "old", "new", true)
+            .expect("cas rename");
+        assert_eq!(outcome, CasRenameOutcome::Renamed);
+        let calls = runner.run_calls.borrow();
+        assert_eq!(
+            calls[0].0.argv[0], BIN,
+            "reads keep using the stock/read binary"
+        );
+        let want = cas_rename_invocation(fork, CFG, SOCK, 1, "old", true, "new").unwrap();
+        assert_eq!(calls[1].0, want, "CAS goes through the fork CLI");
+    }
+
+    #[test]
+    fn cas_rename_renamed_without_relist_proof_is_postcondition_failed() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "old")])),
+                ok(""),
+                ok(&canned(&[(1, 10, 100, "old")])),
+            ],
+        );
+        match provider(&runner).cas_rename_workspace(&scope(None), 1, "old", "new", false) {
+            Err(ProviderError::PostconditionFailed { detail }) => {
+                assert!(detail.contains("Renamed but window"), "{detail}");
+            }
+            other => panic!("unproven rename must be typed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cas_rename_mismatch_is_typed_outcome_and_capability_missing_is_typed_error() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+            vec![
+                ok(&canned(&[(1, 10, 100, "new")])),
+                fail(LIVE_MISMATCH),
+                ok(&canned(&[(1, 10, 100, "new")])),
+            ],
+        );
+        let outcome = provider(&runner)
+            .cas_rename_workspace(&scope(None), 1, "old", "other", false)
+            .expect("typed outcome");
+        assert_eq!(
+            outcome,
+            CasRenameOutcome::WorkspaceMismatch {
+                actual: "new".into()
+            }
+        );
+
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(1, 10, 100, "old")])), fail(LIVE_INVALID_PDU)],
+        );
+        match provider(&runner).cas_rename_workspace(&scope(None), 1, "old", "new", false) {
+            Err(ProviderError::NativeFailure { detail }) => {
+                assert!(detail.starts_with("cas_capability_missing"), "{detail}");
+            }
+            other => panic!("stock server must be typed capability-missing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sole_window_id_answers_present_absent_and_multi_window() {
+        // Present with one window: the id, from a sentinel-verified scan.
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(3, 10, 100, "alpha"), (3, 11, 101, "alpha")]))],
+        );
+        assert_eq!(
+            provider(&runner)
+                .sole_window_id(&scope(Some(ServerEpoch(EPOCH))), "alpha")
+                .expect("sole window"),
+            3
+        );
+
+        // Absent workspace: typed NotFound.
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(3, 10, 100, "alpha")]))],
+        );
+        match provider(&runner).sole_window_id(&scope(None), "missing") {
+            Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "missing"),
+            other => panic!("absent workspace must be NotFound, got {other:?}"),
+        }
+
+        // Multi-window: typed MultiWindow with the exact count.
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[
+                (1, 10, 100, "mw"),
+                (2, 11, 101, "mw"),
+                (4, 12, 102, "mw"),
+            ]))],
+        );
+        match provider(&runner).sole_window_id(&scope(None), "mw") {
+            Err(ProviderError::MultiWindow {
+                native_ref,
+                window_count,
+            }) => {
+                assert_eq!(native_ref, "mw");
+                assert_eq!(window_count, 3);
+            }
+            other => panic!("multi-window must be typed, got {other:?}"),
+        }
+
+        // The scan is verified: a wrong pinned epoch rejects typed.
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned(&[(3, 10, 100, "alpha")]))],
+        );
+        let wrong = ServerEpoch(Uuid::from_u128(0xdead_beef));
+        match provider(&runner).sole_window_id(&scope(Some(wrong)), "alpha") {
+            Err(ProviderError::EpochChanged { .. }) => {}
+            other => panic!("wrong epoch must reject typed, got {other:?}"),
         }
     }
 
