@@ -1,3 +1,6 @@
 #   00-49  routing between macie and archie (per-machine files)
 #   50-99  shared servers
 Include ~/.ssh/config.d/*
+
+Host dlab-nsql
+  HostName dlab-nsql
