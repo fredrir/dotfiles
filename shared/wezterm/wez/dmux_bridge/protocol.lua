@@ -264,6 +264,15 @@ local function string_array(value, label, validator, allow_empty)
   return true
 end
 
+local function require_fields(value, fields, label)
+  for _, field in ipairs(fields) do
+    if value[field] == nil then
+      return nil, string.format('%s.%s is required', label, field)
+    end
+  end
+  return true
+end
+
 local function domain_incarnation(value, label)
   local ok, err = exact_keys(value, { name = true, backend_instance_uid = true, server_epoch = true }, label)
   if not ok then
@@ -307,15 +316,6 @@ local function domain_incarnation_array(value, label, allow_empty)
   for key in pairs(value) do
     if type(key) ~= 'number' or key % 1 ~= 0 or key < 1 or key > #value then
       return nil, label .. ' must be a dense array'
-    end
-  end
-  return true
-end
-
-local function require_fields(value, fields, label)
-  for _, field in ipairs(fields) do
-    if value[field] == nil then
-      return nil, string.format('%s.%s is required', label, field)
     end
   end
   return true

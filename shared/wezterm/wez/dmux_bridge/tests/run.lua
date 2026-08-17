@@ -169,6 +169,33 @@ equal(
   'empty object is not an empty domains array'
 )
 
+-- The empty-array proof above returns before any element is inspected, so a
+-- populated detach proof is the only vector that reaches the per-domain
+-- incarnation validator.  Pin both its accept and reject paths; without them a
+-- helper used only on this path can go unreachable and still pass every gate.
+local populated_quit = clone(empty_quit)
+populated_quit.uid = '66666666-6666-4666-8666-666666666666'
+populated_quit.target.domains = json.array {
+  { name = 'dmux-b-usb', backend_instance_uid = instance_uid, server_epoch = epoch },
+}
+protocol.sign(populated_quit, key)
+truthy(
+  protocol.validate_and_authenticate(populated_quit, key, 1800000000, 'gui-42-cafe'),
+  'a populated safe-quit detach proof validates every domain incarnation'
+)
+
+local incomplete_domain = clone(populated_quit)
+incomplete_domain.uid = '77777777-7777-4777-8777-777777777777'
+incomplete_domain.target.domains = json.array {
+  { name = 'dmux-b-usb', backend_instance_uid = instance_uid },
+}
+protocol.sign(incomplete_domain, key)
+equal(
+  error_code(protocol.validate_and_authenticate(incomplete_domain, key, 1800000000, 'gui-42-cafe')),
+  'malformed_request',
+  'a domain incarnation missing a required field is refused'
+)
+
 local duplicate, duplicate_err = json.decode '{"a":1,"a":2}'
 truthy(not duplicate and duplicate_err:match 'duplicate object key', 'duplicate JSON object keys rejected')
 local null_value = json.decode '{"a":null}'
