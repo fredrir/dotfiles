@@ -1,5 +1,6 @@
 local correlation = require 'wez.dmux_bridge.correlation'
 local context = require 'wez.dmux_bridge.context'
+local inventory = require 'wez.dmux_bridge.inventory'
 local protocol = require 'wez.dmux_bridge.protocol'
 local wezterm = require 'wezterm'
 
@@ -552,64 +553,70 @@ local function same_incarnations(left, right)
 end
 
 local function persistent_snapshot(state)
-  if type(state.persistent_domains) ~= 'table' then
+  local configured = inventory.configured_set(state.persistent_domains)
+  if not configured then
     return nil, { code = 'bridge_internal', message = 'persistent domain authority is unavailable' }
-  end
-  local configured = {}
-  for _, name in ipairs(state.persistent_domains) do
-    configured[name] = true
   end
   local seen, active = {}, {}
   for _, domain in ipairs(mux.all_domains()) do
     local name_ok, name = pcall(function()
       return domain:name()
     end)
-    if not name_ok or type(name) ~= 'string' or #name == 0 or seen[name] then
+    if not name_ok or type(name) ~= 'string' or #name == 0 then
       return nil, { code = 'domain_inventory_invalid', message = 'GUI domain inventory is ambiguous' }
     end
-    seen[name] = true
-    local state_name = domain_state(domain)
-    local has_panes = domain_has_any_panes(domain)
-    if state_name == nil or has_panes == nil then
-      return nil, { code = 'domain_inventory_invalid', message = 'GUI domain state cannot be proven' }
-    end
-    if name ~= 'local' then
-      if configured[name] then
-        if state_name ~= 'Attached' and state_name ~= 'Detached' then
-          return nil,
-            {
-              code = 'domain_inventory_unstable',
-              message = 'configured persistent domain is in a transient or failed state: ' .. name,
-            }
-        end
-        if state_name == 'Detached' and has_panes then
-          return nil,
-            {
-              code = 'domain_inventory_invalid',
-              message = 'detached persistent domain still reports panes: ' .. name,
-            }
-        end
-        if state_name == 'Attached' or has_panes then
-          local epoch, epoch_err = system_epoch_for_domain(name)
-          if epoch_err then
-            return nil, epoch_err
-          end
-          if not epoch then
+    -- Non-routable rows are WezTerm's connection-UI placeholder domain, which
+    -- the mux leaks one of per attach and never frees. They are skipped before
+    -- identity is proved, so neither a permanently `Attached` placeholder nor a
+    -- second copy sharing its name can refuse the snapshot.
+    if inventory.routable(domain, name, configured) then
+      if seen[name] then
+        return nil, { code = 'domain_inventory_invalid', message = 'GUI domain inventory is ambiguous' }
+      end
+      seen[name] = true
+      local state_name = domain_state(domain)
+      local has_panes = domain_has_any_panes(domain)
+      if state_name == nil or has_panes == nil then
+        return nil, { code = 'domain_inventory_invalid', message = 'GUI domain state cannot be proven' }
+      end
+      if name ~= 'local' then
+        if configured[name] then
+          if state_name ~= 'Attached' and state_name ~= 'Detached' then
             return nil,
-              { code = 'domain_inventory_invalid', message = 'active domain has no exact system sentinel: ' .. name }
+              {
+                code = 'domain_inventory_unstable',
+                message = 'configured persistent domain is in a transient or failed state: ' .. name,
+              }
           end
-          table.insert(active, {
-            name = name,
-            backend_instance_uid = state.persistent_domain_instances[name],
-            server_epoch = epoch,
-          })
+          if state_name == 'Detached' and has_panes then
+            return nil,
+              {
+                code = 'domain_inventory_invalid',
+                message = 'detached persistent domain still reports panes: ' .. name,
+              }
+          end
+          if state_name == 'Attached' or has_panes then
+            local epoch, epoch_err = system_epoch_for_domain(name)
+            if epoch_err then
+              return nil, epoch_err
+            end
+            if not epoch then
+              return nil,
+                { code = 'domain_inventory_invalid', message = 'active domain has no exact system sentinel: ' .. name }
+            end
+            table.insert(active, {
+              name = name,
+              backend_instance_uid = state.persistent_domain_instances[name],
+              server_epoch = epoch,
+            })
+          end
+        elseif state_name ~= 'Detached' or has_panes then
+          return nil,
+            {
+              code = 'unknown_persistent_domain',
+              message = 'active non-local domain is outside the sanitized dmux configuration: ' .. name,
+            }
         end
-      elseif state_name ~= 'Detached' or has_panes then
-        return nil,
-          {
-            code = 'unknown_persistent_domain',
-            message = 'active non-local domain is outside the sanitized dmux configuration: ' .. name,
-          }
       end
     end
   end

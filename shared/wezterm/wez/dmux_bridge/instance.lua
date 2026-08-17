@@ -1,4 +1,5 @@
 local context = require 'wez.dmux_bridge.context'
+local inventory = require 'wez.dmux_bridge.inventory'
 local json = require 'wez.dmux_bridge.json'
 local protocol = require 'wez.dmux_bridge.protocol'
 local wezterm = require 'wezterm'
@@ -307,7 +308,12 @@ local function system_workspace(workspace)
 end
 
 local function snapshot(state)
+  local configured = inventory.configured_set(state.persistent_domains)
+  if not configured then
+    return nil, 'managed persistent domain inventory is unavailable'
+  end
   local domains = {}
+  local skipped = {}
   for _, domain in ipairs(wezterm.mux.all_domains()) do
     local name_ok, name = pcall(function()
       return domain:name()
@@ -321,34 +327,41 @@ local function snapshot(state)
     then
       return nil, 'GUI domain name is unavailable or malformed'
     end
-    if domains[name] then
+    -- WezTerm's connection-UI placeholder domain leaks one row per attach and
+    -- is never freed, so a detach/re-attach cycle produces two rows sharing one
+    -- name. Skip non-routable rows before the duplicate-name check; advertising
+    -- them would also keep the Rust safe-quit postcondition unprovable.
+    if not inventory.routable(domain, name, configured) then
+      skipped[name] = true
+    elseif domains[name] then
       return nil, 'duplicate GUI domain name in heartbeat: ' .. name
+    else
+      local state_ok, domain_state = pcall(function()
+        return domain:state()
+      end)
+      local panes_ok, has_panes = pcall(function()
+        return domain:has_any_panes()
+      end)
+      if
+        not state_ok
+        or type(domain_state) ~= 'string'
+        or #domain_state == 0
+        or #domain_state > 64
+        or not domain_state:match '^[A-Za-z]+$'
+        or not panes_ok
+        or type(has_panes) ~= 'boolean'
+      then
+        return nil, 'GUI domain state is unavailable or malformed: ' .. name
+      end
+      domains[name] = {
+        state = domain_state,
+        has_any_panes = has_panes,
+        backend_instance_uid = state.persistent_domain_instances[name],
+        pane_count = 0,
+        valid_marker_pane_count = 0,
+        system_pane_count = 0,
+      }
     end
-    local state_ok, domain_state = pcall(function()
-      return domain:state()
-    end)
-    local panes_ok, has_panes = pcall(function()
-      return domain:has_any_panes()
-    end)
-    if
-      not state_ok
-      or type(domain_state) ~= 'string'
-      or #domain_state == 0
-      or #domain_state > 64
-      or not domain_state:match '^[A-Za-z]+$'
-      or not panes_ok
-      or type(has_panes) ~= 'boolean'
-    then
-      return nil, 'GUI domain state is unavailable or malformed: ' .. name
-    end
-    domains[name] = {
-      state = domain_state,
-      has_any_panes = has_panes,
-      backend_instance_uid = state.persistent_domain_instances[name],
-      pane_count = 0,
-      valid_marker_pane_count = 0,
-      system_pane_count = 0,
-    }
   end
 
   local panes = json.array()
@@ -363,45 +376,51 @@ local function snapshot(state)
         local domain_ok, domain_name = pcall(function()
           return pane:get_domain_name()
         end)
-        if not domain_ok or type(domain_name) ~= 'string' or not domains[domain_name] then
+        -- A connection UI that is currently open owns a real pane. Dropping its
+        -- domain without dropping its panes would raise the unknown-domain
+        -- refusal below and latch the bridge dead, so a skipped domain's panes
+        -- are dropped with it and never accounted to any advertised domain.
+        if not domain_ok or type(domain_name) ~= 'string' or not (domains[domain_name] or skipped[domain_name]) then
           return nil, 'GUI pane belongs to an unknown domain'
         end
         local counts = domains[domain_name]
-        counts.pane_count = counts.pane_count + 1
-        local system_epoch = system_workspace(workspace)
-        if system_epoch then
-          -- Rust accepts this exemption only after matching the exact owner
-          -- descriptor/sentinel epoch. Lua merely reports the syntactic
-          -- reserved workspace; it never treats it as owner authority.
-          if counts.system_workspace and counts.system_workspace ~= workspace then
-            return nil, 'GUI domain contains multiple system workspaces'
-          end
-          if counts.system_epoch and counts.system_epoch ~= system_epoch then
-            return nil, 'GUI domain contains multiple system epochs'
-          end
-          counts.system_workspace = workspace
-          counts.system_epoch = system_epoch
-          counts.system_pane_count = counts.system_pane_count + 1
-        else
-          local marker = context.from_pane(pane)
-          if marker then
-            if seen[marker.gui_pane_id] then
-              return nil, 'duplicate GUI pane id in heartbeat'
+        if counts then
+          counts.pane_count = counts.pane_count + 1
+          local system_epoch = system_workspace(workspace)
+          if system_epoch then
+            -- Rust accepts this exemption only after matching the exact owner
+            -- descriptor/sentinel epoch. Lua merely reports the syntactic
+            -- reserved workspace; it never treats it as owner authority.
+            if counts.system_workspace and counts.system_workspace ~= workspace then
+              return nil, 'GUI domain contains multiple system workspaces'
             end
-            seen[marker.gui_pane_id] = true
-            counts.valid_marker_pane_count = counts.valid_marker_pane_count + 1
-            local heartbeat_pane = {
-              pane_id = marker.gui_pane_id,
-              domain = marker.gui_domain,
-              context = context.marker_context(marker),
-            }
-            if marker.tmux_client_uid then
-              heartbeat_pane.tmux_client_uid = marker.tmux_client_uid
+            if counts.system_epoch and counts.system_epoch ~= system_epoch then
+              return nil, 'GUI domain contains multiple system epochs'
             end
-            table.insert(panes, heartbeat_pane)
+            counts.system_workspace = workspace
+            counts.system_epoch = system_epoch
+            counts.system_pane_count = counts.system_pane_count + 1
+          else
+            local marker = context.from_pane(pane)
+            if marker then
+              if seen[marker.gui_pane_id] then
+                return nil, 'duplicate GUI pane id in heartbeat'
+              end
+              seen[marker.gui_pane_id] = true
+              counts.valid_marker_pane_count = counts.valid_marker_pane_count + 1
+              local heartbeat_pane = {
+                pane_id = marker.gui_pane_id,
+                domain = marker.gui_domain,
+                context = context.marker_context(marker),
+              }
+              if marker.tmux_client_uid then
+                heartbeat_pane.tmux_client_uid = marker.tmux_client_uid
+              end
+              table.insert(panes, heartbeat_pane)
+            end
+            -- An invalid marker intentionally increments only pane_count. The
+            -- resulting inequality is a durable fail-closed coverage witness.
           end
-          -- An invalid marker intentionally increments only pane_count. The
-          -- resulting inequality is a durable fail-closed coverage witness.
         end
       end
     end
