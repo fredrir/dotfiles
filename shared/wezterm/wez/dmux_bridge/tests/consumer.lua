@@ -307,4 +307,47 @@ assert(ack_fail.state.failed == true and ack_fail.dispatch_count == 1)
 ack_fail:poll_once()
 assert(ack_fail.dispatch_count == 1, 'failed completion was redispatched')
 
+-- A latched failure is re-evaluated every poll. It must report the cause and
+-- the consequence once, then at an interval, never once per POLL_SECONDS.
+local repeat_ticks = math.max(1, math.floor(60 / protocol.POLL_SECONDS))
+local flaky = new_harness()
+local instance_module = package.loaded['wez.dmux_bridge.instance']
+instance_module.heartbeat = function()
+  return nil, 'heartbeat is broken'
+end
+assert(flaky.consumer.start())
+assert(flaky.state.failed == true)
+assert(#flaky.errors == 2, 'a latched failure must name its cause and its consequence')
+assert(flaky.errors[1]:match 'heartbeat failed closed: heartbeat is broken')
+assert(flaky.errors[2]:match 'latched failed; no further requests will be read')
+
+for _ = 1, repeat_ticks - 1 do
+  flaky:poll_once()
+end
+assert(#flaky.errors == 2, 'a latched failure logged before its interval elapsed')
+flaky:poll_once()
+assert(#flaky.errors == 4, 'a latched failure never repeated at its interval')
+assert(flaky.errors[3]:match(string.format('%%(repeated %d times%%)$', repeat_ticks)))
+assert(flaky.errors[4]:match(string.format('%%(repeated %d times%%)$', repeat_ticks)))
+
+-- A changed message is a different failure and is never absorbed by the
+-- interval the previous one left behind.
+instance_module.heartbeat = function()
+  return nil, 'heartbeat broke differently'
+end
+flaky:poll_once()
+assert(#flaky.errors == 5 and flaky.errors[5]:match 'heartbeat broke differently')
+
+-- A cleared condition is forgotten, so its next occurrence is immediate.
+instance_module.heartbeat = function()
+  return true
+end
+flaky:poll_once()
+assert(#flaky.errors == 5, 'a recovered heartbeat is not a failure and must not log')
+instance_module.heartbeat = function()
+  return nil, 'heartbeat broke differently'
+end
+flaky:poll_once()
+assert(#flaky.errors == 6, 'a recurrence after recovery must log immediately')
+
 io.stdout:write 'dmux bridge consumer test: secure CAS/replay/corruption/expiry passed\n'

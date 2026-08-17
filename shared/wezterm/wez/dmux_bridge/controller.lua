@@ -17,6 +17,35 @@ local function toast(window, message)
   end
 end
 
+local function origin_label(origin)
+  if type(origin) ~= 'table' then
+    return nil
+  end
+  if origin.kind == 'resident_gui' then
+    return 'resident_gui'
+  end
+  return 'pane ' .. tostring(origin.pane_id)
+end
+
+-- Every controller failure reports here. The log line is written first and
+-- unconditionally: `toast` is window-gated and swallows its own errors, so a
+-- notification is never proof that a failure was seen. The typed error code is
+-- carried too; it never reaches the toast, and it is the one field that names
+-- which refusal fired.
+local function report(window, verb, origin, code, message)
+  local scope = origin_label(origin)
+  wezterm.log_error(
+    string.format(
+      'dmux %s failed%s%s: %s',
+      tostring(verb),
+      scope and (' (' .. scope .. ')') or '',
+      code and (' [' .. tostring(code) .. ']') or '',
+      tostring(message)
+    )
+  )
+  toast(window, message)
+end
+
 local function origin_for(pane)
   local marker, marker_err = context.from_pane(pane)
   if not marker then
@@ -85,13 +114,14 @@ end
 local function invoke(window, origin, verb, args)
   local spawned, success, stdout, stderr = pcall(wezterm.run_child_process, argv(origin, verb, args))
   if not spawned then
-    toast(window, 'dmux controller unavailable: ' .. tostring(success))
-    return nil, tostring(success)
+    local detail = tostring(success)
+    report(window, verb, origin, nil, 'dmux controller unavailable: ' .. detail)
+    return nil, detail
   end
   local response, decode_err = decode_response(stdout)
   if response then
     if not response.ok then
-      toast(window, response.message)
+      report(window, verb, origin, response.error, response.message)
       -- A post-create presentation failure preserves the owner-side
       -- CreatedSpace record. It remains an error (never a false success),
       -- but callers that can render richer recovery UX may inspect result.
@@ -99,7 +129,7 @@ local function invoke(window, origin, verb, args)
     end
     if not success then
       local message = 'dmux controller returned success JSON with an unsuccessful exit status'
-      toast(window, message)
+      report(window, verb, origin, nil, message)
       return nil, message
     end
     return response.result or {}
@@ -109,17 +139,17 @@ local function invoke(window, origin, verb, args)
     if #message == 0 then
       message = 'dmux controller exited unsuccessfully'
     end
-    toast(window, message)
+    report(window, verb, origin, nil, message)
     return nil, message
   end
-  toast(window, decode_err)
+  report(window, verb, origin, nil, decode_err)
   return nil, decode_err
 end
 
 function M.run(window, pane, verb, args)
   local origin, marker_or_err = origin_for(pane)
   if not origin then
-    toast(window, marker_or_err)
+    report(window, verb, nil, nil, marker_or_err)
     return nil, marker_or_err
   end
   local result, err, partial = invoke(window, origin, verb, args)
@@ -314,8 +344,16 @@ function M.cached_context(pane, now)
   return cache, marker_or_err
 end
 
+---Toast a benign outcome. A guard that fired correctly is not a defect and
+---must not reach the log, or a healthy safety check trains the reader to
+---ignore it. Anything that is actually a failure belongs in `M.report`.
 function M.toast(window, message)
   toast(window, message)
+end
+
+---Report a failure detected by a caller after the controller itself returned.
+function M.report(window, verb, message, code)
+  report(window, verb, nil, code, message)
 end
 
 return M

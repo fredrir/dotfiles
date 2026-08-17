@@ -128,17 +128,17 @@ function M.action()
     local dmux_actions = require 'wez.dmux_bridge.actions'
     local result = controller.run(window, pane, 'spaces', dmux_actions.with_tmux_client_uid(pane))
     if not result or type(result.spaces) ~= 'table' then
-      controller.toast(window, 'dmux returned a malformed Space picker result')
+      controller.report(window, 'spaces', 'dmux returned a malformed Space picker result')
       return
     end
     for key in pairs(result) do
       if key ~= 'spaces' then
-        controller.toast(window, 'dmux returned a malformed Space picker result')
+        controller.report(window, 'spaces', 'dmux returned a malformed Space picker result')
         return
       end
     end
     if not valid_spaces(result.spaces) then
-      controller.toast(window, 'dmux returned malformed Space picker rows')
+      controller.report(window, 'spaces', 'dmux returned malformed Space picker rows')
       return
     end
     local choices = {

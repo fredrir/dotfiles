@@ -42,17 +42,21 @@ local rows = json.array {
     health = 'healthy',
   },
 }
-local calls, toasts = {}, {}
+local calls, toasts, reports = {}, {}, {}
+local malformed
 package.loaded['wez.dmux_bridge.controller'] = {
   run = function(_, _, verb, args)
     table.insert(calls, { verb = verb, args = args })
     if verb == 'spaces' then
-      return { spaces = rows }
+      return malformed or { spaces = rows }
     end
     return {}
   end,
   toast = function(_, message)
     table.insert(toasts, message)
+  end,
+  report = function(_, verb, message, code)
+    table.insert(reports, { verb = verb, message = message, code = code })
   end,
 }
 
@@ -104,5 +108,22 @@ selector.action(window, pane, 'a1')
 assert(calls[#calls].verb == 'present')
 assert(calls[#calls].args[1] == '--space' and calls[#calls].args[2] == 'a1')
 assert(calls[#calls].args[3] == '--tmux-client-uid' and calls[#calls].args[4] == client_uid)
+
+-- A malformed controller response is a defect, not a benign abort: it must
+-- reach the log and never build a selector from unvalidated rows.
+for _, case in ipairs {
+  { result = { spaces = 'not-a-table' }, message = 'malformed Space picker result' },
+  { result = { spaces = json.array {}, extra = true }, message = 'malformed Space picker result' },
+  { result = { spaces = json.array { { ref = 'b2' } } }, message = 'malformed Space picker rows' },
+} do
+  malformed = case.result
+  selector = nil
+  reports = {}
+  picker.action()(window, pane)
+  assert(selector == nil, 'a malformed picker response must not open a selector')
+  assert(#reports == 1 and reports[1].verb == 'spaces', 'a malformed picker response must be reported')
+  assert(reports[1].message:match(case.message), reports[1].message)
+end
+malformed = nil
 
 io.stdout:write 'dmux picker test: named Wez Spaces and exact-client tmux rows passed\n'

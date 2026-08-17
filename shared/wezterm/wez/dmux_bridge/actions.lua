@@ -103,6 +103,10 @@ local function prompt_context_is_current(window, pane, expected, include_split)
       end
     end
   end
+  -- Deliberately toast-only: this is the guard working, not a defect. The
+  -- context moved under an open confirmation and nothing was removed, so it
+  -- never becomes a log_error; a line that reads like a bug every time a
+  -- safety check succeeds is how a log stops being read.
   controller.toast(window, 'dmux context changed while the confirmation was open; nothing was removed')
   return false
 end

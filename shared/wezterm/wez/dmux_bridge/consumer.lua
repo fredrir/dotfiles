@@ -8,6 +8,39 @@ local wezterm = require 'wezterm'
 
 local M = {}
 
+-- `poll` runs at a fixed cadence, so a tick count is a clock that cannot drift
+-- and needs no injectable time source.
+local LOG_REPEAT_SECONDS = 60
+local LOG_REPEAT_TICKS = math.max(1, math.floor(LOG_REPEAT_SECONDS / protocol.POLL_SECONDS))
+
+---Log a condition that is re-evaluated every poll. The first occurrence and any
+---change of message are logged immediately; an unchanged message repeats once
+---per interval carrying the number of occurrences it stood in for. Without this
+---a latched failure writes a line every POLL_SECONDS for the life of the GUI.
+local function log_repeating(state, key, message)
+  state.repeated = state.repeated or {}
+  local entry = state.repeated[key]
+  if entry and entry.message == message then
+    entry.suppressed = entry.suppressed + 1
+    if entry.suppressed < LOG_REPEAT_TICKS then
+      return
+    end
+    wezterm.log_error(string.format('%s (repeated %d times)', message, entry.suppressed))
+    entry.suppressed = 0
+    return
+  end
+  state.repeated[key] = { message = message, suppressed = 0 }
+  wezterm.log_error(message)
+end
+
+---Forget a condition that has cleared, so its next occurrence is immediate
+---rather than silently absorbed by the interval it left behind.
+local function log_settled(state, key)
+  if state.repeated then
+    state.repeated[key] = nil
+  end
+end
+
 local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
   .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
   .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
@@ -445,7 +478,9 @@ local function poll(state)
     local heartbeat_ok, heartbeat_err = instance.heartbeat(state)
     if not heartbeat_ok then
       state.failed = true
-      wezterm.log_error('dmux bridge: heartbeat failed closed: ' .. tostring(heartbeat_err))
+      log_repeating(state, 'heartbeat', 'dmux bridge: heartbeat failed closed: ' .. tostring(heartbeat_err))
+    else
+      log_settled(state, 'heartbeat')
     end
     if not state.busy and not state.failed then
       local next_ok, uid, raw = pcall(function()
@@ -466,7 +501,17 @@ local function poll(state)
   end)
   if not ok then
     state.failed = true
-    wezterm.log_error('dmux bridge: poll failed closed: ' .. tostring(err))
+    log_repeating(state, 'poll', 'dmux bridge: poll failed closed: ' .. tostring(err))
+  else
+    log_settled(state, 'poll')
+  end
+  -- `state.failed` is never cleared, and the poller keeps running with the
+  -- request reader gated off above. A heartbeat that still succeeds leaves the
+  -- document fresh, so the outside world sees a healthy GUI while every request
+  -- dies on the Rust ack timeout. Re-announce the consequence, not just the
+  -- cause, or the single latch line scrolls away and nothing says so again.
+  if state.failed then
+    log_repeating(state, 'latched', 'dmux bridge: latched failed; no further requests will be read')
   end
   wezterm.time.call_after(protocol.POLL_SECONDS, function()
     poll(state)

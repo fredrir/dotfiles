@@ -69,12 +69,16 @@ local process_stderr = ''
 local process_calls = 0
 local last_argv
 local toasts = {}
+local errors = {}
 local fake_wezterm = {
   GLOBAL = { dmux_bridge_instance = 'gui-42-cafe' },
   background_child_process = function()
     return true
   end,
   home_dir = '/tmp',
+  log_error = function(message)
+    table.insert(errors, message)
+  end,
   log_warn = function() end,
   run_child_process = function(argv)
     assert(argv[1] == '/tmp/.local/bin/dmux')
@@ -102,6 +106,12 @@ process_success = false
 local result, err = controller.run(window, pane, 'context', { '--cache' })
 assert(result == nil and err == 'owner epoch changed')
 assert(toasts[#toasts] == 'owner epoch changed', 'typed JSON failure must win over stderr/exit status')
+-- The typed error code never reaches the toast. It is the field that names
+-- which refusal fired, so it must reach the log.
+assert(
+  errors[#errors] == 'dmux context failed (pane 91) [stale_epoch]: owner epoch changed',
+  'failure log must carry the verb, origin and typed error code: ' .. tostring(errors[#errors])
+)
 
 response = {
   schema_version = 1,
@@ -114,6 +124,7 @@ local partial
 result, err, partial = controller.run(window, pane, 'space-new', { '--name', 'created' })
 assert(result == nil and err:match 'was created')
 assert(partial and partial.ref == 'b3' and partial.created == true and partial.connected == false)
+assert(errors[#errors] == 'dmux space-new failed (pane 91) [partial_result]: ' .. response.message)
 
 response.result = nil
 result, err = controller.run(window, pane, 'space-new', { '--name', 'created' })
@@ -147,6 +158,27 @@ assert(resident_origin.gui_instance == 'gui-42-cafe')
 assert(resident_origin.pid == 42 and resident_origin.process_start_token == 'start-token')
 assert(resident_origin.pane_id == nil and resident_origin.marker == nil and resident_origin.domain == nil)
 
+-- run_resident passes window = nil, so every toast on its failure paths is a
+-- no-op. The log line is the only signal that survives it.
+local before_toasts = #toasts
+local saved_response = response
+response = {
+  schema_version = 1,
+  ok = false,
+  error = 'unknown_persistent_domain',
+  message = 'active non-local domain is outside the sanitized dmux configuration: TermWizTerminalDomain',
+}
+process_success = false
+result, err = controller.run_resident 'safe-quit'
+assert(result == nil and err:match 'TermWizTerminalDomain')
+assert(#toasts == before_toasts, 'a windowless failure cannot toast')
+assert(
+  errors[#errors] == 'dmux safe-quit failed (resident_gui) [unknown_persistent_domain]: ' .. response.message,
+  'a windowless failure must still log: ' .. tostring(errors[#errors])
+)
+response = saved_response
+process_success = true
+
 before_resident = process_calls
 result, err = controller.run_resident 'context'
 assert(result == nil and err:match 'restricted to safe%-quit' and process_calls == before_resident)
@@ -163,10 +195,25 @@ process_stderr = 'plain failure\n'
 result, err = controller.run(window, pane, 'context', { '--cache' })
 assert(result == nil and err == 'plain failure')
 
+assert(errors[#errors] == 'dmux context failed (pane 91): plain failure')
+
 process_stdout = nil
 response = { schema_version = 1, ok = true, result = {} }
 result, err = controller.run(window, pane, 'context', { '--cache' })
 assert(result == nil and err:match 'success JSON with an unsuccessful exit status')
+assert(errors[#errors] == 'dmux context failed (pane 91): ' .. err)
+
+-- An unresolvable marker has no origin to name, so the scope is omitted rather
+-- than reported as a pane that was never proved.
+local context_module = package.loaded['wez.dmux_bridge.context']
+local resolved_marker = context_module.from_pane
+context_module.from_pane = function()
+  return nil, { message = 'pane has no dmux marker' }
+end
+result, err = controller.run(window, pane, 'space-new')
+assert(result == nil and err == 'pane has no dmux marker')
+assert(errors[#errors] == 'dmux space-new failed: pane has no dmux marker')
+context_module.from_pane = resolved_marker
 
 local now = os.time()
 cache_document = {
