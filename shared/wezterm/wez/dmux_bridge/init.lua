@@ -166,9 +166,14 @@ local function publish_persistent_domains(config)
     end
   end
   table.sort(names)
+  local configured, configure_err =
+    require('wez.dmux_bridge.instance').configure_persistent_domains(names, published_instances)
+  if not configured then
+    error('dmux bridge: cannot freeze managed persistent domain identities: ' .. tostring(configure_err))
+  end
   -- Config evaluation and bridge callbacks share the process-global table.
-  -- Publish only after the final sanitizer has observed the exact compatible
-  -- domain configuration; consumer startup fails closed if this is absent.
+  -- Retain a process-global diagnostic copy only after the module-local
+  -- authority snapshot above has frozen the final compatible configuration.
   wezterm.GLOBAL.dmux_managed_persistent_domains = names
   wezterm.GLOBAL.dmux_managed_persistent_domain_instances = published_instances
 end

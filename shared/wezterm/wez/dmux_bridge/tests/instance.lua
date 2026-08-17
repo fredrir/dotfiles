@@ -151,6 +151,14 @@ package.loaded['wez.dmux_bridge.context'] = {
 }
 
 local instance = require 'wez.dmux_bridge.instance'
+assert(
+  instance.configure_persistent_domains(
+    fake_wezterm.GLOBAL.dmux_managed_persistent_domains,
+    fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances
+  )
+)
+fake_wezterm.GLOBAL.dmux_managed_persistent_domains = nil
+fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances = nil
 local state = assert(instance.create())
 assert(type(opened_instance) == 'string' and opened_instance:match '^gui%-42%-[0-9a-f]+$')
 assert(state.id == opened_instance and state.bridge == secure_bridge)

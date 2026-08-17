@@ -7,6 +7,8 @@ local M = {}
 local active_bridge
 local active_identity
 local active_instance
+local configured_persistent_domains
+local configured_persistent_domain_instances
 
 local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
   .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
@@ -105,6 +107,54 @@ local IDENTITY_KEYS = {
   process_start_token = true,
 }
 
+---Freeze the final sanitized persistent-domain inventory in this config
+---generation. `wezterm.GLOBAL` is process-shared presentation state, but it
+---is not the authority handoff between config evaluation and gui-startup;
+---the event callback and this module share the same reload-disabled Lua
+---generation, so a defensive module-local snapshot is exact and bounded.
+function M.configure_persistent_domains(persistent_domains, domain_instances)
+  if
+    type(persistent_domains) ~= 'table'
+    or getmetatable(persistent_domains) ~= nil
+    or type(domain_instances) ~= 'table'
+    or getmetatable(domain_instances) ~= nil
+  then
+    return nil, 'managed persistent domain configuration is unavailable'
+  end
+  local copied_domains, copied_instances, expected = {}, {}, {}
+  for index, name in ipairs(persistent_domains) do
+    if
+      type(name) ~= 'string'
+      or #name == 0
+      or name == 'local'
+      or expected[name]
+      or not name:match '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+    then
+      return nil, 'managed persistent domain configuration is malformed'
+    end
+    local backend_instance_uid = domain_instances[name]
+    if type(backend_instance_uid) ~= 'string' or not backend_instance_uid:match(UUID) then
+      return nil, 'managed persistent domain has no canonical backend instance: ' .. name
+    end
+    copied_domains[index] = name
+    copied_instances[name] = backend_instance_uid
+    expected[name] = true
+  end
+  for key in pairs(persistent_domains) do
+    if type(key) ~= 'number' or key < 1 or key % 1 ~= 0 or key > #persistent_domains then
+      return nil, 'managed persistent domain configuration is not a dense array'
+    end
+  end
+  for name in pairs(domain_instances) do
+    if type(name) ~= 'string' or not expected[name] then
+      return nil, 'managed persistent domain instance configuration has an unknown domain'
+    end
+  end
+  configured_persistent_domains = copied_domains
+  configured_persistent_domain_instances = copied_instances
+  return true
+end
+
 local function valid_lease_identity(identity, gui_instance, pid, process_start_token)
   if type(identity) ~= 'table' or getmetatable(identity) ~= nil then
     return false
@@ -133,7 +183,7 @@ function M.create()
   if not instance then
     return nil, instance_err
   end
-  local persistent_domains = wezterm.GLOBAL.dmux_managed_persistent_domains
+  local persistent_domains = configured_persistent_domains
   if type(persistent_domains) ~= 'table' then
     return nil, 'managed persistent domain inventory is unavailable'
   end
@@ -149,7 +199,7 @@ function M.create()
       return nil, 'managed persistent domain inventory is not a dense array'
     end
   end
-  local configured_instances = wezterm.GLOBAL.dmux_managed_persistent_domain_instances
+  local configured_instances = configured_persistent_domain_instances
   if type(configured_instances) ~= 'table' then
     return nil, 'managed persistent domain instance inventory is unavailable'
   end
