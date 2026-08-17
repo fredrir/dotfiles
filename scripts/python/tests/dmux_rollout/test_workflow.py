@@ -5,7 +5,12 @@ import pytest
 from tools.dmux_rollout.command import Result, Runner, remote_argv
 from tools.dmux_rollout.errors import CommandError, Refusal
 from tools.dmux_rollout.storage import RolloutStore
-from tools.dmux_rollout.workflow import AMBIENT_MUX_VARS, Workflow, WorkflowConfig
+from tools.dmux_rollout.workflow import (
+    AMBIENT_MUX_VARS,
+    ARCHIE_MUX_UNIT,
+    Workflow,
+    WorkflowConfig,
+)
 
 from .helpers import git, pushed_repo, release
 
@@ -294,3 +299,82 @@ def test_rollout_source_has_no_broad_process_kill():
     assert "killall" not in text
     assert "SIGKILL" not in text
     assert "os.kill(pid, signal.SIGTERM)" in text
+
+
+def dirt_witness(dirty, changed=()):
+    return {"dirty": list(dirty), "changed": [{"status": "M", "path": p} for p in changed]}
+
+
+def test_unrelated_dirt_appearing_beside_the_witness_is_reported_not_refused():
+    config = dirt_witness([" M linux/common/gtk/gtk-3.0/colors.css"])
+    dirty = [
+        " M linux/common/gtk/gtk-3.0/colors.css",
+        " M linux/common/gtk/gtk-3.0/settings.ini",
+        "?? scratch/note.txt",
+    ]
+
+    appeared = Workflow._require_dirt_preserved(dirty, config, action="fast-forward")
+
+    assert appeared == [" M linux/common/gtk/gtk-3.0/settings.ini", "?? scratch/note.txt"]
+
+
+def test_losing_witnessed_dirt_is_refused():
+    config = dirt_witness([" M shared/obsidian/hotkeys.json"])
+
+    with pytest.raises(Refusal, match="did not preserve its pre-existing dirt"):
+        Workflow._require_dirt_preserved([], config, action="fast-forward")
+
+
+def test_new_dirt_on_a_release_managed_path_is_refused():
+    config = dirt_witness([], changed=["shared/wezterm/wezterm.lua"])
+
+    with pytest.raises(Refusal, match="left a release-managed path dirty"):
+        Workflow._require_dirt_preserved(
+            [" M shared/wezterm/wezterm.lua"], config, action="fast-forward"
+        )
+
+
+def test_unreadable_new_dirt_entry_is_refused():
+    config = dirt_witness([])
+
+    with pytest.raises(Refusal, match="unsupported Archie dirty entry"):
+        Workflow._require_dirt_preserved(['?? "quoted path.txt"'], config, action="rollback")
+
+
+def test_dirty_entry_path_rejects_renames_and_quoting():
+    assert Workflow._dirty_entry_path(" M a/b.txt") == "a/b.txt"
+    assert Workflow._dirty_entry_path("?? a/b.txt") == "a/b.txt"
+    assert Workflow._dirty_entry_path('R  "a" -> "b"') is None
+    assert Workflow._dirty_entry_path(" M ") is None
+    assert Workflow._dirty_entry_path("M") is None
+
+
+def test_archie_mux_unit_matches_the_unit_file_the_repo_installs():
+    root = Path(__file__).parents[3].parent
+    units = sorted((root / "linux/arch/wezterm-mux").glob("*.service"))
+
+    assert [unit.name for unit in units] == [ARCHIE_MUX_UNIT]
+
+
+def test_managed_quit_confirms_frontmost_before_sending_cmd_q(tmp_path):
+    sent = []
+
+    class Recorder(Runner):
+        def capture(self, argv, **kwargs):
+            sent.append(argv)
+            return Result(argv=argv, returncode=0, stdout="", stderr="")
+
+    workflow = Workflow(
+        RolloutStore(tmp_path / "state"),
+        Recorder(),
+        config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm"),
+    )
+    gui = {"pid": 4242, "heartbeat": str(tmp_path / "missing.json"), "gui_instance": "gui-x"}
+
+    with pytest.raises(Refusal):
+        workflow._safe_quit_gui(gui)
+
+    script = sent[0][-1]
+    assert script.index("frontmost of target") < script.index('keystroke "q"')
+    assert "never became frontmost" in script
+    assert "unix id is 4242" in script

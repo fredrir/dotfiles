@@ -28,6 +28,9 @@ RECEIPT_RE = re.compile(
 PACKAGE_RE = re.compile(
     r"^wezterm-fredrir-git(?P<debug>-debug)?-(?P<version>[^/]+)-1-x86_64\.pkg\.tar\.zst$"
 )
+# The unit that linux/arch/wezterm-mux installs; the *binary* it runs is
+# wezterm-mux-server, which is a different name and not interchangeable.
+ARCHIE_MUX_UNIT = "wezterm-mux.service"
 AMBIENT_MUX_VARS = (
     "TMUX",
     "TMUX_PANE",
@@ -1389,9 +1392,7 @@ class Workflow:
                 )
                 self.runner.capture(remote_argv(host, ["systemctl", "--user", "daemon-reload"]))
                 self.runner.capture(
-                    remote_argv(
-                        host, ["systemctl", "--user", "restart", "wezterm-mux-server.service"]
-                    ),
+                    remote_argv(host, ["systemctl", "--user", "restart", ARCHIE_MUX_UNIT]),
                     timeout=60,
                 )
                 after = self._wait_archie_owner(
@@ -1520,9 +1521,52 @@ class Workflow:
             remote_argv(host, ["git", "-C", str(repo), "rev-parse", "HEAD"])
         ).stdout.strip()
         dirty = self._remote_git_dirty(host, repo)
-        if actual != frozen or dirty != config["dirty"]:
-            raise Refusal("Archie config fast-forward did not preserve its pre-existing dirt")
-        return {"before": old, "after": actual, "dirty_preserved": dirty}
+        if actual != frozen:
+            raise Refusal("Archie config fast-forward did not reach the frozen release")
+        appeared = self._require_dirt_preserved(dirty, config, action="fast-forward")
+        return {
+            "before": old,
+            "after": actual,
+            "dirty_preserved": config["dirty"],
+            "dirty_appeared": appeared,
+        }
+
+    @staticmethod
+    def _require_dirt_preserved(
+        dirty: list[str], config: dict[str, Any], *, action: str
+    ) -> list[str]:
+        """Assert the witnessed dirt survived, and account for anything new.
+
+        A fast-forward or rollback may only touch the release's own changed
+        paths, so unrelated dirt that appears meanwhile (a desktop settings
+        daemon rewriting a tracked config, say) is drift rather than damage.
+        Demanding an exact match would wedge both deployment and rollback on
+        edits the rollout never made, so require the recorded dirt to survive
+        verbatim and refuse only when new dirt lands on a release-managed path.
+        """
+        remaining = list(dirty)
+        for entry in config["dirty"]:
+            if entry not in remaining:
+                raise Refusal(f"Archie config {action} did not preserve its pre-existing dirt")
+            remaining.remove(entry)
+        guarded = {row["path"] for row in config["changed"]}
+        for entry in remaining:
+            path = Workflow._dirty_entry_path(entry)
+            if path is None:
+                raise Refusal(f"unsupported Archie dirty entry after {action}: {entry!r}")
+            if path in guarded:
+                raise Refusal(f"Archie {action} left a release-managed path dirty: {path}")
+        return remaining
+
+    @staticmethod
+    def _dirty_entry_path(entry: str) -> str | None:
+        """Return the plain path of a porcelain v1 line, or None if unreadable."""
+        if len(entry) < 4 or entry[2] != " ":
+            return None
+        path = entry[3:]
+        if not path or path.startswith('"') or " -> " in path:
+            return None
+        return path
 
     def _remote_git_dirty(self, host: str, repo: Path) -> list[str]:
         return self.runner.capture(
@@ -1942,9 +1986,21 @@ class Workflow:
 
     def _safe_quit_gui(self, gui: dict[str, Any]) -> dict[str, Any]:
         pid = int(gui["pid"])
+        # Activation is asynchronous, so keystroking straight after setting
+        # frontmost can deliver Cmd-Q to whichever app still owns the focus.
+        # Wait for the target to actually come forward and refuse to send the
+        # keystroke blind; quitting an unrelated app is never an acceptable
+        # outcome of a rollout.
         script = (
             'tell application "System Events"\n'
-            f"set frontmost of first process whose unix id is {pid} to true\n"
+            f"set target to first process whose unix id is {pid}\n"
+            "set frontmost of target to true\n"
+            "repeat 100 times\n"
+            "if frontmost of target then exit repeat\n"
+            "delay 0.1\n"
+            "end repeat\n"
+            "if not frontmost of target then error "
+            f'"dmux-rollout: GUI {pid} never became frontmost"\n'
             'keystroke "q" using command down\n'
             "end tell"
         )
@@ -2230,9 +2286,7 @@ class Workflow:
                     )
                 self.runner.capture(remote_argv(host, ["systemctl", "--user", "daemon-reload"]))
                 self.runner.capture(
-                    remote_argv(
-                        host, ["systemctl", "--user", "restart", "wezterm-mux-server.service"]
-                    ),
+                    remote_argv(host, ["systemctl", "--user", "restart", ARCHIE_MUX_UNIT]),
                     timeout=60,
                 )
                 self.store.checkpoint(
@@ -2370,5 +2424,6 @@ class Workflow:
             remote_argv(host, ["git", "-C", str(repo), "rev-parse", "HEAD"])
         ).stdout.strip()
         dirty = self._remote_git_dirty(host, repo)
-        if actual != old or dirty != config["dirty"]:
+        if actual != old:
             raise Refusal("Archie config rollback did not restore its exact prior state")
+        self._require_dirt_preserved(dirty, config, action="rollback")
