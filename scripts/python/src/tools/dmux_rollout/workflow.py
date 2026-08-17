@@ -1832,21 +1832,32 @@ class Workflow:
             intent = release.checkpoints["verify.lifecycle.intent"]["evidence"]
             before = intent["owner"]
             gui = intent["gui"]
+            # The fallback collapses "the quit gesture failed", "the GUI
+            # vanished" and "the instance changed" into one outcome, so record
+            # which Refusal produced it rather than only that one did.
+            refusal: str | None = None
             try:
                 live = self._live_gui_for_space(primary["host_uid"], primary["space_uid"])
                 if live["gui_instance"] != gui["gui_instance"]:
                     raise Refusal("lifecycle GUI instance changed after intent was journaled")
-                detached = self._safe_quit_gui(live)
-            except Refusal:
+                detached = self._safe_quit_gui(live, mechanism="application_quit")
+            except Refusal as error:
+                refusal = str(error)
                 detached = self._require_gui_detached(gui)
             after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
             self._require_same_owner_space(before, after, primary["space_uid"])
             self.store.checkpoint(
                 release,
                 "verify.lifecycle",
-                {"gui": detached, "owner": after},
+                {
+                    "gui": detached,
+                    "owner": after,
+                    "mechanism": "application_quit",
+                    "refusal": refusal,
+                },
             )
 
+        self._verify_lifecycle_keybinding(release, approved, primary)
         self._verify_recovery_cycle(release, approved)
         self._verify_removal(release, approved)
         self._verify_two_host(release)
@@ -1988,7 +1999,59 @@ class Workflow:
         if not lines:
             raise Refusal("heartbeat process evidence is empty")
 
-    def _safe_quit_gui(self, gui: dict[str, Any]) -> dict[str, Any]:
+    def _safe_quit_gui(
+        self,
+        gui: dict[str, Any],
+        *,
+        mechanism: str = "application_quit",
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Ask one exact managed GUI to safe-quit, and prove that it did.
+
+        The two mechanisms reach different origins, so they are not
+        interchangeable. `application_quit` drives the native gesture, which
+        the maintained fork hands to `controller.run_resident` as a markerless
+        `resident_gui` origin. `keystroke` drives the in-window Cmd-Q binding,
+        which produces a marker-bound `in_gui` origin instead.
+        """
+        if mechanism == "application_quit":
+            self._request_native_application_quit(gui)
+        elif mechanism == "keystroke":
+            self._send_managed_quit_keystroke(gui)
+        else:
+            raise Refusal(f"unknown managed safe quit mechanism: {mechanism!r}")
+        return self._await_detached_gui(gui, mechanism=mechanism, timeout=timeout)
+
+    def _request_native_application_quit(self, gui: dict[str, Any]) -> None:
+        pid = int(gui["pid"])
+        # NSRunningApplication.terminate() addresses one PID and posts the same
+        # kAEQuitApplication the Dock's Quit item posts, so this needs no
+        # frontmost application, no Space switch and no attached display.
+        #
+        # AppleScript's `tell application ... to quit` cannot stand in for it.
+        # The managed GUI is started by exec'ing the binary inside the bundle
+        # rather than through LaunchServices, so it registers no bundle
+        # identifier; that form resolves through LaunchServices, misses the
+        # running process, and launches a second instance instead.
+        #
+        # The reply carries no information either way. A managed GUI always
+        # answers NSTerminateCancel, and terminate() returns as soon as the
+        # event is posted, so osascript exits 0 whether or not the safe-quit
+        # succeeded. A nonzero exit means the PID did not resolve at all; the
+        # heartbeat postcondition below is the only proof of the outcome.
+        script = (
+            'ObjC.import("AppKit");\n'
+            f"var pid = {pid};\n"
+            "var app = $.NSRunningApplication"
+            ".runningApplicationWithProcessIdentifier(pid);\n"
+            "if (app.isNil()) {\n"
+            '  throw new Error("dmux-rollout: no running application for pid " + pid);\n'
+            "}\n"
+            "app.terminate();\n"
+        )
+        self.runner.capture(["osascript", "-l", "JavaScript", "-e", script], timeout=30)
+
+    def _send_managed_quit_keystroke(self, gui: dict[str, Any]) -> None:
         pid = int(gui["pid"])
         # Activation is asynchronous, so keystroking straight after setting
         # frontmost can deliver Cmd-Q to whichever app still owns the focus.
@@ -2009,18 +2072,27 @@ class Workflow:
             "end tell"
         )
         self.runner.capture(["osascript", "-e", script], timeout=30)
-        deadline = time.monotonic() + 30
-        last: Any = None
+
+    def _await_detached_gui(
+        self, gui: dict[str, Any], *, mechanism: str, timeout: float
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
         path = Path(gui["heartbeat"])
-        while time.monotonic() < deadline:
+        last: Any = None
+        # Always read the heartbeat at least once, so a zero timeout is one
+        # attempt rather than none.
+        while True:
             try:
                 heartbeat = self._load_bounded_json(path, maximum=1024 * 1024)
                 self._require_live_heartbeat(heartbeat)
                 return self._detached_gui_state(gui, heartbeat)
             except RolloutError as error:
                 last = str(error)
+            if time.monotonic() >= deadline:
+                raise Refusal(
+                    f"managed {mechanism} did not reach exact detached/hidden postcondition: {last}"
+                )
             time.sleep(0.1)
-        raise Refusal(f"managed Cmd-Q did not reach exact detached/hidden postcondition: {last}")
 
     def _require_gui_detached(self, gui: dict[str, Any]) -> dict[str, Any]:
         heartbeat = self._load_bounded_json(Path(gui["heartbeat"]), maximum=1024 * 1024)
@@ -2067,6 +2139,70 @@ class Workflow:
                 raise Refusal(f"owner identity changed during presentation/lifecycle: {field}")
         if before["spaces"].get(space_uid) != after["spaces"].get(space_uid):
             raise Refusal("owner pane IDs changed during presentation/lifecycle")
+
+    def _verify_lifecycle_keybinding(
+        self, release: Release, approved: set[str], primary: dict[str, Any]
+    ) -> None:
+        """Drive the in-window Cmd-Q safe quit, when the display allows it.
+
+        The blocking gate above uses the native application-quit gesture, which
+        the maintained fork hands to `controller.run_resident` as a markerless
+        `resident_gui` origin. The key binding produces a marker-bound `in_gui`
+        origin, which the GUI revalidates against the live pane marker instead.
+        That is a different path, so it is still worth driving against a live
+        GUI and service rather than only in the Lua unit tests.
+
+        It deliberately cannot fail the release. The keystroke needs the target
+        frontmost, which a second display, a Space switch or a locked screen
+        can deny, and none of those say anything about the release. The skip is
+        recorded rather than passed over quietly: a check nobody counts is how
+        the leaked connection-UI domain survived a suite that already covered
+        rogue domains.
+        """
+        if release.completed("verify.lifecycle.keybinding"):
+            return
+        before = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
+        # Presentation itself is proved by the gates above, so a failure here
+        # is a real failure rather than a missing display.
+        live = self._present_and_wait(
+            release,
+            host=None,
+            name=primary["name"],
+            host_uid=primary["host_uid"],
+            space_uid=primary["space_uid"],
+        )
+        skipped: str | None = None
+        try:
+            detached = self._safe_quit_gui(live, mechanism="keystroke")
+        except RolloutError as error:
+            skipped = str(error)
+            # The presentation above re-attached the domain, so the GUI cannot
+            # be left as it stands: the next deployment refuses a managed GUI
+            # that still owns visible panes. Put it back with the mechanism the
+            # blocking gate already proved. A failure to restore is a genuine
+            # failure, not a second skip.
+            try:
+                detached = self._safe_quit_gui(
+                    self._live_gui_for_space(primary["host_uid"], primary["space_uid"]),
+                    mechanism="application_quit",
+                )
+            except Refusal:
+                # The keystroke may have completed the detach and only missed
+                # its postcondition window. Accept that, but only on the exact
+                # evidence the blocking gate requires.
+                detached = self._require_gui_detached(live)
+        after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
+        self._require_same_owner_space(before, after, primary["space_uid"])
+        self.store.checkpoint(
+            release,
+            "verify.lifecycle.keybinding",
+            {
+                "gui": detached,
+                "owner": after,
+                "mechanism": "keystroke",
+                "skipped": skipped,
+            },
+        )
 
     def _verify_recovery_cycle(self, release: Release, approved: set[str]) -> None:
         if release.completed("verify.recovery"):

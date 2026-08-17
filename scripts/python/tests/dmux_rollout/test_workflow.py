@@ -371,7 +371,8 @@ def test_archie_mux_unit_matches_the_unit_file_the_repo_installs():
     assert [unit.name for unit in units] == [ARCHIE_MUX_UNIT]
 
 
-def test_managed_quit_confirms_frontmost_before_sending_cmd_q(tmp_path):
+def _quit_workflow(tmp_path):
+    """A workflow whose only child command is the quit trigger, recorded."""
     sent = []
 
     class Recorder(Runner):
@@ -385,11 +386,136 @@ def test_managed_quit_confirms_frontmost_before_sending_cmd_q(tmp_path):
         config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm"),
     )
     gui = {"pid": 4242, "heartbeat": str(tmp_path / "missing.json"), "gui_instance": "gui-x"}
+    return workflow, gui, sent
+
+
+def test_managed_quit_confirms_frontmost_before_sending_cmd_q(tmp_path):
+    workflow, gui, sent = _quit_workflow(tmp_path)
 
     with pytest.raises(Refusal):
-        workflow._safe_quit_gui(gui)
+        workflow._safe_quit_gui(gui, mechanism="keystroke", timeout=0)
 
+    assert sent[0][:2] == ["osascript", "-e"]
     script = sent[0][-1]
     assert script.index("frontmost of target") < script.index('keystroke "q"')
     assert "never became frontmost" in script
     assert "unix id is 4242" in script
+
+
+def test_default_managed_quit_addresses_one_pid_and_never_launchservices(tmp_path):
+    workflow, gui, sent = _quit_workflow(tmp_path)
+
+    with pytest.raises(Refusal):
+        workflow._safe_quit_gui(gui, timeout=0)
+
+    assert sent[0][:3] == ["osascript", "-l", "JavaScript"]
+    script = sent[0][-1]
+    # The managed GUI is exec'd from inside the bundle rather than launched
+    # through LaunchServices, so it registers no bundle identifier. A
+    # `tell application` form would miss it and launch a second instance.
+    assert "tell application" not in script
+    assert "runningApplicationWithProcessIdentifier" in script
+    assert "var pid = 4242;" in script
+    assert script.index("app.isNil()") < script.index("app.terminate()")
+    # No frontmost, no Space switch, no keystroke: that is the whole point.
+    assert "frontmost" not in script
+    assert "keystroke" not in script
+
+
+def test_managed_quit_names_the_mechanism_that_failed(tmp_path):
+    workflow, gui, _ = _quit_workflow(tmp_path)
+
+    with pytest.raises(Refusal, match="managed application_quit did not reach"):
+        workflow._safe_quit_gui(gui, timeout=0)
+    with pytest.raises(Refusal, match="managed keystroke did not reach"):
+        workflow._safe_quit_gui(gui, mechanism="keystroke", timeout=0)
+    with pytest.raises(Refusal, match="unknown managed safe quit mechanism"):
+        workflow._safe_quit_gui(gui, mechanism="sigterm")
+
+
+def _keybinding_workflow(tmp_path, *, keystroke_fails):
+    """A workflow with the keybinding gate's collaborators stubbed out.
+
+    Only the gate's own control flow is under test here; presentation, owner
+    snapshots and the heartbeat postcondition each have their own coverage.
+    """
+    calls = []
+    store = RolloutStore(tmp_path / "state")
+    workflow = Workflow(
+        store,
+        Runner(),
+        config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm"),
+    )
+    owner = {
+        "pid": 1,
+        "epoch": "epoch-uid",
+        "backend_instance_uid": "backend-uid",
+        "socket_dev": 42,
+        "socket_ino": 84,
+        "spaces": {"space-uid": [7]},
+    }
+    gui = {"pid": 4242, "gui_instance": "gui-x"}
+
+    def safe_quit(target, *, mechanism="application_quit", timeout=30.0):
+        calls.append(mechanism)
+        if mechanism == "keystroke" and keystroke_fails:
+            raise Refusal("GUI 4242 never became frontmost")
+        return {"gui_instance": "gui-x", "mechanism": mechanism}
+
+    workflow._mac_owner_snapshot = lambda **kwargs: owner
+    workflow._present_and_wait = lambda *a, **kw: gui
+    workflow._live_gui_for_space = lambda *a, **kw: gui
+    workflow._safe_quit_gui = safe_quit
+    return workflow, store, calls
+
+
+PRIMARY = {"name": "rollout-smoke", "host_uid": "host-uid", "space_uid": "space-uid"}
+
+
+def _run_keybinding_gate(workflow, store, tmp_path):
+    item = release(tmp_path)
+    with store.exclusive():
+        store.create(item)
+        workflow._verify_lifecycle_keybinding(item, {"space-uid"}, PRIMARY)
+    return item.checkpoints["verify.lifecycle.keybinding"]["evidence"]
+
+
+def test_keybinding_gate_records_a_skip_instead_of_failing_the_release(tmp_path):
+    workflow, store, calls = _keybinding_workflow(tmp_path, keystroke_fails=True)
+
+    evidence = _run_keybinding_gate(workflow, store, tmp_path)
+    assert "never became frontmost" in evidence["skipped"]
+    assert evidence["mechanism"] == "keystroke"
+    # A failed keystroke leaves the presentation's domain attached, which the
+    # next deployment refuses. The gate must put it back.
+    assert calls == ["keystroke", "application_quit"]
+
+
+def test_keybinding_gate_does_not_re_quit_when_the_keystroke_worked(tmp_path):
+    workflow, store, calls = _keybinding_workflow(tmp_path, keystroke_fails=False)
+
+    evidence = _run_keybinding_gate(workflow, store, tmp_path)
+
+    assert evidence["skipped"] is None
+    assert calls == ["keystroke"]
+
+
+def test_managed_quit_reads_the_heartbeat_before_giving_up(tmp_path):
+    """A zero timeout is one attempt, not none.
+
+    The postcondition is the only proof the quit worked, so the poll loop may
+    never exit without having looked at the heartbeat at least once.
+    """
+    workflow, gui, _ = _quit_workflow(tmp_path)
+    reads = []
+
+    def record(path, *, maximum):
+        reads.append(Path(path))
+        raise Refusal("heartbeat is absent")
+
+    workflow._load_bounded_json = record
+
+    with pytest.raises(Refusal):
+        workflow._safe_quit_gui(gui, timeout=0)
+
+    assert reads == [Path(gui["heartbeat"])]

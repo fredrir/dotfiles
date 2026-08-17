@@ -44,6 +44,13 @@ require_text 'should_perform_native_action(' wezterm-gui/src/frontend.rs
 require_text 'pub(crate) fn should_close_tab_directly' wezterm-gui/src/dmux_managed.rs
 require_text 'should_close_tab_directly(self.config.dmux_managed_gui)' wezterm-gui/src/termwindow/mouseevent.rs
 require_text 'refusing native application termination for dmux-managed GUI' window/src/os/macos/app.rs
+# Cancelling the native termination is not enough on its own: without the
+# dispatch, Dock->Quit, an Apple Event quit and log out are answered with a log
+# line and nothing else, and run_resident is unreachable on this platform. Pin
+# the named helper rather than the assignment it constructs, because
+# application_open_untitled_file builds a PerformKeyAssignment too.
+require_text 'fn dispatch_dmux_managed_quit_request()' window/src/os/macos/app.rs
+require_text 'dispatch_dmux_managed_quit_request();' window/src/os/macos/app.rs
 require_text 'ignoring native new-window request for dmux-managed GUI' window/src/os/macos/app.rs
 require_text 'return dock_menu.autorelease()' window/src/os/macos/app.rs
 
