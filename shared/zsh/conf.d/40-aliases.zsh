@@ -1,6 +1,7 @@
 alias cp="cp -i"
 alias mv="mv -i"
 alias rm="rm -i"
+alias mkdir="mkdir -p"
 
 alias grep="grep --color=auto"
 alias fgrep="fgrep --color=auto"
@@ -34,6 +35,7 @@ alias cdd="cd $HOME/dotfiles"
 alias cdn="cd $NVIM"
 alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate"
 alias cdz="cd $CONFIG/zsh/conf.d"
+alias cds="cd $HOME/.ssh/config.d"
 
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"

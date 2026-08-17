@@ -17,3 +17,6 @@ export PATH="$PATH:/Applications/PyCharm.app/Contents/MacOS"
 
 # opencode
 export PATH=/Users/fredrir/.opencode/bin:$PATH
+
+# Ruby
+export PATH="/opt/homebrew/lib/ruby/gems/4.0.0/bin:$PATH"
