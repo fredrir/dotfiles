@@ -196,7 +196,10 @@ def test_edit_resolves_a_destination_path(vault):
 def test_edit_without_changes_is_not_an_error(vault):
     _root, home, _env, secret = vault
     add_config(home, secret)
-    result = secret("edit", "shared/ssh/config.enc", editor="/bin/true")
+    # Resolve `true` rather than hardcoding /bin/true: macOS only ships
+    # /usr/bin/true, so the literal path made this fail as "could not run
+    # editor" instead of exercising the unchanged-file branch.
+    result = secret("edit", "shared/ssh/config.enc", editor=shutil.which("true"))
     assert result.returncode == 0
     assert "unchanged" in result.stdout
 

@@ -1,18 +1,36 @@
-import subprocess
+import tarfile
 
 import pytest
+
+# The tree and the counts below are asserted exactly, so the archive has to
+# contain exactly these members and nothing else. Shelling out to `tar` could
+# not promise that: macOS bsdtar writes an AppleDouble `._name` companion for
+# every entry carrying an extended attribute, which `tar tzf` hides but
+# tarfile.getmembers() returns, doubling every count. Write the archive here
+# instead, so the fixture describes the input rather than the local tar.
+ARCHIVE_MEMBERS = (
+    ("arch", True),
+    ("arch/top", False),
+    ("arch/a", True),
+    ("arch/a/b", True),
+    ("arch/a/b/f1", False),
+    ("arch/a/b/f2", False),
+    ("arch/a/c", True),
+    ("arch/a/c/f3", False),
+    ("arch/d", True),
+    ("arch/d/f4", False),
+)
 
 
 @pytest.fixture
 def archive(tmp_path):
-    root = tmp_path / "arch"
-    (root / "a" / "b").mkdir(parents=True)
-    (root / "a" / "c").mkdir(parents=True)
-    (root / "d").mkdir()
-    for name in ("a/b/f1", "a/b/f2", "a/c/f3", "d/f4", "top"):
-        (root / name).touch()
     target = tmp_path / "test.tar.gz"
-    subprocess.run(["tar", "czf", str(target), "-C", str(tmp_path), "arch"], check=True)
+    with tarfile.open(target, "w:gz") as handle:
+        for name, is_directory in ARCHIVE_MEMBERS:
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE if is_directory else tarfile.REGTYPE
+            info.mode = 0o755 if is_directory else 0o644
+            handle.addfile(info)
     return target
 
 
