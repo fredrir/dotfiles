@@ -80,12 +80,21 @@ reject_text 'pub(crate) fn dmux_safe_quit_application' wezterm-gui/src/termwindo
 reject_text 'pub(crate) fn dmux_safe_hide_application' wezterm-gui/src/termwindow/mod.rs
 
 # Both GUI-side domain inventories exempt WezTerm's connection-UI placeholder
-# by capability rather than by name, because the mux leaks one per attach and
-# never frees it. That is an exact discriminator only while the trait default
-# is the sole other implementation: a second one returning false would silently
-# exempt a domain dmux must keep policing, so pin the count, not just the name.
+# by capability rather than by name. That is an exact discriminator only while
+# the trait default is the sole other implementation: a second one returning
+# false would silently exempt a domain dmux must keep policing, so pin the
+# count, not just the name.
 require_text '"is_spawnable"' lua-api-crates/mux/src/domain.rs
 require_tree_count 2 'fn spawnable(&self) -> bool {'
+
+# The placeholder is registered once per process rather than once per applet.
+# Without this the id-keyed domain map grew a permanently Attached row per
+# connection UI that nothing could reclaim, and a detach/re-attach cycle left
+# two rows sharing one name. The capability exemption above stays load-bearing
+# regardless: the one surviving row still reports Attached forever.
+require_text 'fn termwiz_domain(mux: &Arc<Mux>) -> Arc<dyn Domain>' mux/src/termwiztermtab.rs
+require_tree_count 1 'Arc::new(TermWizTerminalDomain::new())'
+reject_text '// TODO: make a singleton' mux/src/termwiztermtab.rs
 
 # A retained bridge/recovery capability cannot cross Lua generations.
 require_text 'self.config.dmux_managed_gui || self.config.dmux_recovery_primitives' config/src/lib.rs
