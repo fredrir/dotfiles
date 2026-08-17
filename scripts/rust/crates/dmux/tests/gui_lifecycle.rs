@@ -876,12 +876,14 @@ fn attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env() {
             "--config-file",
             GUI_CFG,
             "start",
+            "--no-auto-connect",
             "--class",
             &format!("dmux-{}", request.simple()),
             "--always-new-process",
             "--domain",
             "dmux",
             "--attach",
+            "--dmux-resident-broker",
         ]
         .map(OsString::from)
     );

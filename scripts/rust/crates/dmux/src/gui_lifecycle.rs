@@ -1355,12 +1355,14 @@ fn attach_only_command(
             OsString::from("--config-file"),
             gui_config.as_os_str().to_owned(),
             OsString::from("start"),
+            OsString::from("--no-auto-connect"),
             OsString::from("--class"),
             OsString::from(class),
             OsString::from("--always-new-process"),
             OsString::from("--domain"),
             OsString::from("dmux"),
             OsString::from("--attach"),
+            OsString::from("--dmux-resident-broker"),
         ],
     );
     command.env_remove = SCRUBBED_ENV
