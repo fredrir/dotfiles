@@ -436,6 +436,60 @@ class Workflow:
             "dmux-primitives",
         )
 
+        if not skip_tests and not release.completed("stage.archie.wezterm_gates"):
+            gate_target = remote_root / "targets/wezterm-gates"
+            gate_log = self._log_path(release, "stage-archie-wezterm-gates.log")
+            self.runner.stream(
+                remote_argv(
+                    host,
+                    [
+                        "git",
+                        "-C",
+                        str(wezterm),
+                        "submodule",
+                        "update",
+                        "--init",
+                        "--recursive",
+                    ],
+                ),
+                log=gate_log,
+            )
+            submodules = self.runner.capture(
+                remote_argv(
+                    host,
+                    ["git", "-C", str(wezterm), "submodule", "status", "--recursive"],
+                )
+            ).stdout.splitlines()
+            if not submodules or any(not row.startswith(" ") for row in submodules):
+                raise Refusal("Archie maintained-fork submodules are missing or drifted")
+            for command in self._archie_wezterm_gate_commands(dotfiles, wezterm, gate_target):
+                self.runner.stream(remote_argv(host, command), log=gate_log)
+            dirty = self.runner.capture(
+                remote_argv(
+                    host,
+                    [
+                        "git",
+                        "-C",
+                        str(wezterm),
+                        "status",
+                        "--porcelain=v1",
+                        "--untracked-files=all",
+                    ],
+                )
+            ).stdout.strip()
+            if dirty:
+                raise Refusal("Archie maintained-fork gate dirtied the frozen worktree")
+            self.store.checkpoint(
+                release,
+                "stage.archie.wezterm_gates",
+                {
+                    "commit": release.data["frozen"]["wezterm"]["commit"],
+                    "commands": len(
+                        self._archie_wezterm_gate_commands(dotfiles, wezterm, gate_target)
+                    ),
+                },
+            )
+
         if not release.completed("stage.archie.dotfiles"):
             target = remote_root / "targets/dotfiles"
             if not skip_tests:
@@ -533,45 +587,14 @@ class Workflow:
                     ["mv", "-fT", "--", str(remote_temporary), str(package_dir / "PKGBUILD")],
                 )
             )
-            if not skip_tests:
-                self.runner.stream(
-                    remote_argv(
-                        host,
-                        [
-                            "env",
-                            f"SRCDEST={package_dir / 'srcdest'}",
-                            f"CARGO_TARGET_DIR={remote_root / 'targets/wezterm-package'}",
-                            "makepkg",
-                            "--dir",
-                            str(package_dir),
-                            "--cleanbuild",
-                            "--force",
-                            "--noconfirm",
-                        ],
-                    ),
-                    cwd=None,
-                    log=self._log_path(release, "stage-archie-packages.log"),
-                )
-            else:
-                self.runner.stream(
-                    remote_argv(
-                        host,
-                        [
-                            "env",
-                            f"SRCDEST={package_dir / 'srcdest'}",
-                            f"CARGO_TARGET_DIR={remote_root / 'targets/wezterm-package'}",
-                            "makepkg",
-                            "--dir",
-                            str(package_dir),
-                            "--cleanbuild",
-                            "--force",
-                            "--noconfirm",
-                            "--nocheck",
-                        ],
-                    ),
-                    cwd=None,
-                    log=self._log_path(release, "stage-archie-packages.log"),
-                )
+            self.runner.stream(
+                remote_argv(
+                    host,
+                    self._archie_makepkg_command(package_dir, remote_root),
+                ),
+                cwd=None,
+                log=self._log_path(release, "stage-archie-packages.log"),
+            )
             found = self.runner.capture(
                 remote_argv(
                     host,
@@ -603,6 +626,68 @@ class Workflow:
         release.set_phase("archie_staged")
         self.store.save(release)
         return release
+
+    @staticmethod
+    def _archie_wezterm_gate_commands(
+        dotfiles: Path, wezterm: Path, target: Path
+    ) -> tuple[list[str], ...]:
+        environment = scrubbed_env(f"CARGO_TARGET_DIR={target}")
+        manifest = wezterm / "Cargo.toml"
+        commands = []
+        for package in ("codec", "mux"):
+            commands.append(
+                [
+                    *environment,
+                    "cargo",
+                    "test",
+                    "--locked",
+                    "--manifest-path",
+                    str(manifest),
+                    "-p",
+                    package,
+                    "--",
+                    "--test-threads=1",
+                ]
+            )
+        commands.append(
+            [
+                *environment,
+                "cargo",
+                "test",
+                "--locked",
+                "--manifest-path",
+                str(manifest),
+                "-p",
+                "wezterm-gui",
+                "dmux",
+                "--",
+                "--test-threads=1",
+            ]
+        )
+        commands.append(
+            [
+                *environment,
+                f"DMUX_WEZTERM_SOURCE={wezterm}",
+                "sh",
+                str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh"),
+            ]
+        )
+        return tuple(commands)
+
+    @staticmethod
+    def _archie_makepkg_command(package_dir: Path, remote_root: Path) -> list[str]:
+        return [
+            "env",
+            f"SRCDEST={package_dir / 'srcdest'}",
+            f"CARGO_TARGET_DIR={remote_root / 'targets/wezterm-package'}",
+            "makepkg",
+            "--dir",
+            str(package_dir),
+            "--cleanbuild",
+            "--force",
+            "--noconfirm",
+            "--nocheck",
+        ]
 
     def archie_install_command(self, release: Release) -> str:
         packages = release.data["artifacts"].get("archie_packages")

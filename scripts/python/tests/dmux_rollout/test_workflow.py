@@ -5,7 +5,7 @@ import pytest
 from tools.dmux_rollout.command import Result, Runner, remote_argv
 from tools.dmux_rollout.errors import CommandError, Refusal
 from tools.dmux_rollout.storage import RolloutStore
-from tools.dmux_rollout.workflow import Workflow, WorkflowConfig
+from tools.dmux_rollout.workflow import AMBIENT_MUX_VARS, Workflow, WorkflowConfig
 
 from .helpers import git, pushed_repo, release
 
@@ -255,6 +255,35 @@ def test_archie_pacman_pause_is_exact_and_interactive(tmp_path):
     assert "sudo pacman -U" in command
     assert "--noconfirm" not in command
     assert command.count(".pkg.tar.zst") == 2
+
+
+def test_archie_fork_gates_are_explicit_and_packaging_is_host_independent():
+    dotfiles = Path("/release/dotfiles")
+    wezterm = Path("/release/wezterm")
+    target = Path("/release/targets/wezterm-gates")
+
+    commands = Workflow._archie_wezterm_gate_commands(dotfiles, wezterm, target)
+
+    assert len(commands) == 4
+    assert [command[command.index("-p") + 1] for command in commands[:3]] == [
+        "codec",
+        "mux",
+        "wezterm-gui",
+    ]
+    assert "dmux" in commands[2]
+    assert commands[3][-2:] == [
+        "sh",
+        "/release/dotfiles/shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh",
+    ]
+    for command in commands:
+        assert f"CARGO_TARGET_DIR={target}" in command
+        for name in AMBIENT_MUX_VARS:
+            index = command.index(name)
+            assert command[index - 1] == "-u"
+
+    package = Workflow._archie_makepkg_command(Path("/release/packages"), Path("/release"))
+    assert package[-1] == "--nocheck"
+    assert package.count("--nocheck") == 1
 
 
 def test_rollout_source_has_no_broad_process_kill():
