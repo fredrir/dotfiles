@@ -416,7 +416,15 @@ def test_default_managed_quit_addresses_one_pid_and_never_launchservices(tmp_pat
     assert "tell application" not in script
     assert "runningApplicationWithProcessIdentifier" in script
     assert "var pid = 4242;" in script
-    assert script.index("app.isNil()") < script.index("app.terminate()")
+    # JXA bridges a zero-argument ObjC method as a property, so reading
+    # `app.terminate` is what sends the event. Adding the parentheses that
+    # every reader expects sends it and then fails calling the returned
+    # boolean, which exits nonzero on every run. Pin the no-paren form.
+    assert "var sent = app.terminate;" in script
+    assert "app.terminate()" not in script
+    assert script.index("app.isNil()") < script.index("app.terminate")
+    # A refused send is silent otherwise, so it has to be turned into an error.
+    assert "if (!sent)" in script
     # No frontmost, no Space switch, no keystroke: that is the whole point.
     assert "frontmost" not in script
     assert "keystroke" not in script

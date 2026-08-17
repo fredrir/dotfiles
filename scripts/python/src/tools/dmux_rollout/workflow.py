@@ -2034,11 +2034,17 @@ class Workflow:
         # identifier; that form resolves through LaunchServices, misses the
         # running process, and launches a second instance instead.
         #
-        # The reply carries no information either way. A managed GUI always
-        # answers NSTerminateCancel, and terminate() returns as soon as the
-        # event is posted, so osascript exits 0 whether or not the safe-quit
-        # succeeded. A nonzero exit means the PID did not resolve at all; the
-        # heartbeat postcondition below is the only proof of the outcome.
+        # `app.terminate` is read, not called. JXA bridges a zero-argument
+        # ObjC method as a property, so the access is what invokes -terminate;
+        # writing `app.terminate()` invokes it and then fails trying to call
+        # the returned boolean, which exits nonzero on every run. Keep the
+        # result in a named variable so the call is not mistaken for dead code.
+        #
+        # The boolean says only that the event was accepted for delivery, which
+        # is worth asserting because a refused send is silent otherwise. It
+        # says nothing about the outcome: a managed GUI always answers
+        # NSTerminateCancel, and -terminate returns as soon as the event is
+        # posted. The heartbeat postcondition is the only proof of the outcome.
         script = (
             'ObjC.import("AppKit");\n'
             f"var pid = {pid};\n"
@@ -2047,7 +2053,10 @@ class Workflow:
             "if (app.isNil()) {\n"
             '  throw new Error("dmux-rollout: no running application for pid " + pid);\n'
             "}\n"
-            "app.terminate();\n"
+            "var sent = app.terminate;\n"
+            "if (!sent) {\n"
+            '  throw new Error("dmux-rollout: quit request was refused for pid " + pid);\n'
+            "}\n"
         )
         self.runner.capture(["osascript", "-l", "JavaScript", "-e", script], timeout=30)
 
