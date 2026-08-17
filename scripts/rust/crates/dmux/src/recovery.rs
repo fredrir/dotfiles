@@ -13,11 +13,15 @@
 //! reply is accepted only for the exact generation/sequence/fence tuple.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{CStr, CString, OsString};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::io::{self, Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::ffi::OsStringExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -41,6 +45,9 @@ pub const RECOVERY_SUBDIR: &str = "recovery";
 pub const GENERATION_ROOT_PATH: &str = "@generation";
 const DEFAULT_LEASE_TTL: Duration = Duration::from_secs(30);
 const DEFAULT_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RECOVERY_MESSAGE_BYTES: u64 = 1024 * 1024;
+const MAX_RECOVERY_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+pub const RECOVERY_MANIFEST_SUBDIR: &str = "recovery-manifests";
 
 // -------------------------------------------------------------------------
 // Public errors
@@ -474,6 +481,50 @@ fn split_span_height(split: &ManifestSplit) -> u64 {
     split.height.unwrap_or(0) + split.bottom.as_deref().map(split_span_height).unwrap_or(0)
 }
 
+/// Fixed dmux-owned persistent root for cold-recovery manifests. Production
+/// helpers must not accept a caller-selected/plugin-state directory.
+pub fn production_recovery_manifest_dir() -> Result<PathBuf> {
+    let database = crate::registry::production_db_path().ok_or_else(|| {
+        RecoveryError::Io(io::Error::new(
+            io::ErrorKind::NotFound,
+            "neither XDG_DATA_HOME nor HOME is set",
+        ))
+    })?;
+    let parent = database.parent().ok_or_else(|| {
+        RecoveryError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "production registry path has no dmux data directory",
+        ))
+    })?;
+    Ok(parent.join(RECOVERY_MANIFEST_SUBDIR))
+}
+
+fn open_private_leaf_dir(path: &Path, create: bool) -> Result<PrivateDir> {
+    match PrivateDir::open(path) {
+        Ok(directory) => return Ok(directory),
+        Err(error) if create && error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let parent = path.parent().ok_or_else(|| {
+        RecoveryError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("private directory {} has no parent", path.display()),
+        ))
+    })?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            RecoveryError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("private directory {} has no UTF-8 leaf", path.display()),
+            ))
+        })?;
+    PrivateDir::open(parent)?
+        .open_child(name, create)
+        .map_err(Into::into)
+}
+
 /// Load the newest valid complete manifest for one backend instance.  Bad
 /// and partial candidates are reported and skipped so an older complete
 /// generation remains usable.
@@ -484,55 +535,50 @@ pub fn newest_eligible_manifest(
 ) -> Result<(Option<RecoveryManifest>, Vec<String>)> {
     let mut diagnostics = Vec::new();
     let mut candidates = Vec::new();
-    match fs::read_dir(dir) {
-        Ok(entries) => {
-            for entry in entries {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(e) => {
-                        diagnostics.push(format!("manifest directory entry: {e}"));
-                        continue;
-                    }
-                };
-                let path = entry.path();
-                let is_candidate = path.extension().is_some_and(|ext| ext == "json")
-                    || path
-                        .file_name()
-                        .is_some_and(|name| name.to_string_lossy().ends_with(".json.bak"));
-                if !is_candidate {
-                    continue;
-                }
-                let manifest = match fs::read(&path)
-                    .map_err(RecoveryError::from)
-                    .and_then(|bytes| serde_json::from_slice(&bytes).map_err(RecoveryError::from))
-                {
-                    Ok(manifest) => manifest,
-                    Err(e) => {
-                        diagnostics.push(format!("{}: {e}", path.display()));
-                        continue;
-                    }
-                };
-                let manifest: RecoveryManifest = manifest;
-                if let Err(e) = manifest.validate(instance) {
-                    diagnostics.push(format!("{}: {e}", path.display()));
-                    continue;
-                }
-                if let Some(floor) = intentional_empty_revision {
-                    if manifest.registry_revision <= floor {
-                        diagnostics.push(format!(
-                            "{}: revision {} is at/below intentional-empty floor {}",
-                            path.display(),
-                            manifest.registry_revision,
-                            floor
-                        ));
-                        continue;
-                    }
-                }
-                candidates.push(manifest);
-            }
+    let directory = match open_private_leaf_dir(dir, false) {
+        Ok(directory) => directory,
+        Err(RecoveryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok((None, diagnostics));
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((None, diagnostics)),
-        Err(e) => return Err(e.into()),
+        Err(error) => return Err(error),
+    };
+    for os_name in directory.names()? {
+        let Some(name) = os_name.to_str() else {
+            diagnostics.push("manifest directory contains a non-UTF-8 entry".into());
+            continue;
+        };
+        if !(name.ends_with(".json") || name.ends_with(".json.bak")) {
+            continue;
+        }
+        let path = dir.join(name);
+        let manifest = match directory
+            .read_file(name, MAX_RECOVERY_MANIFEST_BYTES)
+            .map_err(RecoveryError::from)
+            .and_then(|bytes| serde_json::from_slice(&bytes).map_err(RecoveryError::from))
+        {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                diagnostics.push(format!("{}: {error}", path.display()));
+                continue;
+            }
+        };
+        let manifest: RecoveryManifest = manifest;
+        if let Err(error) = manifest.validate(instance) {
+            diagnostics.push(format!("{}: {error}", path.display()));
+            continue;
+        }
+        if let Some(floor) = intentional_empty_revision
+            && manifest.registry_revision <= floor
+        {
+            diagnostics.push(format!(
+                "{}: revision {} is at/below intentional-empty floor {}",
+                path.display(),
+                manifest.registry_revision,
+                floor
+            ));
+            continue;
+        }
+        candidates.push(manifest);
     }
     candidates.sort_by(|a, b| {
         (b.registry_revision, &b.generated_at, &b.manifest_id).cmp(&(
@@ -548,29 +594,25 @@ pub fn newest_eligible_manifest(
 /// fsync, rename, parent fsync).  The caller owns the common backend lock and
 /// the snapshot lease for this entire function.
 pub fn atomic_publish_manifest(path: &Path, manifest: &RecoveryManifest) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)?;
-        }
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-    }
-    let tmp = path.with_extension(format!("json.tmp.{}", Uuid::new_v4()));
-    let bytes = serde_json::to_vec(manifest)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)?;
-    file.write_all(&bytes)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    fs::rename(&tmp, path)?;
-    if let Some(parent) = path.parent() {
-        File::open(parent)?.sync_all()?;
-    }
+    let parent = path.parent().ok_or_else(|| {
+        RecoveryError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "recovery manifest path has no parent",
+        ))
+    })?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            RecoveryError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "recovery manifest has no UTF-8 basename",
+            ))
+        })?;
+    let directory = open_private_leaf_dir(parent, true)?;
+    let mut bytes = serde_json::to_vec(manifest)?;
+    bytes.push(b'\n');
+    directory.publish_immutable(name, &bytes, MAX_RECOVERY_MANIFEST_BYTES)?;
     Ok(())
 }
 
@@ -607,6 +649,37 @@ pub struct NativePane {
     pub title: String,
     #[serde(default)]
     pub domain: Option<String>,
+}
+
+/// Canonical raw-native topology carried back into an in-process mutating
+/// command. Lua captures the same projection and compares it before touching
+/// the mux, closing the Inspect -> mutate TOCTOU for non-cooperating writers.
+/// Titles are deliberately excluded because shells may update them without a
+/// topology change; domain, workspace, and every native parent tuple remain
+/// part of the precondition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeTreePrecondition {
+    pub server_epoch: ServerEpoch,
+    pub windows: Vec<NativeTreeWindow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct NativeTreeWindow {
+    pub window_id: String,
+    pub workspace: String,
+    pub tabs: Vec<NativeTreeTab>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct NativeTreeTab {
+    pub tab_id: String,
+    pub panes: Vec<NativeTreePane>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct NativeTreePane {
+    pub pane_id: String,
+    pub domain: String,
 }
 
 impl NativeSnapshot {
@@ -696,6 +769,45 @@ impl NativeSnapshot {
             .map(|(_, _, pane)| pane.pane_id.clone())
             .collect()
     }
+
+    pub fn tree_precondition(&self) -> NativeTreePrecondition {
+        let mut windows = self
+            .windows
+            .iter()
+            .map(|window| {
+                let mut tabs = window
+                    .tabs
+                    .iter()
+                    .map(|tab| {
+                        let mut panes = tab
+                            .panes
+                            .iter()
+                            .map(|pane| NativeTreePane {
+                                pane_id: pane.pane_id.clone(),
+                                domain: pane.domain.clone().unwrap_or_default(),
+                            })
+                            .collect::<Vec<_>>();
+                        panes.sort();
+                        NativeTreeTab {
+                            tab_id: tab.tab_id.clone(),
+                            panes,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                tabs.sort();
+                NativeTreeWindow {
+                    window_id: window.window_id.clone(),
+                    workspace: window.workspace.clone(),
+                    tabs,
+                }
+            })
+            .collect::<Vec<_>>();
+        windows.sort();
+        NativeTreePrecondition {
+            server_epoch: self.server_epoch,
+            windows,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -710,6 +822,9 @@ pub struct SentinelWitness {
 
 #[derive(Debug, Clone)]
 pub struct RecoverySpool {
+    runtime_dir: PathBuf,
+    epoch: ServerEpoch,
+    directory: Arc<OnceLock<PrivateDir>>,
     pub dir: PathBuf,
     pub command: PathBuf,
     pub response: PathBuf,
@@ -722,6 +837,9 @@ impl RecoverySpool {
     pub fn new(runtime_dir: &Path, epoch: ServerEpoch) -> Self {
         let dir = runtime_dir.join(RECOVERY_SUBDIR).join(epoch.0.to_string());
         RecoverySpool {
+            runtime_dir: runtime_dir.to_path_buf(),
+            epoch,
+            directory: Arc::new(OnceLock::new()),
             command: dir.join("command.json"),
             response: dir.join("response.json"),
             status: dir.join("status.json"),
@@ -732,20 +850,478 @@ impl RecoverySpool {
     }
 
     pub fn prepare(&self) -> Result<()> {
-        if !self.dir.exists() {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(&self.dir)?;
-        }
-        fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o700))?;
+        self.open_dir(true)?;
         Ok(())
     }
 
-    pub fn clear_messages(&self) {
-        let _ = fs::remove_file(&self.command);
-        let _ = fs::remove_file(&self.response);
+    pub fn clear_messages(&self) -> Result<()> {
+        self.remove(RecoverySpoolFile::Command)?;
+        self.remove(RecoverySpoolFile::Response)?;
+        Ok(())
     }
+
+    fn open_dir(&self, create: bool) -> Result<&PrivateDir> {
+        if let Some(directory) = self.directory.get() {
+            return Ok(directory);
+        }
+        let runtime = PrivateDir::open(&self.runtime_dir)?;
+        let recovery = runtime.open_child(RECOVERY_SUBDIR, create)?;
+        let candidate = recovery.open_child(&self.epoch.0.to_string(), create)?;
+        let _ = self.directory.set(candidate);
+        self.directory.get().ok_or_else(|| {
+            RecoveryError::Io(io::Error::other(
+                "recovery spool directory capability was not retained",
+            ))
+        })
+    }
+
+    fn read<T: serde::de::DeserializeOwned>(&self, kind: RecoverySpoolFile) -> Result<T> {
+        let dir = self.open_dir(false)?;
+        let bytes = dir.read_file(kind.name(), MAX_RECOVERY_MESSAGE_BYTES)?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    fn write<T: Serialize>(&self, kind: RecoverySpoolFile, value: &T) -> Result<()> {
+        let dir = self.open_dir(true)?;
+        let mut bytes = serde_json::to_vec(value)?;
+        bytes.push(b'\n');
+        dir.atomic_replace(kind.name(), &bytes, MAX_RECOVERY_MESSAGE_BYTES)?;
+        Ok(())
+    }
+
+    fn create_once<T: Serialize>(&self, kind: RecoverySpoolFile, value: &T) -> Result<()> {
+        let dir = self.open_dir(true)?;
+        let mut bytes = serde_json::to_vec(value)?;
+        bytes.push(b'\n');
+        dir.create_once(kind.name(), &bytes, MAX_RECOVERY_MESSAGE_BYTES)?;
+        Ok(())
+    }
+
+    fn remove(&self, kind: RecoverySpoolFile) -> Result<bool> {
+        let dir = self.open_dir(false)?;
+        dir.remove_file(kind.name()).map_err(Into::into)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RecoverySpoolFile {
+    Command,
+    Response,
+    Status,
+    Control,
+}
+
+impl RecoverySpoolFile {
+    const fn name(self) -> &'static str {
+        match self {
+            RecoverySpoolFile::Command => "command.json",
+            RecoverySpoolFile::Response => "response.json",
+            RecoverySpoolFile::Status => "status.json",
+            RecoverySpoolFile::Control => "control.json",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PrivateDir(File);
+
+impl PrivateDir {
+    fn open(path: &Path) -> io::Result<Self> {
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        validate_private_directory(path, &file.metadata()?)?;
+        Ok(Self(file))
+    }
+
+    fn open_child(&self, name: &str, create: bool) -> io::Result<Self> {
+        let name = secure_component(name)?;
+        if create {
+            let rc = unsafe { libc::mkdirat(self.0.as_raw_fd(), name.as_ptr(), 0o700) };
+            if rc != 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(error);
+                }
+            }
+        }
+        let fd = unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let file = unsafe { File::from_raw_fd(fd) };
+        validate_private_directory(
+            Path::new(name.to_str().unwrap_or("<entry>")),
+            &file.metadata()?,
+        )?;
+        Ok(Self(file))
+    }
+
+    fn open_file(&self, name: &str, flags: libc::c_int, mode: libc::mode_t) -> io::Result<File> {
+        let name = secure_component(name)?;
+        let fd = unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                name.as_ptr(),
+                flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                libc::c_uint::from(mode),
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+
+    fn read_file(&self, name: &str, maximum: u64) -> io::Result<Vec<u8>> {
+        let mut file = self.open_file(name, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
+        let before = file.metadata()?;
+        validate_private_file(name, &before, maximum)?;
+        let capacity = usize::try_from(before.len().min(maximum)).unwrap_or(usize::MAX);
+        let mut bytes = Vec::with_capacity(capacity);
+        Read::by_ref(&mut file)
+            .take(maximum + 1)
+            .read_to_end(&mut bytes)?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > maximum {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("private file {name} grew beyond {maximum} bytes while read"),
+            ));
+        }
+        let after = file.metadata()?;
+        validate_private_file(name, &after, maximum)?;
+        let current = self.open_file(name, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
+        let current = current.metadata()?;
+        if private_file_fingerprint(&before) != private_file_fingerprint(&after)
+            || before.dev() != current.dev()
+            || before.ino() != current.ino()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                format!("private file {name} changed while it was read"),
+            ));
+        }
+        Ok(bytes)
+    }
+
+    fn create_once(&self, name: &str, bytes: &[u8], maximum: u64) -> io::Result<()> {
+        bounded_bytes(name, bytes, maximum)?;
+        let mut file =
+            self.open_file(name, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL, 0o600)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        validate_private_file(name, &file.metadata()?, maximum)?;
+        self.0.sync_all()?;
+        let actual = self.read_file(name, maximum)?;
+        if actual != bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("private file {name} differs after publication"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn atomic_replace(&self, name: &str, bytes: &[u8], maximum: u64) -> io::Result<()> {
+        bounded_bytes(name, bytes, maximum)?;
+        match self.open_file(name, libc::O_RDONLY | libc::O_NONBLOCK, 0) {
+            Ok(existing) => validate_private_file(name, &existing.metadata()?, maximum)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let temporary = format!(".dmux-{}.tmp", Uuid::new_v4());
+        let result = (|| {
+            let mut file = self.open_file(
+                &temporary,
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+                0o600,
+            )?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            validate_private_file(&temporary, &file.metadata()?, maximum)?;
+            let old = secure_component(&temporary)?;
+            let new = secure_component(name)?;
+            if unsafe {
+                libc::renameat(
+                    self.0.as_raw_fd(),
+                    old.as_ptr(),
+                    self.0.as_raw_fd(),
+                    new.as_ptr(),
+                )
+            } != 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            self.0.sync_all()?;
+            let actual = self.read_file(name, maximum)?;
+            if actual != bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("private file {name} differs after atomic publication"),
+                ));
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = self.unlink_name(&temporary);
+        }
+        result
+    }
+
+    fn remove_file(&self, name: &str) -> io::Result<bool> {
+        let observed = match self.open_file(name, libc::O_RDONLY | libc::O_NONBLOCK, 0) {
+            Ok(file) => {
+                let metadata = file.metadata()?;
+                validate_private_file(name, &metadata, MAX_RECOVERY_MESSAGE_BYTES)?;
+                metadata
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        // POSIX has no compare-and-unlink-by-inode. Rename the name to a
+        // private consumed slot first, then verify the moved inode through
+        // the held directory capability. A raced replacement is quarantined
+        // and rejected, never deleted as if it were the observed message.
+        let consumed = format!(".dmux-consumed-{}", Uuid::new_v4());
+        let old = secure_component(name)?;
+        let new = secure_component(&consumed)?;
+        if unsafe {
+            libc::renameat(
+                self.0.as_raw_fd(),
+                old.as_ptr(),
+                self.0.as_raw_fd(),
+                new.as_ptr(),
+            )
+        } != 0
+        {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::NotFound {
+                return Ok(false);
+            }
+            return Err(error);
+        }
+        let moved = self.open_file(&consumed, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
+        let moved = moved.metadata()?;
+        if observed.dev() != moved.dev() || observed.ino() != moved.ino() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                format!("private file {name} was replaced before removal"),
+            ));
+        }
+        self.unlink_name(&consumed)?;
+        self.0.sync_all()?;
+        Ok(true)
+    }
+
+    fn names(&self) -> io::Result<Vec<OsString>> {
+        let duplicate = unsafe { libc::dup(self.0.as_raw_fd()) };
+        if duplicate < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let directory = unsafe { libc::fdopendir(duplicate) };
+        if directory.is_null() {
+            let error = io::Error::last_os_error();
+            unsafe {
+                libc::close(duplicate);
+            }
+            return Err(error);
+        }
+        let mut names = Vec::new();
+        loop {
+            // POSIX requires errno to distinguish end-of-directory from an
+            // error. Rust libc exposes platform errno accessors separately.
+            set_errno_zero();
+            let entry = unsafe { libc::readdir(directory) };
+            if entry.is_null() {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().unwrap_or(0) != 0 {
+                    unsafe {
+                        libc::closedir(directory);
+                    }
+                    return Err(error);
+                }
+                break;
+            }
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+            if name != b"." && name != b".." {
+                names.push(OsString::from_vec(name.to_vec()));
+            }
+        }
+        if unsafe { libc::closedir(directory) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(names)
+    }
+
+    fn publish_immutable(&self, name: &str, bytes: &[u8], maximum: u64) -> io::Result<()> {
+        bounded_bytes(name, bytes, maximum)?;
+        match self.read_file(name, maximum) {
+            Ok(existing) if existing == bytes => return Ok(()),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!("immutable private file {name} already exists with different bytes"),
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let temporary = format!(".dmux-{}.tmp", Uuid::new_v4());
+        let result = (|| {
+            let mut file = self.open_file(
+                &temporary,
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+                0o600,
+            )?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+            validate_private_file(&temporary, &file.metadata()?, maximum)?;
+            let old = secure_component(&temporary)?;
+            let new = secure_component(name)?;
+            if unsafe {
+                libc::linkat(
+                    self.0.as_raw_fd(),
+                    old.as_ptr(),
+                    self.0.as_raw_fd(),
+                    new.as_ptr(),
+                    0,
+                )
+            } != 0
+            {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::AlreadyExists {
+                    let existing = self.read_file(name, maximum)?;
+                    if existing == bytes {
+                        self.unlink_name(&temporary)?;
+                        self.0.sync_all()?;
+                        return Ok(());
+                    }
+                }
+                return Err(error);
+            }
+            self.unlink_name(&temporary)?;
+            self.0.sync_all()?;
+            let actual = self.read_file(name, maximum)?;
+            if actual != bytes {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("immutable private file {name} differs after publication"),
+                ));
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = self.unlink_name(&temporary);
+        }
+        result
+    }
+
+    fn unlink_name(&self, name: &str) -> io::Result<()> {
+        let name = secure_component(name)?;
+        if unsafe { libc::unlinkat(self.0.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_errno_zero() {
+    unsafe {
+        *libc::__error() = 0;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_errno_zero() {
+    unsafe {
+        *libc::__errno_location() = 0;
+    }
+}
+
+fn secure_component(name: &str) -> io::Result<CString> {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unsafe private path component {name:?}"),
+        ));
+    }
+    CString::new(name).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private path component contains NUL",
+        )
+    })
+}
+
+fn validate_private_directory(path: &Path, metadata: &fs::Metadata) -> io::Result<()> {
+    let euid = unsafe { libc::geteuid() };
+    if !metadata.is_dir() || metadata.uid() != euid || metadata.mode() & 0o7777 != 0o700 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "private directory {} must be current-user-owned, non-symlink, and mode 0700",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_private_file(name: &str, metadata: &fs::Metadata, maximum: u64) -> io::Result<()> {
+    let euid = unsafe { libc::geteuid() };
+    if !metadata.is_file()
+        || metadata.uid() != euid
+        || metadata.mode() & 0o7777 != 0o600
+        || metadata.nlink() != 1
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "private file {name} must be current-user-owned, single-link, non-symlink, and mode 0600"
+            ),
+        ));
+    }
+    if metadata.len() > maximum {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("private file {name} exceeds {maximum} bytes"),
+        ));
+    }
+    Ok(())
+}
+
+fn bounded_bytes(name: &str, bytes: &[u8], maximum: u64) -> io::Result<()> {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > maximum {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("private file {name} exceeds {maximum} bytes"),
+        ));
+    }
+    Ok(())
+}
+
+fn private_file_fingerprint(
+    metadata: &fs::Metadata,
+) -> (u64, u64, u64, u32, u64, i64, i64, i64, i64) {
+    (
+        metadata.dev(),
+        metadata.ino(),
+        metadata.nlink(),
+        metadata.mode(),
+        metadata.len(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -771,16 +1347,23 @@ pub enum RecoveryAction {
     Prepare {
         nodes: Vec<RestoreNode>,
     },
-    RestoreNode {
+    CompareAndRestoreNode {
         node: RestoreNode,
         request_uid: Uuid,
         bootstrap_argv: Vec<String>,
+        expected_tree: NativeTreePrecondition,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_parent: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_existing: Option<CreatedNode>,
+        create_if_absent: bool,
     },
-    RemoveNode {
+    CompareAndRemoveNode {
         manifest_node_path: String,
         pane_id: String,
         tab_id: String,
         window_id: String,
+        expected_tree: NativeTreePrecondition,
     },
     Verify {
         expected_nodes: usize,
@@ -803,6 +1386,8 @@ pub struct RecoveryResponse {
     pub created: Option<CreatedNode>,
     #[serde(default)]
     pub removed: Option<RemovedNode>,
+    #[serde(default)]
+    pub existing_absent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -924,7 +1509,7 @@ pub fn inspect_recovery(
         });
     };
     let spool = RecoverySpool::new(runtime_dir, epoch);
-    let status = match read_json::<RecoveryStatus>(&spool.status) {
+    let status = match spool.read::<RecoveryStatus>(RecoverySpoolFile::Status) {
         Ok(status) => {
             if status.protocol_version != RECOVERY_PROTOCOL_VERSION
                 || status.backend_instance_uid != instance
@@ -990,7 +1575,7 @@ fn request_recovery_control(
     let (_spec, rows) = if let Some(unfinished) = unfinished {
         unfinished
     } else if action == RecoveryControlAction::Resume {
-        let status: RecoveryStatus = read_json(&spool.status).map_err(|error| {
+        let status: RecoveryStatus = spool.read(RecoverySpoolFile::Status).map_err(|error| {
             RecoveryError::Failed(format!(
                 "backend has no unfinished recovery generation and no failed completion sidecar: {error}"
             ))
@@ -1045,7 +1630,7 @@ fn request_recovery_control(
         requested_at: now_rfc3339(),
     };
     spool.prepare()?;
-    match read_json::<RecoveryControlRequest>(&spool.control) {
+    match spool.read::<RecoveryControlRequest>(RecoverySpoolFile::Control) {
         Ok(existing)
             if existing.protocol_version == RECOVERY_PROTOCOL_VERSION
                 && existing.action == action
@@ -1062,10 +1647,10 @@ fn request_recovery_control(
         Err(RecoveryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    match create_json_once(&spool.control, &request) {
+    match spool.create_once(RecoverySpoolFile::Control, &request) {
         Ok(()) => Ok(request),
         Err(RecoveryError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let existing: RecoveryControlRequest = read_json(&spool.control)?;
+            let existing: RecoveryControlRequest = spool.read(RecoverySpoolFile::Control)?;
             if existing.protocol_version == RECOVERY_PROTOCOL_VERSION
                 && existing.action == action
                 && existing.backend_instance_uid == instance
@@ -1090,66 +1675,42 @@ pub fn request_recovery_abort(
     request_recovery_control(config, runtime_dir, instance, RecoveryControlAction::Abort)
 }
 
-fn create_json_once(path: &Path, value: &impl Serialize) -> Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    serde_json::to_writer(&mut file, value)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    Ok(())
-}
-
-fn atomic_write_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let parent = path.parent().ok_or_else(|| {
-        RecoveryError::Io(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "JSON spool path has no parent",
-        ))
-    })?;
-    if !parent.exists() {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(parent)?;
-    }
-    let tmp = parent.join(format!(".{}.tmp", Uuid::new_v4()));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)?;
-    serde_json::to_writer(&mut file, value)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    fs::rename(&tmp, path)?;
-    Ok(())
-}
-
-fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
-    Ok(serde_json::from_reader(file)?)
-}
-
 fn wait_for_response(
-    path: &Path,
+    spool: &RecoverySpool,
     command: &RecoveryCommand,
     timeout: Duration,
 ) -> Result<RecoveryResponse> {
     let started = Instant::now();
     loop {
-        match read_json::<RecoveryResponse>(path) {
+        match spool.read::<RecoveryResponse>(RecoverySpoolFile::Response) {
             Ok(response) => {
+                // A killed coordinator may finish one in-process Lua action
+                // after its OFD lock/lease has been taken over. Its atomic
+                // response can therefore appear after the higher-fence
+                // coordinator published a new command. Leave that stale
+                // document in place for Lua's matching response to replace;
+                // deleting by pathname would race and could unlink the new
+                // response. The common deadline still bounds this wait.
+                if response.fencing_token < command.fencing_token {
+                    if started.elapsed() >= timeout {
+                        return Err(RecoveryError::TimedOut(format!(
+                            "only stale responses preceded sequence {}",
+                            command.sequence
+                        )));
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                if response.fencing_token > command.fencing_token {
+                    return Err(RecoveryError::FenceLost(format!(
+                        "response fence {} is newer than command fence {}",
+                        response.fencing_token, command.fencing_token
+                    )));
+                }
                 if response.protocol_version != RECOVERY_PROTOCOL_VERSION
                     || response.coordinator_uid != command.coordinator_uid
                     || response.generation_uid != command.generation_uid
                     || response.sequence != command.sequence
-                    || response.fencing_token != command.fencing_token
                 {
                     return Err(RecoveryError::Protocol(format!(
                         "response tuple does not match command generation={} sequence={} fence={}",
@@ -1268,12 +1829,30 @@ pub fn ensure_wez_backend_instance(
     socket: &Path,
     service_label: &str,
 ) -> Result<BackendInstanceUid> {
+    let fixed_socket = crate::runtime::dmux_runtime_dir()?.join(crate::runtime::WEZ_SOCKET_FILE);
+    if socket != fixed_socket {
+        return Err(RecoveryError::FenceLost(format!(
+            "managed Wez registration socket {} is not fixed service socket {}",
+            socket.display(),
+            fixed_socket.display()
+        )));
+    }
     let mut registry = Registry::open(config)?;
-    Ok(registry.register_backend_instance(
+    let socket_text = socket.to_string_lossy().into_owned();
+    let instance = registry.register_backend_instance(
         Backend::Wez,
-        Some(&socket.to_string_lossy()),
+        Some(&socket_text),
         Some(service_label),
-    )?)
+    )?;
+    let info = registry.backend_instance_info(instance)?;
+    if info.backend != Backend::Wez || info.socket_path.as_deref() != Some(socket_text.as_str()) {
+        return Err(RecoveryError::FenceLost(format!(
+            "managed Wez instance {} is not registered to fixed socket {}",
+            instance.0,
+            socket.display()
+        )));
+    }
+    Ok(instance)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1307,6 +1886,57 @@ pub struct SnapshotCapturePlan {
     pub spaces: Vec<SnapshotSpaceDescriptor>,
 }
 
+#[derive(Debug, Clone)]
+struct SnapshotNames {
+    candidate: String,
+    plan: String,
+    published: String,
+}
+
+fn snapshot_names(candidate_id: &str, expected_epoch: ServerEpoch) -> Result<SnapshotNames> {
+    let rest = candidate_id.strip_prefix(".capture-").ok_or_else(|| {
+        RecoveryError::Protocol("snapshot candidate ID has no .capture- prefix".into())
+    })?;
+    if rest.len() < 39 || !rest.is_char_boundary(36) {
+        return Err(RecoveryError::Protocol(
+            "snapshot candidate ID is truncated".into(),
+        ));
+    }
+    let epoch = &rest[..36];
+    let suffix = rest[36..].strip_prefix('-').ok_or_else(|| {
+        RecoveryError::Protocol("snapshot candidate ID omits timestamp separator".into())
+    })?;
+    let (unix, serial) = suffix
+        .split_once('-')
+        .ok_or_else(|| RecoveryError::Protocol("snapshot candidate ID omits serial".into()))?;
+    let parsed_epoch = epoch
+        .parse::<Uuid>()
+        .map_err(|error| RecoveryError::Protocol(format!("snapshot candidate epoch: {error}")))?;
+    let canonical_positive = |field: &str, value: &str| -> Result<u64> {
+        let parsed = value.parse::<u64>().map_err(|_| {
+            RecoveryError::Protocol(format!("snapshot candidate {field} is not an integer"))
+        })?;
+        if parsed == 0 || parsed.to_string() != value {
+            return Err(RecoveryError::Protocol(format!(
+                "snapshot candidate {field} is not canonical positive decimal"
+            )));
+        }
+        Ok(parsed)
+    };
+    canonical_positive("timestamp", unix)?;
+    canonical_positive("serial", serial)?;
+    if parsed_epoch != expected_epoch.0 || parsed_epoch.to_string() != epoch {
+        return Err(RecoveryError::Protocol(
+            "snapshot candidate ID does not carry the exact canonical server epoch".into(),
+        ));
+    }
+    Ok(SnapshotNames {
+        candidate: candidate_id.to_string(),
+        plan: format!("{candidate_id}.plan"),
+        published: format!("manifest-{rest}.json"),
+    })
+}
+
 /// Sidecar written only after the helper owns the snapshot fence.  The Lua
 /// owner must not inspect/capture the mux before this document exists.
 pub fn snapshot_capture_plan_path(candidate: &Path) -> PathBuf {
@@ -1321,22 +1951,98 @@ pub fn snapshot_capture_plan_path(candidate: &Path) -> PathBuf {
 pub fn publish_snapshot_manifest(
     config: RegistryConfig,
     instance: BackendInstanceUid,
-    candidate: &Path,
-    destination: &Path,
+    candidate_id: &str,
+    runtime_dir: &Path,
+    server_epoch: ServerEpoch,
+    server_pid: i64,
+    server_start_token: &str,
+) -> Result<SnapshotPublication> {
+    let manifest_dir = production_recovery_manifest_dir()?;
+    let authority = SnapshotAuthority {
+        runtime_dir: runtime_dir.to_path_buf(),
+        server_epoch,
+        server_pid,
+        server_start_token: server_start_token.to_string(),
+    };
+    verify_snapshot_authority(instance, &authority)?;
+    publish_snapshot_manifest_inner(
+        config,
+        instance,
+        candidate_id,
+        &manifest_dir,
+        server_epoch,
+        Some(&authority),
+    )
+}
+
+/// Explicit private-root seam for deterministic filesystem and snapshot
+/// protocol tests. The production hidden command never calls this function.
+#[doc(hidden)]
+pub fn publish_snapshot_manifest_for_test(
+    config: RegistryConfig,
+    instance: BackendInstanceUid,
+    candidate_id: &str,
+    manifest_dir: &Path,
+    server_epoch: ServerEpoch,
+) -> Result<SnapshotPublication> {
+    publish_snapshot_manifest_inner(
+        config,
+        instance,
+        candidate_id,
+        manifest_dir,
+        server_epoch,
+        None,
+    )
+}
+
+#[derive(Debug, Clone)]
+struct SnapshotAuthority {
+    runtime_dir: PathBuf,
+    server_epoch: ServerEpoch,
+    server_pid: i64,
+    server_start_token: String,
+}
+
+fn verify_snapshot_authority(
+    instance: BackendInstanceUid,
+    authority: &SnapshotAuthority,
+) -> Result<()> {
+    crate::runtime::verify_snapshot_service_authority(
+        &authority.runtime_dir,
+        instance.0,
+        authority.server_epoch.0,
+        authority.server_pid,
+        &authority.server_start_token,
+    )
+    .map(|_| ())
+    .map_err(|error| {
+        RecoveryError::FenceLost(format!(
+            "snapshot service authority was not proven: {error}"
+        ))
+    })
+}
+
+fn publish_snapshot_manifest_inner(
+    config: RegistryConfig,
+    instance: BackendInstanceUid,
+    candidate_id: &str,
+    manifest_dir: &Path,
+    expected_epoch: ServerEpoch,
+    authority: Option<&SnapshotAuthority>,
 ) -> Result<SnapshotPublication> {
     ensure_registry_only_environment()?;
-    if candidate.exists() {
-        return Err(RecoveryError::Protocol(format!(
-            "snapshot candidate {} must not exist before the capture fence",
-            candidate.display()
-        )));
-    }
-    let plan_path = snapshot_capture_plan_path(candidate);
-    if plan_path.exists() {
-        return Err(RecoveryError::Protocol(format!(
-            "snapshot plan sidecar {} already exists",
-            plan_path.display()
-        )));
+    let names = snapshot_names(candidate_id, expected_epoch)?;
+    let directory = open_private_leaf_dir(manifest_dir, true)?;
+    for name in [&names.candidate, &names.plan] {
+        match directory.read_file(name, MAX_RECOVERY_MANIFEST_BYTES) {
+            Ok(_) => {
+                return Err(RecoveryError::Protocol(format!(
+                    "snapshot private entry {name} already exists before the capture fence"
+                )));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
     let mut guard = InstanceLeaseGuard::acquire(
         config,
@@ -1347,6 +2053,9 @@ pub fn publish_snapshot_manifest(
     )?;
     let result = (|| {
         guard.fence()?;
+        if let Some(authority) = authority {
+            verify_snapshot_authority(instance, authority)?;
+        }
         let server = guard.registry.backend_server(instance)?;
         let epoch = server.server_epoch.ok_or_else(|| {
             RecoveryError::Failed(format!(
@@ -1354,6 +2063,12 @@ pub fn publish_snapshot_manifest(
                 instance.0
             ))
         })?;
+        if epoch != expected_epoch {
+            return Err(RecoveryError::FenceLost(format!(
+                "snapshot candidate epoch {} differs from registry epoch {}",
+                expected_epoch.0, epoch.0
+            )));
+        }
         if guard
             .registry
             .unfinished_recovery_for_instance(instance)?
@@ -1396,19 +2111,21 @@ pub fn publish_snapshot_manifest(
             owner_domain: "local".into(),
             spaces,
         };
-        atomic_write_json(&plan_path, &plan)?;
+        let mut plan_bytes = serde_json::to_vec(&plan)?;
+        plan_bytes.push(b'\n');
+        directory.create_once(&names.plan, &plan_bytes, MAX_RECOVERY_MANIFEST_BYTES)?;
 
         let started = Instant::now();
         let manifest = loop {
-            match read_json::<RecoveryManifest>(candidate) {
-                Ok(manifest) => break manifest,
-                Err(RecoveryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
+            match directory.read_file(&names.candidate, MAX_RECOVERY_MANIFEST_BYTES) {
+                Ok(bytes) => break serde_json::from_slice::<RecoveryManifest>(&bytes)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
             }
             if started.elapsed() >= DEFAULT_REPLY_TIMEOUT {
                 return Err(RecoveryError::TimedOut(format!(
                     "in-process owner did not publish snapshot candidate {}",
-                    candidate.display()
+                    names.candidate
                 )));
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -1485,23 +2202,30 @@ pub fn publish_snapshot_manifest(
                 diagnostics.join("; ")
             )));
         }
-        atomic_publish_manifest(destination, &manifest)?;
+        let mut manifest_bytes = serde_json::to_vec(&manifest)?;
+        manifest_bytes.push(b'\n');
+        directory.publish_immutable(
+            &names.published,
+            &manifest_bytes,
+            MAX_RECOVERY_MANIFEST_BYTES,
+        )?;
         Ok(SnapshotPublication {
             manifest_id: manifest.manifest_id.clone(),
             registry_revision: manifest.registry_revision,
-            destination: destination.to_path_buf(),
+            destination: manifest_dir.join(&names.published),
         })
     })();
     // Snapshot failures do not create a resumable generation.  Release its
     // database scope on every exit; the kernel lock remains held until after
     // this transition.
+    let cleanup_plan = directory.remove_file(&names.plan);
+    let cleanup_candidate = directory.remove_file(&names.candidate);
     let release = guard.release();
-    let _ = fs::remove_file(&plan_path);
-    let _ = fs::remove_file(candidate);
-    match (result, release) {
-        (Ok(value), Ok(())) => Ok(value),
-        (Err(error), _) => Err(error),
-        (Ok(_), Err(error)) => Err(error),
+    match (result, release, cleanup_plan, cleanup_candidate) {
+        (Ok(value), Ok(()), Ok(_), Ok(_)) => Ok(value),
+        (Err(error), _, _, _) => Err(error),
+        (Ok(_), Err(error), _, _) => Err(error),
+        (Ok(_), Ok(()), Err(error), _) | (Ok(_), Ok(()), Ok(_), Err(error)) => Err(error.into()),
     }
 }
 
@@ -1609,6 +2333,16 @@ pub struct RecoveryCoordinatorOptions {
     /// exercises real OS lock release and durable-lease takeover semantics.
     #[doc(hidden)]
     pub hard_stop_path: Option<PathBuf>,
+    /// Tests run an in-process mux under a scratch runtime and therefore
+    /// cannot be the direct child of the fixed production service. Production
+    /// construction is secure by default; only focused harnesses set this.
+    #[doc(hidden)]
+    pub skip_service_authority: bool,
+    /// Deterministic test seam for a mux descriptor/socket/process witness
+    /// changing after the initial child proof but before registry publish.
+    /// Production construction always leaves this false.
+    #[doc(hidden)]
+    pub fail_service_authority_after_lock: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1658,6 +2392,8 @@ impl RecoveryCoordinatorOptions {
             abort_failed: false,
             crash_point: None,
             hard_stop_path: None,
+            skip_service_authority: false,
+            fail_service_authority_after_lock: false,
         }
     }
 }
@@ -1706,18 +2442,18 @@ impl FileDriver<'_> {
             fencing_token,
             action,
         };
-        let _ = fs::remove_file(&self.spool.response);
-        atomic_write_json(&self.spool.command, &command)?;
+        self.spool.remove(RecoverySpoolFile::Response)?;
+        self.spool.write(RecoverySpoolFile::Command, &command)?;
         self.crash_if(RecoveryCrashPhase::AfterCommandPublish, &action_label);
-        let response = wait_for_response(&self.spool.response, &command, self.timeout)?;
+        let response = wait_for_response(self.spool, &command, self.timeout)?;
         self.crash_if(RecoveryCrashPhase::AfterResponseRead, &action_label);
         if !response.ok {
             return Err(RecoveryError::Failed(response.error.unwrap_or_else(|| {
                 format!("Lua rejected sequence {}", command.sequence)
             })));
         }
-        let _ = fs::remove_file(&self.spool.command);
-        let _ = fs::remove_file(&self.spool.response);
+        self.spool.remove(RecoverySpoolFile::Command)?;
+        self.spool.remove(RecoverySpoolFile::Response)?;
         Ok(response)
     }
 
@@ -1753,24 +2489,64 @@ fn recovery_action_label(action: &RecoveryAction) -> String {
     match action {
         RecoveryAction::Inspect => "inspect".into(),
         RecoveryAction::Prepare { .. } => "prepare".into(),
-        RecoveryAction::RestoreNode { node, .. } => {
+        RecoveryAction::CompareAndRestoreNode { node, .. } => {
             format!("restore:{}", node.manifest_node_path)
         }
-        RecoveryAction::RemoveNode {
+        RecoveryAction::CompareAndRemoveNode {
             manifest_node_path, ..
         } => format!("remove:{manifest_node_path}"),
         RecoveryAction::Verify { .. } => "verify".into(),
     }
 }
 
+fn verify_service_authority(
+    options: &RecoveryCoordinatorOptions,
+) -> Result<Option<crate::runtime::VerifiedWezServiceIdentity>> {
+    if options.skip_service_authority {
+        return Ok(None);
+    }
+    let fixed_manifests = production_recovery_manifest_dir()?;
+    if options.manifest_dir != fixed_manifests {
+        return Err(RecoveryError::FenceLost(format!(
+            "recovery manifest root {} is not fixed dmux state root {}",
+            options.manifest_dir.display(),
+            fixed_manifests.display()
+        )));
+    }
+    crate::runtime::verify_recovery_service_authority(
+        &options.runtime_dir,
+        options.backend_instance.0,
+        options.server_epoch.0,
+        options.server_pid,
+        &options.server_start_token,
+    )
+    .map(Some)
+    .map_err(|error| {
+        RecoveryError::FenceLost(format!(
+            "recovery service authority was not proven: {error}"
+        ))
+    })
+}
+
 pub fn run_recovery_coordinator(options: RecoveryCoordinatorOptions) -> Result<RecoveryRunReport> {
+    if !options.skip_service_authority
+        && (options.crash_point.is_some()
+            || options.hard_stop_path.is_some()
+            || options.fail_service_authority_after_lock)
+    {
+        return Err(RecoveryError::Protocol(
+            "recovery crash/authority injection seams require the explicit test authority bypass"
+                .into(),
+        ));
+    }
+    verify_service_authority(&options)?;
     let spool = RecoverySpool::new(&options.runtime_dir, options.server_epoch);
-    let result = run_recovery_coordinator_inner(options.clone());
+    let result = run_recovery_coordinator_inner(options.clone(), &spool);
     if let Err(error) = &result {
         // A handled error must become observable immediately.  Hard process
         // death deliberately cannot execute this path; the stale in-progress
         // status is what makes Lua start a fenced takeover helper.
-        let prior = read_json::<RecoveryStatus>(&spool.status).ok();
+        let prior = spool.read::<RecoveryStatus>(RecoverySpoolFile::Status).ok();
         if !prior
             .as_ref()
             .is_some_and(|status| status.state == RecoveryStatusState::Failed)
@@ -1799,6 +2575,7 @@ pub fn run_recovery_coordinator(options: RecoveryCoordinatorOptions) -> Result<R
 
 fn run_recovery_coordinator_inner(
     options: RecoveryCoordinatorOptions,
+    spool: &RecoverySpool,
 ) -> Result<RecoveryRunReport> {
     ensure_registry_only_environment()?;
     if options.resume_failed && options.abort_failed {
@@ -1816,7 +2593,6 @@ fn run_recovery_coordinator_inner(
             "pane-bootstrap path must be absolute".into(),
         ));
     }
-    let spool = RecoverySpool::new(&options.runtime_dir, options.server_epoch);
     spool.prepare()?;
 
     let mut guard = InstanceLeaseGuard::acquire(
@@ -1826,7 +2602,25 @@ fn run_recovery_coordinator_inner(
         options.request_uid,
         options.lease_ttl,
     )?;
-    publish_incarnation_if_needed(&mut guard, &options)?;
+    // The initial proof prevents arbitrary hidden-command invocations from
+    // touching recovery state. Repeat it while holding the exact backend
+    // fence: a legitimate coordinator can wait here long enough for its mux
+    // parent/socket/descriptor incarnation to die and be replaced.
+    let authority = if options.fail_service_authority_after_lock {
+        Err(RecoveryError::FenceLost(
+            "recovery service authority changed before registry publish (injected)".into(),
+        ))
+    } else {
+        verify_service_authority(&options)
+    };
+    let authority = match authority {
+        Ok(authority) => authority,
+        Err(error) => {
+            guard.release()?;
+            return Err(error);
+        }
+    };
+    publish_incarnation_if_needed(&mut guard, &options, authority.as_ref())?;
 
     // Two service/startup clients may race for one fresh server.  The second
     // must not delete the first coordinator's command while blocked on the
@@ -1834,7 +2628,7 @@ fn run_recovery_coordinator_inner(
     // ready.  The ready sidecar is trusted only for this exact incarnation
     // and only when the registry has no unfinished generation.
     if !options.abort_failed
-        && let Ok(prior) = read_json::<RecoveryStatus>(&spool.status)
+        && let Ok(prior) = spool.read::<RecoveryStatus>(RecoverySpoolFile::Status)
         && prior.protocol_version == RECOVERY_PROTOCOL_VERSION
         && prior.state == RecoveryStatusState::Ready
         && prior.backend_instance_uid == options.backend_instance
@@ -1855,7 +2649,7 @@ fn run_recovery_coordinator_inner(
             diagnostics: vec!["exact server incarnation was already recovery-ready".into()],
         });
     }
-    spool.clear_messages();
+    spool.clear_messages()?;
 
     let mut unfinished = guard
         .registry
@@ -2021,11 +2815,29 @@ fn run_recovery_coordinator_inner(
                 "completed-generation inspect omitted complete native snapshot".into(),
             )
         })?;
+        let floor = driver
+            .guard
+            .registry
+            .intentional_empty_revision(options.backend_instance)?;
+        let manifest = load_eligible_manifest_by_id(
+            &options.manifest_dir,
+            options.backend_instance,
+            floor,
+            &completed_spec.manifest_id,
+        )?
+        .ok_or_else(|| {
+            RecoveryError::InvalidManifest(format!(
+                "completed generation {} exact manifest {} is missing, corrupt, or ineligible",
+                completed_spec.generation_uid, completed_spec.manifest_id
+            ))
+        })?;
+        let nodes = manifest.restore_nodes();
         verify_completed_generation_snapshot(
             &driver.guard.registry,
             &snapshot,
             &completed_spec,
             &completed_rows,
+            &nodes,
         )?;
         write_ready_status(
             &spool,
@@ -2260,7 +3072,7 @@ fn run_recovery_coordinator_inner(
                 driver.guard.lease.fencing_token,
                 Some(node.manifest_node_path.clone()),
             )?;
-            restore_one_node(&mut driver, &options, &spec, node, &mut created)?;
+            restore_one_node(&mut driver, &options, &spec, &nodes, node, &mut created)?;
         }
         let verified = driver.exchange(RecoveryAction::Verify {
             expected_nodes: nodes.len(),
@@ -2377,6 +3189,15 @@ fn run_recovery_abort(
             .registry
             .bootstrap_request(request_uid)?
             .ok_or_else(|| RecoveryError::Protocol(format!("bootstrap {request_uid} missing")))?;
+        // Each deletion is native-ID-dependent. Refresh the complete tree on
+        // the current fence immediately before resolving those IDs so a
+        // moved target or an out-of-band pane cannot be acted on from the
+        // older initial/post-previous snapshot.
+        let inspected = driver.exchange(RecoveryAction::Inspect)?;
+        snapshot = inspected.snapshot.ok_or_else(|| {
+            RecoveryError::Protocol("pre-remove inspect omitted complete native snapshot".into())
+        })?;
+        validate_recovery_snapshot(&driver.guard.registry, &snapshot, &spec, &rows)?;
         let recorded = request
             .returned_native_ids
             .as_deref()
@@ -2400,11 +3221,12 @@ fn run_recovery_abort(
             parse_native_id(&target.pane_id, "pane ID")?;
             parse_native_id(&target.tab_id, "tab ID")?;
             parse_native_id(&target.window_id, "window ID")?;
-            let response = driver.exchange(RecoveryAction::RemoveNode {
+            let response = driver.exchange(RecoveryAction::CompareAndRemoveNode {
                 manifest_node_path: row.manifest_node_path.clone(),
                 pane_id: target.pane_id.clone(),
                 tab_id: target.tab_id.clone(),
                 window_id: target.window_id.clone(),
+                expected_tree: snapshot.tree_precondition(),
             })?;
             let removed = response.removed.ok_or_else(|| {
                 RecoveryError::Protocol(format!(
@@ -2587,19 +3409,58 @@ fn validate_removed_node(removed: &RemovedNode, target: &CreatedNode) -> Result<
 fn publish_incarnation_if_needed(
     guard: &mut InstanceLeaseGuard,
     options: &RecoveryCoordinatorOptions,
+    authority: Option<&crate::runtime::VerifiedWezServiceIdentity>,
 ) -> Result<()> {
+    if authority.is_some() {
+        let info = guard
+            .registry
+            .backend_instance_info(options.backend_instance)?;
+        let fixed_socket = options
+            .runtime_dir
+            .join(crate::runtime::WEZ_SOCKET_FILE)
+            .to_string_lossy()
+            .into_owned();
+        if info.backend != Backend::Wez
+            || info.socket_path.as_deref() != Some(fixed_socket.as_str())
+        {
+            return Err(RecoveryError::FenceLost(format!(
+                "managed Wez instance {} is not bound to fixed socket {}",
+                options.backend_instance.0, fixed_socket
+            )));
+        }
+    }
     let current = guard.registry.backend_server(options.backend_instance)?;
+    let (pid, start_token, socket_dev, socket_ino) = match authority {
+        Some(authority) => (
+            i64::from(authority.pid),
+            authority.start_token.as_str(),
+            Some(i64::try_from(authority.socket_dev).map_err(|_| {
+                RecoveryError::Protocol("verified socket device exceeds registry integer".into())
+            })?),
+            Some(i64::try_from(authority.socket_ino).map_err(|_| {
+                RecoveryError::Protocol("verified socket inode exceeds registry integer".into())
+            })?),
+        ),
+        None => (
+            options.server_pid,
+            options.server_start_token.as_str(),
+            current.socket_dev,
+            current.socket_ino,
+        ),
+    };
     let exact = current.server_epoch == Some(options.server_epoch)
-        && current.server_pid == Some(options.server_pid)
-        && current.server_start_token.as_deref() == Some(options.server_start_token.as_str());
+        && current.server_pid == Some(pid)
+        && current.server_start_token.as_deref() == Some(start_token)
+        && current.socket_dev == socket_dev
+        && current.socket_ino == socket_ino;
     if !exact {
         guard.registry.publish_backend_server(
             options.backend_instance,
             options.server_epoch,
-            Some(options.server_pid),
-            Some(&options.server_start_token),
-            None,
-            None,
+            Some(pid),
+            Some(start_token),
+            socket_dev,
+            socket_ino,
         )?;
     }
     Ok(())
@@ -2611,14 +3472,24 @@ fn load_eligible_manifest_by_id(
     floor: Option<u64>,
     manifest_id: &str,
 ) -> Result<Option<RecoveryManifest>> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
+    let directory = match open_private_leaf_dir(dir, false) {
+        Ok(directory) => directory,
+        Err(RecoveryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
     };
-    for entry in entries {
-        let path = entry?.path();
-        let Ok(manifest) = read_json::<RecoveryManifest>(&path) else {
+    for os_name in directory.names()? {
+        let Some(name) = os_name.to_str() else {
+            continue;
+        };
+        if !(name.ends_with(".json") || name.ends_with(".json.bak")) {
+            continue;
+        }
+        let Ok(bytes) = directory.read_file(name, MAX_RECOVERY_MANIFEST_BYTES) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_slice::<RecoveryManifest>(&bytes) else {
             continue;
         };
         if manifest.manifest_id != manifest_id || manifest.validate(instance).is_err() {
@@ -2700,6 +3571,7 @@ fn restore_one_node(
     driver: &mut FileDriver<'_>,
     options: &RecoveryCoordinatorOptions,
     spec: &RecoveryGenerationSpec,
+    manifest_nodes: &[RestoreNode],
     node: &RestoreNode,
     created_map: &mut BTreeMap<String, CreatedNode>,
 ) -> Result<()> {
@@ -2750,16 +3622,50 @@ fn restore_one_node(
                 node.manifest_node_path
             ))
         })?;
-        let response = driver.exchange(RecoveryAction::Inspect)?;
-        let snapshot = response.snapshot.ok_or_else(|| {
-            RecoveryError::Protocol("reconciliation inspect omitted snapshot".into())
+        let expected_parent = native_parent(node, created_map)?;
+        let precondition = capture_restore_precondition(
+            driver,
+            options,
+            spec,
+            manifest_nodes,
+            node,
+            request_uid,
+            created_map,
+            true,
+        )?;
+        let response = driver.exchange(RecoveryAction::CompareAndRestoreNode {
+            node: node.clone(),
+            request_uid,
+            bootstrap_argv: Vec::new(),
+            expected_tree: precondition.tree,
+            expected_parent,
+            expected_existing: precondition.existing.clone(),
+            create_if_absent: false,
         })?;
-        if let Some(created) =
-            reconcile_bootstrap(driver, options, spec, node, request_uid, &snapshot)?
-        {
+        if let Some(created) = response.created {
+            let expected = precondition.existing.ok_or_else(|| {
+                RecoveryError::Protocol(format!(
+                    "reconcile response unexpectedly found node {}",
+                    node.manifest_node_path
+                ))
+            })?;
+            if !same_created_native_id(&expected, &created) {
+                return Err(RecoveryError::Protocol(format!(
+                    "reconcile response changed native IDs for {}",
+                    node.manifest_node_path
+                )));
+            }
+            complete_reconciled_bootstrap(driver, options, spec, node, request_uid, &created)?;
             created_map.insert(node.manifest_node_path.clone(), created);
             return Ok(());
         }
+        if precondition.existing.is_some() || !response.existing_absent {
+            return Err(RecoveryError::Protocol(format!(
+                "reconcile response for {} proved neither its exact existing pane nor absence",
+                node.manifest_node_path
+            )));
+        }
+        retire_absent_bootstrap(driver, options, spec, node, request_uid)?;
         row = recovery_row(
             &driver.guard.registry,
             spec.generation_uid,
@@ -2782,7 +3688,7 @@ fn restore_one_node(
         space_uid: Some(node.space_uid),
         backend_instance: options.backend_instance,
         server_epoch: options.server_epoch,
-        intended_parent,
+        intended_parent: intended_parent.clone(),
         recovery_generation: Some(spec.generation_uid.to_string()),
         manifest_node_path: Some(node.manifest_node_path.clone()),
     }))?;
@@ -2796,7 +3702,22 @@ fn restore_one_node(
         Some(request_uid),
         &driver.guard.lease,
     )?;
-    let response = driver.exchange(RecoveryAction::RestoreNode {
+    // Capture and validate the exact partial tree, then carry that canonical
+    // projection into the mutating Lua callback. Lua compares a fresh raw
+    // mux projection and creates without yielding; an out-of-band mutation
+    // in the former Inspect -> RestoreNode gap is therefore rejected before
+    // the native side effect.
+    let precondition = capture_restore_precondition(
+        driver,
+        options,
+        spec,
+        manifest_nodes,
+        node,
+        request_uid,
+        created_map,
+        false,
+    )?;
+    let response = driver.exchange(RecoveryAction::CompareAndRestoreNode {
         node: node.clone(),
         request_uid,
         bootstrap_argv: bootstrap::helper_argv(
@@ -2804,7 +3725,17 @@ fn restore_one_node(
             request_uid,
             &options.default_program,
         ),
+        expected_tree: precondition.tree,
+        expected_parent: intended_parent,
+        expected_existing: None,
+        create_if_absent: true,
     })?;
+    if response.existing_absent {
+        return Err(RecoveryError::Protocol(format!(
+            "create response for {} reported an absent reconcile",
+            node.manifest_node_path
+        )));
+    }
     let created = response.created.ok_or_else(|| {
         RecoveryError::Protocol(format!(
             "restore response for {} omitted created IDs",
@@ -2834,6 +3765,113 @@ fn restore_one_node(
     )?;
     created_map.insert(node.manifest_node_path.clone(), created);
     Ok(())
+}
+
+struct RestorePrecondition {
+    tree: NativeTreePrecondition,
+    existing: Option<CreatedNode>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_restore_precondition(
+    driver: &mut FileDriver<'_>,
+    options: &RecoveryCoordinatorOptions,
+    spec: &RecoveryGenerationSpec,
+    manifest_nodes: &[RestoreNode],
+    node: &RestoreNode,
+    request_uid: Uuid,
+    expected_created: &BTreeMap<String, CreatedNode>,
+    allow_existing: bool,
+) -> Result<RestorePrecondition> {
+    let inspected = driver.exchange(RecoveryAction::Inspect)?;
+    let snapshot = inspected.snapshot.ok_or_else(|| {
+        RecoveryError::Protocol("pre-restore inspect omitted complete native snapshot".into())
+    })?;
+    let rows = driver.guard.registry.recovery_rows(spec.generation_uid)?;
+    validate_recovery_snapshot(&driver.guard.registry, &snapshot, spec, &rows)?;
+    let live_created = completed_native_map(&driver.guard.registry, &snapshot, spec)?;
+    if !same_created_native_ids(expected_created, &live_created) {
+        return Err(RecoveryError::InvalidSnapshot(
+            "pre-restore completed native IDs differ from the coordinator's exact partial tree"
+                .into(),
+        ));
+    }
+    validate_bootstrap_identity(
+        &driver.guard.registry,
+        request_uid,
+        spec,
+        &node.manifest_node_path,
+    )?;
+    let request = driver
+        .guard
+        .registry
+        .bootstrap_request(request_uid)?
+        .ok_or_else(|| RecoveryError::Protocol(format!("bootstrap {request_uid} missing")))?;
+    let reserved = panes_with_title(&snapshot, &bootstrap::reserved_title(request_uid));
+    let running = panes_with_title(&snapshot, &bootstrap::run_title(request_uid));
+    if reserved.len() + running.len() > 1 {
+        return Err(RecoveryError::Protocol(format!(
+            "bootstrap {request_uid} has multiple native panes"
+        )));
+    }
+    let titled = reserved.first().or_else(|| running.first()).cloned();
+    let recorded = recorded_created_node(request_uid, request.returned_native_ids.as_deref())?
+        .map(|recorded| live_created_node(&snapshot, request_uid, &recorded))
+        .transpose()?
+        .flatten();
+    if let (Some(titled), Some(recorded)) = (&titled, &recorded)
+        && !same_created_native_id(titled, recorded)
+    {
+        return Err(RecoveryError::Protocol(format!(
+            "bootstrap {request_uid} title and recorded IDs disagree"
+        )));
+    }
+    let existing = titled.or(recorded);
+    if existing.is_some() && !allow_existing {
+        return Err(RecoveryError::NonEmpty(format!(
+            "fresh node {} already has a recovery pane",
+            node.manifest_node_path
+        )));
+    }
+    let mut exact_created = live_created;
+    if let Some(existing) = &existing {
+        exact_created.insert(node.manifest_node_path.clone(), existing.clone());
+    }
+    let completed_nodes = manifest_nodes
+        .iter()
+        .filter(|node| exact_created.contains_key(&node.manifest_node_path))
+        .cloned()
+        .collect::<Vec<_>>();
+    verify_final_snapshot(
+        &snapshot,
+        options.server_epoch,
+        &completed_nodes,
+        &exact_created,
+    )?;
+    Ok(RestorePrecondition {
+        tree: snapshot.tree_precondition(),
+        existing,
+    })
+}
+
+fn same_created_native_ids(
+    expected: &BTreeMap<String, CreatedNode>,
+    actual: &BTreeMap<String, CreatedNode>,
+) -> bool {
+    expected.len() == actual.len()
+        && expected.iter().all(|(path, expected)| {
+            actual.get(path).is_some_and(|actual| {
+                actual.window_id == expected.window_id
+                    && actual.tab_id == expected.tab_id
+                    && actual.pane_id == expected.pane_id
+            })
+        })
+}
+
+fn same_created_native_id(expected: &CreatedNode, actual: &CreatedNode) -> bool {
+    expected.window_id == actual.window_id
+        && expected.tab_id == actual.tab_id
+        && expected.pane_id == actual.pane_id
 }
 
 fn native_parent(
@@ -2880,52 +3918,35 @@ fn native_parent(
     }
 }
 
-fn reconcile_bootstrap(
+fn complete_reconciled_bootstrap(
     driver: &mut FileDriver<'_>,
     options: &RecoveryCoordinatorOptions,
     spec: &RecoveryGenerationSpec,
     node: &RestoreNode,
     request_uid: Uuid,
-    snapshot: &NativeSnapshot,
-) -> Result<Option<CreatedNode>> {
+    created: &CreatedNode,
+) -> Result<()> {
     validate_bootstrap_identity(
         &driver.guard.registry,
         request_uid,
         spec,
         &node.manifest_node_path,
     )?;
-    let reserved = panes_with_title(snapshot, &bootstrap::reserved_title(request_uid));
-    let running = panes_with_title(snapshot, &bootstrap::run_title(request_uid));
-    if reserved.len() + running.len() > 1 {
-        boot(
-            driver
-                .guard
-                .registry
-                .bootstrap_state(request_uid, BootstrapState::Conflict),
-        )?;
-        return Err(RecoveryError::Protocol(format!(
-            "bootstrap {request_uid} has multiple native panes"
-        )));
-    }
-    if let Some(created) = running.first().cloned() {
+    let request = driver
+        .guard
+        .registry
+        .bootstrap_request(request_uid)?
+        .ok_or_else(|| RecoveryError::Protocol(format!("bootstrap {request_uid} vanished")))?;
+    if matches!(
+        request.state,
+        BootstrapState::Correlated | BootstrapState::Acked | BootstrapState::Completed
+    ) {
         complete_bootstrap_from_running(
             &mut driver.guard.registry,
             &options.runtime_dir,
             request_uid,
         )?;
-        driver.guard.fence()?;
-        driver.guard.registry.transition_recovery_node(
-            spec.generation_uid,
-            &node.manifest_node_path,
-            RecoveryNodeState::Restoring,
-            RecoveryNodeState::Completed,
-            Some(request_uid),
-            &driver.guard.lease,
-        )?;
-        return Ok(Some(created));
-    }
-    if let Some(created) = reserved.first().cloned() {
-        driver.guard.fence()?;
+    } else {
         let paths = bootstrap::BootstrapPaths::new(&options.runtime_dir, request_uid);
         finish_bootstrap(
             &mut driver.guard.registry,
@@ -2933,19 +3954,28 @@ fn reconcile_bootstrap(
             node,
             request_uid,
             &paths,
-            &created,
+            created,
         )?;
-        driver.guard.registry.transition_recovery_node(
-            spec.generation_uid,
-            &node.manifest_node_path,
-            RecoveryNodeState::Restoring,
-            RecoveryNodeState::Completed,
-            Some(request_uid),
-            &driver.guard.lease,
-        )?;
-        return Ok(Some(created));
     }
+    driver.guard.fence()?;
+    driver.guard.registry.transition_recovery_node(
+        spec.generation_uid,
+        &node.manifest_node_path,
+        RecoveryNodeState::Restoring,
+        RecoveryNodeState::Completed,
+        Some(request_uid),
+        &driver.guard.lease,
+    )?;
+    Ok(())
+}
 
+fn retire_absent_bootstrap(
+    driver: &mut FileDriver<'_>,
+    options: &RecoveryCoordinatorOptions,
+    spec: &RecoveryGenerationSpec,
+    node: &RestoreNode,
+    request_uid: Uuid,
+) -> Result<()> {
     let request = driver
         .guard
         .registry
@@ -2972,7 +4002,7 @@ fn reconcile_bootstrap(
         &options.runtime_dir,
         request_uid,
     ));
-    Ok(None)
+    Ok(())
 }
 
 fn finish_bootstrap(
@@ -3373,6 +4403,7 @@ fn verify_completed_generation_snapshot(
     snapshot: &NativeSnapshot,
     spec: &RecoveryGenerationSpec,
     rows: &[RecoveryJournalRow],
+    nodes: &[RestoreNode],
 ) -> Result<()> {
     validate_recovery_snapshot(registry, snapshot, spec, rows)?;
     for row in rows
@@ -3392,22 +4423,7 @@ fn verify_completed_generation_snapshot(
         }
     }
     let completed = completed_native_map(registry, snapshot, spec)?;
-    let expected = completed
-        .values()
-        .map(|node| node.pane_id.as_str())
-        .collect::<BTreeSet<_>>();
-    let sentinel_workspace = format!("dmux:system:{}", spec.server_epoch.0);
-    let live = snapshot
-        .panes()
-        .filter(|(window, _, _)| window.workspace != sentinel_workspace)
-        .map(|(_, _, pane)| pane.pane_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if live != expected {
-        return Err(RecoveryError::InvalidSnapshot(
-            "completed generation native pane set does not exactly match its journal".into(),
-        ));
-    }
-    Ok(())
+    verify_final_snapshot(snapshot, spec.server_epoch, nodes, &completed)
 }
 
 fn verify_final_snapshot(
@@ -3418,6 +4434,29 @@ fn verify_final_snapshot(
 ) -> Result<()> {
     snapshot.validate_complete(epoch)?;
     let sentinel_workspace = format!("dmux:system:{}", epoch.0);
+    let sentinel_windows = snapshot
+        .windows
+        .iter()
+        .filter(|window| window.workspace == sentinel_workspace)
+        .collect::<Vec<_>>();
+    if sentinel_windows.len() != 1
+        || sentinel_windows[0].tabs.len() != 1
+        || sentinel_windows[0].tabs[0].panes.len() != 1
+    {
+        return Err(RecoveryError::InvalidSnapshot(format!(
+            "final tree sentinel topology is {}/{}/{} instead of one window/tab/pane",
+            sentinel_windows.len(),
+            sentinel_windows
+                .iter()
+                .map(|window| window.tabs.len())
+                .sum::<usize>(),
+            sentinel_windows
+                .iter()
+                .flat_map(|window| &window.tabs)
+                .map(|tab| tab.panes.len())
+                .sum::<usize>()
+        )));
+    }
     let sentinels = snapshot
         .panes()
         .filter(|(window, _, _)| window.workspace == sentinel_workspace)
@@ -3433,6 +4472,16 @@ fn verify_final_snapshot(
             snapshot.panes().count(),
             nodes.len()
         )));
+    }
+    let expected_paths = nodes
+        .iter()
+        .map(|node| node.manifest_node_path.as_str())
+        .collect::<BTreeSet<_>>();
+    let created_paths = created.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    if created_paths != expected_paths {
+        return Err(RecoveryError::InvalidSnapshot(
+            "final recovery native-node paths differ from the exact manifest".into(),
+        ));
     }
     for (window, _, pane) in snapshot.panes() {
         if window.workspace == sentinel_workspace {
@@ -3472,15 +4521,135 @@ fn verify_final_snapshot(
         .iter()
         .map(|node| node.opaque_key.as_str())
         .collect::<BTreeSet<_>>();
+    for window in &snapshot.windows {
+        if window.workspace != sentinel_workspace && !spaces.contains(window.workspace.as_str()) {
+            return Err(RecoveryError::InvalidSnapshot(format!(
+                "final recovery tree contains unexpected workspace {:?}",
+                window.workspace
+            )));
+        }
+    }
     for key in spaces {
         let windows = snapshot
             .windows
             .iter()
             .filter(|window| window.workspace == key)
-            .count();
-        if windows != 1 {
+            .collect::<Vec<_>>();
+        if windows.len() != 1 {
             return Err(RecoveryError::InvalidSnapshot(format!(
-                "restored Space {key:?} has {windows} windows"
+                "restored Space {key:?} has {} windows",
+                windows.len()
+            )));
+        }
+        let window = windows[0];
+        let space_nodes = nodes
+            .iter()
+            .filter(|node| node.opaque_key == key)
+            .collect::<Vec<_>>();
+        let roots = space_nodes
+            .iter()
+            .copied()
+            .filter(|node| node.operation == RestoreOperation::SpaceRoot)
+            .collect::<Vec<_>>();
+        if roots.len() != 1 || roots[0].group_index != 1 {
+            return Err(RecoveryError::InvalidSnapshot(format!(
+                "restored Space {key:?} has {} Space roots",
+                roots.len()
+            )));
+        }
+        let root_native = created
+            .get(&roots[0].manifest_node_path)
+            .expect("created path set was checked above");
+        if window.window_id != root_native.window_id {
+            return Err(RecoveryError::InvalidSnapshot(format!(
+                "restored Space {key:?} window differs from its Space root"
+            )));
+        }
+
+        let group_indexes = space_nodes
+            .iter()
+            .map(|node| node.group_index)
+            .collect::<BTreeSet<_>>();
+        let mut expected_tabs = BTreeMap::<String, BTreeSet<String>>::new();
+        for group_index in group_indexes {
+            let group_nodes = space_nodes
+                .iter()
+                .copied()
+                .filter(|node| node.group_index == group_index)
+                .collect::<Vec<_>>();
+            let group_roots = group_nodes
+                .iter()
+                .copied()
+                .filter(|node| {
+                    node.operation
+                        == if group_index == 1 {
+                            RestoreOperation::SpaceRoot
+                        } else {
+                            RestoreOperation::GroupRoot
+                        }
+                })
+                .collect::<Vec<_>>();
+            if group_roots.len() != 1 {
+                return Err(RecoveryError::InvalidSnapshot(format!(
+                    "restored Space {key:?} Group {group_index} has {} roots",
+                    group_roots.len()
+                )));
+            }
+            let group_native = created
+                .get(&group_roots[0].manifest_node_path)
+                .expect("created path set was checked above");
+            if group_native.window_id != root_native.window_id {
+                return Err(RecoveryError::InvalidSnapshot(format!(
+                    "restored Space {key:?} Group {group_index} crossed windows"
+                )));
+            }
+            let mut panes = BTreeSet::new();
+            for node in group_nodes {
+                let native = created
+                    .get(&node.manifest_node_path)
+                    .expect("created path set was checked above");
+                if native.window_id != root_native.window_id
+                    || native.tab_id != group_native.tab_id
+                    || !panes.insert(native.pane_id.clone())
+                {
+                    return Err(RecoveryError::InvalidSnapshot(format!(
+                        "restored Space {key:?} Group {group_index} has invalid parent topology"
+                    )));
+                }
+            }
+            if expected_tabs
+                .insert(group_native.tab_id.clone(), panes)
+                .is_some()
+            {
+                return Err(RecoveryError::InvalidSnapshot(format!(
+                    "restored Space {key:?} maps multiple Groups to tab {}",
+                    group_native.tab_id
+                )));
+            }
+        }
+        if window.tabs.len() != expected_tabs.len() {
+            return Err(RecoveryError::InvalidSnapshot(format!(
+                "restored Space {key:?} has {} tabs, expected {} Groups",
+                window.tabs.len(),
+                expected_tabs.len()
+            )));
+        }
+        let actual_tabs = window
+            .tabs
+            .iter()
+            .map(|tab| {
+                (
+                    tab.tab_id.clone(),
+                    tab.panes
+                        .iter()
+                        .map(|pane| pane.pane_id.clone())
+                        .collect::<BTreeSet<_>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        if actual_tabs != expected_tabs {
+            return Err(RecoveryError::InvalidSnapshot(format!(
+                "restored Space {key:?} tab/pane topology differs from the manifest"
             )));
         }
     }
@@ -3488,7 +4657,7 @@ fn verify_final_snapshot(
 }
 
 fn write_status(spool: &RecoverySpool, status: RecoveryStatus) -> Result<()> {
-    atomic_write_json(&spool.status, &status)
+    spool.write(RecoverySpoolFile::Status, &status)
 }
 
 fn write_recovering_status(
@@ -3652,4 +4821,123 @@ fn fail_generation(
     let _ = mark_generation_failed(driver, spec);
     let _ = write_failed_status(spool, options, Some(spec), &message);
     Err(RecoveryError::Failed(message))
+}
+
+#[cfg(test)]
+mod secure_incarnation_tests {
+    use super::*;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    use std::os::unix::net::UnixListener;
+
+    #[test]
+    fn verified_witness_populates_fresh_registry_incarnation_for_strict_reader() {
+        let scratch = tempfile::tempdir().unwrap();
+        let runtime = scratch.path().join("runtime");
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let socket = runtime.join(crate::runtime::WEZ_SOCKET_FILE);
+        let _listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let socket_metadata = fs::symlink_metadata(&socket).unwrap();
+        let pid = std::process::id();
+        let start_token = crate::runtime::process_start_token_for_pid(pid).unwrap();
+        let boot_id = crate::runtime::current_boot_id().unwrap();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        let config = RegistryConfig::new(
+            scratch.path().join("registry.sqlite3"),
+            scratch.path().join("locks"),
+        );
+        let mut registry = Registry::open(config.clone()).unwrap();
+        let instance = registry
+            .register_backend_instance(
+                Backend::Wez,
+                Some(socket.to_str().unwrap()),
+                Some("test-service"),
+            )
+            .unwrap();
+        assert_eq!(
+            registry.backend_server(instance).unwrap(),
+            crate::registry::BackendServerRecord {
+                server_epoch: None,
+                server_pid: None,
+                server_start_token: None,
+                socket_dev: None,
+                socket_ino: None,
+            }
+        );
+        drop(registry);
+
+        let options = RecoveryCoordinatorOptions::new(
+            config.clone(),
+            runtime.clone(),
+            scratch.path().join("manifests"),
+            instance,
+            epoch,
+            i64::from(pid),
+            start_token.clone(),
+            "/test-only/pane-bootstrap".into(),
+        );
+        let witness = crate::runtime::VerifiedWezServiceIdentity {
+            pid,
+            start_token: start_token.clone(),
+            boot_id: boot_id.clone(),
+            socket_dev: socket_metadata.dev(),
+            socket_ino: socket_metadata.ino(),
+        };
+        let mut guard = InstanceLeaseGuard::acquire(
+            config.clone(),
+            instance,
+            LeaseScope::Recovery(instance),
+            Uuid::new_v4(),
+            DEFAULT_LEASE_TTL,
+        )
+        .unwrap();
+        publish_incarnation_if_needed(&mut guard, &options, Some(&witness)).unwrap();
+        guard.release().unwrap();
+
+        let registry = Registry::open(config).unwrap();
+        let published = registry.backend_server(instance).unwrap();
+        assert_eq!(published.server_epoch, Some(epoch));
+        assert_eq!(published.server_pid, Some(i64::from(pid)));
+        assert_eq!(
+            published.server_start_token.as_deref(),
+            Some(start_token.as_str())
+        );
+        assert_eq!(published.socket_dev, Some(socket_metadata.dev() as i64));
+        assert_eq!(published.socket_ino, Some(socket_metadata.ino() as i64));
+
+        let descriptor_path = runtime.join(crate::runtime::WEZ_DESCRIPTOR_FILE);
+        fs::write(
+            &descriptor_path,
+            serde_json::to_vec(&serde_json::json!({
+                "descriptor_version": 1,
+                "state": "ready",
+                "epoch": epoch.0,
+                "pid": pid,
+                "socket": socket,
+                "start_token": start_token,
+                "boot_id": boot_id,
+                "socket_dev": socket_metadata.dev(),
+                "socket_ino": socket_metadata.ino(),
+                "backend_instance_uid": instance.0,
+                "boot_nonce": Uuid::new_v4(),
+                "sentinel_window_id": 0,
+                "sentinel_tab_id": 0,
+                "sentinel_pane_id": 0,
+                "sentinel_fallback": false,
+                "written_by": "mux-startup",
+                "written_at": "2026-08-17T00:00:00Z",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&descriptor_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let verified = crate::runtime::read_verified_ready_wez_descriptor_in(
+            &runtime,
+            Some(instance.0),
+            Some(epoch.0),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(verified.pid, pid);
+    }
 }

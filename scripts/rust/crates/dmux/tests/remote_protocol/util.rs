@@ -4,6 +4,7 @@
 //! against the REAL built binary.
 
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
@@ -26,11 +27,16 @@ pub struct Scratch {
 impl Scratch {
     /// Owner environment only — no tmux server.
     pub fn new(_tag: &str) -> Scratch {
-        Scratch {
+        let scratch = Scratch {
             data: tempfile::tempdir().unwrap(),
             locks: tempfile::tempdir().unwrap(),
             ns: None,
-        }
+        };
+        std::fs::set_permissions(scratch.data.path(), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        std::fs::set_permissions(scratch.locks.path(), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        scratch
     }
 
     /// Owner environment with a scratch tmux server (`-L` namespace) whose

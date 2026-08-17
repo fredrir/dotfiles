@@ -68,7 +68,7 @@ local function mux_window(id, name, tabs)
   }
 end
 local target_window = mux_window(5, workspace, { tab })
-local function sentinel_window_for(domain_name)
+local function sentinel_window_for(domain_name, sentinel_epoch)
   local sentinel_pane = {
     get_domain_name = function()
       return domain_name
@@ -79,7 +79,7 @@ local function sentinel_window_for(domain_name)
       return { sentinel_pane }
     end,
   }
-  return mux_window(6, 'dmux:system:' .. epoch, { sentinel_tab })
+  return mux_window(6, 'dmux:system:' .. (sentinel_epoch or epoch), { sentinel_tab })
 end
 local sentinel_window = sentinel_window_for 'dmux-b-usb'
 
@@ -97,7 +97,9 @@ local function domain(name, state)
   function value:detach()
     self.detaches = self.detaches + 1
     self.current = 'Detached'
-    self.panes = false
+    if not self.delay_detach then
+      self.panes = false
+    end
   end
   function value:state()
     return self.current
@@ -137,6 +139,10 @@ local mux = {
 local scheduled = {}
 local performed = {}
 local managed_hides = 0
+local managed_quits = 0
+local completion_error
+local completion_calls = {}
+local logged_errors = {}
 local gui_pane = {}
 local gui_window = {
   active_pane = function()
@@ -163,7 +169,7 @@ local fake_wezterm = {
     end,
   },
   log_error = function(message)
-    error(message)
+    table.insert(logged_errors, message)
   end,
   mux = mux,
   target_triple = 'aarch64-apple-darwin',
@@ -178,6 +184,56 @@ package.preload.wezterm = function()
 end
 
 local presentation = require 'wez.dmux_bridge.presentation'
+local secure_bridge = {
+  identity = function()
+    return {
+      gui_instance = 'gui-42-cafe',
+      pid = 42,
+      process_start_token = 'start-token',
+    }
+  end,
+  resident_brokered = function()
+    return true
+  end,
+  complete_safe_lifecycle = function(_, uid, action)
+    if completion_error then
+      error(completion_error)
+    end
+    table.insert(completion_calls, { uid = uid, action = action })
+    if action == 'hide' then
+      managed_hides = managed_hides + 1
+    else
+      managed_quits = managed_quits + 1
+    end
+    return true
+  end,
+}
+local raw_dispatch = presentation.dispatch
+local generated_uid = 0
+presentation.dispatch = function(request, state, done)
+  generated_uid = generated_uid + 1
+  request.uid = request.uid or string.format('00000000-0000-4000-8000-%012d', generated_uid)
+  request.origin = request.origin
+    or {
+      kind = 'resident_gui',
+      gui_instance = 'gui-42-cafe',
+      pid = 42,
+      process_start_token = 'start-token',
+    }
+  state = state or {}
+  state.id = state.id or 'gui-42-cafe'
+  state.pid = state.pid or 42
+  state.process_start_token = state.process_start_token or 'start-token'
+  state.bridge = state.bridge or secure_bridge
+  state.safe_quit = state.safe_quit or {}
+  state.persistent_domains = state.persistent_domains or { 'dmux-b-ts', 'dmux-b-usb' }
+  state.persistent_domain_instances = state.persistent_domain_instances
+    or {
+      ['dmux-b-ts'] = backend_instance,
+      ['dmux-b-usb'] = backend_instance,
+    }
+  return raw_dispatch(request, state, done)
+end
 local target = {
   domain = 'dmux-b-usb',
   workspace = workspace,
@@ -293,19 +349,21 @@ assert(pending_result and pending_result.domain_state == 'Attached')
 
 -- A detached state is not sufficient for safe lifecycle completion: the GUI
 -- must also report that no imported panes remain for the domain.
-selected.current = 'Detached'
+selected.current = 'Attached'
 selected.panes = true
+selected.delay_detach = true
 scheduled = {}
 pending_result, pending_error = nil, nil
 presentation.dispatch({
   action = 'detach_domain',
-  target = { domain = 'dmux-b-usb' },
+  target = { domain = 'dmux-b-usb', backend_instance_uid = backend_instance, server_epoch = epoch },
   expiry = os.time() + 10,
 }, { safe_quit = {} }, function(ok, err)
   pending_result, pending_error = ok, err
 end)
 assert(not pending_result and not pending_error and #scheduled == 1)
 selected.panes = false
+selected.delay_detach = false
 table.remove(scheduled, 1)()
 assert(pending_result and pending_result.detached_domains[1] == 'dmux-b-usb')
 
@@ -336,6 +394,11 @@ result, failure = dispatch('present', target)
 assert(result and not failure and result.workspace == workspace and result.pane_id == 91)
 
 local quit_state = { safe_quit = {}, persistent_domains = { 'dmux-b-ts', 'dmux-b-usb' } }
+local usb_incarnation = {
+  name = 'dmux-b-usb',
+  backend_instance_uid = backend_instance,
+  server_epoch = epoch,
+}
 selected.current = 'Attached'
 selected.panes = true
 alternate.current = 'Detached'
@@ -347,7 +410,7 @@ local stale_result, stale_error = dispatch('safe_quit', { phase = 'detach', doma
 assert(not stale_result and stale_error.code == 'quit_domain_snapshot_mismatch')
 local rogue = domain('rogue-domain', 'Attached')
 local unknown_result, unknown_error =
-  dispatch('safe_quit', { phase = 'detach', domains = { 'dmux-b-usb' } }, quit_state)
+  dispatch('safe_quit', { phase = 'detach', domains = { usb_incarnation } }, quit_state)
 assert(not unknown_result and unknown_error.code == 'unknown_persistent_domain')
 domains['rogue-domain'] = nil
 
@@ -356,7 +419,7 @@ presentation.dispatch(
   {
     uid = '11111111-1111-4111-8111-111111111111',
     action = 'safe_quit',
-    target = { phase = 'detach', domains = { 'dmux-b-usb' } },
+    target = { phase = 'detach', domains = { usb_incarnation } },
     expiry = os.time() + 10,
   },
   quit_state,
@@ -395,6 +458,8 @@ presentation.dispatch(
 )
 assert(not mismatch_result and mismatch_error.code == 'quit_platform_mismatch')
 local finish_result, finish_error
+local completion_method = secure_bridge.complete_safe_lifecycle
+secure_bridge.complete_safe_lifecycle = nil
 presentation.dispatch(
   {
     uid = '99999999-9999-4999-8999-999999999999',
@@ -412,21 +477,7 @@ presentation.dispatch(
   end
 )
 assert(not finish_result and finish_error.code == 'managed_quit_unavailable')
-gui_window.dmux_safe_hide_application = function()
-  managed_hides = managed_hides + 1
-end
-gui_window.effective_config = function()
-  return { dmux_managed_gui = false }
-end
-finish_result, finish_error = dispatch('safe_quit', {
-  phase = 'finish',
-  proof_uid = '11111111-1111-4111-8111-111111111111',
-  platform_action = 'hide',
-}, quit_state)
-assert(not finish_result and finish_error.code == 'managed_quit_unavailable')
-gui_window.effective_config = function()
-  return { dmux_managed_gui = true }
-end
+secure_bridge.complete_safe_lifecycle = completion_method
 finish_result, finish_error = dispatch('safe_quit', {
   phase = 'finish',
   proof_uid = '11111111-1111-4111-8111-111111111111',
@@ -436,6 +487,8 @@ assert(finish_result and finish_result.platform_action == 'hide' and type(finish
 assert(#performed == 0, 'platform lifecycle action must wait until ack publication')
 finish_result.after_ack()
 assert(managed_hides == 1 and #performed == 0, 'macOS safe hide must not perform native HideApplication')
+assert(completion_calls[#completion_calls].action == 'hide')
+assert(fake_wezterm.gui.dmux_safe_hide_application == nil, 'global lifecycle completion must be absent')
 assert(quit_state.safe_quit['11111111-1111-4111-8111-111111111111'] == nil)
 
 -- Tmux-only/local GUI state may produce the one explicitly authorized empty
@@ -488,31 +541,103 @@ local linux_result, linux_error = dispatch('safe_quit', {
   proof_uid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   platform_action = 'quit',
 }, linux_state)
-assert(not linux_result and linux_error.code == 'managed_quit_unavailable')
-local managed_quits = 0
-gui_window.dmux_safe_quit_application = function()
-  managed_quits = managed_quits + 1
-end
-gui_window.effective_config = function()
-  return { dmux_managed_gui = false }
-end
-linux_result, linux_error = dispatch('safe_quit', {
-  phase = 'finish',
-  proof_uid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-  platform_action = 'quit',
-}, linux_state)
-assert(not linux_result and linux_error.code == 'managed_quit_unavailable')
-gui_window.effective_config = function()
-  return { dmux_managed_gui = true }
-end
-linux_result, linux_error = dispatch('safe_quit', {
-  phase = 'finish',
-  proof_uid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-  platform_action = 'quit',
-}, linux_state)
 assert(linux_result and not linux_error and type(linux_result.after_ack) == 'function')
 linux_result.after_ack()
 assert(managed_quits == 1 and #performed == 0, 'Linux safe quit must not perform native QuitApplication')
+assert(completion_calls[#completion_calls].action == 'quit')
+assert(fake_wezterm.gui.dmux_safe_quit_application == nil, 'global lifecycle completion must be absent')
 fake_wezterm.target_triple = 'aarch64-apple-darwin'
+
+local function create_attached_quit_proof(uid, state)
+  selected.current = 'Attached'
+  selected.panes = true
+  selected.fail_attach = false
+  alternate.current = 'Detached'
+  alternate.panes = false
+  windows = { sentinel_window, target_window }
+  local detached, detach_error
+  presentation.dispatch(
+    {
+      uid = uid,
+      action = 'safe_quit',
+      target = { phase = 'detach', domains = { usb_incarnation } },
+      expiry = os.time() + 10,
+    },
+    state,
+    function(ok, err)
+      detached, detach_error = ok, err
+    end
+  )
+  assert(detached and not detach_error and state.safe_quit[uid])
+end
+
+-- A synchronous held-capability completion failure keeps the proof and
+-- retries exact rollback. A transient attach failure is bounded and backed
+-- off; the next attempt restores the same incarnation.
+local completion_failure_state = {}
+local completion_proof_uid = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+create_attached_quit_proof(completion_proof_uid, completion_failure_state)
+local failed_finish = assert(dispatch('safe_quit', {
+  phase = 'finish',
+  proof_uid = completion_proof_uid,
+  platform_action = 'hide',
+}, completion_failure_state))
+completion_error = 'injected capability failure'
+failed_finish.after_ack()
+completion_error = nil
+assert(completion_failure_state.safe_quit[completion_proof_uid], 'completion failure discarded rollback proof')
+selected.fail_attach = true
+table.remove(scheduled)()
+assert(completion_failure_state.safe_quit[completion_proof_uid] and selected.current == 'Detached')
+selected.fail_attach = false
+table.remove(scheduled)()
+assert(completion_failure_state.safe_quit[completion_proof_uid] == nil and selected.current == 'Attached')
+assert(#logged_errors > 0 and logged_errors[#logged_errors]:match 'retrying')
+
+-- Caller death is represented by running the proof-owned expiry timer. It
+-- likewise survives one transient rollback failure and eventually restores.
+local expiry_state = {}
+local expiry_uid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+create_attached_quit_proof(expiry_uid, expiry_state)
+selected.fail_attach = true
+table.remove(scheduled)()
+assert(expiry_state.safe_quit[expiry_uid] and selected.current == 'Detached')
+selected.fail_attach = false
+table.remove(scheduled)()
+assert(expiry_state.safe_quit[expiry_uid] == nil and selected.current == 'Attached')
+
+-- If a detached route name rebinds to a different epoch after attach, the
+-- rollback immediately contains it by detaching again before reporting the
+-- failure; the proof-owned retry can restore only after the exact epoch is
+-- visible again.
+local rebound_state = {}
+local rebound_uid = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+create_attached_quit_proof(rebound_uid, rebound_state)
+local rebound_result, rebound_error
+local rebound_now = 100
+os.time = function()
+  return rebound_now
+end
+windows = { sentinel_window_for('dmux-b-usb', '66666666-6666-4666-8666-666666666666') }
+presentation.dispatch(
+  {
+    action = 'safe_quit',
+    target = { phase = 'rollback', proof_uid = rebound_uid },
+    expiry = 110,
+  },
+  rebound_state,
+  function(ok, err)
+    rebound_result, rebound_error = ok, err
+  end
+)
+assert(not rebound_result and not rebound_error)
+rebound_now = 105
+table.remove(scheduled)()
+assert(not rebound_result and rebound_error and selected.current == 'Detached')
+assert(rebound_state.safe_quit[rebound_uid], 'rebound containment discarded the recovery proof')
+os.time = real_time
+windows = { sentinel_window }
+table.remove(scheduled)()
+assert(rebound_state.safe_quit[rebound_uid] == nil and selected.current == 'Attached')
 
 io.stdout:write 'dmux presentation test: no-create attach/focus/safe-quit passed\n'

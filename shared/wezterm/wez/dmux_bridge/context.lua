@@ -120,6 +120,10 @@ function M.parse_vars(vars, gui_domain, pane_id)
     server_epoch = raw.server_epoch,
     group_ref = raw.group_ref,
     split_ref = raw.split_ref,
+    -- This is an untrusted locator, separate from MarkerContext. Rust binds
+    -- it to a private owner record plus one exact live tmux client before
+    -- accepting any tmux-originated GUI action.
+    tmux_client_uid = is_uuid(vars.dmux_tmux_client_uid) and vars.dmux_tmux_client_uid or nil,
   }
 end
 

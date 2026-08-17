@@ -10,9 +10,8 @@
 #
 # Responsibilities:
 #   - resolve the per-user runtime dir exactly the way dmux does (§10.1);
-#   - mint a fresh server epoch + boot nonce + process start token per start;
-#   - pre-write a `starting` descriptor stub (socket dev/ino unknown here:
-#     dmux verifies socket identity itself at probe time per ADR 001);
+#   - mint a fresh server epoch + boot nonce per start; mux-startup's native
+#     publisher derives the OS process/boot/socket witness after exec;
 #   - when the feature flag is on, resolve the durable Wez backend instance
 #     and provide the resurrection manifest/spool inputs to mux-startup;
 #   - exec wezterm-mux-server FOREGROUND (--daemonize contends the shared
@@ -40,23 +39,25 @@ Darwin)
   ;;
 *)
   [ -n "${XDG_RUNTIME_DIR:-}" ] || fail 'XDG_RUNTIME_DIR is required on Linux'
-  runtime="$XDG_RUNTIME_DIR/dmux"
+  runtime="${XDG_RUNTIME_DIR%/}/dmux"
   ;;
 esac
-mkdir -p "$runtime"
-chmod 0700 "$runtime"
+case "$runtime" in
+/*) ;;
+*) fail 'resolved dmux runtime directory is not absolute' ;;
+esac
+# The maintained mux server's early `--dmux-managed-service` bootstrap owns
+# secure creation/validation of the fixed runtime directory and prebinding of
+# its socket through held dirfds. Shell pathname mutation here would re-open a
+# symlink/swap window before native authority exists.
 
 sock="$runtime/wez-dmux.sock"
-descriptor="$runtime/wez-dmux.json"
 DMUX_WEZ_FIRST="${DMUX_WEZ_FIRST:-0}"
 export DMUX_WEZ_FIRST
 
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 epoch=$(lowercase "$(uuidgen)")
 boot_nonce=$(lowercase "$(uuidgen)")
-# Start token: after exec below, $$ IS the server pid, so the token binds the
-# descriptor to this exact server incarnation.
-start_token="$$-$(date +%s)-$(lowercase "$(uuidgen)")"
 
 # Resolve a dmux binary that actually provides the hidden `_mux-idle`
 # sentinel command (an older installed dmux may predate it, and a sentinel
@@ -76,7 +77,8 @@ for candidate in \
 done
 if [ -z "$dmux_bin" ]; then
   # Not fatal: the Lua handler falls back to a shell idle-loop sentinel and
-  # records sentinel_fallback=true in the descriptor.
+  # publishes failed/unavailable rather than a structurally weak ready
+  # descriptor.
   echo 'dmux-mux-start: WARN no dmux with _mux-idle found; Lua sentinel fallback will be used' >&2
 fi
 
@@ -88,11 +90,10 @@ if [ "$DMUX_WEZ_FIRST" = 1 ]; then
   "$dmux_bin" _bridge-key >/dev/null || fail 'could not ensure mandatory GUI bridge key'
 fi
 
-# Cold recovery stays inert until the per-process feature flag is enabled.
-# In flag-on mode the service supplies a real, durable backend-instance UID;
-# an empty placeholder is not accepted by the recovery coordinator.
+# Descriptor publication is a §15.1 invariant in both rollout states, but a
+# disabled rollout must not create registry identity just to become ready.
+# The native publisher accepts an absent UID only for starting/failed.
 backend_instance="${DMUX_BACKEND_INSTANCE:-}"
-manifest_dir="${DMUX_RECOVERY_MANIFEST_DIR:-}"
 pane_bootstrap=''
 if [ "$DMUX_WEZ_FIRST" = 1 ]; then
   [ -n "$dmux_bin" ] || fail 'DMUX_WEZ_FIRST=1 requires dmux'
@@ -107,29 +108,19 @@ if [ "$DMUX_WEZ_FIRST" = 1 ]; then
         --service-label "$service_label"
     ) || fail 'could not resolve durable Wez backend instance'
   fi
-  case "$backend_instance" in
-  ????????-????-????-????-????????????) ;;
-  *) fail 'recovery instance command returned a non-UUID value' ;;
-  esac
-
-  if [ -z "$manifest_dir" ]; then
-    case "$(uname -s)" in
-    Darwin)
-      manifest_dir="$HOME/Library/Application Support/wezterm/resurrect/dmux"
-      ;;
-    *)
-      state_base="${XDG_STATE_HOME:-$HOME/.local/state}"
-      manifest_dir="$state_base/wezterm/resurrect/dmux"
-      ;;
-    esac
-  fi
-  mkdir -p "$manifest_dir"
-  chmod 0700 "$manifest_dir"
+  [ -n "$backend_instance" ] || fail 'DMUX_WEZ_FIRST=1 requires a durable backend instance'
 
   pane_bootstrap=$(dirname -- "$dmux_bin")/pane-bootstrap
   [ -x "$pane_bootstrap" ] || pane_bootstrap=$(command -v pane-bootstrap 2>/dev/null || true)
   [ -n "$pane_bootstrap" ] && [ -x "$pane_bootstrap" ] || \
     fail 'DMUX_WEZ_FIRST=1 requires pane-bootstrap beside dmux or on PATH'
+fi
+
+if [ -n "$backend_instance" ]; then
+  case "$backend_instance" in
+  ????????-????-????-????-????????????) ;;
+  *) fail 'managed Wez backend instance is not a UUID' ;;
+  esac
 fi
 
 wez_mux=''
@@ -145,29 +136,16 @@ for candidate in \
 done
 [ -n "$wez_mux" ] || fail 'wezterm-mux-server not found'
 
-# Pre-write the `starting` stub atomically. mux-startup overwrites it with
-# the authoritative `starting` -> `ready` records; if the server dies before
-# the handler runs, this stub (state=starting, matching start_token) is what
-# a reader finds, which is the honest state.
-stub_tmp="$descriptor.tmp.$$"
-printf '{"descriptor_version":1,"state":"starting","epoch":"%s","pid":%d,"socket":"%s","socket_dev":null,"socket_ino":null,"start_token":"%s","backend_instance_uid":"%s","boot_nonce":"%s","written_by":"wrapper","written_at":"%s"}\n' \
-  "$epoch" "$$" "$sock" "$start_token" "$backend_instance" "$boot_nonce" \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$stub_tmp"
-mv -f "$stub_tmp" "$descriptor"
-
 DMUX_SOCKET="$sock"
 DMUX_RUNTIME_DIR="$runtime"
-DMUX_DESCRIPTOR="$descriptor"
 DMUX_SERVER_EPOCH="$epoch"
-DMUX_START_TOKEN="$start_token"
 DMUX_BOOT_NONCE="$boot_nonce"
 DMUX_BACKEND_INSTANCE="$backend_instance"
 DMUX_BIN="$dmux_bin"
 DMUX_PANE_BOOTSTRAP="$pane_bootstrap"
-DMUX_RECOVERY_MANIFEST_DIR="$manifest_dir"
-export DMUX_SOCKET DMUX_RUNTIME_DIR DMUX_DESCRIPTOR DMUX_SERVER_EPOCH \
-  DMUX_START_TOKEN DMUX_BOOT_NONCE DMUX_BACKEND_INSTANCE DMUX_BIN \
-  DMUX_PANE_BOOTSTRAP DMUX_RECOVERY_MANIFEST_DIR DMUX_WEZ_FIRST
+export DMUX_SOCKET DMUX_RUNTIME_DIR DMUX_SERVER_EPOCH \
+  DMUX_BOOT_NONCE DMUX_BACKEND_INSTANCE DMUX_BIN \
+  DMUX_PANE_BOOTSTRAP DMUX_WEZ_FIRST
 
 # Hygiene: never inherit pane/endpoint identity from whoever started us.
 # WEZTERM_UNIX_SOCKET does NOT set a server's listen socket (ADR 004) -- only
@@ -175,4 +153,4 @@ export DMUX_SOCKET DMUX_RUNTIME_DIR DMUX_DESCRIPTOR DMUX_SERVER_EPOCH \
 # could misdirect any child CLI invocation.
 unset WEZTERM_UNIX_SOCKET WEZTERM_PANE TMUX TMUX_PANE 2>/dev/null || true
 
-exec "$wez_mux" --config-file "$here/dmux-mux.lua"
+exec "$wez_mux" --dmux-managed-service --config-file "$here/dmux-mux.lua"

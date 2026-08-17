@@ -10,7 +10,9 @@
 use std::fmt;
 use std::num::NonZeroU64;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -1215,6 +1217,311 @@ pub fn commit_production_exec_history(plan: &OwnerExecPlan) -> Result<(), TypedE
         )
     })?;
     commit_exec_history(&History::new(state_dir), plan)
+}
+
+/// Ordered side effects at the last boundary before a validated tmux exec.
+/// The injectable associated types keep the production GUI source and
+/// controller reservation opaque while allowing deterministic race tests.
+pub trait ExecHandoffRuntime {
+    type Source;
+    type Correlation;
+
+    /// Capture the exact visible source before any correlation side effect.
+    fn capture_gui_source(
+        &mut self,
+        plan: &OwnerExecPlan,
+    ) -> Result<Option<Self::Source>, TypedError>;
+
+    /// Return the already-correlated client UID only for an exact tmux
+    /// source (LocalSwitch); a Wez source and terminal-only source return
+    /// `None`.
+    fn source_tmux_client_uid(&self, source: &Self::Source) -> Option<Uuid>;
+
+    /// Reserve PID/start/TTY or the remote request UID without emitting OSC.
+    fn reserve_controller_correlation(
+        &mut self,
+        plan: &OwnerExecPlan,
+        existing_client_uid: Option<Uuid>,
+    ) -> Result<Option<Self::Correlation>, TypedError>;
+
+    fn correlation_uid(&self, correlation: &Self::Correlation) -> Uuid;
+
+    /// Persist only a pending source/destination proof. This must not rotate
+    /// global GUI history; the detached monitor finalizes after the live tmux
+    /// hook publishes the exact attached destination marker.
+    fn stage_gui_transition(
+        &mut self,
+        plan: &OwnerExecPlan,
+        tmux_client_uid: Uuid,
+        source: Option<&Self::Source>,
+    ) -> Result<Option<Uuid>, TypedError>;
+
+    fn start_gui_transition_finalizer(&mut self, pending_uid: Uuid) -> Result<(), TypedError>;
+
+    fn commit_terminal_history(&mut self, plan: &OwnerExecPlan) -> Result<(), TypedError>;
+
+    fn cancel_gui_transition(&mut self, pending_uid: Uuid) -> Result<(), TypedError>;
+
+    fn cancel_controller_correlation(
+        &mut self,
+        correlation: &Self::Correlation,
+    ) -> Result<(), TypedError>;
+}
+
+#[derive(Debug)]
+pub struct PreparedExecHandoff<C> {
+    correlation: Option<C>,
+    pending_uid: Option<Uuid>,
+}
+
+impl<C> PreparedExecHandoff<C> {
+    pub fn pending_uid(&self) -> Option<Uuid> {
+        self.pending_uid
+    }
+}
+
+fn cleanup_failed_handoff<R: ExecHandoffRuntime + ?Sized>(
+    runtime: &mut R,
+    correlation: Option<&R::Correlation>,
+    pending_uid: Option<Uuid>,
+    mut primary: TypedError,
+) -> TypedError {
+    let mut cleanup_failures = Vec::new();
+    if let Some(pending_uid) = pending_uid
+        && let Err(error) = runtime.cancel_gui_transition(pending_uid)
+    {
+        cleanup_failures.push(error.message);
+    }
+    if let Some(correlation) = correlation
+        && let Err(error) = runtime.cancel_controller_correlation(correlation)
+    {
+        cleanup_failures.push(error.message);
+    }
+    if !cleanup_failures.is_empty() {
+        primary.message = format!(
+            "{}; pre-exec cleanup also failed: {}",
+            primary.message,
+            cleanup_failures.join("; ")
+        );
+    }
+    primary
+}
+
+/// Testable source-capture/reservation/staging order shared by public
+/// Connect and New. No destination marker is emitted here. A managed source
+/// without an exact correlation or staged monitor fails closed; terminal-only
+/// handoffs update only per-owner terminal history.
+pub fn prepare_exec_handoff_with_runtime<R: ExecHandoffRuntime + ?Sized>(
+    plan: &OwnerExecPlan,
+    runtime: &mut R,
+) -> Result<PreparedExecHandoff<R::Correlation>, TypedError> {
+    let source = runtime.capture_gui_source(plan)?;
+    let existing_client_uid = source
+        .as_ref()
+        .and_then(|source| runtime.source_tmux_client_uid(source));
+    let correlation = runtime.reserve_controller_correlation(plan, existing_client_uid)?;
+    if source.is_some() && correlation.is_none() {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "managed GUI source has no exact controller correlation",
+        ));
+    }
+
+    let mut pending_uid = None;
+    let prepared = (|| {
+        if let Some(correlation) = correlation.as_ref() {
+            let client_uid = runtime.correlation_uid(correlation);
+            pending_uid = runtime.stage_gui_transition(plan, client_uid, source.as_ref())?;
+            if let Some(staged_uid) = pending_uid
+                && staged_uid != client_uid
+            {
+                return Err(TypedError::new(
+                    ErrorCode::ProtocolMismatch,
+                    "staged GUI transition UID differs from its controller correlation",
+                ));
+            }
+            if source.is_some() && pending_uid.is_none() {
+                return Err(TypedError::new(
+                    ErrorCode::ProtocolMismatch,
+                    "managed GUI transition was not staged",
+                ));
+            }
+            if source.is_none() && pending_uid.is_some() {
+                return Err(TypedError::new(
+                    ErrorCode::ProtocolMismatch,
+                    "terminal-only handoff unexpectedly staged global GUI history",
+                ));
+            }
+            if let Some(pending_uid) = pending_uid {
+                runtime.start_gui_transition_finalizer(pending_uid)?;
+            }
+        }
+        runtime.commit_terminal_history(plan)
+    })();
+    if let Err(error) = prepared {
+        return Err(cleanup_failed_handoff(
+            runtime,
+            correlation.as_ref(),
+            pending_uid,
+            error,
+        ));
+    }
+    Ok(PreparedExecHandoff {
+        correlation,
+        pending_uid,
+    })
+}
+
+struct ProductionExecHandoffRuntime;
+
+impl ExecHandoffRuntime for ProductionExecHandoffRuntime {
+    type Source = crate::gui_cli::GuiExecSourceWitness;
+    type Correlation = crate::remote::attach::ControllerCorrelationReservation;
+
+    fn capture_gui_source(
+        &mut self,
+        plan: &OwnerExecPlan,
+    ) -> Result<Option<Self::Source>, TypedError> {
+        crate::gui_cli::capture_exact_gui_exec_source_production(plan)
+    }
+
+    fn source_tmux_client_uid(&self, source: &Self::Source) -> Option<Uuid> {
+        source.tmux_client_uid()
+    }
+
+    fn reserve_controller_correlation(
+        &mut self,
+        plan: &OwnerExecPlan,
+        existing_client_uid: Option<Uuid>,
+    ) -> Result<Option<Self::Correlation>, TypedError> {
+        crate::remote::attach::reserve_controller_correlation(plan, existing_client_uid)
+    }
+
+    fn correlation_uid(&self, correlation: &Self::Correlation) -> Uuid {
+        correlation.client_uid()
+    }
+
+    fn stage_gui_transition(
+        &mut self,
+        plan: &OwnerExecPlan,
+        tmux_client_uid: Uuid,
+        source: Option<&Self::Source>,
+    ) -> Result<Option<Uuid>, TypedError> {
+        match crate::gui_cli::stage_correlated_gui_exec_transition_production(
+            plan,
+            tmux_client_uid,
+            source,
+        )? {
+            crate::gui_cli::GuiExecTransitionOutcome::TerminalOnly => Ok(None),
+            crate::gui_cli::GuiExecTransitionOutcome::Staged { pending_uid } => {
+                Ok(Some(pending_uid))
+            }
+        }
+    }
+
+    fn start_gui_transition_finalizer(&mut self, pending_uid: Uuid) -> Result<(), TypedError> {
+        start_gui_exec_transition_finalizer(pending_uid)
+    }
+
+    fn commit_terminal_history(&mut self, plan: &OwnerExecPlan) -> Result<(), TypedError> {
+        commit_production_exec_history(plan)
+    }
+
+    fn cancel_gui_transition(&mut self, pending_uid: Uuid) -> Result<(), TypedError> {
+        crate::gui_cli::cancel_correlated_gui_exec_transition_production(pending_uid).map(|_| ())
+    }
+
+    fn cancel_controller_correlation(
+        &mut self,
+        correlation: &Self::Correlation,
+    ) -> Result<(), TypedError> {
+        crate::remote::attach::cancel_controller_correlation_reservation(correlation).map(|_| ())
+    }
+}
+
+fn start_gui_exec_transition_finalizer(pending_uid: Uuid) -> Result<(), TypedError> {
+    let current_exe = std::env::current_exe().map_err(|error| {
+        TypedError::new(
+            ErrorCode::OperationFailed,
+            format!("locating dmux GUI transition finalizer: {error}"),
+        )
+    })?;
+    let mut child = Command::new(current_exe)
+        .args([
+            "_gui-exec-finalize",
+            "--pending-uid",
+            &pending_uid.to_string(),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("starting dmux GUI transition finalizer: {error}"),
+            )
+        })?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => {
+                return Err(TypedError::new(
+                    ErrorCode::OperationFailed,
+                    format!("dmux GUI transition finalizer bootstrap exited {status}"),
+                ));
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(TypedError::new(
+                    ErrorCode::OperationFailed,
+                    "dmux GUI transition finalizer bootstrap timed out",
+                ));
+            }
+            Err(error) => {
+                return Err(TypedError::new(
+                    ErrorCode::OperationFailed,
+                    format!("waiting for dmux GUI transition finalizer bootstrap: {error}"),
+                ));
+            }
+        }
+    }
+}
+
+/// Armed pre-exec guard. A successful `exec` replaces the process and never
+/// drops it. If exec returns, or dispatch exits early, Drop cancels the
+/// pending transition and removes only a fresh unstarted local record.
+#[must_use = "the handoff guard must remain live until exec replaces the process"]
+pub struct ProductionExecHandoffGuard {
+    correlation: Option<crate::remote::attach::ControllerCorrelationReservation>,
+    pending_uid: Option<Uuid>,
+}
+
+impl Drop for ProductionExecHandoffGuard {
+    fn drop(&mut self) {
+        if let Some(pending_uid) = self.pending_uid {
+            let _ = crate::gui_cli::cancel_correlated_gui_exec_transition_production(pending_uid);
+        }
+        if let Some(correlation) = self.correlation.as_ref() {
+            let _ = crate::remote::attach::cancel_controller_correlation_reservation(correlation);
+        }
+    }
+}
+
+/// Capture the exact GUI source, reserve correlation without OSC, stage and
+/// start the post-attach finalizer, then commit terminal history. The caller
+/// keeps the returned guard alive while consuming the plan with `exec`.
+pub fn prepare_production_exec_handoff(
+    plan: &OwnerExecPlan,
+) -> Result<ProductionExecHandoffGuard, TypedError> {
+    let prepared = prepare_exec_handoff_with_runtime(plan, &mut ProductionExecHandoffRuntime)?;
+    Ok(ProductionExecHandoffGuard {
+        correlation: prepared.correlation,
+        pending_uid: prepared.pending_uid,
+    })
 }
 
 fn marker_from_process_env() -> Result<crate::bootstrap::MarkerContext, TypedError> {

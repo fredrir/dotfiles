@@ -1,8 +1,9 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::BufRead;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::io::{BufRead, Write};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{self, Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
@@ -12,7 +13,7 @@ use dmux::backend::wez::{
     ProbeOutcome, RunError, RunOutput, WezInvocation, WezProvider, WezRunner,
 };
 use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
-use dmux::bootstrap::{self, BootstrapResult, HelperAck, PaneEnvRecord};
+use dmux::bootstrap::{self, BootstrapResult, BootstrapState, HelperAck, PaneEnvRecord};
 use dmux::locks::{self, LockMode, LockScope};
 use dmux::model::{Backend, BackendInstanceUid, Lifecycle, ServerEpoch, SpaceUid};
 use dmux::operations::{OperationEnv, remove_space};
@@ -22,14 +23,28 @@ use dmux::recovery::{
     RecoveryCommand, RecoveryCoordinatorOptions, RecoveryCrashPhase, RecoveryCrashPoint,
     RecoveryManifest, RecoveryOutcome, RecoveryResponse, RecoveryRunReport, RecoverySpool,
     RecoveryStatus, RecoveryStatusState, RemovedNode, RemovedNodeStatus, SnapshotCapturePlan,
-    inspect_recovery, publish_snapshot_manifest, request_recovery_abort, request_recovery_resume,
-    run_recovery_coordinator, snapshot_capture_plan_path,
+    inspect_recovery, publish_snapshot_manifest_for_test, request_recovery_abort,
+    request_recovery_resume, run_recovery_coordinator, snapshot_capture_plan_path,
 };
 use dmux::registry::recovery::RecoveryNodeState;
 use dmux::registry::{
     BusyPolicy, LeaseScope, NativeBindingSpec, NativeKind, Registry, RegistryConfig,
 };
 use uuid::Uuid;
+
+fn write_private(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) {
+    let path = path.as_ref();
+    let temporary = path.with_extension(format!("private-{}", Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&temporary)
+        .unwrap();
+    file.write_all(bytes.as_ref()).unwrap();
+    file.sync_all().unwrap();
+    fs::rename(temporary, path).unwrap();
+}
 
 struct World {
     _dir: tempfile::TempDir,
@@ -95,11 +110,10 @@ impl World {
             revision,
         );
         if write_manifest {
-            fs::write(
+            write_private(
                 manifests.join("manifest.json"),
                 serde_json::to_vec(&manifest).unwrap(),
-            )
-            .unwrap();
+            );
         }
         World {
             _dir: dir,
@@ -128,6 +142,7 @@ impl World {
         options.default_program = vec!["/usr/bin/true".into()];
         options.reply_timeout = reply_timeout;
         options.lease_ttl = Duration::from_secs(5);
+        options.skip_service_authority = true;
         options
     }
 }
@@ -322,6 +337,15 @@ struct InProcessMux {
     drop_verify_response: bool,
     reject_prepare: bool,
     dropped: bool,
+    collapse_group_tabs: bool,
+    inject_stale_response_once: bool,
+    stale_response_emitted: bool,
+    pending_response: Option<RecoveryResponse>,
+    compare_restore_count: usize,
+    inject_unmanaged_before_compare_restore_count: Option<usize>,
+    compare_remove_count: usize,
+    inject_unmanaged_before_compare_remove_count: Option<usize>,
+    unmanaged_injected: bool,
 }
 
 impl InProcessMux {
@@ -342,6 +366,15 @@ impl InProcessMux {
             drop_verify_response: false,
             reject_prepare: false,
             dropped: false,
+            collapse_group_tabs: false,
+            inject_stale_response_once: false,
+            stale_response_emitted: false,
+            pending_response: None,
+            compare_restore_count: 0,
+            inject_unmanaged_before_compare_restore_count: None,
+            compare_remove_count: 0,
+            inject_unmanaged_before_compare_remove_count: None,
+            unmanaged_injected: false,
         }
     }
 
@@ -369,6 +402,10 @@ impl InProcessMux {
 
     fn tick(&mut self) {
         self.poll_helpers();
+        if let Some(response) = self.pending_response.take() {
+            write_response(&self.spool.response, &response);
+            return;
+        }
         let command = match fs::read(&self.spool.command)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<RecoveryCommand>(&bytes).ok())
@@ -392,6 +429,7 @@ impl InProcessMux {
             snapshot: None,
             created: None,
             removed: None,
+            existing_absent: false,
         };
         match command.action {
             RecoveryAction::Inspect => {
@@ -410,39 +448,88 @@ impl InProcessMux {
                     response.error = Some("injected Prepare rejection".into());
                 }
             }
-            RecoveryAction::RestoreNode {
+            RecoveryAction::CompareAndRestoreNode {
                 node,
                 request_uid,
                 bootstrap_argv,
+                expected_tree,
+                expected_parent,
+                expected_existing,
+                create_if_absent,
             } => {
-                assert_eq!(bootstrap_argv[1], request_uid.to_string());
+                self.compare_restore_count += 1;
+                if self.inject_unmanaged_before_compare_restore_count
+                    == Some(self.compare_restore_count)
+                    && !self.unmanaged_injected
+                {
+                    self.inject_unmanaged_pane();
+                }
                 let path = node.manifest_node_path.clone();
-                *self.restore_counts.entry(path.clone()).or_default() += 1;
-                let created = if let Some(existing) = self.objects.get(&path) {
-                    existing.clone()
+                if expected_tree != self.snapshot.tree_precondition() {
+                    response.ok = false;
+                    response.error = Some("native tree precondition changed".into());
+                } else if expected_parent != self.native_parent(&node) {
+                    response.ok = false;
+                    response.error = Some("native parent precondition changed".into());
+                } else if let Some(expected) = expected_existing {
+                    if create_if_absent {
+                        response.ok = false;
+                        response.error = Some("existing reconcile requested creation".into());
+                    } else if self
+                        .objects
+                        .get(&path)
+                        .is_some_and(|actual| same_native_ids(actual, &expected))
+                    {
+                        response.created = self.objects.get(&path).cloned();
+                    } else {
+                        response.ok = false;
+                        response.error = Some("expected recovery object is not exact".into());
+                    }
+                } else if create_if_absent {
+                    assert_eq!(bootstrap_argv[1], request_uid.to_string());
+                    if self.objects.contains_key(&path) {
+                        response.ok = false;
+                        response.error = Some("unexpected prepared recovery object".into());
+                    } else {
+                        *self.restore_counts.entry(path.clone()).or_default() += 1;
+                        let created = self.create_node(&node, request_uid);
+                        self.objects.insert(path.clone(), created.clone());
+                        response.created = Some(created);
+                    }
                 } else {
-                    let created = self.create_node(&node, request_uid);
-                    self.objects.insert(path.clone(), created.clone());
-                    created
-                };
-                response.created = Some(created);
+                    self.objects.remove(&path);
+                    response.existing_absent = true;
+                }
                 if self.drop_response_for.as_deref() == Some(path.as_str()) && !self.dropped {
                     self.dropped = true;
                     return;
                 }
             }
-            RecoveryAction::RemoveNode {
+            RecoveryAction::CompareAndRemoveNode {
                 manifest_node_path,
                 pane_id,
                 tab_id,
                 window_id,
+                expected_tree,
             } => {
-                *self
-                    .remove_counts
-                    .entry(manifest_node_path.clone())
-                    .or_default() += 1;
-                response.removed =
-                    Some(self.remove_node(&manifest_node_path, &pane_id, &tab_id, &window_id));
+                self.compare_remove_count += 1;
+                if self.inject_unmanaged_before_compare_remove_count
+                    == Some(self.compare_remove_count)
+                    && !self.unmanaged_injected
+                {
+                    self.inject_unmanaged_pane();
+                }
+                if expected_tree != self.snapshot.tree_precondition() {
+                    response.ok = false;
+                    response.error = Some("native tree precondition changed".into());
+                } else {
+                    *self
+                        .remove_counts
+                        .entry(manifest_node_path.clone())
+                        .or_default() += 1;
+                    response.removed =
+                        Some(self.remove_node(&manifest_node_path, &pane_id, &tab_id, &window_id));
+                }
                 if self.drop_remove_response_for.as_deref() == Some(manifest_node_path.as_str())
                     && !self.dropped
                 {
@@ -451,7 +538,51 @@ impl InProcessMux {
                 }
             }
         }
-        write_response(&self.spool.response, &response);
+        if self.inject_stale_response_once && !self.stale_response_emitted {
+            self.stale_response_emitted = true;
+            self.pending_response = Some(response.clone());
+            let mut stale = response;
+            stale.coordinator_uid = Uuid::new_v4();
+            stale.generation_uid = Uuid::new_v4();
+            stale.sequence = stale.sequence.saturating_add(73);
+            stale.fencing_token = stale.fencing_token.saturating_sub(1);
+            write_response(&self.spool.response, &stale);
+        } else {
+            write_response(&self.spool.response, &response);
+        }
+    }
+
+    fn inject_unmanaged_pane(&mut self) {
+        self.unmanaged_injected = true;
+        self.snapshot.windows.push(NativeWindow {
+            window_id: "900000".into(),
+            workspace: "out-of-band".into(),
+            tabs: vec![NativeTab {
+                tab_id: "900001".into(),
+                panes: vec![NativePane {
+                    pane_id: "900002".into(),
+                    title: "out-of-band mutation".into(),
+                    domain: Some("local".into()),
+                }],
+            }],
+        });
+    }
+
+    fn native_parent(&self, node: &dmux::recovery::RestoreNode) -> Option<String> {
+        match node.operation {
+            dmux::recovery::RestoreOperation::SpaceRoot => None,
+            dmux::recovery::RestoreOperation::GroupRoot => {
+                let first = format!("/spaces/{}/groups/1/splits/L", node.space_uid.0);
+                self.objects
+                    .get(&first)
+                    .map(|object| object.window_id.clone())
+            }
+            dmux::recovery::RestoreOperation::Split => node
+                .parent_path
+                .as_ref()
+                .and_then(|parent| self.objects.get(parent))
+                .map(|object| object.pane_id.clone()),
+        }
     }
 
     fn remove_node(
@@ -541,19 +672,24 @@ impl InProcessMux {
             }
             dmux::recovery::RestoreOperation::GroupRoot => {
                 let first = format!("/spaces/{}/groups/1/splits/L", node.space_uid.0);
-                let window_id = self.objects.get(&first).unwrap().window_id.clone();
-                let tab_id = self.allocate_id();
-                let window = self
-                    .snapshot
-                    .windows
-                    .iter_mut()
-                    .find(|window| window.window_id == window_id)
-                    .unwrap();
-                window.tabs.push(NativeTab {
-                    tab_id: tab_id.clone(),
-                    panes: Vec::new(),
-                });
-                (window_id, tab_id)
+                let first = self.objects.get(&first).unwrap();
+                let window_id = first.window_id.clone();
+                if self.collapse_group_tabs {
+                    (window_id, first.tab_id.clone())
+                } else {
+                    let tab_id = self.allocate_id();
+                    let window = self
+                        .snapshot
+                        .windows
+                        .iter_mut()
+                        .find(|window| window.window_id == window_id)
+                        .unwrap();
+                    window.tabs.push(NativeTab {
+                        tab_id: tab_id.clone(),
+                        panes: Vec::new(),
+                    });
+                    (window_id, tab_id)
+                }
             }
             dmux::recovery::RestoreOperation::Split => {
                 let parent = self
@@ -652,6 +788,80 @@ fn write_response(path: &Path, response: &RecoveryResponse) {
     fs::rename(tmp, path).unwrap();
 }
 
+fn same_native_ids(left: &CreatedNode, right: &CreatedNode) -> bool {
+    left.window_id == right.window_id
+        && left.tab_id == right.tab_id
+        && left.pane_id == right.pane_id
+}
+
+fn collapse_completed_second_group_into_first_tab(
+    world: &World,
+    mux: &mut InProcessMux,
+    generation_uid: Uuid,
+) {
+    let nodes = world.manifest.restore_nodes();
+    let first_root = nodes
+        .iter()
+        .find(|node| node.group_index == 1 && node.parent_path.is_none())
+        .unwrap();
+    let first = mux.objects[&first_root.manifest_node_path].clone();
+    let second_paths = nodes
+        .iter()
+        .filter(|node| node.group_index == 2)
+        .map(|node| node.manifest_node_path.clone())
+        .collect::<Vec<_>>();
+    let second_tabs = second_paths
+        .iter()
+        .map(|path| mux.objects[path].tab_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(!second_tabs.contains(&first.tab_id));
+
+    let window = mux
+        .snapshot
+        .windows
+        .iter_mut()
+        .find(|window| window.window_id == first.window_id)
+        .unwrap();
+    let mut moved = Vec::new();
+    for tab_id in &second_tabs {
+        let index = window
+            .tabs
+            .iter()
+            .position(|tab| &tab.tab_id == tab_id)
+            .unwrap();
+        moved.extend(window.tabs.remove(index).panes);
+    }
+    window
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.tab_id == first.tab_id)
+        .unwrap()
+        .panes
+        .extend(moved);
+
+    let registry = Registry::open(world.config.clone()).unwrap();
+    let rows = registry.recovery_rows(generation_uid).unwrap();
+    for path in second_paths {
+        let object = mux.objects.get_mut(&path).unwrap();
+        object.tab_id.clone_from(&first.tab_id);
+        let request_uid = rows
+            .iter()
+            .find(|row| row.manifest_node_path == path)
+            .and_then(|row| row.bootstrap_request_uid)
+            .unwrap();
+        registry
+            .raw_connection()
+            .execute(
+                "UPDATE bootstrap_requests SET returned_native_ids = ?1 WHERE request_uid = ?2",
+                rusqlite::params![
+                    serde_json::to_string(object).unwrap(),
+                    request_uid.to_string()
+                ],
+            )
+            .unwrap();
+    }
+}
+
 fn spawn_coordinator(
     options: RecoveryCoordinatorOptions,
 ) -> JoinHandle<dmux::recovery::Result<RecoveryRunReport>> {
@@ -698,6 +908,7 @@ fn recovery_subprocess_entry() {
     options.default_program = vec!["/usr/bin/true".into()];
     options.reply_timeout = Duration::from_secs(10);
     options.lease_ttl = Duration::from_secs(30);
+    options.skip_service_authority = true;
     options.crash_point = Some(RecoveryCrashPoint {
         phase,
         action: std::env::var("DMUX_RECOVERY_TEST_ACTION").unwrap(),
@@ -738,10 +949,10 @@ fn test_action_label(action: &RecoveryAction) -> String {
     match action {
         RecoveryAction::Inspect => "inspect".into(),
         RecoveryAction::Prepare { .. } => "prepare".into(),
-        RecoveryAction::RestoreNode { node, .. } => {
+        RecoveryAction::CompareAndRestoreNode { node, .. } => {
             format!("restore:{}", node.manifest_node_path)
         }
-        RecoveryAction::RemoveNode {
+        RecoveryAction::CompareAndRemoveNode {
             manifest_node_path, ..
         } => format!("remove:{manifest_node_path}"),
         RecoveryAction::Verify { .. } => "verify".into(),
@@ -832,6 +1043,352 @@ fn simultaneous_startup_clients_restore_once_and_the_second_observes_ready() {
             .unwrap()
             .iter()
             .all(|row| row.node_state == RecoveryNodeState::Completed)
+    );
+}
+
+#[test]
+fn arbitrary_hidden_coordinator_invocation_cannot_mutate_registry_or_status() {
+    let world = World::new(true);
+    let registry = Registry::open(world.config.clone()).unwrap();
+    let before_server = registry.backend_server(world.instance).unwrap();
+    let before_head = registry.authority_head().unwrap();
+    drop(registry);
+
+    let mut forged = world.options(Duration::from_millis(100));
+    forged.skip_service_authority = false;
+    forged.server_epoch = ServerEpoch(Uuid::new_v4());
+    forged.server_pid = i64::from(process::id()) + 10_000;
+    forged.server_start_token = "macos:1:0".into();
+    let forged_spool = RecoverySpool::new(&forged.runtime_dir, forged.server_epoch);
+    let error = run_recovery_coordinator(forged).unwrap_err();
+
+    assert!(
+        error.to_string().contains("recovery fence lost"),
+        "unexpected authority failure: {error}"
+    );
+    let registry = Registry::open(world.config.clone()).unwrap();
+    assert_eq!(
+        registry.backend_server(world.instance).unwrap(),
+        before_server
+    );
+    assert_eq!(registry.authority_head().unwrap(), before_head);
+    assert!(
+        registry
+            .current_lease(&LeaseScope::Recovery(world.instance))
+            .unwrap()
+            .is_none()
+    );
+    assert!(!forged_spool.status.exists());
+    assert!(!forged_spool.command.exists());
+}
+
+#[test]
+fn crash_injection_seams_require_the_explicit_test_authority_bypass() {
+    let world = World::new(true);
+    let mut forged = world.options(Duration::from_millis(100));
+    forged.skip_service_authority = false;
+    forged.crash_point = Some(RecoveryCrashPoint {
+        phase: RecoveryCrashPhase::AfterCommandPublish,
+        action: "inspect".into(),
+    });
+    forged.hard_stop_path = Some(world.runtime.join("must-not-exist"));
+    let error = run_recovery_coordinator(forged).unwrap_err();
+    assert!(
+        error.to_string().contains("explicit test authority bypass"),
+        "unexpected test-seam refusal: {error}"
+    );
+    assert!(!world.runtime.join("must-not-exist").exists());
+    assert!(
+        Registry::open(world.config.clone())
+            .unwrap()
+            .current_lease(&LeaseScope::Recovery(world.instance))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn service_authority_drift_under_fence_cannot_publish_stale_incarnation() {
+    let world = World::new(true);
+    let registry = Registry::open(world.config.clone()).unwrap();
+    let before_server = registry.backend_server(world.instance).unwrap();
+    drop(registry);
+
+    let mut stale_child = world.options(Duration::from_millis(100));
+    stale_child.server_epoch = ServerEpoch(Uuid::new_v4());
+    stale_child.server_pid += 10_000;
+    stale_child.server_start_token = "stale-native-process-token".into();
+    stale_child.fail_service_authority_after_lock = true;
+    let stale_spool = RecoverySpool::new(&stale_child.runtime_dir, stale_child.server_epoch);
+    let error = run_recovery_coordinator(stale_child).unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("authority changed before registry publish"),
+        "unexpected under-fence authority failure: {error}"
+    );
+    let registry = Registry::open(world.config.clone()).unwrap();
+    assert_eq!(
+        registry.backend_server(world.instance).unwrap(),
+        before_server,
+        "a coordinator whose mux witness drifted must not overwrite server identity"
+    );
+    assert!(
+        registry
+            .current_lease(&LeaseScope::Recovery(world.instance))
+            .unwrap()
+            .is_none(),
+        "authority drift before recovery begins must release its provisional lease"
+    );
+    assert!(!stale_spool.command.exists());
+}
+
+#[test]
+fn recovery_spool_rejects_symlinked_dirs_and_hostile_message_types() {
+    let world = World::new(false);
+    let victim_dir = world._dir.path().join("victim-dir");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&victim_dir)
+        .unwrap();
+    let victim = victim_dir.join("victim");
+    write_private(&victim, b"victim-must-survive");
+    symlink(&victim_dir, world.runtime.join("recovery")).unwrap();
+
+    let spool = RecoverySpool::new(&world.runtime, world.epoch);
+    assert!(spool.prepare().is_err());
+    assert_eq!(fs::read(&victim).unwrap(), b"victim-must-survive");
+
+    fs::remove_file(world.runtime.join("recovery")).unwrap();
+    let spool = RecoverySpool::new(&world.runtime, world.epoch);
+    spool.prepare().unwrap();
+    symlink(&victim, &spool.response).unwrap();
+    assert!(spool.clear_messages().is_err());
+    assert_eq!(fs::read(&victim).unwrap(), b"victim-must-survive");
+    fs::remove_file(&spool.response).unwrap();
+
+    let fifo_c = std::ffi::CString::new(spool.response.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+    fs::set_permissions(&spool.response, fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(spool.clear_messages().is_err());
+    fs::remove_file(&spool.response).unwrap();
+
+    fs::write(&spool.response, b"{}").unwrap();
+    fs::set_permissions(&spool.response, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(spool.clear_messages().is_err());
+    fs::remove_file(&spool.response).unwrap();
+
+    let oversized = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&spool.response)
+        .unwrap();
+    oversized.set_len(1024 * 1024 + 1).unwrap();
+    assert!(spool.clear_messages().is_err());
+    assert_eq!(fs::read(victim).unwrap(), b"victim-must-survive");
+}
+
+#[test]
+fn recovery_spool_retains_one_epoch_directory_across_path_replacement() {
+    let world = World::new(false);
+    let spool = RecoverySpool::new(&world.runtime, world.epoch);
+    spool.prepare().unwrap();
+    write_private(&spool.response, b"held-response");
+
+    let held = world.runtime.join("recovery/held-epoch");
+    fs::rename(&spool.dir, &held).unwrap();
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&spool.dir)
+        .unwrap();
+    write_private(&spool.response, b"replacement-response");
+
+    spool.clear_messages().unwrap();
+    assert!(!held.join("response.json").exists());
+    assert_eq!(fs::read(&spool.response).unwrap(), b"replacement-response");
+}
+
+#[test]
+fn lower_fence_response_is_ignored_until_the_matching_response_arrives() {
+    let world = World::new(true);
+    let mut mux = InProcessMux::new(&world);
+    mux.inject_stale_response_once = true;
+
+    let coordinator = spawn_coordinator(world.options(Duration::from_secs(2)));
+    mux.drive_until(|| coordinator.is_finished());
+    let report = coordinator.join().unwrap().unwrap();
+
+    assert_eq!(report.outcome, RecoveryOutcome::Restored);
+    assert!(mux.stale_response_emitted);
+    assert!(mux.pending_response.is_none());
+    assert_eq!(
+        mux.snapshot.panes().count(),
+        world.manifest.restore_nodes().len() + 1
+    );
+    assert!(mux.restore_counts.values().all(|count| *count == 1));
+}
+
+#[test]
+fn drift_after_precheck_is_atomically_rejected_before_the_first_native_create() {
+    let world = World::new(true);
+    let mut mux = InProcessMux::new(&world);
+    mux.inject_unmanaged_before_compare_restore_count = Some(1);
+
+    let coordinator = spawn_coordinator(world.options(Duration::from_secs(2)));
+    mux.drive_until(|| coordinator.is_finished());
+    let error = coordinator.join().unwrap().unwrap_err();
+
+    assert!(mux.unmanaged_injected);
+    assert!(
+        mux.restore_counts.is_empty(),
+        "the in-callback comparison must fail before native create: {:?}",
+        mux.restore_counts
+    );
+    assert!(mux.objects.is_empty());
+    assert!(
+        error
+            .to_string()
+            .contains("native tree precondition changed"),
+        "unexpected drift failure: {error}"
+    );
+    let status: RecoveryStatus =
+        serde_json::from_slice(&fs::read(&mux.spool.status).unwrap()).unwrap();
+    assert_eq!(status.state, RecoveryStatusState::Failed);
+}
+
+#[test]
+fn drift_after_the_next_precheck_is_atomically_rejected_before_that_native_create() {
+    let world = World::new(true);
+    let mut mux = InProcessMux::new(&world);
+    mux.inject_unmanaged_before_compare_restore_count = Some(2);
+
+    let coordinator = spawn_coordinator(world.options(Duration::from_secs(2)));
+    mux.drive_until(|| coordinator.is_finished());
+    let error = coordinator.join().unwrap().unwrap_err();
+
+    assert!(mux.unmanaged_injected);
+    assert_eq!(
+        mux.restore_counts.values().sum::<usize>(),
+        1,
+        "the second in-callback comparison must prevent its native create"
+    );
+    assert_eq!(mux.objects.len(), 1);
+    assert!(
+        error
+            .to_string()
+            .contains("native tree precondition changed"),
+        "unexpected drift failure: {error}"
+    );
+    let status: RecoveryStatus =
+        serde_json::from_slice(&fs::read(&mux.spool.status).unwrap()).unwrap();
+    assert_eq!(status.state, RecoveryStatusState::Failed);
+}
+
+#[test]
+fn drift_after_resume_precheck_is_rejected_before_existing_token_reconciliation() {
+    let world = World::new(true);
+    let first_path = world.manifest.restore_nodes()[0].manifest_node_path.clone();
+    let mut mux = InProcessMux::new(&world);
+    mux.drop_response_for = Some(first_path.clone());
+    let first_options = world.options(Duration::from_millis(120));
+    let holder_uid = first_options.request_uid;
+    let first = spawn_coordinator(first_options);
+    mux.drive_until(|| first.is_finished());
+    assert!(first.join().unwrap().is_err());
+    assert_eq!(mux.restore_counts[&first_path], 1);
+
+    let registry = Registry::open(world.config.clone()).unwrap();
+    let (_, rows) = registry
+        .unfinished_recovery_for_instance(world.instance)
+        .unwrap()
+        .unwrap();
+    let request_uid = rows
+        .iter()
+        .find(|row| row.manifest_node_path == first_path)
+        .and_then(|row| row.bootstrap_request_uid)
+        .unwrap();
+    let before = registry
+        .bootstrap_request(request_uid)
+        .unwrap()
+        .unwrap()
+        .state;
+    assert_eq!(before, BootstrapState::Issued);
+    drop(registry);
+
+    mux.drop_response_for = None;
+    mux.dropped = false;
+    mux.seen = None;
+    let _ = fs::remove_file(&mux.spool.command);
+    let _ = fs::remove_file(&mux.spool.response);
+    mux.inject_unmanaged_before_compare_restore_count = Some(mux.compare_restore_count + 1);
+    let mut resume = world.options(Duration::from_secs(2));
+    resume.resume_failed = true;
+    resume.request_uid = holder_uid;
+    let resumed = spawn_coordinator(resume);
+    mux.drive_until(|| resumed.is_finished());
+    let error = resumed.join().unwrap().unwrap_err();
+
+    assert!(mux.unmanaged_injected);
+    assert_eq!(mux.restore_counts[&first_path], 1);
+    assert!(
+        error
+            .to_string()
+            .contains("native tree precondition changed"),
+        "unexpected reconcile drift failure: {error}"
+    );
+    let registry = Registry::open(world.config.clone()).unwrap();
+    assert_eq!(
+        registry
+            .bootstrap_request(request_uid)
+            .unwrap()
+            .unwrap()
+            .state,
+        before,
+        "the rejected combined callback must not advance bootstrap reconciliation"
+    );
+    let (_, rows) = registry
+        .unfinished_recovery_for_instance(world.instance)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.manifest_node_path == first_path)
+            .unwrap()
+            .node_state,
+        RecoveryNodeState::Restoring
+    );
+}
+
+#[test]
+fn final_snapshot_rejects_two_manifest_groups_collapsed_into_one_tab() {
+    let world = World::new(true);
+    let mut mux = InProcessMux::new(&world);
+    mux.collapse_group_tabs = true;
+
+    let coordinator = spawn_coordinator(world.options(Duration::from_secs(2)));
+    mux.drive_until(|| coordinator.is_finished());
+    let error = coordinator.join().unwrap().unwrap_err();
+
+    assert!(
+        error.to_string().contains("maps multiple Groups"),
+        "unexpected topology failure: {error}"
+    );
+    let status: RecoveryStatus =
+        serde_json::from_slice(&fs::read(&mux.spool.status).unwrap()).unwrap();
+    assert_eq!(status.state, RecoveryStatusState::Failed);
+    let registry = Registry::open(world.config.clone()).unwrap();
+    let (_, rows) = registry
+        .unfinished_recovery_for_instance(world.instance)
+        .unwrap()
+        .expect("invalid topology must retain a failed durable generation");
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.manifest_node_path == dmux::registry::recovery::RECOVERY_GENERATION_PATH)
+            .unwrap()
+            .node_state,
+        RecoveryNodeState::Failed
     );
 }
 
@@ -1101,6 +1658,43 @@ fn abort_crash_after_each_native_remove_retries_without_broad_or_duplicate_delet
     }
 }
 
+#[test]
+fn drift_after_abort_precheck_is_atomically_rejected_before_exact_id_remove() {
+    let world = World::new(true);
+    let mut mux = InProcessMux::new(&world);
+    mux.drop_verify_response = true;
+    let failed_options = world.options(Duration::from_millis(120));
+    let holder_uid = failed_options.request_uid;
+    let failed = spawn_coordinator(failed_options);
+    mux.drive_until(|| failed.is_finished());
+    assert!(failed.join().unwrap().is_err());
+    let pane_count = mux.snapshot.panes().count();
+
+    mux.drop_verify_response = false;
+    mux.dropped = false;
+    mux.seen = None;
+    let _ = fs::remove_file(&mux.spool.command);
+    let _ = fs::remove_file(&mux.spool.response);
+    mux.inject_unmanaged_before_compare_remove_count = Some(1);
+    let mut abort = world.options(Duration::from_secs(2));
+    abort.abort_failed = true;
+    abort.request_uid = holder_uid;
+    let aborting = spawn_coordinator(abort);
+    mux.drive_until(|| aborting.is_finished());
+    let error = aborting.join().unwrap().unwrap_err();
+
+    assert!(mux.unmanaged_injected);
+    assert!(mux.remove_counts.is_empty());
+    assert!(mux.remove_effect_counts.is_empty());
+    assert_eq!(mux.snapshot.panes().count(), pane_count + 1);
+    assert!(
+        error
+            .to_string()
+            .contains("native tree precondition changed"),
+        "unexpected abort drift failure: {error}"
+    );
+}
+
 fn simulate_recovery_process_death(config: &RegistryConfig) -> i64 {
     let registry = Registry::open(config.clone()).unwrap();
     let prior_fence: i64 = registry
@@ -1302,6 +1896,41 @@ fn hard_death_after_completed_root_republishes_ready_without_restoring_again() {
         serde_json::from_slice(&fs::read(&mux.spool.status).unwrap()).unwrap();
     assert_eq!(status.state, RecoveryStatusState::Ready);
     assert!(status.fencing_token.unwrap() > prior_fence);
+}
+
+#[test]
+fn completed_root_takeover_rejects_two_manifest_groups_collapsed_into_one_tab() {
+    let world = World::new(true);
+    let mut mux = InProcessMux::new(&world);
+    let mut crashing = world.options(Duration::from_secs(2));
+    crashing.crash_point = Some(RecoveryCrashPoint {
+        phase: RecoveryCrashPhase::AfterRootCompleted,
+        action: String::new(),
+    });
+    let crashed = spawn_coordinator(crashing);
+    mux.drive_until(|| crashed.is_finished());
+    assert!(crashed.join().is_err());
+
+    let registry = Registry::open(world.config.clone()).unwrap();
+    let (spec, _) = registry
+        .completed_recovery(world.instance, world.epoch)
+        .unwrap()
+        .expect("the injected crash follows the completed-root transaction");
+    drop(registry);
+    collapse_completed_second_group_into_first_tab(&world, &mut mux, spec.generation_uid);
+    simulate_recovery_process_death(&world.config);
+
+    let takeover = spawn_coordinator(world.options(Duration::from_secs(2)));
+    mux.drive_until(|| takeover.is_finished());
+    let error = takeover.join().unwrap().unwrap_err();
+    assert!(
+        error.to_string().contains("maps multiple Groups"),
+        "unexpected completed-takeover topology failure: {error}"
+    );
+    assert!(mux.restore_counts.values().all(|count| *count == 1));
+    let status: RecoveryStatus =
+        serde_json::from_slice(&fs::read(&mux.spool.status).unwrap()).unwrap();
+    assert_eq!(status.state, RecoveryStatusState::Failed);
 }
 
 #[test]
@@ -1551,22 +2180,61 @@ fn wait_for_plan(path: &Path) -> SnapshotCapturePlan {
 }
 
 #[test]
+fn snapshot_candidate_ids_and_preplanted_plan_links_fail_before_the_fence() {
+    let world = World::new(false);
+    let traversal = publish_snapshot_manifest_for_test(
+        world.config.clone(),
+        world.instance,
+        "../escape",
+        &world.manifests,
+        world.epoch,
+    )
+    .unwrap_err();
+    assert!(traversal.to_string().contains("candidate ID"));
+
+    let candidate_id = format!(".capture-{}-3-1", world.epoch.0);
+    let victim = world.manifests.join("victim");
+    write_private(&victim, b"victim-must-survive");
+    symlink(
+        &victim,
+        world.manifests.join(format!("{candidate_id}.plan")),
+    )
+    .unwrap();
+    let error = publish_snapshot_manifest_for_test(
+        world.config.clone(),
+        world.instance,
+        &candidate_id,
+        &world.manifests,
+        world.epoch,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("recovery I/O"), "{error}");
+    assert_eq!(fs::read(victim).unwrap(), b"victim-must-survive");
+    assert!(
+        Registry::open(world.config.clone())
+            .unwrap()
+            .current_lease(&LeaseScope::Snapshot(world.instance))
+            .unwrap()
+            .is_none(),
+        "a hostile plan entry must fail before snapshot lease acquisition"
+    );
+}
+
+#[test]
 fn snapshot_capture_holds_common_lock_and_rejects_an_omitted_planned_space() {
     let world = World::new(false);
-    let candidate = world.manifests.join(".candidate");
-    let destination = world.manifests.join("published.json");
+    let candidate_id = format!(".capture-{}-1-1", world.epoch.0);
+    let candidate = world.manifests.join(&candidate_id);
+    let destination = world
+        .manifests
+        .join(format!("manifest-{}-1-1.json", world.epoch.0));
     let plan_path = snapshot_capture_plan_path(&candidate);
     let config = world.config.clone();
     let instance = world.instance;
-    let candidate_for_thread = candidate.clone();
-    let destination_for_thread = destination.clone();
+    let manifests = world.manifests.clone();
+    let epoch = world.epoch;
     let publisher = thread::spawn(move || {
-        publish_snapshot_manifest(
-            config,
-            instance,
-            &candidate_for_thread,
-            &destination_for_thread,
-        )
+        publish_snapshot_manifest_for_test(config, instance, &candidate_id, &manifests, epoch)
     });
     let plan = wait_for_plan(&plan_path);
     assert_eq!(plan.spaces.len(), 1);
@@ -1585,7 +2253,7 @@ fn snapshot_capture_holds_common_lock_and_rejects_an_omitted_planned_space() {
     omitted.registry_revision = plan.registry_revision;
     omitted.generated_at = plan.generated_at;
     omitted.spaces.clear();
-    fs::write(&candidate, serde_json::to_vec(&omitted).unwrap()).unwrap();
+    write_private(&candidate, serde_json::to_vec(&omitted).unwrap());
     let error = publisher.join().unwrap().unwrap_err();
     assert!(
         error.to_string().contains("exact sorted all-Space"),
@@ -1599,27 +2267,25 @@ fn snapshot_capture_holds_common_lock_and_rejects_an_omitted_planned_space() {
 #[test]
 fn snapshot_capture_publishes_the_exact_fenced_plan_atomically() {
     let world = World::new(false);
-    let candidate = world.manifests.join(".candidate-ok");
-    let destination = world.manifests.join("published.json");
+    let candidate_id = format!(".capture-{}-2-1", world.epoch.0);
+    let candidate = world.manifests.join(&candidate_id);
+    let destination = world
+        .manifests
+        .join(format!("manifest-{}-2-1.json", world.epoch.0));
     let plan_path = snapshot_capture_plan_path(&candidate);
     let config = world.config.clone();
     let instance = world.instance;
-    let candidate_for_thread = candidate.clone();
-    let destination_for_thread = destination.clone();
+    let manifests = world.manifests.clone();
+    let epoch = world.epoch;
     let publisher = thread::spawn(move || {
-        publish_snapshot_manifest(
-            config,
-            instance,
-            &candidate_for_thread,
-            &destination_for_thread,
-        )
+        publish_snapshot_manifest_for_test(config, instance, &candidate_id, &manifests, epoch)
     });
     let plan = wait_for_plan(&plan_path);
     let mut manifest = world.manifest.clone();
     manifest.manifest_id = plan.manifest_id.clone();
     manifest.registry_revision = plan.registry_revision;
     manifest.generated_at = plan.generated_at;
-    fs::write(&candidate, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    write_private(&candidate, serde_json::to_vec(&manifest).unwrap());
     let report = publisher.join().unwrap().unwrap();
     assert_eq!(report.manifest_id, plan.manifest_id);
     let published: RecoveryManifest =

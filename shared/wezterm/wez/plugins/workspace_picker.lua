@@ -87,9 +87,9 @@ local function valid_space(row)
   return bounded_string(row.ref, 512)
     and bounded_string(row.name, 1024)
     -- `_gui spaces` is presentation inventory, not the general CLI list.
-    -- A tmux row cannot be attached through this GUI bridge and therefore
-    -- invalidates the whole response instead of becoming a misleading item.
-    and row.backend == 'wez'
+    -- Rust includes tmux rows only when the active pane's attach-time UID
+    -- proves one exact invoking client on that same backend incarnation.
+    and (row.backend == 'wez' or row.backend == 'tmux')
     and bounded_string(row.owner_alias, 64)
     and bounded_string(row.owner_label, 128)
     and bounded_string(row.route, 256)
@@ -125,7 +125,8 @@ function M.action()
   end
   return wezterm.action_callback(function(window, pane)
     local controller = require 'wez.dmux_bridge.controller'
-    local result = controller.run(window, pane, 'spaces')
+    local dmux_actions = require 'wez.dmux_bridge.actions'
+    local result = controller.run(window, pane, 'spaces', dmux_actions.with_tmux_client_uid(pane))
     if not result or type(result.spaces) ~= 'table' then
       controller.toast(window, 'dmux returned a malformed Space picker result')
       return
@@ -169,7 +170,12 @@ function M.action()
           elseif id == '__zoxide' then
             choose_zoxide(inner_window, inner_pane)
           elseif id then
-            controller.run(inner_window, inner_pane, 'present', { '--space', id })
+            controller.run(
+              inner_window,
+              inner_pane,
+              'present',
+              dmux_actions.with_tmux_client_uid(inner_pane, { '--space', id })
+            )
           end
         end),
       },

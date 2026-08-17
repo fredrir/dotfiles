@@ -35,6 +35,8 @@ assert(config.keys == original_keys)
 assert(config.key_tables == original_tables)
 assert(config.launch_menu == original_menu)
 assert(config.dmux_managed_gui == nil)
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains == nil)
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances == nil)
 assert(next(events) == nil)
 
 io.stdout:write 'dmux bridge flag-off config test: unchanged\n'

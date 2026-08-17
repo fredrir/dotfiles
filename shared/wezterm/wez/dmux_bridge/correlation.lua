@@ -6,6 +6,62 @@ local function failure(code, message)
   return nil, { code = code, message = message }
 end
 
+local function exact_focus_marker(marker, target)
+  return marker
+    and marker.gui_pane_id == target.pane_id
+    and marker.gui_domain == target.domain
+    and marker.tmux_client_uid == target.tmux_client_uid
+    and marker.host_uid == target.host_uid
+    and marker.space_uid == target.space_uid
+    and marker.space_no == target.space_no
+    and marker.backend == 'tmux'
+    and marker.domain == nil
+    and marker.server_epoch == target.server_epoch
+    and marker.group_ref == target.group_ref
+    and marker.split_ref == target.split_ref
+end
+
+local function mux_inventory(mux, target)
+  local rows, seen, matches = {}, {}, {}
+  for _, window in ipairs(mux.all_windows()) do
+    local workspace = window:get_workspace()
+    local window_id = window:window_id()
+    for _, tab in ipairs(window:tabs()) do
+      local tab_id = tab:tab_id()
+      for _, pane in ipairs(tab:panes()) do
+        local pane_id = pane:pane_id()
+        local domain = pane:get_domain_name()
+        if seen[pane_id] then
+          return failure('ambiguous_pane', 'GUI pane id appears more than once in the mux inventory')
+        end
+        seen[pane_id] = true
+        table.insert(
+          rows,
+          table.concat({ tostring(window_id), tostring(tab_id), tostring(pane_id), workspace, domain }, '\0')
+        )
+        local marker = context.from_pane(pane)
+        if exact_focus_marker(marker, target) then
+          table.insert(matches, { window = window, tab = tab, pane = pane, workspace = workspace })
+        end
+      end
+    end
+  end
+  table.sort(rows)
+  return { rows = rows, matches = matches }
+end
+
+local function same_rows(left, right)
+  if #left ~= #right then
+    return false
+  end
+  for index, value in ipairs(left) do
+    if right[index] ~= value then
+      return false
+    end
+  end
+  return true
+end
+
 local function workspace_windows(mux, workspace)
   local matches = {}
   for _, window in ipairs(mux.all_windows()) do
@@ -176,6 +232,52 @@ function M.activate(mux, target)
     end
   end
   return result
+end
+
+-- Focus an already-visible outer GUI pane without attaching a domain,
+-- creating a workspace, or mutating the owner. Pane id alone is never
+-- sufficient: the complete tmux marker and attach-time client UID must still
+-- identify exactly one pane both before and after activation.
+function M.focus_pane(mux, target)
+  local ok, before, before_err = pcall(mux_inventory, mux, target)
+  if not ok then
+    return failure('inventory_failed', tostring(before))
+  end
+  if not before then
+    return nil, before_err
+  end
+  if #before.matches ~= 1 then
+    return failure(
+      #before.matches == 0 and 'pane_not_found' or 'ambiguous_pane',
+      'focus_pane target must match exactly one GUI pane by id, marker, and tmux client UID'
+    )
+  end
+  local selected = before.matches[1]
+  local focus_err
+  ok, focus_err = pcall(function()
+    mux.set_active_workspace(selected.workspace)
+    selected.tab:activate()
+    selected.pane:activate()
+  end)
+  if not ok then
+    return failure('focus_failed', tostring(focus_err))
+  end
+  local after, after_err = mux_inventory(mux, target)
+  if not after then
+    return nil, after_err
+  end
+  if not same_rows(before.rows, after.rows) then
+    return failure('pane_inventory_changed', 'GUI pane inventory changed during no-create focus')
+  end
+  if #after.matches ~= 1 then
+    return failure('focus_postcondition_failed', 'focused pane marker/client identity changed during activation')
+  end
+  return {
+    domain = target.domain,
+    pane_id = target.pane_id,
+    group_ref = target.group_ref,
+    split_ref = target.split_ref,
+  }
 end
 
 return M

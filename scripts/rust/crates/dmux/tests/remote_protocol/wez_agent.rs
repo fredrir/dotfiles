@@ -8,6 +8,7 @@
 //! runtime dir itself via confstr). The shim rides the owner-side
 //! DMUX_HELPER_BIN seam; the client payloads never carry owner paths.
 
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -37,7 +38,7 @@ impl WezScratch {
     /// P8a wez leg pinned): unix domain on a private socket, no auto-serve.
     fn start(tag: &str, runtime_dir: &Path) -> WezScratch {
         let dir = tempfile::tempdir_in("/tmp").unwrap();
-        let socket = dir.path().join("sock").display().to_string();
+        let socket = runtime_dir.join("wez-dmux.sock").display().to_string();
         let epoch = Uuid::new_v4();
         let config_path = dir.path().join("mux.lua");
         std::fs::write(
@@ -172,15 +173,19 @@ fn wez_remote_hierarchy_full_cycle_through_the_agent() {
     // descriptor from the service coordinator. The scratch stock server
     // cannot write dmux's descriptor itself, so publish the same identity
     // explicitly before any owner RPC is allowed to probe it.
+    let start_token = dmux::runtime::process_start_token_for_pid(wez.server.id()).unwrap();
+    let boot_id = dmux::runtime::current_boot_id().unwrap();
+    std::fs::set_permissions(&wez.socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let socket_metadata = std::fs::symlink_metadata(&wez.socket).unwrap();
     let mut registry = scratch.registry();
     registry
         .publish_backend_server(
             instance,
             ServerEpoch(wez.epoch),
             Some(wez.server.id().into()),
-            Some("wez-agent-scratch"),
-            None,
-            None,
+            Some(&start_token),
+            Some(i64::try_from(socket_metadata.dev()).unwrap()),
+            Some(i64::try_from(socket_metadata.ino()).unwrap()),
         )
         .unwrap();
     drop(registry);
@@ -193,17 +198,23 @@ fn wez_remote_hierarchy_full_cycle_through_the_agent() {
             "epoch": wez.epoch,
             "pid": wez.server.id(),
             "socket": wez.socket,
-            "start_token": "wez-agent-scratch",
+            "start_token": start_token,
+            "boot_id": boot_id,
+            "socket_dev": socket_metadata.dev(),
+            "socket_ino": socket_metadata.ino(),
             "boot_nonce": Uuid::new_v4(),
             "backend_instance_uid": instance,
+            "sentinel_window_id": 0,
+            "sentinel_tab_id": 0,
+            "sentinel_pane_id": 0,
+            "sentinel_fallback": false,
+            "written_by": "mux-startup",
+            "written_at": "2026-08-17T00:00:00Z",
         }))
         .unwrap(),
     )
     .unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
+    std::fs::set_permissions(&descriptor, std::fs::Permissions::from_mode(0o600)).unwrap();
 
     // An unmanaged exact-name row on the opposite provider refuses before
     // Wez identity reservation or native allocation.

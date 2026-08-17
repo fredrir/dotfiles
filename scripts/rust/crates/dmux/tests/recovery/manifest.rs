@@ -1,13 +1,27 @@
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::path::Path;
 
 use dmux::model::{BackendInstanceUid, ServerEpoch, SpaceUid};
 use dmux::recovery::{
     MANIFEST_SCHEMA_VERSION, ManifestGroup, ManifestSpace, ManifestSplit, ManifestWindow,
     NativePane, NativeSnapshot, NativeTab, NativeWindow, RecoveryManifest, RestoreOperation,
-    newest_eligible_manifest,
+    atomic_publish_manifest, newest_eligible_manifest,
 };
 use serde_json::json;
 use uuid::Uuid;
+
+fn private_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    dir
+}
+
+fn write_private(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) {
+    fs::write(path.as_ref(), bytes).unwrap();
+    fs::set_permissions(path.as_ref(), fs::Permissions::from_mode(0o600)).unwrap();
+}
 
 fn instance() -> BackendInstanceUid {
     BackendInstanceUid(Uuid::from_u128(1))
@@ -168,18 +182,16 @@ fn imported_remote_panes_are_never_eligible_local_shells() {
 
 #[test]
 fn newest_complete_manifest_falls_back_around_corruption_and_honors_empty_floor() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("newest.json"), b"{not json").unwrap();
-    fs::write(
+    let dir = private_dir();
+    write_private(dir.path().join("newest.json"), b"{not json");
+    write_private(
         dir.path().join("rev-8.json"),
         serde_json::to_vec(&manifest(8)).unwrap(),
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_private(
         dir.path().join("rev-9.json.bak"),
         serde_json::to_vec(&manifest(9)).unwrap(),
-    )
-    .unwrap();
+    );
 
     let (selected, diagnostics) =
         newest_eligible_manifest(dir.path(), instance(), Some(8)).unwrap();
@@ -197,24 +209,88 @@ fn newest_complete_manifest_falls_back_around_corruption_and_honors_empty_floor(
 
 #[test]
 fn newest_manifest_with_bad_dimensions_is_skipped_for_older_complete_one() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_dir();
     let good = manifest(7);
     let mut bad = manifest(8);
     bad.spaces[0].window_state.tabs[0].pane_tree.width = Some(0);
-    fs::write(
+    write_private(
         dir.path().join("good.json"),
         serde_json::to_vec(&good).unwrap(),
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_private(
         dir.path().join("bad.json"),
         serde_json::to_vec(&bad).unwrap(),
-    )
-    .unwrap();
+    );
 
     let (selected, diagnostics) = newest_eligible_manifest(dir.path(), instance(), None).unwrap();
     assert_eq!(selected.unwrap().registry_revision, 7);
     assert!(diagnostics.iter().any(|line| line.contains("dimensions")));
+}
+
+#[test]
+fn hostile_manifest_entries_are_skipped_without_following_or_blocking() {
+    let dir = private_dir();
+    let victim = dir.path().join("victim");
+    write_private(&victim, b"victim-must-survive");
+    symlink(&victim, dir.path().join("symlink.json")).unwrap();
+    fs::hard_link(&victim, dir.path().join("hardlink.json")).unwrap();
+    write_private(dir.path().join("wrong-mode.json"), b"{}");
+    fs::set_permissions(
+        dir.path().join("wrong-mode.json"),
+        fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    let oversized = dir.path().join("oversized.json");
+    let oversized_file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&oversized)
+        .unwrap();
+    oversized_file.set_len(16 * 1024 * 1024 + 1).unwrap();
+    let fifo = dir.path().join("fifo.json");
+    let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+    fs::set_permissions(&fifo, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let (selected, diagnostics) = newest_eligible_manifest(dir.path(), instance(), None).unwrap();
+    assert!(selected.is_none());
+    for name in [
+        "symlink.json",
+        "hardlink.json",
+        "wrong-mode.json",
+        "oversized.json",
+        "fifo.json",
+    ] {
+        assert!(
+            diagnostics.iter().any(|line| line.contains(name)),
+            "missing refusal for {name}: {diagnostics:?}"
+        );
+    }
+    assert_eq!(fs::read(&victim).unwrap(), b"victim-must-survive");
+}
+
+#[test]
+fn manifest_directory_and_publication_never_follow_symlinks() {
+    let outer = private_dir();
+    let actual = outer.path().join("actual");
+    fs::DirBuilder::new()
+        .recursive(false)
+        .mode(0o700)
+        .create(&actual)
+        .unwrap();
+    let alias = outer.path().join("alias");
+    symlink(&actual, &alias).unwrap();
+    let error = newest_eligible_manifest(&alias, instance(), None).unwrap_err();
+    assert!(matches!(error, dmux::recovery::RecoveryError::Io(_)));
+
+    let victim = actual.join("victim");
+    write_private(&victim, b"immutable-victim");
+    let destination = actual.join("published.json");
+    symlink(&victim, &destination).unwrap();
+    let error = atomic_publish_manifest(&destination, &manifest(10)).unwrap_err();
+    assert!(matches!(error, dmux::recovery::RecoveryError::Io(_)));
+    assert_eq!(fs::read(victim).unwrap(), b"immutable-victim");
 }
 
 fn sentinel_snapshot(epoch: ServerEpoch) -> NativeSnapshot {

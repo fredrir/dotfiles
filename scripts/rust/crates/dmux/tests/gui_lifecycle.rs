@@ -2,6 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::OsString;
 use std::io;
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
@@ -10,15 +11,23 @@ use dmux::backend::{
     InventoryOutcome, InventoryScope, NativeGroupRow, NativeInventory, NativeSpaceRow,
     NativeSplitRow,
 };
+use dmux::connect_cli::{FrozenBinding, FrozenConnectTarget};
 use dmux::error::{ErrorCode, TypedError};
 use dmux::gui::BridgeInstanceSelection;
 use dmux::gui_lifecycle::{
-    CommandExit, DescriptorSource, FixedServicePlatform, GuiLaunchDeps, HeartbeatSource,
-    LINUX_SERVICE_LABEL, LifecycleChild, LifecycleClock, LifecycleCommand, LifecycleCommandRunner,
-    MACOS_SERVICE_LABEL, ReadyWezService, ServiceEnsureDeps, WezServiceInventory,
-    ensure_ready_wez_service_with, launch_attach_only_gui_with,
+    ColdLaunchIntent, CommandExit, DescriptorSource, FixedServicePlatform,
+    GUI_BACKEND_INSTANCE_ENV, GUI_INSTANCE_ENV, GUI_LAUNCHER_PID_ENV, GUI_LAUNCHER_REQUEST_UID_ENV,
+    GUI_LAUNCHER_START_TOKEN_ENV, GUI_TARGET_BACKEND_INSTANCE_ENV, GUI_TARGET_DOMAIN_ENV,
+    GUI_TARGET_HOST_UID_ENV, GUI_TARGET_SERVER_EPOCH_ENV, GUI_TARGET_SPACE_UID_ENV, GuiLaunchDeps,
+    HeartbeatSource, LINUX_SERVICE_LABEL, LauncherProcessWitness, LauncherWitnessSource,
+    LifecycleChild, LifecycleClock, LifecycleCommand, LifecycleCommandRunner, MACOS_SERVICE_LABEL,
+    ReadyWezService, ServiceEnsureDeps, WezServiceInventory, ensure_ready_wez_service_with,
+    launch_attach_only_gui_with,
 };
-use dmux::model::{Backend, BackendInstanceUid, ProviderHandle, ServerEpoch};
+use dmux::model::{
+    Backend, BackendInstanceUid, HostUid, ProviderHandle, ServerEpoch, SpaceNo, SpaceUid,
+};
+use dmux::new_cli::{NewPresentationMode, WezPresentationPreflight};
 use dmux::registry::{Registry, RegistryConfig};
 use dmux::runtime::WezMuxDescriptor;
 use tempfile::TempDir;
@@ -26,6 +35,24 @@ use uuid::Uuid;
 
 const SOCKET: &str = "/run/user/1000/dmux/wez-dmux.sock";
 const GUI_CFG: &str = "/cfg/wezterm.lua";
+const LAUNCHER_UID: u64 = 1000;
+const LAUNCHER_PID: u32 = 5151;
+const TARGET_DOMAIN: &str = "dmux-b-ts";
+
+#[cfg(target_os = "linux")]
+const LAUNCHER_START_TOKEN: &str = "linux:123456";
+#[cfg(target_os = "macos")]
+const LAUNCHER_START_TOKEN: &str = "macos:1700000000:123456";
+
+#[cfg(target_os = "linux")]
+const SERVER_START_TOKEN: &str = "linux:424242";
+#[cfg(target_os = "macos")]
+const SERVER_START_TOKEN: &str = "macos:1700000001:424242";
+
+#[cfg(target_os = "linux")]
+const BOOT_ID: &str = "linux:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+#[cfg(target_os = "macos")]
+const BOOT_ID: &str = "macos:1699999999:999999";
 
 #[derive(Debug, Clone)]
 enum RunResult {
@@ -37,7 +64,9 @@ enum RunResult {
 struct FakeCommands {
     run: RunResult,
     spawn: Result<u32, (io::ErrorKind, &'static str)>,
+    cleanup_error: Option<(io::ErrorKind, &'static str)>,
     cleanups: Rc<Cell<u32>>,
+    cleanup_pids: Rc<RefCell<Vec<u32>>>,
     run_commands: RefCell<Vec<(LifecycleCommand, Duration)>>,
     spawn_commands: RefCell<Vec<LifecycleCommand>>,
 }
@@ -50,7 +79,9 @@ impl FakeCommands {
                 code: Some(0),
             }),
             spawn: Ok(pid),
+            cleanup_error: None,
             cleanups: Rc::new(Cell::new(0)),
+            cleanup_pids: Rc::new(RefCell::new(Vec::new())),
             run_commands: RefCell::new(Vec::new()),
             spawn_commands: RefCell::new(Vec::new()),
         }
@@ -77,7 +108,9 @@ impl LifecycleCommandRunner for FakeCommands {
         match self.spawn {
             Ok(pid) => Ok(Box::new(FakeChild {
                 pid,
+                cleanup_error: self.cleanup_error,
                 cleanups: Rc::clone(&self.cleanups),
+                cleanup_pids: Rc::clone(&self.cleanup_pids),
             })),
             Err((kind, detail)) => Err(io::Error::new(kind, detail)),
         }
@@ -86,7 +119,9 @@ impl LifecycleCommandRunner for FakeCommands {
 
 struct FakeChild {
     pid: u32,
+    cleanup_error: Option<(io::ErrorKind, &'static str)>,
     cleanups: Rc<Cell<u32>>,
+    cleanup_pids: Rc<RefCell<Vec<u32>>>,
 }
 
 impl LifecycleChild for FakeChild {
@@ -100,7 +135,39 @@ impl LifecycleChild for FakeChild {
 
     fn terminate_and_reap(&mut self) -> io::Result<()> {
         self.cleanups.set(self.cleanups.get() + 1);
-        Ok(())
+        self.cleanup_pids.borrow_mut().push(self.pid);
+        match self.cleanup_error {
+            Some((kind, detail)) => Err(io::Error::new(kind, detail)),
+            None => Ok(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum LauncherResult {
+    Witness(LauncherProcessWitness),
+    Error(io::ErrorKind, &'static str),
+}
+
+#[derive(Debug, Clone)]
+struct FakeLauncher(LauncherResult);
+
+impl FakeLauncher {
+    fn successful() -> Self {
+        Self(LauncherResult::Witness(LauncherProcessWitness {
+            uid: LAUNCHER_UID,
+            pid: LAUNCHER_PID,
+            start_token: LAUNCHER_START_TOKEN.into(),
+        }))
+    }
+}
+
+impl LauncherWitnessSource for FakeLauncher {
+    fn current(&self) -> io::Result<LauncherProcessWitness> {
+        match &self.0 {
+            LauncherResult::Witness(witness) => Ok(witness.clone()),
+            LauncherResult::Error(kind, detail) => Err(io::Error::new(*kind, *detail)),
+        }
     }
 }
 
@@ -125,17 +192,23 @@ enum DescriptorStep {
 }
 
 #[derive(Debug)]
-struct FakeDescriptors(RefCell<VecDeque<DescriptorStep>>);
+struct FakeDescriptors {
+    steps: RefCell<VecDeque<DescriptorStep>>,
+    verified_reads: Cell<u32>,
+}
 
 impl FakeDescriptors {
     fn new(steps: impl IntoIterator<Item = DescriptorStep>) -> Self {
-        Self(RefCell::new(steps.into_iter().collect()))
+        Self {
+            steps: RefCell::new(steps.into_iter().collect()),
+            verified_reads: Cell::new(0),
+        }
     }
 }
 
 impl DescriptorSource for FakeDescriptors {
     fn read(&self, _runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
-        let mut steps = self.0.borrow_mut();
+        let mut steps = self.steps.borrow_mut();
         let step = if steps.len() > 1 {
             steps.pop_front().expect("nonempty descriptor script")
         } else {
@@ -146,6 +219,27 @@ impl DescriptorSource for FakeDescriptors {
             DescriptorStep::Document(document) => Ok(Some(document)),
             DescriptorStep::Error(kind, detail) => Err(io::Error::new(kind, detail)),
         }
+    }
+
+    fn read_verified_ready(
+        &self,
+        runtime_dir: &Path,
+        expected_instance: Uuid,
+        expected_epoch: Uuid,
+    ) -> io::Result<Option<WezMuxDescriptor>> {
+        self.verified_reads.set(self.verified_reads.get() + 1);
+        let descriptor = self.read(runtime_dir)?;
+        if let Some(descriptor) = &descriptor
+            && (descriptor.backend_instance_uid.as_deref()
+                != Some(expected_instance.to_string().as_str())
+                || descriptor.epoch != expected_epoch.to_string())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified descriptor identity changed",
+            ));
+        }
+        Ok(descriptor)
     }
 }
 
@@ -225,7 +319,14 @@ fn registry_fixture(platform: FixedServicePlatform) -> RegistryFixture {
         .unwrap();
     let epoch = ServerEpoch(Uuid::from_u128(0x11111111_1111_4111_8111_111111111111));
     registry
-        .publish_backend_server(instance, epoch, Some(4242), Some("4242-start"), None, None)
+        .publish_backend_server(
+            instance,
+            epoch,
+            Some(4242),
+            Some(SERVER_START_TOKEN),
+            Some(42),
+            Some(84),
+        )
         .unwrap();
     RegistryFixture {
         _dir: dir,
@@ -243,13 +344,20 @@ fn descriptor(fixture: &RegistryFixture) -> WezMuxDescriptor {
         epoch: fixture.epoch.0.to_string(),
         pid: 4242,
         socket: SOCKET.into(),
-        start_token: "4242-start".into(),
-        boot_nonce: Some("boot".into()),
+        start_token: SERVER_START_TOKEN.into(),
+        boot_id: Some(BOOT_ID.into()),
+        socket_dev: Some(42),
+        socket_ino: Some(84),
+        boot_nonce: Some("cccccccc-cccc-4ccc-8ccc-cccccccccccc".into()),
         backend_instance_uid: Some(fixture.instance.0.to_string()),
         recovery_generation: None,
-        sentinel_window_id: Some(1),
-        sentinel_tab_id: Some(2),
-        sentinel_pane_id: Some(3),
+        sentinel_window_id: Some(0),
+        sentinel_tab_id: Some(0),
+        sentinel_pane_id: Some(0),
+        sentinel_fallback: Some(false),
+        recovery_manifest_id: None,
+        written_by: Some("mux-startup".into()),
+        written_at: Some("2026-08-17T12:34:56Z".into()),
         error: None,
     }
 }
@@ -299,6 +407,73 @@ fn ready(fixture: &RegistryFixture) -> ReadyWezService {
         backend_instance_uid: fixture.instance,
         server_epoch: fixture.epoch,
     }
+}
+
+fn target_preflight(launcher_request_uid: Uuid) -> WezPresentationPreflight {
+    WezPresentationPreflight {
+        owner: HostUid(Uuid::from_u128(0x22222222_2222_4222_8222_222222222222)),
+        backend_instance_uid: BackendInstanceUid(Uuid::from_u128(
+            0xaaaaaaaa_aaaa_4aaa_8aaa_aaaaaaaaaaaa,
+        )),
+        server_epoch: ServerEpoch(Uuid::from_u128(0xbbbbbbbb_bbbb_4bbb_8bbb_bbbbbbbbbbbb)),
+        gui_instance: format!("gui-{}", launcher_request_uid.simple()),
+        domain: TARGET_DOMAIN.into(),
+        alternate_domains: vec!["dmux-b-usb".into()],
+        mode: NewPresentationMode::Cold,
+    }
+}
+
+fn frozen_target(preflight: &WezPresentationPreflight) -> FrozenConnectTarget {
+    FrozenConnectTarget {
+        owner: preflight.owner,
+        space_uid: SpaceUid(Uuid::from_u128(0xcccccccc_cccc_4ccc_8ccc_cccccccccccc)),
+        space_no: SpaceNo(NonZeroU64::new(7).unwrap()),
+        logical_name: "remote-space".into(),
+        backend: Backend::Wez,
+        backend_instance_uid: preflight.backend_instance_uid,
+        server_epoch: preflight.server_epoch,
+        binding: FrozenBinding {
+            native_token: "dmux:remote:space".into(),
+            endpoint: "/run/user/1000/dmux/remote.sock".into(),
+        },
+        child: None,
+    }
+}
+
+fn existing_cold_intent(launcher_request_uid: Uuid) -> ColdLaunchIntent {
+    let preflight = target_preflight(launcher_request_uid);
+    ColdLaunchIntent::from_existing_target(
+        &preflight,
+        &frozen_target(&preflight),
+        launcher_request_uid,
+    )
+    .unwrap()
+}
+
+fn new_cold_intent(launcher_request_uid: Uuid) -> ColdLaunchIntent {
+    ColdLaunchIntent::from_new_preflight(
+        &target_preflight(launcher_request_uid),
+        launcher_request_uid,
+    )
+    .unwrap()
+}
+
+fn local_cold_intent(fixture: &RegistryFixture, launcher_request_uid: Uuid) -> ColdLaunchIntent {
+    let preflight = WezPresentationPreflight {
+        owner: HostUid(Uuid::from_u128(0x11111111_1111_4111_8111_111111111111)),
+        backend_instance_uid: fixture.instance,
+        server_epoch: fixture.epoch,
+        gui_instance: format!("gui-{}", launcher_request_uid.simple()),
+        domain: "dmux".into(),
+        alternate_domains: Vec::new(),
+        mode: NewPresentationMode::Cold,
+    };
+    ColdLaunchIntent::from_existing_target(
+        &preflight,
+        &frozen_target(&preflight),
+        launcher_request_uid,
+    )
+    .unwrap()
 }
 
 fn heartbeat(
@@ -414,6 +589,11 @@ fn starting_descriptor_polls_then_accepts_nonempty_sentinel_verified_inventory()
     )
     .unwrap();
     assert_eq!(result, ready(&fixture));
+    assert_eq!(
+        descriptors.verified_reads.get(),
+        1,
+        "raw ready descriptor must be re-read through the native verifier"
+    );
     let calls = inventory.calls.borrow();
     assert_eq!(calls.len(), 1);
     assert_eq!(
@@ -425,7 +605,7 @@ fn starting_descriptor_polls_then_accepts_nonempty_sentinel_verified_inventory()
                 expected_epoch: Some(fixture.epoch),
             },
             4242,
-            "4242-start".into(),
+            SERVER_START_TOKEN.into(),
         )
     );
 }
@@ -448,6 +628,101 @@ fn wrong_descriptor_socket_fails_before_inventory() {
     )
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::WrongBackendInstance);
+    assert!(inventory.calls.borrow().is_empty());
+}
+
+#[test]
+fn ready_descriptor_identity_change_fails_before_inventory() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let commands = FakeCommands::successful(99);
+    let raw = descriptor(&fixture);
+    let mut replaced = raw.clone();
+    replaced.backend_instance_uid =
+        Some(Uuid::from_u128(0xeeeeeeee_eeee_4eee_8eee_eeeeeeeeeeee).to_string());
+    let descriptors = FakeDescriptors::new([
+        DescriptorStep::Document(raw),
+        DescriptorStep::Document(replaced),
+    ]);
+    let inventory = FakeInventory::new([complete(fixture.epoch, false)]);
+    let clock = FakeClock::default();
+    let error = ensure_ready_wez_service_with(
+        &fixture.registry,
+        fixture._dir.path(),
+        fixture.platform,
+        service_deps(&commands, &descriptors, &inventory, &clock),
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::BridgeUnavailable);
+    assert!(
+        error.message.contains("identity changed"),
+        "{}",
+        error.message
+    );
+    assert_eq!(descriptors.verified_reads.get(), 1);
+    assert!(inventory.calls.borrow().is_empty());
+}
+
+#[test]
+fn registry_and_inventory_use_the_verified_reread_not_the_raw_ready_claim() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let commands = FakeCommands::successful(99);
+    let raw = descriptor(&fixture);
+    let mut verified = raw.clone();
+    verified.pid = 4243;
+    let descriptors = FakeDescriptors::new([
+        DescriptorStep::Document(raw),
+        DescriptorStep::Document(verified),
+    ]);
+    let inventory = FakeInventory::new([complete(fixture.epoch, false)]);
+    let clock = FakeClock::default();
+    let error = ensure_ready_wez_service_with(
+        &fixture.registry,
+        fixture._dir.path(),
+        fixture.platform,
+        service_deps(&commands, &descriptors, &inventory, &clock),
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::WrongBackendInstance);
+    assert!(error.message.contains("process/socket witness"));
+    assert_eq!(descriptors.verified_reads.get(), 1);
+    assert!(inventory.calls.borrow().is_empty());
+}
+
+#[test]
+fn registry_socket_inode_must_match_the_native_verified_descriptor() {
+    let mut fixture = registry_fixture(FixedServicePlatform::Linux);
+    fixture
+        .registry
+        .publish_backend_server(
+            fixture.instance,
+            fixture.epoch,
+            Some(4242),
+            Some(SERVER_START_TOKEN),
+            Some(43),
+            Some(84),
+        )
+        .unwrap();
+    let commands = FakeCommands::successful(99);
+    let descriptors = FakeDescriptors::new([DescriptorStep::Document(descriptor(&fixture))]);
+    let inventory = FakeInventory::new([complete(fixture.epoch, false)]);
+    let clock = FakeClock::default();
+    let error = ensure_ready_wez_service_with(
+        &fixture.registry,
+        fixture._dir.path(),
+        fixture.platform,
+        service_deps(&commands, &descriptors, &inventory, &clock),
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::WrongBackendInstance);
+    assert!(
+        error.message.contains("process/socket witness"),
+        "{}",
+        error.message
+    );
+    assert_eq!(descriptors.verified_reads.get(), 1);
     assert!(inventory.calls.borrow().is_empty());
 }
 
@@ -538,6 +813,7 @@ fn unsupported_descriptor_version_fails_before_inventory() {
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::ProtocolMismatch);
     assert!(inventory.calls.borrow().is_empty());
+    assert_eq!(descriptors.verified_reads.get(), 0);
 }
 
 #[test]
@@ -553,6 +829,8 @@ fn attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env() {
         Ok(vec![old]),
         Ok(vec![fresh.clone()]),
     ]);
+    let launcher = FakeLauncher::successful();
+    let intent = existing_cold_intent(request);
     let clock = FakeClock::default();
     let launched = launch_attach_only_gui_with(
         Path::new("/run/user/1000/dmux"),
@@ -560,16 +838,32 @@ fn attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env() {
         "/opt/wezterm/bin/wezterm",
         Path::new(GUI_CFG),
         request,
+        &intent,
         GuiLaunchDeps {
             command: &commands,
             heartbeats: &heartbeats,
+            launcher: &launcher,
             clock: &clock,
         },
         Duration::from_millis(100),
     )
     .unwrap();
-    assert_eq!(launched.instance, fresh);
-    assert_eq!(launched.class, format!("dmux-{}", request.simple()));
+    assert_eq!(launched.instance(), &fresh);
+    assert_eq!(launched.class(), format!("dmux-{}", request.simple()));
+    assert_eq!(
+        launched.launcher_witness().gui_instance(),
+        format!("gui-{}", request.simple())
+    );
+    assert_eq!(launched.launcher_witness().launcher_request_uid(), request);
+    assert_eq!(
+        launched.launcher_witness().process(),
+        &LauncherProcessWitness {
+            uid: LAUNCHER_UID,
+            pid: LAUNCHER_PID,
+            start_token: LAUNCHER_START_TOKEN.into(),
+        }
+    );
+    assert_eq!(launched.launcher_witness().intent(), &intent);
     assert_eq!(commands.cleanups.get(), 0, "successful GUI stays running");
 
     let calls = commands.spawn_commands.borrow();
@@ -593,23 +887,78 @@ fn attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env() {
     );
     assert_eq!(
         command.env_remove,
-        ["WEZTERM_PANE", "TMUX", "TMUX_PANE"].map(OsString::from)
+        [
+            "WEZTERM_PANE",
+            "TMUX",
+            "TMUX_PANE",
+            GUI_INSTANCE_ENV,
+            GUI_LAUNCHER_REQUEST_UID_ENV,
+            GUI_LAUNCHER_PID_ENV,
+            GUI_LAUNCHER_START_TOKEN_ENV,
+            GUI_BACKEND_INSTANCE_ENV,
+            GUI_TARGET_HOST_UID_ENV,
+            GUI_TARGET_DOMAIN_ENV,
+            GUI_TARGET_BACKEND_INSTANCE_ENV,
+            GUI_TARGET_SERVER_EPOCH_ENV,
+            GUI_TARGET_SPACE_UID_ENV,
+        ]
+        .map(OsString::from)
     );
     assert_eq!(
-        command.env_set.get(&OsString::from("WEZTERM_UNIX_SOCKET")),
-        Some(&OsString::from(SOCKET))
+        &command.env_set,
+        &BTreeMap::from([
+            (
+                OsString::from("DMUX_RUNTIME_DIR"),
+                OsString::from("/run/user/1000/dmux")
+            ),
+            (
+                OsString::from(GUI_BACKEND_INSTANCE_ENV),
+                OsString::from(fixture.instance.0.to_string()),
+            ),
+            (OsString::from(GUI_INSTANCE_ENV), OsString::from(requested)),
+            (
+                OsString::from(GUI_LAUNCHER_PID_ENV),
+                OsString::from(LAUNCHER_PID.to_string()),
+            ),
+            (
+                OsString::from(GUI_LAUNCHER_REQUEST_UID_ENV),
+                OsString::from(request.to_string()),
+            ),
+            (
+                OsString::from(GUI_LAUNCHER_START_TOKEN_ENV),
+                OsString::from(LAUNCHER_START_TOKEN),
+            ),
+            (
+                OsString::from(GUI_TARGET_BACKEND_INSTANCE_ENV),
+                OsString::from(intent.backend_instance_uid().0.to_string()),
+            ),
+            (
+                OsString::from(GUI_TARGET_DOMAIN_ENV),
+                OsString::from(intent.domain()),
+            ),
+            (
+                OsString::from(GUI_TARGET_HOST_UID_ENV),
+                OsString::from(intent.owner().0.to_string()),
+            ),
+            (
+                OsString::from(GUI_TARGET_SERVER_EPOCH_ENV),
+                OsString::from(intent.server_epoch().0.to_string()),
+            ),
+            (
+                OsString::from(GUI_TARGET_SPACE_UID_ENV),
+                OsString::from(intent.space_uid().unwrap().0.to_string()),
+            ),
+            (OsString::from("DMUX_WEZ_FIRST"), OsString::from("1")),
+            (
+                OsString::from("WEZTERM_UNIX_SOCKET"),
+                OsString::from(SOCKET)
+            ),
+        ])
     );
-    assert_eq!(
-        command.env_set.get(&OsString::from("DMUX_RUNTIME_DIR")),
-        Some(&OsString::from("/run/user/1000/dmux"))
-    );
-    assert_eq!(
-        command.env_set.get(&OsString::from("DMUX_GUI_INSTANCE")),
-        Some(&OsString::from(requested))
-    );
-    assert_eq!(
-        command.env_set.get(&OsString::from("DMUX_WEZ_FIRST")),
-        Some(&OsString::from("1"))
+    assert_ne!(
+        command.env_set[&OsString::from(GUI_BACKEND_INSTANCE_ENV)],
+        command.env_set[&OsString::from(GUI_TARGET_BACKEND_INSTANCE_ENV)],
+        "local transport identity must not be replaced by the remote target incarnation"
     );
     assert!(
         !command
@@ -617,24 +966,368 @@ fn attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env() {
             .windows(2)
             .any(|pair| pair == ["start", "--domain"])
     );
+    let committed = launched.commit();
+    assert_eq!(committed.instance, fresh);
+    assert_eq!(committed.launcher_witness.intent(), &intent);
+    assert_eq!(commands.cleanups.get(), 0, "commit disarms cleanup");
+    assert!(commands.cleanup_pids.borrow().is_empty());
 }
 
 #[test]
-fn attach_timeout_never_reuses_an_old_heartbeat() {
+fn local_cold_target_is_still_explicitly_bound_to_its_owner_and_incarnation() {
     let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x37373737_3737_4737_8737_373737373737);
+    let requested = format!("gui-{}", request.simple());
+    let intent = local_cold_intent(&fixture, request);
+    let commands = FakeCommands::successful(7020);
+    let heartbeats = FakeHeartbeats::new([
+        Ok(vec![]),
+        Ok(vec![heartbeat(&requested, 7020, "spawn-token")]),
+    ]);
+    let launcher = FakeLauncher::successful();
+    let clock = FakeClock::default();
+    let launched = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &intent,
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap();
+    let _committed = launched.commit();
+
+    let calls = commands.spawn_commands.borrow();
+    let env = &calls[0].env_set;
+    assert_eq!(
+        env.get(&OsString::from(GUI_TARGET_DOMAIN_ENV)),
+        Some(&OsString::from("dmux"))
+    );
+    assert_eq!(
+        env.get(&OsString::from(GUI_TARGET_HOST_UID_ENV)),
+        Some(&OsString::from(intent.owner().0.to_string()))
+    );
+    assert_eq!(
+        env.get(&OsString::from(GUI_TARGET_BACKEND_INSTANCE_ENV)),
+        env.get(&OsString::from(GUI_BACKEND_INSTANCE_ENV))
+    );
+    assert_eq!(
+        env.get(&OsString::from(GUI_TARGET_SERVER_EPOCH_ENV)),
+        Some(&OsString::from(fixture.epoch.0.to_string()))
+    );
+    assert!(env.contains_key(&OsString::from(GUI_TARGET_SPACE_UID_ENV)));
+}
+
+#[test]
+fn cold_launch_rejects_local_transport_and_target_cross_mix_before_spawn() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let commands = FakeCommands::successful(7021);
+    let heartbeats = FakeHeartbeats::new([Ok(vec![])]);
+    let launcher = FakeLauncher::successful();
+    let clock = FakeClock::default();
+
+    let request = Uuid::from_u128(0x38383838_3838_4838_8838_383838383838);
+    let mut remote_backend_on_local_domain = target_preflight(request);
+    remote_backend_on_local_domain.domain = "dmux".into();
+    let target = frozen_target(&remote_backend_on_local_domain);
+    let intent =
+        ColdLaunchIntent::from_existing_target(&remote_backend_on_local_domain, &target, request)
+            .unwrap();
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &intent,
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::IdentityConflict);
+    assert!(error.message.contains("local dmux transport incarnation"));
+
+    let request = Uuid::from_u128(0x39393939_3939_4939_8939_393939393939);
+    let local_backend_on_remote_domain = WezPresentationPreflight {
+        owner: HostUid(Uuid::from_u128(0x11111111_1111_4111_8111_111111111111)),
+        backend_instance_uid: fixture.instance,
+        server_epoch: fixture.epoch,
+        gui_instance: format!("gui-{}", request.simple()),
+        domain: TARGET_DOMAIN.into(),
+        alternate_domains: Vec::new(),
+        mode: NewPresentationMode::Cold,
+    };
+    let target = frozen_target(&local_backend_on_remote_domain);
+    let intent =
+        ColdLaunchIntent::from_existing_target(&local_backend_on_remote_domain, &target, request)
+            .unwrap();
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &intent,
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::IdentityConflict);
+    assert!(commands.spawn_commands.borrow().is_empty());
+}
+
+#[test]
+fn cold_launch_intent_requires_one_matching_owner_validated_preflight() {
+    let request = Uuid::from_u128(0x36363636_3636_4636_8636_363636363636);
+    let preflight = target_preflight(request);
+    let mut mismatched = frozen_target(&preflight);
+    mismatched.backend_instance_uid =
+        BackendInstanceUid(Uuid::from_u128(0xdddddddd_dddd_4ddd_8ddd_dddddddddddd));
+    let error =
+        ColdLaunchIntent::from_existing_target(&preflight, &mismatched, request).unwrap_err();
+    assert_eq!(error.code, ErrorCode::IdentityConflict);
+
+    let mut ambient = preflight.clone();
+    ambient.mode = NewPresentationMode::Ambient;
+    let error = ColdLaunchIntent::from_new_preflight(&ambient, request).unwrap_err();
+    assert_eq!(error.code, ErrorCode::IdentityConflict);
+
+    let mut malformed = preflight;
+    malformed.domain = "dmux-b-ts\nforged".into();
+    let error = ColdLaunchIntent::from_new_preflight(&malformed, request).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ProtocolMismatch);
+
+    let mut wrong_instance = target_preflight(request);
+    wrong_instance.gui_instance = "gui-for-another-request".into();
+    let error = ColdLaunchIntent::from_new_preflight(&wrong_instance, request).unwrap_err();
+    assert_eq!(error.code, ErrorCode::IdentityConflict);
+}
+
+#[test]
+fn new_cold_launch_omits_only_the_not_yet_allocated_space_uid() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x35353535_3535_4535_8535_353535353535);
+    let requested = format!("gui-{}", request.simple());
+    let commands = FakeCommands::successful(7010);
+    let heartbeats = FakeHeartbeats::new([
+        Ok(vec![]),
+        Ok(vec![heartbeat(&requested, 7010, "spawn-token")]),
+    ]);
+    let launcher = FakeLauncher::successful();
+    let intent = new_cold_intent(request);
+    let clock = FakeClock::default();
+    let launched = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &intent,
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap();
+    assert_eq!(launched.launcher_witness().intent().space_uid(), None);
+
+    let calls = commands.spawn_commands.borrow();
+    let env = &calls[0].env_set;
+    assert!(!env.contains_key(&OsString::from(GUI_TARGET_SPACE_UID_ENV)));
+    assert!(
+        calls[0]
+            .env_remove
+            .contains(&OsString::from(GUI_TARGET_SPACE_UID_ENV)),
+        "a stale inherited target Space UID must be removed for new"
+    );
+    for required in [
+        GUI_INSTANCE_ENV,
+        GUI_LAUNCHER_REQUEST_UID_ENV,
+        GUI_LAUNCHER_PID_ENV,
+        GUI_LAUNCHER_START_TOKEN_ENV,
+        GUI_BACKEND_INSTANCE_ENV,
+        GUI_TARGET_HOST_UID_ENV,
+        GUI_TARGET_DOMAIN_ENV,
+        GUI_TARGET_BACKEND_INSTANCE_ENV,
+        GUI_TARGET_SERVER_EPOCH_ENV,
+    ] {
+        assert!(
+            env.contains_key(&OsString::from(required)),
+            "missing {required}"
+        );
+    }
+    let committed = launched.commit();
+    assert_eq!(committed.launcher_witness.intent().space_uid(), None);
+    assert_eq!(commands.cleanups.get(), 0, "commit disarms cleanup");
+}
+
+#[test]
+fn dropping_uncommitted_launch_guard_terminates_and_reaps_the_exact_child() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x35353535_3535_4535_8535_353535353536);
+    let requested = format!("gui-{}", request.simple());
+    let commands = FakeCommands::successful(7030);
+    let heartbeats = FakeHeartbeats::new([
+        Ok(vec![]),
+        Ok(vec![heartbeat(&requested, 7030, "spawn-token")]),
+    ]);
+    let launcher = FakeLauncher::successful();
+    let intent = existing_cold_intent(request);
+    let clock = FakeClock::default();
+    let launched = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &intent,
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap();
+    assert_eq!(launched.instance().pid, 7030);
+    assert_eq!(commands.cleanups.get(), 0);
+
+    drop(launched);
+    assert_eq!(commands.cleanups.get(), 1);
+    assert_eq!(&*commands.cleanup_pids.borrow(), &[7030]);
+}
+
+#[test]
+fn attach_fails_closed_before_spawn_without_a_canonical_launcher_witness() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x34343434_3434_4434_8434_343434343434);
+
+    let commands = FakeCommands::successful(7000);
+    let heartbeats = FakeHeartbeats::new([Ok(vec![])]);
+    let launcher = FakeLauncher::successful();
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        Uuid::from_u128(0x34343434_3434_4434_8434_343434343435),
+        &existing_cold_intent(request),
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &FakeClock::default(),
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::IdentityConflict);
+    assert!(error.message.contains("deterministic launcher request"));
+    assert!(commands.spawn_commands.borrow().is_empty());
+
     let commands = FakeCommands::successful(7001);
-    let old = heartbeat("gui-old", 6001, "old-token");
-    let heartbeats = FakeHeartbeats::new([Ok(vec![old])]);
+    let heartbeats = FakeHeartbeats::new([Ok(vec![])]);
+    let unavailable = FakeLauncher(LauncherResult::Error(
+        io::ErrorKind::PermissionDenied,
+        "parent identity unavailable",
+    ));
     let clock = FakeClock::default();
     let error = launch_attach_only_gui_with(
         Path::new("/run/user/1000/dmux"),
         &ready(&fixture),
         "/opt/wezterm/bin/wezterm",
         Path::new(GUI_CFG),
-        Uuid::from_u128(0x44444444_4444_4444_8444_444444444444),
+        request,
+        &existing_cold_intent(request),
         GuiLaunchDeps {
             command: &commands,
             heartbeats: &heartbeats,
+            launcher: &unavailable,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::BridgeUnavailable);
+    assert!(
+        error.message.contains("parent identity unavailable"),
+        "{}",
+        error.message
+    );
+    assert!(commands.spawn_commands.borrow().is_empty());
+
+    let commands = FakeCommands::successful(7002);
+    let noncanonical = FakeLauncher(LauncherResult::Witness(LauncherProcessWitness {
+        uid: LAUNCHER_UID,
+        pid: LAUNCHER_PID,
+        start_token: "not-a-native-start-token".into(),
+    }));
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &existing_cold_intent(request),
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &noncanonical,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::BridgeUnavailable);
+    assert!(
+        error
+            .message
+            .contains("canonical OS-native process witness")
+    );
+    assert!(commands.spawn_commands.borrow().is_empty());
+}
+
+#[test]
+fn attach_timeout_never_reuses_an_old_heartbeat() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x44444444_4444_4444_8444_444444444444);
+    let commands = FakeCommands::successful(7001);
+    let old = heartbeat("gui-old", 6001, "old-token");
+    let heartbeats = FakeHeartbeats::new([Ok(vec![old])]);
+    let launcher = FakeLauncher::successful();
+    let clock = FakeClock::default();
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &existing_cold_intent(request),
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
             clock: &clock,
         },
         Duration::from_millis(50),
@@ -646,8 +1339,81 @@ fn attach_timeout_never_reuses_an_old_heartbeat() {
 }
 
 #[test]
+fn zero_pid_child_is_terminated_and_reaped_before_correlation() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x43434343_4343_4343_8343_434343434343);
+    let commands = FakeCommands::successful(0);
+    let heartbeats = FakeHeartbeats::new([Ok(vec![])]);
+    let launcher = FakeLauncher::successful();
+    let clock = FakeClock::default();
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &existing_cold_intent(request),
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::from_millis(50),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::BridgeUnavailable);
+    assert!(
+        error.message.contains("process id zero"),
+        "{}",
+        error.message
+    );
+    assert_eq!(commands.cleanups.get(), 1);
+}
+
+#[test]
+fn attach_failure_preserves_terminate_and_reap_error_detail() {
+    let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x45454545_4545_4545_8545_454545454545);
+    let commands = FakeCommands {
+        cleanup_error: Some((io::ErrorKind::PermissionDenied, "kill denied")),
+        ..FakeCommands::successful(7001)
+    };
+    let heartbeats = FakeHeartbeats::new([Ok(vec![])]);
+    let launcher = FakeLauncher::successful();
+    let clock = FakeClock::default();
+    let error = launch_attach_only_gui_with(
+        Path::new("/run/user/1000/dmux"),
+        &ready(&fixture),
+        "/opt/wezterm/bin/wezterm",
+        Path::new(GUI_CFG),
+        request,
+        &existing_cold_intent(request),
+        GuiLaunchDeps {
+            command: &commands,
+            heartbeats: &heartbeats,
+            launcher: &launcher,
+            clock: &clock,
+        },
+        Duration::ZERO,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::BridgeUnavailable);
+    assert!(error.message.contains("timed out"), "{}", error.message);
+    assert!(
+        error
+            .message
+            .contains("additionally failed to terminate/reap launched GUI pid 7001: kill denied"),
+        "{}",
+        error.message
+    );
+    assert_eq!(commands.cleanups.get(), 1);
+}
+
+#[test]
 fn attach_rejects_wrong_pid_and_multiple_new_process_instances() {
     let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let launcher = FakeLauncher::successful();
     let request = Uuid::from_u128(0x55555555_5555_4555_8555_555555555555);
     let requested = format!("gui-{}", request.simple());
     let commands = FakeCommands::successful(7001);
@@ -662,9 +1428,11 @@ fn attach_rejects_wrong_pid_and_multiple_new_process_instances() {
         "/opt/wezterm/bin/wezterm",
         Path::new(GUI_CFG),
         request,
+        &existing_cold_intent(request),
         GuiLaunchDeps {
             command: &commands,
             heartbeats: &wrong_pid,
+            launcher: &launcher,
             clock: &clock,
         },
         Duration::from_millis(50),
@@ -688,9 +1456,11 @@ fn attach_rejects_wrong_pid_and_multiple_new_process_instances() {
         "/opt/wezterm/bin/wezterm",
         Path::new(GUI_CFG),
         request,
+        &existing_cold_intent(request),
         GuiLaunchDeps {
             command: &commands,
             heartbeats: &wrong_token,
+            launcher: &launcher,
             clock: &clock,
         },
         Duration::from_millis(50),
@@ -720,9 +1490,11 @@ fn attach_rejects_wrong_pid_and_multiple_new_process_instances() {
         "/opt/wezterm/bin/wezterm",
         Path::new(GUI_CFG),
         request,
+        &existing_cold_intent(request),
         GuiLaunchDeps {
             command: &commands,
             heartbeats: &multiple,
+            launcher: &launcher,
             clock: &clock,
         },
         Duration::from_millis(50),
@@ -736,6 +1508,7 @@ fn attach_rejects_wrong_pid_and_multiple_new_process_instances() {
 #[test]
 fn heartbeat_read_failure_cleans_up_the_launched_process() {
     let fixture = registry_fixture(FixedServicePlatform::Linux);
+    let request = Uuid::from_u128(0x77777777_7777_4777_8777_777777777777);
     let commands = FakeCommands::successful(7100);
     let heartbeats = FakeHeartbeats::new([
         Ok(vec![]),
@@ -744,16 +1517,19 @@ fn heartbeat_read_failure_cleans_up_the_launched_process() {
             "private heartbeat directory changed",
         )),
     ]);
+    let launcher = FakeLauncher::successful();
     let clock = FakeClock::default();
     let error = launch_attach_only_gui_with(
         Path::new("/run/user/1000/dmux"),
         &ready(&fixture),
         "/opt/wezterm/bin/wezterm",
         Path::new(GUI_CFG),
-        Uuid::from_u128(0x77777777_7777_4777_8777_777777777777),
+        request,
+        &existing_cold_intent(request),
         GuiLaunchDeps {
             command: &commands,
             heartbeats: &heartbeats,
+            launcher: &launcher,
             clock: &clock,
         },
         Duration::from_millis(50),

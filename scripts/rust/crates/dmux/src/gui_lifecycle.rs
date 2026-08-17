@@ -7,6 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::os::unix::fs::MetadataExt;
@@ -21,9 +22,11 @@ use crate::backend::wez::{
     IdentityExpectation, SCRUBBED_ENV, SOCKET_ENV, SystemRunner as WezSystemRunner, WezProvider,
 };
 use crate::backend::{InventoryOutcome, InventoryScope, Provider};
+use crate::connect_cli::FrozenConnectTarget;
 use crate::error::{ErrorCode, TypedError};
 use crate::gui::{self, BridgeInstanceSelection};
-use crate::model::{Backend, BackendInstanceUid, ServerEpoch};
+use crate::model::{Backend, BackendInstanceUid, HostUid, ServerEpoch, SpaceUid};
+use crate::new_cli::{NewPresentationMode, WezPresentationPreflight};
 use crate::registry::Registry;
 use crate::runtime::{self, WezMuxDescriptor};
 
@@ -34,6 +37,29 @@ pub const SERVICE_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const MACOS_SERVICE_LABEL: &str = "com.fredrir.wezterm-mux";
 pub const LINUX_SERVICE_LABEL: &str = "wezterm-mux.service";
+pub const GUI_INSTANCE_ENV: &str = "DMUX_GUI_INSTANCE";
+pub const GUI_LAUNCHER_REQUEST_UID_ENV: &str = "DMUX_GUI_LAUNCHER_REQUEST_UID";
+pub const GUI_LAUNCHER_PID_ENV: &str = "DMUX_GUI_LAUNCHER_PID";
+pub const GUI_LAUNCHER_START_TOKEN_ENV: &str = "DMUX_GUI_LAUNCHER_START_TOKEN";
+pub const GUI_BACKEND_INSTANCE_ENV: &str = "DMUX_GUI_BACKEND_INSTANCE";
+pub const GUI_TARGET_HOST_UID_ENV: &str = "DMUX_GUI_TARGET_HOST_UID";
+pub const GUI_TARGET_DOMAIN_ENV: &str = "DMUX_GUI_TARGET_DOMAIN";
+pub const GUI_TARGET_BACKEND_INSTANCE_ENV: &str = "DMUX_GUI_TARGET_BACKEND_INSTANCE";
+pub const GUI_TARGET_SERVER_EPOCH_ENV: &str = "DMUX_GUI_TARGET_SERVER_EPOCH";
+pub const GUI_TARGET_SPACE_UID_ENV: &str = "DMUX_GUI_TARGET_SPACE_UID";
+
+const COLD_LAUNCH_WITNESS_ENV: [&str; 10] = [
+    GUI_INSTANCE_ENV,
+    GUI_LAUNCHER_REQUEST_UID_ENV,
+    GUI_LAUNCHER_PID_ENV,
+    GUI_LAUNCHER_START_TOKEN_ENV,
+    GUI_BACKEND_INSTANCE_ENV,
+    GUI_TARGET_HOST_UID_ENV,
+    GUI_TARGET_DOMAIN_ENV,
+    GUI_TARGET_BACKEND_INSTANCE_ENV,
+    GUI_TARGET_SERVER_EPOCH_ENV,
+    GUI_TARGET_SPACE_UID_ENV,
+];
 
 /// Identity returned only after the private descriptor, durable authority,
 /// and one complete sentinel-verified exact-socket inventory all agree.
@@ -44,13 +70,232 @@ pub struct ReadyWezService {
     pub server_epoch: ServerEpoch,
 }
 
-/// The newly launched GUI process correlated to its exact fresh bridge
-/// heartbeat.  Presentation remains a separate signed bridge operation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Armed launch guard for a GUI correlated to its exact fresh heartbeat.
+/// Until resident establishment succeeds and [`Self::commit`] is called,
+/// dropping this value terminates and reaps the exact spawned process.
 pub struct LaunchedGui {
+    committed: Option<CommittedGui>,
+    child: Option<Box<dyn LifecycleChild>>,
+}
+
+/// Stable launch evidence returned after the bridge has established resident
+/// provenance and explicitly disarmed the launch guard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommittedGui {
     pub instance: BridgeInstanceSelection,
     pub launcher_request_uid: Uuid,
     pub class: String,
+    pub launcher_witness: ColdLauncherWitness,
+}
+
+impl LaunchedGui {
+    fn committed(&self) -> &CommittedGui {
+        self.committed
+            .as_ref()
+            .expect("uncommitted GUI launch guard always retains stable evidence")
+    }
+
+    pub fn instance(&self) -> &BridgeInstanceSelection {
+        &self.committed().instance
+    }
+
+    pub fn launcher_request_uid(&self) -> Uuid {
+        self.committed().launcher_request_uid
+    }
+
+    pub fn class(&self) -> &str {
+        &self.committed().class
+    }
+
+    pub fn launcher_witness(&self) -> &ColdLauncherWitness {
+        &self.committed().launcher_witness
+    }
+
+    /// Disarm automatic cleanup only after the one-use resident bridge
+    /// establishment has succeeded. Dropping the retained child handle does
+    /// not terminate the now-committed GUI process.
+    pub fn commit(mut self) -> CommittedGui {
+        drop(self.child.take());
+        self.committed
+            .take()
+            .expect("GUI launch guard can be committed only once")
+    }
+}
+
+impl fmt::Debug for LaunchedGui {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LaunchedGui")
+            .field("committed", &self.committed)
+            .field("cleanup_armed", &self.child.is_some())
+            .finish()
+    }
+}
+
+impl Drop for LaunchedGui {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.terminate_and_reap();
+        }
+    }
+}
+
+/// Owner-validated presentation intent frozen before the GUI child exists.
+/// The fields are private so lifecycle callers cannot independently mix a
+/// domain from one preflight with the incarnation of another target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColdLaunchIntent {
+    launcher_request_uid: Uuid,
+    gui_instance: String,
+    owner: HostUid,
+    domain: String,
+    backend_instance_uid: BackendInstanceUid,
+    server_epoch: ServerEpoch,
+    space_uid: Option<SpaceUid>,
+}
+
+impl ColdLaunchIntent {
+    /// Freeze `new` presentation authority before a Space identity exists.
+    /// This is the only constructor that can produce an intent without a
+    /// target Space UID.
+    pub fn from_new_preflight(
+        preflight: &WezPresentationPreflight,
+        launcher_request_uid: Uuid,
+    ) -> Result<Self, TypedError> {
+        Self::from_verified_preflight(preflight, None, launcher_request_uid)
+    }
+
+    /// Freeze an already-existing Space target.  The independently frozen
+    /// target and GUI route preflight must agree on owner/backend/epoch.
+    pub fn from_existing_target(
+        preflight: &WezPresentationPreflight,
+        existing_target: &FrozenConnectTarget,
+        launcher_request_uid: Uuid,
+    ) -> Result<Self, TypedError> {
+        Self::from_verified_preflight(preflight, Some(existing_target), launcher_request_uid)
+    }
+
+    fn from_verified_preflight(
+        preflight: &WezPresentationPreflight,
+        existing_target: Option<&FrozenConnectTarget>,
+        launcher_request_uid: Uuid,
+    ) -> Result<Self, TypedError> {
+        if launcher_request_uid.is_nil() {
+            return Err(TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                "cold GUI launch has a nil launcher request UID",
+            ));
+        }
+        let expected_instance = format!("gui-{}", launcher_request_uid.simple());
+        if preflight.mode != NewPresentationMode::Cold {
+            return Err(TypedError::new(
+                ErrorCode::IdentityConflict,
+                "cold GUI launch requires a cold presentation preflight",
+            ));
+        }
+        if preflight.gui_instance != expected_instance {
+            return Err(TypedError::new(
+                ErrorCode::IdentityConflict,
+                "cold GUI launch preflight names a different deterministic GUI instance",
+            ));
+        }
+        if preflight.owner.0.is_nil()
+            || preflight.backend_instance_uid.0.is_nil()
+            || preflight.server_epoch.0.is_nil()
+            || !valid_domain(&preflight.domain)
+        {
+            return Err(TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                "cold GUI launch preflight has malformed owner/domain/backend identity",
+            ));
+        }
+
+        let space_uid = match existing_target {
+            Some(target)
+                if target.backend == Backend::Wez
+                    && target.owner == preflight.owner
+                    && target.backend_instance_uid == preflight.backend_instance_uid
+                    && target.server_epoch == preflight.server_epoch
+                    && !target.space_uid.0.is_nil() =>
+            {
+                Some(target.space_uid)
+            }
+            Some(_) => {
+                return Err(TypedError::new(
+                    ErrorCode::IdentityConflict,
+                    "cold GUI launch target differs from its owner-validated presentation preflight",
+                ));
+            }
+            None => None,
+        };
+
+        Ok(Self {
+            launcher_request_uid,
+            gui_instance: expected_instance,
+            owner: preflight.owner,
+            domain: preflight.domain.clone(),
+            backend_instance_uid: preflight.backend_instance_uid,
+            server_epoch: preflight.server_epoch,
+            space_uid,
+        })
+    }
+
+    pub fn launcher_request_uid(&self) -> Uuid {
+        self.launcher_request_uid
+    }
+
+    pub fn gui_instance(&self) -> &str {
+        &self.gui_instance
+    }
+
+    pub fn owner(&self) -> HostUid {
+        self.owner
+    }
+
+    pub fn domain(&self) -> &str {
+        &self.domain
+    }
+
+    pub fn backend_instance_uid(&self) -> BackendInstanceUid {
+        self.backend_instance_uid
+    }
+
+    pub fn server_epoch(&self) -> ServerEpoch {
+        self.server_epoch
+    }
+
+    pub fn space_uid(&self) -> Option<SpaceUid> {
+        self.space_uid
+    }
+}
+
+/// Exact process witness and immutable intent actually inherited by a newly
+/// launched GUI.  The bridge origin must use this returned snapshot rather
+/// than recomputing or substituting a registry token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColdLauncherWitness {
+    gui_instance: String,
+    launcher_request_uid: Uuid,
+    process: LauncherProcessWitness,
+    intent: ColdLaunchIntent,
+}
+
+impl ColdLauncherWitness {
+    pub fn gui_instance(&self) -> &str {
+        &self.gui_instance
+    }
+
+    pub fn launcher_request_uid(&self) -> Uuid {
+        self.launcher_request_uid
+    }
+
+    pub fn process(&self) -> &LauncherProcessWitness {
+        &self.process
+    }
+
+    pub fn intent(&self) -> &ColdLaunchIntent {
+        &self.intent
+    }
 }
 
 /// Pure command description used by both the real runner and deterministic
@@ -98,6 +343,43 @@ pub trait LifecycleCommandRunner {
     fn spawn(&self, command: &LifecycleCommand) -> io::Result<Box<dyn LifecycleChild>>;
 }
 
+/// Immutable identity of the dmux process that launches a cold GUI.  The
+/// maintained fork consumes this witness once and proves that it is still the
+/// GUI's live same-user parent before accepting the first bridge request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LauncherProcessWitness {
+    pub uid: u64,
+    pub pid: u32,
+    pub start_token: String,
+}
+
+/// Injectable parent-process identity seam for deterministic cold-launch
+/// tests.  Production always uses [`SystemLauncherWitnessSource`].
+pub trait LauncherWitnessSource {
+    fn current(&self) -> io::Result<LauncherProcessWitness>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemLauncherWitnessSource;
+
+impl LauncherWitnessSource for SystemLauncherWitnessSource {
+    fn current(&self) -> io::Result<LauncherProcessWitness> {
+        let pid = std::process::id();
+        Ok(LauncherProcessWitness {
+            uid: u64::from(unsafe { libc::geteuid() }),
+            pid,
+            start_token: current_process_start_token()?,
+        })
+    }
+}
+
+/// Return the OS-native start witness for this exact dmux process.  The cold
+/// bridge request uses the same stable token that the launcher places in the
+/// GUI child's environment.
+pub fn current_process_start_token() -> io::Result<String> {
+    runtime::process_start_token(std::process::id())
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemCommandRunner;
 
@@ -135,7 +417,7 @@ impl LifecycleCommandRunner for SystemCommandRunner {
     fn spawn(&self, command: &LifecycleCommand) -> io::Result<Box<dyn LifecycleChild>> {
         let mut child = system_command(command).spawn()?;
         let pid = child.id();
-        let process_start_token = match process_start_token(pid) {
+        let process_start_token = match gui_heartbeat_start_token(pid) {
             Ok(token) => token,
             Err(error) => {
                 let _ = child.kill();
@@ -183,7 +465,7 @@ impl LifecycleChild for SystemLifecycleChild {
 
 /// Match the bridge consumer's process-instance token byte-for-byte.  The
 /// Lua side uses this same fixed `/bin/ps` query under `LC_ALL=C`.
-fn process_start_token(pid: u32) -> io::Result<String> {
+fn gui_heartbeat_start_token(pid: u32) -> io::Result<String> {
     let output = Command::new("/bin/ps")
         .env_clear()
         .env("LC_ALL", "C")
@@ -257,6 +539,13 @@ impl LifecycleClock for SystemClock {
 
 pub trait DescriptorSource {
     fn read(&self, runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>>;
+
+    fn read_verified_ready(
+        &self,
+        runtime_dir: &Path,
+        expected_instance: Uuid,
+        expected_epoch: Uuid,
+    ) -> io::Result<Option<WezMuxDescriptor>>;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -265,6 +554,19 @@ pub struct RuntimeDescriptorSource;
 impl DescriptorSource for RuntimeDescriptorSource {
     fn read(&self, runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
         runtime::read_wez_descriptor_in(runtime_dir)
+    }
+
+    fn read_verified_ready(
+        &self,
+        runtime_dir: &Path,
+        expected_instance: Uuid,
+        expected_epoch: Uuid,
+    ) -> io::Result<Option<WezMuxDescriptor>> {
+        runtime::read_verified_ready_wez_descriptor_in(
+            runtime_dir,
+            Some(expected_instance),
+            Some(expected_epoch),
+        )
     }
 }
 
@@ -428,6 +730,7 @@ pub struct ServiceEnsureDeps<'a> {
 pub struct GuiLaunchDeps<'a> {
     pub command: &'a dyn LifecycleCommandRunner,
     pub heartbeats: &'a dyn HeartbeatSource,
+    pub launcher: &'a dyn LauncherWitnessSource,
     pub clock: &'a dyn LifecycleClock,
 }
 
@@ -526,8 +829,22 @@ pub fn ensure_ready_wez_service_with(
                     ));
                 }
                 "ready" => {
-                    match validate_ready_descriptor(registry, platform, deps.inventory, &descriptor)
-                    {
+                    let (expected_instance, expected_epoch) = ready_descriptor_uuids(&descriptor)?;
+                    let verified = match deps.descriptor.read_verified_ready(
+                        runtime_dir,
+                        expected_instance,
+                        expected_epoch,
+                    ) {
+                        Ok(Some(verified)) => verified,
+                        Ok(None) => {
+                            return Err(TypedError::new(
+                                ErrorCode::ProviderUnavailable,
+                                "managed Wez ready descriptor disappeared before native verification",
+                            ));
+                        }
+                        Err(error) => return Err(bridge_descriptor_error(error)),
+                    };
+                    match validate_ready_descriptor(registry, platform, deps.inventory, &verified) {
                         Ok(ready) => return Ok(ready),
                         Err(error) if retryable_ready_error(error.code) => error,
                         Err(error) => return Err(error),
@@ -570,40 +887,9 @@ fn validate_ready_descriptor(
     inventory: &dyn WezServiceInventory,
     descriptor: &WezMuxDescriptor,
 ) -> Result<ReadyWezService, TypedError> {
-    if descriptor.descriptor_version != 1 {
-        return Err(TypedError::new(
-            ErrorCode::ProtocolMismatch,
-            format!(
-                "managed Wez descriptor version {} is unsupported",
-                descriptor.descriptor_version
-            ),
-        ));
-    }
-    descriptor
-        .require_ready()
-        .map_err(bridge_descriptor_error)?;
-    let descriptor_instance = descriptor
-        .backend_instance_uid
-        .as_deref()
-        .expect("require_ready checked backend_instance_uid")
-        .parse::<Uuid>()
-        .map(BackendInstanceUid)
-        .map_err(|error| {
-            TypedError::new(
-                ErrorCode::ProtocolMismatch,
-                format!("managed Wez descriptor backend instance is invalid: {error}"),
-            )
-        })?;
-    let descriptor_epoch = descriptor
-        .epoch
-        .parse::<Uuid>()
-        .map(ServerEpoch)
-        .map_err(|error| {
-            TypedError::new(
-                ErrorCode::ProtocolMismatch,
-                format!("managed Wez descriptor epoch is invalid: {error}"),
-            )
-        })?;
+    let (descriptor_instance, descriptor_epoch) = ready_descriptor_uuids(descriptor)?;
+    let descriptor_instance = BackendInstanceUid(descriptor_instance);
+    let descriptor_epoch = ServerEpoch(descriptor_epoch);
 
     let registry_instance = registry
         .backend_instance_for_backend(Backend::Wez)
@@ -658,10 +944,18 @@ fn validate_ready_descriptor(
     }
     if server.server_pid != Some(i64::from(descriptor.pid))
         || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
+        || server.socket_dev
+            != descriptor
+                .socket_dev
+                .and_then(|value| i64::try_from(value).ok())
+        || server.socket_ino
+            != descriptor
+                .socket_ino
+                .and_then(|value| i64::try_from(value).ok())
     {
         return Err(TypedError::new(
             ErrorCode::WrongBackendInstance,
-            "descriptor process witness differs from the registry-published server incarnation",
+            "descriptor process/socket witness differs from the registry-published server incarnation",
         ));
     }
 
@@ -690,6 +984,40 @@ fn validate_ready_descriptor(
         backend_instance_uid: registry_instance,
         server_epoch: descriptor_epoch,
     })
+}
+
+fn ready_descriptor_uuids(descriptor: &WezMuxDescriptor) -> Result<(Uuid, Uuid), TypedError> {
+    if descriptor.descriptor_version != 1 {
+        return Err(TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            format!(
+                "managed Wez descriptor version {} is unsupported",
+                descriptor.descriptor_version
+            ),
+        ));
+    }
+    descriptor
+        .require_ready()
+        .map_err(bridge_descriptor_error)?;
+    let descriptor_instance = descriptor
+        .backend_instance_uid
+        .as_deref()
+        .expect("require_ready checked backend_instance_uid")
+        .parse::<Uuid>()
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                format!("managed Wez descriptor backend instance is invalid: {error}"),
+            )
+        })?;
+    let descriptor_epoch = descriptor.epoch.parse::<Uuid>().map_err(|error| {
+        TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            format!("managed Wez descriptor epoch is invalid: {error}"),
+        )
+    })?;
+
+    Ok((descriptor_instance, descriptor_epoch))
 }
 
 fn registry_error(error: crate::registry::RegistryError) -> TypedError {
@@ -738,9 +1066,11 @@ pub fn launch_attach_only_gui(
     wezterm_bin: &str,
     gui_config: &Path,
     launcher_request_uid: Uuid,
+    intent: &ColdLaunchIntent,
 ) -> Result<LaunchedGui, TypedError> {
     let command = SystemCommandRunner;
     let heartbeats = RuntimeHeartbeatSource;
+    let launcher = SystemLauncherWitnessSource;
     let clock = SystemClock::default();
     launch_attach_only_gui_with(
         runtime_dir,
@@ -748,9 +1078,11 @@ pub fn launch_attach_only_gui(
         wezterm_bin,
         gui_config,
         launcher_request_uid,
+        intent,
         GuiLaunchDeps {
             command: &command,
             heartbeats: &heartbeats,
+            launcher: &launcher,
             clock: &clock,
         },
         GUI_HEARTBEAT_TIMEOUT,
@@ -763,6 +1095,7 @@ pub fn launch_attach_only_gui_with(
     wezterm_bin: &str,
     gui_config: &Path,
     launcher_request_uid: Uuid,
+    intent: &ColdLaunchIntent,
     deps: GuiLaunchDeps<'_>,
     timeout: Duration,
 ) -> Result<LaunchedGui, TypedError> {
@@ -775,6 +1108,22 @@ pub fn launch_attach_only_gui_with(
     )?;
     let class = format!("dmux-{}", launcher_request_uid.simple());
     let requested_instance = format!("gui-{}", launcher_request_uid.simple());
+    if intent.launcher_request_uid() != launcher_request_uid
+        || intent.gui_instance() != requested_instance
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "cold GUI launch intent differs from the deterministic launcher request instance",
+        ));
+    }
+    validate_transport_target_relation(ready, intent)?;
+    let launcher = deps.launcher.current().map_err(|error| {
+        TypedError::new(
+            ErrorCode::BridgeUnavailable,
+            format!("could not authenticate cold GUI launcher process: {error}"),
+        )
+    })?;
+    validate_launcher_witness(&launcher)?;
     let baseline = deps.heartbeats.live_instances(runtime_dir)?;
     if baseline
         .iter()
@@ -794,6 +1143,9 @@ pub fn launch_attach_only_gui_with(
         gui_config,
         &class,
         &requested_instance,
+        launcher_request_uid,
+        &launcher,
+        intent,
     );
     let spawned = deps.command.spawn(&launch).map_err(|error| {
         TypedError::new(
@@ -831,9 +1183,18 @@ pub fn launch_attach_only_gui_with(
                     && instance.process_start_token == spawned_start_token =>
             {
                 return Ok(LaunchedGui {
-                    instance: instance.clone(),
-                    launcher_request_uid,
-                    class,
+                    committed: Some(CommittedGui {
+                        instance: instance.clone(),
+                        launcher_request_uid,
+                        class,
+                        launcher_witness: ColdLauncherWitness {
+                            gui_instance: requested_instance,
+                            launcher_request_uid,
+                            process: launcher,
+                            intent: intent.clone(),
+                        },
+                    }),
+                    child: Some(spawned),
                 });
             }
             [instance] => {
@@ -912,6 +1273,71 @@ fn validate_launch_inputs(
     Ok(())
 }
 
+fn validate_launcher_witness(witness: &LauncherProcessWitness) -> Result<(), TypedError> {
+    if witness.pid == 0 || !is_canonical_native_start_token(&witness.start_token) {
+        return Err(TypedError::new(
+            ErrorCode::BridgeUnavailable,
+            "cold GUI launcher has no canonical OS-native process witness",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_transport_target_relation(
+    ready: &ReadyWezService,
+    intent: &ColdLaunchIntent,
+) -> Result<(), TypedError> {
+    let local_domain = intent.domain() == "dmux";
+    let local_backend = intent.backend_instance_uid() == ready.backend_instance_uid;
+    if local_domain != local_backend
+        || (local_domain && intent.server_epoch() != ready.server_epoch)
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "cold GUI target contradicts the verified local dmux transport incarnation",
+        ));
+    }
+    Ok(())
+}
+
+fn valid_domain(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    !value.is_empty()
+        && value.len() <= 128
+        && bytes
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && bytes
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b':' | b'-'))
+}
+
+#[cfg(target_os = "linux")]
+fn is_canonical_native_start_token(value: &str) -> bool {
+    value
+        .strip_prefix("linux:")
+        .and_then(|ticks| ticks.parse::<u64>().ok().map(|parsed| (ticks, parsed)))
+        .is_some_and(|(ticks, parsed)| parsed > 0 && parsed.to_string() == ticks)
+}
+
+#[cfg(target_os = "macos")]
+fn is_canonical_native_start_token(value: &str) -> bool {
+    value.strip_prefix("macos:").is_some_and(|value| {
+        let Some((seconds, micros)) = value.split_once(':') else {
+            return false;
+        };
+        let Ok(seconds_value) = seconds.parse::<u64>() else {
+            return false;
+        };
+        let Ok(micros_value) = micros.parse::<u32>() else {
+            return false;
+        };
+        seconds_value > 0
+            && micros_value <= 999_999
+            && seconds_value.to_string() == seconds
+            && micros_value.to_string() == micros
+    })
+}
+
 fn attach_only_command(
     runtime_dir: &Path,
     ready: &ReadyWezService,
@@ -919,6 +1345,9 @@ fn attach_only_command(
     gui_config: &Path,
     class: &str,
     requested_instance: &str,
+    launcher_request_uid: Uuid,
+    launcher: &LauncherProcessWitness,
+    intent: &ColdLaunchIntent,
 ) -> LifecycleCommand {
     let mut command = LifecycleCommand::new(
         wezterm_bin,
@@ -934,7 +1363,11 @@ fn attach_only_command(
             OsString::from("--attach"),
         ],
     );
-    command.env_remove = SCRUBBED_ENV.iter().map(OsString::from).collect();
+    command.env_remove = SCRUBBED_ENV
+        .iter()
+        .chain(COLD_LAUNCH_WITNESS_ENV.iter())
+        .map(OsString::from)
+        .collect();
     command
         .env_set
         .insert(OsString::from(SOCKET_ENV), OsString::from(&ready.socket));
@@ -943,9 +1376,47 @@ fn attach_only_command(
         runtime_dir.as_os_str().to_owned(),
     );
     command.env_set.insert(
-        OsString::from("DMUX_GUI_INSTANCE"),
+        OsString::from(GUI_INSTANCE_ENV),
         OsString::from(requested_instance),
     );
+    command.env_set.insert(
+        OsString::from(GUI_LAUNCHER_REQUEST_UID_ENV),
+        OsString::from(launcher_request_uid.to_string()),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_LAUNCHER_PID_ENV),
+        OsString::from(launcher.pid.to_string()),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_LAUNCHER_START_TOKEN_ENV),
+        OsString::from(&launcher.start_token),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_BACKEND_INSTANCE_ENV),
+        OsString::from(ready.backend_instance_uid.0.to_string()),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_TARGET_HOST_UID_ENV),
+        OsString::from(intent.owner().0.to_string()),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_TARGET_DOMAIN_ENV),
+        OsString::from(intent.domain()),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_TARGET_BACKEND_INSTANCE_ENV),
+        OsString::from(intent.backend_instance_uid().0.to_string()),
+    );
+    command.env_set.insert(
+        OsString::from(GUI_TARGET_SERVER_EPOCH_ENV),
+        OsString::from(intent.server_epoch().0.to_string()),
+    );
+    if let Some(space_uid) = intent.space_uid() {
+        command.env_set.insert(
+            OsString::from(GUI_TARGET_SPACE_UID_ENV),
+            OsString::from(space_uid.0.to_string()),
+        );
+    }
     command
         .env_set
         .insert(OsString::from("DMUX_WEZ_FIRST"), OsString::from("1"));

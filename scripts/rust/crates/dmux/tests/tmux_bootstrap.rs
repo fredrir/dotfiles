@@ -148,7 +148,9 @@ fn hook_driven_bootstrap_from_the_managed_conf_template() {
         s.data.path().display(),
         s.locks.path().display(),
     );
-    let conf = template.replace("@DMUX@ _tmux-bootstrap", &hook_cmd);
+    let conf = template
+        .replace("@DMUX@ _tmux-bootstrap", &hook_cmd)
+        .replace("@DMUX@", env!("CARGO_BIN_EXE_dmux"));
     let conf_path = s.data.path().join("managed.conf");
     std::fs::write(&conf_path, conf).unwrap();
 

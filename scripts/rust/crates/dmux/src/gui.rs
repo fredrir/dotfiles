@@ -6,7 +6,7 @@
 //! flow.  Nothing in this module can remove native resources or execute an
 //! arbitrary command (plan §13.2, ADR 003).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{CStr, CString, OsString};
 use std::fmt;
 use std::fs::File;
@@ -62,9 +62,23 @@ pub struct BridgeHeartbeat {
 pub struct BridgeDomainState {
     pub state: String,
     pub has_any_panes: bool,
+    /// Config-sanitized backend instance for one managed persistent domain.
+    /// `local` and other nonpersistent GUI domains omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_instance_uid: Option<BackendInstanceUid>,
     pub pane_count: u32,
     pub valid_marker_pane_count: u32,
     pub system_pane_count: u32,
+    /// Exact reserved GUI-local workspace observed for this domain. It is
+    /// present only while the domain is attached and must encode
+    /// `dmux:system:<system_epoch>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_workspace: Option<String>,
+    /// Epoch parsed from the one exact system workspace above. This is GUI
+    /// observation, never owner authority; Rust compares it to the freshly
+    /// probed owner descriptor before authorizing detach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_epoch: Option<crate::model::ServerEpoch>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +87,15 @@ pub struct BridgePane {
     /// GUI-local ID. Owner-side Wez IDs are never applied to the GUI.
     pub pane_id: u64,
     pub domain: String,
+    /// Attach-time exact tmux client locator. This is required for tmux
+    /// markers and forbidden for Wez markers; owner-side PID/start/tty and
+    /// active-child validation remains the authorization boundary.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_uuid_wire"
+    )]
+    pub tmux_client_uid: Option<Uuid>,
     #[serde(with = "marker_wire")]
     pub context: MarkerContext,
 }
@@ -103,11 +126,31 @@ pub struct BridgeInstanceSelection {
 pub enum BridgeOrigin {
     InGui {
         gui_instance: String,
+        pid: u32,
+        process_start_token: String,
         pane_id: u64,
         domain: String,
         host_uid: HostUid,
         space_uid: crate::model::SpaceUid,
+        space_no: crate::model::SpaceNo,
+        backend: Backend,
         server_epoch: crate::model::ServerEpoch,
+        group_ref: String,
+        split_ref: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "optional_uuid_wire"
+        )]
+        tmux_client_uid: Option<Uuid>,
+    },
+    /// Exact resident GUI process used when no pane exists (zero-window
+    /// lifecycle) or when a no-create presentation targets an already-live
+    /// managed GUI. The consumer binds this to its held fork lease directly.
+    ResidentGui {
+        gui_instance: String,
+        pid: u32,
+        process_start_token: String,
     },
     ColdLauncher {
         gui_instance: String,
@@ -116,7 +159,11 @@ pub enum BridgeOrigin {
         start_token: String,
         launcher_request_uid: Uuid,
         domain: String,
+        host_uid: HostUid,
         backend_instance_uid: BackendInstanceUid,
+        server_epoch: crate::model::ServerEpoch,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space_uid: Option<crate::model::SpaceUid>,
     },
 }
 
@@ -131,8 +178,31 @@ pub struct GuiCliOrigin {
     pub gui_instance: String,
     pub pane_id: u64,
     pub domain: String,
+    /// Attach-time locator for a tmux client. It is never authorization:
+    /// the owner revalidates its private PID/start-token/tty record and the
+    /// exact active session/window/pane before dispatching any GUI action.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "optional_uuid_wire"
+    )]
+    pub tmux_client_uid: Option<Uuid>,
     #[serde(with = "marker_wire")]
     pub marker: MarkerContext,
+}
+
+/// Pane-free lifecycle origin emitted only by the managed GUI process.  It
+/// identifies the exact held GUI lease; the consumer additionally requires
+/// broker-established resident provenance before accepting any signed
+/// request derived from it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuiResidentCliOrigin {
+    pub protocol_version: u64,
+    pub kind: String,
+    pub gui_instance: String,
+    pub pid: u32,
+    pub process_start_token: String,
 }
 
 /// Exact, short-lived status cache consumed by the Lua status renderer.
@@ -264,6 +334,8 @@ pub struct BridgeAck {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached_domains: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reattached_domains: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_action: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub already_hidden: Option<bool>,
@@ -271,6 +343,8 @@ pub struct BridgeAck {
     pub pong: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toasted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resident_established: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -484,7 +558,27 @@ pub fn call_instance(
     let instances = bridge.child("instances")?;
     let instance_dir = instances.child(instance)?;
     let now = unix_seconds()?;
-    read_live_heartbeat(&instance_dir, instance, now)?;
+    let heartbeat = read_live_heartbeat(&instance_dir, instance, now)?;
+    let origin = request
+        .get("origin")
+        .and_then(Value::as_object)
+        .expect("validated request origin");
+    if matches!(
+        origin.get("kind").and_then(Value::as_str),
+        Some("in_gui" | "resident_gui")
+    ) {
+        let signed_pid = json_uint(origin.get("pid"), "origin.pid")?;
+        let signed_start = origin
+            .get("process_start_token")
+            .and_then(Value::as_str)
+            .expect("validated in_gui process_start_token");
+        if signed_pid != u64::from(heartbeat.pid) || signed_start != heartbeat.process_start_token {
+            return Err(GuiError::InvalidInstance(
+                "signed GUI origin process incarnation differs from the fresh target heartbeat"
+                    .into(),
+            ));
+        }
+    }
     let requests = instance_dir.child("requests")?;
     let acks = instance_dir.child("acks")?;
     let consumed = instance_dir.child("consumed")?;
@@ -655,16 +749,36 @@ pub fn bind_cli_origin_with_heartbeat(
             "GUI marker differs from the owner-revalidated context".into(),
         ));
     }
-    let (selection, heartbeat) =
-        discover_in_gui_instance_with_heartbeat(runtime_dir, authoritative_marker)?;
-    if selection.gui_instance != cli.gui_instance
-        || selection.pane_id != cli.pane_id
-        || selection.domain != cli.domain
+    // The CLI-provided instance/pane pair is only a locator. Reading that
+    // exact fresh private heartbeat and matching every marker/UID field is
+    // stronger than marker-only global discovery and remains unambiguous
+    // when two exact tmux clients in one GUI show the same session child.
+    let heartbeat = read_instance_heartbeat(runtime_dir, &cli.gui_instance)?;
+    let panes: Vec<&BridgePane> = heartbeat
+        .panes
+        .iter()
+        .filter(|pane| pane.pane_id == cli.pane_id)
+        .collect();
+    let [pane] = panes.as_slice() else {
+        return Err(GuiError::InvalidInstance(
+            "fresh heartbeat does not contain exactly one GUI CLI pane id".into(),
+        ));
+    };
+    if pane.domain != cli.domain
+        || !exact_marker(&pane.context, authoritative_marker)
+        || pane.tmux_client_uid != cli.tmux_client_uid
     {
         return Err(GuiError::InvalidInstance(
-            "fresh heartbeat identity differs from the GUI CLI origin".into(),
+            "fresh heartbeat pane marker/client identity differs from the GUI CLI origin".into(),
         ));
     }
+    let selection = BridgeSelection {
+        gui_instance: heartbeat.gui_instance.clone(),
+        pid: heartbeat.pid,
+        process_start_token: heartbeat.process_start_token.clone(),
+        pane_id: pane.pane_id,
+        domain: pane.domain.clone(),
+    };
     Ok((selection, heartbeat))
 }
 
@@ -719,14 +833,34 @@ pub fn discover_single_live_instance(
 
 /// Build the origin object placed in a signed in-GUI request. The consumer
 /// rechecks every marker field against its current pane before acting.
-pub fn in_gui_origin(selection: &BridgeSelection, marker: &MarkerContext) -> Value {
+pub fn in_gui_origin(
+    selection: &BridgeSelection,
+    marker: &MarkerContext,
+    tmux_client_uid: Option<Uuid>,
+) -> Value {
     serde_json::to_value(BridgeOrigin::InGui {
         gui_instance: selection.gui_instance.clone(),
+        pid: selection.pid,
+        process_start_token: selection.process_start_token.clone(),
         pane_id: selection.pane_id,
         domain: selection.domain.clone(),
         host_uid: marker.host_uid,
         space_uid: marker.space_uid,
+        space_no: marker.space_no,
+        backend: marker.backend,
         server_epoch: marker.server_epoch,
+        group_ref: marker.group_ref.clone(),
+        split_ref: marker.split_ref.clone(),
+        tmux_client_uid,
+    })
+    .expect("BridgeOrigin always serializes")
+}
+
+pub fn resident_gui_origin(selection: &BridgeInstanceSelection) -> Value {
+    serde_json::to_value(BridgeOrigin::ResidentGui {
+        gui_instance: selection.gui_instance.clone(),
+        pid: selection.pid,
+        process_start_token: selection.process_start_token.clone(),
     })
     .expect("BridgeOrigin always serializes")
 }
@@ -743,6 +877,32 @@ pub fn parse_origin_json(input: &str) -> Result<GuiCliOrigin, GuiError> {
     let origin: GuiCliOrigin = serde_json::from_str(input)
         .map_err(|e| GuiError::InvalidRequest(format!("origin JSON: {e}")))?;
     validate_cli_origin(&origin)?;
+    Ok(origin)
+}
+
+pub fn parse_resident_origin_json(input: &str) -> Result<GuiResidentCliOrigin, GuiError> {
+    if input.len() > MAX_MESSAGE_BYTES {
+        return Err(GuiError::MessageTooLarge(input.len()));
+    }
+    let raw: Value = serde_json::from_str(input)
+        .map_err(|e| GuiError::InvalidRequest(format!("resident origin JSON: {e}")))?;
+    if contains_null(&raw) {
+        return invalid("resident origin JSON fields must never be null");
+    }
+    let origin: GuiResidentCliOrigin = serde_json::from_str(input)
+        .map_err(|e| GuiError::InvalidRequest(format!("resident origin JSON: {e}")))?;
+    if origin.protocol_version != BRIDGE_PROTOCOL_VERSION || origin.kind != "resident_gui" {
+        return invalid("resident origin protocol_version/kind is invalid");
+    }
+    validate_instance(&origin.gui_instance)?;
+    if origin.pid == 0 {
+        return invalid("resident origin pid must be nonzero");
+    }
+    validate_string(
+        &origin.process_start_token,
+        "resident origin process_start_token",
+        256,
+    )?;
     Ok(origin)
 }
 
@@ -771,7 +931,10 @@ pub fn cold_launcher_origin(
     start_token: String,
     launcher_request_uid: Uuid,
     domain: String,
+    host_uid: HostUid,
     backend_instance_uid: BackendInstanceUid,
+    server_epoch: crate::model::ServerEpoch,
+    space_uid: Option<crate::model::SpaceUid>,
 ) -> Result<Value, GuiError> {
     let value = serde_json::to_value(BridgeOrigin::ColdLauncher {
         gui_instance,
@@ -780,7 +943,10 @@ pub fn cold_launcher_origin(
         start_token,
         launcher_request_uid,
         domain,
+        host_uid,
         backend_instance_uid,
+        server_epoch,
+        space_uid,
     })
     .map_err(|e| GuiError::InvalidRequest(format!("cold origin: {e}")))?;
     validate_origin(&value, None)?;
@@ -977,6 +1143,8 @@ pub fn build_domain_manifest(
 pub fn validate_domain_manifest(rows: &[GuiDomainManifestRow]) -> Result<(), GuiError> {
     let mut names = BTreeSet::new();
     let mut routes = BTreeSet::new();
+    let mut instance_by_host = HashMap::new();
+    let mut host_by_instance = HashMap::new();
     for row in rows {
         validate_domain(row.name.as_str(), "domain.name")?;
         validate_control_free_string(&row.remote_address, "domain.remote_address", 1024)?;
@@ -992,6 +1160,22 @@ pub fn validate_domain_manifest(rows: &[GuiDomainManifestRow]) -> Result<(), Gui
         }
         if !names.insert(row.name.clone()) {
             return invalid("domain manifest names must be unique");
+        }
+        if instance_by_host
+            .insert(row.host_uid, row.backend_instance_uid)
+            .is_some_and(|existing| existing != row.backend_instance_uid)
+        {
+            return invalid(
+                "domain manifest maps one HostUid to multiple backend instance incarnations",
+            );
+        }
+        if host_by_instance
+            .insert(row.backend_instance_uid, row.host_uid)
+            .is_some_and(|existing| existing != row.host_uid)
+        {
+            return invalid(
+                "domain manifest aliases one backend instance incarnation across multiple owners",
+            );
         }
         if Transport::parse(&row.transport).is_none() || row.transport == "local" {
             return invalid("domain manifest transport must be openssh or wez-ssh");
@@ -1077,9 +1261,6 @@ pub fn select_compatible_domain<'a>(
 pub fn validate_space_rows(rows: &[GuiSpaceRow]) -> Result<(), GuiError> {
     let mut refs = BTreeSet::new();
     for row in rows {
-        if row.backend != Backend::Wez {
-            return invalid("GUI spaces may contain only Wez presentation targets");
-        }
         validate_string(&row.stable_ref, "space.ref", 512)?;
         validate_string(&row.name, "space.name", 1024)?;
         validate_string(&row.owner_alias, "space.owner_alias", 64)?;
@@ -1191,17 +1372,28 @@ fn validate_request_for_instance(
     )?;
 
     let origin = object["origin"].as_object().expect("validated origin");
+    if origin.get("kind").and_then(Value::as_str) == Some("resident_gui")
+        && action == "detach_domain"
+    {
+        return invalid("resident_gui origin cannot issue standalone detach_domain");
+    }
     if origin.get("kind").and_then(Value::as_str) == Some("cold_launcher") {
-        if matches!(action, "detach_domain" | "safe_quit") {
+        if matches!(action, "detach_domain" | "focus_pane" | "safe_quit") {
             return invalid(format!("{action} requires an in_gui origin"));
         }
-        if matches!(action, "attach_domain" | "activate" | "present") {
+        if matches!(
+            action,
+            "attach_domain" | "activate" | "present" | "establish_resident"
+        ) {
             let target = object["target"].as_object().expect("validated target");
             if target.get("domain") != origin.get("domain")
+                || target.get("host_uid") != origin.get("host_uid")
                 || target.get("backend_instance_uid") != origin.get("backend_instance_uid")
+                || target.get("server_epoch") != origin.get("server_epoch")
+                || target.get("space_uid") != origin.get("space_uid")
             {
                 return invalid(
-                    "cold_launcher origin domain/backend instance differs from the target",
+                    "cold_launcher origin target identity differs from the request target",
                 );
             }
         }
@@ -1212,8 +1404,8 @@ fn validate_request_for_instance(
 fn validate_request_time(request: &Value, now: u64) -> Result<(), GuiError> {
     let issued_at = json_uint(request.get("issued_at"), "request.issued_at")?;
     let expiry = json_uint(request.get("expiry"), "request.expiry")?;
-    if now > expiry {
-        return invalid("request expiry is in the past");
+    if now >= expiry {
+        return invalid("request reached its signed expiry");
     }
     if issued_at > now.saturating_add(2) {
         return invalid("request issued_at is too far in the future");
@@ -1231,22 +1423,37 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
             let object = exact_object(
                 origin,
                 &[
+                    "backend",
                     "domain",
+                    "group_ref",
                     "gui_instance",
+                    "host_uid",
                     "host_uid",
                     "kind",
                     "pane_id",
+                    "pid",
+                    "process_start_token",
                     "server_epoch",
+                    "space_no",
                     "space_uid",
+                    "split_ref",
+                    "tmux_client_uid",
                 ],
                 &[
+                    "backend",
                     "domain",
+                    "group_ref",
                     "gui_instance",
+                    "host_uid",
                     "host_uid",
                     "kind",
                     "pane_id",
+                    "pid",
+                    "process_start_token",
                     "server_epoch",
+                    "space_no",
                     "space_uid",
+                    "split_ref",
                 ],
                 "origin",
             )?;
@@ -1257,10 +1464,23 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
             if expected_instance.is_some_and(|expected| expected != instance) {
                 return invalid("origin.gui_instance does not name the selected bridge consumer");
             }
+            let pid = json_uint(object.get("pid"), "origin.pid")?;
+            if pid == 0 || pid > u64::from(u32::MAX) {
+                return invalid("origin.pid must be a nonzero process ID");
+            }
+            validate_string(
+                value_str(object, "process_start_token", "origin.process_start_token")?,
+                "origin.process_start_token",
+                256,
+            )?;
             json_uint(object.get("pane_id"), "origin.pane_id")?;
             validate_domain(
                 value_str(object, "domain", "origin.domain")?,
                 "origin.domain",
+            )?;
+            validate_uuid(
+                value_str(object, "host_uid", "origin.host_uid")?,
+                "origin.host_uid",
             )?;
             for field in ["host_uid", "space_uid", "server_epoch"] {
                 validate_uuid(
@@ -1268,6 +1488,77 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
                     &format!("origin.{field}"),
                 )?;
             }
+            let backend = match value_str(object, "backend", "origin.backend")? {
+                "wez" => Backend::Wez,
+                "tmux" => Backend::Tmux,
+                _ => return invalid("origin.backend must be wez or tmux"),
+            };
+            if json_uint(object.get("space_no"), "origin.space_no")? == 0 {
+                return invalid("origin.space_no must be nonzero");
+            }
+            let epoch = value_str(object, "server_epoch", "origin.server_epoch")?;
+            for (field, kind) in [
+                ("group_ref", ChildKind::Group),
+                ("split_ref", ChildKind::Split),
+            ] {
+                let child = value_str(object, field, &format!("origin.{field}"))?;
+                validate_child_ref(child, kind, epoch, &format!("origin.{field}"))?;
+                let parsed = parse_ref(&format!("1/{child}"))
+                    .expect("origin child was just validated")
+                    .child
+                    .expect("origin child is present");
+                if !matches!(
+                    (parsed.handle, backend),
+                    (ProviderHandle::Wz(_), Backend::Wez)
+                        | (ProviderHandle::Tx(_), Backend::Tmux)
+                        | (ProviderHandle::Opaque(_), _)
+                ) {
+                    return invalid(format!(
+                        "origin.{field} provider differs from origin.backend"
+                    ));
+                }
+            }
+            match (backend, object.get("tmux_client_uid")) {
+                (Backend::Tmux, Some(value)) => {
+                    validate_uuid(
+                        value.as_str().ok_or_else(|| {
+                            GuiError::InvalidRequest(
+                                "origin.tmux_client_uid must be a UUID string".into(),
+                            )
+                        })?,
+                        "origin.tmux_client_uid",
+                    )?;
+                }
+                (Backend::Tmux, None) => {
+                    return invalid("tmux in_gui origin requires tmux_client_uid");
+                }
+                (Backend::Wez, None) => {}
+                (Backend::Wez, Some(_)) => {
+                    return invalid("Wez in_gui origin forbids tmux_client_uid");
+                }
+            }
+        }
+        "resident_gui" => {
+            let object = exact_object(
+                origin,
+                &["gui_instance", "kind", "pid", "process_start_token"],
+                &["gui_instance", "kind", "pid", "process_start_token"],
+                "origin",
+            )?;
+            let instance = value_str(object, "gui_instance", "origin.gui_instance")?;
+            validate_instance(instance)?;
+            if expected_instance.is_some_and(|expected| expected != instance) {
+                return invalid("origin.gui_instance does not name the selected bridge consumer");
+            }
+            let pid = json_uint(object.get("pid"), "origin.pid")?;
+            if pid == 0 || pid > u64::from(u32::MAX) {
+                return invalid("origin.pid must be a nonzero process ID");
+            }
+            validate_string(
+                value_str(object, "process_start_token", "origin.process_start_token")?,
+                "origin.process_start_token",
+                256,
+            )?;
         }
         "cold_launcher" => {
             let object = exact_object(
@@ -1276,9 +1567,12 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
                     "backend_instance_uid",
                     "domain",
                     "gui_instance",
+                    "host_uid",
                     "kind",
                     "launcher_request_uid",
                     "pid",
+                    "server_epoch",
+                    "space_uid",
                     "start_token",
                     "uid",
                 ],
@@ -1286,9 +1580,11 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
                     "backend_instance_uid",
                     "domain",
                     "gui_instance",
+                    "host_uid",
                     "kind",
                     "launcher_request_uid",
                     "pid",
+                    "server_epoch",
                     "start_token",
                     "uid",
                 ],
@@ -1322,6 +1618,10 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
                 "origin.domain",
             )?;
             validate_uuid(
+                value_str(object, "host_uid", "origin.host_uid")?,
+                "origin.host_uid",
+            )?;
+            validate_uuid(
                 value_str(
                     object,
                     "backend_instance_uid",
@@ -1329,14 +1629,55 @@ fn validate_origin(origin: &Value, expected_instance: Option<&str>) -> Result<()
                 )?,
                 "origin.backend_instance_uid",
             )?;
+            for field in ["server_epoch"] {
+                validate_uuid(
+                    value_str(object, field, &format!("origin.{field}"))?,
+                    &format!("origin.{field}"),
+                )?;
+            }
+            if let Some(space_uid) = object.get("space_uid") {
+                validate_uuid(
+                    space_uid.as_str().ok_or_else(|| {
+                        GuiError::InvalidRequest("origin.space_uid must be a UUID string".into())
+                    })?,
+                    "origin.space_uid",
+                )?;
+            }
         }
-        _ => return invalid("origin.kind must be in_gui or cold_launcher"),
+        _ => return invalid("origin.kind must be in_gui, resident_gui, or cold_launcher"),
     }
     Ok(())
 }
 
 fn validate_target(action: &str, target: &Value) -> Result<(), GuiError> {
     match action {
+        "establish_resident" => {
+            let object = exact_object(
+                target,
+                &[
+                    "backend_instance_uid",
+                    "domain",
+                    "host_uid",
+                    "server_epoch",
+                    "space_uid",
+                ],
+                &["backend_instance_uid", "domain", "host_uid", "server_epoch"],
+                "target",
+            )?;
+            validate_domain_target(object)?;
+            validate_uuid(
+                value_str(object, "host_uid", "target.host_uid")?,
+                "target.host_uid",
+            )?;
+            if let Some(space_uid) = object.get("space_uid") {
+                validate_uuid(
+                    space_uid.as_str().ok_or_else(|| {
+                        GuiError::InvalidRequest("target.space_uid must be a UUID string".into())
+                    })?,
+                    "target.space_uid",
+                )?;
+            }
+        }
         "ping" => {
             exact_object(target, &[], &[], "target")?;
         }
@@ -1380,6 +1721,81 @@ fn validate_target(action: &str, target: &Value) -> Result<(), GuiError> {
                 "target",
             )?;
             validate_domain_target(object)?;
+        }
+        "focus_pane" => {
+            let object = exact_object(
+                target,
+                &[
+                    "backend",
+                    "backend_instance_uid",
+                    "domain",
+                    "group_ref",
+                    "host_uid",
+                    "pane_id",
+                    "server_epoch",
+                    "space_no",
+                    "space_uid",
+                    "split_ref",
+                    "tmux_client_uid",
+                ],
+                &[
+                    "backend",
+                    "backend_instance_uid",
+                    "domain",
+                    "group_ref",
+                    "host_uid",
+                    "pane_id",
+                    "server_epoch",
+                    "space_no",
+                    "space_uid",
+                    "split_ref",
+                    "tmux_client_uid",
+                ],
+                "target",
+            )?;
+            if object.get("backend").and_then(Value::as_str) != Some("tmux") {
+                return invalid("target.backend must be tmux for focus_pane");
+            }
+            validate_domain(
+                value_str(object, "domain", "target.domain")?,
+                "target.domain",
+            )?;
+            for field in [
+                "backend_instance_uid",
+                "host_uid",
+                "server_epoch",
+                "space_uid",
+                "tmux_client_uid",
+            ] {
+                validate_uuid(
+                    value_str(object, field, &format!("target.{field}"))?,
+                    &format!("target.{field}"),
+                )?;
+            }
+            json_uint(object.get("pane_id"), "target.pane_id")?;
+            if json_uint(object.get("space_no"), "target.space_no")? == 0 {
+                return invalid("target.space_no must be nonzero");
+            }
+            let epoch = value_str(object, "server_epoch", "target.server_epoch")?;
+            for (field, kind) in [
+                ("group_ref", ChildKind::Group),
+                ("split_ref", ChildKind::Split),
+            ] {
+                let child = value_str(object, field, &format!("target.{field}"))?;
+                validate_child_ref(child, kind, epoch, &format!("target.{field}"))?;
+                let parsed = parse_ref(&format!("1/{child}"))
+                    .expect("focus_pane child was just validated")
+                    .child
+                    .expect("focus_pane child is present");
+                if !matches!(
+                    parsed.handle,
+                    ProviderHandle::Tx(_) | ProviderHandle::Opaque(_)
+                ) {
+                    return invalid(format!(
+                        "target.{field} provider differs from target.backend"
+                    ));
+                }
+            }
         }
         "activate" | "present" => {
             let allowed = if action == "present" {
@@ -1449,7 +1865,19 @@ fn validate_target(action: &str, target: &Value) -> Result<(), GuiError> {
                     // detached, but the subsequent owner-survival proof is
                     // still required before hide/quit. No other domain-array
                     // field permits emptiness.
-                    validate_domain_array(&object["domains"], "target.domains", true)?;
+                    validate_domain_incarnation_array(&object["domains"], "target.domains", true)?;
+                }
+                "rollback" => {
+                    let object = exact_object(
+                        target,
+                        &["phase", "proof_uid"],
+                        &["phase", "proof_uid"],
+                        "target",
+                    )?;
+                    validate_uuid(
+                        value_str(object, "proof_uid", "target.proof_uid")?,
+                        "target.proof_uid",
+                    )?;
                 }
                 "finish" => {
                     let object = exact_object(
@@ -1466,7 +1894,7 @@ fn validate_target(action: &str, target: &Value) -> Result<(), GuiError> {
                         return invalid("target.platform_action must be hide or quit");
                     }
                 }
-                _ => return invalid("target.phase must be detach or finish"),
+                _ => return invalid("target.phase must be detach, rollback, or finish"),
             }
         }
         _ => return invalid("unsupported bridge action"),
@@ -1660,6 +2088,9 @@ fn validate_ack(
     }
 
     match ack.action.as_str() {
+        "establish_resident"
+            if ack.resident_established == Some(true)
+                && only_ack_result(ack, &["resident_established"]) => {}
         "ping" if ack.pong == Some(true) && only_ack_result(ack, &["pong"]) => {}
         "toast" if ack.toasted == Some(true) && only_ack_result(ack, &["toasted"]) => {}
         "attach_domain"
@@ -1673,6 +2104,12 @@ fn validate_ack(
                 ])
                 && only_ack_result(ack, &["detached_domains"]) => {}
         "activate" | "present" => validate_space_ack(ack, request)?,
+        "focus_pane"
+            if ack.domain.as_deref() == request["target"]["domain"].as_str()
+                && ack.pane_id == request["target"]["pane_id"].as_u64()
+                && ack.group_ref.as_deref() == request["target"]["group_ref"].as_str()
+                && ack.split_ref.as_deref() == request["target"]["split_ref"].as_str()
+                && only_ack_result(ack, &["domain", "pane_id", "group_ref", "split_ref"]) => {}
         "safe_quit" => validate_safe_quit_ack(ack, request)?,
         _ => return invalid_ack("success result does not match the request action"),
     }
@@ -1744,12 +2181,17 @@ fn validate_safe_quit_ack(ack: &BridgeAck, request: &Value) -> Result<(), GuiErr
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|value| value.as_str().unwrap().to_string())
+                .map(|value| value["name"].as_str().unwrap().to_string())
                 .collect();
             if ack.detached_domains.as_ref() != Some(&expected)
                 || !only_ack_result(ack, &["detached_domains"])
             {
                 return invalid_ack("safe_quit detach result differs from requested domains");
+            }
+        }
+        Some("rollback") => {
+            if ack.reattached_domains.is_none() || !only_ack_result(ack, &["reattached_domains"]) {
+                return invalid_ack("safe_quit rollback omitted its exact reattached domains");
             }
         }
         Some("finish") => {
@@ -1792,10 +2234,12 @@ fn ack_result_names(ack: &BridgeAck) -> Vec<&'static str> {
     present!(group_ref);
     present!(split_ref);
     present!(detached_domains);
+    present!(reattached_domains);
     present!(platform_action);
     present!(already_hidden);
     present!(pong);
     present!(toasted);
+    present!(resident_established);
     fields
 }
 
@@ -2261,6 +2705,19 @@ fn validate_heartbeat(
         }
         validate_domain(&pane.domain, "heartbeat pane domain")?;
         validate_marker(&pane.context)?;
+        match (pane.context.backend, pane.tmux_client_uid) {
+            (Backend::Tmux, Some(_)) | (Backend::Wez, None) => {}
+            (Backend::Tmux, None) => {
+                return Err(GuiError::InvalidInstance(
+                    "heartbeat tmux pane has no exact client UID".into(),
+                ));
+            }
+            (Backend::Wez, Some(_)) => {
+                return Err(GuiError::InvalidInstance(
+                    "heartbeat Wez pane carries a tmux client UID".into(),
+                ));
+            }
+        }
         if pane
             .context
             .domain
@@ -2303,6 +2760,30 @@ fn validate_heartbeat(
             return Err(GuiError::InvalidInstance(
                 "detached heartbeat domain still reports panes".into(),
             ));
+        }
+        if domain != "local" && state.pane_count != 0 && state.backend_instance_uid.is_none() {
+            return Err(GuiError::InvalidInstance(
+                "active persistent heartbeat domain omitted its backend instance".into(),
+            ));
+        }
+        match (
+            state.system_pane_count,
+            state.system_workspace.as_deref(),
+            state.system_epoch,
+        ) {
+            (0, None, None) => {}
+            (1, Some(workspace), Some(epoch))
+                if workspace == format!("dmux:system:{}", epoch.0) => {}
+            (1, Some(_), Some(_)) => {
+                return Err(GuiError::InvalidInstance(
+                    "heartbeat system workspace does not bind its exact epoch".into(),
+                ));
+            }
+            _ => {
+                return Err(GuiError::InvalidInstance(
+                    "heartbeat domain must report zero or one exact system workspace/pane".into(),
+                ));
+            }
         }
     }
     if valid_by_domain
@@ -2439,7 +2920,15 @@ fn exact_marker(left: &MarkerContext, right: &MarkerContext) -> bool {
 fn allowed_action(action: &str) -> bool {
     matches!(
         action,
-        "present" | "attach_domain" | "detach_domain" | "activate" | "toast" | "safe_quit" | "ping"
+        "present"
+            | "establish_resident"
+            | "attach_domain"
+            | "detach_domain"
+            | "activate"
+            | "focus_pane"
+            | "toast"
+            | "safe_quit"
+            | "ping"
     )
 }
 
@@ -2587,6 +3076,47 @@ fn validate_domain_array<'a>(
             return invalid(format!("{label} contains a duplicate"));
         }
         result.push(domain);
+    }
+    Ok(result)
+}
+
+fn validate_domain_incarnation_array<'a>(
+    value: &'a Value,
+    label: &str,
+    allow_empty: bool,
+) -> Result<Vec<&'a Map<String, Value>>, GuiError> {
+    let array = value
+        .as_array()
+        .filter(|array| allow_empty || !array.is_empty())
+        .ok_or_else(|| {
+            GuiError::InvalidRequest(if allow_empty {
+                format!("{label} must be an array")
+            } else {
+                format!("{label} must be a non-empty array")
+            })
+        })?;
+    let mut seen = BTreeSet::new();
+    let mut result = Vec::with_capacity(array.len());
+    for (index, item) in array.iter().enumerate() {
+        let item_label = format!("{label}[{index}]");
+        let object = exact_object(
+            item,
+            &["backend_instance_uid", "name", "server_epoch"],
+            &["backend_instance_uid", "name", "server_epoch"],
+            &item_label,
+        )?;
+        let name = value_str(object, "name", &format!("{item_label}.name"))?;
+        validate_domain(name, &format!("{item_label}.name"))?;
+        for field in ["backend_instance_uid", "server_epoch"] {
+            validate_uuid(
+                value_str(object, field, &format!("{item_label}.{field}"))?,
+                &format!("{item_label}.{field}"),
+            )?;
+        }
+        if !seen.insert(name) {
+            return invalid(format!("{label} contains a duplicate domain"));
+        }
+        result.push(object);
     }
     Ok(result)
 }
@@ -2883,6 +3413,36 @@ mod marker_wire {
     }
 }
 
+mod optional_uuid_wire {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use uuid::Uuid;
+
+    use super::validate_uuid;
+
+    pub fn serialize<S>(value: &Option<Uuid>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(value) => serializer.serialize_some(&value.to_string()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Option::<String>::deserialize(deserializer)?;
+        value
+            .map(|value| {
+                validate_uuid(&value, "GUI CLI origin tmux_client_uid")
+                    .map_err(serde::de::Error::custom)
+            })
+            .transpose()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2920,11 +3480,17 @@ mod tests {
             "origin": {
                 "kind": "in_gui",
                 "gui_instance": "gui-42-cafe",
+                "pid": 42,
+                "process_start_token": "start-token",
                 "pane_id": 91,
                 "domain": "dmux-b-usb",
                 "host_uid": "22222222-2222-4222-8222-222222222222",
                 "space_uid": "33333333-3333-4333-8333-333333333333",
-                "server_epoch": "55555555-5555-4555-8555-555555555555"
+                "space_no": 7,
+                "backend": "wez",
+                "server_epoch": "55555555-5555-4555-8555-555555555555",
+                "group_ref": "g55555555-5555-4555-8555-555555555555.wz-7",
+                "split_ref": "p55555555-5555-4555-8555-555555555555.wz-9"
             }
         })
     }
@@ -2938,10 +3504,12 @@ mod tests {
             canonical,
             concat!(
                 "{\"action\":\"present\",\"expiry\":1800000010,\"issued_at\":1800000000,",
-                "\"nonce\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"origin\":{\"domain\":\"dmux-b-usb\",",
-                "\"gui_instance\":\"gui-42-cafe\",\"host_uid\":\"22222222-2222-4222-8222-222222222222\",",
-                "\"kind\":\"in_gui\",\"pane_id\":91,\"server_epoch\":\"55555555-5555-4555-8555-555555555555\",",
-                "\"space_uid\":\"33333333-3333-4333-8333-333333333333\"},\"protocol_version\":1,",
+                "\"nonce\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"origin\":{\"backend\":\"wez\",\"domain\":\"dmux-b-usb\",",
+                "\"group_ref\":\"g55555555-5555-4555-8555-555555555555.wz-7\",\"gui_instance\":\"gui-42-cafe\",",
+                "\"host_uid\":\"22222222-2222-4222-8222-222222222222\",\"kind\":\"in_gui\",\"pane_id\":91,",
+                "\"pid\":42,\"process_start_token\":\"start-token\",\"server_epoch\":\"55555555-5555-4555-8555-555555555555\",",
+                "\"space_no\":7,\"space_uid\":\"33333333-3333-4333-8333-333333333333\",",
+                "\"split_ref\":\"p55555555-5555-4555-8555-555555555555.wz-9\"},\"protocol_version\":1,",
                 "\"replay_key\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"target\":{\"alternate_domains\":[\"dmux-b-ts\"],",
                 "\"backend_instance_uid\":\"44444444-4444-4444-8444-444444444444\",\"domain\":\"dmux-b-usb\",",
                 "\"group_ref\":\"g55555555-5555-4555-8555-555555555555.wz-7\",",
@@ -2955,11 +3523,11 @@ mod tests {
         );
         assert_eq!(
             hex(&sha256(canonical.as_bytes())),
-            "d8f4019dc81b4d8bdbdc275e11d9a0bfb4022a8335692e3d3fe4eaff8ee7d60f"
+            "61f7c94cb55544583d28a47ee48684a14921a0760d5217f26cbcfad984a069df"
         );
         assert_eq!(
             hmac_sha256_hex(b"0123456789abcdef0123456789abcdef", canonical.as_bytes()),
-            "c94b37b0e41cbccbc0874398c7e4dc79c38a0ccf4900f85924e4618f78d0c51d"
+            "293f019ae3ee7a55784dd6d03593e431f0d64117e496703ac7e39ed7ebcfce80"
         );
         assert_eq!(
             String::from_utf8(
@@ -2975,10 +3543,13 @@ mod tests {
         let mut empty_request: Value = serde_json::from_str(concat!(
             "{\"action\":\"safe_quit\",\"expiry\":1800000010,\"issued_at\":1800000000,",
             "\"nonce\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"origin\":{",
-            "\"domain\":\"dmux-b-usb\",\"gui_instance\":\"gui-42-cafe\",",
-            "\"host_uid\":\"22222222-2222-4222-8222-222222222222\",\"kind\":\"in_gui\",",
-            "\"pane_id\":91,\"server_epoch\":\"55555555-5555-4555-8555-555555555555\",",
-            "\"space_uid\":\"33333333-3333-4333-8333-333333333333\"},",
+            "\"backend\":\"wez\",\"domain\":\"dmux-b-usb\",",
+            "\"group_ref\":\"g55555555-5555-4555-8555-555555555555.wz-7\",",
+            "\"gui_instance\":\"gui-42-cafe\",\"host_uid\":\"22222222-2222-4222-8222-222222222222\",",
+            "\"kind\":\"in_gui\",\"pane_id\":91,\"pid\":42,\"process_start_token\":\"start-token\",",
+            "\"server_epoch\":\"55555555-5555-4555-8555-555555555555\",\"space_no\":7,",
+            "\"space_uid\":\"33333333-3333-4333-8333-333333333333\",",
+            "\"split_ref\":\"p55555555-5555-4555-8555-555555555555.wz-9\"},",
             "\"protocol_version\":1,\"replay_key\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",",
             "\"target\":{\"domains\":[],\"phase\":\"detach\"},",
             "\"uid\":\"11111111-1111-4111-8111-111111111111\"}"
@@ -2987,11 +3558,11 @@ mod tests {
         let canonical = canonical_request_bytes(&empty_request).unwrap();
         assert_eq!(
             hex(&sha256(&canonical)),
-            "29e3e7909e26f7379ecd8d2a7f92380c3c7e0611a574d95306a4f6e6af0d045e"
+            "9020e21a60eb17b851792de5bf1f9bd90174bbe4dd7120be0895d57d9fda5e15"
         );
         assert_eq!(
             sign_request(&mut empty_request, b"0123456789abcdef0123456789abcdef").unwrap(),
-            "dafe8ca0f43cade3b17e31c56fe0df872630cd6cfe9ab84188fde45e6e0034a5"
+            "a188cd6cc180e07fcfc2ba88e5609885c732ac0e7748e9b451cfcc73465958b9"
         );
         verify_request(&empty_request, b"0123456789abcdef0123456789abcdef").unwrap();
 
@@ -3001,7 +3572,7 @@ mod tests {
     }
 
     #[test]
-    fn gui_space_picker_rows_are_wez_only() {
+    fn gui_space_picker_rows_accept_both_typed_backends() {
         let mut row = GuiSpaceRow {
             stable_ref: "dmux://22222222-2222-4222-8222-222222222222/spaces/33333333-3333-4333-8333-333333333333".into(),
             name: "editor".into(),
@@ -3014,7 +3585,7 @@ mod tests {
         };
         validate_space_rows(std::slice::from_ref(&row)).unwrap();
         row.backend = Backend::Tmux;
-        assert!(validate_space_rows(&[row]).is_err());
+        validate_space_rows(&[row]).unwrap();
     }
 
     #[test]
@@ -3108,6 +3679,7 @@ mod tests {
             panes: vec![BridgePane {
                 pane_id: 91,
                 domain: "dmux-b-usb".into(),
+                tmux_client_uid: None,
                 context: marker.clone(),
             }],
             domains: BTreeMap::from([(
@@ -3115,9 +3687,12 @@ mod tests {
                 BridgeDomainState {
                     state: "Attached".into(),
                     has_any_panes: true,
+                    backend_instance_uid: Some(BackendInstanceUid(Uuid::from_u128(12))),
                     pane_count: 1,
                     valid_marker_pane_count: 1,
                     system_pane_count: 0,
+                    system_workspace: None,
+                    system_epoch: None,
                 },
             )]),
         };
@@ -3164,12 +3739,26 @@ mod tests {
             gui_instance: "gui-42-cafe".into(),
             pane_id: 91,
             domain: "dmux-b-usb".into(),
+            tmux_client_uid: None,
             marker: marker.clone(),
         })
         .unwrap();
         let parsed = parse_origin_json(&serde_json::to_string(&input).unwrap()).unwrap();
         assert_eq!(parsed.gui_instance, "gui-42-cafe");
         assert_eq!(parsed.marker, marker);
+
+        let mut with_client = input.clone();
+        with_client["tmux_client_uid"] =
+            Value::String("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".into());
+        let parsed_with_client =
+            parse_origin_json(&serde_json::to_string(&with_client).unwrap()).unwrap();
+        assert_eq!(
+            parsed_with_client.tmux_client_uid,
+            Some(Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap())
+        );
+        with_client["tmux_client_uid"] =
+            Value::String("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA".into());
+        assert!(parse_origin_json(&serde_json::to_string(&with_client).unwrap()).is_err());
 
         let mut signed_shape = input.clone();
         signed_shape["kind"] = Value::String("in_gui".into());
@@ -3243,7 +3832,14 @@ mod tests {
 
         let mut safe = request_document(
             "safe_quit",
-            serde_json::json!({"phase":"detach","domains":["dmux-b-usb"]}),
+            serde_json::json!({
+                "phase":"detach",
+                "domains":[{
+                    "name":"dmux-b-usb",
+                    "backend_instance_uid":"44444444-4444-4444-8444-444444444444",
+                    "server_epoch":"55555555-5555-4555-8555-555555555555"
+                }]
+            }),
             request()["origin"].clone(),
         )
         .unwrap();
@@ -3402,7 +3998,7 @@ mod tests {
         let mut ping = request_document(
             "ping",
             serde_json::json!({}),
-            in_gui_origin(&selection, &marker),
+            in_gui_origin(&selection, &marker, None),
         )
         .unwrap();
         sign_request(&mut ping, &key).unwrap();
@@ -3445,7 +4041,7 @@ mod tests {
         let mut conflict = request_document(
             "toast",
             serde_json::json!({"message":"different content"}),
-            in_gui_origin(&selection, &marker),
+            in_gui_origin(&selection, &marker, None),
         )
         .unwrap();
         conflict["uid"] = Value::String(uid);

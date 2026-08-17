@@ -29,7 +29,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::backend::tmux::{TmuxProvider, TmuxServerIdentity};
-use crate::backend::wez::WezProvider;
+use crate::backend::wez::{IdentityExpectation, WezProvider};
 use crate::backend::{InventoryOutcome, InventoryScope, Provider, ProviderError, SplitDirection};
 use crate::error::{ErrorCode, TypedError};
 use crate::locks::{LockMode, LockScope, OrderedLocks};
@@ -54,7 +54,10 @@ use crate::remote::protocol::{
     PROTOCOL_VERSION, RecoveryAbortPayload, RecoveryResumePayload, RecoveryStatusPayload,
     RenamePayload, RenameResult, RmPayload, RmResult, ScanSummary, SpaceInfo, SpacesInfo,
     SplitDirectionPayload, SplitNewPayload, SplitResizePayload, SplitRmPayload, SplitZoomPayload,
-    canonical_payload_sha256,
+    TmuxClientDetachPayload, TmuxClientDetachResult, TmuxClientRefreshPayload,
+    TmuxClientRefreshResult, TmuxClientStatusPayload, TmuxClientStatusResult,
+    TmuxClientSwitchPayload, TmuxClientSwitchResult, WezNativePaneWitness, WezNativeTreePayload,
+    WezNativeTreeResult, canonical_payload_sha256,
 };
 
 /// Attach tokens are short-lived (plan §12.1 "short-lived attach plan").
@@ -258,6 +261,11 @@ fn dispatch(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Repl
         protocol::methods::RENAME => rename(cx, request, payload),
         protocol::methods::RM => remove(cx, request, payload),
         protocol::methods::ATTACH_PLAN => attach_plan(cx, request, payload),
+        protocol::methods::TMUX_CLIENT_STATUS => tmux_client_status(cx, request, payload),
+        protocol::methods::TMUX_CLIENT_SWITCH => tmux_client_switch(cx, request, payload),
+        protocol::methods::TMUX_CLIENT_DETACH => tmux_client_detach(cx, request, payload),
+        protocol::methods::TMUX_CLIENT_REFRESH => tmux_client_refresh(cx, request, payload),
+        protocol::methods::WEZ_NATIVE_TREE_STATUS => wez_native_tree_status(cx, request, payload),
         protocol::methods::HIERARCHY => hierarchy_read(cx, request, payload),
         protocol::methods::GROUP_NEW => group_new(cx, request, payload),
         protocol::methods::GROUP_ACTIVATE => group_activate(cx, request, payload),
@@ -368,6 +376,7 @@ fn capabilities(registry: &Registry, positive_wez_hello: bool) -> Vec<String> {
     ];
     if let Ok(Some(_)) = find_instance(registry, Backend::Tmux) {
         caps.push(crate::remote::wez_compat::CAP_TMUX.to_string());
+        caps.push(protocol::CAP_TMUX_CLIENT_CORRELATION.to_string());
     }
     if let Ok(Some(_)) = find_instance(registry, Backend::Wez) {
         if !positive_wez_hello {
@@ -764,6 +773,25 @@ fn ready_wez_identity(
     registered_socket: Option<&str>,
     claimed_epoch: Option<ServerEpoch>,
 ) -> Result<(String, ServerEpoch), WezIdentityError> {
+    let endpoint = registered_socket.ok_or_else(|| {
+        WezIdentityError::Refused(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "managed Wez registry instance has no socket; the descriptor cannot replace registry identity",
+        ))
+    })?;
+    let published_server = registry
+        .backend_server(instance)
+        .map_err(|error| WezIdentityError::Refused(typed_registry(error)))?;
+    let published_epoch = published_server.server_epoch.ok_or_else(|| {
+        WezIdentityError::Refused(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "managed Wez registry instance has no published server epoch",
+        ))
+    })?;
+
+    // Raw state is read only to preserve a typed `recovering` observation.
+    // The registry identity/epoch above is frozen first, and no provider is
+    // reached until the second read proves the complete native witness.
     let descriptor = crate::runtime::read_wez_descriptor_in(runtime_dir)
         .map_err(|error| {
             WezIdentityError::Refused(TypedError::new(
@@ -808,12 +836,6 @@ fn ready_wez_identity(
             ),
         )));
     }
-    let endpoint = registered_socket.ok_or_else(|| {
-        WezIdentityError::Refused(TypedError::new(
-            ErrorCode::ProviderUnavailable,
-            "managed Wez registry instance has no socket; the descriptor cannot replace registry identity",
-        ))
-    })?;
     if descriptor.socket != endpoint {
         return Err(WezIdentityError::Refused(TypedError::new(
             ErrorCode::WrongBackendInstance,
@@ -830,16 +852,6 @@ fn ready_wez_identity(
             .parse::<Uuid>()
             .expect("require_ready parsed epoch"),
     );
-    let published_epoch = registry
-        .backend_server(instance)
-        .map_err(|error| WezIdentityError::Refused(typed_registry(error)))?
-        .server_epoch
-        .ok_or_else(|| {
-            WezIdentityError::Refused(TypedError::new(
-                ErrorCode::ProviderUnavailable,
-                "managed Wez registry instance has no published server epoch",
-            ))
-        })?;
     if descriptor_epoch != published_epoch {
         return Err(WezIdentityError::Refused(TypedError::new(
             ErrorCode::BackendEpochChanged,
@@ -860,7 +872,41 @@ fn ready_wez_identity(
             ),
         )));
     }
-    Ok((endpoint.to_string(), descriptor_epoch))
+    let verified = crate::runtime::read_verified_ready_wez_descriptor_in(
+        runtime_dir,
+        Some(instance.0),
+        Some(descriptor_epoch.0),
+    )
+    .map_err(|error| {
+        WezIdentityError::Refused(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            format!("managed Wez descriptor native identity cannot be verified: {error}"),
+        ))
+    })?
+    .ok_or_else(|| {
+        WezIdentityError::Refused(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "managed Wez descriptor disappeared during identity verification",
+        ))
+    })?;
+    if verified.socket != endpoint
+        || published_server.server_pid != Some(i64::from(verified.pid))
+        || published_server.server_start_token.as_deref() != Some(verified.start_token.as_str())
+        || published_server.socket_dev
+            != verified
+                .socket_dev
+                .and_then(|value| i64::try_from(value).ok())
+        || published_server.socket_ino
+            != verified
+                .socket_ino
+                .and_then(|value| i64::try_from(value).ok())
+    {
+        return Err(WezIdentityError::Refused(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            "native-verified Wez process/socket differs from registry incarnation",
+        )));
+    }
+    Ok((verified.socket, descriptor_epoch))
 }
 
 /// Resolve a Space's OWN backend target (children inherit; the client never
@@ -2130,6 +2176,452 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
             .map_err(|e| TypedError::new(ErrorCode::OperationFailed, e.to_string()))?,
         backend_instance: Some(target.instance),
         server_epoch: Some(target.epoch),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// P9 exact invoking-tmux-client presentation.
+
+fn wez_native_tree_status(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let _: WezNativeTreePayload = parse_payload(payload)?;
+    let instance = request.backend_instance_uid.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            "wez native-tree proof requires an exact backend instance claim",
+        )
+    })?;
+    let epoch = request.server_epoch.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            "wez native-tree proof requires an exact server epoch claim",
+        )
+    })?;
+    let mut locks = OrderedLocks::new(&cx.env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .and_then(|_| locks.acquire(LockScope::BackendInstance(instance), LockMode::Shared))
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("wez native-tree read fence: {error}"),
+            )
+        })?;
+    let (target, _) =
+        verified_wez_target(&cx.registry, &cx.env.lock_dir, Some(instance), Some(epoch))?;
+    let server = cx
+        .registry
+        .backend_server(target.instance)
+        .map_err(typed_registry)?;
+    let server_pid = server
+        .server_pid
+        .and_then(|pid| u32::try_from(pid).ok())
+        .ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "wez native-tree proof has no published server PID",
+            )
+        })?;
+    let start_token = server.server_start_token.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            "wez native-tree proof has no published server start token",
+        )
+    })?;
+    let (bin, config) = wez_paths();
+    let witness = WezProvider::new(bin, config)
+        .with_identity(IdentityExpectation {
+            server_pid: Some(server_pid),
+            start_token: Some(start_token),
+        })
+        .native_tree_witness(&scope_for(&target))
+        .map_err(typed_provider)?;
+    if witness.server_epoch != target.epoch {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            "wez native-tree witness changed epoch under its read fence",
+        ));
+    }
+    let result = WezNativeTreeResult {
+        backend_instance_uid: target.instance,
+        server_epoch: target.epoch,
+        sentinel_window_id: witness.sentinel_window_id,
+        sentinel_tab_id: witness.sentinel_tab_id,
+        sentinel_pane_id: witness.sentinel_pane_id,
+        panes: witness
+            .panes
+            .into_iter()
+            .map(|pane| WezNativePaneWitness {
+                window_id: pane.window_id,
+                tab_id: pane.tab_id,
+                pane_id: pane.pane_id,
+            })
+            .collect(),
+    };
+    Ok(Reply {
+        payload: serde_json::to_value(result)
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        backend_instance: Some(target.instance),
+        server_epoch: Some(target.epoch),
+    })
+}
+
+/// Acquire the read side of the common mutation/recovery fence. The client
+/// record is checked and `switch-client` runs while this guard is alive, so
+/// neither Space binding nor the backend incarnation can change between
+/// validation and the postcondition scan.
+fn tmux_client_read_fence(
+    cx: &AgentCx,
+    request: &Envelope,
+    backend_mode: LockMode,
+) -> Result<OrderedLocks, TypedError> {
+    let instance = request.backend_instance_uid.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            "tmux client correlation requires an exact backend instance claim",
+        )
+    })?;
+    request.server_epoch.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            "tmux client correlation requires an exact server epoch claim",
+        )
+    })?;
+    let mut locks = OrderedLocks::new(&cx.env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .and_then(|_| locks.acquire(LockScope::BackendInstance(instance), backend_mode))
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("tmux client presentation read fence: {error}"),
+            )
+        })?;
+    Ok(locks)
+}
+
+fn tmux_client_target(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    space_uid: SpaceUid,
+    group_ref: Option<&str>,
+    split_ref: Option<&str>,
+) -> Result<crate::remote::attach::TmuxClientTarget, TypedError> {
+    let (space, target, provider) = space_target(cx, space_uid, request)?;
+    if target.backend != Backend::Tmux {
+        return Err(TypedError::new(
+            ErrorCode::BackendMismatch,
+            "tmux client presentation target is not a tmux Space",
+        ));
+    }
+    if space.lifecycle != crate::model::Lifecycle::Active {
+        return Err(TypedError::new(
+            ErrorCode::SpaceAbsent,
+            "tmux client presentation target is not active",
+        ));
+    }
+    let binding = cx
+        .registry
+        .current_binding(space_uid)
+        .map_err(typed_registry)?
+        .ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::SpaceAbsent,
+                "tmux client presentation target has no current binding",
+            )
+        })?;
+    let native = crate::backend::NativeBinding {
+        native_token: binding.native_token.clone(),
+        server_epoch: target.epoch,
+        root_group: ProviderHandle::Tx(0),
+        root_split: ProviderHandle::Tx(0),
+    };
+    let native = provider
+        .inspect(&scope_for(&target), &native)
+        .map_err(typed_provider)?;
+    if native.native_token != binding.native_token {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "tmux provider inspected a different native Space binding",
+        ));
+    }
+    let hierarchy = ops::SpaceHierarchy {
+        space_uid,
+        server_epoch: target.epoch,
+        groups: native
+            .groups
+            .into_iter()
+            .map(|group| ops::HierarchyGroup {
+                group_ref: crate::refs::child_suffix(&ChildRefShape {
+                    kind: ChildKind::Group,
+                    epoch: target.epoch,
+                    handle: group.handle,
+                }),
+                title: group.title,
+                splits: group
+                    .splits
+                    .into_iter()
+                    .map(|split| ops::HierarchySplit {
+                        split_ref: crate::refs::child_suffix(&ChildRefShape {
+                            kind: ChildKind::Split,
+                            epoch: target.epoch,
+                            handle: split.handle,
+                        }),
+                        title: split.title,
+                        cwd: split.cwd,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    };
+    let active_children = crate::remote::attach::tmux_client_children_from_hierarchy(
+        &hierarchy, group_ref, split_ref,
+    )?;
+    let identity = cx.registry.identity().map_err(typed_registry)?;
+    Ok(crate::remote::attach::TmuxClientTarget {
+        host_uid: identity.host_uid,
+        space_uid,
+        space_no: space.space_no,
+        backend_instance_uid: target.instance,
+        server_epoch: target.epoch,
+        namespace: target.endpoint,
+        native_session: binding.native_token,
+        active_children,
+    })
+}
+
+fn tmux_client_status(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let status: TmuxClientStatusPayload = parse_payload(payload)?;
+    let _locks = tmux_client_read_fence(cx, request, LockMode::Shared)?;
+    let target = tmux_client_target(
+        cx,
+        request,
+        status.space_uid,
+        Some(&status.group_ref),
+        Some(&status.split_ref),
+    )?;
+    crate::remote::attach::correlate_client(&cx.env.lock_dir, status.client_uid, &target)?;
+    let result = TmuxClientStatusResult {
+        client_uid: status.client_uid,
+        space_uid: status.space_uid,
+        backend_instance_uid: target.backend_instance_uid,
+        server_epoch: target.server_epoch,
+        correlated: true,
+    };
+    Ok(Reply {
+        payload: serde_json::to_value(result)
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        backend_instance: Some(target.backend_instance_uid),
+        server_epoch: Some(target.server_epoch),
+    })
+}
+
+fn tmux_client_refresh(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let refresh: TmuxClientRefreshPayload = parse_payload(payload)?;
+    let _locks = tmux_client_read_fence(cx, request, LockMode::Shared)?;
+    let target = tmux_client_target(
+        cx,
+        request,
+        refresh.space_uid,
+        refresh.group_ref.as_deref(),
+        refresh.split_ref.as_deref(),
+    )?;
+    let (marker, published_clients) = crate::remote::attach::publish_correlated_session_contexts(
+        &cx.env.lock_dir,
+        refresh.client_uid,
+        &target,
+    )?;
+    if marker.host_uid != target.host_uid
+        || marker.space_uid != target.space_uid
+        || marker.space_no != target.space_no
+        || marker.backend != Backend::Tmux
+        || marker.server_epoch != target.server_epoch
+    {
+        return Err(TypedError::new(
+            ErrorCode::PostconditionFailed,
+            "published tmux marker differs from its exact owner target",
+        ));
+    }
+    let result = TmuxClientRefreshResult {
+        client_uid: refresh.client_uid,
+        space_uid: target.space_uid,
+        backend_instance_uid: target.backend_instance_uid,
+        server_epoch: target.server_epoch,
+        group_ref: marker.group_ref,
+        split_ref: marker.split_ref,
+        published: true,
+        published_clients: u32::try_from(published_clients).map_err(|_| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                "tmux session client count exceeds the protocol range",
+            )
+        })?,
+    };
+    Ok(Reply {
+        payload: serde_json::to_value(result)
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        backend_instance: Some(target.backend_instance_uid),
+        server_epoch: Some(target.server_epoch),
+    })
+}
+
+fn tmux_client_switch(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let switch: TmuxClientSwitchPayload = parse_payload(payload)?;
+    let disposition = cx
+        .registry
+        .record_rpc_request(
+            request.request_uid,
+            protocol::methods::TMUX_CLIENT_SWITCH,
+            &request.payload_sha256,
+        )
+        .map_err(typed_registry)?;
+    if let RpcDisposition::Replay {
+        result_state: RpcResultState::Final,
+        result_json: Some(stored),
+    } = &disposition
+    {
+        let mut result: TmuxClientSwitchResult = serde_json::from_value(stored.clone())
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+        result.replayed = true;
+        return Ok(Reply {
+            backend_instance: Some(result.backend_instance_uid),
+            server_epoch: Some(result.server_epoch),
+            payload: serde_json::to_value(result)
+                .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        });
+    }
+    if matches!(
+        disposition,
+        RpcDisposition::Replay {
+            result_state: RpcResultState::Final,
+            result_json: None,
+        }
+    ) {
+        return Err(TypedError::new(
+            ErrorCode::OperationFailed,
+            "final tmux client switch request omitted its stored receipt",
+        ));
+    }
+
+    let _locks = tmux_client_read_fence(cx, request, LockMode::Exclusive)?;
+    let from = tmux_client_target(
+        cx,
+        request,
+        switch.from_space_uid,
+        Some(&switch.from_group_ref),
+        Some(&switch.from_split_ref),
+    )?;
+    let to = tmux_client_target(cx, request, switch.to_space_uid, None, None)?;
+    crate::remote::attach::switch_correlated_client(
+        &cx.env.lock_dir,
+        switch.client_uid,
+        &from,
+        &to,
+    )?;
+    let result = TmuxClientSwitchResult {
+        client_uid: switch.client_uid,
+        from_space_uid: switch.from_space_uid,
+        to_space_uid: switch.to_space_uid,
+        backend_instance_uid: to.backend_instance_uid,
+        server_epoch: to.server_epoch,
+        switched: true,
+        replayed: false,
+    };
+    let stored = serde_json::to_value(&result)
+        .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+    cx.registry
+        .finish_rpc_request(request.request_uid, &stored, None)
+        .map_err(typed_registry)?;
+    Ok(Reply {
+        payload: stored,
+        backend_instance: Some(to.backend_instance_uid),
+        server_epoch: Some(to.server_epoch),
+    })
+}
+
+fn tmux_client_detach(
+    cx: &mut AgentCx,
+    request: &Envelope,
+    payload: Value,
+) -> Result<Reply, TypedError> {
+    let detach: TmuxClientDetachPayload = parse_payload(payload)?;
+    let disposition = cx
+        .registry
+        .record_rpc_request(
+            request.request_uid,
+            protocol::methods::TMUX_CLIENT_DETACH,
+            &request.payload_sha256,
+        )
+        .map_err(typed_registry)?;
+    if let RpcDisposition::Replay {
+        result_state: RpcResultState::Final,
+        result_json: Some(stored),
+    } = &disposition
+    {
+        let mut result: TmuxClientDetachResult = serde_json::from_value(stored.clone())
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+        result.replayed = true;
+        return Ok(Reply {
+            backend_instance: Some(result.backend_instance_uid),
+            server_epoch: Some(result.server_epoch),
+            payload: serde_json::to_value(result)
+                .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?,
+        });
+    }
+    if matches!(
+        disposition,
+        RpcDisposition::Replay {
+            result_state: RpcResultState::Final,
+            result_json: None,
+        }
+    ) {
+        return Err(TypedError::new(
+            ErrorCode::OperationFailed,
+            "final tmux client detach request omitted its stored receipt",
+        ));
+    }
+
+    let _locks = tmux_client_read_fence(cx, request, LockMode::Exclusive)?;
+    let target = tmux_client_target(
+        cx,
+        request,
+        detach.space_uid,
+        Some(&detach.group_ref),
+        Some(&detach.split_ref),
+    )?;
+    crate::remote::attach::detach_correlated_client(&cx.env.lock_dir, detach.client_uid, &target)?;
+    let result = TmuxClientDetachResult {
+        client_uid: detach.client_uid,
+        space_uid: detach.space_uid,
+        backend_instance_uid: target.backend_instance_uid,
+        server_epoch: target.server_epoch,
+        detached: true,
+        replayed: false,
+    };
+    let stored = serde_json::to_value(&result)
+        .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+    cx.registry
+        .finish_rpc_request(request.request_uid, &stored, None)
+        .map_err(typed_registry)?;
+    Ok(Reply {
+        payload: stored,
+        backend_instance: Some(target.backend_instance_uid),
+        server_epoch: Some(target.server_epoch),
     })
 }
 

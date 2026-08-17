@@ -1,34 +1,72 @@
 local context = require 'wez.dmux_bridge.context'
-local fs = require 'wez.dmux_bridge.fs'
 local json = require 'wez.dmux_bridge.json'
 local protocol = require 'wez.dmux_bridge.protocol'
 local wezterm = require 'wezterm'
 
 local M = {}
+local active_bridge
+local active_identity
+local active_instance
 
-function M.runtime_dir()
-  local explicit = os.getenv 'DMUX_RUNTIME_DIR'
-  if explicit and explicit:sub(1, 1) == '/' then
-    local trimmed = explicit:gsub('/+$', '')
-    if trimmed == '' then
-      return nil, 'runtime directory cannot be the filesystem root'
+local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$'
+
+local REQUIRED_CAPABILITIES = {
+  'descriptor_backed_spool',
+  'exclusive_instance_lease',
+  'launcher_witness',
+  'checked_preflight',
+  'capability_bound_lifecycle_completion',
+  'zero_window_lifecycle',
+  'verified_mux_descriptor',
+}
+
+---Validate the maintained-fork surface without opening an instance lease.
+---Production never falls back to caller-derived runtime paths.
+function M.require_secure_surface()
+  local gui = wezterm.gui
+  if
+    type(gui) ~= 'table'
+    or type(gui.dmux_bridge_capabilities) ~= 'function'
+    or type(gui.dmux_bridge_preflight) ~= 'function'
+    or type(gui.dmux_bridge_open) ~= 'function'
+  then
+    return nil, 'maintained fork secure bridge surface is unavailable'
+  end
+  local ok, capabilities = pcall(gui.dmux_bridge_capabilities)
+  if not ok or type(capabilities) ~= 'table' or capabilities.version ~= 1 then
+    return nil, 'maintained fork bridge capabilities are unavailable or incompatible'
+  end
+  for _, capability in ipairs(REQUIRED_CAPABILITIES) do
+    if capabilities[capability] ~= true then
+      return nil, 'maintained fork bridge capability is missing: ' .. capability
     end
-    return trimmed
   end
-  local base
-  if wezterm.target_triple:find 'darwin' then
-    base = os.getenv 'TMPDIR'
-  else
-    base = os.getenv 'XDG_RUNTIME_DIR'
+  return gui
+end
+
+function M.checked_preflight()
+  local gui, surface_err = M.require_secure_surface()
+  if not gui then
+    return nil, surface_err
   end
-  if not base or base:sub(1, 1) ~= '/' then
-    return nil, 'no absolute platform runtime directory'
+  local ok, proof = pcall(gui.dmux_bridge_preflight)
+  if
+    not ok
+    or type(proof) ~= 'table'
+    or proof.version ~= 1
+    or proof.key_bytes ~= 32
+    or proof.runtime_verified ~= true
+    or proof.verified_mux_descriptor ~= true
+    or type(proof.launcher_witness_present) ~= 'boolean'
+  then
+    return nil, 'maintained fork checked bridge preflight failed: ' .. tostring(proof)
   end
-  local trimmed = base:gsub('/+$', '')
-  if trimmed == '' then
-    return nil, 'platform runtime base cannot be the filesystem root'
-  end
-  return trimmed .. '/dmux'
+  return proof
 end
 
 local function random_hex(bytes)
@@ -46,23 +84,6 @@ local function random_hex(bytes)
   end))
 end
 
-local function process_start_token(pid)
-  local ok, success, stdout = pcall(wezterm.run_child_process, {
-    '/usr/bin/env',
-    'LC_ALL=C',
-    '/bin/ps',
-    '-p',
-    tostring(pid),
-    '-o',
-    'lstart=',
-  })
-  if not ok or not success then
-    return nil
-  end
-  local token = stdout:gsub('^%s+', ''):gsub('%s+$', '')
-  return #token > 0 and token or nil
-end
-
 local function requested_instance(pid)
   local requested = os.getenv 'DMUX_GUI_INSTANCE'
   if requested then
@@ -78,41 +99,39 @@ local function requested_instance(pid)
   return string.format('gui-%d-%s', pid, nonce)
 end
 
-function M.create()
-  local runtime, runtime_err = M.runtime_dir()
-  if not runtime then
-    return nil, runtime_err
-  end
-  local bridge = fs.join(runtime, 'bridge')
-  local key, key_err = fs.read(fs.join(bridge, 'key'), 33)
-  if not key then
-    return nil, 'bridge key unavailable: ' .. tostring(key_err)
-  end
-  if #key ~= 32 then
-    return nil, 'bridge key must contain exactly 32 raw bytes'
-  end
+local IDENTITY_KEYS = {
+  gui_instance = true,
+  pid = true,
+  process_start_token = true,
+}
 
+local function valid_lease_identity(identity, gui_instance, pid, process_start_token)
+  if type(identity) ~= 'table' or getmetatable(identity) ~= nil then
+    return false
+  end
+  for key in pairs(identity) do
+    if type(key) ~= 'string' or not IDENTITY_KEYS[key] then
+      return false
+    end
+  end
+  return identity.gui_instance == gui_instance
+    and type(identity.pid) == 'number'
+    and identity.pid % 1 == 0
+    and identity.pid > 0
+    and identity.pid <= 4294967295
+    and (pid == nil or identity.pid == pid)
+    and type(identity.process_start_token) == 'string'
+    and #identity.process_start_token > 0
+    and #identity.process_start_token <= 256
+    and not identity.process_start_token:find '[%z\1-\31\127]'
+    and (process_start_token == nil or identity.process_start_token == process_start_token)
+end
+
+function M.create()
   local pid = wezterm.procinfo.pid()
   local instance, instance_err = requested_instance(pid)
   if not instance then
     return nil, instance_err
-  end
-  local start_token = process_start_token(pid)
-  if not start_token then
-    return nil, 'cannot determine GUI process start token'
-  end
-  local dir = fs.join(bridge, 'instances', instance)
-  local paths = {
-    dir = dir,
-    requests = fs.join(dir, 'requests'),
-    acks = fs.join(dir, 'acks'),
-    consumed = fs.join(dir, 'consumed'),
-    heartbeat = fs.join(dir, 'heartbeat.json'),
-  }
-  local ok, err =
-    fs.ensure_private_dirs { bridge, fs.join(bridge, 'instances'), dir, paths.requests, paths.acks, paths.consumed }
-  if not ok then
-    return nil, err
   end
   local persistent_domains = wezterm.GLOBAL.dmux_managed_persistent_domains
   if type(persistent_domains) ~= 'table' then
@@ -130,33 +149,114 @@ function M.create()
       return nil, 'managed persistent domain inventory is not a dense array'
     end
   end
+  local configured_instances = wezterm.GLOBAL.dmux_managed_persistent_domain_instances
+  if type(configured_instances) ~= 'table' then
+    return nil, 'managed persistent domain instance inventory is unavailable'
+  end
+  local copied_instances = {}
+  local expected = {}
+  for _, name in ipairs(copied_domains) do
+    expected[name] = true
+    local backend_instance_uid = configured_instances[name]
+    if type(backend_instance_uid) ~= 'string' or not backend_instance_uid:match(UUID) then
+      return nil, 'managed persistent domain has no canonical backend instance: ' .. name
+    end
+    copied_instances[name] = backend_instance_uid
+  end
+  for name in pairs(configured_instances) do
+    if type(name) ~= 'string' or not expected[name] then
+      return nil, 'managed persistent domain instance inventory has an unknown domain'
+    end
+  end
+  local gui, surface_err = M.require_secure_surface()
+  if not gui then
+    return nil, surface_err
+  end
+  local opened, bridge_or_err = pcall(gui.dmux_bridge_open, instance)
+  if not opened or bridge_or_err == nil then
+    return nil, 'cannot acquire exclusive maintained-fork bridge lease: ' .. tostring(bridge_or_err)
+  end
+  local bridge = bridge_or_err
+  local identity_ok, identity = pcall(function()
+    return bridge:identity()
+  end)
+  local key_ok, key = pcall(function()
+    return bridge:key()
+  end)
+  if
+    not identity_ok
+    or not valid_lease_identity(identity, instance, pid)
+    or not key_ok
+    or type(key) ~= 'string'
+    or #key ~= 32
+  then
+    return nil, 'maintained-fork bridge lease returned an invalid identity or key'
+  end
+  active_bridge = bridge
+  active_identity = {
+    gui_instance = identity.gui_instance,
+    pid = identity.pid,
+    process_start_token = identity.process_start_token,
+  }
+  active_instance = instance
   return {
     id = instance,
     key = key,
     pid = pid,
-    process_start_token = start_token,
-    paths = paths,
+    process_start_token = identity.process_start_token,
+    bridge = bridge,
     safe_quit = {},
+    cold_launchers = {},
     persistent_domains = copied_domains,
+    persistent_domain_instances = copied_instances,
   }
 end
 
-local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
-  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
-  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
-  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
-  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
-  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$'
+function M.current_bridge(gui_instance)
+  if type(gui_instance) ~= 'string' or gui_instance ~= active_instance or active_bridge == nil then
+    return nil, 'trusted dmux GUI bridge lease is not active for this instance'
+  end
+  return active_bridge
+end
+
+---Return a defensive copy of the identity held by the active fork lease.
+---The lease is re-read so a caller never derives resident authority from a
+---stale module global or an unverified process lookup.
+function M.current_identity()
+  if active_bridge == nil or active_identity == nil or active_instance == nil then
+    return nil, 'trusted dmux GUI bridge lease is not active'
+  end
+  local ok, identity = pcall(function()
+    return active_bridge:identity()
+  end)
+  if
+    not ok
+    or not valid_lease_identity(
+      identity,
+      active_identity.gui_instance,
+      active_identity.pid,
+      active_identity.process_start_token
+    )
+    or identity.gui_instance ~= active_instance
+  then
+    return nil, 'maintained-fork bridge lease identity changed or became unavailable'
+  end
+  return {
+    gui_instance = active_identity.gui_instance,
+    pid = active_identity.pid,
+    process_start_token = active_identity.process_start_token,
+  }
+end
 
 local function system_workspace(workspace)
   if type(workspace) ~= 'string' then
-    return false
+    return nil
   end
   local epoch = workspace:match '^dmux:system:(.+)$'
-  return epoch ~= nil and epoch:match(UUID) ~= nil
+  return epoch and epoch:match(UUID) and epoch or nil
 end
 
-local function snapshot()
+local function snapshot(state)
   local domains = {}
   for _, domain in ipairs(wezterm.mux.all_domains()) do
     local name_ok, name = pcall(function()
@@ -194,6 +294,7 @@ local function snapshot()
     domains[name] = {
       state = domain_state,
       has_any_panes = has_panes,
+      backend_instance_uid = state.persistent_domain_instances[name],
       pane_count = 0,
       valid_marker_pane_count = 0,
       system_pane_count = 0,
@@ -217,10 +318,19 @@ local function snapshot()
         end
         local counts = domains[domain_name]
         counts.pane_count = counts.pane_count + 1
-        if system_workspace(workspace) then
+        local system_epoch = system_workspace(workspace)
+        if system_epoch then
           -- Rust accepts this exemption only after matching the exact owner
           -- descriptor/sentinel epoch. Lua merely reports the syntactic
           -- reserved workspace; it never treats it as owner authority.
+          if counts.system_workspace and counts.system_workspace ~= workspace then
+            return nil, 'GUI domain contains multiple system workspaces'
+          end
+          if counts.system_epoch and counts.system_epoch ~= system_epoch then
+            return nil, 'GUI domain contains multiple system epochs'
+          end
+          counts.system_workspace = workspace
+          counts.system_epoch = system_epoch
           counts.system_pane_count = counts.system_pane_count + 1
         else
           local marker = context.from_pane(pane)
@@ -230,11 +340,15 @@ local function snapshot()
             end
             seen[marker.gui_pane_id] = true
             counts.valid_marker_pane_count = counts.valid_marker_pane_count + 1
-            table.insert(panes, {
+            local heartbeat_pane = {
               pane_id = marker.gui_pane_id,
               domain = marker.gui_domain,
               context = context.marker_context(marker),
-            })
+            }
+            if marker.tmux_client_uid then
+              heartbeat_pane.tmux_client_uid = marker.tmux_client_uid
+            end
+            table.insert(panes, heartbeat_pane)
           end
           -- An invalid marker intentionally increments only pane_count. The
           -- resulting inequality is a durable fail-closed coverage witness.
@@ -249,7 +363,7 @@ local function snapshot()
 end
 
 function M.heartbeat(state)
-  local panes, domains_or_err = snapshot()
+  local panes, domains_or_err = snapshot(state)
   if not panes then
     return nil, domains_or_err
   end
@@ -268,7 +382,16 @@ function M.heartbeat(state)
   if #body > protocol.MAX_DOCUMENT_BYTES then
     return nil, 'heartbeat exceeds the bridge document limit'
   end
-  return fs.write_private_atomic(state.paths.heartbeat, body)
+  if state.bridge == nil or type(state.bridge.write_heartbeat_atomic) ~= 'function' then
+    return nil, 'maintained-fork heartbeat writer is unavailable'
+  end
+  local ok, result = pcall(function()
+    return state.bridge:write_heartbeat_atomic(body)
+  end)
+  if not ok then
+    return nil, tostring(result)
+  end
+  return result == nil and true or result
 end
 
 return M

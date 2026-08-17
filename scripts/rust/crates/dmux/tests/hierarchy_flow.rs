@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use dmux::backend::tmux::TmuxProvider;
 use dmux::backend::{InventoryScope, SplitDirection};
 use dmux::bootstrap;
+use dmux::locks::{LockMode, LockScope, OrderedLocks};
 use dmux::model::{Backend, ChildKind, ServerEpoch};
 use dmux::operations::{
     CreateRequest, GroupNewRequest, OpError, OperationEnv, SplitNewRequest, adopt_tmux,
@@ -647,6 +648,26 @@ fn context_revalidation_and_child_orphan_classification() {
     assert_eq!(context.server_epoch, epoch);
     assert_eq!(context.group_ref, created.group_ref);
     assert_eq!(context.split_ref, created.split_ref);
+
+    // Prompt-driven reads never wait behind authority maintenance.  The
+    // shell wrapper has its own deadline, but the operation itself must
+    // return an indeterminate result immediately so repeated prompts cannot
+    // accumulate blocked controller processes.
+    let mut maintenance = OrderedLocks::new(s.locks.path());
+    maintenance
+        .acquire(LockScope::AuthorityGate, LockMode::Exclusive)
+        .unwrap();
+    let started = Instant::now();
+    let err = context_read(&s.env(), &provider, &scope, created.space_uid, &pane).unwrap_err();
+    assert!(
+        matches!(err, OpError::Indeterminate(ref detail) if detail.contains("authority maintenance")),
+        "{err}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "context read blocked behind authority maintenance"
+    );
+    drop(maintenance);
 
     // Unknown pane: typed not-found, never a guessed marker.
     let err = context_read(&s.env(), &provider, &scope, created.space_uid, "%999").unwrap_err();

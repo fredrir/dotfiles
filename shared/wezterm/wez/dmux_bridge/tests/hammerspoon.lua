@@ -139,6 +139,9 @@ else
   if mode == 'absent' then
     assert(#tasks == 0, 'legacy absent-app path must not require dmux')
     assert(#launches == 1 and launches[1] == 'com.github.wez.wezterm')
+  elseif frontmost then
+    assert(#launches == 0)
+    assert(#tasks == 0, 'legacy frontmost toggle must hide without spawning')
   else
     assert(#launches == 0)
     assert(#tasks == 1 and tasks[1].bin == wezterm_bin)
@@ -147,7 +150,14 @@ else
 end
 
 if mode == 'zero' then
-  assert(app_activations == 1)
+  if not managed and frontmost then
+    -- Preserve the legacy frontmost toggle: flag-off behavior hides the app
+    -- before considering whether it currently has a window.
+    assert(app_activations == 0)
+    assert(app_hides == 1)
+  else
+    assert(app_activations == 1)
+  end
 end
 if managed and mode == 'zero' and frontmost then
   assert(app_hides == 0, 'managed zero-window summon must run before frontmost hide-toggle')

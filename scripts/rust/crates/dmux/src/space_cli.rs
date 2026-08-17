@@ -11,7 +11,7 @@ use clap::Subcommand;
 use uuid::Uuid;
 
 use dmux::backend::{InventoryScope, Provider, SplitDirection};
-use dmux::model::Backend;
+use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
 use dmux::operations::{self, GroupNewRequest, OpError, OperationEnv, SplitNewRequest};
 use dmux::refs::{ChildRefShape, ParsedRef, SpaceRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
@@ -160,13 +160,11 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
                 },
                 _ => OperationEnv::production().map_err(|e| e.to_string())?,
             };
-            let socket = match socket {
-                Some(socket) => socket,
+            let (socket, expected_epoch) = match socket {
+                Some(socket) => (socket, None),
                 None => {
-                    dmux::runtime::read_wez_descriptor()
-                        .map_err(|e| e.to_string())?
-                        .ok_or("managed mux descriptor absent (service not running)")?
-                        .socket
+                    let (socket, epoch) = verified_wez_target(&env, None)?;
+                    (socket, Some(epoch))
                 }
             };
             let (bin, config) = production_wez_paths();
@@ -174,7 +172,7 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
             let scope = InventoryScope {
                 backend: Backend::Wez,
                 endpoint: socket,
-                expected_epoch: None,
+                expected_epoch,
             };
 
             let mut targets = match operations::repair_scan_wez(&env, &provider, &scope) {
@@ -438,6 +436,57 @@ fn fail(err: OpError) -> Result<ExitCode, String> {
 /// lives in the lib so the remote owner agent can build a Wez provider.
 pub use dmux::runtime::production_wez_paths;
 
+pub(crate) fn verified_wez_target(
+    env: &OperationEnv,
+    expected_instance: Option<BackendInstanceUid>,
+) -> Result<(String, ServerEpoch), String> {
+    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+        .map_err(|error| error.to_string())?;
+    let instance = match expected_instance {
+        Some(instance) => instance,
+        None => registry
+            .backend_instance_for_backend(Backend::Wez)
+            .map_err(|error| error.to_string())?
+            .ok_or("registry has no managed Wez backend instance")?,
+    };
+    let info = registry
+        .backend_instance_info(instance)
+        .map_err(|error| error.to_string())?;
+    if info.backend != Backend::Wez {
+        return Err("registered backend instance is not Wez".into());
+    }
+    let server = registry
+        .backend_server(instance)
+        .map_err(|error| error.to_string())?;
+    let epoch = server
+        .server_epoch
+        .ok_or("managed Wez backend has no published server epoch")?;
+    let descriptor = dmux::runtime::read_verified_ready_wez_descriptor_in(
+        &env.lock_dir,
+        Some(instance.0),
+        Some(epoch.0),
+    )
+    .map_err(|error| error.to_string())?
+    .ok_or("managed mux descriptor absent (service not running)")?;
+    if info.socket_path.as_deref() != Some(descriptor.socket.as_str())
+        || server.server_pid != Some(i64::from(descriptor.pid))
+        || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
+        || server.socket_dev
+            != descriptor
+                .socket_dev
+                .and_then(|value| i64::try_from(value).ok())
+        || server.socket_ino
+            != descriptor
+                .socket_ino
+                .and_then(|value| i64::try_from(value).ok())
+    {
+        return Err(
+            "managed Wez descriptor differs from registry socket/process incarnation".into(),
+        );
+    }
+    Ok((descriptor.socket, epoch))
+}
+
 /// The pane-bootstrap helper is installed beside dmux.
 fn helper_bin() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -520,22 +569,14 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), String> {
             )
         }
         Backend::Wez => {
-            let socket = match info.socket_path {
-                Some(socket) => socket,
-                None => {
-                    dmux::runtime::read_wez_descriptor()
-                        .map_err(|e| e.to_string())?
-                        .ok_or("managed mux descriptor absent (service not running)")?
-                        .socket
-                }
-            };
+            let (socket, epoch) = verified_wez_target(&env, Some(row.backend_instance))?;
             let (bin, config) = production_wez_paths();
             (
                 Box::new(dmux::backend::wez::WezProvider::new(&bin, config)),
                 InventoryScope {
                     backend: Backend::Wez,
                     endpoint: socket,
-                    expected_epoch: None,
+                    expected_epoch: Some(epoch),
                 },
             )
         }

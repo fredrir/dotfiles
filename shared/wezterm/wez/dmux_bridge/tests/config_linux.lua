@@ -26,6 +26,32 @@ local fake_wezterm = {
   end,
   home_dir = '/tmp',
   target_triple = 'x86_64-unknown-linux-gnu',
+  gui = {
+    dmux_bridge_capabilities = function()
+      return {
+        version = 1,
+        descriptor_backed_spool = true,
+        exclusive_instance_lease = true,
+        launcher_witness = true,
+        checked_preflight = true,
+        capability_bound_lifecycle_completion = true,
+        zero_window_lifecycle = true,
+        verified_mux_descriptor = true,
+      }
+    end,
+    dmux_bridge_preflight = function()
+      return {
+        version = 1,
+        key_bytes = 32,
+        runtime_verified = true,
+        verified_mux_descriptor = true,
+        launcher_witness_present = false,
+      }
+    end,
+    dmux_bridge_open = function()
+      error 'config test must not acquire a bridge lease'
+    end,
+  },
 }
 package.preload.wezterm = function()
   return fake_wezterm
@@ -37,6 +63,24 @@ package.preload['wez.plugins.workspace_picker'] = function()
   return {
     action = function()
       return { name = 'DmuxPicker' }
+    end,
+  }
+end
+local backend_instance = '44444444-4444-4444-8444-444444444444'
+package.preload['wez.domains'] = function()
+  return {
+    managed_persistent_domain_instances = function()
+      return { dmux = backend_instance }
+    end,
+  }
+end
+package.preload['wez.remote.mux'] = function()
+  return {
+    managed_persistent_domain_instances = function()
+      return {}
+    end,
+    managed_persistent_domain_owners = function()
+      return {}
     end,
   }
 end
@@ -62,5 +106,6 @@ assert(chords['ALT:F4'])
 assert(chords['CTRL|SHIFT:w'])
 assert(chords['CTRL:w'])
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains[1] == 'dmux')
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances.dmux == backend_instance)
 
 io.stdout:write(string.format('dmux bridge Linux config test: %d sanitized keys\n', #config.keys))

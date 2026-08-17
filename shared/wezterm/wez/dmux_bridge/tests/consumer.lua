@@ -4,119 +4,35 @@ package.path = table.concat({
   package.path,
 }, ';')
 
-local root = assert(os.getenv 'DMUX_CONSUMER_TEST_DIR')
-local requests = root .. '/requests'
-local acks = root .. '/acks'
-local consumed = root .. '/consumed'
-assert(os.execute(string.format('/bin/mkdir -p %q %q %q', requests, acks, consumed)))
+local fake_wezterm = { GLOBAL = {} }
+package.preload.wezterm = function()
+  return fake_wezterm
+end
+
+local json = require 'wez.dmux_bridge.json'
+local protocol = require 'wez.dmux_bridge.protocol'
+
+local host = '22222222-2222-4222-8222-222222222222'
+local space = '33333333-3333-4333-8333-333333333333'
+local epoch = '55555555-5555-4555-8555-555555555555'
+local group = 'g' .. epoch .. '.wz-7'
+local split = 'p' .. epoch .. '.wz-9'
+local key = '0123456789abcdef0123456789abcdef'
+local now = os.time()
 
 local function clone(value)
   if type(value) ~= 'table' then
     return value
   end
   local out = {}
-  for key, item in pairs(value) do
-    out[key] = clone(item)
+  for name, item in pairs(value) do
+    out[name] = clone(item)
   end
   return out
 end
 
-local known_requests = {}
-local scheduled = {}
-local errors = {}
-
-local fake_wezterm = {
-  GLOBAL = {},
-  log_error = function(message)
-    table.insert(errors, message)
-  end,
-  read_dir = function()
-    local out = {}
-    for path in pairs(known_requests) do
-      local file = io.open(path, 'rb')
-      if file then
-        file:close()
-        table.insert(out, path)
-      end
-    end
-    return out
-  end,
-  time = {
-    call_after = function(_, callback)
-      table.insert(scheduled, callback)
-    end,
-  },
-}
-package.preload.wezterm = function()
-  return fake_wezterm
-end
-
-local fake_fs = {}
-function fake_fs.join(...)
-  return table.concat({ ... }, '/')
-end
-function fake_fs.read(path, maximum)
-  local file = io.open(path, 'rb')
-  if not file then
-    return nil, 'not_found'
-  end
-  local body = file:read '*a'
-  file:close()
-  if maximum and #body > maximum then
-    return nil, 'too_large'
-  end
-  return body
-end
-function fake_fs.write_private_atomic(path, body)
-  local file = assert(io.open(path, 'wb'))
-  assert(file:write(body))
-  file:close()
-  return true
-end
-package.loaded['wez.dmux_bridge.fs'] = fake_fs
-
-local heartbeat_count = 0
-local state = {
-  id = 'gui-42-cafe',
-  key = '0123456789abcdef0123456789abcdef',
-  paths = { requests = requests, acks = acks, consumed = consumed },
-  safe_quit = {},
-}
-package.loaded['wez.dmux_bridge.instance'] = {
-  create = function()
-    return state
-  end,
-  heartbeat = function()
-    heartbeat_count = heartbeat_count + 1
-    return true
-  end,
-}
-
-local dispatch_count = 0
-local throw_once = false
-package.loaded['wez.dmux_bridge.presentation'] = {
-  dispatch = function(request, _, done)
-    dispatch_count = dispatch_count + 1
-    if throw_once then
-      throw_once = false
-      error 'deterministic dispatch failure'
-    end
-    assert(request.action == 'ping')
-    done { pong = true }
-  end,
-}
-
-local protocol = require 'wez.dmux_bridge.protocol'
-local json = require 'wez.dmux_bridge.json'
-local consumer = require 'wez.dmux_bridge.consumer'
-
-local host = '22222222-2222-4222-8222-222222222222'
-local space = '33333333-3333-4333-8333-333333333333'
-local epoch = '55555555-5555-4555-8555-555555555555'
-local now = os.time()
-
-local function request(uid, issued_at, expiry)
-  local value = {
+local function signed_request(uid, issued_at, expiry)
+  local request = {
     protocol_version = 1,
     uid = uid,
     action = 'ping',
@@ -127,114 +43,268 @@ local function request(uid, issued_at, expiry)
     replay_key = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     origin = {
       kind = 'in_gui',
-      gui_instance = state.id,
+      gui_instance = 'gui-42-cafe',
+      pid = 42,
+      process_start_token = 'start-token',
       pane_id = 91,
       domain = 'dmux-b-usb',
       host_uid = host,
       space_uid = space,
+      space_no = 7,
+      backend = 'wez',
       server_epoch = epoch,
+      group_ref = group,
+      split_ref = split,
     },
   }
-  assert(protocol.sign(value, state.key))
-  return value
+  assert(protocol.sign(request, key))
+  return request
 end
 
-local function put(token, value)
-  local path = requests .. '/req-' .. value.uid .. '.json'
-  known_requests[path] = true
-  local file = assert(io.open(path, 'wb'))
-  assert(file:write(assert(json.encode(value))))
-  file:close()
-  return path
+local function new_bridge()
+  local bridge = {
+    pending = {},
+    order = {},
+    observed = {},
+    consumed = {},
+    primary = {},
+    replay = {},
+  }
+
+  function bridge:enqueue(request_or_raw, uid)
+    local raw = type(request_or_raw) == 'string' and request_or_raw or assert(json.encode(request_or_raw))
+    uid = uid or request_or_raw.uid
+    if self.pending[uid] == nil then
+      table.insert(self.order, uid)
+    end
+    self.pending[uid] = raw
+  end
+
+  function bridge:next_request(maximum)
+    for _, uid in ipairs(self.order) do
+      local raw = self.pending[uid]
+      if raw ~= nil then
+        self.observed[uid] = raw
+        if self.change_after_observe then
+          self.pending[uid] = raw .. 'changed'
+          self.change_after_observe = false
+        end
+        if #raw > maximum then
+          return uid, raw:sub(1, maximum + 1)
+        end
+        return uid, raw
+      end
+    end
+    return nil, nil
+  end
+
+  function bridge:read_consumed(uid)
+    return self.consumed[uid]
+  end
+
+  function bridge:consume_request_new(uid)
+    if self.pending[uid] == nil or self.observed[uid] ~= self.pending[uid] then
+      error 'dmux_bridge_request_changed'
+    end
+    if self.consumed[uid] ~= nil then
+      error 'dmux_bridge_consumed_exists'
+    end
+    self.consumed[uid] = self.pending[uid]
+    self.pending[uid] = nil
+    return true
+  end
+
+  function bridge:discard_observed_request(uid)
+    if self.pending[uid] == nil or self.observed[uid] ~= self.pending[uid] then
+      error 'dmux_bridge_request_changed'
+    end
+    self.pending[uid] = nil
+    return true
+  end
+
+  function bridge:read_ack(uid)
+    return self.primary[uid]
+  end
+
+  function bridge:write_ack_new(uid, body)
+    if self.fail_primary_write then
+      error 'dmux_bridge_ack_write_failed'
+    end
+    if self.primary[uid] ~= nil then
+      error 'dmux_bridge_ack_exists'
+    end
+    self.primary[uid] = body
+    return true
+  end
+
+  function bridge:write_replay_ack_new(uid, body)
+    if self.replay[uid] ~= nil then
+      error 'dmux_bridge_replay_ack_exists'
+    end
+    self.replay[uid] = body
+    return true
+  end
+
+  return bridge
 end
 
-local function read_raw(path)
-  return assert(fake_fs.read(path, 64 * 1024))
-end
+local function new_harness()
+  local harness = {
+    bridge = new_bridge(),
+    scheduled = {},
+    errors = {},
+    dispatch_count = 0,
+    heartbeat_count = 0,
+    throw_once = false,
+  }
+  harness.state = {
+    id = 'gui-42-cafe',
+    pid = 42,
+    process_start_token = 'start-token',
+    key = key,
+    bridge = harness.bridge,
+    safe_quit = {},
+  }
 
-local function ack(path)
-  return assert(json.decode(read_raw(path)))
-end
+  fake_wezterm.GLOBAL = {}
+  fake_wezterm.log_error = function(message)
+    table.insert(harness.errors, message)
+  end
+  fake_wezterm.time = {
+    call_after = function(_, callback)
+      table.insert(harness.scheduled, callback)
+    end,
+  }
+  package.loaded['wez.dmux_bridge.instance'] = {
+    create = function()
+      return harness.state
+    end,
+    heartbeat = function()
+      harness.heartbeat_count = harness.heartbeat_count + 1
+      return true
+    end,
+  }
+  package.loaded['wez.dmux_bridge.presentation'] = {
+    dispatch = function(request, _, done)
+      harness.dispatch_count = harness.dispatch_count + 1
+      if harness.throw_once then
+        harness.throw_once = false
+        error 'deterministic dispatch failure'
+      end
+      assert(request.action == 'ping')
+      done { pong = true }
+    end,
+  }
+  package.loaded['wez.dmux_bridge.consumer'] = nil
+  harness.consumer = require 'wez.dmux_bridge.consumer'
 
-local function poll_once()
-  local callback = table.remove(scheduled, 1)
-  assert(callback, 'poller failed to reschedule itself')
-  callback()
+  function harness:poll_once()
+    local callback = table.remove(self.scheduled, 1)
+    assert(callback, 'poller failed to reschedule itself')
+    callback()
+  end
+
+  function harness:ack(uid, replay)
+    local raw = replay and self.bridge.replay[uid] or self.bridge.primary[uid]
+    return raw and assert(json.decode(raw))
+  end
+
+  return harness
 end
 
 local uid = '11111111-1111-4111-8111-111111111111'
-local first = request(uid)
-local request_path = put('REQUEST-ONE', first)
-assert(consumer.start())
-assert(dispatch_count == 1)
-assert(consumer.start())
-assert(#scheduled == 1, 'a second startup event must not create another poller')
-assert(not io.open(request_path, 'rb'))
-local primary_path = acks .. '/ack-' .. uid .. '.json'
-local primary_bytes = read_raw(primary_path)
-local primary = ack(primary_path)
-assert(primary.ok == true and primary.pong == true and primary.request_sha256:match '^[0-9a-f]+$')
+local first = signed_request(uid)
+local core = new_harness()
+core.bridge:enqueue(first)
+assert(core.consumer.start())
+assert(core.dispatch_count == 1 and core.bridge.pending[uid] == nil)
+local first_primary = assert(core.bridge.primary[uid])
+assert(core:ack(uid).ok == true and core:ack(uid).pong == true)
+assert(core.consumer.start() and #core.scheduled == 1, 'second start created another poller')
 
--- A resubmitted identical document never changes the byte-identical primary
--- acknowledgement and receives a distinct replay record.
-put('REQUEST-ONE', first)
-poll_once()
-assert(dispatch_count == 1)
-assert(read_raw(primary_path) == primary_bytes)
-local replay_path = acks .. '/ack-' .. uid .. '.replay.json'
-assert(ack(replay_path).error == 'replayed')
+-- A byte-identical replay cannot overwrite the immutable primary and is
+-- discarded only after durable replay evidence exists.
+core.bridge:enqueue(first)
+core:poll_once()
+assert(core.dispatch_count == 1)
+assert(core.bridge.primary[uid] == first_primary)
+assert(core:ack(uid, true).error == 'replayed')
+assert(core.bridge.pending[uid] == nil)
 
--- Consumed-without-ack resumes the idempotent presentation action once.
-assert(os.remove(primary_path))
-assert(os.remove(replay_path))
-put('REQUEST-ONE', first)
-poll_once()
-assert(dispatch_count == 2)
-assert(ack(primary_path).ok == true)
-
--- Reusing a consumed UID for different signed content cannot retarget it.
+-- Consumed-without-ack crash recovery resumes the same authenticated action;
+-- a different digest under that UID remains a conflict.
+core.bridge.primary[uid] = nil
+core.bridge.replay[uid] = nil
+core.bridge:enqueue(first)
+core:poll_once()
+assert(core.dispatch_count == 2 and core:ack(uid).ok == true)
 local conflict = clone(first)
 conflict.replay_key = 'cccccccccccccccccccccccccccccccc'
-assert(protocol.sign(conflict, state.key))
-put('REQUEST-CONFLICT', conflict)
-poll_once()
-assert(dispatch_count == 2)
-assert(ack(replay_path).error == 'request_uid_conflict')
+assert(protocol.sign(conflict, key))
+core.bridge:enqueue(conflict)
+core:poll_once()
+assert(core.dispatch_count == 2 and core:ack(uid, true).error == 'request_uid_conflict')
 
--- An unexpected action callback error is converted to a typed ack and the
--- busy latch is released so the watchdog/poller continues.
-local throwing = request '66666666-6666-4666-8666-666666666666'
-throw_once = true
-put('REQUEST-THROW', throwing)
-poll_once()
-assert(dispatch_count == 3)
-assert(ack(acks .. '/ack-' .. throwing.uid .. '.json').error == 'bridge_internal')
+-- Callback exceptions become one typed primary ack and release the busy
+-- latch. Expiry is tested at the equality boundary before any dispatch.
+local throwing = signed_request '66666666-6666-4666-8666-666666666666'
+core.throw_once = true
+core.bridge:enqueue(throwing)
+core:poll_once()
+assert(core.dispatch_count == 3 and core:ack(throwing.uid).error == 'bridge_internal')
+local expired = signed_request('77777777-7777-4777-8777-777777777777', now - 5, now)
+core.bridge:enqueue(expired)
+core:poll_once()
+assert(core:ack(expired.uid).error == 'expired' and core.dispatch_count == 3)
+assert(#core.scheduled == 1 and core.heartbeat_count >= 5)
 
--- An otherwise valid expired request retains its canonical digest, allowing
--- the Rust client to validate the typed error instead of reporting bad ack.
-local expired = request('77777777-7777-4777-8777-777777777777', now - 20, now - 10)
-put('REQUEST-EXPIRED', expired)
-poll_once()
-local expired_ack = ack(acks .. '/ack-' .. expired.uid .. '.json')
-assert(expired_ack.error == 'expired')
-assert(#expired_ack.request_sha256 == 64 and expired_ack.request_sha256:match '^[0-9a-f]+$')
-assert(dispatch_count == 3)
+-- Existing corrupt consumed evidence is a fatal bridge condition. It is
+-- never overwritten or redispatched; only the separately observed pending
+-- duplicate may be discarded after a durable replay-corruption ack.
+local corrupt_uid = '88888888-8888-4888-8888-888888888888'
+local corrupt = new_harness()
+corrupt.bridge.consumed[corrupt_uid] = '{corrupt'
+corrupt.bridge:enqueue(signed_request(corrupt_uid))
+assert(corrupt.consumer.start())
+assert(corrupt.state.failed == true and corrupt.dispatch_count == 0)
+assert(corrupt.bridge.consumed[corrupt_uid] == '{corrupt')
+assert(corrupt.bridge.pending[corrupt_uid] == nil)
+assert(corrupt:ack(corrupt_uid, true).error == 'replay_corruption')
 
--- Even an unauthenticated request cannot overwrite a pre-existing primary
--- acknowledgement whose consumed record is missing.
-local planted = request '88888888-8888-4888-8888-888888888888'
-planted.hmac_sha256 = string.rep('0', 64)
-local planted_primary = acks .. '/ack-' .. planted.uid .. '.json'
-local planted_file = assert(io.open(planted_primary, 'wb'))
-assert(planted_file:write 'PLANTED-PRIMARY')
-planted_file:close()
-put('REQUEST-UNAUTHORIZED', planted)
-poll_once()
-assert(read_raw(planted_primary) == 'PLANTED-PRIMARY')
-assert(ack(acks .. '/ack-' .. planted.uid .. '.replay.json').error == 'unauthorized')
-assert(dispatch_count == 3)
+local oversized_uid = '99999999-9999-4999-8999-999999999999'
+local oversized = new_harness()
+oversized.bridge.consumed[oversized_uid] = string.rep('x', protocol.MAX_DOCUMENT_BYTES + 1)
+oversized.bridge:enqueue(signed_request(oversized_uid))
+assert(oversized.consumer.start())
+assert(oversized.state.failed == true and oversized.dispatch_count == 0)
+assert(#oversized.bridge.consumed[oversized_uid] == protocol.MAX_DOCUMENT_BYTES + 1)
 
-assert(heartbeat_count >= 5)
-assert(#scheduled == 1, 'exactly one watchdog callback must remain scheduled')
+local primary_uid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+local corrupt_primary = new_harness()
+corrupt_primary.bridge.primary[primary_uid] = 'PLANTED-PRIMARY'
+corrupt_primary.bridge:enqueue(signed_request(primary_uid))
+assert(corrupt_primary.consumer.start())
+assert(corrupt_primary.state.failed == true and corrupt_primary.dispatch_count == 0)
+assert(corrupt_primary.bridge.primary[primary_uid] == 'PLANTED-PRIMARY')
+assert(corrupt_primary.bridge.pending[primary_uid] == nil)
 
-io.stdout:write 'dmux bridge consumer test: replay/resume/conflict/expiry passed\n'
+-- Fork CAS failures fail closed before presentation; an ack publication
+-- failure after dispatch permanently stops the poller so it cannot retry the
+-- side effect without durable completion evidence.
+local changed_uid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+local changed = new_harness()
+changed.bridge.change_after_observe = true
+changed.bridge:enqueue(signed_request(changed_uid))
+assert(changed.consumer.start())
+assert(changed.state.failed == true and changed.dispatch_count == 0)
+
+local ack_fail_uid = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+local ack_fail = new_harness()
+ack_fail.bridge.fail_primary_write = true
+ack_fail.bridge:enqueue(signed_request(ack_fail_uid))
+assert(ack_fail.consumer.start())
+assert(ack_fail.state.failed == true and ack_fail.dispatch_count == 1)
+ack_fail:poll_once()
+assert(ack_fail.dispatch_count == 1, 'failed completion was redispatched')
+
+io.stdout:write 'dmux bridge consumer test: secure CAS/replay/corruption/expiry passed\n'

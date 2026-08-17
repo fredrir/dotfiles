@@ -31,3 +31,4 @@ pub mod registry;
 pub mod remote;
 pub mod resolve;
 pub mod runtime;
+pub mod tmux_hook_cli;

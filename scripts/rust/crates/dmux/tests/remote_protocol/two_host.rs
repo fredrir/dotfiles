@@ -245,15 +245,20 @@ fn archie_end_to_end_matrix() {
         client.registry().identity().unwrap().host_uid,
         "remote authority is its own identity"
     );
-    assert!(
-        enrollment
-            .hello
-            .backends
-            .iter()
-            .any(|b| b.backend == dmux::model::Backend::Tmux && b.server_epoch.is_some()),
-        "bootstrapped tmux instance visible in hello: {:?}",
-        enrollment.hello.backends
-    );
+    let tmux_backend = enrollment
+        .hello
+        .backends
+        .iter()
+        .find(|backend| {
+            backend.backend == dmux::model::Backend::Tmux && backend.server_epoch.is_some()
+        })
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "bootstrapped tmux instance visible in hello: {:?}",
+                enrollment.hello.backends
+            )
+        });
 
     // Re-enrolling matches the SAME HostUid (idempotent, same alias).
     let again = enroll_target(
@@ -464,11 +469,27 @@ fn archie_end_to_end_matrix() {
     );
     assert!(noise.contains("already redeemed"), "{noise}");
 
-    ssh_ok(&format!(
-        "for t in $(tmux -L {ns} list-clients -F '#{{client_tty}}'); do \
-         tmux -L {ns} detach-client -t \"$t\"; done",
-        ns = remote.ns
-    ));
+    let mut detach_request = request(
+        &client,
+        protocol::methods::TMUX_CLIENT_DETACH,
+        json!({
+            "client_uid": plan.request_uid,
+            "space_uid": created.space_uid,
+            "group_ref": created.group_ref,
+            "split_ref": created.split_ref,
+        }),
+    );
+    detach_request.backend_instance_uid = Some(tmux_backend.backend_instance_uid);
+    detach_request.server_epoch = Some(plan.server_epoch);
+    let response = call(&client, &remote, &expectation, &detach_request).unwrap();
+    let result: protocol::TmuxClientDetachResult =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(result.detached && !result.replayed);
+    assert_eq!(remote.clients(), 0);
+    let response = call(&client, &remote, &expectation, &detach_request).unwrap();
+    let replayed: protocol::TmuxClientDetachResult =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert!(replayed.detached && replayed.replayed);
     wait_for(
         "the attach channel to close",
         Duration::from_secs(30),

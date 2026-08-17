@@ -13,6 +13,8 @@ M.ACTIONS = {
   activate = true,
   attach_domain = true,
   detach_domain = true,
+  establish_resident = true,
+  focus_pane = true,
   ping = true,
   present = true,
   safe_quit = true,
@@ -37,19 +39,30 @@ local TARGET_KEYS = {
   backend_instance_uid = true,
   domain = true,
   domains = true,
+  backend = true,
   group_ref = true,
   host_uid = true,
   message = true,
+  pane_id = true,
   phase = true,
   platform_action = true,
   proof_uid = true,
   server_epoch = true,
   space_uid = true,
   split_ref = true,
+  space_no = true,
+  tmux_client_uid = true,
   workspace = true,
 }
 
 local TARGET_KEYS_BY_ACTION = {
+  establish_resident = {
+    backend_instance_uid = true,
+    domain = true,
+    host_uid = true,
+    server_epoch = true,
+    space_uid = true,
+  },
   ping = {},
   toast = { message = true },
   attach_domain = {
@@ -62,6 +75,19 @@ local TARGET_KEYS_BY_ACTION = {
     backend_instance_uid = true,
     domain = true,
     server_epoch = true,
+  },
+  focus_pane = {
+    backend = true,
+    backend_instance_uid = true,
+    domain = true,
+    group_ref = true,
+    host_uid = true,
+    pane_id = true,
+    server_epoch = true,
+    space_no = true,
+    space_uid = true,
+    split_ref = true,
+    tmux_client_uid = true,
   },
   activate = {
     backend_instance_uid = true,
@@ -93,24 +119,41 @@ local TARGET_KEYS_BY_ACTION = {
 }
 
 local IN_GUI_KEYS = {
+  backend = true,
   domain = true,
+  group_ref = true,
   gui_instance = true,
   host_uid = true,
   kind = true,
   pane_id = true,
+  pid = true,
+  process_start_token = true,
   server_epoch = true,
+  space_no = true,
   space_uid = true,
+  split_ref = true,
+  tmux_client_uid = true,
 }
 
 local COLD_KEYS = {
   backend_instance_uid = true,
   domain = true,
   gui_instance = true,
+  host_uid = true,
   kind = true,
   launcher_request_uid = true,
   pid = true,
+  server_epoch = true,
+  space_uid = true,
   start_token = true,
   uid = true,
+}
+
+local RESIDENT_KEYS = {
+  gui_instance = true,
+  kind = true,
+  pid = true,
+  process_start_token = true,
 }
 
 local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
@@ -221,6 +264,54 @@ local function string_array(value, label, validator, allow_empty)
   return true
 end
 
+local function domain_incarnation(value, label)
+  local ok, err = exact_keys(value, { name = true, backend_instance_uid = true, server_epoch = true }, label)
+  if not ok then
+    return nil, err
+  end
+  ok, err = require_fields(value, { 'name', 'backend_instance_uid', 'server_epoch' }, label)
+  if not ok then
+    return nil, err
+  end
+  ok, err = domain_field(value.name, label .. '.name')
+  if not ok then
+    return nil, err
+  end
+  for _, field in ipairs { 'backend_instance_uid', 'server_epoch' } do
+    ok, err = uuid_field(value[field], label .. '.' .. field)
+    if not ok then
+      return nil, err
+    end
+  end
+  return true
+end
+
+local function domain_incarnation_array(value, label, allow_empty)
+  if type(value) ~= 'table' or not canonical.is_array(value) then
+    return nil, label .. ' must be an array'
+  end
+  if #value == 0 and not allow_empty then
+    return nil, label .. ' must be non-empty'
+  end
+  local seen = {}
+  for index, item in ipairs(value) do
+    local ok, err = domain_incarnation(item, string.format('%s[%d]', label, index))
+    if not ok then
+      return nil, err
+    end
+    if seen[item.name] then
+      return nil, label .. ' contains a duplicate domain'
+    end
+    seen[item.name] = true
+  end
+  for key in pairs(value) do
+    if type(key) ~= 'number' or key % 1 ~= 0 or key < 1 or key > #value then
+      return nil, label .. ' must be a dense array'
+    end
+  end
+  return true
+end
+
 local function require_fields(value, fields, label)
   for _, field in ipairs(fields) do
     if value[field] == nil then
@@ -239,8 +330,20 @@ local function validate_origin(origin, instance)
     if not ok then
       return nil, err
     end
-    ok, err =
-      require_fields(origin, { 'gui_instance', 'pane_id', 'domain', 'host_uid', 'space_uid', 'server_epoch' }, 'origin')
+    ok, err = require_fields(origin, {
+      'gui_instance',
+      'pid',
+      'process_start_token',
+      'pane_id',
+      'domain',
+      'host_uid',
+      'space_uid',
+      'space_no',
+      'backend',
+      'server_epoch',
+      'group_ref',
+      'split_ref',
+    }, 'origin')
     if not ok then
       return nil, err
     end
@@ -250,6 +353,14 @@ local function validate_origin(origin, instance)
     end
     if origin.gui_instance ~= instance then
       return nil, 'origin.gui_instance does not name this bridge consumer'
+    end
+    ok, err = uint_field(origin.pid, 'origin.pid')
+    if not ok or origin.pid == 0 or origin.pid > 4294967295 then
+      return nil, 'origin.pid must be a nonzero process ID'
+    end
+    ok, err = string_field(origin.process_start_token, 'origin.process_start_token', 256)
+    if not ok then
+      return nil, err
     end
     ok, err = uint_field(origin.pane_id, 'origin.pane_id')
     if not ok then
@@ -265,6 +376,39 @@ local function validate_origin(origin, instance)
         return nil, err
       end
     end
+    ok, err = uint_field(origin.space_no, 'origin.space_no')
+    if not ok or origin.space_no == 0 then
+      return nil, 'origin.space_no must be a nonzero exactly representable integer'
+    end
+    if origin.backend ~= 'wez' and origin.backend ~= 'tmux' then
+      return nil, 'origin.backend must be wez or tmux'
+    end
+    local group_ok, group_epoch = child_ref(origin.group_ref, 'g', 'origin.group_ref')
+    if not group_ok then
+      return nil, group_epoch
+    end
+    local split_ok, split_epoch = child_ref(origin.split_ref, 'p', 'origin.split_ref')
+    if not split_ok then
+      return nil, split_epoch
+    end
+    if group_epoch ~= origin.server_epoch or split_epoch ~= origin.server_epoch then
+      return nil, 'origin child epoch differs from origin.server_epoch'
+    end
+    local provider = origin.backend == 'wez' and '%.wz%-' or '%.tx%-'
+    if
+      (not origin.group_ref:match(provider) and not origin.group_ref:match '%.x%-')
+      or (not origin.split_ref:match(provider) and not origin.split_ref:match '%.x%-')
+    then
+      return nil, 'origin child provider differs from origin.backend'
+    end
+    if origin.backend == 'tmux' then
+      ok, err = uuid_field(origin.tmux_client_uid, 'origin.tmux_client_uid')
+      if not ok then
+        return nil, err
+      end
+    elseif origin.tmux_client_uid ~= nil then
+      return nil, 'Wez in_gui origin forbids tmux_client_uid'
+    end
     return true
   end
 
@@ -273,11 +417,17 @@ local function validate_origin(origin, instance)
     if not ok then
       return nil, err
     end
-    ok, err = require_fields(
-      origin,
-      { 'gui_instance', 'uid', 'pid', 'start_token', 'launcher_request_uid', 'domain', 'backend_instance_uid' },
-      'origin'
-    )
+    ok, err = require_fields(origin, {
+      'gui_instance',
+      'uid',
+      'pid',
+      'start_token',
+      'launcher_request_uid',
+      'domain',
+      'host_uid',
+      'backend_instance_uid',
+      'server_epoch',
+    }, 'origin')
     if not ok then
       return nil, err
     end
@@ -309,9 +459,40 @@ local function validate_origin(origin, instance)
     if not ok then
       return nil, err
     end
-    return uuid_field(origin.backend_instance_uid, 'origin.backend_instance_uid')
+    for _, name in ipairs { 'host_uid', 'backend_instance_uid', 'server_epoch' } do
+      ok, err = uuid_field(origin[name], 'origin.' .. name)
+      if not ok then
+        return nil, err
+      end
+    end
+    if origin.space_uid ~= nil then
+      ok, err = uuid_field(origin.space_uid, 'origin.space_uid')
+      if not ok then
+        return nil, err
+      end
+    end
+    return true
   end
-  return nil, 'origin.kind must be in_gui or cold_launcher'
+  if origin.kind == 'resident_gui' then
+    local ok, err = exact_keys(origin, RESIDENT_KEYS, 'origin')
+    if not ok then
+      return nil, err
+    end
+    ok, err = require_fields(origin, { 'gui_instance', 'pid', 'process_start_token' }, 'origin')
+    if not ok then
+      return nil, err
+    end
+    ok, err = gui_instance_field(origin.gui_instance, 'origin.gui_instance')
+    if not ok or origin.gui_instance ~= instance then
+      return nil, 'resident origin does not name this bridge consumer'
+    end
+    ok, err = uint_field(origin.pid, 'origin.pid')
+    if not ok or origin.pid == 0 or origin.pid > 4294967295 then
+      return nil, 'resident origin.pid must be a nonzero process ID'
+    end
+    return string_field(origin.process_start_token, 'origin.process_start_token', 256)
+  end
+  return nil, 'origin.kind must be in_gui, resident_gui, or cold_launcher'
 end
 
 local function validate_space_target(target, label)
@@ -373,6 +554,29 @@ local function validate_target(action, target)
   if not ok then
     return nil, err
   end
+  if action == 'establish_resident' then
+    ok, err = require_fields(target, { 'domain', 'host_uid', 'backend_instance_uid', 'server_epoch' }, 'target')
+    if not ok then
+      return nil, err
+    end
+    ok, err = domain_field(target.domain, 'target.domain')
+    if not ok then
+      return nil, err
+    end
+    for _, name in ipairs { 'host_uid', 'backend_instance_uid', 'server_epoch' } do
+      ok, err = uuid_field(target[name], 'target.' .. name)
+      if not ok then
+        return nil, err
+      end
+    end
+    if target.space_uid ~= nil then
+      ok, err = uuid_field(target.space_uid, 'target.space_uid')
+      if not ok then
+        return nil, err
+      end
+    end
+    return true
+  end
   if action == 'ping' then
     if next(target) ~= nil then
       return nil, 'ping target must be empty'
@@ -432,6 +636,63 @@ local function validate_target(action, target)
     end
     return true
   end
+  if action == 'focus_pane' then
+    ok, err = require_fields(target, {
+      'backend',
+      'backend_instance_uid',
+      'domain',
+      'group_ref',
+      'host_uid',
+      'pane_id',
+      'server_epoch',
+      'space_no',
+      'space_uid',
+      'split_ref',
+      'tmux_client_uid',
+    }, 'target')
+    if not ok then
+      return nil, err
+    end
+    if target.backend ~= 'tmux' then
+      return nil, 'target.backend must be tmux for focus_pane'
+    end
+    ok, err = domain_field(target.domain, 'target.domain')
+    if not ok then
+      return nil, err
+    end
+    for _, name in ipairs { 'backend_instance_uid', 'host_uid', 'server_epoch', 'space_uid', 'tmux_client_uid' } do
+      ok, err = uuid_field(target[name], 'target.' .. name)
+      if not ok then
+        return nil, err
+      end
+    end
+    ok, err = uint_field(target.pane_id, 'target.pane_id')
+    if not ok then
+      return nil, err
+    end
+    ok, err = uint_field(target.space_no, 'target.space_no')
+    if not ok or target.space_no == 0 then
+      return nil, 'target.space_no must be a nonzero exactly representable integer'
+    end
+    local group_ok, group_epoch = child_ref(target.group_ref, 'g', 'target.group_ref')
+    if not group_ok then
+      return nil, group_epoch
+    end
+    local split_ok, split_epoch = child_ref(target.split_ref, 'p', 'target.split_ref')
+    if not split_ok then
+      return nil, split_epoch
+    end
+    if group_epoch ~= target.server_epoch or split_epoch ~= target.server_epoch then
+      return nil, 'target child epoch differs from target.server_epoch'
+    end
+    if not target.group_ref:match '%.tx%-' and not target.group_ref:match '%.x%-' then
+      return nil, 'target.group_ref provider differs from target.backend'
+    end
+    if not target.split_ref:match '%.tx%-' and not target.split_ref:match '%.x%-' then
+      return nil, 'target.split_ref provider differs from target.backend'
+    end
+    return true
+  end
   if action == 'safe_quit' then
     ok, err = require_fields(target, { 'phase' }, 'target')
     if not ok then
@@ -448,7 +709,17 @@ local function validate_target(action, target)
       -- The sole empty-array authorization in bridge v1 is a safe-quit
       -- no-op detach proof.  The strict decoder preserves [] distinctly
       -- from {}, so a signed object cannot be reinterpreted as this case.
-      return string_array(target.domains, 'target.domains', domain_field, true)
+      return domain_incarnation_array(target.domains, 'target.domains', true)
+    end
+    if target.phase == 'rollback' then
+      local phase_ok, phase_err = exact_keys(target, { phase = true, proof_uid = true }, 'target')
+      if not phase_ok then
+        return nil, phase_err
+      end
+      if not target.proof_uid then
+        return nil, 'safe_quit rollback requires proof_uid'
+      end
+      return uuid_field(target.proof_uid, 'target.proof_uid')
     end
     if target.phase == 'finish' then
       local phase_ok, phase_err =
@@ -468,12 +739,12 @@ local function validate_target(action, target)
       end
       return true
     end
-    return nil, 'target.phase must be detach or finish'
+    return nil, 'target.phase must be detach, rollback, or finish'
   end
   return nil, 'unsupported action'
 end
 
-local PANE_ACTIONS = { detach_domain = true, safe_quit = true }
+local PANE_ACTIONS = { detach_domain = true, focus_pane = true, safe_quit = true }
 
 function M.validate_and_authenticate(request, key, now, instance)
   local ok, err = exact_keys(request, TOP_KEYS, 'request')
@@ -537,14 +808,25 @@ function M.validate_and_authenticate(request, key, now, instance)
   end
   if
     request.origin.kind == 'cold_launcher'
-    and (request.action == 'attach_domain' or request.action == 'activate' or request.action == 'present')
+    and (
+      request.action == 'attach_domain'
+      or request.action == 'activate'
+      or request.action == 'present'
+      or request.action == 'establish_resident'
+    )
   then
     if
       request.target.domain ~= request.origin.domain
+      or request.target.host_uid ~= request.origin.host_uid
       or request.target.backend_instance_uid ~= request.origin.backend_instance_uid
+      or request.target.server_epoch ~= request.origin.server_epoch
+      or request.target.space_uid ~= request.origin.space_uid
     then
       return failure('invalid_origin', 'cold launcher domain/backend instance differs from the exact target')
     end
+  end
+  if request.origin.kind == 'resident_gui' and request.action == 'detach_domain' then
+    return failure('origin_not_allowed', 'resident_gui cannot issue standalone detach_domain')
   end
   if
     type(request.hmac_sha256) ~= 'string'
@@ -569,8 +851,8 @@ function M.validate_and_authenticate(request, key, now, instance)
   -- so an otherwise valid expired request still receives a client-verifiable
   -- typed acknowledgement rather than looking like bridge corruption.
   now = now or os.time()
-  if now > request.expiry then
-    return failure('expired', 'request expiry is in the past', digest)
+  if now >= request.expiry then
+    return failure('expired', 'request reached its signed expiry', digest)
   end
   if request.issued_at > now + 2 then
     return failure('not_yet_valid', 'request issued_at is too far in the future', digest)

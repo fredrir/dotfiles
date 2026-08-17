@@ -1,8 +1,36 @@
 local controller = require 'wez.dmux_bridge.controller'
+local context = require 'wez.dmux_bridge.context'
 local wezterm = require 'wezterm'
 
 local act = wezterm.action
 local M = {}
+
+local CLIENT_UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$'
+
+-- Return a fresh argv table carrying any canonical attach-time UID.  It is
+-- deliberately independent of the pane marker: immediately after attaching,
+-- the outer Wez pane may still contain an older Wez marker.  Rust treats UID
+-- plus marker as untrusted inputs and refuses that mismatch fail-closed.
+function M.with_tmux_client_uid(pane, args)
+  local out = {}
+  for _, value in ipairs(args or {}) do
+    table.insert(out, value)
+  end
+  local ok, vars = pcall(function()
+    return pane:get_user_vars()
+  end)
+  local uid = ok and type(vars) == 'table' and vars.dmux_tmux_client_uid or nil
+  if type(uid) == 'string' and uid:match(CLIENT_UUID) then
+    table.insert(out, '--tmux-client-uid')
+    table.insert(out, uid)
+  end
+  return out
+end
 
 local function callback(verb, args)
   return wezterm.action_callback(function(window, pane)
@@ -28,7 +56,7 @@ function M.new_space_prompt(dir)
           table.insert(args, '--dir')
           table.insert(args, dir)
         end
-        controller.run(window, pane, 'space-new', args)
+        controller.run(window, pane, 'space-new', M.with_tmux_client_uid(pane, args))
       end
     end),
   }

@@ -13,9 +13,12 @@
 //!
 //! Root-owned (plan §19).
 
-use std::fs;
+use std::ffi::CString;
+use std::fs::{self, File};
 use std::io::{self, Read};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 const SUBDIR: &str = "dmux";
@@ -153,8 +156,11 @@ pub fn production_wez_paths() -> (String, String) {
 // strict-selection checks before trusting a scan.
 
 pub const WEZ_DESCRIPTOR_FILE: &str = "wez-dmux.json";
+pub const WEZ_SOCKET_FILE: &str = "wez-dmux.sock";
+const MAX_EXACT_JSON_INTEGER: u64 = (1_u64 << 53) - 1;
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WezMuxDescriptor {
     pub descriptor_version: u32,
     pub state: String,
@@ -162,6 +168,12 @@ pub struct WezMuxDescriptor {
     pub pid: u32,
     pub socket: String,
     pub start_token: String,
+    #[serde(default)]
+    pub boot_id: Option<String>,
+    #[serde(default)]
+    pub socket_dev: Option<u64>,
+    #[serde(default)]
+    pub socket_ino: Option<u64>,
     #[serde(default)]
     pub boot_nonce: Option<String>,
     #[serde(default)]
@@ -175,7 +187,24 @@ pub struct WezMuxDescriptor {
     #[serde(default)]
     pub sentinel_pane_id: Option<u64>,
     #[serde(default)]
+    pub sentinel_fallback: Option<bool>,
+    #[serde(default)]
+    pub recovery_manifest_id: Option<String>,
+    #[serde(default)]
+    pub written_by: Option<String>,
+    #[serde(default)]
+    pub written_at: Option<String>,
+    #[serde(default)]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedWezServiceIdentity {
+    pub pid: u32,
+    pub start_token: String,
+    pub boot_id: String,
+    pub socket_dev: u64,
+    pub socket_ino: u64,
 }
 
 impl WezMuxDescriptor {
@@ -221,17 +250,144 @@ impl WezMuxDescriptor {
                 "managed Wez mux descriptor has no process witness",
             ));
         }
+        let boot_nonce = self.boot_nonce.as_deref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux descriptor has no boot_nonce",
+            )
+        })?;
+        parse_descriptor_uuid("boot_nonce", boot_nonce)?;
+        if self.sentinel_fallback != Some(false) || self.error.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux ready descriptor has no exact native sentinel witness",
+            ));
+        }
+        exact_json_id("sentinel_window_id", self.sentinel_window_id)?;
+        exact_json_id("sentinel_tab_id", self.sentinel_tab_id)?;
+        exact_json_id("sentinel_pane_id", self.sentinel_pane_id)?;
+        if let Some(generation) = self.recovery_generation.as_deref() {
+            parse_descriptor_uuid("recovery_generation", generation)?;
+        }
+        if self
+            .recovery_manifest_id
+            .as_deref()
+            .is_some_and(|value| value.is_empty() || value.len() > 256)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux descriptor has invalid recovery_manifest_id",
+            ));
+        }
+        self.require_native_identity_fields()?;
         Ok(())
+    }
+
+    fn require_native_identity_fields(&self) -> io::Result<(String, u64, u64)> {
+        let boot_id = self.boot_id.clone().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux descriptor has no boot_id",
+            )
+        })?;
+        validate_boot_token(&boot_id)?;
+        validate_process_start_token(&self.start_token)?;
+        let dev = exact_positive_json_id("socket_dev", self.socket_dev)?;
+        let ino = exact_positive_json_id("socket_ino", self.socket_ino)?;
+        if self.written_by.as_deref() != Some("mux-startup") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "managed Wez mux descriptor was not written by mux-startup",
+            ));
+        }
+        validate_written_at(self.written_at.as_deref())?;
+        Ok((boot_id, dev, ino))
+    }
+
+    fn require_recovery_authority_fields(&self) -> io::Result<(String, u64, u64)> {
+        if self.state != "recovering"
+            || self.error.is_some()
+            || self.sentinel_fallback != Some(false)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "managed Wez mux descriptor has not entered exact recovering authority",
+            ));
+        }
+        exact_json_id("sentinel_window_id", self.sentinel_window_id)?;
+        exact_json_id("sentinel_tab_id", self.sentinel_tab_id)?;
+        exact_json_id("sentinel_pane_id", self.sentinel_pane_id)?;
+        self.require_native_identity_fields()
+    }
+}
+
+fn exact_json_id(field: &str, value: Option<u64>) -> io::Result<u64> {
+    match value {
+        Some(value @ 0..=MAX_EXACT_JSON_INTEGER) => Ok(value),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("managed Wez mux descriptor {field} is not an exact JSON integer"),
+        )),
+    }
+}
+
+fn exact_positive_json_id(field: &str, value: Option<u64>) -> io::Result<u64> {
+    match value {
+        Some(value @ 1..=MAX_EXACT_JSON_INTEGER) => Ok(value),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("managed Wez mux descriptor {field} is not a positive exact JSON integer"),
+        )),
     }
 }
 
 fn parse_descriptor_uuid(field: &str, value: &str) -> io::Result<uuid::Uuid> {
-    value.parse::<uuid::Uuid>().map_err(|e| {
+    let parsed = value.parse::<uuid::Uuid>().map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("managed Wez mux descriptor {field}: {e}"),
         )
-    })
+    })?;
+    if parsed.to_string() != value {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("managed Wez mux descriptor {field} is not a canonical lowercase UUID"),
+        ));
+    }
+    Ok(parsed)
+}
+
+fn validate_written_at(value: Option<&str>) -> io::Result<()> {
+    let Some(value) = value else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "managed Wez mux descriptor has no written_at",
+        ));
+    };
+    let bytes = value.as_bytes();
+    let punctuation = [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'Z'),
+    ];
+    let valid = bytes.len() == 20
+        && punctuation
+            .iter()
+            .all(|(index, expected)| bytes[*index] == *expected)
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            punctuation.iter().any(|(at, _)| *at == index) || byte.is_ascii_digit()
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "managed Wez mux descriptor has invalid written_at",
+        ))
+    }
 }
 
 /// Read the managed-mux descriptor from the verified runtime dir. `Ok(None)`
@@ -241,35 +397,99 @@ pub fn read_wez_descriptor() -> io::Result<Option<WezMuxDescriptor>> {
 }
 
 pub fn read_wez_descriptor_in(runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
-    let path = runtime_dir.join(WEZ_DESCRIPTOR_FILE);
-    let mut file = match fs::OpenOptions::new()
+    let directory = open_descriptor_runtime(runtime_dir)?;
+    read_wez_descriptor_from_directory(runtime_dir, &directory)
+}
+
+fn open_descriptor_runtime(runtime_dir: &Path) -> io::Result<File> {
+    let directory = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&path)
-    {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let metadata = file.metadata()?;
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(runtime_dir)?;
+    validate_runtime_binding(runtime_dir, &directory)?;
+    Ok(directory)
+}
+
+fn validate_runtime_binding(runtime_dir: &Path, directory: &File) -> io::Result<()> {
     let euid = unsafe { libc::geteuid() };
-    if !metadata.is_file() || metadata.uid() != euid || metadata.mode() & 0o777 != 0o600 {
+    let held = directory.metadata()?;
+    let current = fs::symlink_metadata(runtime_dir)?;
+    if !held.is_dir()
+        || held.uid() != euid
+        || held.mode() & 0o7777 != 0o700
+        || !current.is_dir()
+        || current.uid() != euid
+        || current.mode() & 0o7777 != 0o700
+        || held.dev() != current.dev()
+        || held.ino() != current.ino()
+    {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "descriptor {} must be a current-user-owned non-symlink file with mode 0600",
-                path.display()
+                "descriptor runtime {} is not the same held current-user-owned mode-0700 directory",
+                runtime_dir.display()
             ),
         ));
     }
-    if metadata.len() > 64 * 1024 {
+    Ok(())
+}
+
+fn read_wez_descriptor_from_directory(
+    runtime_dir: &Path,
+    directory: &File,
+) -> io::Result<Option<WezMuxDescriptor>> {
+    let path = runtime_dir.join(WEZ_DESCRIPTOR_FILE);
+    let euid = unsafe { libc::geteuid() };
+    validate_runtime_binding(runtime_dir, directory)?;
+
+    let name = CString::new(WEZ_DESCRIPTOR_FILE).expect("fixed descriptor name has no NUL");
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::NotFound {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    let before = file.metadata()?;
+    validate_descriptor_metadata(&path, &before, euid)?;
+    if before.len() > 64 * 1024 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("descriptor {} exceeds 64 KiB", path.display()),
         ));
     }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.read_to_end(&mut bytes)?;
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    Read::by_ref(&mut file)
+        .take(64 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 64 * 1024 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("descriptor {} exceeds 64 KiB", path.display()),
+        ));
+    }
+    let after = file.metadata()?;
+    validate_descriptor_metadata(&path, &after, euid)?;
+    let current_path = fs::symlink_metadata(&path)?;
+    validate_descriptor_metadata(&path, &current_path, euid)?;
+    if descriptor_fingerprint(&before) != descriptor_fingerprint(&after)
+        || before.dev() != current_path.dev()
+        || before.ino() != current_path.ino()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            format!("descriptor {} changed while it was read", path.display()),
+        ));
+    }
+    validate_runtime_binding(runtime_dir, directory)?;
     let descriptor: WezMuxDescriptor = serde_json::from_slice(&bytes).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -289,9 +509,576 @@ pub fn read_wez_descriptor_in(runtime_dir: &Path) -> io::Result<Option<WezMuxDes
     Ok(Some(descriptor))
 }
 
+fn validate_descriptor_metadata(path: &Path, metadata: &fs::Metadata, euid: u32) -> io::Result<()> {
+    if !metadata.is_file()
+        || metadata.uid() != euid
+        || metadata.mode() & 0o7777 != 0o600
+        || metadata.nlink() != 1
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "descriptor {} must be a current-user-owned single-link non-symlink file with mode 0600",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn descriptor_fingerprint(
+    metadata: &fs::Metadata,
+) -> (u64, u64, u64, u32, u64, i64, i64, i64, i64) {
+    (
+        metadata.dev(),
+        metadata.ino(),
+        metadata.nlink(),
+        metadata.mode(),
+        metadata.len(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+    )
+}
+
+/// Read and prove the fixed ready service descriptor against the current OS
+/// boot, process incarnation, socket inode/device, current-UID socket peer,
+/// and (when supplied) registry backend instance and epoch. Callers receive
+/// descriptor bytes only after every identity check succeeds.
+pub fn read_verified_ready_wez_descriptor(
+    expected_instance: Option<uuid::Uuid>,
+    expected_epoch: Option<uuid::Uuid>,
+) -> io::Result<Option<WezMuxDescriptor>> {
+    read_verified_ready_wez_descriptor_in(&dmux_runtime_dir()?, expected_instance, expected_epoch)
+}
+
+/// Explicit-runtime form for remote/test owners that already resolved and
+/// secured their runtime directory. Production local callers should prefer
+/// [`read_verified_ready_wez_descriptor`].
+pub fn read_verified_ready_wez_descriptor_in(
+    runtime_dir: &Path,
+    expected_instance: Option<uuid::Uuid>,
+    expected_epoch: Option<uuid::Uuid>,
+) -> io::Result<Option<WezMuxDescriptor>> {
+    let directory = open_descriptor_runtime(runtime_dir)?;
+    let Some(descriptor) = read_wez_descriptor_from_directory(runtime_dir, &directory)? else {
+        return Ok(None);
+    };
+    descriptor.require_ready()?;
+    let instance = parse_descriptor_uuid(
+        "backend_instance_uid",
+        descriptor
+            .backend_instance_uid
+            .as_deref()
+            .expect("require_ready checked backend_instance_uid"),
+    )?;
+    let epoch = parse_descriptor_uuid("epoch", &descriptor.epoch)?;
+    if expected_instance.is_some_and(|expected| expected != instance) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez descriptor names a different backend instance",
+        ));
+    }
+    if expected_epoch.is_some_and(|expected| expected != epoch) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez descriptor names a different server epoch",
+        ));
+    }
+    verify_live_service_identity(runtime_dir, &directory, &descriptor)?;
+    Ok(Some(descriptor))
+}
+
+/// Prove that a recovery coordinator is the direct child of the fixed live
+/// mux service incarnation before it can acquire a fence or publish registry
+/// identity. Descriptor bytes are only claims; every OS-verifiable field is
+/// independently re-read here, including the fixed socket's peer PID.
+pub fn verify_recovery_service_authority(
+    runtime_dir: &Path,
+    backend_instance: uuid::Uuid,
+    server_epoch: uuid::Uuid,
+    server_pid: i64,
+    server_start_token: &str,
+) -> io::Result<VerifiedWezServiceIdentity> {
+    let fixed_runtime = dmux_runtime_dir()?;
+    if runtime_dir != fixed_runtime {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "recovery runtime {} is not fixed service runtime {}",
+                runtime_dir.display(),
+                fixed_runtime.display()
+            ),
+        ));
+    }
+    let parent_pid = unsafe { libc::getppid() };
+    verify_recovery_service_authority_in(
+        runtime_dir,
+        backend_instance,
+        server_epoch,
+        server_pid,
+        server_start_token,
+        parent_pid,
+    )
+}
+
+/// Prove that the snapshot helper is a direct child of the exact fixed ready
+/// mux incarnation. This is the persistent-manifest counterpart to recovery
+/// authorization and is repeated under the backend fence by its caller.
+pub fn verify_snapshot_service_authority(
+    runtime_dir: &Path,
+    backend_instance: uuid::Uuid,
+    server_epoch: uuid::Uuid,
+    server_pid: i64,
+    server_start_token: &str,
+) -> io::Result<VerifiedWezServiceIdentity> {
+    let fixed_runtime = dmux_runtime_dir()?;
+    if runtime_dir != fixed_runtime {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "snapshot helper does not name the fixed service runtime",
+        ));
+    }
+    let parent_pid = unsafe { libc::getppid() };
+    let pid = u32::try_from(server_pid).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "snapshot server PID is not a positive u32",
+        )
+    })?;
+    if pid == 0 || parent_pid <= 0 || u32::try_from(parent_pid).ok() != Some(pid) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "snapshot helper is not the exact mux-server child",
+        ));
+    }
+    let directory = open_descriptor_runtime(runtime_dir)?;
+    let descriptor =
+        read_wez_descriptor_from_directory(runtime_dir, &directory)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "managed Wez mux descriptor is absent",
+            )
+        })?;
+    descriptor.require_ready()?;
+    let descriptor_instance = parse_descriptor_uuid(
+        "backend_instance_uid",
+        descriptor
+            .backend_instance_uid
+            .as_deref()
+            .expect("require_ready checked backend_instance_uid"),
+    )?;
+    let descriptor_epoch = parse_descriptor_uuid("epoch", &descriptor.epoch)?;
+    if descriptor_instance != backend_instance
+        || descriptor_epoch != server_epoch
+        || descriptor.pid != pid
+        || descriptor.start_token != server_start_token
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "snapshot arguments do not match the ready service incarnation",
+        ));
+    }
+    verify_live_service_identity(runtime_dir, &directory, &descriptor)
+}
+
+fn verify_recovery_service_authority_in(
+    runtime_dir: &Path,
+    backend_instance: uuid::Uuid,
+    server_epoch: uuid::Uuid,
+    server_pid: i64,
+    server_start_token: &str,
+    parent_pid: libc::pid_t,
+) -> io::Result<VerifiedWezServiceIdentity> {
+    let directory = open_descriptor_runtime(runtime_dir)?;
+    let descriptor =
+        read_wez_descriptor_from_directory(runtime_dir, &directory)?.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "managed Wez mux descriptor is absent",
+            )
+        })?;
+    if descriptor.state != "recovering" {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "recovery coordinator requires recovering descriptor, found {}",
+                descriptor.state
+            ),
+        ));
+    }
+    let descriptor_epoch = parse_descriptor_uuid("epoch", &descriptor.epoch)?;
+    let descriptor_instance = parse_descriptor_uuid(
+        "backend_instance_uid",
+        descriptor
+            .backend_instance_uid
+            .as_deref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing backend UID"))?,
+    )?;
+    if descriptor_epoch != server_epoch || descriptor_instance != backend_instance {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "recovery arguments do not match the service descriptor incarnation",
+        ));
+    }
+    let pid = u32::try_from(server_pid).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "recovery server PID is not a positive u32",
+        )
+    })?;
+    if pid == 0
+        || descriptor.pid != pid
+        || parent_pid <= 0
+        || u32::try_from(parent_pid).ok() != Some(pid)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "recovery coordinator is not the exact mux-server child",
+        ));
+    }
+    if descriptor.start_token != server_start_token {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "recovery start token does not match the service descriptor",
+        ));
+    }
+    descriptor.require_recovery_authority_fields()?;
+    let verified = verify_live_service_identity(runtime_dir, &directory, &descriptor)?;
+    if verified.pid != pid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez descriptor socket peer differs from recovery server PID",
+        ));
+    }
+    Ok(verified)
+}
+
+fn verify_live_service_identity(
+    runtime_dir: &Path,
+    directory: &File,
+    descriptor: &WezMuxDescriptor,
+) -> io::Result<VerifiedWezServiceIdentity> {
+    let pid = descriptor.pid;
+    if pid == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "managed Wez descriptor has zero process PID",
+        ));
+    }
+    let (boot_id, descriptor_dev, descriptor_ino) = descriptor.require_native_identity_fields()?;
+    let current_boot = current_boot_token()?;
+    let current_start = process_start_token(pid)?;
+    if boot_id != current_boot || descriptor.start_token != current_start {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez descriptor process incarnation is no longer live",
+        ));
+    }
+    let fixed_socket = runtime_dir.join(WEZ_SOCKET_FILE);
+    if Path::new(&descriptor.socket) != fixed_socket {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez descriptor does not name the fixed service socket",
+        ));
+    }
+    validate_runtime_binding(runtime_dir, directory)?;
+    let (socket_dev, socket_ino, peer_pid) = socket_identity(&fixed_socket, directory)?;
+    validate_runtime_binding(runtime_dir, directory)?;
+    if socket_dev != descriptor_dev || socket_ino != descriptor_ino || peer_pid != pid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez descriptor socket identity or peer PID changed",
+        ));
+    }
+    Ok(VerifiedWezServiceIdentity {
+        pid,
+        start_token: current_start,
+        boot_id: current_boot,
+        socket_dev,
+        socket_ino,
+    })
+}
+
+fn socket_identity(path: &Path, directory: &File) -> io::Result<(u64, u64, u32)> {
+    let metadata = fs::symlink_metadata(path)?;
+    let held = socket_stat_at(directory)?;
+    let euid = unsafe { libc::geteuid() };
+    if !metadata.file_type().is_socket()
+        || metadata.uid() != euid
+        || metadata.mode() & 0o077 != 0
+        || held.st_mode & libc::S_IFMT != libc::S_IFSOCK
+        || held.st_uid != euid
+        || held.st_mode & 0o077 != 0
+        || u64::try_from(held.st_dev).ok() != Some(metadata.dev())
+        || u64::try_from(held.st_ino).ok() != Some(metadata.ino())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "managed Wez socket {} is not a private current-user-owned socket",
+                path.display()
+            ),
+        ));
+    }
+    let dev = exact_positive_json_id("live socket dev", Some(metadata.dev()))?;
+    let ino = exact_positive_json_id("live socket ino", Some(metadata.ino()))?;
+    let stream = UnixStream::connect(path)?;
+    let after = fs::symlink_metadata(path)?;
+    let held_after = socket_stat_at(directory)?;
+    if !after.file_type().is_socket()
+        || after.uid() != euid
+        || after.mode() & 0o077 != 0
+        || after.dev() != metadata.dev()
+        || after.ino() != metadata.ino()
+        || u64::try_from(held_after.st_dev).ok() != Some(metadata.dev())
+        || u64::try_from(held_after.st_ino).ok() != Some(metadata.ino())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "managed Wez socket changed while its peer was verified",
+        ));
+    }
+    let (peer_pid, peer_uid) = socket_peer_identity(&stream)?;
+    if peer_uid != euid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "managed Wez socket peer is not the current user",
+        ));
+    }
+    Ok((dev, ino, peer_pid))
+}
+
+fn socket_stat_at(directory: &File) -> io::Result<libc::stat> {
+    let name = CString::new(WEZ_SOCKET_FILE).expect("fixed socket name has no NUL");
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe {
+        libc::fstatat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            &mut stat,
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(stat)
+}
+
+#[cfg(target_os = "macos")]
+fn socket_peer_identity(stream: &UnixStream) -> io::Result<(u32, u32)> {
+    use std::os::fd::AsRawFd;
+
+    let mut pid: libc::pid_t = 0;
+    let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    let rc = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&mut pid as *mut libc::pid_t).cast(),
+            &mut len,
+        )
+    };
+    if rc != 0 || pid <= 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((pid as u32, uid))
+}
+
+#[cfg(target_os = "linux")]
+fn socket_peer_identity(stream: &UnixStream) -> io::Result<(u32, u32)> {
+    use std::os::fd::AsRawFd;
+
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let rc = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
+    };
+    if rc != 0 || cred.pid <= 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((cred.pid as u32, cred.uid))
+}
+
+#[cfg(target_os = "linux")]
+fn current_boot_token() -> io::Result<String> {
+    let value = fs::read_to_string("/proc/sys/kernel/random/boot_id")?;
+    let value = value.trim();
+    let uuid = parse_descriptor_uuid("Linux boot_id", value)?;
+    if uuid.to_string() != value {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Linux boot_id is not canonical lowercase UUID",
+        ));
+    }
+    Ok(format!("linux:{value}"))
+}
+
+/// OS-verifiable current boot witness used by maintained-fork integration
+/// fixtures and service producers. It returns the exact descriptor format.
+#[doc(hidden)]
+pub fn current_boot_id() -> io::Result<String> {
+    current_boot_token()
+}
+
+#[cfg(target_os = "macos")]
+fn current_boot_token() -> io::Result<String> {
+    use std::ffi::CString;
+
+    let name = CString::new("kern.boottime").unwrap();
+    let mut value: libc::timeval = unsafe { std::mem::zeroed() };
+    let mut length = std::mem::size_of::<libc::timeval>();
+    let rc = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            (&mut value as *mut libc::timeval).cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if rc != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length != std::mem::size_of::<libc::timeval>()
+        || value.tv_sec <= 0
+        || !(0..=999_999).contains(&value.tv_usec)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "kern.boottime returned an invalid value",
+        ));
+    }
+    Ok(format!("macos:{}:{}", value.tv_sec, value.tv_usec))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn process_start_token(pid: u32) -> io::Result<String> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat"))?;
+    let close = stat.rfind(')').ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "process stat has no comm terminator",
+        )
+    })?;
+    let fields = stat[close + 1..].split_whitespace().collect::<Vec<_>>();
+    let ticks = fields.get(19).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "process stat omits start ticks")
+    })?;
+    let ticks = ticks.parse::<u64>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "process start ticks are not an integer",
+        )
+    })?;
+    if ticks == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "process start ticks are zero",
+        ));
+    }
+    Ok(format!("linux:{ticks}"))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn process_start_token(pid: u32) -> io::Result<String> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>();
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size as libc::c_int,
+        )
+    };
+    if read != size as libc::c_int
+        || info.pbi_pid != pid
+        || info.pbi_uid != unsafe { libc::geteuid() }
+        || info.pbi_start_tvsec == 0
+        || info.pbi_start_tvusec > 999_999
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("cannot verify process {pid} start identity"),
+        ));
+    }
+    Ok(format!(
+        "macos:{}:{}",
+        info.pbi_start_tvsec, info.pbi_start_tvusec
+    ))
+}
+
+/// OS-verifiable process start witness in the exact descriptor format.
+#[doc(hidden)]
+pub fn process_start_token_for_pid(pid: u32) -> io::Result<String> {
+    process_start_token(pid)
+}
+
+fn validate_boot_token(value: &str) -> io::Result<()> {
+    if let Some(uuid) = value.strip_prefix("linux:") {
+        let parsed = parse_descriptor_uuid("boot_id", uuid)?;
+        if parsed.to_string() == uuid {
+            return Ok(());
+        }
+    } else if let Some(rest) = value.strip_prefix("macos:") {
+        let Some((seconds, micros)) = rest.split_once(':') else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid macOS boot_id",
+            ));
+        };
+        if seconds.parse::<u64>().is_ok_and(|value| value > 0)
+            && micros.parse::<u32>().is_ok_and(|value| value <= 999_999)
+        {
+            return Ok(());
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "managed Wez mux descriptor has invalid boot_id",
+    ))
+}
+
+fn validate_process_start_token(value: &str) -> io::Result<()> {
+    let valid = value
+        .strip_prefix("linux:")
+        .is_some_and(|ticks| ticks.parse::<u64>().is_ok_and(|value| value > 0))
+        || value.strip_prefix("macos:").is_some_and(|rest| {
+            rest.split_once(':').is_some_and(|(seconds, micros)| {
+                seconds.parse::<u64>().is_ok_and(|value| value > 0)
+                    && micros.parse::<u32>().is_ok_and(|value| value <= 999_999)
+            })
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "managed Wez mux descriptor has invalid process start_token",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
 
     use super::*;
 
@@ -299,6 +1086,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
         dir
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sample_process_witness() -> (&'static str, &'static str) {
+        ("macos:1:0", "macos:2:0")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn sample_process_witness() -> (&'static str, &'static str) {
+        ("linux:00000000-0000-4000-8000-000000000001", "linux:2")
     }
 
     #[test]
@@ -335,6 +1132,20 @@ mod tests {
     }
 
     #[test]
+    fn held_runtime_binding_rejects_path_replacement() {
+        let base = scratch_base();
+        let original = base.path().to_path_buf();
+        let moved = original.with_extension("moved");
+        let directory = open_descriptor_runtime(&original).unwrap();
+        fs::rename(&original, &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, &original).unwrap();
+        let error = validate_runtime_binding(&original, &directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        fs::remove_file(&original).unwrap();
+        fs::rename(&moved, &original).unwrap();
+    }
+
+    #[test]
     fn rejects_file_where_subdir_should_be() {
         let base = scratch_base();
         fs::write(base.path().join("dmux"), b"nope").unwrap();
@@ -356,6 +1167,7 @@ mod tests {
         let path = base.path().join(WEZ_DESCRIPTOR_FILE);
         let epoch = uuid::Uuid::new_v4();
         let instance = uuid::Uuid::new_v4();
+        let (boot_id, start_token) = sample_process_witness();
         fs::write(
             &path,
             serde_json::json!({
@@ -364,9 +1176,18 @@ mod tests {
                 "epoch": epoch,
                 "pid": 42,
                 "socket": "/tmp/dmux-test.sock",
-                "start_token": "42-token",
+                "start_token": start_token,
+                "boot_id": boot_id,
+                "socket_dev": 1,
+                "socket_ino": 2,
                 "backend_instance_uid": instance,
                 "boot_nonce": uuid::Uuid::new_v4(),
+                "sentinel_window_id": 0,
+                "sentinel_tab_id": 0,
+                "sentinel_pane_id": 0,
+                "sentinel_fallback": false,
+                "written_by": "mux-startup",
+                "written_at": "2026-08-17T00:00:00Z",
             })
             .to_string(),
         )
@@ -383,26 +1204,105 @@ mod tests {
     }
 
     #[test]
+    fn verified_ready_reader_binds_descriptor_to_live_fixed_socket_and_process() {
+        let base = scratch_base();
+        let socket = base.path().join(WEZ_SOCKET_FILE);
+        let _listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let socket_metadata = fs::symlink_metadata(&socket).unwrap();
+        let epoch = uuid::Uuid::new_v4();
+        let instance = uuid::Uuid::new_v4();
+        let path = base.path().join(WEZ_DESCRIPTOR_FILE);
+        fs::write(
+            &path,
+            serde_json::json!({
+                "descriptor_version": 1,
+                "state": "ready",
+                "epoch": epoch,
+                "pid": std::process::id(),
+                "socket": socket,
+                "start_token": process_start_token(std::process::id()).unwrap(),
+                "boot_id": current_boot_token().unwrap(),
+                "socket_dev": socket_metadata.dev(),
+                "socket_ino": socket_metadata.ino(),
+                "backend_instance_uid": instance,
+                "boot_nonce": uuid::Uuid::new_v4(),
+                "sentinel_window_id": 0,
+                "sentinel_tab_id": 0,
+                "sentinel_pane_id": 0,
+                "sentinel_fallback": false,
+                "written_by": "mux-startup",
+                "written_at": "2026-08-17T00:00:00Z",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let descriptor =
+            read_verified_ready_wez_descriptor_in(base.path(), Some(instance), Some(epoch))
+                .unwrap()
+                .unwrap();
+        assert_eq!(descriptor.pid, std::process::id());
+
+        let error = read_verified_ready_wez_descriptor_in(
+            base.path(),
+            Some(instance),
+            Some(uuid::Uuid::new_v4()),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
     fn starting_descriptor_is_not_ready() {
+        let (boot_id, start_token) = sample_process_witness();
         let descriptor = WezMuxDescriptor {
             descriptor_version: 1,
             state: "starting".into(),
             epoch: uuid::Uuid::new_v4().to_string(),
             pid: 42,
             socket: "/tmp/dmux-test.sock".into(),
-            start_token: "42-token".into(),
+            start_token: start_token.into(),
+            boot_id: Some(boot_id.into()),
+            socket_dev: None,
+            socket_ino: None,
             boot_nonce: None,
             backend_instance_uid: Some(uuid::Uuid::new_v4().to_string()),
             recovery_generation: Some("generation-1".into()),
             sentinel_window_id: None,
             sentinel_tab_id: None,
             sentinel_pane_id: None,
+            sentinel_fallback: None,
+            recovery_manifest_id: None,
+            written_by: Some("mux-startup".into()),
+            written_at: Some("2026-08-17T00:00:00Z".into()),
             error: None,
         };
         assert_eq!(
             descriptor.require_ready().unwrap_err().kind(),
             io::ErrorKind::WouldBlock
         );
+
+        let mut starting_with_sentinel = descriptor.clone();
+        starting_with_sentinel.socket_dev = Some(1);
+        starting_with_sentinel.socket_ino = Some(2);
+        starting_with_sentinel.sentinel_window_id = Some(0);
+        starting_with_sentinel.sentinel_tab_id = Some(0);
+        starting_with_sentinel.sentinel_pane_id = Some(0);
+        starting_with_sentinel.sentinel_fallback = Some(false);
+        assert_eq!(
+            starting_with_sentinel
+                .require_recovery_authority_fields()
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied,
+            "a complete sentinel must not grant recovery authority while state=starting"
+        );
+        starting_with_sentinel.state = "recovering".into();
+        starting_with_sentinel
+            .require_recovery_authority_fields()
+            .unwrap();
     }
 
     #[cfg(target_os = "macos")]

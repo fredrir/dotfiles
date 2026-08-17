@@ -23,12 +23,9 @@
   <true/>
   <key>ProcessType</key>
   <string>Background</string>
-  <!-- Wrapper diagnostics only; the server logs under the runtime dir
-       (<darwin-user-temp>/dmux/wez-dmux.log), which launchd cannot express
-       in a static plist. -->
-  <key>StandardOutPath</key>
-  <string>/tmp/com.fredrir.wezterm-mux.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/com.fredrir.wezterm-mux.err.log</string>
+  <!-- Do not ask launchd to open predictable /tmp log paths: that would
+       follow a preplanted symlink before the service's native retained
+       runtime capability exists. Operational state is published through the
+       verified descriptor/recovery status instead. -->
 </dict>
 </plist>

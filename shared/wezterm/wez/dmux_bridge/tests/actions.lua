@@ -67,6 +67,22 @@ local window = {
 }
 local pane = {}
 
+local client_uid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+local uid_pane = {
+  get_user_vars = function()
+    return { dmux_tmux_client_uid = client_uid }
+  end,
+}
+local correlated = actions.with_tmux_client_uid(uid_pane, { '--name', 'scratch' })
+assert(correlated[1] == '--name' and correlated[2] == 'scratch')
+assert(correlated[3] == '--tmux-client-uid' and correlated[4] == client_uid)
+local malformed = actions.with_tmux_client_uid {
+  get_user_vars = function()
+    return { dmux_tmux_client_uid = string.upper(client_uid) }
+  end,
+}
+assert(#malformed == 0, 'noncanonical client UIDs must not cross the Lua/Rust boundary')
+
 local close_group = binding('w', 'CTRL')
 close_group.callback(window, pane)
 local selector = performed[#performed].action
@@ -116,4 +132,4 @@ selector = performed[#performed].action
 selector.action.callback(window, pane, 'remove')
 assert(calls[#calls].verb == 'split-remove' and calls[#calls].args[1] == '--confirmed')
 
-io.stdout:write 'dmux action test: cancel/confirm/final-Group escalation passed\n'
+io.stdout:write 'dmux action test: exact client UID/cancel/confirm/final-Group escalation passed\n'

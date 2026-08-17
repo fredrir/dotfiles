@@ -36,18 +36,29 @@ package.loaded['wez.dmux_bridge.context'] = {
 
 local cache_document
 local json
-package.loaded['wez.dmux_bridge.fs'] = {
-  join = function(...)
-    return table.concat({ ... }, '/')
-  end,
-  read = function(path)
-    assert(path == '/runtime/bridge/instances/gui-42-cafe/context/91.json')
+local resident_brokered = true
+local secure_bridge = {
+  read_context = function(_, pane_id, maximum)
+    assert(pane_id == 91 and maximum == 64 * 1024)
     return cache_document and assert(json.encode(cache_document)) or nil
+  end,
+  resident_brokered = function()
+    return resident_brokered
   end,
 }
 package.loaded['wez.dmux_bridge.instance'] = {
-  runtime_dir = function()
-    return '/runtime'
+  current_bridge = function(gui_instance)
+    if gui_instance ~= 'gui-42-cafe' then
+      return nil, 'wrong GUI instance'
+    end
+    return secure_bridge
+  end,
+  current_identity = function()
+    return {
+      gui_instance = 'gui-42-cafe',
+      pid = 42,
+      process_start_token = 'start-token',
+    }
   end,
 }
 
@@ -55,6 +66,8 @@ local response
 local process_success = true
 local process_stdout
 local process_stderr = ''
+local process_calls = 0
+local last_argv
 local toasts = {}
 local fake_wezterm = {
   GLOBAL = { dmux_bridge_instance = 'gui-42-cafe' },
@@ -66,6 +79,8 @@ local fake_wezterm = {
   run_child_process = function(argv)
     assert(argv[1] == '/tmp/.local/bin/dmux')
     assert(argv[2] == '_gui' and argv[3] == '--origin-json' and type(argv[5]) == 'string')
+    process_calls = process_calls + 1
+    last_argv = argv
     return process_success, process_stdout or assert(json.encode(response)), process_stderr
   end,
 }
@@ -108,6 +123,39 @@ response = { schema_version = 1, ok = true, result = { refreshed = true } }
 process_success = true
 result = assert(controller.run(window, pane, 'context', { '--cache' }))
 assert(result.refreshed == true)
+
+local before_resident = process_calls
+result = assert(controller.run_resident 'safe-quit')
+assert(process_calls == before_resident + 1)
+assert(#last_argv == 5 and last_argv[5] == 'safe-quit')
+local resident_origin = assert(json.decode(last_argv[4]))
+local resident_keys = {
+  gui_instance = true,
+  kind = true,
+  pid = true,
+  process_start_token = true,
+  protocol_version = true,
+}
+local resident_field_count = 0
+for key in pairs(resident_origin) do
+  assert(resident_keys[key], 'resident origin added an unauthorized field: ' .. tostring(key))
+  resident_field_count = resident_field_count + 1
+end
+assert(resident_field_count == 5)
+assert(resident_origin.protocol_version == 1 and resident_origin.kind == 'resident_gui')
+assert(resident_origin.gui_instance == 'gui-42-cafe')
+assert(resident_origin.pid == 42 and resident_origin.process_start_token == 'start-token')
+assert(resident_origin.pane_id == nil and resident_origin.marker == nil and resident_origin.domain == nil)
+
+before_resident = process_calls
+result, err = controller.run_resident 'context'
+assert(result == nil and err:match 'restricted to safe%-quit' and process_calls == before_resident)
+result, err = controller.run_resident('safe-quit', { '--force' })
+assert(result == nil and err:match 'does not accept arguments' and process_calls == before_resident)
+resident_brokered = false
+result, err = controller.run_resident 'safe-quit'
+assert(result == nil and err:match 'not broker%-established' and process_calls == before_resident)
+resident_brokered = true
 
 process_success = false
 process_stdout = 'NOT-JSON'
@@ -160,4 +208,4 @@ cache_document.message = 'owner epoch changed'
 _, err, state = controller.cached_context(pane, now)
 assert(err == 'owner epoch changed' and state == 'invalid_context')
 
-io.stdout:write 'dmux controller/cache test: typed failures and exact cache passed\n'
+io.stdout:write 'dmux controller/cache test: typed failures, resident origin, and exact cache passed\n'

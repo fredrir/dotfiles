@@ -32,6 +32,32 @@ local fake_wezterm = {
     return 'dmux-test'
   end,
   target_triple = 'aarch64-apple-darwin',
+  gui = {
+    dmux_bridge_capabilities = function()
+      return {
+        version = 1,
+        descriptor_backed_spool = true,
+        exclusive_instance_lease = true,
+        launcher_witness = true,
+        checked_preflight = true,
+        capability_bound_lifecycle_completion = true,
+        zero_window_lifecycle = true,
+        verified_mux_descriptor = true,
+      }
+    end,
+    dmux_bridge_preflight = function()
+      return {
+        version = 1,
+        key_bytes = 32,
+        runtime_verified = true,
+        verified_mux_descriptor = true,
+        launcher_witness_present = false,
+      }
+    end,
+    dmux_bridge_open = function()
+      error 'config test must not acquire a bridge lease'
+    end,
+  },
   action_callback = function(callback)
     return { name = 'Callback', callback = callback }
   end,
@@ -49,6 +75,30 @@ local fake_wezterm = {
 }
 package.preload.wezterm = function()
   return fake_wezterm
+end
+
+local local_backend_instance = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+local remote_backend_instance = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+local remote_owner = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+local local_instances = { dmux = local_backend_instance }
+local remote_instances = { ['dmux-b-usb'] = remote_backend_instance }
+local remote_owners = { ['dmux-b-usb'] = remote_owner }
+package.preload['wez.domains'] = function()
+  return {
+    managed_persistent_domain_instances = function()
+      return local_instances
+    end,
+  }
+end
+package.preload['wez.remote.mux'] = function()
+  return {
+    managed_persistent_domain_instances = function()
+      return remote_instances
+    end,
+    managed_persistent_domain_owners = function()
+      return remote_owners
+    end,
+  }
 end
 
 local bridge = require 'wez.dmux_bridge'
@@ -91,6 +141,70 @@ bridge.apply(config)
 assert(#fake_wezterm.GLOBAL.dmux_managed_persistent_domains == 2)
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains[1] == 'dmux')
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains[2] == 'dmux-b-usb')
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances.dmux == local_backend_instance)
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances['dmux-b-usb'] == remote_backend_instance)
+
+remote_instances['dmux-b-usb'] = remote_backend_instance:upper()
+local identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'no canonical backend instance')
+remote_instances['dmux-b-usb'] = remote_backend_instance
+
+remote_owners['dmux-b-usb'] = remote_owner:upper()
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'no canonical owner')
+remote_owners['dmux-b-usb'] = remote_owner
+
+remote_instances.unconfigured = remote_backend_instance
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'identity set does not match')
+remote_instances.unconfigured = nil
+
+remote_owners.unconfigured = remote_owner
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'owner set does not match')
+remote_owners.unconfigured = nil
+
+remote_instances['dmux-b-usb'] = nil
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'no canonical backend instance')
+remote_instances['dmux-b-usb'] = remote_backend_instance
+
+config.ssh_domains[1].name = 'dmux'
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'duplicate configured persistent domain')
+config.ssh_domains[1].name = 'dmux-b-usb'
+bridge.apply(config)
+
+table.insert(config.ssh_domains, { name = 'dmux-b-ts' })
+remote_instances['dmux-b-ts'] = remote_backend_instance
+remote_owners['dmux-b-ts'] = remote_owner
+bridge.apply(config)
+
+remote_instances['dmux-b-ts'] = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'not bijective')
+remote_instances['dmux-b-ts'] = remote_backend_instance
+
+remote_owners['dmux-b-ts'] = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'not bijective')
+remote_owners['dmux-b-ts'] = remote_owner
+
+table.remove(config.ssh_domains)
+remote_instances['dmux-b-ts'] = nil
+remote_owners['dmux-b-ts'] = nil
+remote_instances['dmux-b-usb'] = local_backend_instance
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'aliases the local backend instance')
+remote_instances['dmux-b-usb'] = remote_backend_instance
+bridge.apply(config)
+
+local configured_ssh_domains = config.ssh_domains
+config.ssh_domains = false
+identity_ok, identity_err = pcall(bridge.apply, config)
+assert(not identity_ok and tostring(identity_err):match 'config.ssh_domains must be an array')
+config.ssh_domains = configured_ssh_domains
+bridge.apply(config)
 
 local forbidden = {
   HideApplication = true,

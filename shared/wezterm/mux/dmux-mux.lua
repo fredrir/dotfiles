@@ -8,26 +8,28 @@
 --
 -- Every input is injected by the wrapper's environment:
 --   DMUX_SOCKET            exact unix socket to serve (short path, <104 bytes)
---   DMUX_RUNTIME_DIR       per-user runtime dir holding socket/descriptor/logs
---   DMUX_DESCRIPTOR        runtime descriptor JSON path
+--   DMUX_RUNTIME_DIR       per-user runtime dir holding socket/logs
 --   DMUX_SERVER_EPOCH      fresh UUID per server start
---   DMUX_START_TOKEN       service process start token (pid+timestamp nonce)
 --   DMUX_BOOT_NONCE        fresh UUID per server start
---   DMUX_BACKEND_INSTANCE  backend-instance UID (placeholder, may be empty in P5)
+--   DMUX_BACKEND_INSTANCE  durable backend-instance UID
 --   DMUX_BIN               absolute dmux binary providing `_mux-idle`
 
 local wezterm = require 'wezterm'
 
 local SOCK = os.getenv 'DMUX_SOCKET'
-local RUNTIME = os.getenv 'DMUX_RUNTIME_DIR' or '/tmp'
-local DESCRIPTOR = os.getenv 'DMUX_DESCRIPTOR' or (RUNTIME .. '/wez-dmux.json')
+local RUNTIME = os.getenv 'DMUX_RUNTIME_DIR'
 local WEZ_FIRST = os.getenv 'DMUX_WEZ_FIRST' == '1'
 local RECOVERY_PROTOCOL_VERSION = 1
 local RESURRECT_URL = 'https://github.com/fredrir/resurrect.wezterm'
 local owner_resurrect_dmux = nil
 local owner_recovery_context = nil
 local owner_recovery_generation_uid = nil
+local owner_service_descriptor = nil
+local owner_recovery_spool = nil
+local owner_recovery_manifest = nil
 local snapshot_serial = 0
+local MAX_RECOVERY_MESSAGE_BYTES = 1024 * 1024
+local MAX_RECOVERY_MANIFEST_BYTES = 16 * 1024 * 1024
 
 -- `wezterm.background_child_process` injects the current mux endpoint into
 -- its child environment even when the service wrapper scrubbed it before
@@ -65,16 +67,43 @@ local schedule_guarded_snapshot
 ---@field node table|nil
 ---@field request_uid string|nil
 ---@field bootstrap_argv string[]|nil
+---@field expected_tree table|nil
+---@field expected_parent string|nil
+---@field expected_existing table|nil
+---@field create_if_absent boolean|nil
 ---@field manifest_node_path string|nil
 ---@field pane_id string|nil
 ---@field tab_id string|nil
 ---@field window_id string|nil
 
--- Fail SAFE, not loud: a Lua error here could make wezterm fall back to the
--- default config, which binds the live GUI's default socket under
--- ~/.local/share/wezterm. A misconfigured start must never do that, so bind a
--- quarantine path instead and record the problem.
-local MISCONFIGURED = SOCK == nil
+-- Establish the native fixed-runtime capability during config evaluation,
+-- before the mux listener is created. The maintained fork refuses to bind a
+-- service socket without this retained capability. Never throw here: a Lua
+-- config error can cause WezTerm to fall back to its default endpoint. A
+-- missing/mismatched bootstrap instead configures a deliberate path mismatch,
+-- which the native listener rejects before bind.
+local MISCONFIGURED = SOCK == nil or RUNTIME == nil
+local SERVICE_BOOTSTRAP_ERROR = nil
+if RUNTIME == nil then
+  RUNTIME = '/tmp'
+end
+if type(wezterm.mux.dmux_service_bootstrap) ~= 'function' then
+  MISCONFIGURED = true
+  SERVICE_BOOTSTRAP_ERROR = 'native managed-service bootstrap is unavailable'
+else
+  local ok, bootstrap = pcall(wezterm.mux.dmux_service_bootstrap)
+  if
+    not ok
+    or type(bootstrap) ~= 'table'
+    or bootstrap.api_version ~= 1
+    or bootstrap.runtime_dir ~= RUNTIME
+    or bootstrap.socket_path ~= SOCK
+  then
+    MISCONFIGURED = true
+    SERVICE_BOOTSTRAP_ERROR = ok and 'native service bootstrap disagrees with configured fixed paths'
+      or tostring(bootstrap)
+  end
+end
 if MISCONFIGURED then
   SOCK = '/tmp/dmux-wez-misconfigured.sock'
 end
@@ -94,83 +123,154 @@ local function proc_pid()
 end
 
 local function log(msg)
-  local f = io.open(RUNTIME .. '/wez-dmux.log', 'a')
-  if f then
-    f:write(string.format('%s [pid=%d] %s\n', now(), proc_pid(), msg))
-    f:close()
+  -- The service manager already captures stderr. Do not reopen a predictable
+  -- runtime pathname from Lua: even a non-authority log append must not
+  -- follow a same-UID symlink or race a retained native directory handle.
+  wezterm.log_info(string.format('%s [pid=%d] %s', now(), proc_pid(), msg))
+end
+
+local DESCRIPTOR_OPTIONAL_FIELDS = {
+  'sentinel_window_id',
+  'sentinel_tab_id',
+  'sentinel_pane_id',
+  'sentinel_fallback',
+  'recovery_generation',
+  'recovery_manifest_id',
+  'error',
+}
+
+-- Descriptor identity is a native service witness, not a Lua/environment
+-- claim. The maintained fork resolves the fixed runtime path, obtains the
+-- current OS boot/process/socket identities, checks the socket peer, and
+-- durably publishes the closed version-1 document. It never accepts a path,
+-- PID, process token, boot ID, or socket identity from this config.
+local function publish_descriptor(state, fields)
+  if type(wezterm.mux.dmux_publish_service_descriptor) ~= 'function' then
+    return nil, 'native managed-service descriptor publisher is unavailable'
   end
-end
-
-local function json_string(value)
-  return '"' .. tostring(value):gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
-end
-
--- Atomic descriptor write (tmp + rename). Schema is descriptor_version 1;
--- socket_dev/socket_ino are published as null: per ADR 001, dmux verifies
--- socket identity itself (lstat dev/ino + LOCAL_PEERPID/SO_PEERCRED + the
--- sentinel-epoch-in-list handshake) and never trusts a recorded inode alone.
-local function write_descriptor(state, extra)
-  local doc = string.format(
-    '{"descriptor_version":1,"state":%s,"epoch":%s,"pid":%d,"socket":%s,'
-      .. '"socket_dev":null,"socket_ino":null,"start_token":%s,'
-      .. '"backend_instance_uid":%s,"boot_nonce":%s,"written_by":"mux-startup",'
-      .. '"written_at":%s%s}\n',
-    json_string(state),
-    json_string(os.getenv 'DMUX_SERVER_EPOCH' or 'epoch-env-missing'),
-    proc_pid(),
-    json_string(SOCK),
-    json_string(os.getenv 'DMUX_START_TOKEN' or ''),
-    json_string(os.getenv 'DMUX_BACKEND_INSTANCE' or ''),
-    json_string(os.getenv 'DMUX_BOOT_NONCE' or ''),
-    json_string(now()),
-    extra or ''
-  )
-  local tmp = DESCRIPTOR .. '.tmp'
-  local f = io.open(tmp, 'w')
-  if f then
-    f:write(doc)
-    f:close()
-    os.rename(tmp, DESCRIPTOR)
-  else
-    log('descriptor write failed: ' .. tmp)
+  local request = {
+    state = state,
+    epoch = os.getenv 'DMUX_SERVER_EPOCH' or '',
+    boot_nonce = os.getenv 'DMUX_BOOT_NONCE' or '',
+  }
+  local backend_instance = os.getenv 'DMUX_BACKEND_INSTANCE'
+  if backend_instance and backend_instance ~= '' then
+    request.backend_instance_uid = backend_instance
   end
+  for _, key in ipairs(DESCRIPTOR_OPTIONAL_FIELDS) do
+    if fields and fields[key] ~= nil then
+      request[key] = fields[key]
+    end
+  end
+  local ok, descriptor, raw = pcall(wezterm.mux.dmux_publish_service_descriptor, request)
+  if not ok then
+    return nil, tostring(descriptor)
+  end
+  local pid = proc_pid()
+  if
+    type(descriptor) ~= 'table'
+    or type(raw) ~= 'string'
+    or descriptor.descriptor_version ~= 1
+    or descriptor.state ~= state
+    or descriptor.epoch ~= request.epoch
+    or descriptor.backend_instance_uid ~= request.backend_instance_uid
+    or descriptor.boot_nonce ~= request.boot_nonce
+    or descriptor.pid ~= pid
+    or descriptor.socket ~= SOCK
+    or descriptor.written_by ~= 'mux-startup'
+    or type(descriptor.start_token) ~= 'string'
+    or descriptor.start_token == ''
+    or type(descriptor.boot_id) ~= 'string'
+    or descriptor.boot_id == ''
+  then
+    return nil, 'native descriptor publisher returned a mismatched service witness'
+  end
+  if descriptor.peer_pid ~= nil and descriptor.peer_pid ~= pid then
+    return nil, 'native descriptor publisher returned a foreign socket peer'
+  end
+  owner_service_descriptor = descriptor
+  return descriptor
 end
 
-local function read_json(path)
-  local f = io.open(path, 'r')
-  if not f then
+local function decode_json(raw, label)
+  if raw == nil then
     return nil
   end
-  local body = f:read '*a'
-  f:close()
-  local ok, value = pcall(wezterm.json_parse, body)
+  if type(raw) ~= 'string' then
+    return nil, tostring(label) .. ' native read returned non-string bytes'
+  end
+  local ok, value = pcall(wezterm.json_parse, raw)
   if not ok or type(value) ~= 'table' then
-    return nil
+    return nil, 'cannot decode ' .. tostring(label) .. ': ' .. tostring(value)
   end
   return value
 end
 
-local function write_json(path, value)
-  local tmp = path .. '.tmp'
-  local f = io.open(tmp, 'w')
-  if not f then
-    return false, 'cannot open ' .. tmp
-  end
+local function encode_json(value, label)
   local ok, encoded = pcall(wezterm.json_encode, value)
   if not ok then
-    f:close()
-    os.remove(tmp)
-    return false, 'cannot encode response: ' .. tostring(encoded)
+    return nil, 'cannot encode ' .. tostring(label) .. ': ' .. tostring(encoded)
   end
-  f:write(encoded, '\n')
-  f:flush()
-  f:close()
-  local renamed, why = os.rename(tmp, path)
-  if not renamed then
-    os.remove(tmp)
-    return false, 'cannot publish ' .. path .. ': ' .. tostring(why)
+  return encoded .. '\n'
+end
+
+local function read_spool_json(kind)
+  if owner_recovery_spool == nil then
+    return nil, 'native recovery spool handle is unavailable'
+  end
+  local ok, raw = pcall(function()
+    return owner_recovery_spool:read(kind, MAX_RECOVERY_MESSAGE_BYTES)
+  end)
+  if not ok then
+    return nil, 'cannot read recovery ' .. tostring(kind) .. ': ' .. tostring(raw)
+  end
+  return decode_json(raw, 'recovery ' .. tostring(kind))
+end
+
+local function write_spool_json(kind, value)
+  if owner_recovery_spool == nil then
+    return false, 'native recovery spool handle is unavailable'
+  end
+  local raw, encode_error = encode_json(value, 'recovery ' .. tostring(kind))
+  if not raw then
+    return false, encode_error
+  end
+  local ok, write_error = pcall(function()
+    return owner_recovery_spool:write(kind, raw)
+  end)
+  if not ok then
+    return false, 'cannot publish recovery ' .. tostring(kind) .. ': ' .. tostring(write_error)
   end
   return true
+end
+
+local function remove_spool_message(kind)
+  if owner_recovery_spool == nil then
+    return false, 'native recovery spool handle is unavailable'
+  end
+  local ok, removed = pcall(function()
+    return owner_recovery_spool:remove(kind)
+  end)
+  if not ok then
+    return false, 'cannot remove recovery ' .. tostring(kind) .. ': ' .. tostring(removed)
+  end
+  if removed ~= true then
+    return false, 'recovery ' .. tostring(kind) .. ' disappeared before consumption'
+  end
+  return true
+end
+
+local function read_manifest_json(candidate_id, kind)
+  if owner_recovery_manifest == nil then
+    return nil, 'native recovery manifest handle is unavailable'
+  end
+  local ok, raw = pcall(function()
+    return owner_recovery_manifest:read(candidate_id, kind, MAX_RECOVERY_MANIFEST_BYTES)
+  end)
+  if not ok then
+    return nil, 'cannot read snapshot ' .. tostring(kind) .. ': ' .. tostring(raw)
+  end
+  return decode_json(raw, 'snapshot ' .. tostring(kind))
 end
 
 -- WezTerm's Lua JSON encoder cannot distinguish an empty sequence from an
@@ -178,35 +278,53 @@ end
 -- manifest schema requires `spaces` to remain a JSON array even when an
 -- intentionally empty owner has nothing to snapshot.  Correct only that
 -- known field after encoding; every non-empty sequence is encoded normally.
-local function write_recovery_manifest(path, manifest)
-  local tmp = path .. '.tmp'
-  local f = io.open(tmp, 'w')
-  if not f then
-    return false, 'cannot open ' .. tmp
+local function write_recovery_manifest(candidate_id, manifest)
+  if owner_recovery_manifest == nil then
+    return false, 'native recovery manifest handle is unavailable'
   end
   local ok, encoded = pcall(wezterm.json_encode, manifest)
   if not ok then
-    f:close()
-    os.remove(tmp)
     return false, 'cannot encode recovery manifest: ' .. tostring(encoded)
   end
   if type(manifest.spaces) == 'table' and next(manifest.spaces) == nil then
     local replacements
     encoded, replacements = encoded:gsub('"spaces":{}', '"spaces":[]', 1)
     if replacements ~= 1 then
-      f:close()
-      os.remove(tmp)
       return false, 'cannot preserve empty recovery manifest spaces array'
     end
   end
-  f:write(encoded, '\n')
-  f:flush()
-  f:close()
-  local renamed, why = os.rename(tmp, path)
-  if not renamed then
-    os.remove(tmp)
-    return false, 'cannot publish ' .. path .. ': ' .. tostring(why)
+  local written, write_error = pcall(function()
+    return owner_recovery_manifest:write_candidate(candidate_id, encoded .. '\n')
+  end)
+  if not written then
+    return false, 'cannot publish recovery manifest candidate: ' .. tostring(write_error)
   end
+  return true
+end
+
+local function open_recovery_handles(epoch)
+  if
+    type(wezterm.mux.dmux_recovery_spool_open) ~= 'function'
+    or type(wezterm.mux.dmux_recovery_manifest_open) ~= 'function'
+  then
+    return false, 'native recovery storage capabilities are unavailable'
+  end
+  local opened_spool, spool = pcall(wezterm.mux.dmux_recovery_spool_open, epoch)
+  if not opened_spool then
+    return false, 'cannot retain native recovery spool capability: ' .. tostring(spool)
+  end
+  local epoch_ok, retained_epoch = pcall(function()
+    return spool:epoch()
+  end)
+  if not epoch_ok or retained_epoch ~= epoch then
+    return false, 'native recovery spool capability returned a mismatched epoch'
+  end
+  local opened_manifest, manifest = pcall(wezterm.mux.dmux_recovery_manifest_open)
+  if not opened_manifest then
+    return false, 'cannot retain native recovery manifest capability: ' .. tostring(manifest)
+  end
+  owner_recovery_spool = spool
+  owner_recovery_manifest = manifest
   return true
 end
 
@@ -242,6 +360,132 @@ local function native_snapshot(epoch)
   return { complete = true, server_epoch = epoch, windows = windows }
 end
 
+-- Canonical topology-only projection shared with Rust's
+-- NativeTreePrecondition. Mutable pane titles are excluded; every native ID,
+-- parent, workspace, and domain remains part of the compare-before-mutate
+-- witness.
+local function native_tree_precondition(epoch)
+  local windows = {}
+  for _, window in ipairs(wezterm.mux.all_windows()) do
+    local window_row = {
+      window_id = tostring(window:window_id()),
+      workspace = tostring(window:get_workspace()),
+      tabs = {},
+    }
+    for _, tab in ipairs(window:tabs()) do
+      local tab_row = { tab_id = tostring(tab:tab_id()), panes = {} }
+      for _, pane in ipairs(tab:panes()) do
+        local ok_domain, domain = pcall(function()
+          return pane:get_domain_name()
+        end)
+        table.insert(tab_row.panes, {
+          pane_id = tostring(pane:pane_id()),
+          domain = ok_domain and tostring(domain or '') or '',
+        })
+      end
+      table.sort(tab_row.panes, function(left, right)
+        if left.pane_id == right.pane_id then
+          return left.domain < right.domain
+        end
+        return left.pane_id < right.pane_id
+      end)
+      table.insert(window_row.tabs, tab_row)
+    end
+    table.sort(window_row.tabs, function(left, right)
+      return left.tab_id < right.tab_id
+    end)
+    table.insert(windows, window_row)
+  end
+  table.sort(windows, function(left, right)
+    if left.window_id == right.window_id then
+      return left.workspace < right.workspace
+    end
+    return left.window_id < right.window_id
+  end)
+  return { server_epoch = epoch, windows = windows }
+end
+
+local function exact_value_equal(left, right)
+  if type(left) ~= type(right) then
+    return false
+  end
+  if type(left) ~= 'table' then
+    return left == right
+  end
+  for key, value in pairs(left) do
+    if not exact_value_equal(value, right[key]) then
+      return false
+    end
+  end
+  for key, _ in pairs(right) do
+    if left[key] == nil then
+      return false
+    end
+  end
+  return true
+end
+
+local function object_native_ids(object)
+  if type(object) ~= 'table' or not object.window or not object.tab or not object.pane then
+    return nil
+  end
+  local ok, ids = pcall(function()
+    return {
+      window_id = tostring(object.window:window_id()),
+      tab_id = tostring(object.tab:tab_id()),
+      pane_id = tostring(object.pane:pane_id()),
+    }
+  end)
+  return ok and ids or nil
+end
+
+local function same_native_ids(left, right)
+  return left
+    and right
+    and left.window_id == right.window_id
+    and left.tab_id == right.tab_id
+    and left.pane_id == right.pane_id
+end
+
+local function tree_contains_native(tree, target)
+  if not target or type(tree) ~= 'table' or type(tree.windows) ~= 'table' then
+    return false
+  end
+  for _, window in ipairs(tree.windows) do
+    if window.window_id == target.window_id then
+      for _, tab in ipairs(window.tabs or {}) do
+        if tab.tab_id == target.tab_id then
+          for _, pane in ipairs(tab.panes or {}) do
+            if pane.pane_id == target.pane_id then
+              return true
+            end
+          end
+        end
+      end
+    end
+  end
+  return false
+end
+
+local function context_parent_id(node, context)
+  if node.operation == 'space_root' then
+    return nil
+  end
+  local parent
+  if node.operation == 'group_root' then
+    local first = '/spaces/' .. tostring(node.space_uid) .. '/groups/1/splits/L'
+    parent = context.objects[first]
+    local ids = object_native_ids(parent)
+    return ids and ids.window_id or false
+  end
+  if node.operation == 'split' then
+    parent = context.objects[node.parent_path]
+    local ids = object_native_ids(parent)
+    return ids and ids.pane_id or false
+  end
+  return false
+end
+
 local function titled_panes(title)
   local ids = {}
   for _, window in ipairs(wezterm.mux.all_windows()) do
@@ -260,31 +504,39 @@ local function titled_panes(title)
   return ids
 end
 
-local function recovery_extra(status, sentinel)
-  local extra = sentinel or ''
+local function recovery_fields(status, sentinel)
+  local fields = {}
+  for key, value in pairs(sentinel or {}) do
+    fields[key] = value
+  end
   if status and status.generation_uid then
-    extra = extra .. ',"recovery_generation":' .. json_string(status.generation_uid)
+    fields.recovery_generation = status.generation_uid
   end
   if status and status.manifest_id then
-    extra = extra .. ',"recovery_manifest_id":' .. json_string(status.manifest_id)
+    fields.recovery_manifest_id = status.manifest_id
   end
   if status and status.error then
-    extra = extra .. ',"error":' .. json_string(status.error)
+    fields.error = status.error
   end
-  return extra
+  return fields
 end
 
 local function run_guarded_recovery(epoch, sentinel, control_action)
   local dmux_bin = os.getenv 'DMUX_BIN'
   local helper_bin = os.getenv 'DMUX_PANE_BOOTSTRAP'
   local backend_instance = os.getenv 'DMUX_BACKEND_INSTANCE'
-  local manifest_dir = os.getenv 'DMUX_RECOVERY_MANIFEST_DIR'
-  local start_token = os.getenv 'DMUX_START_TOKEN'
+  local start_token = owner_service_descriptor and owner_service_descriptor.start_token or nil
   if not dmux_bin or dmux_bin == '' or not helper_bin or helper_bin == '' then
     return nil, 'recovery requires DMUX_BIN and DMUX_PANE_BOOTSTRAP'
   end
-  if not backend_instance or backend_instance == '' or not manifest_dir or manifest_dir == '' then
-    return nil, 'recovery requires backend instance and manifest directory'
+  if not backend_instance or backend_instance == '' then
+    return nil, 'recovery requires a durable backend instance'
+  end
+  if not start_token or start_token == '' then
+    return nil, 'recovery requires a native-published service start token'
+  end
+  if owner_recovery_spool == nil or owner_recovery_manifest == nil then
+    return nil, 'recovery requires retained native storage capabilities'
   end
 
   local ok_plugin, resurrect = pcall(wezterm.plugin.require, RESURRECT_URL)
@@ -296,11 +548,10 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
   end
   owner_resurrect_dmux = resurrect.dmux
 
-  local spool = RUNTIME .. '/recovery/' .. epoch
-  local command_path = spool .. '/command.json'
-  local response_path = spool .. '/response.json'
-  local status_path = spool .. '/status.json'
-  local prior_status = read_json(status_path)
+  local prior_status, prior_status_error = read_spool_json 'status'
+  if prior_status_error then
+    return nil, prior_status_error
+  end
   local prior_coordinator_uid = prior_status and prior_status.coordinator_uid or nil
   local argv = {
     dmux_bin,
@@ -312,8 +563,6 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
     epoch,
     '--runtime-dir',
     RUNTIME,
-    '--manifest-dir',
-    manifest_dir,
     '--server-pid',
     tostring(proc_pid()),
     '--server-start-token',
@@ -349,7 +598,10 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
   local restart_count = 0
   local deadline = os.time() + tonumber(os.getenv 'DMUX_RECOVERY_TIMEOUT_SECS' or '300')
   while os.time() <= deadline do
-    local status = read_json(status_path)
+    local status, status_error = read_spool_json 'status'
+    if status_error then
+      return nil, status_error
+    end
     if
       status
       and status.protocol_version == RECOVERY_PROTOCOL_VERSION
@@ -409,12 +661,18 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
         and status_is_current
         and status_fence == fencing_token
       then
-        write_descriptor('recovering', recovery_extra(status, sentinel))
+        local published, why = publish_descriptor('recovering', recovery_fields(status, sentinel))
+        if not published then
+          return nil, 'cannot refresh recovering descriptor: ' .. tostring(why)
+        end
       end
     end
 
     ---@type DmuxRecoveryCommand|nil
-    local command = read_json(command_path)
+    local command, command_error = read_spool_json 'command'
+    if command_error then
+      return nil, command_error
+    end
     local command_valid = command
       and command.protocol_version == RECOVERY_PROTOCOL_VERSION
       and type(command.coordinator_uid) == 'string'
@@ -466,28 +724,68 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
           end
           context = prepared
           owner_recovery_context = context
-        elseif command.action == 'restore_node' then
-          context.bootstrap_argv = command.bootstrap_argv
-          local restored, why = resurrect.dmux.execute_restore_node(command.node, context)
-          if not restored then
-            error(why or 'RestoreNode rejected')
+        elseif command.action == 'compare_and_restore_node' then
+          local actual_tree = native_tree_precondition(epoch)
+          if not exact_value_equal(actual_tree, command.expected_tree) then
+            error 'native tree precondition changed'
           end
-          local expected_title = 'dmux-bootstrap:' .. command.request_uid
-          local titled = {}
-          for _ = 1, 250 do
-            titled = titled_panes(expected_title)
-            if #titled > 0 then
-              break
+          local actual_parent = context_parent_id(command.node, context)
+          if actual_parent == false or actual_parent ~= command.expected_parent then
+            error 'native parent precondition changed'
+          end
+          local prepared_object = context.objects[command.node.manifest_node_path]
+          if command.expected_existing then
+            if command.create_if_absent then
+              error 'existing recovery object cannot request creation'
             end
-            wezterm.sleep_ms(20)
+            local prepared_ids = object_native_ids(prepared_object)
+            if
+              not same_native_ids(prepared_ids, command.expected_existing)
+              or not tree_contains_native(actual_tree, command.expected_existing)
+            then
+              error 'prepared recovery object differs from expected existing IDs'
+            end
+            response.created = command.expected_existing
+          elseif command.create_if_absent then
+            if prepared_object ~= nil then
+              error 'fresh recovery create has an unexpected prepared object'
+            end
+            context.bootstrap_argv = command.bootstrap_argv
+            -- No sleep, yield, file IO, or callback boundary is permitted
+            -- between the raw-tree/parent comparison above and this native
+            -- create. This is the §15.3 compare-and-mutate critical section.
+            local restored, why = resurrect.dmux.execute_restore_node(command.node, context)
+            if not restored then
+              error(why or 'CompareAndRestoreNode rejected')
+            end
+            local expected_title = 'dmux-bootstrap:' .. command.request_uid
+            local titled = {}
+            for _ = 1, 250 do
+              titled = titled_panes(expected_title)
+              if #titled > 0 then
+                break
+              end
+              wezterm.sleep_ms(20)
+            end
+            response.created = {
+              window_id = tostring(restored.window:window_id()),
+              tab_id = tostring(restored.tab:tab_id()),
+              pane_id = tostring(restored.pane:pane_id()),
+              titled_pane_ids = titled,
+            }
+          else
+            -- A lost/removed provisional pane may leave only a stale Lua
+            -- context object. The exact raw tree just proved it absent, so
+            -- retire that non-native cache entry before Rust issues a new
+            -- bootstrap request.
+            context.objects[command.node.manifest_node_path] = nil
+            response.existing_absent = true
           end
-          response.created = {
-            window_id = tostring(restored.window:window_id()),
-            tab_id = tostring(restored.tab:tab_id()),
-            pane_id = tostring(restored.pane:pane_id()),
-            titled_pane_ids = titled,
-          }
-        elseif command.action == 'remove_node' then
+        elseif command.action == 'compare_and_remove_node' then
+          local actual_tree = native_tree_precondition(epoch)
+          if not exact_value_equal(actual_tree, command.expected_tree) then
+            error 'native tree precondition changed'
+          end
           if type(wezterm.mux.dmux_recovery_remove_node) ~= 'function' then
             error 'dmux recovery removal primitive is unavailable'
           end
@@ -495,8 +793,10 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
           local tab_id = tonumber(command.tab_id)
           local window_id = tonumber(command.window_id)
           if not pane_id or not tab_id or not window_id then
-            error 'remove_node carries non-numeric native IDs'
+            error 'compare_and_remove_node carries non-numeric native IDs'
           end
+          -- As above, comparison and exact-ID mutation are one callback with
+          -- no intervening yield.
           local removed = wezterm.mux.dmux_recovery_remove_node {
             kind = 'pane',
             native_id = pane_id,
@@ -504,7 +804,7 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
             parent_window_id = window_id,
           }
           if type(removed) ~= 'table' or (removed.status ~= 'removed' and removed.status ~= 'not_found') then
-            error('remove_node was not proven removed/absent: ' .. tostring(removed and removed.status))
+            error('compare_and_remove_node was not proven removed/absent: ' .. tostring(removed and removed.status))
           end
           context.objects[command.manifest_node_path] = nil
           response.removed = removed
@@ -517,7 +817,7 @@ local function run_guarded_recovery(epoch, sentinel, control_action)
       else
         response.error = tostring(action_error)
       end
-      local written, why = write_json(response_path, response)
+      local written, why = write_spool_json('response', response)
       if not written then
         return nil, why
       end
@@ -546,11 +846,20 @@ local function schedule_recovery_control(epoch, sentinel)
     log 'recovery control timer unavailable; explicit resume requires a service restart'
     return
   end
-  local control_path = RUNTIME .. '/recovery/' .. epoch .. '/control.json'
   wezterm.time.call_after(1, function()
-    local request = read_json(control_path)
+    local request, request_error = read_spool_json 'control'
+    if request_error then
+      log('cannot consume recovery control request: ' .. tostring(request_error))
+      schedule_recovery_control(epoch, sentinel)
+      return
+    end
     if request then
-      os.remove(control_path)
+      local removed, remove_error = remove_spool_message 'control'
+      if not removed then
+        log('cannot consume recovery control request: ' .. tostring(remove_error))
+        schedule_recovery_control(epoch, sentinel)
+        return
+      end
       local backend_instance = os.getenv 'DMUX_BACKEND_INSTANCE'
       if
         request.protocol_version == RECOVERY_PROTOCOL_VERSION
@@ -558,10 +867,20 @@ local function schedule_recovery_control(epoch, sentinel)
         and request.backend_instance_uid == backend_instance
         and request.server_epoch == epoch
       then
-        write_descriptor('recovering', sentinel)
+        local published, publish_error = publish_descriptor('recovering', sentinel)
+        if not published then
+          log('explicit recovery descriptor failed: ' .. tostring(publish_error))
+          schedule_recovery_control(epoch, sentinel)
+          return
+        end
         local recovery, why = run_guarded_recovery(epoch, sentinel, request.action)
         if recovery then
-          write_descriptor('ready', recovery_extra(recovery, sentinel))
+          local ready, ready_error = publish_descriptor('ready', recovery_fields(recovery, sentinel))
+          if not ready then
+            log('explicit recovery ready descriptor failed: ' .. tostring(ready_error))
+            schedule_recovery_control(epoch, sentinel)
+            return
+          end
           log(
             'explicit recovery '
               .. tostring(request.action)
@@ -571,7 +890,7 @@ local function schedule_recovery_control(epoch, sentinel)
           schedule_guarded_snapshot(epoch, 1)
           return
         end
-        write_descriptor('failed', sentinel .. ',"error":' .. json_string(tostring(why)))
+        publish_descriptor('failed', recovery_fields({ error = tostring(why) }, sentinel))
         log('explicit recovery resume failed: ' .. tostring(why))
       else
         log 'ignored invalid recovery control request'
@@ -592,18 +911,26 @@ local function publish_guarded_snapshot(epoch)
   end
   local dmux_bin = os.getenv 'DMUX_BIN'
   local backend_instance = os.getenv 'DMUX_BACKEND_INSTANCE'
-  local manifest_dir = os.getenv 'DMUX_RECOVERY_MANIFEST_DIR'
-  if not dmux_bin or not backend_instance or not manifest_dir then
+  local start_token = owner_service_descriptor and owner_service_descriptor.start_token or nil
+  if not dmux_bin or not backend_instance or not start_token or owner_recovery_manifest == nil then
     return false, 'snapshot environment is incomplete'
   end
 
   snapshot_serial = snapshot_serial + 1
   local stem = epoch .. '-' .. tostring(os.time()) .. '-' .. tostring(snapshot_serial)
-  local candidate = manifest_dir .. '/.capture-' .. stem
-  local plan_path = candidate .. '.plan'
-  local destination = manifest_dir .. '/manifest-' .. stem .. '.json'
-  os.remove(candidate)
-  os.remove(plan_path)
+  local candidate_id = '.capture-' .. stem
+  local candidate_removed, candidate_remove_error = pcall(function()
+    return owner_recovery_manifest:remove(candidate_id, 'candidate')
+  end)
+  if not candidate_removed then
+    return false, 'cannot clear snapshot candidate slot: ' .. tostring(candidate_remove_error)
+  end
+  local plan_removed, plan_remove_error = pcall(function()
+    return owner_recovery_manifest:remove(candidate_id, 'plan')
+  end)
+  if not plan_removed then
+    return false, 'cannot clear snapshot plan slot: ' .. tostring(plan_remove_error)
+  end
 
   local spawned, spawn_error = pcall(
     wezterm.background_child_process,
@@ -613,10 +940,16 @@ local function publish_guarded_snapshot(epoch)
       'snapshot-publish',
       '--backend-instance',
       backend_instance,
-      '--candidate',
-      candidate,
-      '--destination',
-      destination,
+      '--candidate-id',
+      candidate_id,
+      '--server-epoch',
+      epoch,
+      '--runtime-dir',
+      RUNTIME,
+      '--server-pid',
+      tostring(proc_pid()),
+      '--server-start-token',
+      start_token,
     }
   )
   if not spawned then
@@ -625,7 +958,11 @@ local function publish_guarded_snapshot(epoch)
 
   local plan = nil
   for _ = 1, 250 do
-    plan = read_json(plan_path)
+    local plan_error
+    plan, plan_error = read_manifest_json(candidate_id, 'plan')
+    if plan_error then
+      return false, plan_error
+    end
     if plan then
       break
     end
@@ -650,19 +987,26 @@ local function publish_guarded_snapshot(epoch)
   if not manifest then
     return false, build_error or 'snapshot candidate capture failed'
   end
-  local written, write_error = write_recovery_manifest(candidate, manifest)
+  local written, write_error = write_recovery_manifest(candidate_id, manifest)
   if not written then
     return false, write_error
   end
 
   for _ = 1, 1750 do
-    local published = read_json(destination)
+    local published, published_error = read_manifest_json(candidate_id, 'published')
+    if published_error then
+      return false, published_error
+    end
     if published and published.manifest_id == plan.manifest_id then
       return true
     end
     -- The helper removes its plan on every terminal path.  Once absent, no
     -- valid publication can still be in flight.
-    if not read_json(plan_path) then
+    local pending, pending_error = read_manifest_json(candidate_id, 'plan')
+    if pending_error then
+      return false, pending_error
+    end
+    if not pending then
       break
     end
     wezterm.sleep_ms(20)
@@ -686,12 +1030,15 @@ end
 
 local config = wezterm.config_builder()
 
--- The minimal fork primitive is capability-gated and exposed only inside
--- this service-owned mux.  GUI configs and the flag-off stock build never
--- receive native recovery deletion authority.
-if WEZ_FIRST then
-  config.dmux_recovery_primitives = true
-end
+-- This fixed service config is the sole descriptor publisher in both rollout
+-- states. Recovery/snapshot execution remains separately gated by WEZ_FIRST;
+-- arbitrary GUI configs receive no native service or recovery authority.
+config.dmux_recovery_primitives = true
+-- Recovery retains native directory capabilities and an in-memory prepared
+-- mux-object graph for the lifetime of this server. A config reload would
+-- replace that authority/context mid-generation; service changes take effect
+-- only through an explicit service restart.
+config.automatically_reload_config = false
 
 config.unix_domains = {
   {
@@ -731,9 +1078,15 @@ wezterm.on('mux-startup', function()
   local epoch = os.getenv 'DMUX_SERVER_EPOCH' or 'epoch-env-missing'
   log('mux-startup BEGIN epoch=' .. epoch .. ' socket=' .. SOCK)
   if MISCONFIGURED then
-    log 'MISCONFIGURED: DMUX_SOCKET missing; serving quarantine socket only'
+    log('MISCONFIGURED: managed service bootstrap failed: ' .. tostring(SERVICE_BOOTSTRAP_ERROR))
   end
-  write_descriptor 'starting'
+  local starting_descriptor, starting_error = publish_descriptor 'starting'
+  if not starting_descriptor then
+    -- Still create the reserved sentinel below so a publication failure can
+    -- never expose WezTerm's unmanaged default program. Recovery and ready
+    -- publication remain unavailable until the native witness succeeds.
+    log('starting descriptor FAILED: ' .. tostring(starting_error))
+  end
 
   local ok_pre, wins = pcall(wezterm.mux.all_windows)
   local pre = ok_pre and #wins or -1
@@ -764,7 +1117,7 @@ wezterm.on('mux-startup', function()
   })
   if not ok_spawn then
     log('sentinel spawn FAILED: ' .. tostring(tab))
-    write_descriptor('failed', ',"error":' .. json_string('sentinel spawn failed: ' .. tostring(tab)))
+    publish_descriptor('failed', { error = 'sentinel spawn failed: ' .. tostring(tab) })
     return
   end
   log(
@@ -777,30 +1130,79 @@ wezterm.on('mux-startup', function()
     )
   )
 
-  local sentinel_extra = string.format(
-    ',"sentinel_window_id":%d,"sentinel_tab_id":%d,"sentinel_pane_id":%d,"sentinel_fallback":%s',
-    window:window_id(),
-    tab:tab_id(),
-    pane:pane_id(),
-    tostring(sentinel_fallback)
-  )
+  local sentinel = {
+    sentinel_window_id = window:window_id(),
+    sentinel_tab_id = tab:tab_id(),
+    sentinel_pane_id = pane:pane_id(),
+    sentinel_fallback = sentinel_fallback,
+  }
 
-  if WEZ_FIRST then
-    write_descriptor('recovering', sentinel_extra)
-    local recovery, recovery_error = run_guarded_recovery(epoch, sentinel_extra, nil)
-    if not recovery then
-      log('recovery FAILED: ' .. tostring(recovery_error))
-      write_descriptor('failed', sentinel_extra .. ',"error":' .. json_string(tostring(recovery_error)))
-      schedule_recovery_control(epoch, sentinel_extra)
+  if not starting_descriptor then
+    starting_descriptor, starting_error = publish_descriptor 'starting'
+    if not starting_descriptor then
+      log('starting descriptor retry FAILED: ' .. tostring(starting_error))
       return
     end
-    write_descriptor('ready', recovery_extra(recovery, sentinel_extra))
+  end
+
+  if not os.getenv 'DMUX_BACKEND_INSTANCE' or os.getenv 'DMUX_BACKEND_INSTANCE' == '' then
+    local failed, failed_error = publish_descriptor(
+      'failed',
+      recovery_fields({
+        error = 'managed backend identity is unavailable while DMUX_WEZ_FIRST is disabled',
+      }, sentinel)
+    )
+    if not failed then
+      log('missing backend identity failed descriptor FAILED: ' .. tostring(failed_error))
+    end
+    log 'mux-startup unavailable: no durable backend identity'
+    return
+  end
+
+  if sentinel_fallback then
+    local failed, failed_error =
+      publish_descriptor('failed', recovery_fields({ error = 'managed sentinel requires dmux _mux-idle' }, sentinel))
+    if not failed then
+      log('fallback sentinel failed descriptor FAILED: ' .. tostring(failed_error))
+    end
+    log 'mux-startup unavailable: fallback sentinel cannot publish ready'
+    return
+  end
+
+  if WEZ_FIRST then
+    local storage_ready, storage_error = open_recovery_handles(epoch)
+    if not storage_ready then
+      log('native recovery storage FAILED: ' .. tostring(storage_error))
+      publish_descriptor('failed', recovery_fields({ error = tostring(storage_error) }, sentinel))
+      return
+    end
+    local recovering, recovering_error = publish_descriptor('recovering', sentinel)
+    if not recovering then
+      log('recovering descriptor FAILED: ' .. tostring(recovering_error))
+      return
+    end
+    local recovery, recovery_error = run_guarded_recovery(epoch, sentinel, nil)
+    if not recovery then
+      log('recovery FAILED: ' .. tostring(recovery_error))
+      publish_descriptor('failed', recovery_fields({ error = tostring(recovery_error) }, sentinel))
+      schedule_recovery_control(epoch, sentinel)
+      return
+    end
+    local ready, ready_error = publish_descriptor('ready', recovery_fields(recovery, sentinel))
+    if not ready then
+      log('ready descriptor FAILED: ' .. tostring(ready_error))
+      return
+    end
     log('mux-startup END recovery=' .. tostring(recovery.state) .. ' epoch=' .. epoch)
     schedule_guarded_snapshot(epoch, 1)
     return
   end
 
-  write_descriptor('ready', sentinel_extra)
+  local ready, ready_error = publish_descriptor('ready', sentinel)
+  if not ready then
+    log('ready descriptor FAILED: ' .. tostring(ready_error))
+    return
+  end
   log('mux-startup END epoch=' .. epoch)
 end)
 

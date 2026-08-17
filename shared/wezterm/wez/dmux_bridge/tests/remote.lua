@@ -92,9 +92,19 @@ assert(#domains == 1, 'only compatible authority rows may enter WezTerm domain c
 assert(domains[1].name == 'dmux-b-usb')
 assert(domains[1].multiplexing == 'WezTerm' and domains[1].assume_shell == 'Posix')
 assert(logs[1]:match 'dmux%-b%-ts unavailable')
+local instances = assert(mux.managed_persistent_domain_instances())
+local owners = assert(mux.managed_persistent_domain_owners())
+assert(instances['dmux-b-usb'] == backend and instances['dmux-b-ts'] == nil)
+assert(owners['dmux-b-usb'] == host and owners['dmux-b-ts'] == nil)
+instances['dmux-b-usb'] = 'mutated-by-caller'
+assert(mux.managed_persistent_domain_instances()['dmux-b-usb'] == backend, 'identity snapshot must be copied')
+owners['dmux-b-usb'] = 'mutated-by-caller'
+assert(mux.managed_persistent_domain_owners()['dmux-b-usb'] == host, 'owner snapshot must be copied')
 
 response.result.domains[1].alternate_domains = { 'dmux-b-ts' }
 assert(#mux.domains() == 0, 'alternate-domain identity mismatch must fail closed')
+assert(next(mux.managed_persistent_domain_instances()) == nil, 'invalid reload must clear prior identities')
+assert(next(mux.managed_persistent_domain_owners()) == nil, 'invalid reload must clear prior owners')
 
 response.result.domains = clone(rows)
 response.result.domains[1].unavailable_reason = 'must be omitted when compatible'
@@ -112,5 +122,26 @@ response.result.domains = clone(rows)
 response.result.domains[2].remote_wezterm_path = 'relative/wezterm'
 assert(#mux.domains() == 0, 'optional incompatible executable path must still be absolute')
 assert(#logs == 6)
+
+response.result.domains = clone(rows)
+response.result.domains[2].backend_instance_uid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+assert(#mux.domains() == 0, 'one owner cannot name multiple backend instances')
+
+response.result.domains = clone(rows)
+response.result.domains[2].host_uid = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+assert(#mux.domains() == 0, 'one backend instance cannot alias multiple owners')
+
+response.result.domains = clone(rows)
+response.result.domains[1].alternate_domains = { 'dmux-b-ts' }
+response.result.domains[2].compatible = true
+response.result.domains[2].unavailable_reason = nil
+response.result.domains[2].remote_wezterm_path = '/usr/bin/wezterm'
+response.result.domains[2].alternate_domains = { 'dmux-b-usb' }
+domains = mux.domains()
+instances = assert(mux.managed_persistent_domain_instances())
+owners = assert(mux.managed_persistent_domain_owners())
+assert(#domains == 2, 'compatible alternate routes must both remain configured')
+assert(instances['dmux-b-usb'] == backend and instances['dmux-b-ts'] == backend)
+assert(owners['dmux-b-usb'] == host and owners['dmux-b-ts'] == host)
 
 io.stdout:write 'dmux remote manifest test: strict authority rows passed\n'

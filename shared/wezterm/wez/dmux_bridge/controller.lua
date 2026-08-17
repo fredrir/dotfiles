@@ -1,5 +1,4 @@
 local context = require 'wez.dmux_bridge.context'
-local fs = require 'wez.dmux_bridge.fs'
 local instance = require 'wez.dmux_bridge.instance'
 local json = require 'wez.dmux_bridge.json'
 local wezterm = require 'wezterm'
@@ -27,14 +26,17 @@ local function origin_for(pane)
   if type(gui_instance) ~= 'string' or #gui_instance == 0 then
     return nil, 'trusted dmux GUI bridge is not ready'
   end
-  return {
+  local origin = {
     protocol_version = 1,
     gui_instance = gui_instance,
     pane_id = marker.gui_pane_id,
     domain = marker.gui_domain,
     marker = context.marker_context(marker),
-  },
-    marker
+  }
+  if marker.tmux_client_uid then
+    origin.tmux_client_uid = marker.tmux_client_uid
+  end
+  return origin, marker
 end
 
 local function argv(origin, verb, args)
@@ -80,12 +82,7 @@ local function decode_response(stdout)
   return response
 end
 
-function M.run(window, pane, verb, args)
-  local origin, marker_or_err = origin_for(pane)
-  if not origin then
-    toast(window, marker_or_err)
-    return nil, marker_or_err
-  end
+local function invoke(window, origin, verb, args)
   local spawned, success, stdout, stderr = pcall(wezterm.run_child_process, argv(origin, verb, args))
   if not spawned then
     toast(window, 'dmux controller unavailable: ' .. tostring(success))
@@ -105,7 +102,7 @@ function M.run(window, pane, verb, args)
       toast(window, message)
       return nil, message
     end
-    return response.result or {}, marker_or_err
+    return response.result or {}
   end
   if not success then
     local message = tostring(stderr):gsub('%s+$', '')
@@ -117,6 +114,52 @@ function M.run(window, pane, verb, args)
   end
   toast(window, decode_err)
   return nil, decode_err
+end
+
+function M.run(window, pane, verb, args)
+  local origin, marker_or_err = origin_for(pane)
+  if not origin then
+    toast(window, marker_or_err)
+    return nil, marker_or_err
+  end
+  local result, err, partial = invoke(window, origin, verb, args)
+  if not result then
+    return nil, err, partial
+  end
+  return result, marker_or_err
+end
+
+---Issue the sole markerless GUI command from the exact active fork lease.
+---A resident origin cannot be generalized to pane/Space mutations: it exists
+---only so a zero-window application quit can enter the signed safe-quit flow.
+function M.run_resident(verb, args)
+  if verb ~= 'safe-quit' then
+    return nil, 'resident GUI origin is restricted to safe-quit'
+  end
+  if args ~= nil and (type(args) ~= 'table' or next(args) ~= nil) then
+    return nil, 'resident safe-quit does not accept arguments'
+  end
+  local identity, identity_err = instance.current_identity()
+  if not identity then
+    return nil, identity_err
+  end
+  local bridge, bridge_err = instance.current_bridge(identity.gui_instance)
+  if not bridge then
+    return nil, bridge_err
+  end
+  local brokered_ok, brokered = pcall(function()
+    return bridge:resident_brokered()
+  end)
+  if not brokered_ok or brokered ~= true then
+    return nil, 'trusted dmux GUI bridge lease is not broker-established'
+  end
+  return invoke(nil, {
+    protocol_version = 1,
+    kind = 'resident_gui',
+    gui_instance = identity.gui_instance,
+    pid = identity.pid,
+    process_start_token = identity.process_start_token,
+  }, verb, {})
 end
 
 function M.background_refresh(pane)
@@ -215,14 +258,17 @@ function M.cached_context(pane, now)
   if not origin then
     return nil, marker_or_err, 'invalid_marker'
   end
-  local runtime = instance.runtime_dir()
-  if not runtime then
-    return nil, 'runtime directory unavailable', 'unverified'
+  local bridge, bridge_err = instance.current_bridge(origin.gui_instance)
+  if not bridge then
+    return nil, bridge_err, 'unverified'
   end
-  local path =
-    fs.join(runtime, 'bridge', 'instances', origin.gui_instance, 'context', tostring(origin.pane_id) .. '.json')
-  local raw = fs.read(path, 64 * 1024)
-  if not raw then
+  local read_ok, raw = pcall(function()
+    return bridge:read_context(origin.pane_id, 64 * 1024)
+  end)
+  if not read_ok then
+    return nil, 'context read failed: ' .. tostring(raw), 'unverified'
+  end
+  if type(raw) ~= 'string' then
     return nil, 'context has not been validated yet', 'unverified'
   end
   local cache = json.decode(raw)

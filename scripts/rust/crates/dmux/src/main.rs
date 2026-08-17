@@ -253,6 +253,14 @@ enum Cmd {
         argv: Vec<String>,
     },
 
+    /// Internal: detach one bounded post-exec GUI-history monitor. It can
+    /// finalize only an already-staged exact pending transition.
+    #[command(name = "_gui-exec-finalize", hide = true)]
+    GuiExecFinalize {
+        #[arg(long)]
+        pending_uid: String,
+    },
+
     /// Internal: registry-only guarded cold-recovery service surface
     /// (plan §15.3). The coordinator deliberately rejects inherited mux
     /// endpoint variables before taking any recovery fence.
@@ -278,6 +286,14 @@ enum Cmd {
         /// Test seam: kernel-lock directory.
         #[arg(long, hide = true)]
         lock_dir: Option<String>,
+    },
+
+    /// Internal: refresh one exact outer-GUI marker from a managed tmux
+    /// client hook after attach, session change, or native child selection.
+    #[command(name = "_tmux-context-refresh", hide = true)]
+    TmuxContextRefresh {
+        #[command(flatten)]
+        args: dmux::tmux_hook_cli::TmuxContextRefreshArgs,
     },
 
     /// Groups (tabs/windows) of a managed Space
@@ -392,9 +408,6 @@ enum RecoveryInternalCmd {
         runtime_dir: PathBuf,
 
         #[arg(long)]
-        manifest_dir: PathBuf,
-
-        #[arg(long)]
         server_pid: i64,
 
         #[arg(long)]
@@ -418,10 +431,19 @@ enum RecoveryInternalCmd {
         backend_instance: uuid::Uuid,
 
         #[arg(long)]
-        candidate: PathBuf,
+        candidate_id: String,
 
         #[arg(long)]
-        destination: PathBuf,
+        server_epoch: uuid::Uuid,
+
+        #[arg(long)]
+        runtime_dir: PathBuf,
+
+        #[arg(long)]
+        server_pid: i64,
+
+        #[arg(long)]
+        server_start_token: String,
     },
 }
 
@@ -642,12 +664,16 @@ fn main() -> ExitCode {
         Some(Cmd::GuiInternal { origin_json, argv }) => Ok(ExitCode::from(
             dmux::gui_cli::run_production_argv(origin_json.as_deref(), &argv),
         )),
+        Some(Cmd::GuiExecFinalize { pending_uid }) => Ok(gui_exec_finalize_cmd(&pending_uid)),
         Some(Cmd::RecoveryInternal { cmd }) => Ok(recovery_internal_cmd(cmd)),
         Some(Cmd::TmuxBootstrap {
             namespace,
             data_dir,
             lock_dir,
         }) => tmux_bootstrap_cmd(namespace, data_dir, lock_dir),
+        Some(Cmd::TmuxContextRefresh { args }) => {
+            Ok(ExitCode::from(dmux::tmux_hook_cli::run(&args)))
+        }
         Some(Cmd::Group { cmd }) => space_cli::group(cmd),
         Some(Cmd::Split { cmd }) => space_cli::split(cmd),
         Some(Cmd::Context { cmd }) => space_cli::context(cmd),
@@ -699,8 +725,8 @@ fn main() -> ExitCode {
 fn recovery_internal_cmd(cmd: RecoveryInternalCmd) -> ExitCode {
     use dmux::model::{BackendInstanceUid, ServerEpoch};
     use dmux::recovery::{
-        RecoveryCoordinatorOptions, ensure_wez_backend_instance, publish_snapshot_manifest,
-        run_recovery_coordinator,
+        RecoveryCoordinatorOptions, ensure_wez_backend_instance, production_recovery_manifest_dir,
+        publish_snapshot_manifest, run_recovery_coordinator,
     };
     use dmux::registry::RegistryConfig;
 
@@ -718,7 +744,6 @@ fn recovery_internal_cmd(cmd: RecoveryInternalCmd) -> ExitCode {
                 backend_instance,
                 server_epoch,
                 runtime_dir,
-                manifest_dir,
                 server_pid,
                 server_start_token,
                 helper_bin,
@@ -728,7 +753,7 @@ fn recovery_internal_cmd(cmd: RecoveryInternalCmd) -> ExitCode {
                 let mut options = RecoveryCoordinatorOptions::new(
                     config,
                     runtime_dir,
-                    manifest_dir,
+                    production_recovery_manifest_dir()?,
                     BackendInstanceUid(backend_instance),
                     ServerEpoch(server_epoch),
                     server_pid,
@@ -742,14 +767,20 @@ fn recovery_internal_cmd(cmd: RecoveryInternalCmd) -> ExitCode {
             }
             RecoveryInternalCmd::SnapshotPublish {
                 backend_instance,
-                candidate,
-                destination,
+                candidate_id,
+                server_epoch,
+                runtime_dir,
+                server_pid,
+                server_start_token,
             } => {
                 let report = publish_snapshot_manifest(
                     config,
                     BackendInstanceUid(backend_instance),
-                    &candidate,
-                    &destination,
+                    &candidate_id,
+                    &runtime_dir,
+                    ServerEpoch(server_epoch),
+                    server_pid,
+                    &server_start_token,
                 )?;
                 println!("{}", serde_json::to_string(&report)?);
             }
@@ -1101,6 +1132,12 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
     use dmux::model::{Backend, SpaceUid};
     use dmux::operations::{self, OperationEnv};
 
+    // Like the remote/bootstrap endpoints, this command may be invoked by a
+    // non-interactive prompt wrapper with a POSIX locale.  tmux sanitizes the
+    // provider's U+001F identity separators in that locale, so normalize
+    // before the first provider subprocess is spawned.
+    dmux::remote::normalize_utf8_locale();
+
     let env = match (data_dir, lock_dir) {
         (Some(data), Some(lock)) => OperationEnv {
             db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
@@ -1126,15 +1163,13 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
         };
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else if let Ok(pane) = std::env::var("WEZTERM_PANE") {
-        let descriptor = dmux::runtime::read_wez_descriptor()
-            .map_err(|e| e.to_string())?
-            .ok_or("managed mux descriptor absent (service not running)")?;
+        let (socket, epoch) = space_cli::verified_wez_target(&env, None)?;
         let (bin, config) = space_cli::production_wez_paths();
         let provider = dmux::backend::wez::WezProvider::new(&bin, config);
         let scope = InventoryScope {
             backend: Backend::Wez,
-            endpoint: descriptor.socket,
-            expected_epoch: None,
+            endpoint: socket,
+            expected_epoch: Some(epoch),
         };
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else {
@@ -1203,6 +1238,61 @@ fn gui_response_message(response: &dmux::gui_cli::GuiResponse) -> Option<&str> {
                 .and_then(serde_json::Value::as_str)
         })
     })
+}
+
+/// Bootstrap a detached, bounded monitor without leaving a zombie beneath
+/// the tmux/ssh process that replaces the public dmux caller. The bootstrap
+/// is itself synchronously reaped by `connect_cli`; its forked worker is
+/// orphaned when this function returns and owns no terminal descriptors.
+fn gui_exec_finalize_cmd(raw_pending_uid: &str) -> ExitCode {
+    let pending_uid = match uuid::Uuid::parse_str(raw_pending_uid) {
+        Ok(uid) if uid.to_string() == raw_pending_uid => uid,
+        _ => {
+            return render_connect_error(dmux::error::TypedError::new(
+                dmux::error::ErrorCode::InvalidRef,
+                "GUI transition pending UID is not one canonical UUID",
+            ));
+        }
+    };
+
+    // SAFETY: this hidden bootstrap is a freshly exec'd, single-threaded dmux
+    // process. The child immediately detaches and either runs the bounded
+    // finalizer or exits via `_exit`; the parent performs no shared mutation.
+    let worker = unsafe { libc::fork() };
+    if worker < 0 {
+        return render_connect_error(dmux::error::TypedError::new(
+            dmux::error::ErrorCode::OperationFailed,
+            "cannot fork the GUI transition finalizer",
+        ));
+    }
+    if worker > 0 {
+        return ExitCode::SUCCESS;
+    }
+
+    // SAFETY: this is the fork child described above. All inherited stdio is
+    // `/dev/null`; a new session prevents reacquiring the invoking terminal.
+    if unsafe { libc::setsid() } < 0 {
+        let _ = dmux::gui_cli::cancel_correlated_gui_exec_transition_production(pending_uid);
+        unsafe { libc::_exit(1) };
+    }
+    let outcome = dmux::gui_cli::finalize_correlated_gui_exec_transition_production(
+        pending_uid,
+        // Remote attach tokens remain valid for 60 seconds. The pending
+        // record carries the plan-kind deadline (locals stay shorter); this
+        // outer bound leaves a small post-attach hook margin without making
+        // any monitor unbounded.
+        std::time::Duration::from_secs(70),
+    );
+    let status = match outcome {
+        Ok(_) => 0,
+        Err(_) => {
+            let _ = dmux::gui_cli::cancel_correlated_gui_exec_transition_production(pending_uid);
+            1
+        }
+    };
+    // SAFETY: the detached worker must not unwind through state copied by
+    // fork or flush any inherited userspace buffers.
+    unsafe { libc::_exit(status) }
 }
 
 /// `dmux _tmux-bootstrap`: silent on success (the session-created hook's
@@ -1395,12 +1485,7 @@ fn new_command(_context: &Context, explicit_host: Option<&str>, args: NewCliArgs
             render_new_receipt(&result);
             ExitCode::SUCCESS
         }
-        Ok(NewOutcome::Exec { plan, .. }) => {
-            if let Err(error) = dmux::connect_cli::commit_production_exec_history(&plan) {
-                return render_connect_error(error);
-            }
-            attach::exec_plan(plan.into_argv(), &[])
-        }
+        Ok(NewOutcome::Exec { plan, .. }) => exec_owner_plan(*plan),
         Err(NewFailure { error, result }) => {
             if let Some(result) = result {
                 render_new_receipt(&result);
@@ -1488,9 +1573,7 @@ fn connect_selector(
     child: Option<dmux::connect_cli::RequestedChild>,
     launch_gui: bool,
 ) -> ExitCode {
-    use dmux::connect_cli::{
-        ConnectOutcome, ConnectRequest, commit_production_exec_history, plan_connect_production,
-    };
+    use dmux::connect_cli::{ConnectOutcome, ConnectRequest, plan_connect_production};
 
     if attach::dry_run() {
         return render_connect_error(dmux::error::TypedError::new(
@@ -1511,13 +1594,21 @@ fn connect_selector(
     };
     match outcome {
         ConnectOutcome::Completed(_) => ExitCode::SUCCESS,
-        ConnectOutcome::Exec(plan) => {
-            if let Err(error) = commit_production_exec_history(&plan) {
-                return render_connect_error(error);
-            }
-            attach::exec_plan(plan.into_argv(), &[])
-        }
+        ConnectOutcome::Exec(plan) => exec_owner_plan(plan),
     }
+}
+
+/// The single feature-on terminal handoff boundary shared by public Connect
+/// and New. It captures the GUI source, stages a post-attach transition, and
+/// commits terminal history before the validated argv is consumed. Global
+/// GUI history moves only when the detached monitor proves the hook-published
+/// destination after exec.
+fn exec_owner_plan(plan: dmux::connect_cli::OwnerExecPlan) -> ExitCode {
+    let _handoff = match dmux::connect_cli::prepare_production_exec_handoff(&plan) {
+        Ok(handoff) => handoff,
+        Err(error) => return render_connect_error(error),
+    };
+    attach::exec_plan(plan.into_argv(), &[])
 }
 
 fn render_connect_error(error: dmux::error::TypedError) -> ExitCode {
@@ -1772,6 +1863,21 @@ mod tests {
         };
         assert!(origin_json.is_none());
         assert!(argv.is_empty());
+    }
+
+    #[test]
+    fn gui_exec_finalizer_accepts_only_the_fixed_pending_uid_surface() {
+        let uid = "11111111-1111-4111-8111-111111111111";
+        let parsed =
+            Cli::try_parse_from(["dmux", "_gui-exec-finalize", "--pending-uid", uid]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Some(Cmd::GuiExecFinalize { pending_uid }) if pending_uid == uid
+        ));
+        assert!(
+            Cli::try_parse_from(["dmux", "_gui-exec-finalize", "--pending-uid", uid, "extra",])
+                .is_err()
+        );
     }
 
     #[test]

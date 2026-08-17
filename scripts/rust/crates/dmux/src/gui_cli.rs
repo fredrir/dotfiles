@@ -9,14 +9,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::backend::{InventoryOutcome, InventoryScope, Provider, SplitDirection};
+use crate::backend::wez::{IdentityExpectation, WezProvider};
+use crate::backend::{InventoryOutcome, InventoryScope, Provider, ProviderError, SplitDirection};
 use crate::bootstrap::MarkerContext;
 use crate::connect_cli::{
     FrozenBinding, FrozenConnectTarget, OwnerConnectQuery, OwnerLocator, PresentationMode,
@@ -24,11 +25,12 @@ use crate::connect_cli::{
 };
 use crate::error::{ErrorCode, TypedError};
 use crate::gui::{
-    self, BridgeDomainState, BridgeHeartbeat, BridgeInstanceSelection, BridgeSelection,
-    GuiCliOrigin, GuiDomainManifestRow, GuiSpaceRow, GuiStatusCache, GuiStatusDisplay,
-    RemoteDomainSource,
+    self, BridgeDomainState, BridgeHeartbeat, BridgeInstanceSelection, BridgePane, BridgeSelection,
+    GuiCliOrigin, GuiDomainManifestRow, GuiError, GuiResidentCliOrigin, GuiSpaceRow,
+    GuiStatusCache, GuiStatusDisplay, RemoteDomainSource,
 };
-use crate::history::History;
+use crate::history::{GuiHistoryTarget, History, PendingGuiTransition};
+use crate::locks::{LockMode, LockScope, OrderedLocks};
 use crate::model::{
     Backend, BackendInstanceUid, ChildKind, Health, HostUid, Lifecycle, ServerEpoch, SpaceNo,
     SpaceUid,
@@ -54,7 +56,10 @@ use crate::remote::protocol::{
     self, Envelope, GroupActivatePayload, GroupActivateResult, GroupNewPayload, GroupRenamePayload,
     GroupRmPayload, HelloInfo, HelloPayload, HierarchyPayload, NewPayload, RmPayload, SpaceInfo,
     SpacesInfo, SplitDirectionPayload, SplitDirectionResult, SplitNewPayload, SplitResizePayload,
-    SplitResizeResult, SplitRmPayload, SplitZoomPayload, SplitZoomResult,
+    SplitResizeResult, SplitRmPayload, SplitZoomPayload, SplitZoomResult, TmuxClientDetachPayload,
+    TmuxClientDetachResult, TmuxClientRefreshPayload, TmuxClientRefreshResult,
+    TmuxClientStatusPayload, TmuxClientStatusResult, TmuxClientSwitchPayload,
+    TmuxClientSwitchResult, WezNativePaneWitness, WezNativeTreePayload, WezNativeTreeResult,
 };
 
 pub const GUI_SCHEMA_VERSION: u64 = 1;
@@ -77,11 +82,16 @@ pub enum GuiCommand {
         cache: bool,
     },
     /// List owner-validated live Spaces for the picker.
-    Spaces,
+    Spaces {
+        #[arg(long, value_parser = canonical_uuid_arg)]
+        tmux_client_uid: Option<Uuid>,
+    },
     /// Present one existing Space; never creates on a miss.
     Present {
         #[arg(long)]
         space: String,
+        #[arg(long, value_parser = canonical_uuid_arg)]
+        tmux_client_uid: Option<Uuid>,
     },
     /// Create a Space on the active marker's exact owner/backend.
     SpaceNew {
@@ -89,6 +99,8 @@ pub enum GuiCommand {
         name: String,
         #[arg(long)]
         dir: Option<String>,
+        #[arg(long, value_parser = canonical_uuid_arg)]
+        tmux_client_uid: Option<Uuid>,
     },
     GroupNew,
     GroupSelect {
@@ -141,6 +153,14 @@ impl GuiCommand {
     fn needs_origin(&self) -> bool {
         !matches!(self, GuiCommand::Domains | GuiCommand::Summon)
     }
+}
+
+fn canonical_uuid_arg(value: &str) -> Result<Uuid, String> {
+    let parsed = Uuid::parse_str(value).map_err(|error| error.to_string())?;
+    if parsed.to_string() != value {
+        return Err("must be canonical lowercase hyphenated UUID text".to_string());
+    }
+    Ok(parsed)
 }
 
 /// Exact one-document response consumed by the Lua controller.
@@ -244,6 +264,19 @@ pub trait GuiAuthority {
 
     fn execute_unbound(&mut self, command: &GuiCommand) -> Result<Value, TypedError>;
 
+    /// Pane-free application lifecycle requests use the exact resident GUI
+    /// process/lease identity. Ordinary authorities keep this unavailable.
+    fn execute_resident(
+        &mut self,
+        _origin: &GuiResidentCliOrigin,
+        _command: &GuiCommand,
+    ) -> Result<Value, TypedError> {
+        Err(TypedError::new(
+            ErrorCode::Usage,
+            "resident GUI lifecycle origin is unavailable for this authority",
+        ))
+    }
+
     /// Only a mutation that durably completed before presentation failed
     /// may populate this. The default keeps all ordinary failures free of a
     /// result document.
@@ -269,10 +302,28 @@ pub fn dispatch<A: GuiAuthority>(
                 ));
             }
         };
-        gui::parse_origin_json(raw)
-            .map_err(typed_gui)
-            .and_then(|origin| authority.bind_origin(&origin))
-            .and_then(|bound| authority.execute_bound(&bound, command))
+        let resident = serde_json::from_str::<Value>(raw)
+            .ok()
+            .and_then(|value| value.get("kind").and_then(Value::as_str).map(str::to_owned))
+            .as_deref()
+            == Some("resident_gui");
+        if resident {
+            if !matches!(command, GuiCommand::SafeQuit) {
+                Err(TypedError::new(
+                    ErrorCode::Usage,
+                    "resident GUI origin is restricted to safe-quit",
+                ))
+            } else {
+                gui::parse_resident_origin_json(raw)
+                    .map_err(typed_gui)
+                    .and_then(|origin| authority.execute_resident(&origin, command))
+            }
+        } else {
+            gui::parse_origin_json(raw)
+                .map_err(typed_gui)
+                .and_then(|origin| authority.bind_origin(&origin))
+                .and_then(|bound| authority.execute_bound(&bound, command))
+        }
     } else if origin_json.is_some() {
         Err(TypedError::new(
             ErrorCode::Usage,
@@ -373,6 +424,19 @@ fn typed_operation(error: operations::OpError) -> TypedError {
         }
     };
     TypedError::new(code, error.to_string())
+}
+
+fn typed_wez_native_tree(error: ProviderError) -> TypedError {
+    let code = match error {
+        ProviderError::EpochChanged { .. } => ErrorCode::BackendEpochChanged,
+        ProviderError::WrongInstance { .. } => ErrorCode::WrongBackendInstance,
+        ProviderError::NotFound { .. } => ErrorCode::SpaceAbsent,
+        ProviderError::PostconditionFailed { .. } => ErrorCode::PostconditionFailed,
+        ProviderError::Timeout { .. }
+        | ProviderError::NativeFailure { .. }
+        | ProviderError::MultiWindow { .. } => ErrorCode::ProviderUnavailable,
+    };
+    TypedError::new(code, format!("wez native-tree proof: {error:?}"))
 }
 
 fn unavailable(message: impl Into<String>) -> TypedError {
@@ -608,11 +672,48 @@ struct SnapshotMarker {
     gui_domain: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct DomainAuthority {
     host_uid: HostUid,
     backend_instance: BackendInstanceUid,
     server_epoch: ServerEpoch,
+    native_tree: WezNativeTreeResult,
+}
+
+fn require_native_tree_survived(
+    domain: &str,
+    before: &WezNativeTreeResult,
+    after: &WezNativeTreeResult,
+) -> Result<(), TypedError> {
+    if before.backend_instance_uid != after.backend_instance_uid
+        || before.server_epoch != after.server_epoch
+        || before.sentinel_window_id != after.sentinel_window_id
+        || before.sentinel_tab_id != after.sentinel_tab_id
+        || before.sentinel_pane_id != after.sentinel_pane_id
+    {
+        return Err(TypedError::new(
+            ErrorCode::PostconditionFailed,
+            format!("GUI domain {domain:?} changed exact sentinel/backend incarnation"),
+        ));
+    }
+    for pane in &before.panes {
+        if after
+            .panes
+            .iter()
+            .filter(|candidate| candidate.pane_id == pane.pane_id)
+            .count()
+            != 1
+        {
+            return Err(TypedError::new(
+                ErrorCode::PostconditionFailed,
+                format!(
+                    "GUI domain {domain:?} lost or duplicated pre-detach physical pane {}",
+                    pane.pane_id
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -620,6 +721,106 @@ struct SummonTarget {
     authority: AuthorityMarker,
     domain: String,
     alternate_domains: Vec<String>,
+}
+
+fn require_complete_hierarchy_survived(
+    space_uid: SpaceUid,
+    before: &SpaceHierarchy,
+    after: &SpaceHierarchy,
+) -> Result<(), TypedError> {
+    if before.space_uid != after.space_uid || before.server_epoch != after.server_epoch {
+        return Err(TypedError::new(
+            ErrorCode::PostconditionFailed,
+            format!(
+                "owner Space/epoch changed while detaching GUI presentation for Space {}",
+                space_uid.0
+            ),
+        ));
+    }
+    for before_group in &before.groups {
+        let matching_groups: Vec<_> = after
+            .groups
+            .iter()
+            .filter(|group| group.group_ref == before_group.group_ref)
+            .collect();
+        let [after_group] = matching_groups.as_slice() else {
+            return Err(TypedError::new(
+                ErrorCode::PostconditionFailed,
+                format!(
+                    "owner Group {} disappeared or became ambiguous while detaching GUI presentation for Space {}",
+                    before_group.group_ref, space_uid.0
+                ),
+            ));
+        };
+        for before_split in &before_group.splits {
+            if after_group
+                .splits
+                .iter()
+                .filter(|split| split.split_ref == before_split.split_ref)
+                .count()
+                != 1
+            {
+                return Err(TypedError::new(
+                    ErrorCode::PostconditionFailed,
+                    format!(
+                        "owner Split {} disappeared, moved parent, or became ambiguous while detaching GUI presentation for Space {}",
+                        before_split.split_ref, space_uid.0
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn merge_snapshot_hierarchy(
+    accumulated: &mut SpaceHierarchy,
+    observed: &SpaceHierarchy,
+) -> Result<(), TypedError> {
+    if accumulated.space_uid != observed.space_uid
+        || accumulated.server_epoch != observed.server_epoch
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "snapshot scans for one Space disagree on SpaceUid/server epoch",
+        ));
+    }
+    for observed_group in &observed.groups {
+        for other in &accumulated.groups {
+            if other.group_ref != observed_group.group_ref
+                && observed_group.splits.iter().any(|split| {
+                    other
+                        .splits
+                        .iter()
+                        .any(|existing| existing.split_ref == split.split_ref)
+                })
+            {
+                return Err(TypedError::new(
+                    ErrorCode::IdentityConflict,
+                    "snapshot scans place one Split under different Groups",
+                ));
+            }
+        }
+        match accumulated
+            .groups
+            .iter_mut()
+            .find(|group| group.group_ref == observed_group.group_ref)
+        {
+            Some(group) => {
+                for split in &observed_group.splits {
+                    if !group
+                        .splits
+                        .iter()
+                        .any(|existing| existing.split_ref == split.split_ref)
+                    {
+                        group.splits.push(split.clone());
+                    }
+                }
+            }
+            None => accumulated.groups.push(observed_group.clone()),
+        }
+    }
+    Ok(())
 }
 
 /// Owner/backend facts frozen by one nonce-bound remote hello plus the
@@ -675,7 +876,6 @@ struct ColdSpaceIdentity {
 struct SafeQuitDomainPlan {
     detach: Vec<String>,
     full_persistent_set: BTreeSet<String>,
-    must_hide: bool,
 }
 
 /// Finalize the already authority-proved persistent-domain selection. tmux
@@ -708,8 +908,22 @@ fn safe_quit_domain_plan(
     Ok(SafeQuitDomainPlan {
         detach,
         full_persistent_set,
-        must_hide: contains_tmux,
     })
+}
+
+fn safe_quit_platform_action() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "hide"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        "quit"
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        "hide"
+    }
 }
 
 fn heartbeat_proves_domains_detached(
@@ -990,13 +1204,21 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         }
         let selection = gui::discover_in_gui_instance(&self.runtime_dir, &authoritative.marker)
             .map_err(typed_gui)?;
-        let authoritative =
-            self.validate_authority_marker_in_domain(&ambient, Some(&selection.domain))?;
+        let authoritative = match ambient.backend {
+            Backend::Wez => {
+                self.validate_authority_marker_in_domain(&ambient, Some(&selection.domain))?
+            }
+            // A tmux marker names its tmux owner. `selection.domain` is the
+            // physical outer Wez container (often local for a remote SSH
+            // client), not an owner Wez route.
+            Backend::Tmux => self.validate_authority_marker(&ambient)?,
+        };
         let candidate = GuiCliOrigin {
             protocol_version: gui::BRIDGE_PROTOCOL_VERSION,
             gui_instance: selection.gui_instance,
             pane_id: selection.pane_id,
             domain: selection.domain,
+            tmux_client_uid: None,
             marker: authoritative.marker,
         };
         // Reuse the strict serialized-origin validator so this adapter has
@@ -1096,28 +1318,35 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 .socket_path
                 .ok_or_else(|| unavailable("managed tmux backend has no recorded namespace"))?,
             Backend::Wez => {
-                let descriptor = crate::runtime::read_wez_descriptor_in(&self.runtime_dir)
-                    .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?
-                    .ok_or_else(|| unavailable("managed Wez descriptor is absent"))?;
-                descriptor
-                    .require_ready()
-                    .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?;
-                let descriptor_instance = descriptor
-                    .backend_instance_uid
-                    .as_deref()
-                    .and_then(|value| Uuid::parse_str(value).ok())
-                    .map(BackendInstanceUid);
-                let descriptor_epoch = Uuid::parse_str(&descriptor.epoch).ok().map(ServerEpoch);
-                if descriptor_instance != Some(instance) {
-                    return Err(TypedError::new(
-                        ErrorCode::WrongBackendInstance,
-                        "managed Wez descriptor names a different backend instance",
-                    ));
-                }
-                if descriptor_epoch != Some(epoch) {
+                let server = registry.backend_server(instance).map_err(typed_registry)?;
+                if server.server_epoch != Some(epoch) {
                     return Err(TypedError::new(
                         ErrorCode::BackendEpochChanged,
-                        "managed Wez descriptor names a different server epoch",
+                        "registered Wez server epoch differs from the selected authority",
+                    ));
+                }
+                let descriptor = crate::runtime::read_verified_ready_wez_descriptor_in(
+                    &self.runtime_dir,
+                    Some(instance.0),
+                    Some(epoch.0),
+                )
+                .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?
+                .ok_or_else(|| unavailable("managed Wez descriptor is absent"))?;
+                if info.socket_path.as_deref() != Some(descriptor.socket.as_str())
+                    || server.server_pid != Some(i64::from(descriptor.pid))
+                    || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
+                    || server.socket_dev
+                        != descriptor
+                            .socket_dev
+                            .and_then(|value| i64::try_from(value).ok())
+                    || server.socket_ino
+                        != descriptor
+                            .socket_ino
+                            .and_then(|value| i64::try_from(value).ok())
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::WrongBackendInstance,
+                        "managed Wez descriptor differs from the registered socket/process incarnation",
                     ));
                 }
                 descriptor.socket
@@ -1594,7 +1823,15 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         if marker.host_uid == identity.host_uid {
             self.validate_local_marker(marker)
         } else {
-            self.validate_remote_marker(marker, gui_domain)
+            // A tmux marker's owner authority is the exact tmux
+            // instance/epoch/client. Its heartbeat domain is only the
+            // physical outer Wez container and may be local while the tmux
+            // owner is remote, so it must never be interpreted as an
+            // enrolled Wez route for that owner.
+            self.validate_remote_marker(
+                marker,
+                marker_owner_route_domain(marker.backend, gui_domain),
+            )
         }
     }
 
@@ -1826,6 +2063,26 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             .cloned()
             .collect();
         Ok((selected.name.clone(), alternate_domains))
+    }
+
+    fn remote_cold_launch_domain(
+        &self,
+        owner: HostUid,
+        authority: &RemoteWezPreflight,
+    ) -> Result<(String, Vec<String>), TypedError> {
+        let candidates: Vec<_> = authority
+            .manifest
+            .iter()
+            .filter(|row| {
+                row.compatible
+                    && row.remote_wezterm_path.is_some()
+                    && row.host_uid == owner
+                    && row.backend_instance_uid == authority.backend_instance
+            })
+            .collect();
+        let selected =
+            choose_compatible_presentation_row(None, &authority.fresh_route, &candidates)?;
+        Ok((selected.name.clone(), selected.alternate_domains.clone()))
     }
 
     fn probe_new_wez_route(
@@ -2281,7 +2538,11 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         Ok(spaces)
     }
 
-    fn gui_space_rows(&self, heartbeat: &BridgeHeartbeat) -> Result<Vec<GuiSpaceRow>, TypedError> {
+    fn gui_space_rows(
+        &self,
+        heartbeat: &BridgeHeartbeat,
+        tmux_scope: Option<(HostUid, BackendInstanceUid, ServerEpoch)>,
+    ) -> Result<Vec<GuiSpaceRow>, TypedError> {
         let spaces = self.all_space_markers()?;
         let needs_remote_manifest = spaces.iter().any(|space| {
             space.marker.backend == Backend::Wez
@@ -2295,8 +2556,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         let rows: Vec<GuiSpaceRow> = spaces
             .iter()
             .filter(|space| {
-                if space.marker.backend != Backend::Wez {
-                    return false;
+                if space.marker.backend == Backend::Tmux {
+                    return tmux_scope.is_some_and(|(host, instance, epoch)| {
+                        space.marker.host_uid == host
+                            && space.backend_instance == instance
+                            && space.marker.server_epoch == epoch
+                    });
                 }
                 match &space.location {
                     AuthorityLocation::Local => heartbeat.domains.contains_key(LOCAL_WEZ_DOMAIN),
@@ -2319,6 +2584,8 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 health: Self::health_token(space.health),
             })
             .collect();
+        // Row shape is shared across both typed backends; correlated tmux
+        // eligibility was already proved by the authority-layer filter.
         gui::validate_space_rows(&rows).map_err(typed_gui)?;
         Ok(rows)
     }
@@ -3000,11 +3267,94 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         }
     }
 
+    fn cold_launch_intent_for_summon_target(
+        &self,
+        target: &SummonTarget,
+        launcher_request_uid: Uuid,
+    ) -> Result<crate::gui_lifecycle::ColdLaunchIntent, TypedError> {
+        let preflight = WezPresentationPreflight {
+            owner: target.authority.marker.host_uid,
+            backend_instance_uid: target.authority.backend_instance,
+            server_epoch: target.authority.marker.server_epoch,
+            gui_instance: format!("gui-{}", launcher_request_uid.simple()),
+            domain: target.domain.clone(),
+            alternate_domains: target.alternate_domains.clone(),
+            mode: NewPresentationMode::Cold,
+        };
+        let frozen = FrozenConnectTarget {
+            owner: target.authority.marker.host_uid,
+            space_uid: target.authority.marker.space_uid,
+            space_no: target.authority.marker.space_no,
+            logical_name: target.authority.logical_name.clone(),
+            backend: target.authority.marker.backend,
+            backend_instance_uid: target.authority.backend_instance,
+            server_epoch: target.authority.marker.server_epoch,
+            binding: self.frozen_binding_for_authority(&target.authority)?,
+            child: None,
+        };
+        crate::gui_lifecycle::ColdLaunchIntent::from_existing_target(
+            &preflight,
+            &frozen,
+            launcher_request_uid,
+        )
+    }
+
+    fn establish_resident_gui(
+        &self,
+        witness: &crate::gui_lifecycle::ColdLauncherWitness,
+    ) -> Result<Value, TypedError> {
+        let intent = witness.intent();
+        let origin = gui::cold_launcher_origin(
+            witness.gui_instance().to_string(),
+            witness.process().uid,
+            u64::from(witness.process().pid),
+            witness.process().start_token.clone(),
+            witness.launcher_request_uid(),
+            intent.domain().to_string(),
+            intent.owner(),
+            intent.backend_instance_uid(),
+            intent.server_epoch(),
+            intent.space_uid(),
+        )
+        .map_err(typed_gui)?;
+        let mut target = serde_json::json!({
+            "backend_instance_uid": intent.backend_instance_uid(),
+            "domain": intent.domain(),
+            "host_uid": intent.owner(),
+            "server_epoch": intent.server_epoch(),
+        });
+        if let Some(space_uid) = intent.space_uid() {
+            target["space_uid"] =
+                serde_json::to_value(space_uid).expect("SpaceUid always serializes");
+        }
+        let mut request =
+            gui::request_document("establish_resident", target, origin).map_err(typed_gui)?;
+        gui::call_instance(
+            &self.runtime_dir,
+            witness.gui_instance(),
+            &mut request,
+            gui::ACK_TIMEOUT,
+        )
+        .map_err(typed_gui)
+    }
+
+    fn prove_resident_gui(&self, instance: &BridgeInstanceSelection) -> Result<Value, TypedError> {
+        let origin = gui::resident_gui_origin(instance);
+        let mut request =
+            gui::request_document("ping", serde_json::json!({}), origin).map_err(typed_gui)?;
+        gui::call_instance(
+            &self.runtime_dir,
+            &instance.gui_instance,
+            &mut request,
+            gui::ACK_TIMEOUT,
+        )
+        .map_err(typed_gui)
+    }
+
     fn cold_bridge_present(
         &self,
         instance: &BridgeInstanceSelection,
         target: &SummonTarget,
-        launcher_request_uid: Uuid,
         group_ref: Option<&str>,
         split_ref: Option<&str>,
     ) -> Result<Value, TypedError> {
@@ -3033,16 +3383,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 ));
             }
         };
-        let origin = gui::cold_launcher_origin(
-            instance.gui_instance.clone(),
-            u64::from(unsafe { libc::geteuid() }),
-            u64::from(std::process::id()),
-            crate::registry::process_start_token(),
-            launcher_request_uid,
-            target.domain.clone(),
-            target.authority.backend_instance,
-        )
-        .map_err(typed_gui)?;
+        let origin = gui::resident_gui_origin(instance);
         let mut target_json = serde_json::json!({
             "backend_instance_uid": target.authority.backend_instance,
             "domain": target.domain,
@@ -3172,62 +3513,151 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     &heartbeat_source,
                     &self.runtime_dir,
                 )?;
-                let instance = match live.as_slice() {
-                    [instance] => instance.clone(),
+                match live.as_slice() {
+                    [instance] => {
+                        self.prove_resident_gui(instance)?;
+                        if local_owner {
+                            require_preflight_domain(&instance.domains, LOCAL_WEZ_DOMAIN)?;
+                            Ok(WezPresentationPreflight {
+                                owner,
+                                backend_instance_uid: ready.backend_instance_uid,
+                                server_epoch: ready.server_epoch,
+                                gui_instance: instance.gui_instance.clone(),
+                                domain: LOCAL_WEZ_DOMAIN.to_string(),
+                                alternate_domains: Vec::new(),
+                                mode,
+                            })
+                        } else {
+                            let remote = self.remote_wez_preflight(owner)?;
+                            let before = remote_before
+                                .as_ref()
+                                .expect("remote owner preflight was established");
+                            if remote.backend_instance != before.backend_instance
+                                || remote.server_epoch != before.server_epoch
+                            {
+                                return Err(TypedError::new(
+                                    ErrorCode::BackendEpochChanged,
+                                    "selected remote Wez backend changed while preparing its attach-only GUI",
+                                ));
+                            }
+                            let (domain, alternate_domains) =
+                                self.remote_preflight_domain(owner, &instance.domains, &remote)?;
+                            Ok(WezPresentationPreflight {
+                                owner,
+                                backend_instance_uid: remote.backend_instance,
+                                server_epoch: remote.server_epoch,
+                                gui_instance: instance.gui_instance.clone(),
+                                domain,
+                                alternate_domains,
+                                mode,
+                            })
+                        }
+                    }
                     [] => {
-                        crate::gui_lifecycle::launch_attach_only_gui(
+                        let launcher_request_uid = Uuid::new_v4();
+                        let (backend_instance_uid, server_epoch, domain, alternate_domains) =
+                            if local_owner {
+                                (
+                                    ready.backend_instance_uid,
+                                    ready.server_epoch,
+                                    LOCAL_WEZ_DOMAIN.to_string(),
+                                    Vec::new(),
+                                )
+                            } else {
+                                let before = remote_before
+                                    .as_ref()
+                                    .expect("remote owner preflight was established");
+                                let (domain, alternate_domains) =
+                                    self.remote_cold_launch_domain(owner, before)?;
+                                (
+                                    before.backend_instance,
+                                    before.server_epoch,
+                                    domain,
+                                    alternate_domains,
+                                )
+                            };
+                        let preflight = WezPresentationPreflight {
+                            owner,
+                            backend_instance_uid,
+                            server_epoch,
+                            gui_instance: format!("gui-{}", launcher_request_uid.simple()),
+                            domain,
+                            alternate_domains,
+                            mode,
+                        };
+                        let intent = crate::gui_lifecycle::ColdLaunchIntent::from_new_preflight(
+                            &preflight,
+                            launcher_request_uid,
+                        )?;
+                        let launched = crate::gui_lifecycle::launch_attach_only_gui(
                             &self.runtime_dir,
                             &ready,
                             &self.wezterm_bin,
                             &self.gui_config,
-                            Uuid::new_v4(),
-                        )?
-                        .instance
-                    }
-                    many => {
-                        return Err(TypedError::new(
-                            ErrorCode::IdentityConflict,
-                            format!(
-                                "{} live GUI instances exist; new presentation preflight refuses to guess",
-                                many.len()
-                            ),
-                        ));
-                    }
-                };
+                            launcher_request_uid,
+                            &intent,
+                        )?;
 
-                if local_owner {
-                    require_preflight_domain(&instance.domains, LOCAL_WEZ_DOMAIN)?;
-                    Ok(WezPresentationPreflight {
-                        owner,
-                        backend_instance_uid: ready.backend_instance_uid,
-                        server_epoch: ready.server_epoch,
-                        gui_instance: instance.gui_instance,
-                        domain: LOCAL_WEZ_DOMAIN.to_string(),
-                        alternate_domains: Vec::new(),
-                        mode,
-                    })
-                } else {
-                    let remote = self.remote_wez_preflight(owner)?;
-                    let before = remote_before.expect("remote owner preflight was established");
-                    if remote.backend_instance != before.backend_instance
-                        || remote.server_epoch != before.server_epoch
-                    {
-                        return Err(TypedError::new(
-                            ErrorCode::BackendEpochChanged,
-                            "selected remote Wez backend changed while preparing its attach-only GUI",
-                        ));
+                        self.establish_resident_gui(launched.launcher_witness())
+                            .map_err(|error| {
+                                self.launched_gui_partial("resident provenance", error)
+                            })?;
+                        let launched = launched.commit();
+
+                        if local_owner {
+                            require_preflight_domain(&launched.instance.domains, &preflight.domain)
+                                .map_err(|error| {
+                                    self.launched_gui_partial(
+                                        "NEW local domain revalidation",
+                                        error,
+                                    )
+                                })?;
+                        } else {
+                            let remote = self.remote_wez_preflight(owner).map_err(|error| {
+                                self.launched_gui_partial(
+                                    "NEW remote authority revalidation",
+                                    error,
+                                )
+                            })?;
+                            if remote.backend_instance != preflight.backend_instance_uid
+                                || remote.server_epoch != preflight.server_epoch
+                            {
+                                return Err(self.launched_gui_partial(
+                                    "NEW route revalidation",
+                                    TypedError::new(
+                                        ErrorCode::BackendEpochChanged,
+                                        "selected remote Wez backend changed while preparing its attach-only GUI",
+                                    ),
+                                ));
+                            }
+                            let (domain, _) = self
+                                .remote_preflight_domain(owner, &launched.instance.domains, &remote)
+                                .map_err(|error| {
+                                    self.launched_gui_partial(
+                                        "NEW remote domain revalidation",
+                                        error,
+                                    )
+                                })?;
+                            if domain != preflight.domain {
+                                return Err(self.launched_gui_partial(
+                                    "NEW route rebinding",
+                                    TypedError::new(
+                                        ErrorCode::IdentityConflict,
+                                        "launched GUI selected a different remote domain route",
+                                    ),
+                                ));
+                            }
+                        }
+
+                        Ok(preflight)
                     }
-                    let (domain, alternate_domains) =
-                        self.remote_preflight_domain(owner, &instance.domains, &remote)?;
-                    Ok(WezPresentationPreflight {
-                        owner,
-                        backend_instance_uid: remote.backend_instance,
-                        server_epoch: remote.server_epoch,
-                        gui_instance: instance.gui_instance,
-                        domain,
-                        alternate_domains,
-                        mode,
-                    })
+                    many => Err(TypedError::new(
+                        ErrorCode::IdentityConflict,
+                        format!(
+                            "{} live GUI instances exist; new presentation preflight refuses to guess",
+                            many.len()
+                        ),
+                    )),
                 }
             }
         }
@@ -3248,21 +3678,30 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             &self.runtime_dir,
         )?;
         let launcher_request_uid = Uuid::new_v4();
+        let prelaunch_target =
+            self.choose_summon_target(self.summon_targets(&ready, &manifest, None)?)?;
         let (instance, launched_gui) = match live.as_slice() {
-            [instance] => (instance.clone(), false),
+            [instance] => {
+                self.prove_resident_gui(instance)?;
+                (instance.clone(), false)
+            }
             [] => {
-                // Refuse an absent/ambiguous target before opening a GUI.
-                // The same target is reselected against the launched
-                // instance's exact configured domain set below.
-                self.choose_summon_target(self.summon_targets(&ready, &manifest, None)?)?;
+                let intent = self.cold_launch_intent_for_summon_target(
+                    &prelaunch_target,
+                    launcher_request_uid,
+                )?;
                 let launched = crate::gui_lifecycle::launch_attach_only_gui(
                     &self.runtime_dir,
                     &ready,
                     &self.wezterm_bin,
                     &self.gui_config,
                     launcher_request_uid,
+                    &intent,
                 )?;
-                (launched.instance, true)
+                if let Err(error) = self.establish_resident_gui(launched.launcher_witness()) {
+                    return Err(self.launched_gui_partial("resident provenance", error));
+                }
+                (launched.commit().instance, true)
             }
             many => {
                 return Err(TypedError::new(
@@ -3284,14 +3723,13 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             }
             Err(error) => return Err(error),
         };
-        let ack =
-            match self.cold_bridge_present(&instance, &target, launcher_request_uid, None, None) {
-                Ok(ack) => ack,
-                Err(error) if launched_gui => {
-                    return Err(self.launched_gui_partial("summon presentation", error));
-                }
-                Err(error) => return Err(error),
-            };
+        let ack = match self.cold_bridge_present(&instance, &target, None, None) {
+            Ok(ack) => ack,
+            Err(error) if launched_gui => {
+                return Err(self.launched_gui_partial("summon presentation", error));
+            }
+            Err(error) => return Err(error),
+        };
         Ok(serde_json::json!({
             "launched_gui": launched_gui,
             "summoned": ack,
@@ -3332,7 +3770,8 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             ));
         }
         let manifest = self.remote_domain_manifest()?;
-        self.summon_target_for_authority(&authority, &ready, &manifest, None)?
+        let prelaunch_target = self
+            .summon_target_for_authority(&authority, &ready, &manifest, None)?
             .ok_or_else(|| {
                 unavailable(
                     "the exact Wez target has no owner-validated compatible GUI domain route",
@@ -3346,16 +3785,27 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         )?;
         let launcher_request_uid = Uuid::new_v4();
         let (instance, launched_gui) = match live.as_slice() {
-            [instance] => (instance.clone(), false),
+            [instance] => {
+                self.prove_resident_gui(instance)?;
+                (instance.clone(), false)
+            }
             [] => {
+                let intent = self.cold_launch_intent_for_summon_target(
+                    &prelaunch_target,
+                    launcher_request_uid,
+                )?;
                 let launched = crate::gui_lifecycle::launch_attach_only_gui(
                     &self.runtime_dir,
                     &ready,
                     &self.wezterm_bin,
                     &self.gui_config,
                     launcher_request_uid,
+                    &intent,
                 )?;
-                (launched.instance, true)
+                if let Err(error) = self.establish_resident_gui(launched.launcher_witness()) {
+                    return Err(self.launched_gui_partial("resident provenance", error));
+                }
+                (launched.commit().instance, true)
             }
             many => {
                 return Err(TypedError::new(
@@ -3388,14 +3838,13 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 ));
             }
         };
-        let ack =
-            match self.cold_bridge_present(&instance, &target, launcher_request_uid, None, None) {
-                Ok(ack) => ack,
-                Err(error) if launched_gui => {
-                    return Err(self.launched_gui_partial("explicit presentation", error));
-                }
-                Err(error) => return Err(error),
-            };
+        let ack = match self.cold_bridge_present(&instance, &target, None, None) {
+            Ok(ack) => ack,
+            Err(error) if launched_gui => {
+                return Err(self.launched_gui_partial("explicit presentation", error));
+            }
+            Err(error) => return Err(error),
+        };
         Ok(serde_json::json!({
             "launched_gui": launched_gui,
             "presented": ack,
@@ -3466,7 +3915,8 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
 
         let (authority, refreshed) = self.revalidate_frozen_connect_target(expected)?;
         let manifest = self.remote_domain_manifest()?;
-        self.summon_target_for_authority(&authority, &ready, &manifest, None)?
+        let prelaunch_target = self
+            .summon_target_for_authority(&authority, &ready, &manifest, None)?
             .ok_or_else(|| {
                 unavailable(
                     "the frozen Wez target has no owner-validated compatible GUI domain route",
@@ -3480,16 +3930,27 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         )?;
         let launcher_request_uid = Uuid::new_v4();
         let (instance, launched_gui) = match live.as_slice() {
-            [instance] => (instance.clone(), false),
+            [instance] => {
+                self.prove_resident_gui(instance)?;
+                (instance.clone(), false)
+            }
             [] => {
+                let intent = self.cold_launch_intent_for_summon_target(
+                    &prelaunch_target,
+                    launcher_request_uid,
+                )?;
                 let launched = crate::gui_lifecycle::launch_attach_only_gui(
                     &self.runtime_dir,
                     &ready,
                     &self.wezterm_bin,
                     &self.gui_config,
                     launcher_request_uid,
+                    &intent,
                 )?;
-                (launched.instance, true)
+                if let Err(error) = self.establish_resident_gui(launched.launcher_witness()) {
+                    return Err(self.launched_gui_partial("resident provenance", error));
+                }
+                (launched.commit().instance, true)
             }
             many => {
                 return Err(TypedError::new(
@@ -3526,7 +3987,6 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         let ack = match self.cold_bridge_present(
             &instance,
             &target,
-            launcher_request_uid,
             group_ref.as_deref(),
             split_ref.as_deref(),
         ) {
@@ -3589,7 +4049,11 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             }
             "present"
         };
-        let origin = gui::in_gui_origin(&bound.selection, &bound.authority.marker);
+        let origin = gui::in_gui_origin(
+            &bound.selection,
+            &bound.authority.marker,
+            bound.origin.tmux_client_uid,
+        );
         let mut request = gui::request_document(action, target_json, origin).map_err(typed_gui)?;
         let ack = gui::call_instance(
             &self.runtime_dir,
@@ -3619,6 +4083,72 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         self.bridge_present_selected(bound, target, group_ref, split_ref, None)
     }
 
+    /// Focus one already-visible outer tmux pane without attaching a domain
+    /// or creating/mutating owner resources. The private client record and
+    /// active @window/%pane are checked on the owner immediately before and
+    /// after the signed GUI action; Lua independently requires the exact
+    /// pane id, full marker, and client UID before focusing.
+    fn bridge_focus_tmux_pane(
+        &self,
+        bound: &BoundGuiOrigin,
+        target: &AuthorityMarker,
+        pane: &BridgePane,
+    ) -> Result<Value, TypedError> {
+        if target.marker.backend != Backend::Tmux
+            || pane.context != target.marker
+            || pane.domain.is_empty()
+        {
+            return Err(TypedError::new(
+                ErrorCode::BackendMismatch,
+                "focus_pane requires one exact owner-validated tmux heartbeat pane",
+            ));
+        }
+        let client_uid = pane.tmux_client_uid.ok_or_else(|| {
+            unavailable("already-visible tmux pane has no attach-time exact client UID")
+        })?;
+        self.preflight_tmux_marker_client(target, client_uid)?;
+        let origin = gui::in_gui_origin(
+            &bound.selection,
+            &bound.authority.marker,
+            bound.origin.tmux_client_uid,
+        );
+        let mut request = gui::request_document(
+            "focus_pane",
+            serde_json::json!({
+                "backend": "tmux",
+                "backend_instance_uid": target.backend_instance,
+                "domain": pane.domain,
+                "group_ref": target.marker.group_ref,
+                "host_uid": target.marker.host_uid,
+                "pane_id": pane.pane_id,
+                "server_epoch": target.marker.server_epoch,
+                "space_no": target.marker.space_no,
+                "space_uid": target.marker.space_uid,
+                "split_ref": target.marker.split_ref,
+                "tmux_client_uid": client_uid,
+            }),
+            origin,
+        )
+        .map_err(typed_gui)?;
+        let ack = gui::call_instance(
+            &self.runtime_dir,
+            &bound.selection.gui_instance,
+            &mut request,
+            gui::ACK_TIMEOUT,
+        )
+        .map_err(typed_gui)?;
+        self.preflight_tmux_marker_client(target, client_uid)?;
+        self.history
+            .record_gui_present(target.marker.host_uid, target.marker.space_uid)
+            .map_err(|error| {
+                TypedError::new(
+                    ErrorCode::OperationFailed,
+                    format!("recording exact tmux pane focus history: {error}"),
+                )
+            })?;
+        Ok(ack)
+    }
+
     fn bridge_detach_domain(
         &self,
         bound: &BoundGuiOrigin,
@@ -3626,7 +4156,11 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         instance: BackendInstanceUid,
         epoch: ServerEpoch,
     ) -> Result<Value, TypedError> {
-        let origin = gui::in_gui_origin(&bound.selection, &bound.authority.marker);
+        let origin = gui::in_gui_origin(
+            &bound.selection,
+            &bound.authority.marker,
+            bound.origin.tmux_client_uid,
+        );
         let mut request = gui::request_document(
             "detach_domain",
             serde_json::json!({
@@ -3652,19 +4186,18 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
     /// never rediscover by pane membership after the origin pane vanished.
     fn prove_gui_domains_detached(
         &self,
-        bound: &BoundGuiOrigin,
+        gui_instance: &str,
+        gui_pid: u32,
+        gui_process_start_token: &str,
         domains: &[String],
         all_persistent_domains: Option<&BTreeSet<String>>,
     ) -> Result<BridgeHeartbeat, TypedError> {
         let started = Instant::now();
         loop {
-            let observation = match gui::read_instance_heartbeat(
-                &self.runtime_dir,
-                &bound.selection.gui_instance,
-            ) {
+            let observation = match gui::read_instance_heartbeat(&self.runtime_dir, gui_instance) {
                 Ok(heartbeat) => {
-                    if heartbeat.pid != bound.selection.pid
-                        || heartbeat.process_start_token != bound.selection.process_start_token
+                    if heartbeat.pid != gui_pid
+                        || heartbeat.process_start_token != gui_process_start_token
                     {
                         return Err(TypedError::new(
                             ErrorCode::IdentityConflict,
@@ -3680,7 +4213,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     }
                     format!(
                         "GUI {} has not reported every target domain Detached with zero panes",
-                        bound.selection.gui_instance
+                        gui_instance
                     )
                 }
                 Err(error) => error.to_string(),
@@ -3690,7 +4223,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     ErrorCode::PostconditionFailed,
                     format!(
                         "post-detach heartbeat proof timed out for GUI {}: {observation}",
-                        bound.selection.gui_instance
+                        gui_instance
                     ),
                 ));
             }
@@ -3766,6 +4299,564 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         Ok(result)
     }
 
+    fn local_tmux_client_read_fence(
+        &self,
+        instance: BackendInstanceUid,
+        backend_mode: LockMode,
+    ) -> Result<OrderedLocks, TypedError> {
+        let mut locks = OrderedLocks::new(&self.env.lock_dir);
+        locks
+            .acquire(LockScope::AuthorityGate, LockMode::Shared)
+            .and_then(|_| locks.acquire(LockScope::BackendInstance(instance), backend_mode))
+            .map_err(|error| {
+                TypedError::new(
+                    ErrorCode::OperationFailed,
+                    format!("tmux GUI presentation read fence: {error}"),
+                )
+            })?;
+        Ok(locks)
+    }
+
+    fn tmux_client_target(
+        &self,
+        authority: &AuthorityMarker,
+        group_ref: Option<&str>,
+        split_ref: Option<&str>,
+    ) -> Result<crate::remote::attach::TmuxClientTarget, TypedError> {
+        if authority.marker.backend != Backend::Tmux {
+            return Err(TypedError::new(
+                ErrorCode::BackendMismatch,
+                "invoking-client correlation applies only to tmux Spaces",
+            ));
+        }
+        if !matches!(authority.location, AuthorityLocation::Local) {
+            return Err(TypedError::new(
+                ErrorCode::WrongBackendInstance,
+                "local tmux client correlation received a remote authority",
+            ));
+        }
+        let registry = self.registry()?;
+        let identity = registry.identity().map_err(typed_registry)?;
+        let row = registry
+            .space(authority.marker.space_uid)
+            .map_err(typed_registry)?;
+        let published = registry
+            .backend_server(authority.backend_instance)
+            .map_err(typed_registry)?;
+        if identity.host_uid != authority.marker.host_uid
+            || row.lifecycle != Lifecycle::Active
+            || row.backend_instance != authority.backend_instance
+            || published.server_epoch != Some(authority.marker.server_epoch)
+        {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                "tmux client target changed owner/binding epoch under its presentation fence",
+            ));
+        }
+        let binding = self.frozen_binding_for_authority(authority)?;
+        let active_children = crate::remote::attach::tmux_client_children_from_hierarchy(
+            &authority.hierarchy,
+            group_ref,
+            split_ref,
+        )?;
+        Ok(crate::remote::attach::TmuxClientTarget {
+            host_uid: authority.marker.host_uid,
+            space_uid: authority.marker.space_uid,
+            space_no: authority.marker.space_no,
+            backend_instance_uid: authority.backend_instance,
+            server_epoch: authority.marker.server_epoch,
+            namespace: binding.endpoint,
+            native_session: binding.native_token,
+            active_children,
+        })
+    }
+
+    /// Preflight before any GUI-originated tmux create. The UID is only a
+    /// locator: local and remote owners both validate the persisted
+    /// PID/start-token/tty tuple against exactly one live client currently
+    /// attached to the marker's Space.
+    fn preflight_tmux_client(
+        &self,
+        bound: &BoundGuiOrigin,
+        client_uid: Uuid,
+    ) -> Result<TmuxClientStatusResult, TypedError> {
+        if bound.authority.marker.backend != Backend::Tmux {
+            return Err(TypedError::new(
+                ErrorCode::BackendMismatch,
+                "tmux client UID was supplied for a Wez Space",
+            ));
+        }
+        self.preflight_tmux_marker_client(&bound.authority, client_uid)
+    }
+
+    /// Revalidate one exact outer tmux client against an arbitrary
+    /// owner-authoritative marker. This is used both for the invoking pane
+    /// and for a history-selected already-visible tmux pane; it never
+    /// synthesizes an origin or chooses a client by pane count/TTY.
+    fn preflight_tmux_marker_client(
+        &self,
+        authority: &AuthorityMarker,
+        client_uid: Uuid,
+    ) -> Result<TmuxClientStatusResult, TypedError> {
+        if authority.marker.backend != Backend::Tmux {
+            return Err(TypedError::new(
+                ErrorCode::BackendMismatch,
+                "exact tmux client preflight received a Wez marker",
+            ));
+        }
+        match authority.location {
+            AuthorityLocation::Local => {
+                let refreshed = self.refresh_space(authority)?;
+                if refreshed.marker != authority.marker
+                    || refreshed.backend_instance != authority.backend_instance
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendEpochChanged,
+                        "tmux marker changed during invoking-client preflight",
+                    ));
+                }
+                let _locks = self
+                    .local_tmux_client_read_fence(authority.backend_instance, LockMode::Shared)?;
+                let target = self.tmux_client_target(
+                    &refreshed,
+                    Some(&authority.marker.group_ref),
+                    Some(&authority.marker.split_ref),
+                )?;
+                crate::remote::attach::correlate_client(&self.env.lock_dir, client_uid, &target)?;
+                Ok(TmuxClientStatusResult {
+                    client_uid,
+                    space_uid: target.space_uid,
+                    backend_instance_uid: target.backend_instance_uid,
+                    server_epoch: target.server_epoch,
+                    correlated: true,
+                })
+            }
+            AuthorityLocation::Remote => {
+                let status: TmuxClientStatusResult = self.remote_bound_call(
+                    authority,
+                    protocol::methods::TMUX_CLIENT_STATUS,
+                    serde_json::to_value(TmuxClientStatusPayload {
+                        client_uid,
+                        space_uid: authority.marker.space_uid,
+                        group_ref: authority.marker.group_ref.clone(),
+                        split_ref: authority.marker.split_ref.clone(),
+                    })
+                    .expect("TmuxClientStatusPayload serializes"),
+                )?;
+                if status.client_uid != client_uid
+                    || status.space_uid != authority.marker.space_uid
+                    || status.backend_instance_uid != authority.backend_instance
+                    || status.server_epoch != authority.marker.server_epoch
+                    || !status.correlated
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::ProtocolMismatch,
+                        "owner tmux client status differs from the exact GUI marker",
+                    ));
+                }
+                Ok(status)
+            }
+        }
+    }
+
+    /// Out-of-band hierarchy operations do not carry reliable native tmux
+    /// hook-client facts. Republish directly to the attach-time exact client
+    /// and require its post-action @window/%pane to remain inside the fresh
+    /// owner-authoritative child set selected by the operation.
+    fn refresh_tmux_client_context(
+        &self,
+        bound: &BoundGuiOrigin,
+        group_ref: Option<&str>,
+        split_ref: Option<&str>,
+    ) -> Result<MarkerContext, TypedError> {
+        let client_uid = bound.origin.tmux_client_uid.ok_or_else(|| {
+            unavailable(
+                "invoking_client_unavailable: tmux context refresh lost its attach-time client UID",
+            )
+        })?;
+        if bound.authority.marker.backend != Backend::Tmux {
+            return Err(TypedError::new(
+                ErrorCode::BackendMismatch,
+                "exact tmux context refresh received a Wez origin",
+            ));
+        }
+        match bound.authority.location {
+            AuthorityLocation::Local => {
+                let refreshed = self.refresh_space(&bound.authority)?;
+                if refreshed.marker.host_uid != bound.authority.marker.host_uid
+                    || refreshed.marker.space_uid != bound.authority.marker.space_uid
+                    || refreshed.marker.backend != Backend::Tmux
+                    || refreshed.backend_instance != bound.authority.backend_instance
+                    || refreshed.marker.server_epoch != bound.authority.marker.server_epoch
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendEpochChanged,
+                        "tmux context-refresh Space changed owner/backend incarnation",
+                    ));
+                }
+                let _locks = self.local_tmux_client_read_fence(
+                    bound.authority.backend_instance,
+                    LockMode::Shared,
+                )?;
+                let target = self.tmux_client_target(&refreshed, group_ref, split_ref)?;
+                let (marker, published_clients) =
+                    crate::remote::attach::publish_correlated_session_contexts(
+                        &self.env.lock_dir,
+                        client_uid,
+                        &target,
+                    )?;
+                if published_clients == 0 {
+                    return Err(TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        "tmux context refresh did not publish any correlated session client",
+                    ));
+                }
+                let verified = self.validate_local_marker(&marker)?;
+                if verified.marker != marker
+                    || verified.backend_instance != bound.authority.backend_instance
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        "published tmux context did not survive owner marker revalidation",
+                    ));
+                }
+                Ok(marker)
+            }
+            AuthorityLocation::Remote => {
+                let result: TmuxClientRefreshResult = self.remote_bound_call(
+                    &bound.authority,
+                    protocol::methods::TMUX_CLIENT_REFRESH,
+                    serde_json::to_value(TmuxClientRefreshPayload {
+                        client_uid,
+                        space_uid: bound.authority.marker.space_uid,
+                        group_ref: group_ref.map(str::to_string),
+                        split_ref: split_ref.map(str::to_string),
+                    })
+                    .expect("TmuxClientRefreshPayload serializes"),
+                )?;
+                if result.client_uid != client_uid
+                    || result.space_uid != bound.authority.marker.space_uid
+                    || result.backend_instance_uid != bound.authority.backend_instance
+                    || result.server_epoch != bound.authority.marker.server_epoch
+                    || !result.published
+                    || result.published_clients == 0
+                    || group_ref.is_some_and(|group| group != result.group_ref)
+                    || split_ref.is_some_and(|split| split != result.split_ref)
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::ProtocolMismatch,
+                        "owner tmux context-refresh receipt differs from its exact target",
+                    ));
+                }
+                let marker = MarkerContext {
+                    host_uid: bound.authority.marker.host_uid,
+                    space_uid: result.space_uid,
+                    space_no: bound.authority.marker.space_no,
+                    backend: Backend::Tmux,
+                    domain: None,
+                    server_epoch: result.server_epoch,
+                    group_ref: result.group_ref,
+                    split_ref: result.split_ref,
+                };
+                let verified = self.validate_authority_marker(&marker)?;
+                if verified.marker != marker
+                    || verified.backend_instance != bound.authority.backend_instance
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        "remote published tmux context did not survive owner revalidation",
+                    ));
+                }
+                Ok(marker)
+            }
+        }
+    }
+
+    fn command_tmux_client_uid(
+        bound: &BoundGuiOrigin,
+        supplied: Option<Uuid>,
+    ) -> Result<Option<Uuid>, TypedError> {
+        match bound.authority.marker.backend {
+            Backend::Wez => {
+                if bound.origin.tmux_client_uid.is_some() || supplied.is_some() {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendMismatch,
+                        "a Wez GUI origin must not carry a tmux client UID",
+                    ));
+                }
+                Ok(None)
+            }
+            Backend::Tmux => {
+                let exact = bound.origin.tmux_client_uid.ok_or_else(|| {
+                    unavailable(
+                        "invoking_client_unavailable: tmux GUI origin has no attach-time client UID",
+                    )
+                })?;
+                if supplied != Some(exact) {
+                    return Err(TypedError::new(
+                        ErrorCode::IdentityConflict,
+                        "command tmux client UID differs from the exact bound GUI origin",
+                    ));
+                }
+                Ok(Some(exact))
+            }
+        }
+    }
+
+    fn finalize_pending_gui_transition_from_bound(
+        &self,
+        bound: &BoundGuiOrigin,
+    ) -> Result<(), TypedError> {
+        if bound.authority.marker.backend != Backend::Tmux {
+            return Ok(());
+        }
+        let Some(client_uid) = bound.origin.tmux_client_uid else {
+            return Ok(());
+        };
+        let Some(pending) = self.history.pending_gui_transition(client_uid) else {
+            return Ok(());
+        };
+        let now = match unix_now() {
+            Ok(now) => now,
+            Err(error) => {
+                let _ = self.history.cancel_gui_transition(client_uid);
+                return Err(error);
+            }
+        };
+        if now >= pending.expires_at {
+            self.history
+                .cancel_gui_transition(client_uid)
+                .map_err(|error| {
+                    TypedError::new(
+                        ErrorCode::OperationFailed,
+                        format!("canceling expired GUI transition: {error}"),
+                    )
+                })?;
+            return Ok(());
+        }
+        if pending.gui_instance != bound.selection.gui_instance
+            || pending.gui_pid != bound.selection.pid
+            || pending.gui_process_start_token != bound.selection.process_start_token
+            || pending.gui_pane_id != bound.selection.pane_id
+            || pending.gui_domain != bound.selection.domain
+            || pending.destination.host_uid != bound.authority.marker.host_uid
+            || pending.destination.space_uid != bound.authority.marker.space_uid
+            || pending.destination_backend_instance_uid != bound.authority.backend_instance
+            || !pending_destination_marker_matches(&pending, &bound.authority.marker)
+        {
+            self.history
+                .cancel_gui_transition(client_uid)
+                .map_err(|error| {
+                    TypedError::new(
+                        ErrorCode::OperationFailed,
+                        format!("canceling mismatched GUI transition: {error}"),
+                    )
+                })?;
+            return Err(TypedError::new(
+                ErrorCode::IdentityConflict,
+                "current GUI tmux marker differs from its pending presentation transition",
+            ));
+        }
+        if !self
+            .history
+            .complete_gui_transition(&pending)
+            .map_err(|error| {
+                TypedError::new(
+                    ErrorCode::OperationFailed,
+                    format!("finalizing pending GUI transition: {error}"),
+                )
+            })?
+        {
+            return Err(TypedError::new(
+                ErrorCode::IdentityConflict,
+                "pending GUI transition changed during finalization",
+            ));
+        }
+        Ok(())
+    }
+
+    fn switch_tmux_client(
+        &self,
+        bound: &BoundGuiOrigin,
+        client_uid: Uuid,
+        destination: &AuthorityMarker,
+    ) -> Result<TmuxClientSwitchResult, TypedError> {
+        if bound.authority.marker.backend != Backend::Tmux
+            || destination.marker.backend != Backend::Tmux
+            || bound.authority.marker.host_uid != destination.marker.host_uid
+            || bound.authority.backend_instance != destination.backend_instance
+            || bound.authority.marker.server_epoch != destination.marker.server_epoch
+        {
+            return Err(TypedError::new(
+                ErrorCode::WrongBackendInstance,
+                "GUI tmux presentation cannot cross owner/backend instance/server epoch",
+            ));
+        }
+        let result: TmuxClientSwitchResult = match bound.authority.location {
+            AuthorityLocation::Local => {
+                if !matches!(destination.location, AuthorityLocation::Local) {
+                    return Err(TypedError::new(
+                        ErrorCode::WrongBackendInstance,
+                        "local tmux client received a remote destination",
+                    ));
+                }
+                let from = self.refresh_space(&bound.authority)?;
+                let to = self.refresh_space(destination)?;
+                if from.marker != bound.authority.marker
+                    || from.backend_instance != bound.authority.backend_instance
+                    || to.marker.space_uid != destination.marker.space_uid
+                    || to.marker.server_epoch != destination.marker.server_epoch
+                    || to.backend_instance != destination.backend_instance
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendEpochChanged,
+                        "tmux presentation target changed under its read fence",
+                    ));
+                }
+                let _locks = self.local_tmux_client_read_fence(
+                    bound.authority.backend_instance,
+                    LockMode::Exclusive,
+                )?;
+                let from_target = self.tmux_client_target(
+                    &from,
+                    Some(&bound.authority.marker.group_ref),
+                    Some(&bound.authority.marker.split_ref),
+                )?;
+                let to_target = self.tmux_client_target(&to, None, None)?;
+                crate::remote::attach::switch_correlated_client(
+                    &self.env.lock_dir,
+                    client_uid,
+                    &from_target,
+                    &to_target,
+                )?;
+                Ok::<TmuxClientSwitchResult, TypedError>(TmuxClientSwitchResult {
+                    client_uid,
+                    from_space_uid: from.marker.space_uid,
+                    to_space_uid: to.marker.space_uid,
+                    backend_instance_uid: to.backend_instance,
+                    server_epoch: to.marker.server_epoch,
+                    switched: true,
+                    replayed: false,
+                })
+            }
+            AuthorityLocation::Remote => {
+                if !matches!(destination.location, AuthorityLocation::Remote) {
+                    return Err(TypedError::new(
+                        ErrorCode::WrongBackendInstance,
+                        "remote tmux client received a local destination",
+                    ));
+                }
+                let result: TmuxClientSwitchResult = self.remote_bound_call(
+                    &bound.authority,
+                    protocol::methods::TMUX_CLIENT_SWITCH,
+                    serde_json::to_value(TmuxClientSwitchPayload {
+                        client_uid,
+                        from_space_uid: bound.authority.marker.space_uid,
+                        from_group_ref: bound.authority.marker.group_ref.clone(),
+                        from_split_ref: bound.authority.marker.split_ref.clone(),
+                        to_space_uid: destination.marker.space_uid,
+                    })
+                    .expect("TmuxClientSwitchPayload serializes"),
+                )?;
+                if result.client_uid != client_uid
+                    || result.from_space_uid != bound.authority.marker.space_uid
+                    || result.to_space_uid != destination.marker.space_uid
+                    || result.backend_instance_uid != destination.backend_instance
+                    || result.server_epoch != destination.marker.server_epoch
+                    || !result.switched
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::ProtocolMismatch,
+                        "owner tmux client switch receipt differs from the exact target",
+                    ));
+                }
+                Ok(result)
+            }
+        }?;
+        self.history
+            .record_gui_present(destination.marker.host_uid, destination.marker.space_uid)
+            .map_err(|error| {
+                TypedError::new(
+                    ErrorCode::OperationFailed,
+                    format!("recording exact tmux GUI presentation history: {error}"),
+                )
+            })?;
+        Ok(result)
+    }
+
+    fn detach_tmux_client(
+        &self,
+        bound: &BoundGuiOrigin,
+        client_uid: Uuid,
+    ) -> Result<TmuxClientDetachResult, TypedError> {
+        if bound.authority.marker.backend != Backend::Tmux {
+            return Err(TypedError::new(
+                ErrorCode::BackendMismatch,
+                "exact tmux client detach received a Wez origin",
+            ));
+        }
+        match bound.authority.location {
+            AuthorityLocation::Local => {
+                let refreshed = self.refresh_space(&bound.authority)?;
+                if refreshed.marker != bound.authority.marker
+                    || refreshed.backend_instance != bound.authority.backend_instance
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendEpochChanged,
+                        "tmux detach target changed before its mutation fence",
+                    ));
+                }
+                let _locks = self.local_tmux_client_read_fence(
+                    bound.authority.backend_instance,
+                    LockMode::Exclusive,
+                )?;
+                let target = self.tmux_client_target(
+                    &refreshed,
+                    Some(&bound.authority.marker.group_ref),
+                    Some(&bound.authority.marker.split_ref),
+                )?;
+                crate::remote::attach::detach_correlated_client(
+                    &self.env.lock_dir,
+                    client_uid,
+                    &target,
+                )?;
+                Ok(TmuxClientDetachResult {
+                    client_uid,
+                    space_uid: target.space_uid,
+                    backend_instance_uid: target.backend_instance_uid,
+                    server_epoch: target.server_epoch,
+                    detached: true,
+                    replayed: false,
+                })
+            }
+            AuthorityLocation::Remote => {
+                let result: TmuxClientDetachResult = self.remote_bound_call(
+                    &bound.authority,
+                    protocol::methods::TMUX_CLIENT_DETACH,
+                    serde_json::to_value(TmuxClientDetachPayload {
+                        client_uid,
+                        space_uid: bound.authority.marker.space_uid,
+                        group_ref: bound.authority.marker.group_ref.clone(),
+                        split_ref: bound.authority.marker.split_ref.clone(),
+                    })
+                    .expect("TmuxClientDetachPayload serializes"),
+                )?;
+                if result.client_uid != client_uid
+                    || result.space_uid != bound.authority.marker.space_uid
+                    || result.backend_instance_uid != bound.authority.backend_instance
+                    || result.server_epoch != bound.authority.marker.server_epoch
+                    || !result.detached
+                {
+                    return Err(TypedError::new(
+                        ErrorCode::ProtocolMismatch,
+                        "owner tmux client detach receipt differs from the exact origin",
+                    ));
+                }
+                Ok(result)
+            }
+        }
+    }
+
     fn refresh_space(&self, authority: &AuthorityMarker) -> Result<AuthorityMarker, TypedError> {
         self.resolve_space(
             &canonical_uri(authority.marker.host_uid, authority.marker.space_uid),
@@ -3778,6 +4869,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         bound: &BoundGuiOrigin,
         name: &str,
         dir: Option<&str>,
+        tmux_client_uid: Option<Uuid>,
     ) -> Result<Value, TypedError> {
         validate_new_name(name).map_err(|error| {
             TypedError::new(
@@ -3785,16 +4877,30 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 format!("invalid new Space name {name:?}: {error:?}"),
             )
         })?;
-        // `_gui space-new` has no no-connect mode. Refuse a backend whose
-        // presentation needs a PTY handoff before performing the mutation.
-        if bound.authority.marker.backend != Backend::Wez {
-            return Err(unavailable(
-                "creating a tmux Space from the GUI cannot safely hand off its PTY; use dmux new from a terminal",
-            ));
-        }
-        // Compatibility/route selection is a precondition, not a
-        // post-mutation presentation attempt.
-        let presentation = self.presentation_domain(&bound.heartbeat, &bound.authority)?;
+        // `_gui space-new` always presents. Freeze every presentation
+        // prerequisite before reserving identity: Wez needs an exact GUI
+        // domain; tmux needs the attach-time invoking-client witness.
+        let wez_presentation = match bound.authority.marker.backend {
+            Backend::Wez => {
+                if tmux_client_uid.is_some() {
+                    return Err(TypedError::new(
+                        ErrorCode::Usage,
+                        "a Wez Space action must not carry --tmux-client-uid",
+                    ));
+                }
+                Some(self.presentation_domain(&bound.heartbeat, &bound.authority)?)
+            }
+            Backend::Tmux => {
+                let client_uid = tmux_client_uid.ok_or_else(|| {
+                    unavailable(
+                        "invoking_client_unavailable: tmux GUI creation requires its attach-time client UID",
+                    )
+                })?;
+                self.preflight_tmux_client(bound, client_uid)?;
+                None
+            }
+        };
+        let selected_backend = bound.authority.marker.backend;
         let created: CreatedSpace = match bound.authority.location {
             AuthorityLocation::Local => {
                 let cwd = match dir {
@@ -3813,11 +4919,11 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     }
                 };
                 let (provider, scope) = self.local_bound_provider(&bound.authority)?;
-                let opposite = self.local_opposite_create_target(Backend::Wez)?;
+                let opposite = self.local_opposite_create_target(selected_backend)?;
                 operations::create_space_owner_fenced(
                     &self.env,
                     OwnerCreateTarget {
-                        backend: Backend::Wez,
+                        backend: selected_backend,
                         instance: bound.authority.backend_instance,
                         provider: provider.as_ref(),
                         scope: &scope,
@@ -3846,7 +4952,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     protocol::methods::NEW,
                     serde_json::to_value(NewPayload {
                         name: name.to_string(),
-                        backend: Backend::Wez,
+                        backend: selected_backend,
                         cwd: None,
                         program: Vec::new(),
                         allow_name_collision: false,
@@ -3859,13 +4965,23 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         let presentation_result = self
             .resolve_space(&stable_ref, bound.authority.marker.host_uid)
             .and_then(|target| {
-                self.bridge_present_selected(
-                    bound,
-                    &target,
-                    Some(&created.group_ref),
-                    Some(&created.split_ref),
-                    Some(presentation),
-                )
+                if selected_backend == Backend::Wez {
+                    self.bridge_present_selected(
+                        bound,
+                        &target,
+                        Some(&created.group_ref),
+                        Some(&created.split_ref),
+                        wez_presentation.clone(),
+                    )
+                    .map(|_| ())
+                } else {
+                    self.switch_tmux_client(
+                        bound,
+                        tmux_client_uid.expect("tmux preflight required client UID"),
+                        &target,
+                    )
+                    .map(|_| ())
+                }
             });
         if let Err(error) = presentation_result {
             self.partial_result = Some(serde_json::json!({
@@ -3954,6 +5070,11 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     )?;
                 }
             }
+            self.refresh_tmux_client_context(
+                bound,
+                Some(&created.group_ref),
+                Some(&created.split_ref),
+            )?;
         }
         serde_json::to_value(created)
             .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))
@@ -4031,6 +5152,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     )?;
                 }
             }
+            self.refresh_tmux_client_context(bound, Some(&selected.group_ref), None)?;
         }
         Ok(serde_json::json!({ "group_ref": selected.group_ref }))
     }
@@ -4151,6 +5273,9 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 )?;
             }
         }
+        if bound.authority.marker.backend == Backend::Tmux {
+            self.refresh_tmux_client_context(bound, None, None)?;
+        }
         Ok(serde_json::json!({
             "group_ref": bound.authority.marker.group_ref,
             "removed": true,
@@ -4206,6 +5331,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 Some(&created.split_ref),
                 presentation,
             )?;
+        } else {
+            self.refresh_tmux_client_context(
+                bound,
+                Some(&created.group_ref),
+                Some(&created.split_ref),
+            )?;
         }
         serde_json::to_value(created)
             .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))
@@ -4256,10 +5387,20 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 (group, split, result)
             }
         };
-        if bound.authority.marker.backend == Backend::Wez
-            && let Some(split_ref) = split_ref.as_deref()
-        {
-            self.bridge_present(bound, &bound.authority, Some(&group_ref), Some(split_ref))?;
+        if let Some(split_ref) = split_ref.as_deref() {
+            if bound.authority.marker.backend == Backend::Wez {
+                self.bridge_present(bound, &bound.authority, Some(&group_ref), Some(split_ref))?;
+            } else {
+                self.refresh_tmux_client_context(bound, Some(&group_ref), Some(split_ref))?;
+            }
+        } else if bound.authority.marker.backend == Backend::Tmux {
+            // The exact edge no-op must still prove that the client remains
+            // on the originating child before the next GUI key is accepted.
+            self.refresh_tmux_client_context(
+                bound,
+                Some(&bound.authority.marker.group_ref),
+                Some(&bound.authority.marker.split_ref),
+            )?;
         }
         Ok(result)
     }
@@ -4373,10 +5514,97 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 )?;
             }
         }
+        if bound.authority.marker.backend == Backend::Tmux {
+            self.refresh_tmux_client_context(bound, None, None)?;
+        }
         Ok(serde_json::json!({
             "split_ref": bound.authority.marker.split_ref,
             "removed": true,
         }))
+    }
+
+    fn wez_native_tree_for_authority(
+        &self,
+        host_uid: HostUid,
+        instance: BackendInstanceUid,
+        epoch: ServerEpoch,
+    ) -> Result<WezNativeTreeResult, TypedError> {
+        let registry = self.registry()?;
+        let identity = registry.identity().map_err(typed_registry)?;
+        if host_uid == identity.host_uid {
+            let info = registry
+                .backend_instance_info(instance)
+                .map_err(typed_registry)?;
+            let server = registry.backend_server(instance).map_err(typed_registry)?;
+            if info.owner != host_uid
+                || info.backend != Backend::Wez
+                || server.server_epoch != Some(epoch)
+            {
+                return Err(TypedError::new(
+                    ErrorCode::WrongBackendInstance,
+                    "local Wez native-tree target differs from its registry authority",
+                ));
+            }
+            let (_, scope) = self.local_provider(instance, Backend::Wez, epoch)?;
+            let server_pid = server
+                .server_pid
+                .and_then(|pid| u32::try_from(pid).ok())
+                .ok_or_else(|| {
+                    unavailable("local Wez native-tree target has no published server PID")
+                })?;
+            let start_token = server.server_start_token.ok_or_else(|| {
+                unavailable("local Wez native-tree target has no published server start token")
+            })?;
+            let witness = WezProvider::new(&self.wezterm_bin, &self.wezterm_config)
+                .with_identity(IdentityExpectation {
+                    server_pid: Some(server_pid),
+                    start_token: Some(start_token),
+                })
+                .native_tree_witness(&scope)
+                .map_err(typed_wez_native_tree)?;
+            if witness.server_epoch != epoch {
+                return Err(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    "local Wez native-tree witness changed epoch",
+                ));
+            }
+            return Ok(WezNativeTreeResult {
+                backend_instance_uid: instance,
+                server_epoch: epoch,
+                sentinel_window_id: witness.sentinel_window_id,
+                sentinel_tab_id: witness.sentinel_tab_id,
+                sentinel_pane_id: witness.sentinel_pane_id,
+                panes: witness
+                    .panes
+                    .into_iter()
+                    .map(|pane| WezNativePaneWitness {
+                        window_id: pane.window_id,
+                        tab_id: pane.tab_id,
+                        pane_id: pane.pane_id,
+                    })
+                    .collect(),
+            });
+        }
+
+        let (result, envelope, _): (WezNativeTreeResult, _, _) = self.remote_call(
+            host_uid,
+            protocol::methods::WEZ_NATIVE_TREE_STATUS,
+            serde_json::to_value(WezNativeTreePayload {}).expect("WezNativeTreePayload serializes"),
+            Some(instance),
+            Some(epoch),
+            false,
+        )?;
+        if envelope.backend_instance_uid != Some(instance)
+            || envelope.server_epoch != Some(epoch)
+            || result.backend_instance_uid != instance
+            || result.server_epoch != epoch
+        {
+            return Err(TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                "owner Wez native-tree response differs from its exact instance/epoch claim",
+            ));
+        }
+        Ok(result)
     }
 
     /// A GUI heartbeat may exempt only the one reserved sentinel pane for
@@ -4401,62 +5629,70 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 ),
             ));
         }
+        let gui_epoch = state.system_epoch.ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                format!("GUI domain {domain:?} omitted its exact system epoch"),
+            )
+        })?;
+        if state.system_workspace.as_deref()
+            != Some(format!("dmux:system:{}", gui_epoch.0).as_str())
+        {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                format!("GUI domain {domain:?} system workspace/epoch disagree"),
+            ));
+        }
 
         if domain == LOCAL_WEZ_DOMAIN {
             let registry = self.registry()?;
             let identity = registry.identity().map_err(typed_registry)?;
-            let descriptor = crate::runtime::read_wez_descriptor_in(&self.runtime_dir)
-                .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?
-                .ok_or_else(|| unavailable("managed Wez descriptor is absent"))?;
-            descriptor
-                .require_ready()
-                .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?;
-            let instance = descriptor
-                .backend_instance_uid
-                .as_deref()
-                .and_then(|value| Uuid::parse_str(value).ok())
-                .map(BackendInstanceUid)
-                .ok_or_else(|| {
-                    TypedError::new(
-                        ErrorCode::WrongBackendInstance,
-                        "managed Wez descriptor omitted its backend instance",
-                    )
-                })?;
-            let epoch = Uuid::parse_str(&descriptor.epoch)
-                .map(ServerEpoch)
-                .map_err(|error| {
-                    TypedError::new(
-                        ErrorCode::BackendEpochChanged,
-                        format!("managed Wez descriptor epoch: {error}"),
-                    )
-                })?;
+            let instance = registry
+                .backend_instance_for_backend(Backend::Wez)
+                .map_err(typed_registry)?
+                .ok_or_else(|| unavailable("registry has no managed Wez backend instance"))?;
             let info = registry
                 .backend_instance_info(instance)
                 .map_err(typed_registry)?;
             let server = registry.backend_server(instance).map_err(typed_registry)?;
+            let epoch = server
+                .server_epoch
+                .ok_or_else(|| unavailable("registered Wez backend has no live server epoch"))?;
+            let descriptor = crate::runtime::read_verified_ready_wez_descriptor_in(
+                &self.runtime_dir,
+                Some(instance.0),
+                Some(epoch.0),
+            )
+            .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?
+            .ok_or_else(|| unavailable("managed Wez descriptor is absent"))?;
             if info.backend != Backend::Wez
                 || info.owner != identity.host_uid
-                || server.server_epoch != Some(epoch)
+                || info.socket_path.as_deref() != Some(descriptor.socket.as_str())
+                || server.server_pid != Some(i64::from(descriptor.pid))
+                || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
+                || server.socket_dev
+                    != descriptor
+                        .socket_dev
+                        .and_then(|value| i64::try_from(value).ok())
+                || server.socket_ino
+                    != descriptor
+                        .socket_ino
+                        .and_then(|value| i64::try_from(value).ok())
+                || gui_epoch != epoch
+                || state.backend_instance_uid != Some(instance)
             {
                 return Err(TypedError::new(
                     ErrorCode::WrongBackendInstance,
                     "local GUI domain descriptor differs from its registered Wez authority",
                 ));
             }
-            let (provider, scope) = self.local_provider(instance, Backend::Wez, epoch)?;
-            match provider.inventory(&scope) {
-                InventoryOutcome::Complete(inventory) if inventory.server_epoch == Some(epoch) => {}
-                outcome => {
-                    return Err(unavailable(format!(
-                        "local GUI domain sentinel proof was not complete at epoch {}: {outcome:?}",
-                        epoch.0
-                    )));
-                }
-            }
+            let native_tree =
+                self.wez_native_tree_for_authority(identity.host_uid, instance, epoch)?;
             return Ok(DomainAuthority {
                 host_uid: identity.host_uid,
                 backend_instance: instance,
                 server_epoch: epoch,
+                native_tree,
             });
         }
 
@@ -4489,6 +5725,21 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             ));
         };
         let epoch = backend.server_epoch.expect("filtered Some server_epoch");
+        if state.backend_instance_uid != Some(row.backend_instance_uid) {
+            return Err(TypedError::new(
+                ErrorCode::WrongBackendInstance,
+                format!("GUI domain {domain:?} config instance differs from owner authority"),
+            ));
+        }
+        if gui_epoch != epoch {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                format!(
+                    "GUI domain {domain:?} displays epoch {} but owner proves {}",
+                    gui_epoch.0, epoch.0
+                ),
+            ));
+        }
         let spaces = self.remote_spaces(row.host_uid)?;
         if !spaces.scans.iter().any(|scan| {
             scan.backend == Backend::Wez
@@ -4500,10 +5751,13 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 epoch.0
             )));
         }
+        let native_tree =
+            self.wez_native_tree_for_authority(row.host_uid, row.backend_instance_uid, epoch)?;
         Ok(DomainAuthority {
             host_uid: row.host_uid,
             backend_instance: row.backend_instance_uid,
             server_epoch: epoch,
+            native_tree,
         })
     }
 
@@ -4543,7 +5797,29 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
     }
 
     fn prove_snapshot_survived(&self, snapshot: &[SnapshotMarker]) -> Result<(), TypedError> {
+        // One outer GUI pane may represent one active inner tmux Split while
+        // the same Space owns additional non-visible Groups/Splits. Freeze
+        // and re-prove the complete canonical hierarchy once per exact
+        // owner/Space/backend incarnation, not merely the visible marker.
+        let mut unique: BTreeMap<String, SnapshotMarker> = BTreeMap::new();
         for before in snapshot {
+            let key = format!(
+                "{}\x1f{}\x1f{}\x1f{}",
+                before.authority.marker.host_uid.0,
+                before.authority.marker.space_uid.0,
+                before.authority.backend_instance.0,
+                before.authority.marker.server_epoch.0,
+            );
+            if let Some(existing) = unique.get_mut(&key) {
+                merge_snapshot_hierarchy(
+                    &mut existing.authority.hierarchy,
+                    &before.authority.hierarchy,
+                )?;
+                continue;
+            }
+            unique.insert(key, before.clone());
+        }
+        for before in unique.into_values() {
             let after = self.validate_authority_marker_in_domain(
                 &before.authority.marker,
                 Some(&before.gui_domain),
@@ -4560,35 +5836,51 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     ),
                 ));
             }
+            require_complete_hierarchy_survived(
+                before.authority.marker.space_uid,
+                &before.authority.hierarchy,
+                &after.hierarchy,
+            )?;
         }
         Ok(())
     }
 
     fn disconnect(&self, bound: &BoundGuiOrigin, whole_domain: bool) -> Result<Value, TypedError> {
         if !whole_domain {
-            if bound.authority.marker.backend != Backend::Wez {
-                return Err(unavailable(
-                    "invoking_client_unavailable: GUI tmux disconnect has no exact current-client tty/process witness",
-                ));
+            if bound.authority.marker.backend == Backend::Tmux {
+                let client_uid = bound.origin.tmux_client_uid.ok_or_else(|| {
+                    unavailable(
+                        "invoking_client_unavailable: tmux disconnect lost its exact client UID",
+                    )
+                })?;
+                let detached = self.detach_tmux_client(bound, client_uid)?;
+                return Ok(serde_json::json!({ "detached": detached }));
             }
-            let Some(previous) = self.history.previous(bound.authority.marker.host_uid) else {
+            let Some(previous) = self.history.previous_gui_presented() else {
                 return Ok(serde_json::json!({
                     "nothing_else_to_present": true,
                     "hint": "use disconnect --domain to detach the current imported domain",
                 }));
             };
-            if previous == bound.authority.marker.space_uid {
+            if previous.host_uid == bound.authority.marker.host_uid
+                && previous.space_uid == bound.authority.marker.space_uid
+            {
                 return Ok(serde_json::json!({
                     "nothing_else_to_present": true,
                     "hint": "use disconnect --domain to detach the current imported domain",
                 }));
             }
             let target = match self.resolve_space(
-                &canonical_uri(bound.authority.marker.host_uid, previous),
-                bound.authority.marker.host_uid,
+                &canonical_uri(previous.host_uid, previous.space_uid),
+                previous.host_uid,
             ) {
                 Ok(target) => target,
-                Err(error) if error.code == ErrorCode::NotFound => {
+                Err(error)
+                    if matches!(
+                        error.code,
+                        ErrorCode::NotFound | ErrorCode::SpaceAbsent | ErrorCode::SpaceDeleted
+                    ) =>
+                {
                     return Ok(serde_json::json!({
                         "nothing_else_to_present": true,
                         "hint": "the previous Space is no longer attached; use disconnect --domain",
@@ -4596,18 +5888,55 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 }
                 Err(error) => return Err(error),
             };
-            let attached = bound.heartbeat.panes.iter().any(|pane| {
-                pane.context.host_uid == target.marker.host_uid
-                    && pane.context.space_uid == target.marker.space_uid
-                    && pane.context.server_epoch == target.marker.server_epoch
-            });
-            if !attached {
+            let attached: Vec<&BridgePane> = bound
+                .heartbeat
+                .panes
+                .iter()
+                .filter(|pane| {
+                    pane.context.host_uid == target.marker.host_uid
+                        && pane.context.space_uid == target.marker.space_uid
+                        && pane.context.server_epoch == target.marker.server_epoch
+                        && pane.context.backend == target.marker.backend
+                })
+                .collect();
+            if attached.is_empty() {
                 return Ok(serde_json::json!({
                     "nothing_else_to_present": true,
                     "hint": "the previous Space is not already attached; use disconnect --domain",
                 }));
             }
-            let ack = self.bridge_present(bound, &target, None, None)?;
+            let ack = match target.marker.backend {
+                Backend::Wez => self.bridge_present(bound, &target, None, None)?,
+                Backend::Tmux => {
+                    let mut exact = Vec::new();
+                    for pane in attached {
+                        let authority = self.validate_authority_marker_in_domain(
+                            &pane.context,
+                            Some(&pane.domain),
+                        )?;
+                        if authority.marker.host_uid == target.marker.host_uid
+                            && authority.marker.space_uid == target.marker.space_uid
+                            && authority.backend_instance == target.backend_instance
+                            && authority.marker.server_epoch == target.marker.server_epoch
+                        {
+                            exact.push((pane, authority));
+                        }
+                    }
+                    let [(pane, authority)] = exact.as_slice() else {
+                        if exact.is_empty() {
+                            return Ok(serde_json::json!({
+                                "nothing_else_to_present": true,
+                                "hint": "the previous tmux Space has no exact visible client pane",
+                            }));
+                        }
+                        return Err(TypedError::new(
+                            ErrorCode::AmbiguousTarget,
+                            "the previous tmux Space is visible through multiple exact clients; use the picker",
+                        ));
+                    };
+                    self.bridge_focus_tmux_pane(bound, authority, pane)?
+                }
+            };
             return Ok(serde_json::json!({ "presented": ack }));
         }
 
@@ -4659,7 +5988,19 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             bound.authority.backend_instance,
             bound.authority.marker.server_epoch,
         )?;
-        self.prove_gui_domains_detached(bound, &[domain.to_string()], None)?;
+        self.prove_gui_domains_detached(
+            &bound.selection.gui_instance,
+            bound.selection.pid,
+            &bound.selection.process_start_token,
+            &[domain.to_string()],
+            None,
+        )?;
+        let after_tree = self.wez_native_tree_for_authority(
+            domain_authority.host_uid,
+            domain_authority.backend_instance,
+            domain_authority.server_epoch,
+        )?;
+        require_native_tree_survived(domain, &domain_authority.native_tree, &after_tree)?;
         self.prove_snapshot_survived(&snapshot)?;
         Ok(serde_json::json!({
             "detached": ack,
@@ -4667,7 +6008,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         }))
     }
 
-    fn safe_quit(&self, bound: &BoundGuiOrigin) -> Result<Value, TypedError> {
+    fn safe_quit_instance(
+        &self,
+        selection: &BridgeInstanceSelection,
+        heartbeat: &BridgeHeartbeat,
+        origin: Value,
+    ) -> Result<Value, TypedError> {
         let manifest = self.remote_domain_manifest()?;
         let mut persistent_domains = BTreeSet::from([LOCAL_WEZ_DOMAIN.to_string()]);
         persistent_domains.extend(
@@ -4676,14 +6022,14 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 .filter(|row| row.compatible && row.remote_wezterm_path.is_some())
                 .map(|row| row.name.clone()),
         );
-        let snapshot = self.snapshot_markers(&bound.heartbeat, None)?;
+        let snapshot = self.snapshot_markers(heartbeat, None)?;
         let contains_tmux = snapshot
             .iter()
             .any(|pane| pane.authority.marker.backend == Backend::Tmux);
         let mut domains = Vec::new();
         let mut domain_authorities = BTreeMap::new();
         for domain in &persistent_domains {
-            let Some(state) = bound.heartbeat.domains.get(domain) else {
+            let Some(state) = heartbeat.domains.get(domain) else {
                 continue;
             };
             match state.state.as_str() {
@@ -4730,10 +6076,22 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         }
         let domain_plan = safe_quit_domain_plan(persistent_domains, domains, contains_tmux)?;
         let domains = domain_plan.detach;
-        let origin = gui::in_gui_origin(&bound.selection, &bound.authority.marker);
+        let domain_targets: Vec<Value> = domains
+            .iter()
+            .map(|name| {
+                let authority = domain_authorities
+                    .get(name)
+                    .expect("every active domain has exact authority");
+                serde_json::json!({
+                    "name": name,
+                    "backend_instance_uid": authority.backend_instance,
+                    "server_epoch": authority.server_epoch,
+                })
+            })
+            .collect();
         let mut detach = gui::request_document(
             "safe_quit",
-            serde_json::json!({ "phase": "detach", "domains": domains.clone() }),
+            serde_json::json!({ "phase": "detach", "domains": domain_targets }),
             origin.clone(),
         )
         .map_err(typed_gui)?;
@@ -4744,7 +6102,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             .to_string();
         gui::call_instance(
             &self.runtime_dir,
-            &bound.selection.gui_instance,
+            &selection.gui_instance,
             &mut detach,
             gui::ACK_TIMEOUT,
         )
@@ -4753,28 +6111,56 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         // The signed ack alone is not the postcondition: require a fresh
         // heartbeat from this exact GUI process to show every requested
         // domain detached and empty before proving owner survival.
-        self.prove_gui_domains_detached(bound, &domains, Some(&domain_plan.full_persistent_set))?;
+        let post_detach = (|| {
+            self.prove_gui_domains_detached(
+                &selection.gui_instance,
+                selection.pid,
+                &selection.process_start_token,
+                &domains,
+                Some(&domain_plan.full_persistent_set),
+            )?;
 
-        // No finish request is issued unless every exact owner Split from
-        // the before-snapshot remains in the same backend incarnation.
-        self.prove_snapshot_survived(&snapshot)?;
+            // GUI domain detachment must not kill owner mux resources.
+            for (domain, before) in &domain_authorities {
+                let after = self.wez_native_tree_for_authority(
+                    before.host_uid,
+                    before.backend_instance,
+                    before.server_epoch,
+                )?;
+                require_native_tree_survived(domain, &before.native_tree, &after)?;
+            }
+            self.prove_snapshot_survived(&snapshot)
+        })();
+        if let Err(post_error) = post_detach {
+            let mut rollback = gui::request_document(
+                "safe_quit",
+                serde_json::json!({
+                    "phase": "rollback",
+                    "proof_uid": proof_uid,
+                }),
+                origin.clone(),
+            )
+            .map_err(typed_gui)?;
+            if let Err(rollback_error) = gui::call_instance(
+                &self.runtime_dir,
+                &selection.gui_instance,
+                &mut rollback,
+                gui::ACK_TIMEOUT,
+            )
+            .map_err(typed_gui)
+            {
+                return Err(TypedError::new(
+                    ErrorCode::PostconditionFailed,
+                    format!(
+                        "safe_quit post-detach proof failed ({}), and exact-incarnation rollback failed ({})",
+                        post_error.message, rollback_error.message
+                    ),
+                ));
+            }
+            return Err(post_error);
+        }
 
-        let platform_action = if domain_plan.must_hide {
-            "hide"
-        } else {
-            #[cfg(target_os = "macos")]
-            {
-                "hide"
-            }
-            #[cfg(target_os = "linux")]
-            {
-                "quit"
-            }
-            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-            {
-                "hide"
-            }
-        };
+        let platform_action = safe_quit_platform_action();
         let mut finish = gui::request_document(
             "safe_quit",
             serde_json::json!({
@@ -4782,16 +6168,78 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 "platform_action": platform_action,
                 "proof_uid": proof_uid,
             }),
-            origin,
+            origin.clone(),
         )
         .map_err(typed_gui)?;
-        gui::call_instance(
+        match gui::call_instance(
             &self.runtime_dir,
-            &bound.selection.gui_instance,
+            &selection.gui_instance,
             &mut finish,
             gui::ACK_TIMEOUT,
         )
         .map_err(typed_gui)
+        {
+            Ok(ack) => Ok(ack),
+            Err(finish_error) => {
+                let mut rollback = gui::request_document(
+                    "safe_quit",
+                    serde_json::json!({
+                        "phase": "rollback",
+                        "proof_uid": proof_uid,
+                    }),
+                    origin,
+                )
+                .map_err(typed_gui)?;
+                match gui::call_instance(
+                    &self.runtime_dir,
+                    &selection.gui_instance,
+                    &mut rollback,
+                    gui::ACK_TIMEOUT,
+                )
+                .map_err(typed_gui)
+                {
+                    Ok(_) => Err(TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        format!(
+                            "safe_quit finish acknowledgement failed; exact domains were restored: {}",
+                            finish_error.message
+                        ),
+                    )),
+                    Err(rollback_error) => Err(TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        format!(
+                            "safe_quit finish acknowledgement failed ({}), and exact-incarnation rollback failed ({})",
+                            finish_error.message, rollback_error.message
+                        ),
+                    )),
+                }
+            }
+        }
+    }
+
+    fn safe_quit(&self, bound: &BoundGuiOrigin) -> Result<Value, TypedError> {
+        let selection = BridgeInstanceSelection {
+            gui_instance: bound.selection.gui_instance.clone(),
+            pid: bound.selection.pid,
+            process_start_token: bound.selection.process_start_token.clone(),
+            domains: bound.heartbeat.domains.clone(),
+        };
+        let origin = gui::in_gui_origin(
+            &bound.selection,
+            &bound.authority.marker,
+            bound.origin.tmux_client_uid,
+        );
+        self.safe_quit_instance(&selection, &bound.heartbeat, origin)
+    }
+}
+
+fn marker_owner_route_domain<'a>(
+    backend: Backend,
+    physical_gui_domain: Option<&'a str>,
+) -> Option<&'a str> {
+    match backend {
+        Backend::Wez => physical_gui_domain,
+        Backend::Tmux => None,
     }
 }
 
@@ -4799,17 +6247,39 @@ impl<I: RouteInvoker> GuiAuthority for ProductionGuiAuthority<I> {
     type Bound = BoundGuiOrigin;
 
     fn bind_origin(&mut self, origin: &GuiCliOrigin) -> Result<Self::Bound, TypedError> {
-        let authority =
-            self.validate_authority_marker_in_domain(&origin.marker, Some(&origin.domain))?;
+        let authority = match origin.marker.backend {
+            Backend::Wez => {
+                self.validate_authority_marker_in_domain(&origin.marker, Some(&origin.domain))?
+            }
+            Backend::Tmux => self.validate_authority_marker(&origin.marker)?,
+        };
         let (selection, heartbeat) =
             gui::bind_cli_origin_with_heartbeat(&self.runtime_dir, origin, &authority.marker)
                 .map_err(typed_gui)?;
-        Ok(BoundGuiOrigin {
+        let bound = BoundGuiOrigin {
             origin: origin.clone(),
             selection,
             heartbeat,
             authority,
-        })
+        };
+        match bound.authority.marker.backend {
+            Backend::Tmux => {
+                let client_uid = bound.origin.tmux_client_uid.ok_or_else(|| {
+                    unavailable(
+                        "invoking_client_unavailable: every tmux GUI action requires its attach-time client UID",
+                    )
+                })?;
+                self.preflight_tmux_client(&bound, client_uid)?;
+            }
+            Backend::Wez if bound.origin.tmux_client_uid.is_some() => {
+                return Err(TypedError::new(
+                    ErrorCode::BackendMismatch,
+                    "a Wez GUI marker must not carry a tmux client UID",
+                ));
+            }
+            Backend::Wez => {}
+        }
+        Ok(bound)
     }
 
     fn execute_bound(
@@ -4818,8 +6288,21 @@ impl<I: RouteInvoker> GuiAuthority for ProductionGuiAuthority<I> {
         command: &GuiCommand,
     ) -> Result<Value, TypedError> {
         self.partial_result = None;
+        // Bind-time validation prevents a stale marker from entering the
+        // dispatcher. Repeat it at the execution boundary because native
+        // tmux focus is not serialized by dmux filesystem fences: a client
+        // may move after heartbeat binding but before a child mutation.
+        if bound.authority.marker.backend == Backend::Tmux {
+            let client_uid = bound.origin.tmux_client_uid.ok_or_else(|| {
+                unavailable(
+                    "invoking_client_unavailable: tmux GUI execution lost its attach-time client UID",
+                )
+            })?;
+            self.preflight_tmux_client(bound, client_uid)?;
+        }
         match command {
             GuiCommand::Context { cache } => {
+                self.finalize_pending_gui_transition_from_bound(bound)?;
                 let record = GuiStatusCache::success(
                     bound.selection.gui_instance.clone(),
                     bound.selection.pane_id,
@@ -4833,16 +6316,52 @@ impl<I: RouteInvoker> GuiAuthority for ProductionGuiAuthority<I> {
                 serde_json::to_value(record)
                     .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))
             }
-            GuiCommand::Spaces => Ok(serde_json::json!({
-                "spaces": self.gui_space_rows(&bound.heartbeat)?,
-            })),
-            GuiCommand::Present { space } => {
-                let target = self.resolve_space(space, bound.authority.marker.host_uid)?;
-                let ack = self.bridge_present(bound, &target, None, None)?;
-                Ok(serde_json::json!({ "presented": ack }))
+            GuiCommand::Spaces { tmux_client_uid } => {
+                let exact_uid = Self::command_tmux_client_uid(bound, *tmux_client_uid)?;
+                let tmux_scope = match bound.authority.marker.backend {
+                    Backend::Wez => None,
+                    Backend::Tmux => {
+                        debug_assert!(exact_uid.is_some());
+                        Some((
+                            bound.authority.marker.host_uid,
+                            bound.authority.backend_instance,
+                            bound.authority.marker.server_epoch,
+                        ))
+                    }
+                };
+                Ok(serde_json::json!({
+                    "spaces": self.gui_space_rows(&bound.heartbeat, tmux_scope)?,
+                }))
             }
-            GuiCommand::SpaceNew { name, dir } => {
-                self.create_space_for_origin(bound, name, dir.as_deref())
+            GuiCommand::Present {
+                space,
+                tmux_client_uid,
+            } => {
+                let exact_uid = Self::command_tmux_client_uid(bound, *tmux_client_uid)?;
+                let target = self.resolve_space(space, bound.authority.marker.host_uid)?;
+                match target.marker.backend {
+                    Backend::Wez => {
+                        let ack = self.bridge_present(bound, &target, None, None)?;
+                        Ok(serde_json::json!({ "presented": ack }))
+                    }
+                    Backend::Tmux => {
+                        let client_uid = exact_uid.ok_or_else(|| {
+                            unavailable(
+                                "invoking_client_unavailable: a Wez origin cannot present a tmux Space without an exact attached tmux client",
+                            )
+                        })?;
+                        let receipt = self.switch_tmux_client(bound, client_uid, &target)?;
+                        Ok(serde_json::json!({ "presented": receipt }))
+                    }
+                }
+            }
+            GuiCommand::SpaceNew {
+                name,
+                dir,
+                tmux_client_uid,
+            } => {
+                let exact_uid = Self::command_tmux_client_uid(bound, *tmux_client_uid)?;
+                self.create_space_for_origin(bound, name, dir.as_deref(), exact_uid)
             }
             GuiCommand::GroupNew => self.group_new(bound),
             GuiCommand::GroupSelect { relative, index } => {
@@ -4881,6 +6400,39 @@ impl<I: RouteInvoker> GuiAuthority for ProductionGuiAuthority<I> {
                 "this GUI action requires --origin-json",
             )),
         }
+    }
+
+    fn execute_resident(
+        &mut self,
+        origin: &GuiResidentCliOrigin,
+        command: &GuiCommand,
+    ) -> Result<Value, TypedError> {
+        self.partial_result = None;
+        if !matches!(command, GuiCommand::SafeQuit) {
+            return Err(TypedError::new(
+                ErrorCode::Usage,
+                "resident GUI origin is restricted to safe-quit",
+            ));
+        }
+        let heartbeat = gui::read_instance_heartbeat(&self.runtime_dir, &origin.gui_instance)
+            .map_err(typed_gui)?;
+        if heartbeat.gui_instance != origin.gui_instance
+            || heartbeat.pid != origin.pid
+            || heartbeat.process_start_token != origin.process_start_token
+        {
+            return Err(TypedError::new(
+                ErrorCode::IdentityConflict,
+                "resident GUI origin differs from its fresh exact heartbeat",
+            ));
+        }
+        let selection = BridgeInstanceSelection {
+            gui_instance: heartbeat.gui_instance.clone(),
+            pid: heartbeat.pid,
+            process_start_token: heartbeat.process_start_token.clone(),
+            domains: heartbeat.domains.clone(),
+        };
+        let signed_origin = gui::resident_gui_origin(&selection);
+        self.safe_quit_instance(&selection, &heartbeat, signed_origin)
     }
 
     fn take_partial_result(&mut self) -> Option<Value> {
@@ -5020,6 +6572,491 @@ pub fn present_frozen_cold_production(
     ProductionGuiAuthority::production()?.present_frozen_cold(target)
 }
 
+/// Exact source captured before correlation emits any OSC user-variable
+/// update. Fields remain private so callers can only pass the witness back to
+/// the staged/finalized transition API.
+#[derive(Debug, Clone)]
+pub struct GuiExecSourceWitness {
+    source: GuiHistoryTarget,
+    source_backend_instance_uid: BackendInstanceUid,
+    selection: BridgeSelection,
+    marker: MarkerContext,
+    tmux_client_uid: Option<Uuid>,
+}
+
+impl GuiExecSourceWitness {
+    /// Exact already-attached tmux client captured before correlation.  The
+    /// exec orchestrator uses this only to reserve a local switch against
+    /// the same client; `None` identifies a native Wez source pane.
+    pub fn tmux_client_uid(&self) -> Option<Uuid> {
+        self.tmux_client_uid
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuiExecTransitionOutcome {
+    TerminalOnly,
+    Staged { pending_uid: Uuid },
+}
+
+fn unix_now() -> Result<u64, TypedError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|error| {
+            TypedError::new(ErrorCode::OperationFailed, format!("system clock: {error}"))
+        })
+}
+
+fn pending_destination_marker_matches(
+    pending: &PendingGuiTransition,
+    observed: &MarkerContext,
+) -> bool {
+    let expected = &pending.destination_marker;
+    if observed.host_uid != expected.host_uid
+        || observed.space_uid != expected.space_uid
+        || observed.space_no != expected.space_no
+        || observed.backend != expected.backend
+        || observed.server_epoch != expected.server_epoch
+    {
+        return false;
+    }
+    match pending.destination_child_kind {
+        None => true,
+        Some(ChildKind::Group) => observed.group_ref == expected.group_ref,
+        Some(ChildKind::Split) => {
+            observed.group_ref == expected.group_ref && observed.split_ref == expected.split_ref
+        }
+    }
+}
+
+fn pending_gui_transition_ttl_seconds(kind: crate::connect_cli::TmuxExecKind) -> u64 {
+    match kind {
+        crate::connect_cli::TmuxExecKind::RemoteAttach => 65,
+        crate::connect_cli::TmuxExecKind::LocalAttach
+        | crate::connect_cli::TmuxExecKind::LocalSwitch => 30,
+    }
+}
+
+fn require_captured_tmux_source_live<V, P>(
+    source: &GuiExecSourceWitness,
+    validate: V,
+    preflight_client: P,
+) -> Result<(), TypedError>
+where
+    V: FnOnce(&MarkerContext) -> Result<AuthorityMarker, TypedError>,
+    P: FnOnce(&AuthorityMarker, Uuid) -> Result<(), TypedError>,
+{
+    let source_uid = source.tmux_client_uid.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::IdentityConflict,
+            "captured tmux source lost its exact client UID before staging",
+        )
+    })?;
+    let exact_source = validate(&source.marker)?;
+    if exact_source.backend_instance != source.source_backend_instance_uid {
+        return Err(TypedError::new(
+            ErrorCode::WrongBackendInstance,
+            "captured tmux source backend instance changed before staging",
+        ));
+    }
+    preflight_client(&exact_source, source_uid)
+}
+
+/// Capture a managed GUI source before any tmux correlation marker is
+/// stamped. No-marker/flag-off terminals return `None`; partial or stale
+/// managed identity is a hard error. Both Wez and already-correlated tmux
+/// sources are supported (the latter covers exact local switch-client).
+pub fn capture_exact_gui_exec_source_production(
+    plan: &crate::connect_cli::OwnerExecPlan,
+) -> Result<Option<GuiExecSourceWitness>, TypedError> {
+    let target = plan.target();
+    if target.backend != Backend::Tmux {
+        return Err(TypedError::new(
+            ErrorCode::BackendMismatch,
+            "correlated GUI exec history requires an exact tmux destination",
+        ));
+    }
+    if std::env::var("DMUX_WEZ_FIRST").as_deref() != Ok("1")
+        || std::env::var_os("WEZTERM_PANE").is_none()
+    {
+        return Ok(None);
+    }
+
+    const MARKER_ENV: [&str; 8] = [
+        "DMUX_CONTEXT_VERSION",
+        "DMUX_HOST_UID",
+        "DMUX_SPACE_UID",
+        "DMUX_SPACE_NO",
+        "DMUX_BACKEND",
+        "DMUX_SERVER_EPOCH",
+        "DMUX_GROUP_REF",
+        "DMUX_SPLIT_REF",
+    ];
+    let present = MARKER_ENV
+        .iter()
+        .filter(|name| std::env::var_os(name).is_some())
+        .count();
+    if present == 0 {
+        return Ok(None);
+    }
+    if present != MARKER_ENV.len() {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "managed GUI source marker is partial at the tmux exec boundary",
+        ));
+    }
+    let mut authority = ProductionGuiAuthority::production()?;
+    let ambient = ambient_marker_from_env()?;
+    let authoritative = authority.validate_authority_marker(&ambient)?;
+    if authoritative.marker != ambient {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "ambient pane marker changed during GUI exec source capture",
+        ));
+    }
+    let selection =
+        gui::discover_in_gui_instance(&authority.runtime_dir, &ambient).map_err(typed_gui)?;
+    let heartbeat = gui::read_instance_heartbeat(&authority.runtime_dir, &selection.gui_instance)
+        .map_err(typed_gui)?;
+    let pane_matches: Vec<_> = heartbeat
+        .panes
+        .iter()
+        .filter(|pane| {
+            pane.pane_id == selection.pane_id
+                && pane.domain == selection.domain
+                && pane.context == authoritative.marker
+        })
+        .collect();
+    let [pane] = pane_matches.as_slice() else {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "GUI exec source pane changed during exact heartbeat capture",
+        ));
+    };
+    match authoritative.marker.backend {
+        Backend::Tmux => {
+            if plan.kind() != crate::connect_cli::TmuxExecKind::LocalSwitch {
+                return Err(TypedError::new(
+                    ErrorCode::WrongBackendInstance,
+                    "a managed tmux source may rotate GUI history only for exact local switch-client",
+                ));
+            }
+            if pane.tmux_client_uid.is_none() {
+                return Err(TypedError::new(
+                    ErrorCode::IdentityConflict,
+                    "managed tmux source heartbeat omitted its exact client UID",
+                ));
+            }
+        }
+        Backend::Wez if std::env::var_os("TMUX").is_some() => {
+            return Err(TypedError::new(
+                ErrorCode::WrongBackendInstance,
+                "nested tmux cannot use a native Wez source witness",
+            ));
+        }
+        Backend::Wez => {}
+    }
+    let candidate = GuiCliOrigin {
+        protocol_version: gui::BRIDGE_PROTOCOL_VERSION,
+        gui_instance: selection.gui_instance,
+        pane_id: selection.pane_id,
+        domain: selection.domain,
+        tmux_client_uid: pane.tmux_client_uid,
+        marker: authoritative.marker,
+    };
+    let encoded = serde_json::to_string(&candidate)
+        .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+    let origin = gui::parse_origin_json(&encoded).map_err(typed_gui)?;
+    let bound = <ProductionGuiAuthority as GuiAuthority>::bind_origin(&mut authority, &origin)?;
+    Ok(Some(GuiExecSourceWitness {
+        source: GuiHistoryTarget {
+            host_uid: bound.authority.marker.host_uid,
+            space_uid: bound.authority.marker.space_uid,
+        },
+        source_backend_instance_uid: bound.authority.backend_instance,
+        selection: bound.selection,
+        marker: bound.authority.marker,
+        tmux_client_uid: bound.origin.tmux_client_uid,
+    }))
+}
+
+/// Stage, but do not publish, one exact source→tmux transition. This must run
+/// after a client UID is reserved and before it or a destination marker is
+/// stamped. GUI current/previous remain unchanged until the finalizer sees
+/// the exact destination in the same live GUI pane.
+pub fn stage_correlated_gui_exec_transition_production(
+    plan: &crate::connect_cli::OwnerExecPlan,
+    tmux_client_uid: Uuid,
+    source: Option<&GuiExecSourceWitness>,
+) -> Result<GuiExecTransitionOutcome, TypedError> {
+    let Some(source) = source else {
+        return Ok(GuiExecTransitionOutcome::TerminalOnly);
+    };
+    let target = plan.target();
+    if target.backend != Backend::Tmux {
+        return Err(TypedError::new(
+            ErrorCode::BackendMismatch,
+            "correlated GUI exec transition requires a tmux destination",
+        ));
+    }
+    if plan.kind() == crate::connect_cli::TmuxExecKind::LocalSwitch
+        && source.tmux_client_uid != Some(tmux_client_uid)
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "local switch client UID differs from the captured GUI source",
+        ));
+    }
+
+    let authority = ProductionGuiAuthority::production()?;
+    let heartbeat =
+        gui::read_instance_heartbeat(&authority.runtime_dir, &source.selection.gui_instance)
+            .map_err(typed_gui)?;
+    if heartbeat.pid != source.selection.pid
+        || heartbeat.process_start_token != source.selection.process_start_token
+        || heartbeat
+            .panes
+            .iter()
+            .filter(|pane| {
+                pane.pane_id == source.selection.pane_id
+                    && pane.domain == source.selection.domain
+                    && pane.context == source.marker
+                    && pane.tmux_client_uid == source.tmux_client_uid
+            })
+            .count()
+            != 1
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "captured GUI source changed before transition staging",
+        ));
+    }
+
+    let destination =
+        authority.resolve_space(&canonical_uri(target.owner, target.space_uid), target.owner)?;
+    if destination.marker.host_uid != target.owner
+        || destination.marker.space_uid != target.space_uid
+        || destination.marker.space_no != target.space_no
+        || destination.marker.backend != Backend::Tmux
+        || destination.backend_instance != target.backend_instance_uid
+        || destination.marker.server_epoch != target.server_epoch
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "tmux exec destination changed before transition staging",
+        ));
+    }
+    // Owner resolution may cross a network boundary. Repeat the exact source
+    // proof after it, immediately before persisting the pending transition.
+    let heartbeat =
+        gui::read_instance_heartbeat(&authority.runtime_dir, &source.selection.gui_instance)
+            .map_err(typed_gui)?;
+    if heartbeat.pid != source.selection.pid
+        || heartbeat.process_start_token != source.selection.process_start_token
+        || heartbeat
+            .panes
+            .iter()
+            .filter(|pane| {
+                pane.pane_id == source.selection.pane_id
+                    && pane.domain == source.selection.domain
+                    && pane.context == source.marker
+                    && pane.tmux_client_uid == source.tmux_client_uid
+            })
+            .count()
+            != 1
+    {
+        return Err(TypedError::new(
+            ErrorCode::IdentityConflict,
+            "captured GUI source changed during destination resolution",
+        ));
+    }
+    if source.marker.backend == Backend::Tmux {
+        require_captured_tmux_source_live(
+            source,
+            |marker| authority.validate_authority_marker(marker),
+            |marker, source_uid| {
+                authority
+                    .preflight_tmux_marker_client(marker, source_uid)
+                    .map(|_| ())
+            },
+        )?;
+    }
+    let (group_ref, split_ref) = frozen_connect_child_refs(target);
+    let mut destination_marker = destination.marker.clone();
+    if let Some(group_ref) = group_ref {
+        destination_marker.group_ref = group_ref;
+    }
+    if let Some(split_ref) = split_ref {
+        destination_marker.split_ref = split_ref;
+    }
+    authority
+        .history
+        .stage_gui_transition(PendingGuiTransition {
+            tmux_client_uid,
+            source: source.source,
+            destination: GuiHistoryTarget {
+                host_uid: target.owner,
+                space_uid: target.space_uid,
+            },
+            destination_backend_instance_uid: target.backend_instance_uid,
+            destination_marker,
+            destination_child_kind: target.child.as_ref().map(VerifiedConnectChild::kind),
+            gui_instance: source.selection.gui_instance.clone(),
+            gui_pid: source.selection.pid,
+            gui_process_start_token: source.selection.process_start_token.clone(),
+            gui_pane_id: source.selection.pane_id,
+            gui_domain: source.selection.domain.clone(),
+            expires_at: unix_now()?.saturating_add(pending_gui_transition_ttl_seconds(plan.kind())),
+        })
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("staging correlated GUI presentation history: {error}"),
+            )
+        })?;
+    Ok(GuiExecTransitionOutcome::Staged {
+        pending_uid: tmux_client_uid,
+    })
+}
+
+/// Bounded monitor entry point. It records GUI history only after one fresh
+/// heartbeat shows the exact destination marker and client UID in the same
+/// GUI process/pane, followed by owner live revalidation. Timeout cancels the
+/// pending record and leaves GUI history unchanged.
+pub fn finalize_correlated_gui_exec_transition_production(
+    pending_uid: Uuid,
+    timeout: Duration,
+) -> Result<bool, TypedError> {
+    let authority = ProductionGuiAuthority::production()?;
+    let Some(pending) = authority.history.pending_gui_transition(pending_uid) else {
+        return Ok(false);
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        if authority
+            .history
+            .pending_gui_transition(pending_uid)
+            .as_ref()
+            != Some(&pending)
+        {
+            return Ok(false);
+        }
+        let now = match unix_now() {
+            Ok(now) => now,
+            Err(error) => {
+                let _ = authority.history.cancel_gui_transition(pending_uid);
+                return Err(error);
+            }
+        };
+        if now >= pending.expires_at || Instant::now() >= deadline {
+            authority
+                .history
+                .cancel_gui_transition(pending_uid)
+                .map_err(|error| {
+                    TypedError::new(
+                        ErrorCode::OperationFailed,
+                        format!("canceling expired GUI transition: {error}"),
+                    )
+                })?;
+            return Ok(false);
+        }
+        match gui::read_instance_heartbeat(&authority.runtime_dir, &pending.gui_instance) {
+            Ok(heartbeat) => {
+                if heartbeat.pid != pending.gui_pid
+                    || heartbeat.process_start_token != pending.gui_process_start_token
+                {
+                    authority
+                        .history
+                        .cancel_gui_transition(pending_uid)
+                        .map_err(|error| {
+                            TypedError::new(
+                                ErrorCode::OperationFailed,
+                                format!("canceling raced GUI transition: {error}"),
+                            )
+                        })?;
+                    return Err(TypedError::new(
+                        ErrorCode::IdentityConflict,
+                        "GUI process incarnation changed while awaiting tmux presentation",
+                    ));
+                }
+                let matches: Vec<_> = heartbeat
+                    .panes
+                    .iter()
+                    .filter(|pane| {
+                        pane.pane_id == pending.gui_pane_id
+                            && pane.domain == pending.gui_domain
+                            && pane.tmux_client_uid == Some(pending_uid)
+                            && pane.context.backend == Backend::Tmux
+                            && pane.context.host_uid == pending.destination.host_uid
+                            && pane.context.space_uid == pending.destination.space_uid
+                            && pending_destination_marker_matches(&pending, &pane.context)
+                    })
+                    .collect();
+                if let [pane] = matches.as_slice() {
+                    // OSC user variables arrive sequentially. A base Space
+                    // identity can therefore be new while Group/Split or
+                    // the native client still reflects the source. Such a
+                    // mixed witness cannot commit, but is retried within the
+                    // same bounded incarnation monitor.
+                    if let Ok(exact) = authority.validate_authority_marker(&pane.context) {
+                        if exact.backend_instance != pending.destination_backend_instance_uid {
+                            let _ = authority.history.cancel_gui_transition(pending_uid);
+                            return Err(TypedError::new(
+                                ErrorCode::IdentityConflict,
+                                "visible tmux destination backend instance differs from the staged transition",
+                            ));
+                        }
+                        if authority
+                            .preflight_tmux_marker_client(&exact, pending_uid)
+                            .is_ok()
+                        {
+                            return match authority.history.complete_gui_transition(&pending) {
+                                Ok(completed) => Ok(completed),
+                                Err(error) => {
+                                    let _ = authority.history.cancel_gui_transition(pending_uid);
+                                    Err(TypedError::new(
+                                        ErrorCode::OperationFailed,
+                                        format!("finalizing GUI transition: {error}"),
+                                    ))
+                                }
+                            };
+                        }
+                    }
+                }
+            }
+            // User-variable updates arrive as a short OSC sequence; a
+            // heartbeat sampled mid-sequence is invalid but cannot commit.
+            // Retry it only within this bounded monitor deadline.
+            Err(GuiError::BridgeUnavailable(_)) | Err(GuiError::InvalidInstance(_)) => {}
+            Err(error) => {
+                let _ = authority.history.cancel_gui_transition(pending_uid);
+                return Err(typed_gui(error));
+            }
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+pub fn cancel_correlated_gui_exec_transition_production(
+    pending_uid: Uuid,
+) -> Result<bool, TypedError> {
+    let state_dir = History::default_dir().ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::OperationFailed,
+            "HOME/XDG_STATE_HOME is unavailable for GUI transition cancellation",
+        )
+    })?;
+    History::new(state_dir)
+        .cancel_gui_transition(pending_uid)
+        .map_err(|error| {
+            TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("canceling GUI transition: {error}"),
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -5050,12 +7087,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn physical_gui_domain_constrains_only_wez_owner_routes() {
+        assert_eq!(
+            marker_owner_route_domain(Backend::Wez, Some("dmux-b-usb")),
+            Some("dmux-b-usb")
+        );
+        assert_eq!(
+            marker_owner_route_domain(Backend::Tmux, Some("dmux")),
+            None,
+            "a local outer Wez domain is not a route fact for a remote tmux owner"
+        );
+    }
+
     fn origin(marker: &MarkerContext) -> GuiCliOrigin {
         GuiCliOrigin {
             protocol_version: 1,
             gui_instance: "gui-test-1".into(),
             pane_id: 51,
             domain: "dmux".into(),
+            tmux_client_uid: None,
             marker: marker.clone(),
         }
     }
@@ -5162,6 +7213,116 @@ mod tests {
     }
 
     #[test]
+    fn safe_quit_refuses_disappearance_of_a_nonactive_owner_pane() {
+        let marker = marker();
+        let before = SpaceHierarchy {
+            space_uid: marker.space_uid,
+            server_epoch: marker.server_epoch,
+            groups: vec![
+                operations::HierarchyGroup {
+                    group_ref: marker.group_ref.clone(),
+                    title: Some("visible".into()),
+                    splits: vec![operations::HierarchySplit {
+                        split_ref: marker.split_ref.clone(),
+                        title: None,
+                        cwd: Some("/visible".into()),
+                    }],
+                },
+                operations::HierarchyGroup {
+                    group_ref: format!("g{}.wz-99", marker.server_epoch.0),
+                    title: Some("not represented by the active marker".into()),
+                    splits: vec![operations::HierarchySplit {
+                        split_ref: format!("p{}.wz-100", marker.server_epoch.0),
+                        title: None,
+                        cwd: Some("/hidden".into()),
+                    }],
+                },
+            ],
+        };
+        let mut after = before.clone();
+        after.groups.pop();
+        let error =
+            require_complete_hierarchy_survived(marker.space_uid, &before, &after).unwrap_err();
+        assert_eq!(error.code, ErrorCode::PostconditionFailed);
+        assert!(require_complete_hierarchy_survived(marker.space_uid, &before, &before).is_ok());
+
+        let mut superset = before.clone();
+        superset.groups.reverse();
+        superset.groups[0].title = Some("harmless metadata update".into());
+        superset.groups.push(operations::HierarchyGroup {
+            group_ref: format!("g{}.wz-101", marker.server_epoch.0),
+            title: Some("new Group".into()),
+            splits: vec![operations::HierarchySplit {
+                split_ref: format!("p{}.wz-102", marker.server_epoch.0),
+                title: None,
+                cwd: None,
+            }],
+        });
+        assert!(
+            require_complete_hierarchy_survived(marker.space_uid, &before, &superset).is_ok(),
+            "safe quit permits additive children, order changes, and metadata changes"
+        );
+    }
+
+    #[test]
+    fn safe_quit_refuses_sentinel_or_physical_pane_loss_including_sentinel_only_domain() {
+        let instance = BackendInstanceUid(Uuid::new_v4());
+        let epoch = ServerEpoch(Uuid::new_v4());
+        let sentinel_only = WezNativeTreeResult {
+            backend_instance_uid: instance,
+            server_epoch: epoch,
+            sentinel_window_id: 1,
+            sentinel_tab_id: 2,
+            sentinel_pane_id: 3,
+            panes: vec![WezNativePaneWitness {
+                window_id: 1,
+                tab_id: 2,
+                pane_id: 3,
+            }],
+        };
+        let changed_sentinel = WezNativeTreeResult {
+            sentinel_pane_id: 4,
+            panes: vec![WezNativePaneWitness {
+                window_id: 1,
+                tab_id: 2,
+                pane_id: 4,
+            }],
+            ..sentinel_only.clone()
+        };
+        assert_eq!(
+            require_native_tree_survived("b-sentinel-only", &sentinel_only, &changed_sentinel)
+                .unwrap_err()
+                .code,
+            ErrorCode::PostconditionFailed
+        );
+
+        let with_user = WezNativeTreeResult {
+            panes: vec![
+                sentinel_only.panes[0].clone(),
+                WezNativePaneWitness {
+                    window_id: 10,
+                    tab_id: 20,
+                    pane_id: 30,
+                },
+            ],
+            ..sentinel_only.clone()
+        };
+        assert_eq!(
+            require_native_tree_survived("a-user", &with_user, &sentinel_only)
+                .unwrap_err()
+                .code,
+            ErrorCode::PostconditionFailed
+        );
+        let mut additive = with_user.clone();
+        additive.panes.push(WezNativePaneWitness {
+            window_id: 11,
+            tab_id: 21,
+            pane_id: 31,
+        });
+        assert!(require_native_tree_survived("a-user", &with_user, &additive).is_ok());
+    }
+
+    #[test]
     fn context_result_echoes_the_exact_authoritative_local_marker() {
         let scratch = tempfile::tempdir().unwrap();
         let runtime = tempfile::tempdir().unwrap();
@@ -5198,9 +7359,12 @@ mod tests {
             BridgeDomainState {
                 state: "Attached".into(),
                 has_any_panes: true,
+                backend_instance_uid: Some(authority_marker.backend_instance),
                 pane_count: 1,
                 valid_marker_pane_count: 1,
                 system_pane_count: 0,
+                system_workspace: None,
+                system_epoch: None,
             },
         );
         let bound = BoundGuiOrigin {
@@ -5221,6 +7385,7 @@ mod tests {
                 panes: vec![BridgePane {
                     pane_id: 51,
                     domain: "dmux".into(),
+                    tmux_client_uid: None,
                     context: marker.clone(),
                 }],
                 domains,
@@ -5352,7 +7517,7 @@ mod tests {
                 "group_ref": marker.group_ref.clone(),
                 "split_ref": marker.split_ref.clone(),
             }),
-            gui::in_gui_origin(&selection, &marker),
+            gui::in_gui_origin(&selection, &marker, None),
         )
         .unwrap();
         assert_eq!(request["action"], "present");
@@ -5456,12 +7621,15 @@ mod tests {
             safe_quit_domain_plan(persistent.clone(), ["dmux-b-ts".to_string()], true).unwrap();
         assert_eq!(mixed.detach, vec!["dmux-b-ts"]);
         assert_eq!(mixed.full_persistent_set, persistent);
-        assert!(mixed.must_hide);
 
         let tmux_only = safe_quit_domain_plan(persistent.clone(), Vec::new(), true).unwrap();
         assert!(tmux_only.detach.is_empty());
         assert_eq!(tmux_only.full_persistent_set, persistent);
-        assert!(tmux_only.must_hide);
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(safe_quit_platform_action(), "hide");
+        #[cfg(target_os = "linux")]
+        assert_eq!(safe_quit_platform_action(), "quit");
 
         let unsafe_empty =
             safe_quit_domain_plan(BTreeSet::from(["dmux".into()]), Vec::new(), false).unwrap_err();
@@ -5473,9 +7641,12 @@ mod tests {
         let detached = BridgeDomainState {
             state: "Detached".into(),
             has_any_panes: false,
+            backend_instance_uid: None,
             pane_count: 0,
             valid_marker_pane_count: 0,
             system_pane_count: 0,
+            system_workspace: None,
+            system_epoch: None,
         };
         let full = BTreeSet::from(["dmux".to_string(), "dmux-b-ts".to_string()]);
         let mut heartbeat = BridgeHeartbeat {
@@ -5540,16 +7711,22 @@ mod tests {
         let detached = BridgeDomainState {
             state: "Detached".into(),
             has_any_panes: false,
+            backend_instance_uid: Some(backend_instance_uid),
             pane_count: 0,
             valid_marker_pane_count: 0,
             system_pane_count: 0,
+            system_workspace: None,
+            system_epoch: None,
         };
         let attached = BridgeDomainState {
             state: "Attached".into(),
             has_any_panes: true,
+            backend_instance_uid: Some(backend_instance_uid),
             pane_count: 1,
             valid_marker_pane_count: 0,
             system_pane_count: 1,
+            system_workspace: Some(format!("dmux:system:{}", marker().server_epoch.0)),
+            system_epoch: Some(marker().server_epoch),
         };
         let heartbeat = |domains| BridgeHeartbeat {
             protocol_version: 1,
@@ -5617,9 +7794,12 @@ mod tests {
         let detached = BridgeDomainState {
             state: "Detached".into(),
             has_any_panes: false,
+            backend_instance_uid: None,
             pane_count: 0,
             valid_marker_pane_count: 0,
             system_pane_count: 0,
+            system_workspace: None,
+            system_epoch: None,
         };
         let transient = BridgeDomainState {
             state: "Attaching".into(),

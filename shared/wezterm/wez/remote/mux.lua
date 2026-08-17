@@ -8,6 +8,8 @@ local json = require 'wez.dmux_bridge.json'
 -- path: when the cable dies mid-session, attaching the -ts domain resumes
 -- exactly where the -usb session stopped.
 local M = {}
+local managed_persistent_domain_instances
+local managed_persistent_domain_owners
 
 local function dmux_enabled()
   return os.getenv 'DMUX_WEZ_FIRST' == '1'
@@ -120,10 +122,21 @@ local function validate_manifest(rows)
     return false
   end
   local names, route_ids = {}, {}
+  local instance_by_host, host_by_instance = {}, {}
   for _, row in ipairs(rows) do
     if names[row.name] or route_ids[row.route_id] then
       return false
     end
+    local known_instance = instance_by_host[row.host_uid]
+    local known_host = host_by_instance[row.backend_instance_uid]
+    if
+      (known_instance and known_instance ~= row.backend_instance_uid)
+      or (known_host and known_host ~= row.host_uid)
+    then
+      return false
+    end
+    instance_by_host[row.host_uid] = row.backend_instance_uid
+    host_by_instance[row.backend_instance_uid] = row.host_uid
     names[row.name], route_ids[row.route_id] = true, true
     local seen = {}
     for _, alternate in ipairs(row.alternate_domains) do
@@ -182,6 +195,10 @@ end
 
 function M.domains()
   if dmux_enabled() then
+    -- Clear first so a reload which loses/mangles the authority response can
+    -- never retain identities from the preceding successful evaluation.
+    managed_persistent_domain_instances = {}
+    managed_persistent_domain_owners = {}
     local bin = os.getenv 'DMUX_BIN' or (wezterm.home_dir .. '/.local/bin/dmux')
     local spawned, ok, stdout, stderr = pcall(wezterm.run_child_process, { bin, '_gui', 'domains' })
     if not spawned or not ok then
@@ -207,6 +224,8 @@ function M.domains()
       return {}
     end
     local domains = {}
+    local instances = {}
+    local owners = {}
     for _, row in ipairs(response.result.domains) do
       if row.compatible then
         table.insert(domains, {
@@ -217,12 +236,18 @@ function M.domains()
           remote_wezterm_path = row.remote_wezterm_path,
           assume_shell = 'Posix',
         })
+        instances[row.name] = row.backend_instance_uid
+        owners[row.name] = row.host_uid
       else
         wezterm.log_warn(string.format('dmux GUI domain %s unavailable: %s', row.name, row.unavailable_reason))
       end
     end
+    managed_persistent_domain_instances = instances
+    managed_persistent_domain_owners = owners
     return domains
   end
+  managed_persistent_domain_instances = nil
+  managed_persistent_domain_owners = nil
   if not PEER then
     return {}
   end
@@ -241,6 +266,25 @@ function M.domains()
   -- `Match exec` probe is not in the subset. Path selection happens in
   -- attach_action instead.
   return { domain('usb', PEER.usb_address), domain('ts', PEER.ts_address) }
+end
+
+local function copied_map(source)
+  if type(source) ~= 'table' then
+    return nil
+  end
+  local copied = {}
+  for name, value in pairs(source) do
+    copied[name] = value
+  end
+  return copied
+end
+
+function M.managed_persistent_domain_instances()
+  return copied_map(managed_persistent_domain_instances)
+end
+
+function M.managed_persistent_domain_owners()
+  return copied_map(managed_persistent_domain_owners)
 end
 
 function M.usb_reachable()

@@ -70,19 +70,27 @@ local request = {
   origin = {
     kind = 'in_gui',
     gui_instance = 'gui-42-cafe',
+    pid = 42,
+    process_start_token = 'start-token',
     pane_id = 91,
     domain = 'dmux-b-usb',
     host_uid = host,
     space_uid = space,
+    space_no = 7,
+    backend = 'wez',
     server_epoch = epoch,
+    group_ref = group,
+    split_ref = split,
   },
 }
 
 local expected_document = '{"action":"present","expiry":1800000010,"issued_at":1800000000,'
-  .. '"nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","origin":{"domain":"dmux-b-usb",'
-  .. '"gui_instance":"gui-42-cafe","host_uid":"22222222-2222-4222-8222-222222222222",'
-  .. '"kind":"in_gui","pane_id":91,"server_epoch":"55555555-5555-4555-8555-555555555555",'
-  .. '"space_uid":"33333333-3333-4333-8333-333333333333"},"protocol_version":1,'
+  .. '"nonce":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","origin":{"backend":"wez","domain":"dmux-b-usb",'
+  .. '"group_ref":"g55555555-5555-4555-8555-555555555555.wz-7","gui_instance":"gui-42-cafe",'
+  .. '"host_uid":"22222222-2222-4222-8222-222222222222","kind":"in_gui","pane_id":91,"pid":42,'
+  .. '"process_start_token":"start-token","server_epoch":"55555555-5555-4555-8555-555555555555",'
+  .. '"space_no":7,"space_uid":"33333333-3333-4333-8333-333333333333",'
+  .. '"split_ref":"p55555555-5555-4555-8555-555555555555.wz-9"},"protocol_version":1,'
   .. '"replay_key":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"alternate_domains":["dmux-b-ts"],'
   .. '"backend_instance_uid":"44444444-4444-4444-8444-444444444444","domain":"dmux-b-usb",'
   .. '"group_ref":"g55555555-5555-4555-8555-555555555555.wz-7",'
@@ -95,8 +103,8 @@ local expected_document = '{"action":"present","expiry":1800000010,"issued_at":1
 
 local _, document = protocol.sign(request, key)
 equal(document, expected_document, 'cross-language canonical signing document')
-equal(crypto.sha256(document), 'd8f4019dc81b4d8bdbdc275e11d9a0bfb4022a8335692e3d3fe4eaff8ee7d60f', 'document sha256')
-equal(request.hmac_sha256, 'c94b37b0e41cbccbc0874398c7e4dc79c38a0ccf4900f85924e4618f78d0c51d', 'document HMAC')
+equal(crypto.sha256(document), '61f7c94cb55544583d28a47ee48684a14921a0760d5217f26cbcfad984a069df', 'document sha256')
+equal(request.hmac_sha256, '293f019ae3ee7a55784dd6d03593e431f0d64117e496703ac7e39ed7ebcfce80', 'document HMAC')
 local authenticated, auth_err = protocol.validate_and_authenticate(request, key, 1800000000, 'gui-42-cafe')
 truthy(authenticated and not auth_err, 'signed request authenticates')
 
@@ -116,12 +124,12 @@ local empty_quit = {
 local _, empty_document = protocol.sign(empty_quit, key)
 equal(
   crypto.sha256(empty_document),
-  '29e3e7909e26f7379ecd8d2a7f92380c3c7e0611a574d95306a4f6e6af0d045e',
+  '9020e21a60eb17b851792de5bf1f9bd90174bbe4dd7120be0895d57d9fda5e15',
   'empty safe-quit document sha256'
 )
 equal(
   empty_quit.hmac_sha256,
-  'dafe8ca0f43cade3b17e31c56fe0df872630cd6cfe9ab84188fde45e6e0034a5',
+  'a188cd6cc180e07fcfc2ba88e5609885c732ac0e7748e9b451cfcc73465958b9',
   'empty safe-quit document HMAC'
 )
 local empty_wire = assert(json.encode(empty_quit))
@@ -261,7 +269,10 @@ cold.origin = {
   start_token = 'Sun Aug 16 12:34:56 2026',
   launcher_request_uid = '88888888-8888-4888-8888-888888888888',
   domain = 'dmux-b-usb',
+  host_uid = host,
   backend_instance_uid = instance_uid,
+  server_epoch = epoch,
+  space_uid = space,
 }
 protocol.sign(cold, key)
 truthy(

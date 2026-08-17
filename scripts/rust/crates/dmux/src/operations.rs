@@ -1362,13 +1362,13 @@ fn remove_space_inner(
         }
     }
 
-    // P10 intentional-empty guard (§15.3).  The tombstone must be durable
-    // before its revision can become the recovery floor, but we first prove
-    // emptiness while the exact backend-instance lock still excludes every
-    // create/restore/snapshot writer.  If this is the final durable Wez
-    // Space, an indeterminate scan is not a successful remove: leaving the
-    // journal in `deleting` is safer than allowing a later cold start to
-    // resurrect a manifest we could not fence below.
+    // P10 intentional-empty guard (§15.3). First prove emptiness while the
+    // exact backend-instance lock excludes every create/restore/snapshot
+    // writer; below, the tombstone and its resulting recovery floor commit
+    // in one registry transaction. If this is the final durable Wez Space,
+    // an indeterminate scan is not a successful remove: leaving the journal
+    // in `deleting` is safer than allowing a later cold start to resurrect a
+    // manifest we could not fence below.
     let final_wez_empty_epoch = if backend == Backend::Wez {
         let final_durable_space = !registry.spaces().map_err(reg_err)?.iter().any(|row| {
             row.backend_instance == instance
@@ -1384,17 +1384,17 @@ fn remove_space_inner(
         None
     };
 
-    registry
-        .complete_remove(space_uid, operation_uid)
-        .map_err(reg_err)?;
-
     if let Some(epoch) = final_wez_empty_epoch {
         let backend_scope = LockScope::BackendInstance(instance);
         let kernel = locks.held(&backend_scope).ok_or_else(|| {
             OpError::Lock("intentional-empty update lost its backend-instance lock".into())
         })?;
         registry
-            .record_current_intentional_empty_revision(instance, epoch, kernel)
+            .complete_remove_intentionally_empty(space_uid, operation_uid, instance, epoch, kernel)
+            .map_err(reg_err)?;
+    } else {
+        registry
+            .complete_remove(space_uid, operation_uid)
             .map_err(reg_err)?;
     }
     Ok(())
@@ -3045,9 +3045,18 @@ pub fn context_read(
     let identity = registry.identity().map_err(reg_err)?;
     let instance = registry.space(space_uid).map_err(reg_err)?.backend_instance;
     let mut locks = OrderedLocks::new(&env.lock_dir);
-    locks
-        .acquire(LockScope::AuthorityGate, LockMode::Shared)
-        .map_err(|e| OpError::Lock(e.to_string()))?;
+    // `_context` runs synchronously from the interactive prompt.  It must
+    // never wait behind authority maintenance: the marker is only a locator
+    // hint, so a busy gate is an indeterminate read and the prompt can retry
+    // on its next bounded refresh instead of hanging the shell.
+    if !locks
+        .try_acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?
+    {
+        return Err(OpError::Indeterminate(
+            "authority maintenance is in progress".into(),
+        ));
+    }
     if !locks
         .try_acquire(LockScope::BackendInstance(instance), LockMode::Shared)
         .map_err(|e| OpError::Lock(e.to_string()))?

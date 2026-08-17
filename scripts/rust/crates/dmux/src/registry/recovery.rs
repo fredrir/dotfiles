@@ -249,7 +249,7 @@ fn recovery_error(message: impl Into<String>) -> RegistryError {
     RegistryError::Corrupt(format!("recovery journal: {}", message.into()))
 }
 
-fn require_published_epoch(
+pub(super) fn require_published_epoch(
     conn: &Connection,
     instance: BackendInstanceUid,
     epoch: ServerEpoch,

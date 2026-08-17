@@ -73,17 +73,29 @@ fn write_descriptor(
     socket: &str,
 ) {
     let path = scratch.locks.path().join("wez-dmux.json");
+    let pid = std::process::id();
+    let start_token = dmux::runtime::process_start_token_for_pid(pid).unwrap();
+    let boot_id = dmux::runtime::current_boot_id().unwrap();
     fs::write(
         &path,
         serde_json::to_vec(&json!({
             "descriptor_version": 1,
             "state": state,
             "epoch": epoch,
-            "pid": 4242,
+            "pid": pid,
             "socket": socket,
-            "start_token": "test-process-witness",
+            "start_token": start_token,
+            "boot_id": boot_id,
+            "socket_dev": 1,
+            "socket_ino": 1,
             "boot_nonce": Uuid::new_v4(),
             "backend_instance_uid": instance,
+            "sentinel_window_id": 0,
+            "sentinel_tab_id": 0,
+            "sentinel_pane_id": 0,
+            "sentinel_fallback": false,
+            "written_by": "mux-startup",
+            "written_at": "2026-08-17T00:00:00Z",
         }))
         .unwrap(),
     )
@@ -164,11 +176,13 @@ fn probe_bound_includes_descendants_that_inherit_capture_pipes() {
         "#!/bin/sh\n(sleep 5) &\ncase \"$*\" in\n  '--version') echo 'wezterm build-a' ;;\n  *) echo '--always-new-process --domain DOMAIN --attach' ;;\nesac\n",
     );
     let started = Instant::now();
-    let report =
-        probe_wezterm_capabilities(bin.to_str().unwrap(), Duration::from_millis(500)).unwrap();
+    // Leave enough scheduler headroom for the repository-wide parallel test
+    // runner while remaining well below the descendant's five-second sleep.
+    // A leaked inherited pipe still breaches the four-second aggregate bound.
+    let report = probe_wezterm_capabilities(bin.to_str().unwrap(), Duration::from_secs(2)).unwrap();
     assert_eq!(report.build, "build-a");
     assert!(
-        started.elapsed() < Duration::from_secs(2),
+        started.elapsed() < Duration::from_secs(4),
         "inherited capture pipes escaped the bounded probe"
     );
 }

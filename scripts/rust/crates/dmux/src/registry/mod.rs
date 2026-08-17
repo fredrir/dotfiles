@@ -1879,6 +1879,112 @@ impl Registry {
         })
     }
 
+    /// Complete the verified removal of the final managed Wez Space and
+    /// record the resulting authority revision as the instance's
+    /// intentional-empty recovery floor in the SAME transaction.
+    ///
+    /// Splitting these writes would leave a crash window where the durable
+    /// tombstone exists but an older manifest remains eligible. The caller
+    /// must hold the exact backend-instance lock exclusively and must have
+    /// proved a complete, empty inventory for `server_epoch` while holding
+    /// it. Ordinary/non-final removal continues to use [`Self::complete_remove`].
+    pub fn complete_remove_intentionally_empty(
+        &mut self,
+        space_uid: SpaceUid,
+        operation_uid: Uuid,
+        instance: BackendInstanceUid,
+        server_epoch: ServerEpoch,
+        kernel: &HeldLock,
+    ) -> Result<u64> {
+        if kernel.mode() != LockMode::Exclusive
+            || kernel.scope() != &LockScope::BackendInstance(instance)
+        {
+            return Err(RegistryError::KernelLockMismatch {
+                scope: LeaseScope::Backend(instance).as_scope_string(),
+            });
+        }
+        self.immediate(|tx| {
+            recovery::require_published_epoch(tx, instance, server_epoch)?;
+            let (space_instance, backend): (String, String) = tx
+                .query_row(
+                    "SELECT s.backend_instance_id, b.backend \
+                     FROM spaces s JOIN backend_instances b \
+                       ON b.backend_instance_uid = s.backend_instance_id \
+                     WHERE s.space_uid = ?1",
+                    [space_uid.0.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| RegistryError::NotFound {
+                    what: format!("space {}", space_uid.0),
+                })?;
+            if parse_uuid(&space_instance)? != instance.0 || backend != Backend::Wez.as_str() {
+                return Err(RegistryError::Corrupt(format!(
+                    "intentional-empty removal Space {} is not on Wez instance {}",
+                    space_uid.0, instance.0
+                )));
+            }
+            let other_live: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM spaces \
+                 WHERE backend_instance_id = ?1 AND space_uid <> ?2 \
+                   AND lifecycle IN ('reserved','active','deleting','conflict')",
+                params![instance.0.to_string(), space_uid.0.to_string()],
+                |row| row.get(0),
+            )?;
+            if other_live != 0 {
+                return Err(RegistryError::Corrupt(format!(
+                    "intentional-empty removal Space {} has {other_live} other live Spaces on instance {}",
+                    space_uid.0, instance.0
+                )));
+            }
+
+            let now = now_rfc3339();
+            require_unfinished_op(tx, operation_uid, space_uid, OperationKind::Remove)?;
+            let changed = tx.execute(
+                "UPDATE spaces SET lifecycle = 'deleted', deleted_at = ?2, updated_at = ?2 \
+                 WHERE space_uid = ?1 AND lifecycle = 'deleting'",
+                params![space_uid.0.to_string(), now],
+            )?;
+            if changed != 1 {
+                return Err(RegistryError::NotFound {
+                    what: format!("deleting space {}", space_uid.0),
+                });
+            }
+            tx.execute(
+                "UPDATE native_bindings SET binding_state = 'severed', observation = 'absent', \
+                 observed_at = ?2 WHERE space_uid = ?1 AND binding_state = 'current'",
+                params![space_uid.0.to_string(), now],
+            )?;
+            finish_op(tx, operation_uid, OperationState::Completed, &now)?;
+            let (revision, _) = advance_revision(tx, &now)?;
+            let revision_i64 = i64::try_from(revision).map_err(|_| {
+                RegistryError::Corrupt(format!(
+                    "intentional-empty authority revision {revision} exceeds i64"
+                ))
+            })?;
+            tx.execute(
+                "UPDATE backend_instances \
+                 SET intentional_empty_revision = \
+                   CASE WHEN intentional_empty_revision IS NULL \
+                          OR intentional_empty_revision < ?2 \
+                        THEN ?2 ELSE intentional_empty_revision END \
+                 WHERE backend_instance_uid = ?1",
+                params![instance.0.to_string(), revision_i64],
+            )?;
+            let stored: i64 = tx.query_row(
+                "SELECT intentional_empty_revision FROM backend_instances \
+                 WHERE backend_instance_uid = ?1",
+                [instance.0.to_string()],
+                |row| row.get(0),
+            )?;
+            u64::try_from(stored).map_err(|_| {
+                RegistryError::Corrupt(format!(
+                    "negative intentional-empty revision {stored}"
+                ))
+            })
+        })
+    }
+
     // -- space queries -------------------------------------------------------
 
     pub fn space(&self, space_uid: SpaceUid) -> Result<SpaceRow> {

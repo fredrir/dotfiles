@@ -63,7 +63,12 @@ local window = {
   end,
   toast_notification = function() end,
 }
-local pane = {}
+local client_uid
+local pane = {
+  get_user_vars = function()
+    return { dmux_tmux_client_uid = client_uid }
+  end,
+}
 
 picker.action()(window, pane)
 assert(selector and selector.title == 'dmux Spaces' and #selector.choices == 3)
@@ -76,8 +81,9 @@ selector.action(window, pane, 'b2')
 assert(calls[#calls].verb == 'present')
 assert(calls[#calls].args[1] == '--space' and calls[#calls].args[2] == 'b2')
 
--- A controller regression that leaks a tmux row must not expose an item
--- whose presentation cannot be completed by this GUI bridge.
+-- Tmux rows are accepted only after Rust has preflighted this pane's exact
+-- attach-time client UID; selection sends the same UID back for switching.
+client_uid = '11111111-1111-4111-8111-111111111111'
 rows = json.array {
   {
     ref = 'a1',
@@ -92,7 +98,11 @@ rows = json.array {
 }
 selector = nil
 picker.action()(window, pane)
-assert(selector == nil)
-assert(toasts[#toasts] == 'dmux returned malformed Space picker rows')
+assert(selector and #selector.choices == 3)
+assert(selector.choices[3].id == 'a1' and selector.choices[3].label:match 'macie/tmux')
+selector.action(window, pane, 'a1')
+assert(calls[#calls].verb == 'present')
+assert(calls[#calls].args[1] == '--space' and calls[#calls].args[2] == 'a1')
+assert(calls[#calls].args[3] == '--tmux-client-uid' and calls[#calls].args[4] == client_uid)
 
-io.stdout:write 'dmux picker test: named Wez Spaces and tmux fail-closed rows passed\n'
+io.stdout:write 'dmux picker test: named Wez Spaces and exact-client tmux rows passed\n'

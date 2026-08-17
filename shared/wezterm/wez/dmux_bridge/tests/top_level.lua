@@ -46,6 +46,32 @@ local fake_wezterm = {
     events[name] = callback
   end,
   target_triple = 'aarch64-apple-darwin',
+  gui = {
+    dmux_bridge_capabilities = function()
+      return {
+        version = 1,
+        descriptor_backed_spool = true,
+        exclusive_instance_lease = true,
+        launcher_witness = true,
+        checked_preflight = true,
+        capability_bound_lifecycle_completion = true,
+        zero_window_lifecycle = true,
+        verified_mux_descriptor = true,
+      }
+    end,
+    dmux_bridge_preflight = function()
+      return {
+        version = 1,
+        key_bytes = 32,
+        runtime_verified = true,
+        verified_mux_descriptor = true,
+        launcher_witness_present = false,
+      }
+    end,
+    dmux_bridge_open = function()
+      error 'config test must not acquire a bridge lease'
+    end,
+  },
 }
 package.preload.wezterm = function()
   return fake_wezterm
@@ -70,10 +96,13 @@ local module_names = {
   'wez.integrations',
   'wez.plugins',
 }
+local local_backend_instance = '44444444-4444-4444-8444-444444444444'
+local remote_backend_instance = '55555555-5555-4555-8555-555555555555'
+local remote_owner = '66666666-6666-4666-8666-666666666666'
 local order = {}
 for _, name in ipairs(module_names) do
   package.preload[name] = function()
-    return {
+    local module = {
       apply = function(config)
         assert(config.dmux_managed_gui == true, name .. ' ran before managed preflight')
         assert(config.disable_default_key_bindings == true)
@@ -93,7 +122,23 @@ for _, name in ipairs(module_names) do
         table.insert(order, 'setup:' .. name)
       end,
     }
+    if name == 'wez.domains' then
+      module.managed_persistent_domain_instances = function()
+        return { dmux = local_backend_instance }
+      end
+    end
+    return module
   end
+end
+package.preload['wez.remote.mux'] = function()
+  return {
+    managed_persistent_domain_instances = function()
+      return { ['dmux-b-usb'] = remote_backend_instance }
+    end,
+    managed_persistent_domain_owners = function()
+      return { ['dmux-b-usb'] = remote_owner }
+    end,
+  }
 end
 
 local config = dofile 'shared/wezterm/wezterm.lua'
@@ -110,6 +155,8 @@ assert(config.show_close_tab_button_in_tabs == false)
 assert(#fake_wezterm.GLOBAL.dmux_managed_persistent_domains == 2)
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains[1] == 'dmux')
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains[2] == 'dmux-b-usb')
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances.dmux == local_backend_instance)
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances['dmux-b-usb'] == remote_backend_instance)
 for _, binding in ipairs(config.keys) do
   assert(binding.action ~= 'QuitApplication' and binding.action ~= 'SpawnWindow')
 end

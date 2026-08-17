@@ -28,6 +28,35 @@ local fake_wezterm = {
   json_parse = function()
     return { state = 'starting' }
   end,
+  gui = {
+    dmux_bridge_capabilities = function()
+      return {
+        version = 1,
+        descriptor_backed_spool = true,
+        exclusive_instance_lease = true,
+        launcher_witness = true,
+        checked_preflight = true,
+        capability_bound_lifecycle_completion = true,
+        zero_window_lifecycle = true,
+        verified_mux_descriptor = true,
+      }
+    end,
+    dmux_bridge_preflight = function()
+      local descriptor = io.open(runtime .. '/wez-dmux.json', 'rb')
+      if not descriptor then
+        error 'dmux_bridge_descriptor_unavailable'
+      end
+      local body = descriptor:read '*a'
+      descriptor:close()
+      if body:match '"state"%s*:%s*"starting"' then
+        error 'dmux_bridge_descriptor_not_ready: starting'
+      end
+      error 'dmux_bridge_descriptor_invalid'
+    end,
+    dmux_bridge_open = function()
+      error 'preflight failure must not open a bridge lease'
+    end,
+  },
 }
 package.preload.wezterm = function()
   return fake_wezterm
@@ -46,15 +75,17 @@ for _, name in ipairs {
 end
 
 local ok, err = pcall(dofile, 'shared/wezterm/wezterm.lua')
-assert(not ok and tostring(err):match 'managed descriptor unavailable')
+assert(not ok and tostring(err):match 'descriptor_unavailable')
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains == nil)
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances == nil)
 
 local descriptor = assert(io.open(runtime .. '/wez-dmux.json', 'wb'))
 assert(descriptor:write '{"state":"starting"}')
 descriptor:close()
 package.loaded['wez.domains'] = nil
 ok, err = pcall(dofile, 'shared/wezterm/wezterm.lua')
-assert(not ok and tostring(err):match 'descriptor is not ready: starting')
+assert(not ok and tostring(err):match 'descriptor_not_ready: starting')
 assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domains == nil)
+assert(fake_wezterm.GLOBAL.dmux_managed_persistent_domain_instances == nil)
 
 io.stdout:write 'dmux top-level config test: missing/starting descriptor rejected\n'

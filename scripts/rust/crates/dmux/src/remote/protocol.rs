@@ -24,6 +24,9 @@ use crate::model::{
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const CAP_NEW_LOOKUP: &str = "new_lookup_v1";
 pub const CAP_NEW_FENCED_COLLISION: &str = "new_fenced_collision_v1";
+/// The owner can validate a controller-stamped tmux client UID against an
+/// exact live client process/tty witness and switch only that client.
+pub const CAP_TMUX_CLIENT_CORRELATION: &str = "tmux_client_correlation_v1";
 
 /// Method names carried in the envelope. The set grows per phase; the
 /// envelope shape is what P1 freezes. `hello` (enrollment/lineage handshake,
@@ -37,6 +40,13 @@ pub mod methods {
     pub const RENAME: &str = "rename";
     pub const RM: &str = "rm";
     pub const ATTACH_PLAN: &str = "attach_plan";
+    // P9 GUI-to-tmux invoking-client correlation. Status is a read-only
+    // preflight; switch is an idempotent presentation mutation.
+    pub const TMUX_CLIENT_STATUS: &str = "tmux_client_status";
+    pub const TMUX_CLIENT_SWITCH: &str = "tmux_client_switch";
+    pub const TMUX_CLIENT_DETACH: &str = "tmux_client_detach";
+    pub const TMUX_CLIENT_REFRESH: &str = "tmux_client_refresh";
+    pub const WEZ_NATIVE_TREE_STATUS: &str = "wez_native_tree_status";
     // P8b remote hierarchy (additive).
     pub const HIERARCHY: &str = "hierarchy";
     pub const GROUP_NEW: &str = "group_new";
@@ -362,6 +372,137 @@ pub struct AttachPlanPayload {
     pub child: Option<AttachChildRequest>,
 }
 
+/// Exact invoking-client preflight. `client_uid` is only a locator for the
+/// private owner record written at attach time; it is never sufficient on
+/// its own. The owner revalidates the record's process identity, tty,
+/// backend instance, server epoch, and current Space against `list-clients`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientStatusPayload {
+    pub client_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub group_ref: String,
+    pub split_ref: String,
+}
+
+/// Positive correlation witness. Native client names/ttys never cross the
+/// RPC boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientStatusResult {
+    pub client_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub backend_instance_uid: BackendInstanceUid,
+    pub server_epoch: ServerEpoch,
+    pub correlated: bool,
+}
+
+/// Republish the exact invoking client's current owner-authorized child
+/// after an out-of-band GUI focus mutation. `group_ref=None` permits any
+/// child in the same Space (used only after removing the active child);
+/// `group_ref=Some` with no Split permits the exact Group's live Splits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientRefreshPayload {
+    pub client_uid: Uuid,
+    pub space_uid: SpaceUid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_ref: Option<String>,
+}
+
+/// Owner receipt for the marker written to the exact verified client tty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientRefreshResult {
+    pub client_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub backend_instance_uid: BackendInstanceUid,
+    pub server_epoch: ServerEpoch,
+    pub group_ref: String,
+    pub split_ref: String,
+    pub published: bool,
+    pub published_clients: u32,
+}
+
+/// Switch the already-correlated invoking tmux client to an exact live
+/// Space on the same owner/backend incarnation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientSwitchPayload {
+    pub client_uid: Uuid,
+    pub from_space_uid: SpaceUid,
+    pub from_group_ref: String,
+    pub from_split_ref: String,
+    pub to_space_uid: SpaceUid,
+}
+
+/// Idempotent switch receipt. `replayed` is additive like the other owner
+/// mutation receipts; a lost acknowledgement never repeats creation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientSwitchResult {
+    pub client_uid: Uuid,
+    pub from_space_uid: SpaceUid,
+    pub to_space_uid: SpaceUid,
+    pub backend_instance_uid: BackendInstanceUid,
+    pub server_epoch: ServerEpoch,
+    pub switched: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replayed: bool,
+}
+
+/// Detach only the exact invoking tmux client after revalidating its active
+/// marker. No native tty/client name crosses this RPC boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientDetachPayload {
+    pub client_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub group_ref: String,
+    pub split_ref: String,
+}
+
+/// Idempotent exact-client detach receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TmuxClientDetachResult {
+    pub client_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub backend_instance_uid: BackendInstanceUid,
+    pub server_epoch: ServerEpoch,
+    pub detached: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replayed: bool,
+}
+
+/// Read-only exact-socket owner witness used by GUI detach/safe-quit. The
+/// request carries no native IDs; backend instance and epoch are mandatory
+/// envelope claims resolved by the owner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WezNativeTreePayload {}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WezNativePaneWitness {
+    pub window_id: u64,
+    pub tab_id: u64,
+    pub pane_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WezNativeTreeResult {
+    pub backend_instance_uid: BackendInstanceUid,
+    pub server_epoch: ServerEpoch,
+    pub sentinel_window_id: u64,
+    pub sentinel_tab_id: u64,
+    pub sentinel_pane_id: u64,
+    pub panes: Vec<WezNativePaneWitness>,
+}
+
 // ---------------------------------------------------------------------------
 // P8b remote hierarchy payloads (additive). Child refs travel as the
 // canonical §6.3 child-suffix STRING (`g<epoch-uuid>.<handle>` /
@@ -616,6 +757,76 @@ mod tests {
         assert!(!plan.replayed);
         let value = serde_json::to_value(&plan).unwrap();
         assert!(value.get("replayed").is_none());
+    }
+
+    #[test]
+    fn tmux_client_correlation_payloads_are_exact_and_switch_replay_is_additive() {
+        let client = Uuid::parse_str("0192aaaa-bbbb-4ccc-8ddd-eeeeffff0010").unwrap();
+        let from = SpaceUid(Uuid::parse_str("0192aaaa-bbbb-4ccc-8ddd-eeeeffff0011").unwrap());
+        let to = SpaceUid(Uuid::parse_str("0192aaaa-bbbb-4ccc-8ddd-eeeeffff0012").unwrap());
+        let payload = TmuxClientSwitchPayload {
+            client_uid: client,
+            from_space_uid: from,
+            from_group_ref: "gepoch.tx-1".into(),
+            from_split_ref: "pepoch.tx-2".into(),
+            to_space_uid: to,
+        };
+        let encoded = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({
+                "client_uid": client,
+                "from_space_uid": from,
+                "from_group_ref": "gepoch.tx-1",
+                "from_split_ref": "pepoch.tx-2",
+                "to_space_uid": to,
+            })
+        );
+        let mut unknown = encoded.clone();
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("client_tty".into(), Value::String("/dev/pts/9".into()));
+        assert!(serde_json::from_value::<TmuxClientSwitchPayload>(unknown).is_err());
+
+        let detach = TmuxClientDetachPayload {
+            client_uid: client,
+            space_uid: from,
+            group_ref: "gepoch.tx-1".into(),
+            split_ref: "pepoch.tx-2".into(),
+        };
+        let mut detach_unknown = serde_json::to_value(&detach).unwrap();
+        detach_unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("client_tty".into(), Value::String("/dev/pts/9".into()));
+        assert!(serde_json::from_value::<TmuxClientDetachPayload>(detach_unknown).is_err());
+        let detach_receipt: TmuxClientDetachResult = serde_json::from_value(serde_json::json!({
+            "client_uid": client,
+            "space_uid": from,
+            "backend_instance_uid": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0013",
+            "server_epoch": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0014",
+            "detached": true,
+        }))
+        .unwrap();
+        assert!(!detach_receipt.replayed);
+
+        let old_shape = serde_json::json!({
+            "client_uid": client,
+            "from_space_uid": from,
+            "to_space_uid": to,
+            "backend_instance_uid": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0013",
+            "server_epoch": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0014",
+            "switched": true,
+        });
+        let receipt: TmuxClientSwitchResult = serde_json::from_value(old_shape).unwrap();
+        assert!(!receipt.replayed);
+        assert!(
+            serde_json::to_value(receipt)
+                .unwrap()
+                .get("replayed")
+                .is_none()
+        );
     }
 
     #[test]

@@ -1,8 +1,14 @@
 //! Stable previous/current Space history (SpaceUid-keyed) and legacy
 //! name-based conversion (plan §9.2, §17 step 11).
 
-use dmux::history::{ConvertDropReason, History, LegacyEntry, convert_legacy_entries};
-use dmux::model::{HostUid, SpaceUid};
+use dmux::bootstrap::MarkerContext;
+use dmux::history::{
+    ConvertDropReason, GuiHistoryTarget, History, LegacyEntry, PendingGuiTransition,
+    convert_legacy_entries,
+};
+use dmux::model::{Backend, BackendInstanceUid, HostUid, ServerEpoch, SpaceNo, SpaceUid};
+use std::num::NonZeroU64;
+use std::sync::{Arc, Barrier};
 use uuid::Uuid;
 
 fn host() -> HostUid {
@@ -70,6 +76,7 @@ fn gui_history_records_one_cross_host_last_presented_identity() {
     assert_eq!(history.last_gui_presented(), None);
 
     history.record_gui_present(h1, a).unwrap();
+    assert_eq!(history.previous_gui_presented(), None);
     assert_eq!(
         history.last_gui_presented(),
         Some(dmux::history::GuiHistoryTarget {
@@ -87,6 +94,159 @@ fn gui_history_records_one_cross_host_last_presented_identity() {
     );
     assert_eq!(history.current(h1), Some(a));
     assert_eq!(history.current(h2), Some(b));
+    assert_eq!(
+        history.previous_gui_presented(),
+        Some(dmux::history::GuiHistoryTarget {
+            host_uid: h1,
+            space_uid: a,
+        })
+    );
+    // Re-presenting the same target is idempotent and does not rotate the
+    // global previous slot.
+    history.record_gui_present(h2, b).unwrap();
+    assert_eq!(
+        history.previous_gui_presented(),
+        Some(dmux::history::GuiHistoryTarget {
+            host_uid: h1,
+            space_uid: a,
+        })
+    );
+}
+
+#[test]
+fn exact_gui_transition_preserves_the_visible_source_in_one_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let history = History::new(dir.path());
+    let (h1, h2, stale_host) = (host(), host(), host());
+    let (source, destination, stale) = (space(), space(), space());
+
+    history.record_gui_present(stale_host, stale).unwrap();
+    history
+        .record_gui_transition(
+            GuiHistoryTarget {
+                host_uid: h1,
+                space_uid: source,
+            },
+            GuiHistoryTarget {
+                host_uid: h2,
+                space_uid: destination,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        history.previous_gui_presented(),
+        Some(GuiHistoryTarget {
+            host_uid: h1,
+            space_uid: source,
+        })
+    );
+    assert_eq!(
+        history.last_gui_presented(),
+        Some(GuiHistoryTarget {
+            host_uid: h2,
+            space_uid: destination,
+        })
+    );
+    assert_eq!(history.current(h1), Some(source));
+    assert_eq!(history.current(h2), Some(destination));
+
+    // Repeating the already-visible destination cannot rotate the source.
+    history
+        .record_gui_transition(
+            GuiHistoryTarget {
+                host_uid: h2,
+                space_uid: destination,
+            },
+            GuiHistoryTarget {
+                host_uid: h2,
+                space_uid: destination,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        history.previous_gui_presented(),
+        Some(GuiHistoryTarget {
+            host_uid: h1,
+            space_uid: source,
+        })
+    );
+}
+
+#[test]
+fn concurrent_pending_finalizer_and_writer_do_not_lose_either_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let history = History::new(dir.path());
+    let (source_host, destination_host, independent_host) = (host(), host(), host());
+    let (source_space, destination_space, independent_space) = (space(), space(), space());
+    let backend_instance = BackendInstanceUid(Uuid::new_v4());
+    let server_epoch = ServerEpoch(Uuid::new_v4());
+    let pending = PendingGuiTransition {
+        tmux_client_uid: Uuid::new_v4(),
+        source: GuiHistoryTarget {
+            host_uid: source_host,
+            space_uid: source_space,
+        },
+        destination: GuiHistoryTarget {
+            host_uid: destination_host,
+            space_uid: destination_space,
+        },
+        destination_backend_instance_uid: backend_instance,
+        destination_marker: MarkerContext {
+            host_uid: destination_host,
+            space_uid: destination_space,
+            space_no: SpaceNo(NonZeroU64::new(9).unwrap()),
+            backend: Backend::Tmux,
+            domain: Some("local".into()),
+            server_epoch,
+            group_ref: "g00000000-0000-0000-0000-000000000001.@0".into(),
+            split_ref: "p00000000-0000-0000-0000-000000000001.%0".into(),
+        },
+        destination_child_kind: None,
+        gui_instance: "gui-42-concurrent".into(),
+        gui_pid: 42,
+        gui_process_start_token: "token".into(),
+        gui_pane_id: 7,
+        gui_domain: "local".into(),
+        expires_at: u64::MAX,
+    };
+    history.stage_gui_transition(pending.clone()).unwrap();
+
+    let barrier = Arc::new(Barrier::new(3));
+    let finalizer_history = history.clone();
+    let finalizer_barrier = Arc::clone(&barrier);
+    let expected = pending.clone();
+    let finalizer = std::thread::spawn(move || {
+        finalizer_barrier.wait();
+        finalizer_history
+            .complete_gui_transition(&expected)
+            .unwrap()
+    });
+    let writer_history = history.clone();
+    let writer_barrier = Arc::clone(&barrier);
+    let writer = std::thread::spawn(move || {
+        writer_barrier.wait();
+        writer_history
+            .record_attach(independent_host, independent_space)
+            .unwrap();
+    });
+    barrier.wait();
+    assert!(finalizer.join().unwrap());
+    writer.join().unwrap();
+
+    assert_eq!(history.current(independent_host), Some(independent_space));
+    assert_eq!(
+        history.last_gui_presented(),
+        Some(GuiHistoryTarget {
+            host_uid: destination_host,
+            space_uid: destination_space,
+        })
+    );
+    assert!(
+        history
+            .pending_gui_transition(pending.tmux_client_uid)
+            .is_none()
+    );
 }
 
 #[test]

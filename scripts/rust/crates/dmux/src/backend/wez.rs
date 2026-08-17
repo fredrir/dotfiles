@@ -97,7 +97,7 @@ use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::backend::{
@@ -846,6 +846,26 @@ pub struct IdentityExpectation {
     pub start_token: Option<String>,
 }
 
+/// Exact read-only owner tree returned from one bounded, exact-socket
+/// `list --format json` scan. It includes the reserved sentinel and every
+/// physical pane, including an outer pane whose logical GUI marker may
+/// currently describe an inner tmux Space.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WezNativeTreeWitness {
+    pub server_epoch: ServerEpoch,
+    pub sentinel_window_id: u64,
+    pub sentinel_tab_id: u64,
+    pub sentinel_pane_id: u64,
+    pub panes: Vec<WezNativePaneWitness>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct WezNativePaneWitness {
+    pub window_id: u64,
+    pub tab_id: u64,
+    pub pane_id: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
@@ -911,6 +931,59 @@ impl<R: WezRunner> WezProvider<R> {
 
     fn cas_bin(&self) -> &str {
         self.cas_binary.as_deref().unwrap_or(&self.wezterm_bin)
+    }
+
+    /// Capture the exact sentinel identity and complete physical pane tree
+    /// without auto-starting or mutating the mux. The same scan proves the
+    /// socket/epoch; multiple sentinel panes or duplicate native IDs are
+    /// terminal rather than normalized.
+    pub fn native_tree_witness(
+        &self,
+        scope: &InventoryScope,
+    ) -> ProviderResult<WezNativeTreeWitness> {
+        let scan = self.scan(scope).map_err(ScanFail::into_provider_error)?;
+        let [sentinel] = scan.sentinel_panes.as_slice() else {
+            return Err(ProviderError::NativeFailure {
+                detail: format!(
+                    "expected exactly one sentinel pane for epoch {}, found {}",
+                    scan.epoch.0,
+                    scan.sentinel_panes.len()
+                ),
+            });
+        };
+        let mut panes: Vec<_> = scan
+            .panes
+            .iter()
+            .chain(scan.sentinel_panes.iter())
+            .map(|pane| WezNativePaneWitness {
+                window_id: pane.window_id,
+                tab_id: pane.tab_id,
+                pane_id: pane.pane_id,
+            })
+            .collect();
+        panes.sort();
+        let original_len = panes.len();
+        panes.dedup();
+        if panes.len() != original_len {
+            return Err(ProviderError::NativeFailure {
+                detail: "wez exact native tree contains duplicate window/tab/pane tuples".into(),
+            });
+        }
+        let mut pane_ids = panes.iter().map(|pane| pane.pane_id).collect::<Vec<_>>();
+        pane_ids.sort_unstable();
+        pane_ids.dedup();
+        if pane_ids.len() != panes.len() {
+            return Err(ProviderError::NativeFailure {
+                detail: "wez exact native tree contains a duplicate pane ID".into(),
+            });
+        }
+        Ok(WezNativeTreeWitness {
+            server_epoch: scan.epoch,
+            sentinel_window_id: sentinel.window_id,
+            sentinel_tab_id: sentinel.tab_id,
+            sentinel_pane_id: sentinel.pane_id,
+            panes,
+        })
     }
 
     /// Scope validation plus the dmux-side endpoint identity probe (ADR
@@ -1046,34 +1119,38 @@ impl<R: WezRunner> WezProvider<R> {
             });
         }
 
+        let sentinel_rows: Vec<&ListRow> = rows
+            .iter()
+            .filter(|row| row.workspace == sentinel)
+            .collect();
         let user_rows: Vec<&ListRow> = rows
             .iter()
             .filter(|r| !r.workspace.starts_with(WEZ_SENTINEL_PREFIX))
             .collect();
         let assembled = assemble_rows(&user_rows).map_err(ScanFail::Malformed)?;
-        let panes = user_rows
-            .iter()
-            .map(|r| PaneRef {
-                window_id: r.window_id,
-                tab_id: r.tab_id,
-                pane_id: r.pane_id,
-                workspace: r.workspace.clone(),
-                geometry: r.size.as_ref().and_then(|size| {
-                    Some(PaneGeometry {
-                        cols: size.cols,
-                        rows: size.rows,
-                        left: r.left_col?,
-                        top: r.top_row?,
-                    })
-                }),
-                is_active: r.is_active,
-                is_zoomed: r.is_zoomed,
-            })
-            .collect();
+        let pane_ref = |r: &&ListRow| PaneRef {
+            window_id: r.window_id,
+            tab_id: r.tab_id,
+            pane_id: r.pane_id,
+            workspace: r.workspace.clone(),
+            geometry: r.size.as_ref().and_then(|size| {
+                Some(PaneGeometry {
+                    cols: size.cols,
+                    rows: size.rows,
+                    left: r.left_col?,
+                    top: r.top_row?,
+                })
+            }),
+            is_active: r.is_active,
+            is_zoomed: r.is_zoomed,
+        };
+        let panes = user_rows.iter().map(pane_ref).collect();
+        let sentinel_panes = sentinel_rows.iter().map(pane_ref).collect();
         Ok(DetailedScan {
             epoch,
             rows: assembled,
             panes,
+            sentinel_panes,
         })
     }
 
@@ -1581,6 +1658,7 @@ struct DetailedScan {
     epoch: ServerEpoch,
     rows: Vec<NativeSpaceRow>,
     panes: Vec<PaneRef>,
+    sentinel_panes: Vec<PaneRef>,
 }
 
 impl DetailedScan {
@@ -3041,6 +3119,49 @@ mod tests {
         let inv = complete(&runner, Some(ServerEpoch(EPOCH)));
         assert_eq!(inv.server_epoch, Some(ServerEpoch(EPOCH)));
         assert!(inv.rows.is_empty(), "zero user rows is a determinate scan");
+    }
+
+    #[test]
+    fn native_tree_witness_is_exact_and_rejects_same_epoch_sentinel_duplicates() {
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&fixture("list_two_workspaces.json"))],
+        );
+        let witness = provider(&runner)
+            .native_tree_witness(&scope(Some(ServerEpoch(EPOCH))))
+            .unwrap();
+        assert_eq!(witness.server_epoch, ServerEpoch(EPOCH));
+        assert_eq!(
+            (
+                witness.sentinel_window_id,
+                witness.sentinel_tab_id,
+                witness.sentinel_pane_id,
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(
+            witness
+                .panes
+                .iter()
+                .map(|pane| pane.pane_id)
+                .collect::<Vec<_>>(),
+            vec![0, 100, 101, 102, 103]
+        );
+
+        let duplicate = format!(
+            r#"[
+              {{"window_id":0,"tab_id":0,"pane_id":0,"workspace":"dmux:system:{EPOCH}"}},
+              {{"window_id":9,"tab_id":9,"pane_id":9,"workspace":"dmux:system:{EPOCH}"}}
+            ]"#
+        );
+        let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&duplicate)]);
+        let error = provider(&runner)
+            .native_tree_witness(&scope(Some(ServerEpoch(EPOCH))))
+            .unwrap_err();
+        assert!(
+            format!("{error:?}").contains("exactly one sentinel pane"),
+            "{error:?}"
+        );
     }
 
     #[test]

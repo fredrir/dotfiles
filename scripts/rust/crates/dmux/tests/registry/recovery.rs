@@ -7,12 +7,14 @@ use std::time::Duration;
 
 use dmux::bootstrap::{BootstrapJournal, IssuedRequest};
 use dmux::locks::{self, HeldLock, LockMode, LockScope};
-use dmux::model::{Backend, BackendInstanceUid, ServerEpoch, SpaceUid};
+use dmux::model::{Backend, BackendInstanceUid, Lifecycle, OperationState, ServerEpoch, SpaceUid};
 use dmux::registry::recovery::{
     BeginRecovery, RECOVERY_GENERATION_PATH, RecoveryGenerationSpec, RecoveryNodeSpec,
     RecoveryNodeState,
 };
-use dmux::registry::{Lease, LeaseHolder, LeaseScope, Registry, RegistryError};
+use dmux::registry::{
+    Lease, LeaseHolder, LeaseScope, NativeBindingSpec, NativeKind, Registry, RegistryError,
+};
 use uuid::Uuid;
 
 use crate::util::{Scratch, open, reserve, scratch, tmux_instance};
@@ -236,6 +238,220 @@ fn intentional_empty_requires_exact_lock_epoch_and_head_without_advancing_revisi
         captured.revision
     );
     assert_eq!(reg.authority_head().unwrap(), captured);
+}
+
+#[test]
+fn final_wez_tombstone_and_empty_floor_are_one_rollback_safe_transition() {
+    let s = scratch();
+    let mut reg = open(&s.config);
+    let instance = reg
+        .register_backend_instance(Backend::Wez, Some("/tmp/final-empty.sock"), Some("test"))
+        .unwrap();
+    let epoch = ServerEpoch(Uuid::new_v4());
+    reg.publish_backend_server(instance, epoch, Some(123), Some("start"), None, None)
+        .unwrap();
+    let aborted = reserve(&mut reg, "old-failed-reservation", instance);
+    reg.abort_create(aborted.space_uid, aborted.operation_uid)
+        .unwrap();
+    assert_eq!(
+        reg.space(aborted.space_uid).unwrap().lifecycle,
+        Lifecycle::Aborted
+    );
+    let reservation = reserve(&mut reg, "last-wez-space", instance);
+    reg.finalize_create(
+        reservation.space_uid,
+        reservation.operation_uid,
+        &NativeBindingSpec {
+            native_token: "dmux:last-wez-space".into(),
+            native_kind: NativeKind::WezWorkspaceKey,
+            server_epoch: Some(epoch),
+        },
+    )
+    .unwrap();
+    let operation_uid = reg
+        .begin_remove(reservation.space_uid, Uuid::new_v4())
+        .unwrap();
+    let kernel = locks::acquire(
+        &s.config.lock_dir,
+        LockScope::BackendInstance(instance),
+        LockMode::Exclusive,
+    )
+    .unwrap();
+    let head_before = reg.authority_head().unwrap();
+
+    // Fail after the tombstone/binding/journal/revision statements have run
+    // but before the floor can be stored. SQLite must roll the whole
+    // immediate transaction back; no terminal half-state is recoverable.
+    reg.raw_connection()
+        .execute_batch(
+            "CREATE TEMP TRIGGER inject_final_empty_floor_failure \
+             BEFORE UPDATE OF intentional_empty_revision ON backend_instances \
+             BEGIN SELECT RAISE(ABORT, 'injected final-empty floor failure'); END;",
+        )
+        .unwrap();
+    assert!(
+        reg.complete_remove_intentionally_empty(
+            reservation.space_uid,
+            operation_uid,
+            instance,
+            epoch,
+            &kernel,
+        )
+        .is_err()
+    );
+    assert_eq!(
+        reg.space(reservation.space_uid).unwrap().lifecycle,
+        Lifecycle::Deleting
+    );
+    assert_eq!(
+        reg.operation(operation_uid).unwrap().state,
+        OperationState::Prepared
+    );
+    assert!(
+        reg.current_binding(reservation.space_uid)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(reg.intentional_empty_revision(instance).unwrap(), None);
+    assert_eq!(reg.authority_head().unwrap(), head_before);
+
+    reg.raw_connection()
+        .execute_batch("DROP TRIGGER inject_final_empty_floor_failure")
+        .unwrap();
+    let floor = reg
+        .complete_remove_intentionally_empty(
+            reservation.space_uid,
+            operation_uid,
+            instance,
+            epoch,
+            &kernel,
+        )
+        .unwrap();
+    assert_eq!(
+        reg.space(reservation.space_uid).unwrap().lifecycle,
+        Lifecycle::Deleted
+    );
+    assert_eq!(
+        reg.operation(operation_uid).unwrap().state,
+        OperationState::Completed
+    );
+    assert!(
+        reg.current_binding(reservation.space_uid)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        reg.intentional_empty_revision(instance).unwrap(),
+        Some(floor)
+    );
+    assert_eq!(reg.authority_head().unwrap().revision, floor);
+    assert_eq!(floor, head_before.revision + 1);
+    assert_eq!(
+        reg.space(aborted.space_uid).unwrap().lifecycle,
+        Lifecycle::Aborted,
+        "terminal identity history must not prevent an intentional-empty floor"
+    );
+}
+
+#[test]
+fn intentional_empty_completion_refuses_when_another_space_remains() {
+    for (other_state, expected) in [
+        ("reserved", Lifecycle::Reserved),
+        ("active", Lifecycle::Active),
+        ("deleting", Lifecycle::Deleting),
+        ("conflict", Lifecycle::Conflict),
+    ] {
+        let s = scratch();
+        let mut reg = open(&s.config);
+        let instance = reg
+            .register_backend_instance(Backend::Wez, Some("/tmp/not-final.sock"), Some("test"))
+            .unwrap();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        reg.publish_backend_server(instance, epoch, Some(123), Some("start"), None, None)
+            .unwrap();
+        let first = reserve(&mut reg, "first", instance);
+        reg.finalize_create(
+            first.space_uid,
+            first.operation_uid,
+            &NativeBindingSpec {
+                native_token: "dmux:first".into(),
+                native_kind: NativeKind::WezWorkspaceKey,
+                server_epoch: Some(epoch),
+            },
+        )
+        .unwrap();
+        let second = reserve(&mut reg, "second", instance);
+        match other_state {
+            "reserved" => {}
+            "active" | "deleting" => {
+                reg.finalize_create(
+                    second.space_uid,
+                    second.operation_uid,
+                    &NativeBindingSpec {
+                        native_token: "dmux:second".into(),
+                        native_kind: NativeKind::WezWorkspaceKey,
+                        server_epoch: Some(epoch),
+                    },
+                )
+                .unwrap();
+                if other_state == "deleting" {
+                    reg.begin_remove(second.space_uid, Uuid::new_v4()).unwrap();
+                }
+            }
+            "conflict" => {
+                reg.raw_connection()
+                    .execute(
+                        "UPDATE spaces SET lifecycle = 'conflict' WHERE space_uid = ?1",
+                        [second.space_uid.0.to_string()],
+                    )
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let operation_uid = reg.begin_remove(first.space_uid, Uuid::new_v4()).unwrap();
+        let kernel = locks::acquire(
+            &s.config.lock_dir,
+            LockScope::BackendInstance(instance),
+            LockMode::Exclusive,
+        )
+        .unwrap();
+        let head = reg.authority_head().unwrap();
+
+        let error = reg
+            .complete_remove_intentionally_empty(
+                first.space_uid,
+                operation_uid,
+                instance,
+                epoch,
+                &kernel,
+            )
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("other live Spaces"),
+            "{other_state}: {error}"
+        );
+        assert_eq!(
+            reg.space(first.space_uid).unwrap().lifecycle,
+            Lifecycle::Deleting,
+            "{other_state}"
+        );
+        assert_eq!(
+            reg.operation(operation_uid).unwrap().state,
+            OperationState::Prepared,
+            "{other_state}"
+        );
+        assert_eq!(
+            reg.space(second.space_uid).unwrap().lifecycle,
+            expected,
+            "{other_state}"
+        );
+        assert_eq!(
+            reg.intentional_empty_revision(instance).unwrap(),
+            None,
+            "{other_state}"
+        );
+        assert_eq!(reg.authority_head().unwrap(), head, "{other_state}");
+    }
 }
 
 #[test]

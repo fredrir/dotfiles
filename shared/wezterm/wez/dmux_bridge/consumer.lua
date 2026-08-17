@@ -1,6 +1,5 @@
 local canonical = require 'wez.dmux_bridge.canonical'
 local crypto = require 'wez.dmux_bridge.crypto'
-local fs = require 'wez.dmux_bridge.fs'
 local instance = require 'wez.dmux_bridge.instance'
 local json = require 'wez.dmux_bridge.json'
 local presentation = require 'wez.dmux_bridge.presentation'
@@ -9,36 +8,64 @@ local wezterm = require 'wezterm'
 
 local M = {}
 
-local function read_json(path, maximum)
-  local raw, read_err = fs.read(path, maximum)
-  if not raw then
-    return nil, read_err
+local UUID = '^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]%-'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+  .. '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$'
+
+local ACK_KEYS = {
+  action = true,
+  already_hidden = true,
+  completed_at = true,
+  detached_domains = true,
+  domain = true,
+  domain_state = true,
+  error = true,
+  group_ref = true,
+  gui_instance = true,
+  message = true,
+  nonce = true,
+  ok = true,
+  pane_id = true,
+  platform_action = true,
+  pong = true,
+  protocol_version = true,
+  reattached_domains = true,
+  request_sha256 = true,
+  resident_established = true,
+  split_ref = true,
+  toasted = true,
+  uid = true,
+  window_ids = true,
+  workspace = true,
+}
+
+local function bridge_read(state, method, uid)
+  local ok, value = pcall(function()
+    return state.bridge[method](state.bridge, uid, protocol.MAX_DOCUMENT_BYTES)
+  end)
+  if not ok then
+    return nil, tostring(value)
   end
-  local value = json.decode(raw)
-  if type(value) ~= 'table' then
-    return nil, 'malformed_json'
+  if value ~= nil and type(value) ~= 'string' then
+    return nil, method .. ' returned a non-string document'
   end
-  return value, nil, raw
+  return value
 end
 
-local function uuid_from_request_path(path)
-  local base = path:match '([^/]+)$'
-  local uid = base and base:match '^req%-([0-9a-f%-]+)%.json$'
-  if not uid or #uid ~= 36 then
-    return nil
+local function discard_observed(state, uid)
+  local ok, result = pcall(function()
+    return state.bridge:discard_observed_request(uid)
+  end)
+  if not ok or result == false then
+    return nil, tostring(result)
   end
-  return uid
+  return true
 end
 
-local function ack_path(state, uid)
-  return fs.join(state.paths.acks, 'ack-' .. uid .. '.json')
-end
-
-local function consumed_path(state, uid)
-  return fs.join(state.paths.consumed, 'req-' .. uid .. '.json')
-end
-
-local function write_ack_at(state, path, request, digest, result, err)
+local function ack_document(state, request, digest, result, err)
   local ack = {
     protocol_version = protocol.VERSION,
     uid = request.uid,
@@ -65,23 +92,28 @@ local function write_ack_at(state, path, request, digest, result, err)
   end
   local body, encode_err = json.encode(ack)
   if not body then
-    wezterm.log_error('dmux bridge: cannot encode ack: ' .. tostring(encode_err))
-    return nil
+    return nil, 'cannot encode acknowledgement: ' .. tostring(encode_err)
   end
   if #body > protocol.MAX_DOCUMENT_BYTES then
-    wezterm.log_error 'dmux bridge: refusing oversized acknowledgement'
-    return nil
+    return nil, 'acknowledgement exceeds the bridge document limit'
   end
-  local ok, write_err = fs.write_private_atomic(path, body)
-  if not ok then
-    wezterm.log_error('dmux bridge: cannot write ack ' .. path .. ': ' .. tostring(write_err))
-    return nil
+  return body, after_ack
+end
+
+local function write_ack(state, replay, request, digest, result, err)
+  local body, after_ack_or_err = ack_document(state, request, digest, result, err)
+  if not body then
+    return nil, after_ack_or_err
   end
-  if after_ack then
-    -- The acknowledgement rename is complete before the lifecycle action.
-    -- Execute in the same callback to minimize the only remaining crash
-    -- window; Hide/Quit is never attempted before a verifiable ack exists.
-    local callback_ok, callback_err = pcall(after_ack)
+  local method = replay and 'write_replay_ack_new' or 'write_ack_new'
+  local ok, write_result = pcall(function()
+    return state.bridge[method](state.bridge, request.uid, body)
+  end)
+  if not ok or write_result == false then
+    return nil, tostring(write_result)
+  end
+  if after_ack_or_err then
+    local callback_ok, callback_err = pcall(after_ack_or_err)
     if not callback_ok then
       wezterm.log_error('dmux bridge: post-ack action failed: ' .. tostring(callback_err))
     end
@@ -89,105 +121,300 @@ local function write_ack_at(state, path, request, digest, result, err)
   return true
 end
 
-local function malformed_request(state, path, uid, code, message)
-  local request = {
-    uid = uid,
-    action = 'unknown',
-    nonce = '',
-  }
+local function stub_request(uid)
+  return { uid = uid, action = 'unknown', nonce = '' }
+end
+
+local function exact_ack(raw, state, uid, prior, prior_digest)
+  if #raw > protocol.MAX_DOCUMENT_BYTES then
+    return nil, 'primary acknowledgement is oversized'
+  end
+  local ack = json.decode(raw)
+  if type(ack) ~= 'table' then
+    return nil, 'primary acknowledgement is not one JSON object'
+  end
+  for key in pairs(ack) do
+    if type(key) ~= 'string' or not ACK_KEYS[key] then
+      return nil, 'primary acknowledgement has an unknown field'
+    end
+  end
   if
-    fs.read(consumed_path(state, uid), protocol.MAX_DOCUMENT_BYTES)
-    or fs.read(ack_path(state, uid), protocol.MAX_DOCUMENT_BYTES)
+    ack.protocol_version ~= protocol.VERSION
+    or ack.uid ~= uid
+    or ack.gui_instance ~= state.id
+    or type(ack.action) ~= 'string'
+    or type(ack.nonce) ~= 'string'
+    or type(ack.ok) ~= 'boolean'
+    or type(ack.completed_at) ~= 'number'
+    or ack.completed_at % 1 ~= 0
+    or type(ack.request_sha256) ~= 'string'
+    or #ack.request_sha256 ~= 64
+    or not ack.request_sha256:match '^[0-9a-f]+$'
   then
-    os.remove(path)
-    write_ack_at(
-      state,
-      fs.join(state.paths.acks, 'ack-' .. uid .. '.replay.json'),
-      request,
-      '',
-      nil,
-      { code = code, message = message }
-    )
+    return nil, 'primary acknowledgement common fields are malformed'
+  end
+  if prior and (ack.action ~= prior.action or ack.nonce ~= prior.nonce or ack.request_sha256 ~= prior_digest) then
+    return nil, 'primary acknowledgement differs from its consumed request'
+  end
+  return ack
+end
+
+local function exact_consumed(raw, state, uid)
+  if #raw > protocol.MAX_DOCUMENT_BYTES then
+    return nil, nil, 'consumed request is oversized'
+  end
+  local request = json.decode(raw)
+  if type(request) ~= 'table' or request.uid ~= uid then
+    return nil, nil, 'consumed request is malformed or has the wrong UID'
+  end
+  -- Validate at its own issue instant: this proves its exact schema,
+  -- canonical signing document and HMAC without reviving it after expiry.
+  local authenticated, auth_err, digest =
+    protocol.validate_and_authenticate(request, state.key, request.issued_at, state.id)
+  if not authenticated then
+    return nil, nil, 'consumed request authentication failed: ' .. tostring(auth_err and auth_err.code)
+  end
+  local document = canonical.signing_document(request)
+  if not document or crypto.sha256(document) ~= digest then
+    return nil, nil, 'consumed request canonical digest is inconsistent'
+  end
+  return request, digest
+end
+
+local function fatal_corruption(state, uid, request, digest, message, primary_is_durable)
+  request = request or stub_request(uid)
+  digest = digest or string.rep('0', 64)
+  local durable = primary_is_durable
+  if not durable then
+    local replay_ok, replay_err = write_ack(state, true, request, digest, nil, {
+      code = 'replay_corruption',
+      message = message,
+    })
+    durable = replay_ok
+    if not replay_ok then
+      wezterm.log_error('dmux bridge: cannot publish replay corruption ack: ' .. tostring(replay_err))
+    end
+  end
+  if durable then
+    local discarded, discard_err = discard_observed(state, uid)
+    if not discarded then
+      wezterm.log_error('dmux bridge: cannot discard corrupt replay request: ' .. tostring(discard_err))
+    end
+  end
+  state.failed = true
+  wezterm.log_error('dmux bridge: fatal persisted replay corruption: ' .. message)
+end
+
+local function publish_replay_and_discard(state, request, digest, code, message, primary_is_durable)
+  local durable = primary_is_durable
+  if not durable then
+    local ok, err = write_ack(state, true, request, digest or string.rep('0', 64), nil, {
+      code = code,
+      message = message,
+    })
+    durable = ok
+    if not ok then
+      wezterm.log_error('dmux bridge: cannot publish replay acknowledgement: ' .. tostring(err))
+    end
   else
-    os.rename(path, consumed_path(state, uid))
-    write_ack_at(state, ack_path(state, uid), request, '', nil, { code = code, message = message })
+    -- A replay record is observability only; the immutable primary already
+    -- makes discarding this exact duplicate durable and safe.
+    local ok, err = write_ack(state, true, request, digest or string.rep('0', 64), nil, {
+      code = code,
+      message = message,
+    })
+    if not ok then
+      wezterm.log_error('dmux bridge: replay record already exists or cannot be written: ' .. tostring(err))
+    end
+  end
+  if durable then
+    local discarded, discard_err = discard_observed(state, request.uid)
+    if not discarded then
+      state.failed = true
+      wezterm.log_error('dmux bridge: cannot discard observed replay: ' .. tostring(discard_err))
+    end
   end
 end
 
-local function replay_ack(state, request, digest, code, message)
-  local path = fs.join(state.paths.acks, string.format('ack-%s.replay.json', request.uid))
-  write_ack_at(state, path, request, digest, nil, { code = code, message = message })
-end
-
-local function consumed_digest(state, uid)
-  local prior = read_json(consumed_path(state, uid), protocol.MAX_DOCUMENT_BYTES)
-  if not prior then
-    return nil
+local function consume_new(state, uid)
+  local ok, result = pcall(function()
+    return state.bridge:consume_request_new(uid)
+  end)
+  if not ok or result == false then
+    return nil, tostring(result)
   end
-  local document = canonical.signing_document(prior)
-  return document and crypto.sha256(document) or nil
+  return true
 end
 
-local function process_request(state, path, uid)
-  local request, parse_err = read_json(path, protocol.MAX_DOCUMENT_BYTES)
-  if not request then
-    malformed_request(
-      state,
-      path,
-      uid,
-      parse_err == 'too_large' and 'message_too_large' or 'malformed_request',
-      'request is not one bounded JSON object'
-    )
+local function process_request(state, uid, raw)
+  local prior_raw, prior_read_err = bridge_read(state, 'read_consumed', uid)
+  if prior_read_err then
+    fatal_corruption(state, uid, nil, nil, 'cannot read consumed evidence: ' .. prior_read_err, false)
     return
   end
-  if request.uid ~= uid then
-    malformed_request(state, path, uid, 'malformed_request', 'filename UID differs from request.uid')
+  local primary_raw, primary_read_err = bridge_read(state, 'read_ack', uid)
+  if primary_read_err then
+    fatal_corruption(state, uid, nil, nil, 'cannot read primary acknowledgement: ' .. primary_read_err, false)
+    return
+  end
+
+  local prior, prior_digest
+  if prior_raw then
+    local prior_err
+    prior, prior_digest, prior_err = exact_consumed(prior_raw, state, uid)
+    if not prior then
+      fatal_corruption(state, uid, nil, nil, prior_err, false)
+      return
+    end
+  end
+  local primary
+  if primary_raw then
+    local primary_err
+    primary, primary_err = exact_ack(primary_raw, state, uid, prior, prior_digest)
+    if not primary then
+      fatal_corruption(state, uid, prior, prior_digest, primary_err, false)
+      return
+    end
+  end
+
+  local request
+  local parse_error
+  if type(raw) ~= 'string' then
+    parse_error = 'malformed_request'
+  elseif #raw > protocol.MAX_DOCUMENT_BYTES then
+    parse_error = 'message_too_large'
+  else
+    request = json.decode(raw)
+    if type(request) ~= 'table' or request.uid ~= uid then
+      request = nil
+      parse_error = 'malformed_request'
+    end
+  end
+  if not request then
+    local stub = stub_request(uid)
+    if prior or primary then
+      publish_replay_and_discard(
+        state,
+        stub,
+        nil,
+        'request_uid_conflict',
+        'pending request cannot be matched to persisted evidence',
+        primary ~= nil
+      )
+    else
+      local consumed, consume_err = consume_new(state, uid)
+      if not consumed then
+        state.failed = true
+        wezterm.log_error('dmux bridge: cannot consume malformed request: ' .. tostring(consume_err))
+        return
+      end
+      local ok, ack_err = write_ack(state, false, stub, string.rep('0', 64), nil, {
+        code = parse_error,
+        message = 'request is not one bounded JSON object',
+      })
+      if not ok then
+        state.failed = true
+        wezterm.log_error('dmux bridge: cannot acknowledge malformed request: ' .. tostring(ack_err))
+      end
+    end
     return
   end
 
   local authenticated, auth_err, digest = protocol.validate_and_authenticate(request, state.key, os.time(), state.id)
   if not authenticated then
-    local already_consumed = fs.read(consumed_path(state, uid), protocol.MAX_DOCUMENT_BYTES) ~= nil
-    local primary_exists = fs.read(ack_path(state, uid), protocol.MAX_DOCUMENT_BYTES) ~= nil
-    if already_consumed or primary_exists then
-      os.remove(path)
-      replay_ack(state, request, digest or '', auth_err.code, auth_err.message)
+    if prior then
+      if digest and digest == prior_digest and not primary then
+        local ok, ack_err = write_ack(state, false, request, digest, nil, auth_err)
+        if not ok then
+          state.failed = true
+          wezterm.log_error('dmux bridge: cannot finish consumed rejection: ' .. tostring(ack_err))
+          return
+        end
+        local discarded, discard_err = discard_observed(state, uid)
+        if not discarded then
+          state.failed = true
+          wezterm.log_error('dmux bridge: cannot discard rejected retry: ' .. tostring(discard_err))
+        end
+      else
+        publish_replay_and_discard(
+          state,
+          request,
+          digest,
+          digest == prior_digest and auth_err.code or 'request_uid_conflict',
+          digest == prior_digest and auth_err.message or 'request UID was reused with different content',
+          primary ~= nil
+        )
+      end
+    elseif primary then
+      publish_replay_and_discard(
+        state,
+        request,
+        digest,
+        'request_uid_conflict',
+        'primary acknowledgement exists without matching consumed evidence',
+        true
+      )
     else
-      os.rename(path, consumed_path(state, uid))
-      write_ack_at(state, ack_path(state, uid), request, digest or '', nil, auth_err)
+      local consumed, consume_err = consume_new(state, uid)
+      if not consumed then
+        state.failed = true
+        wezterm.log_error('dmux bridge: cannot consume rejected request: ' .. tostring(consume_err))
+        return
+      end
+      local ok, ack_err = write_ack(state, false, request, digest or string.rep('0', 64), nil, auth_err)
+      if not ok then
+        state.failed = true
+        wezterm.log_error('dmux bridge: cannot acknowledge rejected request: ' .. tostring(ack_err))
+      end
     end
     return
   end
 
-  local prior_digest = consumed_digest(state, uid)
-  if prior_digest then
-    os.remove(path)
-    if prior_digest == digest then
-      if fs.read(ack_path(state, uid), protocol.MAX_DOCUMENT_BYTES) then
-        -- The ordinary client retry is an idempotent re-read of the original
-        -- ack. A re-submitted request is separately observable as replay,
-        -- without ever changing the byte-identical original ack.
-        replay_ack(state, request, digest, 'replayed', 'request UID was already consumed; read the original ack')
-        return
-      end
-      -- Crash recovery: the request was durably consumed before its ack.
-      -- Every bridge action is presentation-only and idempotent, so resume.
-    else
-      replay_ack(state, request, digest, 'request_uid_conflict', 'request UID was reused with different content')
+  if prior then
+    if prior_digest ~= digest then
+      publish_replay_and_discard(
+        state,
+        request,
+        digest,
+        'request_uid_conflict',
+        'request UID was reused with different content',
+        primary ~= nil
+      )
+      return
+    end
+    if primary then
+      publish_replay_and_discard(
+        state,
+        request,
+        digest,
+        'replayed',
+        'request UID was already consumed; read the original ack',
+        true
+      )
+      return
+    end
+    local discarded, discard_err = discard_observed(state, uid)
+    if not discarded then
+      state.failed = true
+      wezterm.log_error('dmux bridge: cannot discard crash-recovery retry: ' .. tostring(discard_err))
       return
     end
   else
-    if fs.read(ack_path(state, uid), protocol.MAX_DOCUMENT_BYTES) then
-      os.remove(path)
-      replay_ack(state, request, digest, 'request_uid_conflict', 'ack exists without the matching consumed request')
+    if primary then
+      publish_replay_and_discard(
+        state,
+        request,
+        digest,
+        'request_uid_conflict',
+        'ack exists without the matching consumed request',
+        true
+      )
       return
     end
-    local moved, move_err = os.rename(path, consumed_path(state, uid))
-    if not moved then
-      write_ack_at(state, ack_path(state, uid), request, digest, nil, {
-        code = 'bridge_internal',
-        message = 'cannot consume request atomically: ' .. tostring(move_err),
-      })
+    local consumed, consume_err = consume_new(state, uid)
+    if not consumed then
+      state.failed = true
+      wezterm.log_error('dmux bridge: cannot consume request atomically: ' .. tostring(consume_err))
       return
     end
   end
@@ -195,9 +422,14 @@ local function process_request(state, path, uid)
   state.busy = true
   local function complete(result, dispatch_err)
     local ok, callback_err = pcall(function()
-      write_ack_at(state, ack_path(state, uid), request, digest, result, dispatch_err)
+      local written, write_err = write_ack(state, false, request, digest, result, dispatch_err)
+      if not written then
+        state.failed = true
+        wezterm.log_error('dmux bridge: cannot write completion ack: ' .. tostring(write_err))
+      end
     end)
     if not ok then
+      state.failed = true
       wezterm.log_error('dmux bridge: completion callback failed: ' .. tostring(callback_err))
     end
     state.busy = false
@@ -208,67 +440,54 @@ local function process_request(state, path, uid)
   end
 end
 
-local function next_request(state)
-  local entries = wezterm.read_dir(state.paths.requests)
-  table.sort(entries)
-  for _, path in ipairs(entries) do
-    local uid = uuid_from_request_path(path)
-    if uid then
-      return path, uid
-    end
-  end
-  return nil
-end
-
 local function poll(state)
   local ok, err = pcall(function()
     local heartbeat_ok, heartbeat_err = instance.heartbeat(state)
     if not heartbeat_ok then
-      wezterm.log_error('dmux bridge: heartbeat failed: ' .. tostring(heartbeat_err))
+      state.failed = true
+      wezterm.log_error('dmux bridge: heartbeat failed closed: ' .. tostring(heartbeat_err))
     end
-    if not state.busy then
-      local path, uid = next_request(state)
-      if path then
-        process_request(state, path, uid)
+    if not state.busy and not state.failed then
+      local next_ok, uid, raw = pcall(function()
+        return state.bridge:next_request(protocol.MAX_DOCUMENT_BYTES)
+      end)
+      if not next_ok then
+        state.failed = true
+        wezterm.log_error('dmux bridge: secure request read failed closed: ' .. tostring(uid))
+      elseif uid ~= nil or raw ~= nil then
+        if type(uid) ~= 'string' or not uid:match(UUID) or type(raw) ~= 'string' then
+          state.failed = true
+          wezterm.log_error 'dmux bridge: secure request reader returned a malformed tuple'
+        else
+          process_request(state, uid, raw)
+        end
       end
     end
   end)
   if not ok then
-    wezterm.log_error('dmux bridge: poll failed: ' .. tostring(err))
+    state.failed = true
+    wezterm.log_error('dmux bridge: poll failed closed: ' .. tostring(err))
   end
   wezterm.time.call_after(protocol.POLL_SECONDS, function()
-    local callback_ok, callback_err = pcall(poll, state)
-    if not callback_ok then
-      wezterm.log_error('dmux bridge: poll callback failed: ' .. tostring(callback_err))
-      -- One last independent reschedule keeps an unexpected callback error
-      -- from silently killing liveness forever.
-      wezterm.time.call_after(protocol.POLL_SECONDS, function()
-        poll(state)
-      end)
-    end
+    poll(state)
   end)
 end
 
 function M.start()
-  if wezterm.GLOBAL.dmux_bridge_poller_started then
-    return true
-  end
-  -- gui-startup and gui-attached may both fire while the async filesystem
-  -- calls in instance.create() are yielded. Claim startup before that first
-  -- yield so one GUI process cannot accidentally register two consumers.
-  if wezterm.GLOBAL.dmux_bridge_poller_starting then
+  if wezterm.GLOBAL.dmux_bridge_poller_started or wezterm.GLOBAL.dmux_bridge_poller_starting then
     return true
   end
   wezterm.GLOBAL.dmux_bridge_poller_starting = true
   local created, state, err = pcall(instance.create)
   wezterm.GLOBAL.dmux_bridge_poller_starting = false
-  if not created then
-    wezterm.log_error('dmux bridge disabled: ' .. tostring(state))
-    return nil, state
+  if not created or not state then
+    local detail = created and err or state
+    wezterm.log_error('dmux bridge disabled: ' .. tostring(detail))
+    return nil, detail
   end
-  if not state then
-    wezterm.log_error('dmux bridge disabled: ' .. tostring(err))
-    return nil, err
+  if type(state.bridge) ~= 'userdata' and type(state.bridge) ~= 'table' then
+    wezterm.log_error 'dmux bridge disabled: maintained-fork lease is unavailable'
+    return nil, 'maintained-fork lease is unavailable'
   end
   wezterm.GLOBAL.dmux_bridge_poller_started = true
   wezterm.GLOBAL.dmux_bridge_instance = state.id
