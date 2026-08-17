@@ -21,6 +21,16 @@ reject_text() {
   fi
 }
 
+require_tree_count() {
+  expected=$1
+  pattern=$2
+  actual=$(rg -F -c --no-filename -g '*.rs' "$pattern" "$source_root" | awk '{ total += $1 } END { print total + 0 }')
+  if [ "$actual" != "$expected" ]; then
+    echo "managed-GUI source invariant moved: expected $expected occurrences of $pattern, found $actual" >&2
+    exit 1
+  fi
+}
+
 require_text 'pub dmux_managed_gui: bool' config/src/config.rs
 require_text 'should_expose_ui_action(config.dmux_managed_gui, &cmd.action)' wezterm-gui/src/commands.rs
 require_text 'should_expose_ui_action(config.dmux_managed_gui, &entry.action)' wezterm-gui/src/overlay/launcher.rs
@@ -68,6 +78,14 @@ reject_text 'methods.add_async_method("dmux_safe_quit_application"' wezterm-gui/
 reject_text 'methods.add_async_method("dmux_safe_hide_application"' wezterm-gui/src/scripting/guiwin.rs
 reject_text 'pub(crate) fn dmux_safe_quit_application' wezterm-gui/src/termwindow/mod.rs
 reject_text 'pub(crate) fn dmux_safe_hide_application' wezterm-gui/src/termwindow/mod.rs
+
+# Both GUI-side domain inventories exempt WezTerm's connection-UI placeholder
+# by capability rather than by name, because the mux leaks one per attach and
+# never frees it. That is an exact discriminator only while the trait default
+# is the sole other implementation: a second one returning false would silently
+# exempt a domain dmux must keep policing, so pin the count, not just the name.
+require_text '"is_spawnable"' lua-api-crates/mux/src/domain.rs
+require_tree_count 2 'fn spawnable(&self) -> bool {'
 
 # A retained bridge/recovery capability cannot cross Lua generations.
 require_text 'self.config.dmux_managed_gui || self.config.dmux_recovery_primitives' config/src/lib.rs

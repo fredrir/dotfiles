@@ -84,8 +84,14 @@ local function sentinel_window_for(domain_name, sentinel_epoch)
 end
 local sentinel_window = sentinel_window_for 'dmux-b-usb'
 
-local domains = {}
-local function domain(name, state)
+-- The real mux keys domains by domain_id and hands Lua an ordered array, so
+-- two rows may legitimately share one name. A name-keyed table cannot express
+-- that, which is why a suite that already covered rogue domains never caught
+-- the leaked connection-UI placeholder. pairs() also iterates in an
+-- unspecified order, so this array pins the sequence the guards actually see.
+local rows = {}
+local by_name = {}
+local function domain(name, state, spawnable)
   local value = { current = state, panes = state == 'Attached', attaches = 0, detaches = 0 }
   function value:attach()
     if self.fail_attach then
@@ -96,6 +102,9 @@ local function domain(name, state)
     self.panes = true
   end
   function value:detach()
+    if self.refuse_detach then
+      error 'cannot detach a TermWizTerminalDomain'
+    end
     self.detaches = self.detaches + 1
     self.current = 'Detached'
     if not self.delay_detach then
@@ -111,26 +120,57 @@ local function domain(name, state)
   function value:name()
     return name
   end
-  domains[name] = value
+  -- A domain created without a capability has no is_spawnable method at all,
+  -- which is the shape of any domain object that predates or omits it.
+  if spawnable ~= nil then
+    value.spawnable = spawnable
+    function value:is_spawnable()
+      if self.spawnable == 'error' then
+        error 'capability unavailable'
+      end
+      return self.spawnable
+    end
+  end
+  table.insert(rows, value)
+  by_name[name] = value
   return value
 end
-local selected = domain('dmux-b-usb', 'Detached')
-local alternate = domain('dmux-b-ts', 'Attached')
+
+local function remove_domain(value)
+  for index, row in ipairs(rows) do
+    if row == value then
+      table.remove(rows, index)
+      break
+    end
+  end
+  for name, row in pairs(by_name) do
+    if row == value then
+      by_name[name] = nil
+    end
+  end
+end
+
+-- WezTerm registers one of these per ClientDomain::attach() and never frees it.
+local function placeholder(has_panes)
+  local value = domain('TermWizTerminalDomain', 'Attached', false)
+  value.panes = has_panes or false
+  value.refuse_detach = true
+  return value
+end
+
+local selected = domain('dmux-b-usb', 'Detached', true)
+local alternate = domain('dmux-b-ts', 'Attached', true)
 local windows = {}
 local active_workspace
 local mux = {
   all_domains = function()
-    local out = {}
-    for _, value in pairs(domains) do
-      table.insert(out, value)
-    end
-    return out
+    return rows
   end,
   all_windows = function()
     return windows
   end,
   get_domain = function(name)
-    return domains[name]
+    return by_name[name]
   end,
   set_active_workspace = function(name)
     active_workspace = name
@@ -429,11 +469,11 @@ alternate.panes = false
 -- controller hint. Empty is authorized only when nothing persistent is live.
 local stale_result, stale_error = dispatch('safe_quit', { phase = 'detach', domains = {} }, quit_state)
 assert(not stale_result and stale_error.code == 'quit_domain_snapshot_mismatch')
-local rogue = domain('rogue-domain', 'Attached')
+local rogue = domain('rogue-domain', 'Attached', true)
 local unknown_result, unknown_error =
   dispatch('safe_quit', { phase = 'detach', domains = { usb_incarnation } }, quit_state)
 assert(not unknown_result and unknown_error.code == 'unknown_persistent_domain')
-domains['rogue-domain'] = nil
+remove_domain(rogue)
 
 local detach_result
 presentation.dispatch(
@@ -452,14 +492,14 @@ presentation.dispatch(
 assert(detach_result and quit_state.safe_quit['11111111-1111-4111-8111-111111111111'])
 
 -- A domain appearing between detach and finish invalidates the proof.
-rogue = domain('rogue-domain', 'Attached')
+rogue = domain('rogue-domain', 'Attached', true)
 local raced_result, raced_error = dispatch('safe_quit', {
   phase = 'finish',
   proof_uid = '11111111-1111-4111-8111-111111111111',
   platform_action = 'hide',
 }, quit_state)
 assert(not raced_result and raced_error.code == 'unknown_persistent_domain')
-domains['rogue-domain'] = nil
+remove_domain(rogue)
 local mismatch_result, mismatch_error
 presentation.dispatch(
   {
@@ -660,5 +700,84 @@ os.time = real_time
 windows = { sentinel_window }
 table.remove(scheduled)()
 assert(rebound_state.safe_quit[rebound_uid] == nil and selected.current == 'Attached')
+
+-- Every ClientDomain::attach() leaks a TermWizTerminalDomain that reports
+-- Attached forever and refuses detach(). Safe-quit must survive any number of
+-- them, in any position, with or without their own panes, while still refusing
+-- a domain that is genuinely spawnable and outside the configuration.
+local function detach_attempt()
+  selected.current = 'Attached'
+  selected.panes = true
+  selected.fail_attach = false
+  alternate.current = 'Detached'
+  alternate.panes = false
+  windows = { sentinel_window }
+  scheduled = {}
+  return dispatch(
+    'safe_quit',
+    { phase = 'detach', domains = { usb_incarnation } },
+    { safe_quit = {}, persistent_domains = { 'dmux-b-ts', 'dmux-b-usb' } }
+  )
+end
+
+local leak_result, leak_error = detach_attempt()
+assert(leak_result and not leak_error, 'baseline detach must succeed')
+
+local first_leak = placeholder(false)
+leak_result, leak_error = detach_attempt()
+assert(
+  leak_result and not leak_error,
+  'one connection UI refused safe-quit: ' .. tostring(leak_error and leak_error.code)
+)
+assert(selected.detaches > 0 and first_leak.current == 'Attached', 'the placeholder must be left untouched')
+
+-- A detach then re-attach cycle produces a second row under the same name.
+local second_leak = placeholder(false)
+leak_result, leak_error = detach_attempt()
+assert(leak_result and not leak_error, 'a duplicate placeholder name refused safe-quit')
+
+-- An open connection UI owns a real pane of its own.
+second_leak.panes = true
+leak_result, leak_error = detach_attempt()
+assert(leak_result and not leak_error, 'a placeholder holding panes refused safe-quit')
+
+-- Position must not matter: the guard returns on first refusal, so a leading
+-- placeholder exercises a different path from a trailing one.
+table.insert(rows, 1, table.remove(rows))
+leak_result, leak_error = detach_attempt()
+assert(leak_result and not leak_error, 'a leading placeholder refused safe-quit')
+
+-- A rogue domain that really is spawnable is still policed, and so is one whose
+-- capability cannot be proved: an exemption is never granted by default.
+local rogue_spawnable = domain('rogue-spawnable', 'Attached', true)
+leak_result, leak_error = detach_attempt()
+assert(not leak_result and leak_error.code == 'unknown_persistent_domain', 'a spawnable rogue domain was exempted')
+remove_domain(rogue_spawnable)
+
+local rogue_silent = domain('rogue-no-capability', 'Attached')
+leak_result, leak_error = detach_attempt()
+assert(
+  not leak_result and leak_error.code == 'unknown_persistent_domain',
+  'a domain without the capability was exempted'
+)
+remove_domain(rogue_silent)
+
+local rogue_throwing = domain('rogue-throwing', 'Attached', 'error')
+leak_result, leak_error = detach_attempt()
+assert(
+  not leak_result and leak_error.code == 'unknown_persistent_domain',
+  'a throwing capability was read as an exemption'
+)
+remove_domain(rogue_throwing)
+
+-- A configured domain is answerable to the bridge whatever it reports, or the
+-- capability becomes a way for a real route to opt out of being proven.
+selected.spawnable = false
+leak_result, leak_error = detach_attempt()
+assert(leak_result and not leak_error, 'a configured domain was exempted by its own capability')
+assert(selected.detaches > 0 and selected.current == 'Detached')
+selected.spawnable = true
+remove_domain(first_leak)
+remove_domain(second_leak)
 
 io.stdout:write 'dmux presentation test: no-create attach/focus/safe-quit passed\n'

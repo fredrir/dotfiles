@@ -11,8 +11,9 @@ local captured
 local opened_instance
 local lease_identity
 
-local function domain(name, state, has_panes)
-  return {
+local function domain(name, state, has_panes, spawnable)
+  local value = {
+    spawnable = spawnable,
     name = function()
       return name
     end,
@@ -23,6 +24,20 @@ local function domain(name, state, has_panes)
       return has_panes
     end,
   }
+  -- A domain created without a capability has no is_spawnable method at all,
+  -- which is the shape of any domain object that predates or omits it.
+  if spawnable ~= nil then
+    value.is_spawnable = function(self)
+      return self.spawnable
+    end
+  end
+  return value
+end
+
+-- WezTerm registers one of these per ClientDomain::attach() and never frees it,
+-- so the mux hands Lua an ordered array in which one name can appear twice.
+local function placeholder(has_panes)
+  return domain('TermWizTerminalDomain', 'Attached', has_panes, false)
 end
 
 local function pane(domain_name, marker)
@@ -60,8 +75,13 @@ local function window(workspace, panes)
 end
 
 local domain_rows = {
-  domain('dmux-b-usb', 'Attached', true),
-  domain('dmux-b-ts', 'Detached', false),
+  domain('dmux-b-usb', 'Attached', true, true),
+  domain('dmux-b-ts', 'Detached', false, true),
+}
+local connection_ui = window('default', { pane 'TermWizTerminalDomain' })
+local windows = {
+  window('dmux:system:' .. epoch, { sentinel }),
+  window('dmux:host:space', { valid, invalid }),
 }
 
 local secure_bridge = {
@@ -125,10 +145,7 @@ local fake_wezterm = {
       return domain_rows
     end,
     all_windows = function()
-      return {
-        window('dmux:system:' .. epoch, { sentinel }),
-        window('dmux:host:space', { valid, invalid }),
-      }
+      return windows
     end,
   },
   procinfo = {
@@ -195,7 +212,63 @@ assert(detached.state == 'Detached' and detached.has_any_panes == false)
 assert(detached.backend_instance_uid == ts_instance)
 assert(detached.pane_count == 0 and detached.valid_marker_pane_count == 0 and detached.system_pane_count == 0)
 
-domain_rows[2] = domain('dmux-b-ts', 'Detached', nil)
+local function fresh_heartbeat()
+  captured = nil
+  local heartbeat_ok, heartbeat_err = instance.heartbeat(state)
+  if not heartbeat_ok then
+    return nil, heartbeat_err
+  end
+  return assert(require('wez.dmux_bridge.json').decode(captured))
+end
+
+-- The connection-UI placeholder must never reach the heartbeat: it reports
+-- Attached forever, so advertising it leaves the Rust safe-quit postcondition
+-- unprovable, and a second one under the same name refuses the heartbeat
+-- outright and latches the bridge dead.
+domain_rows[3] = placeholder(false)
+local advertised = assert(fresh_heartbeat())
+assert(advertised.domains['TermWizTerminalDomain'] == nil, 'the placeholder was advertised')
+assert(advertised.domains['dmux-b-usb'].pane_count == 3)
+
+domain_rows[4] = placeholder(false)
+advertised = assert(fresh_heartbeat(), 'a duplicate placeholder name refused the heartbeat')
+assert(advertised.domains['TermWizTerminalDomain'] == nil)
+
+-- A connection UI that is currently open owns a real pane. Dropping the domain
+-- without dropping its panes raises the unknown-domain refusal and latches the
+-- bridge dead, and counting them against a real domain would corrupt the
+-- pane_count coverage witness that Rust checks.
+domain_rows[4].spawnable = false
+table.insert(windows, connection_ui)
+advertised = assert(fresh_heartbeat(), 'an open connection-UI pane refused the heartbeat')
+assert(advertised.domains['TermWizTerminalDomain'] == nil)
+assert(advertised.domains['dmux-b-usb'].pane_count == 3, 'a placeholder pane was charged to a real domain')
+assert(#advertised.panes == 1 and advertised.panes[1].pane_id == 91)
+table.remove(windows)
+domain_rows[3], domain_rows[4] = nil, nil
+
+-- local is answerable to the bridge whatever it reports. Rust requires it in
+-- the heartbeat to resolve a local authority, so it can never be skipped.
+domain_rows[3] = domain('local', 'Attached', true, false)
+advertised = assert(fresh_heartbeat())
+assert(advertised.domains['local'], 'local was exempted by its own capability')
+
+-- So is a configured domain, or the capability becomes a way for a real route
+-- to opt out of being proven.
+domain_rows[1].spawnable = false
+advertised = assert(fresh_heartbeat())
+assert(advertised.domains['dmux-b-usb'], 'a configured domain was exempted by its own capability')
+domain_rows[1].spawnable = true
+domain_rows[3] = nil
+
+-- A domain whose capability cannot be proved is still advertised and policed;
+-- an exemption is never granted by default.
+domain_rows[3] = domain('rogue-no-capability', 'Attached', true)
+advertised = assert(fresh_heartbeat())
+assert(advertised.domains['rogue-no-capability'], 'a domain without the capability was exempted')
+domain_rows[3] = nil
+
+domain_rows[2] = domain('dmux-b-ts', 'Detached', nil, true)
 ok, err = instance.heartbeat(state)
 assert(not ok and err:match 'domain state is unavailable')
 
