@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{self, Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
@@ -2291,8 +2291,7 @@ fn snapshot_capture_publishes_the_exact_fenced_plan_atomically() {
     let published: RecoveryManifest =
         serde_json::from_slice(&fs::read(&destination).unwrap()).unwrap();
     assert_eq!(published, manifest);
-    assert_eq!(
-        fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    let metadata = fs::metadata(&destination).unwrap();
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    assert_eq!(metadata.nlink(), 1);
 }

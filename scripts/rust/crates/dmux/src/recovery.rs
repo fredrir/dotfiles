@@ -17,7 +17,7 @@ use std::ffi::{CStr, CString, OsString};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -1185,17 +1185,7 @@ impl PrivateDir {
             validate_private_file(&temporary, &file.metadata()?, maximum)?;
             let old = secure_component(&temporary)?;
             let new = secure_component(name)?;
-            if unsafe {
-                libc::linkat(
-                    self.0.as_raw_fd(),
-                    old.as_ptr(),
-                    self.0.as_raw_fd(),
-                    new.as_ptr(),
-                    0,
-                )
-            } != 0
-            {
-                let error = io::Error::last_os_error();
+            if let Err(error) = rename_noreplace(self.0.as_raw_fd(), &old, &new) {
                 if error.kind() == io::ErrorKind::AlreadyExists {
                     let existing = self.read_file(name, maximum)?;
                     if existing == bytes {
@@ -1206,7 +1196,6 @@ impl PrivateDir {
                 }
                 return Err(error);
             }
-            self.unlink_name(&temporary)?;
             self.0.sync_all()?;
             let actual = self.read_file(name, maximum)?;
             if actual != bytes {
@@ -1229,6 +1218,42 @@ impl PrivateDir {
             return Err(io::Error::last_os_error());
         }
         Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_noreplace(directory: RawFd, old: &CStr, new: &CStr) -> io::Result<()> {
+    if unsafe {
+        libc::renameatx_np(
+            directory,
+            old.as_ptr(),
+            directory,
+            new.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rename_noreplace(directory: RawFd, old: &CStr, new: &CStr) -> io::Result<()> {
+    if unsafe {
+        libc::renameat2(
+            directory,
+            old.as_ptr(),
+            directory,
+            new.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 
