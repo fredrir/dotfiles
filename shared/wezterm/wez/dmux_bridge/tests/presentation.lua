@@ -23,6 +23,7 @@ local vars = {
   dmux_group_ref = group,
   dmux_split_ref = split,
 }
+local pane_vars = vars
 
 local pane_activated = false
 local pane = {
@@ -33,7 +34,7 @@ local pane = {
     return 'dmux-b-usb'
   end,
   get_user_vars = function()
-    return vars
+    return pane_vars
   end,
   pane_id = function()
     return 91
@@ -392,6 +393,26 @@ assert(not pending_result and pending_error.code == 'attach_timeout')
 windows = { sentinel_window, target_window }
 result, failure = dispatch('present', target)
 assert(result and not failure and result.workspace == workspace and result.pane_id == 91)
+
+-- Import can expose the pane before its SetUserVar snapshot is complete.
+-- The bridge waits for that exact transient shape, revalidates, then focuses;
+-- it never acknowledges the incomplete marker itself.
+pane_vars = {}
+selected.current = 'Attached'
+selected.panes = true
+scheduled = {}
+pending_result, pending_error = nil, nil
+presentation.dispatch(
+  { action = 'present', target = target, expiry = os.time() + 10 },
+  { safe_quit = {} },
+  function(ok, err)
+    pending_result, pending_error = ok, err
+  end
+)
+assert(not pending_result and not pending_error and #scheduled == 1)
+pane_vars = vars
+table.remove(scheduled, 1)()
+assert(pending_result and not pending_error and pending_result.pane_id == 91)
 
 local quit_state = { safe_quit = {}, persistent_domains = { 'dmux-b-ts', 'dmux-b-usb' } }
 local usb_incarnation = {

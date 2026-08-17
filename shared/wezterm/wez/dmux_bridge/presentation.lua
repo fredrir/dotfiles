@@ -727,13 +727,8 @@ local function attach_domain(target, bridge_state, deadline, authorize, done)
   attach_selected()
 end
 
-local function activate(target, done)
-  local result, err = correlation.activate(mux, target)
-  if not result then
-    done(nil, err)
-    return
-  end
-  done {
+local function activation_result(result)
+  return {
     domain = result.domain,
     workspace = result.workspace,
     window_ids = result.window_ids,
@@ -743,28 +738,59 @@ local function activate(target, done)
   }
 end
 
+local function activate(target, done)
+  local result, err = correlation.activate(mux, target)
+  if not result then
+    done(nil, err)
+    return
+  end
+  done(activation_result(result))
+end
+
+local function marker_snapshot_incomplete(err)
+  return type(err) == 'table'
+    and err.code == 'invalid_marker'
+    and type(err.message) == 'string'
+    and err.message:find('pane marker is missing dmux_', 1, true) ~= nil
+end
+
 local function present(target, bridge_state, deadline, authorize, done)
   attach_domain(target, bridge_state, deadline, authorize, function(_, attach_err)
     if attach_err then
       done(nil, attach_err)
       return
     end
+    local incomplete_marker
     wait_until(deadline, function()
       local exists, workspace_err = workspace_in_domain(target.workspace, target.domain)
       if workspace_err then
         return nil, workspace_err
       end
-      return exists
-    end, function(_, wait_err)
+      if not exists then
+        return false
+      end
+      local authorized, origin_err = authorize()
+      if not authorized then
+        return nil, origin_err
+      end
+      local result, activate_err = correlation.activate(mux, target)
+      if result then
+        return activation_result(result)
+      end
+      if marker_snapshot_incomplete(activate_err) then
+        incomplete_marker = activate_err
+        return false
+      end
+      return nil, activate_err
+    end, function(result, wait_err)
       if wait_err then
-        done(nil, wait_err)
+        -- A newly imported pane may be observable one event-loop turn before
+        -- its server-side SetUserVar snapshot.  Retry only that exact partial
+        -- marker shape; a stable incomplete marker still fails closed with
+        -- its original typed error rather than being mislabeled not_found.
+        done(nil, incomplete_marker or wait_err)
       else
-        local authorized, origin_err = authorize()
-        if not authorized then
-          done(nil, origin_err)
-        else
-          activate(target, done)
-        end
+        done(result)
       end
     end, 'not_found', 'opaque workspace did not appear before the deadline')
   end)
