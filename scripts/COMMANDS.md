@@ -49,6 +49,29 @@ window) and `dmux -` toggles back to the previous one. `-H`, `--host
 `dmx` shell wrappers forward to it; for `ssa`/`ssm` a bare session name is
 create-or-attach (`con -A`).
 
+## `dmux-rollout`
+
+`dmux-rollout` drives one exact, resumable dmux/WezTerm release. Its private
+manifest and append-only journal remember build hashes, service PIDs/epochs,
+socket inodes, Space UIDs, checkpoints, and rollback files. Re-running a
+completed step verifies its evidence instead of repeating the mutation.
+
+| Command | Purpose and options |
+| --- | --- |
+| `dmux-rollout plan` | Freeze pushed dotfiles and WezTerm commits. `--dotfiles-ref`, `--wezterm-ref`, `--release-id`, `--smoke-name`; an existing smoke may be adopted only with both `--smoke-space-uid` and `--smoke-host-uid`. |
+| `dmux-rollout build` | Test/build Mac artifacts from clean detached worktrees and record exact hashes. |
+| `dmux-rollout deploy-mac` | Back up and atomically install dmux/WezTerm, re-sign the app, restart only the exact launchd service, and verify a new PID/epoch/socket. `--approve-space <UID>` explicitly permits a pre-existing live Space. |
+| `dmux-rollout stage-archie` | Build Archie user binaries and packages in exact remote worktrees, record hashes and rollback archives, then print—but never run—the exact interactive `sudo pacman -U` command. |
+| `dmux-rollout resume` | Detect that the staged packages were installed, atomically install Archie user binaries, restart the exact user service, and verify it. Exits 4 with the required pacman command while paused. |
+| `dmux-rollout verify` | Reuse one journaled smoke identity through cold presentation, reconnect, managed lifecycle, service recovery, explicit removal, and two-host checks. |
+| `dmux-rollout rollback` | Restore only recorded binaries/packages and exact service environment. Registry rows, tombstones, recovery manifests, and user state are deliberately preserved. Exits 4 at Archie's interactive package step. |
+| `dmux-rollout status [--json]` | Show the active release and its completed checkpoints or the full manifest. |
+
+Use global `--release <ID>` to operate on a non-active release. The runner
+never uses broad process kills, never builds a dirty worktree, refuses
+unapproved panes or stale hashes/epochs, and does not infer a replacement
+target from process names or ordinals.
+
 ## `sysinfo`
 
 `sysinfo [-p|--pretty] [-f|--full] [-hh|--health]` prints the machine summary.

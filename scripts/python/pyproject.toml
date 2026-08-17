@@ -21,6 +21,7 @@ acp = "tools.utils.remote_clipboard:acp_app"
 transcript = "tools.transcript.cli:app"
 update-readme-fastfetch = "tools.readme.fastfetch:app"
 dotfile = "tools.dotfile.cli:app"
+dmux-rollout = "tools.dmux_rollout.cli:app"
 
 [dependency-groups]
 dev = [
