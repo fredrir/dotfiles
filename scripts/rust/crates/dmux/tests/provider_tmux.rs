@@ -875,9 +875,9 @@ fn pane_cwd(srv: &ScratchServer, pane: u64) -> String {
         "list-panes",
         "-a",
         "-F",
-        "#{pane_id}\u{1f}#{pane_current_path}",
+        "#{pane_id}__DMUX_FIELD_7F4A9C2E__#{pane_current_path}",
     ]);
-    let needle = format!("%{pane}\u{1f}");
+    let needle = format!("%{pane}__DMUX_FIELD_7F4A9C2E__");
     listing
         .lines()
         .find_map(|l| l.strip_prefix(&needle))

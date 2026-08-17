@@ -66,12 +66,13 @@ use crate::backend::{
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch};
 
-/// Unit separator used in `-F` format strings. It is passed as a literal
-/// argv byte (never through a shell) and cannot be produced by tmux's own
-/// `#{...}` expansions. Arbitrary-content fields (names, titles) are always
-/// the **last** field of a row and parsed as the remainder, so even a title
-/// that somehow embeds the byte cannot shift the ID fields.
-const SEP: char = '\u{1f}';
+/// Printable ASCII separator used in `-F` format strings. Linux tmux 3.7b
+/// rewrites C0 controls and non-ASCII format literals to `_`, so the older
+/// unit-separator byte was not portable. This deliberately conspicuous token
+/// is byte-stable on both supported hosts. Arbitrary final fields are parsed
+/// as the remainder, so a name/title containing the token cannot shift the
+/// preceding identity fields.
+const SEP: &str = "__DMUX_FIELD_7F4A9C2E__";
 
 /// Global user option holding the owner-assigned server incarnation UUID.
 const EPOCH_OPTION: &str = "@dmux_server_epoch";
@@ -85,19 +86,21 @@ const SPAWN_FORMAT: &str = "#{session_id}|#{window_id}|#{pane_id}";
 /// server this listing yields at least one row, whereas `display-message`
 /// needs a client/target heuristic. The socket path is last (remainder
 /// field) since it is the only field with arbitrary content.
-const IDENTITY_FORMAT: &str = "#{pid}\u{1f}#{start_time}\u{1f}#{socket_path}";
+const IDENTITY_FORMAT: &str =
+    "#{pid}__DMUX_FIELD_7F4A9C2E__#{start_time}__DMUX_FIELD_7F4A9C2E__#{socket_path}";
 
-const SESSIONS_FORMAT: &str = "#{session_id}\u{1f}#{session_name}";
-const WINDOWS_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{window_name}";
-const PANES_FORMAT: &str =
-    "#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}#{pane_current_path}\u{1f}#{pane_title}";
+const SESSIONS_FORMAT: &str = "#{session_id}__DMUX_FIELD_7F4A9C2E__#{session_name}";
+const WINDOWS_FORMAT: &str =
+    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{window_name}";
+const PANES_FORMAT: &str = "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}__DMUX_FIELD_7F4A9C2E__#{pane_current_path}__DMUX_FIELD_7F4A9C2E__#{pane_title}";
 /// Numeric-only action scans.  These are deliberately separate from the
 /// user-content inventory formats so an embedded separator in a title can
 /// never affect focus/layout postcondition parsing.
-const ACTION_WINDOWS_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{window_active}";
-const ACTION_PANES_FORMAT: &str = "#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}\
-#{pane_active}\u{1f}#{pane_width}\u{1f}#{pane_height}\u{1f}#{pane_left}\u{1f}\
-#{pane_top}\u{1f}#{window_zoomed_flag}";
+const ACTION_WINDOWS_FORMAT: &str =
+    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{window_active}";
+const ACTION_PANES_FORMAT: &str = "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}__DMUX_FIELD_7F4A9C2E__\
+#{pane_active}__DMUX_FIELD_7F4A9C2E__#{pane_width}__DMUX_FIELD_7F4A9C2E__#{pane_height}__DMUX_FIELD_7F4A9C2E__#{pane_left}__DMUX_FIELD_7F4A9C2E__\
+#{pane_top}__DMUX_FIELD_7F4A9C2E__#{window_zoomed_flag}";
 
 /// Session marker options stamped at adoption/creation (plan §10.3). Exact
 /// markers plus the immutable `$N` preserve identity across external rename.
@@ -1071,7 +1074,7 @@ fn parse_sigil_id(token: &str, sigil: char) -> Option<u64> {
     rest.parse().ok()
 }
 
-/// `#{pid}\x1f#{start_time}\x1f#{socket_path}` per line; the socket path is
+/// `#{pid}<SEP>#{start_time}<SEP>#{socket_path}` per line; the socket path is
 /// the remainder field. All fields are server-scoped, so every row must be
 /// identical; a disagreement means the output raced/garbled and is reported
 /// malformed. Returns `(pid, start_time, socket_path)` with `start_time`
@@ -1104,7 +1107,7 @@ fn parse_identity(text: &str) -> Result<(u32, String, String), String> {
     Ok((pid, start.to_string(), socket.to_string()))
 }
 
-/// `#{session_id}\x1f#{session_name}` per line; name is the remainder.
+/// `#{session_id}<SEP>#{session_name}` per line; name is the remainder.
 fn parse_sessions(text: &str) -> Result<Vec<(String, String)>, String> {
     text.lines()
         .map(|line| {
@@ -1119,7 +1122,7 @@ fn parse_sessions(text: &str) -> Result<Vec<(String, String)>, String> {
         .collect()
 }
 
-/// `#{session_id}\x1f#{window_id}\x1f#{window_name}`; name is the remainder.
+/// `#{session_id}<SEP>#{window_id}<SEP>#{window_name}`; name is the remainder.
 fn parse_windows(text: &str) -> Result<Vec<(String, u64, String)>, String> {
     text.lines()
         .map(|line| {
@@ -1254,7 +1257,7 @@ fn parse_action_panes(text: &str) -> Result<Vec<ActionPaneRow>, String> {
     Ok(rows)
 }
 
-/// `#{session_id}\x1f#{window_id}\x1f#{pane_id}\x1f#{pane_current_path}\x1f
+/// `#{session_id}<SEP>#{window_id}<SEP>#{pane_id}<SEP>#{pane_current_path}<SEP>
 /// #{pane_title}`; the title is the remainder field, so a title embedding
 /// the separator cannot corrupt the ID fields.
 fn parse_panes(text: &str) -> Result<Vec<PaneRow>, String> {
@@ -2208,18 +2211,22 @@ mod tests {
             *runner.calls.borrow(),
             vec![
                 epoch_read_argv(),
-                argv(&["list-sessions", "-F", "#{session_id}\u{1f}#{session_name}"]),
+                argv(&[
+                    "list-sessions",
+                    "-F",
+                    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{session_name}"
+                ]),
                 argv(&[
                     "list-windows",
                     "-a",
                     "-F",
-                    "#{session_id}\u{1f}#{window_id}\u{1f}#{window_name}",
+                    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{window_name}",
                 ]),
                 argv(&[
                     "list-panes",
                     "-a",
                     "-F",
-                    "#{session_id}\u{1f}#{window_id}\u{1f}#{pane_id}\u{1f}#{pane_current_path}\u{1f}#{pane_title}",
+                    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}__DMUX_FIELD_7F4A9C2E__#{pane_current_path}__DMUX_FIELD_7F4A9C2E__#{pane_title}",
                 ]),
                 epoch_read_argv(),
             ],
@@ -2276,7 +2283,7 @@ mod tests {
                                 handle: ProviderHandle::Tx(9),
                                 // Title embedding the separator stays whole:
                                 // the title is the remainder field.
-                                title: Some("weird\u{1f}title".into()),
+                                title: Some("weird__DMUX_FIELD_7F4A9C2E__title".into()),
                                 cwd: Some("/home".into()),
                             }],
                         }],
@@ -2678,8 +2685,8 @@ mod tests {
             epoch_ok(),
             ok(""), // select-pane
             epoch_ok(),
-            ok(""),                       // rename-window
-            ok("$5\u{1f}@7\u{1f}logs\n"), // verify listing
+            ok(""),                                                         // rename-window
+            ok("$5__DMUX_FIELD_7F4A9C2E__@7__DMUX_FIELD_7F4A9C2E__logs\n"), // verify listing
         ]);
         let p = provider(&runner);
         p.group_activate(&epoched_scope(), &ProviderHandle::Tx(7))
@@ -2698,7 +2705,7 @@ mod tests {
                 "list-windows",
                 "-a",
                 "-F",
-                "#{session_id}\u{1f}#{window_id}\u{1f}#{window_name}",
+                "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{window_name}",
             ]),
         );
     }
@@ -2894,7 +2901,11 @@ mod tests {
 
     #[test]
     fn rename_issues_exact_argv_and_verifies_postcondition() {
-        let runner = ScriptedRunner::new(vec![epoch_ok(), ok(""), ok("$5\u{1f}new name\n")]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(""),
+            ok("$5__DMUX_FIELD_7F4A9C2E__new name\n"),
+        ]);
         provider(&runner)
             .rename(&epoched_scope(), &binding(), "new name")
             .unwrap();
@@ -2903,14 +2914,22 @@ mod tests {
             vec![
                 epoch_read_argv(),
                 argv(&["rename-session", "-t", "$5", "new name"]),
-                argv(&["list-sessions", "-F", "#{session_id}\u{1f}#{session_name}"]),
+                argv(&[
+                    "list-sessions",
+                    "-F",
+                    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{session_name}"
+                ]),
             ],
         );
     }
 
     #[test]
     fn rename_unverified_is_postcondition_failed() {
-        let runner = ScriptedRunner::new(vec![epoch_ok(), ok(""), ok("$5\u{1f}other\n")]);
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            ok(""),
+            ok("$5__DMUX_FIELD_7F4A9C2E__other\n"),
+        ]);
         match provider(&runner).rename(&epoched_scope(), &binding(), "wanted") {
             Err(ProviderError::PostconditionFailed { .. }) => {}
             other => panic!("expected postcondition_failed, got {other:?}"),
@@ -3180,13 +3199,13 @@ mod tests {
         argv(&[
             "list-sessions",
             "-F",
-            "#{pid}\u{1f}#{start_time}\u{1f}#{socket_path}",
+            "#{pid}__DMUX_FIELD_7F4A9C2E__#{start_time}__DMUX_FIELD_7F4A9C2E__#{socket_path}",
         ])
     }
 
     fn identity_ok() -> Result<RunOutput, RunError> {
         ok(&format!(
-            "{PID}\u{1f}{START}\u{1f}/private/tmp/tmux-501/{NS}\n"
+            "{PID}__DMUX_FIELD_7F4A9C2E__{START}__DMUX_FIELD_7F4A9C2E__/private/tmp/tmux-501/{NS}\n"
         ))
     }
 
@@ -3210,8 +3229,8 @@ mod tests {
     fn server_identity_issues_exact_argv_and_parses_pid_and_start_token() {
         // Two sessions → two identical server-scoped rows; first is used.
         let runner = ScriptedRunner::new(vec![ok(&format!(
-            "{PID}\u{1f}{START}\u{1f}/private/tmp/tmux-501/{NS}\n\
-             {PID}\u{1f}{START}\u{1f}/private/tmp/tmux-501/{NS}\n"
+            "{PID}__DMUX_FIELD_7F4A9C2E__{START}__DMUX_FIELD_7F4A9C2E__/private/tmp/tmux-501/{NS}\n\
+             {PID}__DMUX_FIELD_7F4A9C2E__{START}__DMUX_FIELD_7F4A9C2E__/private/tmp/tmux-501/{NS}\n"
         ))]);
         let id = provider(&runner).server_identity(NS).unwrap();
         assert_eq!(id, identity());
@@ -3236,7 +3255,7 @@ mod tests {
     #[test]
     fn server_identity_disagreeing_rows_are_malformed() {
         let runner = ScriptedRunner::new(vec![ok(&format!(
-            "{PID}\u{1f}{START}\u{1f}/s\n{PID}\u{1f}9999999999\u{1f}/s\n"
+            "{PID}__DMUX_FIELD_7F4A9C2E__{START}__DMUX_FIELD_7F4A9C2E__/s\n{PID}__DMUX_FIELD_7F4A9C2E__9999999999__DMUX_FIELD_7F4A9C2E__/s\n"
         ))]);
         match provider(&runner).server_identity(NS) {
             Err(ProviderError::NativeFailure { detail }) => {
@@ -3252,8 +3271,10 @@ mod tests {
         // the token is derived from the resolved socket's device+inode.
         let sock = std::env::temp_dir().join(format!("dmux-idtest-{}", std::process::id()));
         std::fs::write(&sock, b"").expect("create fake socket file");
-        let runner =
-            ScriptedRunner::new(vec![ok(&format!("{PID}\u{1f}\u{1f}{}\n", sock.display()))]);
+        let runner = ScriptedRunner::new(vec![ok(&format!(
+            "{PID}__DMUX_FIELD_7F4A9C2E____DMUX_FIELD_7F4A9C2E__{}\n",
+            sock.display()
+        ))]);
         let id = provider(&runner).server_identity(NS).unwrap();
         let meta = std::fs::metadata(&sock).unwrap();
         let _ = std::fs::remove_file(&sock);
@@ -3390,16 +3411,19 @@ mod tests {
     fn identity_parser_rejects_noise() {
         for bad in [
             "",
-            "abc\u{1f}123\u{1f}/s\n",
-            "42\u{1f}12x3\u{1f}/s\n",
-            "42\u{1f}123\n",
-            "42\u{1f}123\u{1f}\n",
+            "abc__DMUX_FIELD_7F4A9C2E__123__DMUX_FIELD_7F4A9C2E__/s\n",
+            "42__DMUX_FIELD_7F4A9C2E__12x3__DMUX_FIELD_7F4A9C2E__/s\n",
+            "42__DMUX_FIELD_7F4A9C2E__123\n",
+            "42__DMUX_FIELD_7F4A9C2E__123__DMUX_FIELD_7F4A9C2E__\n",
         ] {
             assert!(parse_identity(bad).is_err(), "{bad:?} must be rejected");
         }
         assert_eq!(
-            parse_identity("42\u{1f}123\u{1f}/a\u{1f}b\n").unwrap(),
-            (42, "123".into(), "/a\u{1f}b".into()),
+            parse_identity(
+                "42__DMUX_FIELD_7F4A9C2E__123__DMUX_FIELD_7F4A9C2E__/a__DMUX_FIELD_7F4A9C2E__b\n"
+            )
+            .unwrap(),
+            (42, "123".into(), "/a__DMUX_FIELD_7F4A9C2E__b".into()),
             "socket path is the remainder field"
         );
     }
