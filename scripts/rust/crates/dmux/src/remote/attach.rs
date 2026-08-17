@@ -37,8 +37,13 @@ use uuid::Uuid;
 
 const CLIENT_RECORD_VERSION: u32 = 1;
 const CLIENT_RECORD_DIR: &str = "tmux-clients";
-const CLIENT_LIST_FORMAT: &str =
-    "#{client_pid}\t#{client_tty}\t#{client_name}\t#{session_id}\t#{window_id}\t#{pane_id}";
+// tmux 3.7b on Linux rewrites control-character and non-ASCII bytes in
+// `-F` output to `_`. Keep the field separator printable ASCII so the same
+// owner/client correlation rows are byte-stable on macOS and Linux.
+const TMUX_FORMAT_SEPARATOR: &str = "__DMUX_FIELD_7F4A9C2E__";
+const CLIENT_LIST_FORMAT: &str = "#{client_pid}__DMUX_FIELD_7F4A9C2E__#{client_tty}__DMUX_FIELD_7F4A9C2E__#{client_name}__DMUX_FIELD_7F4A9C2E__#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}";
+const ACTIVE_CONTEXT_FORMAT: &str =
+    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}";
 
 /// Private owner-side correlation record published immediately before the
 /// current process execs tmux. PID is therefore the future tmux client PID;
@@ -493,7 +498,7 @@ fn resolve_current_tmux_marker(
             "-p",
             "-t",
             &query,
-            "#{session_id}\t#{window_id}\t#{pane_id}",
+            ACTIVE_CONTEXT_FORMAT,
         ])
         .env("LC_ALL", "C.UTF-8")
         .stdin(Stdio::null())
@@ -521,7 +526,7 @@ fn resolve_current_tmux_marker(
             "tmux active-context query did not identify exactly one target",
         ));
     };
-    let fields: Vec<_> = line.split('\t').collect();
+    let fields: Vec<_> = line.split(TMUX_FORMAT_SEPARATOR).collect();
     let [session, window, pane] = fields.as_slice() else {
         return Err(TypedError::new(
             ErrorCode::OperationFailed,
@@ -1475,7 +1480,7 @@ fn pane_inventory(namespace: &str) -> Result<Vec<String>, TypedError> {
             "list-panes",
             "-a",
             "-F",
-            "#{session_id}\t#{window_id}\t#{pane_id}",
+            ACTIVE_CONTEXT_FORMAT,
         ])
         .env("LC_ALL", "C.UTF-8")
         .stdin(Stdio::null())
@@ -1498,7 +1503,7 @@ fn pane_inventory(namespace: &str) -> Result<Vec<String>, TypedError> {
     })?;
     let mut rows = Vec::new();
     for line in stdout.lines().filter(|line| !line.is_empty()) {
-        let fields: Vec<_> = line.split('\t').collect();
+        let fields: Vec<_> = line.split(TMUX_FORMAT_SEPARATOR).collect();
         let [session, window, pane] = fields.as_slice() else {
             return Err(TypedError::new(
                 ErrorCode::OperationFailed,
@@ -2008,7 +2013,7 @@ fn list_clients(namespace: &str) -> Result<Vec<ClientRow>, TypedError> {
     })?;
     let mut rows = Vec::new();
     for line in stdout.lines().filter(|line| !line.is_empty()) {
-        let fields: Vec<_> = line.split('\t').collect();
+        let fields: Vec<_> = line.split(TMUX_FORMAT_SEPARATOR).collect();
         let [pid, tty, name, session, window, pane] = fields.as_slice() else {
             return Err(TypedError::new(
                 ErrorCode::OperationFailed,

@@ -27,6 +27,11 @@ use uuid::Uuid;
 
 use crate::util::{DMUX_BIN, Scratch, envelope, error_code, wait_for};
 
+const TMUX_FORMAT_SEPARATOR: &str = "__DMUX_FIELD_7F4A9C2E__";
+const TEST_WINDOW_PANE_FORMAT: &str = "#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}";
+const TEST_SESSION_WINDOW_PANE_FORMAT: &str =
+    "#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}";
+
 fn create_space(scratch: &Scratch, name: &str) -> CreatedSpace {
     let request = envelope(
         protocol::methods::NEW,
@@ -259,7 +264,7 @@ fn exact_client_rpc_rejects_hidden_marker_switches_once_and_refreshes_context() 
         &session,
         "-P",
         "-F",
-        "#{window_id}\t#{pane_id}",
+        TEST_WINDOW_PANE_FORMAT,
     ]);
     assert!(
         hidden.status.success(),
@@ -267,7 +272,7 @@ fn exact_client_rpc_rejects_hidden_marker_switches_once_and_refreshes_context() 
         String::from_utf8_lossy(&hidden.stderr)
     );
     let hidden = String::from_utf8(hidden.stdout).unwrap();
-    let (hidden_window, hidden_pane) = hidden.trim().split_once('\t').unwrap();
+    let (hidden_window, hidden_pane) = hidden.trim().split_once(TMUX_FORMAT_SEPARATOR).unwrap();
     let epoch = plan.server_epoch;
     let hidden_status = TmuxClientStatusPayload {
         client_uid: plan.request_uid,
@@ -356,7 +361,7 @@ fn exact_client_rpc_rejects_hidden_marker_switches_once_and_refreshes_context() 
         &second_session,
         "-P",
         "-F",
-        "#{window_id}\t#{pane_id}",
+        TEST_WINDOW_PANE_FORMAT,
     ]);
     assert!(
         focused.status.success(),
@@ -364,7 +369,7 @@ fn exact_client_rpc_rejects_hidden_marker_switches_once_and_refreshes_context() 
         String::from_utf8_lossy(&focused.stderr)
     );
     let focused = String::from_utf8(focused.stdout).unwrap();
-    let (focused_window, focused_pane) = focused.trim().split_once('\t').unwrap();
+    let (focused_window, focused_pane) = focused.trim().split_once(TMUX_FORMAT_SEPARATOR).unwrap();
     let focused_group = format!("g{}.tx-{}", epoch.0, focused_window.trim_start_matches('@'));
     let focused_split = format!("p{}.tx-{}", epoch.0, focused_pane.trim_start_matches('%'));
     let refresh = TmuxClientRefreshPayload {
@@ -432,11 +437,14 @@ fn exact_client_rpc_rejects_hidden_marker_switches_once_and_refreshes_context() 
     let client = scratch.tmux(&[
         "list-clients",
         "-F",
-        "#{client_name}\t#{client_pid}\t#{client_tty}\t#{session_id}\t#{window_id}\t#{pane_id}",
+        "#{client_name}__DMUX_FIELD_7F4A9C2E__#{client_pid}__DMUX_FIELD_7F4A9C2E__#{client_tty}__DMUX_FIELD_7F4A9C2E__#{session_id}__DMUX_FIELD_7F4A9C2E__#{window_id}__DMUX_FIELD_7F4A9C2E__#{pane_id}",
     ]);
     assert!(client.status.success());
     let client = String::from_utf8(client.stdout).unwrap();
-    let fields = client.trim().split('\t').collect::<Vec<_>>();
+    let fields = client
+        .trim()
+        .split(TMUX_FORMAT_SEPARATOR)
+        .collect::<Vec<_>>();
     let [
         hook_client,
         client_pid,
@@ -514,12 +522,7 @@ fn exact_client_detach_removes_only_that_client_preserves_panes_and_replays() {
     let first_record = read_client_record(scratch.locks.path(), first_plan.request_uid).unwrap();
     let second_record = read_client_record(scratch.locks.path(), second_plan.request_uid).unwrap();
     assert_ne!(first_record.client_pid, second_record.client_pid);
-    let panes_before = scratch.tmux(&[
-        "list-panes",
-        "-a",
-        "-F",
-        "#{session_id}\t#{window_id}\t#{pane_id}",
-    ]);
+    let panes_before = scratch.tmux(&["list-panes", "-a", "-F", TEST_SESSION_WINDOW_PANE_FORMAT]);
     assert!(panes_before.status.success());
 
     let payload = TmuxClientDetachPayload {
@@ -543,18 +546,20 @@ fn exact_client_detach_removes_only_that_client_preserves_panes_and_replays() {
     wait_for("one untouched tmux client", Duration::from_secs(10), || {
         client_count(&scratch) == 1
     });
-    let remaining = scratch.tmux(&["list-clients", "-F", "#{client_pid}\t#{client_tty}"]);
+    let remaining = scratch.tmux(&[
+        "list-clients",
+        "-F",
+        "#{client_pid}__DMUX_FIELD_7F4A9C2E__#{client_tty}",
+    ]);
     assert!(remaining.status.success());
     assert_eq!(
         String::from_utf8_lossy(&remaining.stdout).trim(),
-        format!("{}\t{}", second_record.client_pid, second_record.client_tty)
+        format!(
+            "{}{}{}",
+            second_record.client_pid, TMUX_FORMAT_SEPARATOR, second_record.client_tty
+        )
     );
-    let panes_after = scratch.tmux(&[
-        "list-panes",
-        "-a",
-        "-F",
-        "#{session_id}\t#{window_id}\t#{pane_id}",
-    ]);
+    let panes_after = scratch.tmux(&["list-panes", "-a", "-F", TEST_SESSION_WINDOW_PANE_FORMAT]);
     assert_eq!(panes_after.stdout, panes_before.stdout);
 
     let (code, response) = scratch.agent(&request);
@@ -789,8 +794,21 @@ fn a_restarted_server_refuses_the_token_epoch() {
     let (_, plan) = attach_plan(&scratch, &created);
 
     // Kill and restart the scratch server: a fresh incarnation with a
-    // fresh epoch after re-bootstrap.
+    // fresh epoch after re-bootstrap. Linux tmux may acknowledge
+    // `kill-server` just before the old process stops accepting clients.
+    // A stale socket pathname may legitimately remain, so wait on the
+    // read-only server identity probe rather than path absence.
     assert!(scratch.tmux(&["kill-server"]).status.success());
+    wait_for(
+        "the old scratch tmux server to stop answering",
+        Duration::from_secs(10),
+        || {
+            !scratch
+                .tmux(&["display-message", "-p", "#{pid}"])
+                .status
+                .success()
+        },
+    );
     let out = Command::new("tmux")
         .args([
             "-L",
@@ -805,7 +823,11 @@ fn a_restarted_server_refuses_the_token_epoch() {
         .env("DMUX_RUNTIME_DIR", scratch.locks.path())
         .output()
         .unwrap();
-    assert!(out.status.success());
+    assert!(
+        out.status.success(),
+        "replacement scratch tmux failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
     scratch.bootstrap_tmux();
 
     let out = attach_refused(&scratch, &plan.token);
