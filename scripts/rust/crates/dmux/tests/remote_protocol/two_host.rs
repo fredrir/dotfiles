@@ -5,6 +5,7 @@
 //! production path. Skips gracefully (with a reason) when
 //! `ssh -o BatchMode=yes archie true` fails; when Archie answers, it runs.
 
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
@@ -96,15 +97,15 @@ impl RemoteScratch {
     fn provision() -> RemoteScratch {
         // Sync the CURRENT sources and rebuild in the scratch workspace
         // (deps are cached there from the W5 warm-up build).
+        let rust_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("resolve the current Rust workspace");
+        let rust_source = format!("{}/", rust_root.display());
         let rsync = Command::new("rsync")
-            .args([
-                "-a",
-                "--delete",
-                "--exclude",
-                "target/",
-                "/Users/fredrir/dotfiles/scripts/rust/",
-                "archie:.cache/dmux-w5/rust/",
-            ])
+            .args(["-a", "--delete", "--exclude", "target/"])
+            .arg(rust_source)
+            .arg("archie:.cache/dmux-w5/rust/")
             .output()
             .unwrap();
         assert!(

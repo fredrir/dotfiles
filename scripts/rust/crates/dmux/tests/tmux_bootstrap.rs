@@ -2,6 +2,7 @@
 //! Root-owned. Direct invocation, hook-driven invocation from the managed
 //! conf template, idempotence, and restart-invalidates-epoch.
 
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -139,8 +140,10 @@ fn restart_invalidates_the_epoch_and_rebinds() {
 fn hook_driven_bootstrap_from_the_managed_conf_template() {
     let s = Scratch::new("hook");
     // Generate a concrete conf from the template, as provisioning would.
-    let template =
-        std::fs::read_to_string("/Users/fredrir/dotfiles/shared/tmux/dmux-managed.conf").unwrap();
+    let template_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../shared/tmux/dmux-managed.conf");
+    let template = std::fs::read_to_string(&template_path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", template_path.display()));
     let hook_cmd = format!(
         "{} _tmux-bootstrap --namespace {} --data-dir {} --lock-dir {}",
         env!("CARGO_BIN_EXE_dmux"),
