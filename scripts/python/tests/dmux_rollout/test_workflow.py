@@ -278,8 +278,11 @@ def test_archie_fork_gates_are_explicit_and_packaging_is_host_independent():
     assert "dmux" in commands[2]
     assert commands[3][-2:] == [
         "sh",
-        "/release/dotfiles/shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh",
+        "/release/dotfiles/shared/wezterm/wez/dmux_bridge/tests/suite.sh",
     ]
+    assert f"DMUX_WEZTERM_SOURCE={wezterm}" in commands[3], (
+        "the suite skips fork_surface.sh unless the frozen fork is named"
+    )
     for command in commands:
         assert f"CARGO_TARGET_DIR={target}" in command
         for name in AMBIENT_MUX_VARS:
@@ -289,6 +292,18 @@ def test_archie_fork_gates_are_explicit_and_packaging_is_host_independent():
     package = Workflow._archie_makepkg_command(Path("/release/packages"), Path("/release"))
     assert package[-1] == "--nocheck"
     assert package.count("--nocheck") == 1
+
+
+def test_both_wezterm_gates_run_the_dmux_suite():
+    source = Path(Workflow.__module__.replace(".", "/") + ".py")
+    text = (Path(__file__).parents[2] / "src" / source).read_text(encoding="utf-8")
+
+    # The mac gate and the Archie gate must drive the same entry point. A suite
+    # that runs on only one path is the gap this suite exists to close.
+    assert text.count("dmux_bridge/tests/suite.sh") == 2
+    assert "dmux_bridge/tests/fork_surface.sh" not in text, (
+        "fork_surface.sh is reached through suite.sh; a direct call would drift from it"
+    )
 
 
 def test_rollout_source_has_no_broad_process_kill():

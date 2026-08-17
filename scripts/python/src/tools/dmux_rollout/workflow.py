@@ -222,8 +222,10 @@ class Workflow:
                     unset_env=AMBIENT_MUX_VARS,
                     log=log,
                 )
+            # suite.sh runs the GUI-side Lua tests and, because
+            # DMUX_WEZTERM_SOURCE is set, fork_surface.sh with them.
             self.runner.stream(
-                ["sh", str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh")],
+                ["sh", str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/suite.sh")],
                 cwd=dotfiles,
                 env={**build_env, "DMUX_WEZTERM_SOURCE": str(wezterm)},
                 unset_env=AMBIENT_MUX_VARS,
@@ -667,12 +669,14 @@ class Workflow:
                 "--test-threads=1",
             ]
         )
+        # suite.sh runs the GUI-side Lua tests and, because DMUX_WEZTERM_SOURCE
+        # is set, fork_surface.sh with them.
         commands.append(
             [
                 *environment,
                 f"DMUX_WEZTERM_SOURCE={wezterm}",
                 "sh",
-                str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh"),
+                str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/suite.sh"),
             ]
         )
         return tuple(commands)
