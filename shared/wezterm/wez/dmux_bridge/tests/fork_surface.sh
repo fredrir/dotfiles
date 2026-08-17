@@ -49,7 +49,8 @@ require_text 'require_existing_panes_after_managed_attach(' wezterm-gui/src/main
 # config must claim that exact retained listener, and a failed sentinel may
 # never fall through to WezTerm's ordinary default-program spawn.
 require_text 'long = "dmux-managed-service"' wezterm-mux-server/src/main.rs
-require_text 'prebind_dmux_managed_service()?' wezterm-mux-server/src/main.rs
+require_text 'let managed_flag_present = dmux_managed_service_flag_present(&args);' wezterm-mux-server/src/main.rs
+require_text 'prebind_dmux_managed_service()' wezterm-mux-server/src/main.rs
 require_text 'bootstrap.validate_and_take(&config)?' wezterm-mux-server/src/main.rs
 require_text 'dmux managed mux-startup produced no sentinel/user pane' wezterm-mux-server/src/main.rs
 require_text 'pub fn prebind_dmux_managed_service()' lua-api-crates/mux/src/dmux_descriptor.rs
