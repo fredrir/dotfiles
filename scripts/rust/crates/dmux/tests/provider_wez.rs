@@ -31,15 +31,24 @@ use uuid::Uuid;
 
 const WEZTERM: &str = "wezterm";
 const MUX_SERVER: &str = "wezterm-mux-server";
-/// Pinned fork build with the ADR 006 CAS verb (codec 46, tree-identical to
-/// dmux-primitives@72f3fd755). The fork `wezterm` CLI is the only binary
-/// that can EMIT the CAS PDU; the fork server is the only one that accepts
-/// it. P3c gate: the pinned build must exist before downstream use, so the
-/// fork suite soft-skips when it is absent.
-const FORK_WEZTERM: &str = "/Users/fredrir/packages/wezterm-dmux-p0/target/debug/wezterm";
-const FORK_MUX_SERVER: &str =
-    "/Users/fredrir/packages/wezterm-dmux-p0/target/debug/wezterm-mux-server";
+/// The rollout gate supplies the exact frozen fork CLI and mux-server.
+/// Developer runs may omit them and soft-skip these fork-only cases; a
+/// release run sets `DMUX_TEST_REQUIRE_FORK=1`, making absence a hard error.
 const CLI_DEADLINE: Duration = Duration::from_secs(10);
+
+fn fork_binary(variable: &str) -> Option<PathBuf> {
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+}
+
+fn fork_wezterm() -> PathBuf {
+    fork_binary("DMUX_TEST_FORK_WEZTERM").expect("validated exact fork wezterm test binary")
+}
+
+fn fork_mux_server() -> PathBuf {
+    fork_binary("DMUX_TEST_FORK_MUX_SERVER").expect("validated exact fork mux-server test binary")
+}
 
 fn wez_available() -> bool {
     Command::new(WEZTERM)
@@ -57,7 +66,8 @@ fn wez_available() -> bool {
 }
 
 fn fork_available() -> bool {
-    Path::new(FORK_WEZTERM).is_file() && Path::new(FORK_MUX_SERVER).is_file()
+    fork_binary("DMUX_TEST_FORK_WEZTERM").is_some()
+        && fork_binary("DMUX_TEST_FORK_MUX_SERVER").is_some()
 }
 
 macro_rules! require_wez {
@@ -73,7 +83,13 @@ macro_rules! require_fork {
     () => {
         require_wez!();
         if !fork_available() {
-            eprintln!("skipping: pinned fork build not present at {FORK_WEZTERM}");
+            assert_ne!(
+                std::env::var("DMUX_TEST_REQUIRE_FORK").as_deref(),
+                Ok("1"),
+                "the release gate requires exact DMUX_TEST_FORK_WEZTERM and \
+                 DMUX_TEST_FORK_MUX_SERVER binaries"
+            );
+            eprintln!("skipping: exact fork test binaries were not supplied");
             return;
         }
     };
@@ -102,7 +118,8 @@ impl ScratchMux {
     /// against a codec-46 server, ADR 006); only CAS calls need the fork
     /// CLI, wired per-provider via `with_cas_binary`.
     fn fork() -> Self {
-        Self::with_server(FORK_MUX_SERVER)
+        let server = fork_mux_server();
+        Self::with_server(server.to_string_lossy().as_ref())
     }
 
     fn with_server(mux_server: &str) -> Self {
@@ -1429,7 +1446,9 @@ fn fork_server_probe_true_and_cas_matrix() {
     mux.start();
     // Reads through the stock CLI (codec-45 list against the codec-46
     // server works, ADR 006); CAS through the fork CLI via `with_cas_binary`.
-    let provider = mux.provider().with_cas_binary(FORK_WEZTERM);
+    let provider = mux
+        .provider()
+        .with_cas_binary(fork_wezterm().to_string_lossy().into_owned());
     let scope = mux.scope(Some(mux.epoch));
 
     assert!(
@@ -1509,7 +1528,9 @@ fn stock_server_probe_false_via_invalid_pdu() {
     require_fork!();
     let mut mux = ScratchMux::new(); // stock server
     mux.start();
-    let provider = mux.provider().with_cas_binary(FORK_WEZTERM);
+    let provider = mux
+        .provider()
+        .with_cas_binary(fork_wezterm().to_string_lossy().into_owned());
     let scope = mux.scope(Some(mux.epoch));
 
     if provider.probe_cas_rename(&scope).expect("probe") {

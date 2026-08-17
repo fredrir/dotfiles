@@ -172,114 +172,161 @@ class Workflow:
         self._require_clean_frozen_worktree(release, "dotfiles", dotfiles)
         self._require_clean_frozen_worktree(release, "wezterm", wezterm)
 
-        if not release.completed("build.mac.dotfiles"):
-            target = root / "targets/dotfiles-mac"
-            log = self._log_path(release, "build-mac-dotfiles.log")
-            if not skip_tests:
-                self.runner.stream(
-                    ["cargo", "test", "-p", "dmux", "--", "--test-threads=1"],
-                    cwd=dotfiles / "scripts/rust",
-                    env={"CARGO_TARGET_DIR": str(target)},
-                    log=log,
-                )
-            self.runner.stream(
-                [
-                    "cargo",
-                    "build",
-                    "--release",
-                    "-p",
-                    "dmux",
-                    "--bin",
-                    "dmux",
-                    "--bin",
-                    "pane-bootstrap",
-                ],
-                cwd=dotfiles / "scripts/rust",
-                env={"CARGO_TARGET_DIR": str(target)},
-                log=log,
-            )
-            artifacts = self._copy_artifacts(
-                root / "artifacts/macos/dotfiles",
-                {
-                    "dmux": target / "release/dmux",
-                    "pane-bootstrap": target / "release/pane-bootstrap",
-                },
-            )
-            release.data["artifacts"]["mac_dotfiles"] = artifacts
-            self.store.checkpoint(release, "build.mac.dotfiles", {"artifacts": artifacts})
-        else:
-            self._verify_artifact_set(release.data["artifacts"].get("mac_dotfiles"), "mac_dotfiles")
-
-        if not release.completed("build.mac.wezterm"):
-            target = root / "targets/wezterm-mac"
-            log = self._log_path(release, "build-mac-wezterm.log")
-            if not skip_tests:
-                for command in (
-                    ["cargo", "test", "-p", "codec", "--", "--test-threads=1"],
-                    ["cargo", "test", "-p", "mux", "--", "--test-threads=1"],
-                    [
-                        "cargo",
-                        "test",
-                        "-p",
-                        "wezterm-gui",
-                        "dmux",
-                        "--",
-                        "--test-threads=1",
-                    ],
-                ):
-                    self.runner.stream(
-                        command,
-                        cwd=wezterm,
-                        env={"CARGO_TARGET_DIR": str(target)},
-                        log=log,
-                    )
-                self.runner.stream(
-                    ["sh", str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh")],
-                    cwd=dotfiles,
-                    env={"DMUX_WEZTERM_SOURCE": str(wezterm)},
-                    log=log,
-                )
-            self.runner.stream(
-                [
-                    "cargo",
-                    "build",
-                    "--release",
-                    "-p",
-                    "wezterm",
-                    "-p",
-                    "wezterm-gui",
-                    "-p",
-                    "wezterm-mux-server",
-                ],
-                cwd=wezterm,
-                env={"CARGO_TARGET_DIR": str(target)},
-                log=log,
-            )
-            artifacts = self._copy_artifacts(
-                root / "artifacts/macos/wezterm",
-                {
-                    "wezterm": target / "release/wezterm",
-                    "wezterm-gui": target / "release/wezterm-gui",
-                    "wezterm-mux-server": target / "release/wezterm-mux-server",
-                },
-            )
-            version = self.runner.capture(
-                [str(target / "release/wezterm"), "--version"]
-            ).stdout.strip()
-            if release.data["frozen"]["wezterm"]["commit"][:8] not in version:
-                raise Refusal(f"built WezTerm version does not contain frozen commit: {version}")
-            release.data["artifacts"]["mac_wezterm"] = artifacts
-            release.data["artifacts"]["mac_wezterm_version"] = version
-            self.store.checkpoint(
-                release,
-                "build.mac.wezterm",
-                {"artifacts": artifacts, "version": version},
-            )
-        else:
-            self._verify_artifact_set(release.data["artifacts"].get("mac_wezterm"), "mac_wezterm")
+        # The dmux integration suite exercises fork-only protocol surfaces
+        # against a live scratch mux.  Build and freeze the exact fork first;
+        # the test environment below then points at those release artifacts
+        # instead of an installed or historical developer build.
+        self._build_mac_wezterm(release, root, dotfiles, wezterm, skip_tests=skip_tests)
+        self._build_mac_dotfiles(release, root, dotfiles, skip_tests=skip_tests)
         release.set_phase("built")
         self.store.save(release)
         return release
+
+    def _build_mac_wezterm(
+        self,
+        release: Release,
+        root: Path,
+        dotfiles: Path,
+        wezterm: Path,
+        *,
+        skip_tests: bool,
+    ) -> None:
+        if release.completed("build.mac.wezterm"):
+            self._verify_artifact_set(release.data["artifacts"].get("mac_wezterm"), "mac_wezterm")
+            return
+
+        target = root / "targets/wezterm-mac"
+        log = self._log_path(release, "build-mac-wezterm.log")
+        build_env = {"CARGO_TARGET_DIR": str(target)}
+        if not skip_tests:
+            for command in (
+                ["cargo", "test", "-p", "codec", "--", "--test-threads=1"],
+                ["cargo", "test", "-p", "mux", "--", "--test-threads=1"],
+                [
+                    "cargo",
+                    "test",
+                    "-p",
+                    "wezterm-gui",
+                    "dmux",
+                    "--",
+                    "--test-threads=1",
+                ],
+            ):
+                self.runner.stream(
+                    command,
+                    cwd=wezterm,
+                    env=build_env,
+                    unset_env=AMBIENT_MUX_VARS,
+                    log=log,
+                )
+            self.runner.stream(
+                ["sh", str(dotfiles / "shared/wezterm/wez/dmux_bridge/tests/fork_surface.sh")],
+                cwd=dotfiles,
+                env={**build_env, "DMUX_WEZTERM_SOURCE": str(wezterm)},
+                unset_env=AMBIENT_MUX_VARS,
+                log=log,
+            )
+        self.runner.stream(
+            [
+                "cargo",
+                "build",
+                "--release",
+                "-p",
+                "wezterm",
+                "-p",
+                "wezterm-gui",
+                "-p",
+                "wezterm-mux-server",
+            ],
+            cwd=wezterm,
+            env=build_env,
+            unset_env=AMBIENT_MUX_VARS,
+            log=log,
+        )
+        artifacts = self._copy_artifacts(
+            root / "artifacts/macos/wezterm",
+            {
+                "wezterm": target / "release/wezterm",
+                "wezterm-gui": target / "release/wezterm-gui",
+                "wezterm-mux-server": target / "release/wezterm-mux-server",
+            },
+        )
+        version = self.runner.capture([str(target / "release/wezterm"), "--version"]).stdout.strip()
+        if release.data["frozen"]["wezterm"]["commit"][:8] not in version:
+            raise Refusal(f"built WezTerm version does not contain frozen commit: {version}")
+        release.data["artifacts"]["mac_wezterm"] = artifacts
+        release.data["artifacts"]["mac_wezterm_version"] = version
+        self.store.checkpoint(
+            release,
+            "build.mac.wezterm",
+            {"artifacts": artifacts, "version": version},
+        )
+
+    def _build_mac_dotfiles(
+        self,
+        release: Release,
+        root: Path,
+        dotfiles: Path,
+        *,
+        skip_tests: bool,
+    ) -> None:
+        if release.completed("build.mac.dotfiles"):
+            self._verify_artifact_set(release.data["artifacts"].get("mac_dotfiles"), "mac_dotfiles")
+            return
+
+        target = root / "targets/dotfiles-mac"
+        log = self._log_path(release, "build-mac-dotfiles.log")
+        test_env = self._mac_dmux_test_environment(release, target)
+        if not skip_tests:
+            self.runner.stream(
+                ["cargo", "test", "-p", "dmux", "--", "--test-threads=1"],
+                cwd=dotfiles / "scripts/rust",
+                env=test_env,
+                unset_env=AMBIENT_MUX_VARS,
+                log=log,
+            )
+        self.runner.stream(
+            [
+                "cargo",
+                "build",
+                "--release",
+                "-p",
+                "dmux",
+                "--bin",
+                "dmux",
+                "--bin",
+                "pane-bootstrap",
+            ],
+            cwd=dotfiles / "scripts/rust",
+            env={"CARGO_TARGET_DIR": str(target)},
+            unset_env=AMBIENT_MUX_VARS,
+            log=log,
+        )
+        artifacts = self._copy_artifacts(
+            root / "artifacts/macos/dotfiles",
+            {
+                "dmux": target / "release/dmux",
+                "pane-bootstrap": target / "release/pane-bootstrap",
+            },
+        )
+        release.data["artifacts"]["mac_dotfiles"] = artifacts
+        self.store.checkpoint(release, "build.mac.dotfiles", {"artifacts": artifacts})
+
+    @staticmethod
+    def _mac_dmux_test_environment(release: Release, target: Path) -> dict[str, str]:
+        fork = release.data["artifacts"]["mac_wezterm"]
+        fork_wezterm = Path(fork["wezterm"]["path"])
+        fork_mux_server = Path(fork["wezterm-mux-server"]["path"])
+        for binary in (fork_wezterm, fork_mux_server):
+            if not binary.is_file() or not os.access(binary, os.X_OK):
+                raise Refusal(f"exact fork test binary is absent or not executable: {binary}")
+        return {
+            "CARGO_TARGET_DIR": str(target),
+            "DMUX_TEST_FORK_WEZTERM": str(fork_wezterm),
+            "DMUX_TEST_FORK_MUX_SERVER": str(fork_mux_server),
+            "DMUX_TEST_REQUIRE_FORK": "1",
+            "PATH": f"{fork_wezterm.parent}{os.pathsep}{os.environ.get('PATH', '')}",
+        }
 
     def _artifact_root(self, release: Release) -> Path:
         return self.config.packages_root / release.release_id

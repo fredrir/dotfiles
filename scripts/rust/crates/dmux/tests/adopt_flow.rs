@@ -4,6 +4,7 @@
 //! scratch server, zero-mutation loss handling, and the unstamped health
 //! landing.
 
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
@@ -15,10 +16,35 @@ use dmux::operations::{OpError, OperationEnv, adopt_tmux, adopt_wez, tmux_bootst
 use dmux::registry::{Registry, RegistryConfig};
 use uuid::Uuid;
 
-const FORK_WEZTERM: &str = "/Users/fredrir/packages/wezterm-dmux-p0/target/debug/wezterm";
-const FORK_MUX_SERVER: &str =
-    "/Users/fredrir/packages/wezterm-dmux-p0/target/debug/wezterm-mux-server";
-const STOCK_WEZTERM: &str = "/opt/homebrew/bin/wezterm";
+fn fork_binary(variable: &str) -> Option<PathBuf> {
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+}
+
+fn fork_wezterm() -> PathBuf {
+    fork_binary("DMUX_TEST_FORK_WEZTERM").expect("validated exact fork wezterm test binary")
+}
+
+fn fork_mux_server() -> PathBuf {
+    fork_binary("DMUX_TEST_FORK_MUX_SERVER").expect("validated exact fork mux-server test binary")
+}
+
+fn require_fork() -> bool {
+    if fork_binary("DMUX_TEST_FORK_WEZTERM").is_some()
+        && fork_binary("DMUX_TEST_FORK_MUX_SERVER").is_some()
+    {
+        return true;
+    }
+    assert_ne!(
+        std::env::var("DMUX_TEST_REQUIRE_FORK").as_deref(),
+        Ok("1"),
+        "the release gate requires exact DMUX_TEST_FORK_WEZTERM and \
+         DMUX_TEST_FORK_MUX_SERVER binaries"
+    );
+    eprintln!("skipping fork adoption gate: exact test binaries were not supplied");
+    false
+}
 
 fn env_of(data: &tempfile::TempDir, locks: &tempfile::TempDir) -> OperationEnv {
     OperationEnv {
@@ -168,7 +194,7 @@ return config
             ),
         )
         .unwrap();
-        let server = Command::new(FORK_MUX_SERVER)
+        let server = Command::new(fork_mux_server())
             .args(["--config-file", config_path.to_str().unwrap()])
             .env("DMUX_SOCKET", &socket)
             .env_remove("WEZTERM_UNIX_SOCKET")
@@ -183,7 +209,7 @@ return config
     }
 
     fn cli(&self, args: &[&str]) -> std::process::Output {
-        Command::new(FORK_WEZTERM)
+        Command::new(fork_wezterm())
             .args(["--config-file", &self.config, "cli", "--no-auto-start"])
             .args(args)
             .env("WEZTERM_UNIX_SOCKET", &self.socket)
@@ -194,7 +220,8 @@ return config
     }
 
     fn provider(&self) -> WezProvider<dmux::backend::wez::SystemRunner> {
-        WezProvider::new(STOCK_WEZTERM, self.config.clone()).with_cas_binary(FORK_WEZTERM)
+        let fork = fork_wezterm().to_string_lossy().into_owned();
+        WezProvider::new(fork.clone(), self.config.clone()).with_cas_binary(fork)
     }
 
     fn scope(&self) -> InventoryScope {
@@ -230,6 +257,9 @@ impl Drop for WezScratch {
 
 #[test]
 fn wez_adoption_cas_renames_to_the_opaque_key() {
+    if !require_fork() {
+        return;
+    }
     let data = tempfile::tempdir().unwrap();
     let locks = tempfile::tempdir().unwrap();
     let env = env_of(&data, &locks);
@@ -295,6 +325,9 @@ fn wez_adoption_cas_renames_to_the_opaque_key() {
 
 #[test]
 fn wez_adoption_refuses_multi_window_resources() {
+    if !require_fork() {
+        return;
+    }
     let data = tempfile::tempdir().unwrap();
     let locks = tempfile::tempdir().unwrap();
     let env = env_of(&data, &locks);

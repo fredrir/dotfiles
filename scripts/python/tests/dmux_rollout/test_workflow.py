@@ -180,6 +180,59 @@ def test_dirty_detached_build_worktree_is_refused(tmp_path):
         workflow._require_clean_frozen_worktree(item, "dotfiles", repo)
 
 
+def test_mac_build_freezes_fork_before_running_dmux_gate(tmp_path, monkeypatch):
+    item = release(tmp_path)
+    store = RolloutStore(tmp_path / "state")
+    workflow = Workflow(
+        store,
+        Runner(),
+        config(tmp_path, Path(item.data["frozen"]["dotfiles"]["repo"]), Path("/tmp/wezterm")),
+    )
+    calls = []
+
+    monkeypatch.setattr(workflow, "_ensure_worktree", lambda _release, _source, path: path)
+    monkeypatch.setattr(workflow, "_require_clean_frozen_worktree", lambda *_args: None)
+    monkeypatch.setattr(
+        workflow,
+        "_build_mac_wezterm",
+        lambda *_args, **_kwargs: calls.append("wezterm"),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_build_mac_dotfiles",
+        lambda *_args, **_kwargs: calls.append("dotfiles"),
+    )
+
+    with store.exclusive():
+        store.create(item)
+        workflow.build(item)
+
+    assert calls == ["wezterm", "dotfiles"]
+
+
+def test_dmux_gate_uses_only_the_frozen_fork_binaries(tmp_path, monkeypatch):
+    item = release(tmp_path)
+    binary_dir = tmp_path / "artifacts" / "wezterm"
+    binary_dir.mkdir(parents=True)
+    wezterm = binary_dir / "wezterm"
+    mux_server = binary_dir / "wezterm-mux-server"
+    for binary in (wezterm, mux_server):
+        binary.write_bytes(b"test")
+        binary.chmod(0o755)
+    item.data["artifacts"]["mac_wezterm"] = {
+        "wezterm": {"path": str(wezterm)},
+        "wezterm-mux-server": {"path": str(mux_server)},
+    }
+    monkeypatch.setenv("PATH", "/usr/bin")
+
+    environment = Workflow._mac_dmux_test_environment(item, tmp_path / "cargo-target")
+
+    assert environment["DMUX_TEST_FORK_WEZTERM"] == str(wezterm)
+    assert environment["DMUX_TEST_FORK_MUX_SERVER"] == str(mux_server)
+    assert environment["DMUX_TEST_REQUIRE_FORK"] == "1"
+    assert environment["PATH"] == f"{binary_dir}:/usr/bin"
+
+
 def test_archie_pacman_pause_is_exact_and_interactive(tmp_path):
     item = release(tmp_path)
     item.data["artifacts"]["archie_packages"] = {
