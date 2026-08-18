@@ -171,9 +171,15 @@ def resume(
 
 
 @app.command(help="Run the journaled cold/reconnect/lifecycle/recovery/removal/two-host matrix.")
-def verify(ctx: typer.Context):
+def verify(
+    ctx: typer.Context,
+    approve_space: list[str] = typer.Option([], "--approve-space"),
+):
     context: Context = ctx.obj
-    release = _locked(context, lambda: context.workflow.verify(_load(context)))
+    release = _locked(
+        context,
+        lambda: context.workflow.verify(_load(context), approved_spaces=set(approve_space)),
+    )
     _summary(release)
 
 

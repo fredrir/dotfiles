@@ -1767,13 +1767,20 @@ class Workflow:
 
     # Acceptance matrix ---------------------------------------------------
 
-    def verify(self, release: Release) -> Release:
+    def verify(self, release: Release, *, approved_spaces: set[str] | None = None) -> Release:
         for checkpoint in ("deploy.mac.service", "deploy.archie.service"):
             if not release.completed(checkpoint):
                 raise Refusal(f"acceptance requires completed checkpoint {checkpoint}")
         self._ensure_primary_smoke(release)
         primary = release.data["smoke"]
-        approved = {primary["space_uid"]}
+        approved = {primary["space_uid"]} | set(approved_spaces or set())
+        # The removal and two-host Spaces are created by this matrix and
+        # journaled before they exist, so a resumed run must recognize them as
+        # its own artifacts rather than unexpected live user Spaces.
+        for key in ("removal", "remote"):
+            row = primary.get(key)
+            if isinstance(row, dict) and row.get("space_uid"):
+                approved.add(row["space_uid"])
         owner = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
         if primary["space_uid"] not in owner["spaces"]:
             raise Refusal("the journaled smoke Space is absent from the Mac owner")
@@ -1938,7 +1945,14 @@ class Workflow:
             unset_env=AMBIENT_MUX_VARS,
             timeout=90,
         )
-        deadline = time.monotonic() + 30
+        return self._await_live_gui(
+            host_uid, space_uid, what="GUI never published the exact smoke marker"
+        )
+
+    def _await_live_gui(
+        self, host_uid: str, space_uid: str, *, what: str, timeout: float = 30
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
         last: Exception | None = None
         while time.monotonic() < deadline:
             try:
@@ -1946,7 +1960,35 @@ class Workflow:
             except RolloutError as error:
                 last = error
             time.sleep(0.1)
-        raise Refusal(f"GUI never published the exact smoke marker: {last}")
+        raise Refusal(f"{what}: {last}")
+
+    def _gui_controller(self, gui: dict[str, Any], verb: str, args: list[str]) -> str:
+        """Issue one controller verb from an exact live GUI pane origin.
+
+        This is the same `dmux _gui` invocation the in-GUI Lua controller
+        makes, so the runner drives product paths that are only reachable from
+        a GUI origin without synthesizing keystrokes or an ambient marker.
+        """
+        origin = {
+            "protocol_version": 1,
+            "gui_instance": gui["gui_instance"],
+            "pane_id": gui["pane_id"],
+            "domain": gui["domain"],
+            "marker": gui["context"],
+        }
+        return self.runner.capture(
+            [
+                str(self.config.mac_dmux),
+                "_gui",
+                "--origin-json",
+                json.dumps(origin, sort_keys=True, separators=(",", ":")),
+                verb,
+                *args,
+            ],
+            env={"DMUX_WEZ_FIRST": "1"},
+            unset_env=AMBIENT_MUX_VARS,
+            timeout=90,
+        ).stdout.strip()
 
     def _live_gui_for_space(self, host_uid: str, space_uid: str) -> dict[str, Any]:
         root = self._mac_runtime_dir() / "bridge/instances"
@@ -2256,11 +2298,16 @@ class Workflow:
                     removal["name"],
                     "--backend",
                     "wez",
-                    "--no-connect",
+                    # Not --no-connect: an explicit Wez create is only policy
+                    # eligible from an ambient pane origin or a cold GUI
+                    # launch, and the runner deliberately scrubs the ambient
+                    # marker. --launch-gui is dmux's exact escape hatch for
+                    # that, and clap refuses it alongside --no-connect.
+                    "--launch-gui",
                 ],
                 env={"DMUX_WEZ_FIRST": "1"},
                 unset_env=AMBIENT_MUX_VARS,
-                timeout=60,
+                timeout=90,
             ).stdout.strip()
             host_uid, space_uid = self._parse_new_receipt(receipt, backend="wez")
             removal.update(
@@ -2287,12 +2334,16 @@ class Workflow:
                 {"space_uid": removal_uid, "owner_epoch": before["epoch"], "resumed": True},
             )
             return
-        self.runner.capture(
-            [str(self.config.mac_dmux), "rm", removal["stable_ref"], "--yes"],
-            env={"DMUX_WEZ_FIRST": "1"},
-            unset_env=AMBIENT_MUX_VARS,
-            timeout=60,
+        # `dmux rm` refuses a wezterm workspace outright ("close it inside
+        # wezterm"): removing a Wez Space is a GUI-origin operation. Drive the
+        # exact controller verb the close-Group chord issues so the acceptance
+        # matrix exercises the product's real removal path.
+        gui = self._await_live_gui(
+            removal["host_uid"],
+            removal_uid,
+            what="removal Space never published a live GUI marker",
         )
+        self._gui_controller(gui, "group-remove", ["--confirmed", "--escalate-space"])
         deadline = time.monotonic() + 30
         after = None
         while time.monotonic() < deadline:
@@ -2322,7 +2373,10 @@ class Workflow:
                     remote["name"],
                     "--backend",
                     "wez",
-                    "--no-connect",
+                    # Same ambient-origin policy as the removal Space: a
+                    # remote explicit-Wez create also needs the cold GUI
+                    # witness before it can trust the enrolled route.
+                    "--launch-gui",
                 ],
                 env={"DMUX_WEZ_FIRST": "1"},
                 unset_env=AMBIENT_MUX_VARS,
