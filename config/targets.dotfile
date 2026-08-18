@@ -1,7 +1,6 @@
 shared/starship = ~/.config
 shared/tmux/.tmux.conf = ~/.tmux.conf
 shared/zsh/.zshrc = ~/.zshrc
-linux/common/gtk = ~/.config
 shared/obsidian = ~/Documents/main/.obsidian
 linux/common/theme-watch = ~/.config/systemd/user
 linux/kde/plasma = ~/.config
