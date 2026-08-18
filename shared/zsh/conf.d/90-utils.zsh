@@ -210,10 +210,10 @@ hpush() {
 # restarting. All of them look identical from the outside, which is that
 # things still work. This resolves the config the same way the next ssh will,
 # without opening a connection, so the fallback stops being invisible.
-sshpath() {
+hpath() {
   emulate -L zsh
 
-  local usage="usage: sshpath [--json] [host ...]"
+  local usage="usage: hpath [--json] [host ...]"
   local help="$usage
 
 Report the route ssh would take for a host without connecting to it. The
@@ -247,7 +247,7 @@ See also: hwire, which measures what a route is actually worth."
         break
         ;;
       -*)
-        print -u2 -r -- "sshpath: unknown option: $1"
+        print -u2 -r -- "hpath: unknown option: $1"
         print -u2 -r -- "$usage"
         return 2
         ;;
@@ -259,7 +259,7 @@ See also: hwire, which measures what a route is actually worth."
   done
 
   (( $+commands[ssh] )) || {
-    print -u2 -r -- "sshpath: ssh is not installed"
+    print -u2 -r -- "hpath: ssh is not installed"
     return 127
   }
 
@@ -269,7 +269,7 @@ See also: hwire, which measures what a route is actually worth."
       darwin*) hosts=(archie) ;;
       linux*) hosts=(macie) ;;
       *)
-        print -u2 -r -- "sshpath: unsupported operating system: $OSTYPE"
+        print -u2 -r -- "hpath: unsupported operating system: $OSTYPE"
         return 1
         ;;
     esac
@@ -284,7 +284,7 @@ See also: hwire, which measures what a route is actually worth."
   for host in "${hosts[@]}"; do
     resolved=(${(f)"$(ssh -G "$host" 2>/dev/null)"})
     if (( ! $#resolved )); then
-      print -u2 -r -- "sshpath: no config resolved for $host"
+      print -u2 -r -- "hpath: no config resolved for $host"
       exit_status=1
       continue
     fi

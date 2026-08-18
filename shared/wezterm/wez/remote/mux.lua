@@ -171,22 +171,27 @@ local function validate_manifest(rows)
   return true
 end
 
+-- One cable address per machine. Each probe binds this end and connects to
+-- the far one, so the two are crossed; naming them once keeps a copy-paste
+-- from binding the address it meant to reach, which fails closed and silently.
+local USB = { macie = '10.77.77.1', archie = '10.77.77.2' }
+
 local PEER = platform.pick {
   mac = {
     name = 'archie',
-    usb_address = '10.77.77.2',
+    usb_address = USB.archie,
     ts_address = '100.126.231.24',
     wezterm_path = '/usr/bin/wezterm',
     -- Mirrors the probe in macos/ssh/config.d/05-archie-cabled-first.
-    probe = { '/usr/bin/nc', '-4', '-z', '-G', '1', '-s', '10.77.77.1', '10.77.77.2', '22' },
+    probe = { '/usr/bin/nc', '-4', '-z', '-G', '1', '-s', USB.macie, USB.archie, '22' },
   },
   linux = {
     name = 'macie',
-    usb_address = '10.77.77.1',
+    usb_address = USB.macie,
     ts_address = '100.75.71.79',
     wezterm_path = '/opt/homebrew/bin/wezterm',
     -- Mirrors the probe in linux/arch/ssh/config.d/05-macie-cabled-first.
-    probe = { '/usr/bin/nc', '-z', '-w', '1', '-s', '10.77.77.2', '10.77.77.1', '22' },
+    probe = { '/usr/bin/nc', '-z', '-w', '1', '-s', USB.archie, USB.macie, '22' },
   },
 }
 

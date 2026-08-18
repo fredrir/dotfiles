@@ -1,7 +1,7 @@
 # The second NCM function of the same device. Named only so that
 # NetworkManager can be told to leave it alone by name.
 [Match]
-Property=ID_USB_DRIVER=cdc_ncm ID_VENDOR_ID=05ac ID_MODEL=Mac ID_USB_INTERFACE_NUM=02
+Property=ID_VENDOR_ID=05ac ID_MODEL=Mac ID_USB_INTERFACE_NUM=02
 
 [Link]
 Name=macie1

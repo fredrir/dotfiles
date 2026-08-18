@@ -734,9 +734,11 @@ repository turns write access to `$HOME` into root. So these are copied with
 `$HOME` for the same reason the linker refuses sources outside it.
 
 Templates and vars work exactly as they do in the vault, which is the point: a
-`.link` file matching on a MAC address becomes a `.tmpl` naming a var, and the
-address itself lives encrypted in `vars.enc.yaml` rather than in a public
-repository.
+unit that needs a private endpoint becomes a `.tmpl` naming a var, and the
+endpoint itself lives encrypted in `vars.enc.yaml` rather than in a public
+repository. Reach for it when a value is genuinely secret, not merely
+machine-specific — hardware identity that the hardware itself reassigns, such
+as a MAC address, belongs in a match expression rather than in a var.
 
 `status` and `diff` are read-only and need no privileges, since the files are
 world readable. `install` is the only command that touches the system, is never
@@ -1262,7 +1264,7 @@ closed on top of one, would otherwise leave a listener behind.
 
 Both routes are usually up at once, so naming a destination does not say which
 one was measured: the routing table decides. Each side binds its own address
-for the route under test, the way the ssh configs use `BindInterface`, which
+for the route under test, the way the ssh configs use `BindAddress`, which
 forces the packets onto it — an answer from 10.77.77.2 is the cable and
 nothing else. With no argument `hwire` measures the cable when it answers and
 Tailscale when it does not, the order `ssh archie` resolves in; `--both`

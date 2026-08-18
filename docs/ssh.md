@@ -59,27 +59,22 @@ name: `en3`, `en4`, `en5`, and counting. The address the interface carries
 does not move, because dnsmasq's range is one address wide.
 
 On archie the same address churn broke the udev rename, which broke
-everything keyed to the name after it. Both failures were silent -- the
-probe in `05-*` failed, so `ssh archie` took Tailscale and said nothing,
-and only `echo $SSH_CONNECTION` or `sshpath` gave it away.
+everything keyed to the name after it. Both failures were silent — the probe
+in `05-*` failed, so `ssh archie` took Tailscale and said nothing, and only
+`echo $SSH_CONNECTION` or `hpath` gave it away.
 
-So nothing here names an interface:
-
-| where            | keyed on                                        |
-| ---------------- | ----------------------------------------------- |
-| `10-macie-usb.link` | USB vendor, `Mac` product string, `cdc_ncm`, function number |
-| ssh on macie     | `BindAddress 10.77.77.1`                        |
-| ssh on archie    | `BindAddress 10.77.77.2`                        |
-| both `05-*` probes | `nc -s <this end> <far end> 22`               |
-| dnsmasq, NM      | `macie0`, which the `.link` file now guarantees |
-
-Binding the address also gets the fallback right for free: the address
-exists only while the cable does, so a failed bind means no cable rather
-than a stale name.
+So nothing names an interface any more. Both `05-*` probes bind their own end
+with `nc -s`, and all four ssh files bind it again with `BindAddress`, which
+gets the fallback right for free: the address exists only while the cable
+does, so a failed bind means no cable rather than a stale name. The one name
+left is `macie0`, which dnsmasq and NetworkManager key on — and the `.link`
+file now derives it from the USB function rather than inheriting it from a
+MAC, so it is an output of this configuration instead of an input from the
+hardware.
 
 When it does break, `udevadm test-builtin net_setup_link
-/sys/class/net/<device>` says which `.link` file won on archie, and
-`sshpath` says which route the next ssh will take from either end.
+/sys/class/net/<device>` says which `.link` file won on archie, and `hpath`
+says which route the next ssh will take from either end.
 
 ## Relevant files
 

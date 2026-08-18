@@ -6,7 +6,7 @@
 //! and the routing table alone decides which — so a measurement that only
 //! names a destination is measuring whichever path the kernel liked. Binding
 //! this side's address for the route under test forces the packets onto it,
-//! the way `ssh`'s `BindInterface` does for the cabled hosts.
+//! the way `ssh`'s `BindAddress` does for the cabled hosts.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};

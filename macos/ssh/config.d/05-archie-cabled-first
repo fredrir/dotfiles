@@ -1,11 +1,13 @@
 # Prefer the cable when archie answers on it. Multiplexing comes from
 # 90-defaults so every route gets it, not just this one.
 #
-# Bound by address rather than by interface name: macOS renumbers the
-# USB-NCM interface (it was en3, it is now en4), and a stale name fails the
-# probe rather than the cable, so every ssh quietly takes tailscale instead.
-# 10.77.77.1 is the only address dnsmasq on archie hands out, so it names
-# this link and nothing else, and it exists only while the cable does.
+# Bound by address rather than by interface name: macOS renumbers this
+# interface whenever the NCM MAC changes, and a stale name fails the probe
+# rather than the cable. See docs/ssh.md, "Naming the cable".
+#
+# -G is Apple nc's connect timeout. The archie side of this pair spells the
+# same bound -w, which on macOS is the idle timeout and never bounds a
+# connect -- making the two match would hang this probe rather than cap it.
 #
 # The keepalives are deliberately tighter here than on the tailscale route:
 # the cable runs at ~1.7 ms with ±0.13 ms of jitter, so ten seconds of

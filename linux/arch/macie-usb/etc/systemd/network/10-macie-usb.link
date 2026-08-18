@@ -1,10 +1,9 @@
 # Match the USB function, not its MAC address. The Mac hands out a fresh
 # NCM address every so often, and a pinned MAC silently stops matching:
 # the interface keeps its kernel name, nothing holds 10.77.77.2, and
-# dnsmasq waits on an interface that never appears. Vendor, product
-# string and function number do not move.
+# dnsmasq waits on an interface that never appears.
 [Match]
-Property=ID_USB_DRIVER=cdc_ncm ID_VENDOR_ID=05ac ID_MODEL=Mac ID_USB_INTERFACE_NUM=00
+Property=ID_VENDOR_ID=05ac ID_MODEL=Mac ID_USB_INTERFACE_NUM=00
 
 [Link]
 Name=macie0

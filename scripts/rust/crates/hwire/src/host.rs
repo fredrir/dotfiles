@@ -134,28 +134,67 @@ mod tests {
             .then(|| root.to_path_buf())
     }
 
+    /// Every file outside this crate that hard-codes the cable's addresses:
+    /// the four ssh files that route the two names, and the wezterm config
+    /// that probes the same link.
+    const ROUTED: [&str; 5] = [
+        "macos/ssh/config.d/05-archie-cabled-first",
+        "macos/ssh/config.d/40-cabled",
+        "linux/arch/ssh/config.d/05-macie-cabled-first",
+        "linux/arch/ssh/config.d/40-cabled",
+        "shared/wezterm/wez/remote/mux.lua",
+    ];
+
+    fn routed(root: &Path) -> impl Iterator<Item = (&'static str, String)> + '_ {
+        ROUTED.into_iter().map(|path| {
+            (
+                path,
+                std::fs::read_to_string(root.join(path)).unwrap_or_default(),
+            )
+        })
+    }
+
     /// The addresses here are a copy. This is the check that the original
-    /// did not move without it: every one of them has to appear in the ssh
+    /// did not move without it: every one of them has to appear in the
     /// configuration that routes the same two names.
     #[test]
     fn the_addresses_match_the_ssh_configs() {
         let Some(root) = repository() else {
             return;
         };
-        let configs = [
-            "macos/ssh/config.d/05-archie-cabled-first",
-            "macos/ssh/config.d/40-cabled",
-            "linux/arch/ssh/config.d/05-macie-cabled-first",
-            "linux/arch/ssh/config.d/40-cabled",
-        ]
-        .map(|path| std::fs::read_to_string(root.join(path)).unwrap_or_default())
-        .join("\n");
+        let configs = routed(&root)
+            .map(|(_, text)| text)
+            .collect::<Vec<_>>()
+            .join("\n");
 
         for host in [Host::Macie, Host::Archie] {
             let cable = host.address(Route::Cable).to_string();
             assert!(
                 configs.contains(&cable),
                 "{cable} is not in the ssh configs any more"
+            );
+        }
+    }
+
+    /// Neither end of the cable has a stable interface name -- macOS renumbers
+    /// `enN` whenever the NCM MAC changes, and archie's `macie0` exists only
+    /// because a .link file mints it. Binding a name instead of an address
+    /// fails the probe rather than the cable, so every connection falls back
+    /// to Tailscale without saying so. The addresses cannot drift that way,
+    /// which is why the check above is worth having and this one keeps it so.
+    #[test]
+    fn nothing_binds_an_interface_name() {
+        let Some(root) = repository() else {
+            return;
+        };
+        for (path, text) in routed(&root) {
+            assert!(
+                !text.contains("BindInterface"),
+                "{path} binds an interface name; bind the address instead"
+            );
+            assert!(
+                !text.contains("-b ") && !text.contains("'-b'"),
+                "{path} probes with nc -b; bind this end's address with -s instead"
             );
         }
     }
