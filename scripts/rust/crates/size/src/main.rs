@@ -4,8 +4,9 @@
 //! its total, `-r` lists a directory's immediate contents, `-R` recurses
 //! (`-L` limits how deep the listing goes), and `-l` swaps bytes for line
 //! counts everywhere. Totals always include hidden files; `-a` only decides
-//! whether hidden entries get their own rows. On a terminal, names get the
-//! same colors and Nerd Font icons eza-flavoured `ls` shows.
+//! whether hidden entries get their own rows. Listings run smallest to
+//! biggest, so the largest entries sit next to the total. On a terminal, names
+//! get the same colors and Nerd Font icons eza-flavoured `ls` shows.
 
 use std::fs;
 use std::io::{IsTerminal, Read};
@@ -312,10 +313,10 @@ fn walk_directory(
         )
 }
 
-/// Files and links first, directories last — each group largest first.
+/// Smallest first, biggest last — the largest entries land next to the total,
+/// where the eye already is when the listing scrolls.
 fn sort_rows(rows: &mut [Row], lines: bool) {
     rows.sort_by(|a, b| {
-        let group = |row: &Row| usize::from(row.kind == "directory");
         let metric = |row: &Row| {
             if lines {
                 row.measure.lines
@@ -323,10 +324,7 @@ fn sort_rows(rows: &mut [Row], lines: bool) {
                 row.measure.bytes
             }
         };
-        group(a)
-            .cmp(&group(b))
-            .then(metric(b).cmp(&metric(a)))
-            .then(a.name.cmp(&b.name))
+        metric(a).cmp(&metric(b)).then(a.name.cmp(&b.name))
     });
 }
 
@@ -577,16 +575,16 @@ mod tests {
         let root = tree();
         fs::write(root.path().join("tiny.txt"), "a\nb\nc\nd\ne\n").unwrap();
         let (rows, _) = walk_all(root.path(), true, false, 1);
-        assert_eq!(rows[0].name, "tiny.txt");
+        assert_eq!(rows.last().unwrap().name, "tiny.txt");
     }
 
     #[test]
-    fn files_sort_before_directories_largest_first() {
+    fn rows_sort_smallest_first_whatever_their_kind() {
         let root = tree();
         fs::write(root.path().join("big.txt"), vec![b'x'; 9000]).unwrap();
         let (rows, _) = walk_all(root.path(), false, false, 1);
         let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
-        assert_eq!(names, vec!["big.txt", "notes.txt", "assets"]);
+        assert_eq!(names, vec!["notes.txt", "assets", "big.txt"]);
     }
 
     #[test]
