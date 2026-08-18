@@ -2,6 +2,6 @@ Host cabled-archie
     HostName 10.77.77.2
     User fredrir
     HostKeyAlias archie
-    BindInterface en3
+    BindAddress 10.77.77.1
     ServerAliveInterval 5
     ServerAliveCountMax 2

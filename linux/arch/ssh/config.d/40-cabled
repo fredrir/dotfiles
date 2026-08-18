@@ -2,6 +2,6 @@ Host cabled-macie
     HostName 10.77.77.1
     User fredrir
     HostKeyAlias macie
-    BindInterface macie0
+    BindAddress 10.77.77.2
     ServerAliveInterval 5
     ServerAliveCountMax 2

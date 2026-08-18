@@ -206,7 +206,7 @@ hpush() {
 # Which route ssh will take, and whether a master is already up for it.
 #
 # Every failure in the cabled-first setup degrades quietly to a working but
-# much slower path: nc missing, en3 renumbered, no DHCP lease yet, sshd
+# much slower path: nc missing, cable unplugged, no DHCP lease yet, sshd
 # restarting. All of them look identical from the outside, which is that
 # things still work. This resolves the config the same way the next ssh will,
 # without opening a connection, so the fallback stops being invisible.

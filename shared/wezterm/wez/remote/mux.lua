@@ -178,7 +178,7 @@ local PEER = platform.pick {
     ts_address = '100.126.231.24',
     wezterm_path = '/usr/bin/wezterm',
     -- Mirrors the probe in macos/ssh/config.d/05-archie-cabled-first.
-    probe = { '/usr/bin/nc', '-4', '-z', '-G', '1', '-b', 'en3', '10.77.77.2', '22' },
+    probe = { '/usr/bin/nc', '-4', '-z', '-G', '1', '-s', '10.77.77.1', '10.77.77.2', '22' },
   },
   linux = {
     name = 'macie',

@@ -7,11 +7,11 @@ no gateway / no DNS / no NAT
 
 MAC:
 zero persistent network hacks
-built-in en3 DHCP client
+built-in DHCP client on whatever enN the cable lands as
 SSH Match exec chooses USB if reachable
 
 ssh archie
-   ├── USB available → 10.77.77.2 via en3
+   ├── USB available → 10.77.77.2, bound to 10.77.77.1
    └── USB absent    → archie via Tailscale
 
 
@@ -49,6 +49,38 @@ Macie <---USB C Cable (USB SuperSpeed Plus Gen 2x1, ~10Gbps , CDC-NCM Ethernet) 
 Archie <---Display Port Cable---> Monitor (Samsung LU28R55 4K IPS 60 Hz)
 ```
 
+## Naming the cable
+
+Neither end of this link has a stable name, and both used to be named.
+
+The Mac's NCM address increments on every attach, and macOS keys
+`NetworkInterfaces.plist` on the MAC, so each new address mints a new BSD
+name: `en3`, `en4`, `en5`, and counting. The address the interface carries
+does not move, because dnsmasq's range is one address wide.
+
+On archie the same address churn broke the udev rename, which broke
+everything keyed to the name after it. Both failures were silent -- the
+probe in `05-*` failed, so `ssh archie` took Tailscale and said nothing,
+and only `echo $SSH_CONNECTION` or `sshpath` gave it away.
+
+So nothing here names an interface:
+
+| where            | keyed on                                        |
+| ---------------- | ----------------------------------------------- |
+| `10-macie-usb.link` | USB vendor, `Mac` product string, `cdc_ncm`, function number |
+| ssh on macie     | `BindAddress 10.77.77.1`                        |
+| ssh on archie    | `BindAddress 10.77.77.2`                        |
+| both `05-*` probes | `nc -s <this end> <far end> 22`               |
+| dnsmasq, NM      | `macie0`, which the `.link` file now guarantees |
+
+Binding the address also gets the fallback right for free: the address
+exists only while the cable does, so a failed bind means no cable rather
+than a stale name.
+
+When it does break, `udevadm test-builtin net_setup_link
+/sys/class/net/<device>` says which `.link` file won on archie, and
+`sshpath` says which route the next ssh will take from either end.
+
 ## Relevant files
 
 ```
@@ -78,11 +110,11 @@ macos
 │       ├── dnsmasq-macie-usb.conf
 │       ├── NetworkManager
 │       │   └── conf.d
-│       │       └── 90-macie-usb-secondary.conf.tmpl
+│       │       └── 90-macie-usb-secondary.conf
 │       └── systemd
 │           ├── network
-│           │   ├── 10-macie-usb.link.tmpl
-│           │   └── 11-macie-usb-secondary.link.tmpl
+│           │   ├── 10-macie-usb.link
+│           │   └── 11-macie-usb-secondary.link
 │           └── system
 │               └── macie-usb-dhcp.service
 ├── ssh
