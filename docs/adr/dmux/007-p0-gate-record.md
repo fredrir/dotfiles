@@ -1,8 +1,8 @@
 # ADR 007: P0 gate record — selected mechanisms and frozen artifacts
 
-Status: proposed (awaiting maintainer review before P1 begins)
-Date: 2026-08-16
-Plan refs: §18 P0 row, §2.17, §22
+Status: accepted (P0 gate closed; every blocker has one selected, evidence-backed mechanism)
+Date: 2026-08-16 (proposed), 2026-08-18 (ratified at the P11 gate)
+Plan refs: §18 P0 row, §2.17, §22, §19.2 W7
 
 Every P0 blocker has exactly one demonstrated, evidence-backed mechanism.
 No fallback choice remains unresolved. No product behavior changed: the
@@ -60,7 +60,40 @@ green and frozen in `baseline-tests.json`.
 
 ## Gate disposition
 
-All §18 P0 exit criteria are met pending maintainer review of this record.
-On approval: P1 begins (contract freeze; W1 root-owned skeletons). The spike
-worktree `~/packages/wezterm-dmux-p0` is retained until P3c reimplements the
-primitive, then deleted.
+All §18 P0 exit criteria are met. This record is ratified: the P0 gate is
+closed, and §22's first clause ("every P0 blocker has one selected,
+checked-in, evidence-backed mechanism; no bridge, endpoint, adoption,
+service, or recovery fallback remains undecided") is satisfied by the
+blocker table above.
+
+Ratification was overdue. P1 through P10 were built against this record while
+its status still read "proposed", so the gate it describes was in force in
+practice long before it was recorded as closed. Ratifying it now states the
+fact rather than changing it; nothing in the blocker table or the frozen
+artifacts is altered by this edit.
+
+### Consequences of closing the gate
+
+1. **P3c path globs are frozen** (ADR 000 deferred this "to the P0 gate").
+   The globs are exactly those recorded in ADR 000 and are now final:
+   `codec/src/**`, `mux/src/lib.rs`, `mux/src/window.rs`,
+   `wezterm-client/src/client.rs`, `wezterm-mux-server-impl/src/**`,
+   `wezterm/src/cli/**`.
+2. **W7 ownership is well-defined.** Plan §19.2 item 8 says "specialists
+   stop; root integrates". Because the P0 gate never closed, the specialist
+   globs it depends on were never frozen, so at W7 no writer was defined for
+   the one known P11 blocker (the ssh-domain proxy socket, in
+   `shared/wezterm/wez/{dmux_bridge,remote}/**`). Closing the gate resolves
+   this: at W7 every specialist glob reverts to the root integrator, which
+   is what "specialists stop; root integrates" means. The root records that
+   reclamation here rather than re-dispatching a specialist.
+3. The spike worktree `~/packages/wezterm-dmux-p0` may be deleted; P3c
+   reimplemented the selected primitive in the canonical worktree, and
+   `fredrir` now contains it (see ADR 000).
+
+### W7 ownership reclamation (recorded per §19.2)
+
+From this date the root integrator holds every path in the §19 table for the
+duration of P11-P12. No specialist assignment is active. Editing subagents
+dispatched during P11 receive a strict subset of root's paths per §19.3 and
+return through the root, which reruns the phase tests.

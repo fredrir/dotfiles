@@ -1157,7 +1157,9 @@ All cases 1–46 are mandatory P11 gates; "earliest phase" assigns implementatio
 #### Routes and remote behavior
 
 16. Trusted Wez controller plus usable USB creates remote Wez.
-17. USB absent before selection creates tmux.
+17. USB ineligibility before selection. This case is split because the two ineligibility causes have different correct outcomes (ADR 010):
+    - **17a.** No enrolled USB route exists for the target host — a positive `route_absent` observation. Automatic selection creates tmux.
+    - **17b.** An enrolled USB route exists but its eligibility probe fails (DNS failure, refusal/reset, connect timeout, unplugged cable). This is *not* proof of "unwired": selection refuses and creates neither backend, per §8.3's rule that only a positively observed `route_absent`/`usb_link_down` permits automatic tmux.
 18. Plain SSH over an available cable creates tmux.
 19. USB endpoint reachable but Wez auth/version/protocol failing exits 6 and creates neither backend.
 20. Existing remote Wez Space reconnects over Tailscale after USB removal without changing ID/backend.
@@ -1207,9 +1209,9 @@ All cases 1–46 are mandatory P11 gates; "earliest phase" assigns implementatio
 4. Install the service/epoch/sentinel path, disable GUI startup restoration, enable the persistent unix domain behind its flag, and prove every server-start path creates no unmanaged pane.
 5. Enable the selected bridge, backend-aware bindings, managed-close interception, and safe quit; verify pane/process survival on both hosts.
 6. Enable guarded cold recovery and perform intentional-empty, reboot, server-failure, and crash/resume drills.
-7. Run a 24–48-hour local auto-Wez canary on one host, rehearse rollback, then repeat on the second host.
+7. Run a 24–48-hour local auto-Wez canary on one host, rehearse rollback, then repeat on the second host. The canary runs under the existing **host-scoped** `DMUX_WEZ_FIRST=1` opt-in, which is what makes automatic Wez selection active on that one host without changing any default. This resolves what would otherwise be a circular gate: step 9's global flip is gated on the full P11 gate, which includes this canary, which would in turn need the flip. It does not — the flag already provides per-host enablement, and step 9 changes only what happens when the flag is *unset*. Each host gets its own canary period and its own rollback rehearsal; the floor is 48 hours across the two.
 8. Exercise explicit remote Wez over USB; remove the cable and verify same-ID Tailscale reconnect and the exact route-retry matrix before canarying remote auto selection.
-9. Flip automatic policy globally only after all 46 cases and the full P11 gate pass.
+9. Flip automatic policy globally only after all 46 cases and the full P11 gate pass. "Flip globally" means changing the default that applies when `DMUX_WEZ_FIRST` is unset — from legacy tmux to Wez-first — and shipping the emergency legacy-policy opt-out (`DMUX_LEGACY_POLICY=1`) that reverses it for one release. Hosts already canarying under `DMUX_WEZ_FIRST=1` see no behavior change at the flip; the flag becomes redundant rather than removed.
 
 ### Rollback
 

@@ -1,6 +1,6 @@
 # ADR 000: Worktrees, pinned revisions, and fork path ownership
 
-Status: accepted for P0 spikes; P3c path globs to be frozen at the P0 gate
+Status: accepted; P3c path globs frozen at the P0 gate (ADR 007, ratified 2026-08-18)
 Date: 2026-08-16
 Owner: root integrator
 
@@ -21,11 +21,11 @@ No spike patch merges into this repository as product behavior.
 | --- | --- |
 | Canonical worktree | `/Users/fredrir/packages/wezterm` |
 | Branch | `fredrir` |
-| Pinned revision | `9e6323bb5fbd144dcec0351c04b09c15ee76762b` |
-| Installed build | `20260813-114614-18a44cb7` (commit `18a44cb70`, plus two packaging commits) — identical version installed on Macie (`/opt/homebrew/bin/wezterm`) and Archie |
+| Pinned revision | `b9d8dfae226370deb0a963eadb8844975cbca980` (was `9e6323bb5`; `fredrir` fast-forwarded to `dmux-primitives` on 2026-08-18 and pushed) |
+| Installed build | `20260817-233913-b9d8dfae` — identical version installed on Macie (`/opt/homebrew/bin/wezterm`) and Archie, and now identical to `fredrir` HEAD |
 | Build command | `cargo build --release -p wezterm -p wezterm-gui -p wezterm-mux-server` (macOS local bundle produced as `WezTerm-macos-local`; Arch uses the pinned PKGBUILD in `9e6323bb5`) |
 | P0 spike worktree (disposable) | `/Users/fredrir/packages/wezterm-dmux-p0`, branch `dmux-p0-spike`, created from `9e6323bb5` |
-| P3c working worktree | `/Users/fredrir/packages/wezterm-dmux`, branch `dmux-primitives`, created from `9e6323bb5`; the Wez provider/fork agent's exclusive fork workspace within the P3c globs below. Merging `dmux-primitives` into `fredrir` (and installing the resulting build) is an explicit maintainer step, required before P6 adoption goes live. |
+| P3c working worktree | `/Users/fredrir/packages/wezterm-dmux`, branch `dmux-primitives`, created from `9e6323bb5`; the Wez provider/fork agent's exclusive fork workspace within the P3c globs below. **Merged:** `fredrir` was fast-forwarded to `dmux-primitives` (`b9d8dfae2`) on 2026-08-18 and pushed to `origin/fredrir`, satisfying the "required before P6 adoption goes live" condition. The build already installed on both hosts is that revision, so no reinstall was required. |
 
 Rules:
 
@@ -41,7 +41,9 @@ Rules:
   `wezterm-client/src/client.rs`, `wezterm-mux-server-impl/src/**`,
   `wezterm/src/cli/**`.
   No fork edit outside the spike worktree is permitted until P3c begins under
-  these globs in the canonical worktree.
+  these globs in the canonical worktree. These globs are **frozen** as of the
+  P0 gate ratification (ADR 007, 2026-08-18); they are final for the first
+  release.
 
 ## Resurrection fork (`fredrir/resurrect.wezterm`)
 
