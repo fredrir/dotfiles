@@ -1,6 +1,7 @@
 vault = "~/Documents/main"
 projects = [
     "dotfiles",
+    "distro-lab",
     "ArchTeX",
     "llunde-infra",
     "llunde-backend",
@@ -28,8 +29,12 @@ llunde = [
 ]
 other = ["sndbx"]
 dotfiles = ["dotfiles"]
+distro-lab = ["distro-lab"]
 
 # Replace Transcripts/<group> 
 # Relative to the vault root.
 [destinations]
 dotfiles = "Dotfiles/Agents"
+distro-lab = "Dotfiles/Distro Lab/Agents"
+ArchTeX = "ArchTeX/Agents"
+llunde = "llunde/Agents"
