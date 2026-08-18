@@ -10,6 +10,7 @@
 //! root-owned; `model`/`refs`/`error` transfer to the identity agent and
 //! `remote::protocol` to the remote agent at the recorded W1→W2 handoff.
 
+pub mod adopt_cli;
 pub mod backend;
 pub mod bootstrap;
 pub mod childio;
@@ -21,6 +22,8 @@ pub mod gui_lifecycle;
 pub mod history;
 pub mod inventory;
 pub mod locks;
+pub mod ls_cli;
+pub mod migrate_cli;
 pub mod model;
 pub mod new_cli;
 pub mod operations;
@@ -31,5 +34,6 @@ pub mod refs;
 pub mod registry;
 pub mod remote;
 pub mod resolve;
+pub mod rm_cli;
 pub mod runtime;
 pub mod tmux_hook_cli;

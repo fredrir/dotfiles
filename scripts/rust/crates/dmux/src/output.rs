@@ -12,8 +12,18 @@ use serde_json::{Value, json};
 use crate::error::{ErrorCode, ExitStatus, TypedError};
 use crate::inventory::{ManagedRow, ReconRow, UnmanagedRow};
 use crate::model::{Backend, Observation};
+use crate::operations::SpaceHierarchy;
 
 pub const SCHEMA_VERSION: u32 = 1;
+
+/// The global `--format` selection (plan §7.1). `json` is always the
+/// versioned envelope below; a command's own older `--json` keeps emitting
+/// its bare legacy payload for one release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum OutputFormat {
+    Human,
+    Json,
+}
 
 /// One bounded JSON document — exactly one per command, nothing else on
 /// stdout (ADR 008 §1).
@@ -98,6 +108,46 @@ pub fn native_ref(backend: Backend, native_token: &str) -> String {
         backend.as_str(),
         base64url_no_pad(native_token.as_bytes())
     )
+}
+
+/// The inverse of [`native_ref`], for `adopt`. It yields the provider and the
+/// token to re-resolve in a fresh complete scan — never a string to hand a
+/// backend (plan §7.4) — so anything but an exact encoding is `invalid_ref`
+/// rather than a token passed through.
+pub fn parse_native_ref(token: &str) -> Result<(Backend, String), TypedError> {
+    let reject = || TypedError::new(ErrorCode::InvalidRef, format!("not a native ref: {token}"));
+    let (backend, encoded) = token
+        .strip_prefix("native:")
+        .and_then(|rest| rest.split_once(':'))
+        .ok_or_else(reject)?;
+    let backend = match backend {
+        "wez" => Backend::Wez,
+        "tmux" => Backend::Tmux,
+        _ => return Err(reject()),
+    };
+    let native = decode_base64url_no_pad(encoded)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(reject)?;
+    Ok((backend, native))
+}
+
+/// Strict: one encoding per token. A trailing character that carries no byte,
+/// or nonzero padding bits, would give a second spelling of the same native
+/// resource and is rejected instead.
+fn decode_base64url_no_pad(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for byte in text.bytes() {
+        let value = B64URL.iter().position(|c| *c == byte)? as u32;
+        acc = (acc << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    (bits < 6 && acc & ((1 << bits) - 1) == 0).then_some(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +308,49 @@ fn state_column(m: &ManagedRow) -> &'static str {
     }
 }
 
+/// `ls --tree`: the same table, with each managed Space's live Groups and
+/// Splits indented beneath its row. A Space whose hierarchy was not read
+/// contributes no children — a missing hierarchy is not an empty one, and
+/// unmanaged rows have no addressable children at all (plan §11.2).
+pub fn render_tree<'a>(
+    rows: &[ReconRow],
+    owner: &OwnerContext,
+    hierarchy_of: impl Fn(&ManagedRow) -> Option<&'a SpaceHierarchy>,
+) -> String {
+    let table = render_ls(rows, owner);
+    let mut lines = table.lines();
+    let mut out = String::new();
+    if let Some(header) = lines.next() {
+        out.push_str(header);
+        out.push('\n');
+    }
+    // render_ls emits exactly one line per row, in order.
+    for (row, line) in rows.iter().zip(lines) {
+        out.push_str(line);
+        out.push('\n');
+        let ReconRow::Managed(managed) = row else {
+            continue;
+        };
+        let Some(hierarchy) = hierarchy_of(managed) else {
+            continue;
+        };
+        for group in &hierarchy.groups {
+            out.push_str(&child_line(2, &group.group_ref, group.title.as_deref()));
+            for split in &group.splits {
+                out.push_str(&child_line(4, &split.split_ref, split.title.as_deref()));
+            }
+        }
+    }
+    out
+}
+
+fn child_line(indent: usize, child_ref: &str, title: Option<&str>) -> String {
+    match title {
+        Some(title) => format!("{:indent$}{child_ref}  {title}\n", ""),
+        None => format!("{:indent$}{child_ref}\n", ""),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
@@ -265,7 +358,10 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::model::{BackendInstanceUid, Health, HostUid, Lifecycle, SpaceNo, SpaceUid};
+    use crate::model::{
+        BackendInstanceUid, Health, HostUid, Lifecycle, ServerEpoch, SpaceNo, SpaceUid,
+    };
+    use crate::operations::{HierarchyGroup, HierarchySplit};
     use crate::registry::SpaceRow;
 
     fn owner() -> OwnerContext {
@@ -381,6 +477,88 @@ mod tests {
         assert_eq!(base64url_no_pad(b"foo"), "Zm9v");
         assert_eq!(base64url_no_pad(b"foob"), "Zm9vYg");
         assert_eq!(base64url_no_pad(&[0xfb, 0xff, 0xfe]), "-__-");
+    }
+
+    #[test]
+    fn base64url_decodes_every_vector_back() {
+        for bytes in [
+            b"".as_slice(),
+            b"f",
+            b"fo",
+            b"foo",
+            b"foob",
+            &[0xfb, 0xff, 0xfe],
+        ] {
+            let encoded = base64url_no_pad(bytes);
+            assert_eq!(decode_base64url_no_pad(&encoded).as_deref(), Some(bytes));
+        }
+    }
+
+    #[test]
+    fn native_refs_round_trip_and_reject_anything_else() {
+        for token in ["scratch", "dmux:host:space", "a b", "=oops"] {
+            for backend in [Backend::Wez, Backend::Tmux] {
+                let encoded = native_ref(backend, token);
+                assert_eq!(
+                    parse_native_ref(&encoded).unwrap(),
+                    (backend, token.to_string())
+                );
+            }
+        }
+        for bad in [
+            "scratch",
+            "native:wez",
+            "native:ssh:c2NyYXRjaA",
+            "native:wez:c2NyYXRja",
+            "native:wez:c2NyYXRjaA=",
+            "native:wez:Zh",
+        ] {
+            let error = parse_native_ref(bad).expect_err(bad);
+            assert_eq!(error.code, ErrorCode::InvalidRef);
+        }
+    }
+
+    #[test]
+    fn tree_indents_children_under_their_managed_row_only() {
+        let unmanaged = UnmanagedRow {
+            backend: Backend::Tmux,
+            native_token: "scratch".into(),
+            native_name: "scratch".into(),
+            groups: 1,
+            splits: 1,
+            server_epoch: None,
+            multi_window: false,
+            unepoched: true,
+        };
+        let rows = vec![ReconRow::Managed(managed()), ReconRow::Unmanaged(unmanaged)];
+        let hierarchy = SpaceHierarchy {
+            space_uid: managed().space.space_uid,
+            server_epoch: ServerEpoch(
+                Uuid::try_parse("0192aaaa-bbbb-4ccc-8ddd-eeeeffff2222").unwrap(),
+            ),
+            groups: vec![HierarchyGroup {
+                group_ref: "g0192aaaa-bbbb-4ccc-8ddd-eeeeffff2222.wz1".into(),
+                title: Some("editor".into()),
+                splits: vec![HierarchySplit {
+                    split_ref: "p0192aaaa-bbbb-4ccc-8ddd-eeeeffff2222.wz3".into(),
+                    title: None,
+                    cwd: Some("/tmp".into()),
+                }],
+            }],
+        };
+        let text = render_tree(&rows, &owner(), |row| {
+            (row.space.space_uid == hierarchy.space_uid).then_some(&hierarchy)
+        });
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[0].starts_with("REF"));
+        assert!(lines[1].starts_with('2'));
+        assert_eq!(
+            lines[2],
+            "  g0192aaaa-bbbb-4ccc-8ddd-eeeeffff2222.wz1  editor"
+        );
+        assert_eq!(lines[3], "    p0192aaaa-bbbb-4ccc-8ddd-eeeeffff2222.wz3");
+        assert!(lines[4].contains("unmanaged:unepoched"));
+        assert_eq!(lines.len(), 5);
     }
 
     #[test]

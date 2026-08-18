@@ -84,6 +84,26 @@ Confirmation document (exit 5):
 Error codes and the exit-status mapping are normative in `src/error.rs`
 (`every_code_maps_into_the_plan_exit_table` is the contract test).
 
+### 1.1 Additive amendments (W1 root-only pre-pass)
+
+Additive only, so `schema_version` stays 1: a v1 consumer that ignores an
+unknown field still parses every document.
+
+- A managed row may carry an optional `"tree"` — that Space's live Groups and
+  Splits, emitted only for `ls --tree` (plan §16.2 already licenses "optional
+  tree"). Absent is not empty: a hierarchy that could not be read under the
+  current epoch is omitted rather than rendered as zero children.
+- An unmanaged row carries `"unepoched": bool`. `inventory::UnmanagedRow`
+  already reaches the human table as `unmanaged:unepoched`, and case 27 makes
+  an unepoched tmux server a distinct listing state — listable, children
+  unaddressable, never written to by `ls` — so it must be machine-visible and
+  not only a rendered string.
+- `"client"` is `"unknown"` on every managed row, not the `"attached"` the
+  example above shows. `backend::NativeSpaceRow` carries no attachment field
+  at all, so filling it is a provider-contract change plus both adapters, and
+  no case in 1–46 needs the true value. Deferred to P12; the example stays as
+  the eventual shape, and the code wins in the meantime.
+
 ## 2. Pane marker schema (v1, plan §13.1 + P0 corrections)
 
 ```text

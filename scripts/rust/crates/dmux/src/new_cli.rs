@@ -36,7 +36,7 @@ use crate::remote::protocol::{
     self, Envelope, NewLookupBlockReason, NewLookupClass, NewLookupPayload, NewLookupResult,
     NewPayload,
 };
-use crate::resolve::{ClassSummary, NewLookup, lookup_for_new};
+use crate::resolve::{BlockReason, ClassSummary, NewLookup, lookup_for_new};
 
 /// Public `new` request after clap-level parsing. `name` is always literal
 /// exact bytes during lookup; managed-name grammar applies only if policy
@@ -202,6 +202,13 @@ pub trait NewAuthority: ConnectAuthority {
         launch_gui: bool,
     ) -> Result<CreationContext, TypedError>;
 
+    /// Ask the owner's user-service manager to start its fixed managed Wez
+    /// mux and wait for the verified readiness handshake (§2.16, ADR 002),
+    /// so §15.3 recovery has settled before the caller repartitions. Only a
+    /// durable active Wez record whose server is owner-proven stopped may
+    /// reach this; §8.3 backend selection deliberately must not.
+    fn recover_wez_service(&mut self, owner: HostUid) -> Result<(), TypedError>;
+
     /// Prove the selected Wez presentation path before reservation. Ambient
     /// mode requires a trusted live bridge; cold mode is used only after an
     /// explicit `--launch-gui` request.
@@ -246,6 +253,7 @@ impl OwnedOwnerTarget {
 pub struct ProductionNewRuntime<I = SshInvoker> {
     connect: ProductionConnectAdapter<I>,
     env: OperationEnv,
+    runtime_dir: PathBuf,
     invoker: I,
     remote_bin: String,
     helper_bin: String,
@@ -256,6 +264,8 @@ pub struct ProductionNewRuntime<I = SshInvoker> {
 impl ProductionNewRuntime<SshInvoker> {
     pub fn production() -> Result<Self, TypedError> {
         let env = OperationEnv::production()
+            .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
+        let runtime_dir = crate::runtime::dmux_runtime_dir()
             .map_err(|error| TypedError::new(ErrorCode::OperationFailed, error.to_string()))?;
         let invoker = SshInvoker::default();
         let connect = ProductionConnectAdapter::with_invoker(
@@ -276,6 +286,7 @@ impl ProductionNewRuntime<SshInvoker> {
         Ok(ProductionNewRuntime {
             connect,
             env,
+            runtime_dir,
             invoker,
             remote_bin: "dmux".into(),
             helper_bin,
@@ -289,7 +300,7 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
     #[allow(clippy::too_many_arguments)]
     pub fn with_dependencies(
         env: OperationEnv,
-        _runtime_dir: PathBuf,
+        runtime_dir: PathBuf,
         invoker: I,
         remote_bin: impl Into<String>,
         helper_bin: impl Into<String>,
@@ -308,6 +319,7 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
         ProductionNewRuntime {
             connect,
             env,
+            runtime_dir,
             invoker,
             remote_bin,
             helper_bin: helper_bin.into(),
@@ -609,6 +621,25 @@ impl<I: RouteInvoker + Clone> NewAuthority for ProductionNewRuntime<I> {
         crate::gui_cli::new_creation_context_production(owner, explicit_backend, launch_gui)
     }
 
+    fn recover_wez_service(&mut self, owner: HostUid) -> Result<(), TypedError> {
+        // Starting a service is an owner-local act; a remote owner's mux is
+        // reachable only through its own agent, which has no such method.
+        if !self.is_local_owner(owner)? {
+            return Err(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                "only the local owner's managed Wez service can be started from here",
+            ));
+        }
+        let registry = self.registry()?;
+        crate::gui_lifecycle::ensure_ready_wez_service(
+            &registry,
+            &self.runtime_dir,
+            &self.wezterm_bin,
+            &self.wezterm_config,
+        )?;
+        Ok(())
+    }
+
     fn preflight_wez_presentation(
         &mut self,
         owner: HostUid,
@@ -724,12 +755,17 @@ pub fn create_or_connect(
         .unwrap_or(local_host);
 
     let snapshot = runtime.lookup_exact(owner, &request.name)?;
-    let lookup = lookup_for_new(
-        request.backend_constraint,
-        request.allow_name_collision,
-        snapshot.wez,
-        snapshot.tmux,
-    );
+    let lookup = repeat_after_stopped_wez_service(
+        request,
+        runtime,
+        owner,
+        lookup_for_new(
+            request.backend_constraint,
+            request.allow_name_collision,
+            snapshot.wez,
+            snapshot.tmux,
+        ),
+    )?;
     let explained = plan_lookup(request, runtime, owner, lookup)?;
 
     match explained.value {
@@ -959,6 +995,47 @@ fn finish_concurrent_winner(
         NewPlan::Fail(error) => Err(error.into()),
         _ => Err(original.into()),
     }
+}
+
+/// §8.2's stopped-service repeat: an owner-proven stopped server is not the
+/// answer yet, so start the fixed service once, let §15.3 recovery finish,
+/// and repartition exactly once. The repeat's verdict — a reappeared live
+/// binding, `space_absent`, or the same stopped block — is what the caller
+/// returns; there is no second attempt and no loop. Every other lookup,
+/// including a healthy service, leaves before the seam and pays nothing.
+///
+/// §8.3 backend selection is the opposite case and must keep calling
+/// nothing here: there a stopped service is a positive headless observation
+/// that chooses tmux, while a durable active record has already fixed the
+/// backend as Wez and only its server is missing.
+fn repeat_after_stopped_wez_service(
+    request: &NewRequest,
+    runtime: &mut dyn NewRuntime,
+    owner: HostUid,
+    lookup: NewLookup,
+) -> Result<NewLookup, NewFailure> {
+    if !matches!(
+        lookup,
+        NewLookup::Blocked {
+            backend: Backend::Wez,
+            reason: BlockReason::ServerStopped,
+            ..
+        }
+    ) {
+        return Ok(lookup);
+    }
+    // A service that will not come back changes nothing, so the original
+    // typed refusal stays the one the user sees.
+    if runtime.recover_wez_service(owner).is_err() {
+        return Ok(lookup);
+    }
+    let snapshot = runtime.lookup_exact(owner, &request.name)?;
+    Ok(lookup_for_new(
+        request.backend_constraint,
+        request.allow_name_collision,
+        snapshot.wez,
+        snapshot.tmux,
+    ))
 }
 
 /// Existing/blocked/ambiguous resolution must not perform GUI/USB creation

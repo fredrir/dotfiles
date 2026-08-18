@@ -65,6 +65,16 @@ fn empty() -> NewLookupSnapshot {
     }
 }
 
+fn blocked_wez(reason: BlockReason) -> NewLookupSnapshot {
+    NewLookupSnapshot {
+        wez: ClassSummary::Blocking {
+            reason,
+            space: Some(uid(20)),
+        },
+        tmux: ClassSummary::NoMatch,
+    }
+}
+
 fn target(
     owner: HostUid,
     backend: Backend,
@@ -113,6 +123,8 @@ struct FakeRuntime {
     create_result: Result<CreatedSpace, TypedError>,
     connect_error: Option<TypedError>,
     preflight_error: Option<TypedError>,
+    recover_error: Option<TypedError>,
+    recover_calls: usize,
     events: Vec<&'static str>,
     create_requests: Vec<OwnerNewRequest>,
     context_calls: usize,
@@ -146,6 +158,8 @@ impl FakeRuntime {
             target,
             connect_error: None,
             preflight_error: None,
+            recover_error: None,
+            recover_calls: 0,
             events: Vec::new(),
             create_requests: Vec::new(),
             context_calls: 0,
@@ -281,6 +295,15 @@ impl NewAuthority for FakeRuntime {
         Ok(context)
     }
 
+    fn recover_wez_service(&mut self, _owner: HostUid) -> Result<(), TypedError> {
+        self.events.push("recover");
+        self.recover_calls += 1;
+        match self.recover_error.clone() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
     fn preflight_wez_presentation(
         &mut self,
         owner: HostUid,
@@ -359,6 +382,9 @@ fn indeterminate_or_blocking_inventory_never_preflights_or_creates() {
             },
             tmux: ClassSummary::NoMatch,
         },
+        // An indeterminate observation is not owner proof that the server
+        // stopped, so it earns no recovery attempt either.
+        blocked_wez(BlockReason::IndeterminateObservation),
     ] {
         let target = target(host(1), Backend::Wez, "project", uid(20));
         let mut runtime = FakeRuntime::new(target, snapshot);
@@ -375,6 +401,145 @@ fn indeterminate_or_blocking_inventory_never_preflights_or_creates() {
         ));
         assert_eq!(runtime.events, ["lookup"]);
     }
+}
+
+#[test]
+fn stopped_wez_service_recovery_precedes_the_space_absent_refusal() {
+    let target = target(host(1), Backend::Wez, "project", uid(20));
+    let mut runtime = FakeRuntime::new(target, blocked_wez(BlockReason::ServerStopped));
+    runtime
+        .lookups
+        .push_back(blocked_wez(BlockReason::ActiveAbsent));
+    let failure = create_or_connect(
+        &request("project"),
+        &ConnectClientContext::default(),
+        &NoHistory,
+        &mut runtime,
+    )
+    .unwrap_err();
+    assert_eq!(failure.error.code, ErrorCode::SpaceAbsent);
+    assert_eq!(failure.error.code.exit_status().code(), 3);
+    assert_eq!(runtime.recover_calls, 1);
+    assert!(runtime.create_requests.is_empty());
+    assert_eq!(runtime.events, ["lookup", "recover", "lookup"]);
+}
+
+#[test]
+fn healthy_wez_lookup_never_asks_the_service_manager_to_start_anything() {
+    let target = target(host(1), Backend::Wez, "project", uid(20));
+    for snapshot in [selectable(Backend::Wez, &target), empty()] {
+        let mut runtime = FakeRuntime::new(target.clone(), snapshot);
+        create_or_connect(
+            &request("project"),
+            &ConnectClientContext::default(),
+            &NoHistory,
+            &mut runtime,
+        )
+        .unwrap();
+        assert_eq!(runtime.recover_calls, 0);
+        assert!(!runtime.events.contains(&"recover"));
+    }
+}
+
+#[test]
+fn failed_service_recovery_still_returns_the_original_stopped_refusal() {
+    let target = target(host(1), Backend::Wez, "project", uid(20));
+    let mut runtime = FakeRuntime::new(target, blocked_wez(BlockReason::ServerStopped));
+    runtime.recover_error = Some(TypedError::new(
+        ErrorCode::ProviderUnavailable,
+        "fixed Wez service start failed with exit 1",
+    ));
+    let failure = create_or_connect(
+        &request("project"),
+        &ConnectClientContext::default(),
+        &NoHistory,
+        &mut runtime,
+    )
+    .unwrap_err();
+    assert_eq!(failure.error.code, ErrorCode::ProviderUnavailable);
+    assert!(failure.error.message.contains("ServerStopped"));
+    assert!(!failure.error.message.contains("start failed"));
+    assert_eq!(runtime.recover_calls, 1);
+    assert_eq!(runtime.events, ["lookup", "recover"]);
+}
+
+#[test]
+fn the_repartition_after_recovery_decides_the_outcome() {
+    let target = target(host(1), Backend::Wez, "project", uid(20));
+    let mut runtime = FakeRuntime::new(target.clone(), blocked_wez(BlockReason::ServerStopped));
+    runtime.lookups.push_back(selectable(Backend::Wez, &target));
+    let outcome = create_or_connect(
+        &request("project"),
+        &ConnectClientContext::default(),
+        &NoHistory,
+        &mut runtime,
+    )
+    .unwrap();
+    let NewOutcome::Completed { result, .. } = outcome else {
+        panic!("Wez presentation completes in process")
+    };
+    assert!(!result.created);
+    assert!(result.connected);
+    assert_eq!(result.space_uid, target.space_uid);
+    assert_eq!(runtime.recover_calls, 1);
+    assert!(runtime.create_requests.is_empty());
+    assert_eq!(
+        runtime.events,
+        [
+            "lookup",
+            "recover",
+            "lookup",
+            "resolve",
+            "revalidate",
+            "present"
+        ]
+    );
+}
+
+#[test]
+fn a_still_stopped_repartition_refuses_without_a_second_recovery() {
+    let target = target(host(1), Backend::Wez, "project", uid(20));
+    let mut runtime = FakeRuntime::new(target, blocked_wez(BlockReason::ServerStopped));
+    runtime
+        .lookups
+        .push_back(blocked_wez(BlockReason::ServerStopped));
+    let failure = create_or_connect(
+        &request("project"),
+        &ConnectClientContext::default(),
+        &NoHistory,
+        &mut runtime,
+    )
+    .unwrap_err();
+    assert_eq!(failure.error.code, ErrorCode::ProviderUnavailable);
+    assert_eq!(runtime.recover_calls, 1);
+    assert_eq!(runtime.events, ["lookup", "recover", "lookup"]);
+}
+
+#[test]
+fn a_stopped_wez_record_blocking_an_explicit_tmux_create_recovers_first() {
+    let target = target(host(1), Backend::Tmux, "project", uid(20));
+    let mut runtime = FakeRuntime::new(target, blocked_wez(BlockReason::ServerStopped));
+    runtime.lookups.push_back(empty());
+    let mut req = request("project");
+    req.backend_constraint = Some(Backend::Tmux);
+    req.no_connect = true;
+    let outcome = create_or_connect(
+        &req,
+        &ConnectClientContext::default(),
+        &NoHistory,
+        &mut runtime,
+    )
+    .unwrap();
+    let NewOutcome::Completed { result, .. } = outcome else {
+        panic!("no-connect must be bounded")
+    };
+    assert!(result.created);
+    assert_eq!(result.backend, Backend::Tmux);
+    assert_eq!(runtime.recover_calls, 1);
+    assert_eq!(
+        runtime.events,
+        ["lookup", "recover", "lookup", "policy", "create"]
+    );
 }
 
 #[test]

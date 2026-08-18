@@ -4,6 +4,7 @@
 //! no live server is ever consulted, and DMUX_DRY_RUN=1 turns every exec
 //! into a printed plan.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -160,6 +161,81 @@ fn completions_are_static_zsh() {
     let output = sandbox.dmux(&["--completions", "zsh"]);
     assert!(output.status.success());
     assert!(stdout(&output).contains("#compdef dmux"));
+}
+
+/// The ssa/ssm wrappers keep a verb allowlist so an interactive shell can tell
+/// a lone Space name from a subcommand without spawning dmux (plan §17, ADR
+/// 010 §4). Maintained by hand, that list drifts the first time the CLI grows a
+/// verb -- and a missing verb is not inert, it makes `ssa <verb>` create a
+/// Space -- so it is derived from the binary here rather than trusted.
+///
+/// The source is `--completions zsh` rather than `--help`: clap emits one
+/// `'name:description'` candidate per line for every subcommand *and* every
+/// alias, where help folds aliases into an `[aliases: ...]` suffix on a
+/// description that wraps at the terminal width. Both list clap's built-in
+/// `help`. Completions also carry the hidden internal verbs, which the wrapper
+/// must not forward; they are dropped by the `_` prefix all of them carry, and
+/// The wrappers keep a verb allowlist so `ssa ls` lists instead of naming a
+/// Space, and it had already drifted once -- 14 verbs listed against 22 in the
+/// CLI, so `ssa host` created a Space called "host". Both sides are evaluated
+/// rather than parsed: `_verbs` walks clap's own command tree, and the array is
+/// read by sourcing it in zsh. Parsing either side was tried and defeated --
+/// `--help` and `--completions` render only *visible* aliases, so a plain
+/// `#[command(alias = ...)]` slipped past both, and text-scraping the zsh array
+/// broke on quoting, comments, and line-continuations that changed no behaviour.
+#[test]
+fn the_wrapper_verb_allowlist_matches_the_cli() {
+    let wrapper_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../../shared/zsh/conf.d/91-tmux-attach.zsh"
+    );
+    let sandbox = Sandbox::empty();
+
+    let cli: BTreeSet<String> = stdout(&sandbox.dmux(&["_verbs"]))
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert!(!cli.is_empty(), "`dmux _verbs` listed nothing");
+
+    let wrapper = wrapper_verbs(wrapper_path);
+    let missing: Vec<&String> = cli.difference(&wrapper).collect();
+    let stale: Vec<&String> = wrapper.difference(&cli).collect();
+    assert!(
+        missing.is_empty() && stale.is_empty(),
+        "91-tmux-attach.zsh drifted from the dmux CLI\n  \
+         missing from the wrapper (so `ssa <verb>` would create a Space): {missing:?}\n  \
+         stale in the wrapper (no such verb): {stale:?}"
+    );
+}
+
+/// The wrapper's verb array, obtained by evaluating it rather than reading it.
+/// Text-parsing this was tried and abandoned: single-quoting the elements,
+/// interleaving a comment, line-continuations, or splitting the assignment in
+/// two all changed the parse without changing one byte of runtime behaviour,
+/// and a one-line comment that merely mentioned the array name captured the
+/// parse entirely. zsh is the only thing that agrees with zsh.
+fn wrapper_verbs(wrapper_path: &str) -> BTreeSet<String> {
+    let out = Command::new("zsh")
+        .args([
+            "-f",
+            "-c",
+            &format!("source {wrapper_path} && print -rl -- $_dmux_verbs"),
+        ])
+        .output()
+        .expect("zsh runs the wrapper");
+    assert!(
+        out.status.success(),
+        "sourcing the wrapper failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[test]

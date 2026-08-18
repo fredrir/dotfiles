@@ -60,6 +60,11 @@ struct Cli {
     #[arg(short = 'H', long, global = true, value_name = "HOST")]
     host: Option<String>,
 
+    /// Output shape for bounded commands: the human table, or one versioned
+    /// JSON document
+    #[arg(long, global = true, value_enum, value_name = "FORMAT")]
+    format: Option<dmux::output::OutputFormat>,
+
     /// Print the version and exit
     #[arg(short = 'v', long = "version")]
     version: bool,
@@ -76,15 +81,27 @@ enum Cmd {
     /// List wezterm workspaces and tmux sessions
     #[command(visible_alias = "list")]
     Ls {
-        /// Only tmux sessions
+        /// Every enrolled host instead of one
+        #[arg(long, conflicts_with = "host")]
+        all_hosts: bool,
+
+        /// Only this backend
+        #[arg(long, value_enum)]
+        backend: Option<ConnectBackend>,
+
+        /// Show each Space's Groups and Splits beneath it
+        #[arg(long)]
+        tree: bool,
+
+        /// Deprecated: only tmux sessions (use --backend tmux)
         #[arg(long)]
         tmux: bool,
 
-        /// Only wezterm workspaces
+        /// Deprecated: only wezterm workspaces (use --backend wez)
         #[arg(long)]
         wez: bool,
 
-        /// Machine-readable listing
+        /// Deprecated: bare row array (use --format json)
         #[arg(long)]
         json: bool,
 
@@ -181,7 +198,7 @@ enum Cmd {
     Rm {
         /// Session names or indices from `dmux ls`
         #[arg(
-            required_unless_present = "all",
+            required_unless_present_any = ["all", "row"],
             conflicts_with = "all",
             add = ArgValueCompleter::new(complete_sessions)
         )]
@@ -190,6 +207,14 @@ enum Cmd {
         /// Kill every tmux session listed (keeps the one this client is in)
         #[arg(long, conflicts_with = "window")]
         all: bool,
+
+        /// Row number from `dmux ls`, repeatable
+        #[arg(long, value_name = "N", conflicts_with = "all")]
+        row: Vec<u64>,
+
+        /// Require exactly this backend; never fall back to the other one
+        #[arg(long, value_enum)]
+        backend: Option<ConnectBackend>,
 
         /// Kill one window of the session instead
         #[arg(short, long)]
@@ -200,13 +225,43 @@ enum Cmd {
         yes: bool,
     },
 
-    /// Rename a tmux session
+    /// Rename a Space (a tmux session when the Wez-first flag is off)
     Rename {
-        #[arg(add = ArgValueCompleter::new(complete_sessions))]
-        old: String,
+        /// Stable Space ref; with --name/--row it is the new name instead
+        #[arg(
+            required_unless_present_any = ["name", "row"],
+            add = ArgValueCompleter::new(complete_sessions)
+        )]
+        old: Option<String>,
 
         #[arg(value_name = "NEW")]
-        new_name: String,
+        new_name: Option<String>,
+
+        /// Treat VALUE as the exact logical name of the Space to rename
+        #[arg(long, value_name = "VALUE", conflicts_with = "row")]
+        name: Option<String>,
+
+        /// Row number from `dmux ls`
+        #[arg(long, value_name = "N")]
+        row: Option<u64>,
+
+        /// Require exactly this backend; never fall back to the other one
+        #[arg(long, value_enum)]
+        backend: Option<ConnectBackend>,
+
+        /// Permit a name one opposite-backend Space already holds
+        #[arg(long)]
+        allow_name_collision: bool,
+    },
+
+    /// Adopt one unmanaged native resource listed by `dmux ls`
+    Adopt {
+        /// Opaque NATIVE_REF from an unmanaged row; never a backend command
+        native_ref: String,
+
+        /// Logical name for the adopted Space (default: its native name)
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
     },
 
     /// Show the live wezterm and tmux key bindings
@@ -229,6 +284,17 @@ enum Cmd {
         /// Machine-readable report
         #[arg(long)]
         json: bool,
+    },
+
+    /// Bring existing sessions and workspaces under management, once
+    Migrate {
+        /// Apply the printed plan; without it nothing is adopted or stamped
+        #[arg(long)]
+        commit: bool,
+
+        /// Commit without asking
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Internal: keep the reserved mux sentinel pane alive (plan §15.1).
@@ -269,6 +335,15 @@ enum Cmd {
         #[command(subcommand)]
         cmd: RecoveryInternalCmd,
     },
+
+    /// Internal: every user-visible verb and alias, one per line, straight
+    /// from clap's command tree. The shell wrappers keep a verb allowlist so a
+    /// lone bare word is not mistaken for a Space name, and its sync test reads
+    /// this rather than `--help` or `--completions`: both of those render only
+    /// *visible* aliases, so a plain `#[command(alias = ...)]` was invisible to
+    /// them and silently turned `ssa <that alias>` into a Space constructor.
+    #[command(name = "_verbs", hide = true)]
+    Verbs,
 
     /// Internal: stamp a fresh server epoch on a managed tmux server and
     /// publish the binding (plan §11.2). Invoked by the managed-server
@@ -450,10 +525,7 @@ enum RecoveryInternalCmd {
 #[derive(Subcommand)]
 enum RecoveryCmd {
     /// Show the current owner's durable recovery state.
-    Status {
-        #[arg(long, value_enum, default_value_t = RecoveryFormat::Human)]
-        format: RecoveryFormat,
-    },
+    Status,
 
     /// Resume the owner's failed recovery generation.
     Resume,
@@ -464,12 +536,6 @@ enum RecoveryCmd {
         #[arg(short = 'y', long)]
         yes: bool,
     },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-enum RecoveryFormat {
-    Human,
-    Json,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -542,6 +608,11 @@ fn main() -> ExitCode {
             Some(Cmd::Con { .. })
                 | Some(Cmd::New { .. })
                 | Some(Cmd::Recovery { .. })
+                | Some(Cmd::Ls { .. })
+                | Some(Cmd::Rm { .. })
+                | Some(Cmd::Rename { .. })
+                | Some(Cmd::Adopt { .. })
+                | Some(Cmd::Migrate { .. })
                 | Some(Cmd::Other(_))
         );
     let legacy_host = match cli.host.as_deref().map(legacy_host) {
@@ -561,13 +632,29 @@ fn main() -> ExitCode {
         Err(message) => return workstation::fail(PROGRAM, message),
     };
     let outcome = match cli.command {
-        None => bare(host_given, &context),
+        None => bare(host_given, &context, cli.format),
         Some(Cmd::Ls {
+            all_hosts,
+            backend,
+            tree,
             tmux,
             wez,
             json,
             names,
-        }) => list::run(&context, tmux, wez, json, names),
+        }) => ls(
+            &context,
+            cli.format,
+            dmux::ls_cli::LsArgs {
+                host: cli.host.clone(),
+                all_hosts,
+                backend: backend.map(dmux::model::Backend::from),
+                tree,
+                json,
+                only_tmux: tmux,
+                only_wez: wez,
+                names,
+            },
+        ),
         Some(Cmd::Con {
             target,
             name,
@@ -643,14 +730,142 @@ fn main() -> ExitCode {
             }
         }
         Some(Cmd::Disconnect { domain }) => disconnect(&context, domain, host_given),
-        Some(Cmd::Recovery { cmd }) => Ok(recovery_cmd(&context, cli.host.as_deref(), cmd)),
+        Some(Cmd::Recovery { cmd }) => {
+            Ok(recovery_cmd(&context, cli.host.as_deref(), cli.format, cmd))
+        }
         Some(Cmd::Rm {
             targets,
             all,
+            row,
+            backend,
             window,
             yes,
-        }) => attach::remove(&context, &targets, all, window.as_deref(), yes),
-        Some(Cmd::Rename { old, new_name }) => attach::rename(&context, &old, &new_name),
+        }) => {
+            if wez_first_enabled() && dmux::rm_cli::IMPLEMENTED {
+                Ok(exit_code(dmux::rm_cli::remove(
+                    cli.format,
+                    dmux::rm_cli::RmArgs {
+                        host: cli.host.clone(),
+                        targets,
+                        rows: row,
+                        all,
+                        backend: backend.map(dmux::model::Backend::from),
+                        window,
+                        yes,
+                    },
+                )))
+            } else if !row.is_empty() || backend.is_some() || cli.format.is_some() {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "--row/--backend/--format require DMUX_WEZ_FIRST=1",
+                )))
+            } else {
+                attach::remove(&context, &targets, all, window.as_deref(), yes)
+            }
+        }
+        Some(Cmd::Rename {
+            old,
+            new_name,
+            name,
+            row,
+            backend,
+            allow_name_collision,
+        }) => {
+            if wez_first_enabled() && dmux::rm_cli::IMPLEMENTED {
+                Ok(exit_code(dmux::rm_cli::rename(
+                    cli.format,
+                    dmux::rm_cli::RenameArgs {
+                        host: cli.host.clone(),
+                        old,
+                        new_name,
+                        name,
+                        row,
+                        backend: backend.map(dmux::model::Backend::from),
+                        allow_name_collision,
+                    },
+                )))
+            } else if name.is_some()
+                || row.is_some()
+                || backend.is_some()
+                || allow_name_collision
+                || cli.format.is_some()
+            {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "--name/--row/--backend/--allow-name-collision/--format require DMUX_WEZ_FIRST=1",
+                )))
+            } else {
+                // Both positionals are optional so `--name OLD NEW` can parse;
+                // the legacy two-word spelling has to be checked here instead.
+                match (old, new_name) {
+                    (Some(old), Some(new_name)) => attach::rename(&context, &old, &new_name),
+                    _ => Ok(render_connect_error(dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "rename takes an existing session and a new name",
+                    ))),
+                }
+            }
+        }
+        Some(Cmd::Adopt { native_ref, name }) => {
+            if wez_first_enabled() && dmux::adopt_cli::IMPLEMENTED {
+                Ok(exit_code(dmux::adopt_cli::adopt(
+                    cli.format,
+                    dmux::adopt_cli::AdoptArgs {
+                        host: cli.host.clone(),
+                        native_ref,
+                        name,
+                    },
+                )))
+            } else if wez_first_enabled() {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "adopt is not implemented yet",
+                )))
+            } else {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "adopt requires DMUX_WEZ_FIRST=1",
+                )))
+            }
+        }
+        Some(Cmd::Migrate { commit, yes }) => {
+            if wez_first_enabled() && dmux::migrate_cli::IMPLEMENTED {
+                Ok(exit_code(dmux::migrate_cli::run(
+                    cli.format,
+                    dmux::migrate_cli::MigrateArgs {
+                        commit,
+                        yes,
+                        previous_sessions: state::entries(),
+                    },
+                )))
+            } else if wez_first_enabled() {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "migrate is not implemented yet",
+                )))
+            } else {
+                Ok(render_connect_error(dmux::error::TypedError::new(
+                    dmux::error::ErrorCode::Usage,
+                    "migrate requires DMUX_WEZ_FIRST=1",
+                )))
+            }
+        }
+        Some(Cmd::Verbs) => {
+            // build() first: clap materialises its own `help` subcommand there,
+            // and `ssa help` must print help rather than name a Space.
+            let mut root = Cli::command();
+            root.build();
+            for command in root.get_subcommands() {
+                if command.is_hide_set() {
+                    continue;
+                }
+                println!("{}", command.get_name());
+                for alias in command.get_all_aliases() {
+                    println!("{alias}");
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Some(Cmd::Keys { man, tmux, wez }) => keys::run(man, tmux, wez),
         Some(Cmd::Doctor { json }) => Ok(doctor::run(&context, json)),
         Some(Cmd::MuxIdle) => loop {
@@ -811,15 +1026,15 @@ fn recovery_internal_cmd(cmd: RecoveryInternalCmd) -> ExitCode {
 /// resume/abort first inspects the owner and then qualifies the mutation with
 /// that exact backend-instance/epoch pair, so a restart between the two calls
 /// is a stale-target refusal rather than an action against the replacement.
-fn recovery_cmd(context: &Context, explicit_host: Option<&str>, cmd: RecoveryCmd) -> ExitCode {
+fn recovery_cmd(
+    context: &Context,
+    explicit_host: Option<&str>,
+    format: Option<dmux::output::OutputFormat>,
+    cmd: RecoveryCmd,
+) -> ExitCode {
     use dmux::error::{ErrorCode, TypedError};
 
-    let json = matches!(
-        cmd,
-        RecoveryCmd::Status {
-            format: RecoveryFormat::Json
-        }
-    );
+    let json = format == Some(dmux::output::OutputFormat::Json);
     if let RecoveryCmd::Abort { yes } = &cmd
         && !*yes
     {
@@ -846,9 +1061,9 @@ fn recovery_cmd(context: &Context, explicit_host: Option<&str>, cmd: RecoveryCmd
     }
 
     match cmd {
-        RecoveryCmd::Status { format } => match recovery_inspection(explicit_host) {
+        RecoveryCmd::Status => match recovery_inspection(explicit_host) {
             Ok(inspection) => {
-                if format == RecoveryFormat::Json {
+                if json {
                     println!(
                         "{}",
                         serde_json::json!({
@@ -1616,6 +1831,37 @@ fn render_connect_error(error: dmux::error::TypedError) -> ExitCode {
     ExitCode::from(error.code.exit_status().code())
 }
 
+/// Wez-first library commands answer with the plan's typed exit table
+/// (§16.3); the process carries only the number.
+fn exit_code(status: dmux::error::ExitStatus) -> ExitCode {
+    ExitCode::from(status.code())
+}
+
+/// The single `ls` entry point, so the `Ls` arm and bare `dmux` on a pipe
+/// cannot drift apart (`cli::bare_dmux_on_a_pipe_is_ls`).
+fn ls(
+    context: &Context,
+    format: Option<dmux::output::OutputFormat>,
+    args: dmux::ls_cli::LsArgs,
+) -> Result<ExitCode, String> {
+    if wez_first_enabled() && dmux::ls_cli::IMPLEMENTED {
+        return Ok(exit_code(dmux::ls_cli::run(format, args)));
+    }
+    if args.all_hosts || args.backend.is_some() || args.tree || format.is_some() {
+        return Ok(render_connect_error(dmux::error::TypedError::new(
+            dmux::error::ErrorCode::Usage,
+            "--all-hosts/--backend/--tree/--format require DMUX_WEZ_FIRST=1",
+        )));
+    }
+    list::run(
+        context,
+        args.only_tmux,
+        args.only_wez,
+        args.json,
+        args.names,
+    )
+}
+
 /// The one flag the fallthrough shares with `con`: `-w/--window`, in every
 /// spelling clap would accept there. Anything else keeps the strict error.
 fn parse_window(rest: &[String]) -> Option<&str> {
@@ -1636,12 +1882,16 @@ fn parse_window(rest: &[String]) -> Option<&str> {
     }
 }
 
-fn bare(host_given: bool, context: &Context) -> Result<ExitCode, String> {
+fn bare(
+    host_given: bool,
+    context: &Context,
+    format: Option<dmux::output::OutputFormat>,
+) -> Result<ExitCode, String> {
     if host_given {
         return attach::bare(context);
     }
     if !io::stdout().is_terminal() {
-        return list::run(context, false, false, false, false);
+        return ls(context, format, dmux::ls_cli::LsArgs::default());
     }
     let rows = list::gather(context, true, true)?;
     if rows.is_empty() {
@@ -1886,12 +2136,11 @@ mod tests {
             "dmux", "--host", "archie", "recovery", "status", "--format", "json",
         ])
         .unwrap();
+        assert_eq!(parsed.format, Some(dmux::output::OutputFormat::Json));
         assert!(matches!(
             parsed.command,
             Some(Cmd::Recovery {
-                cmd: RecoveryCmd::Status {
-                    format: RecoveryFormat::Json
-                }
+                cmd: RecoveryCmd::Status
             })
         ));
 

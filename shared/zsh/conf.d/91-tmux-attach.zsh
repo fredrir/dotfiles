@@ -3,15 +3,32 @@
 #   ssa   archie      ssm   macie
 #
 # Narrow create-or-connect shortcuts, not alternate CLIs (plan §17). A lone
-# bare word is a Space name, so `ssa dev` is `dmux --host archie new dev` and
-# `new` is already idempotent create-or-connect. Everything else forwards
-# verbatim, which is how every other operation is spelled: `ssa ls` would
-# create a Space called "ls", so list it with `dmux --host archie ls`.
+# bare word that is not a dmux verb is a Space name, so `ssa dev` is
+# `dmux --host archie new dev` and `new` is already idempotent
+# create-or-connect. Everything else forwards verbatim, verbs included, so
+# `ssa ls` lists rather than creating a Space called "ls".
 #
-# There is deliberately no subcommand allowlist here. The old one had to name
-# every verb the CLI grows, and it silently reinterpreted a Space whose name
-# collided with a verb. The CLI owns that ambiguity instead: `--name` is the
-# exact-name escape for a legacy name that looks like a ref or a subcommand.
+# To reach a Space whose name collides with a verb, spell the verb yourself:
+# `ssa new ls` creates-or-connects one named "ls". (§7.4's `con --name` escape
+# is connect-only and is gated on DMUX_WEZ_FIRST until the cutover, so it is
+# not the answer today.)
+#
+# `ssa detach`/`ssa disconnect` forward and then fail with a usage error, which
+# is correct rather than unfortunate: disconnect acts on the invoking local
+# client and rejects --host, so there is nothing for a host-scoped spelling of
+# it to mean. What the allowlist buys is that it errors instead of silently
+# creating a Space named "detach".
+#
+# The list is checked rather than trusted -- it had already drifted once, naming
+# 14 verbs while the CLI exposed 22. `the_wrapper_verb_allowlist_matches_the_cli`
+# in scripts/rust/crates/dmux/tests/cli.rs re-derives it from the built binary
+# and from this array, and fails naming whichever verb moved. It is declared at
+# file scope so that test can evaluate it rather than parse it.
+typeset -ga _dmux_verbs=(
+  ls list con attach a new disconnect detach recovery rm kill delete
+  rename keys doctor group split context repair ssh host adopt migrate help
+)
+
 _dmux_wrap() {
   local _wrap_name=$1 _wrap_host=$2
   shift 2
@@ -20,8 +37,10 @@ _dmux_wrap() {
     return 127
   fi
   if (( $# == 1 )) && [[ "$1" != -* ]]; then
-    dmux --host "$_wrap_host" new "$1"
-    return $?
+    if (( ! ${_dmux_verbs[(Ie)$1]} )); then
+      dmux --host "$_wrap_host" new "$1"
+      return $?
+    fi
   fi
   dmux --host "$_wrap_host" "$@"
 }

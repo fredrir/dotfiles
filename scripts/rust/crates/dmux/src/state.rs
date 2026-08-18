@@ -42,6 +42,13 @@ pub fn record_attach(host: Host, session: &str) {
     }
 }
 
+/// Every recorded line, for the migration driver: history converts to
+/// SpaceUid only where a name resolves unambiguously (plan §17.11), which
+/// needs the whole file, current slots included, not one host's toggle.
+pub fn entries() -> BTreeMap<String, String> {
+    file().map(|path| read(&path)).unwrap_or_default()
+}
+
 fn previous_at(path: &Path, host: Host) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
     parse(&text).remove(host.name())

@@ -74,12 +74,11 @@ test_git_root_walks_to_dot_git() {
 }
 
 # The ssa/ssm wrappers are narrow create-or-connect shortcuts (plan §17): a
-# lone bare word is a Space name, everything else forwards verbatim. There is
-# no subcommand allowlist, so `ssa ls` creates a Space named "ls" rather than
-# listing -- listing is `dmux --host archie ls`. This test exists to keep that
-# boundary explicit, since the old wrapper silently reinterpreted any name
-# that collided with a verb.
-test_ssa_wrapper_forwards_verbatim_except_a_lone_name() {
+# lone bare word that is not a dmux verb is a Space name, everything else --
+# verbs, their aliases, flags, multi-word invocations -- forwards verbatim, so
+# `ssa ls` lists. The allowlist that draws that line cannot drift: cli.rs's
+# `the_wrapper_verb_allowlist_matches_the_cli` derives it from the binary.
+test_ssa_wrapper_creates_a_space_only_for_a_lone_non_verb() {
   command -v zsh >/dev/null 2>&1 || fail "zsh is required"
 
   mkdir -p "$SANDBOX/bin"
@@ -94,7 +93,7 @@ test_ssa_wrapper_forwards_verbatim_except_a_lone_name() {
       source $WRAPPERS
       {
         ssa dev; ssm dev
-        ssa ls; ssa detach
+        ssa ls; ssa list; ssa detach
         ssa con dev; ssa rm dev; ssa new dev
         ssa; ssa -
       } > $TRACE
@@ -102,8 +101,9 @@ test_ssa_wrapper_forwards_verbatim_except_a_lone_name() {
 
   assert_file_is "$trace" 'dmux --host archie new dev
 dmux --host macie new dev
-dmux --host archie new ls
-dmux --host archie new detach
+dmux --host archie ls
+dmux --host archie list
+dmux --host archie detach
 dmux --host archie con dev
 dmux --host archie rm dev
 dmux --host archie new dev

@@ -962,7 +962,7 @@ ssa NAME -> dmux --host archie new NAME
 ssm NAME -> dmux --host macie new NAME
 ```
 
-With no name they open the host-scoped dmux picker. Other operations use `dmux --host ...` directly. No wrapper maintains a subcommand allowlist, parses backend flags, or contains backend logic.
+With no name they open the host-scoped dmux picker. A lone bare word that is a dmux subcommand or alias is that subcommand, so `ssa ls` lists; other operations use `dmux --host ...` directly, and a Space genuinely named after a verb is reached with §7.4's `--name` escape. A wrapper may carry the verb allowlist that distinguishes the two only while a test holds it exactly equal to the CLI's own subcommand and alias names (`the_wrapper_verb_allowlist_matches_the_cli`, `scripts/rust/crates/dmux/tests/cli.rs`); an unverified list is forbidden, as is a wrapper that parses backend flags or contains backend logic.
 
 Both hosts exchange dmux agent protocol and Wez versions/capabilities. Remote mutations require protocol compatibility. An older host may be shown as legacy/unmanaged but never receives client-assigned stable IDs.
 

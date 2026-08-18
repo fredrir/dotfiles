@@ -107,6 +107,7 @@ fn legacy_and_shadow_agree_on_the_native_row_set() {
         .env("PATH", bin.path())
         .env("XDG_STATE_HOME", state.path())
         .env("DMUX_DRY_RUN", "1")
+        .env_remove("DMUX_WEZ_FIRST")
         .env_remove("TMUX")
         .env_remove("WEZTERM_UNIX_SOCKET")
         .env_remove("WEZTERM_PANE")
