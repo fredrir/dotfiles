@@ -20,7 +20,7 @@ use std::path::Path;
 
 use rayon::prelude::*;
 
-use super::{Measure, Options, Row, count_lines_in};
+use super::{Link, Measure, Options, Row, Walked, count_lines_in};
 
 // `enum vtype`, from <sys/vnode.h>. Anything else is an "other" to us.
 const VREG: u32 = 1;
@@ -85,8 +85,11 @@ impl Drop for Dir {
 /// What one entry of a batch says about itself.
 struct Entry<'a> {
     name: &'a CStr,
+    devid: i32,
     objtype: u32,
     accessmask: u32,
+    fileid: u64,
+    linkcount: u32,
     bytes: u64,
 }
 
@@ -96,9 +99,11 @@ fn attributes() -> libc::attrlist {
     list.bitmapcount = libc::ATTR_BIT_MAP_COUNT;
     list.commonattr = libc::ATTR_CMN_RETURNED_ATTRS
         | libc::ATTR_CMN_NAME
+        | libc::ATTR_CMN_DEVID
         | libc::ATTR_CMN_OBJTYPE
-        | libc::ATTR_CMN_ACCESSMASK;
-    list.fileattr = libc::ATTR_FILE_DATALENGTH;
+        | libc::ATTR_CMN_ACCESSMASK
+        | libc::ATTR_CMN_FILEID;
+    list.fileattr = libc::ATTR_FILE_LINKCOUNT | libc::ATTR_FILE_DATALENGTH;
     list
 }
 
@@ -123,6 +128,11 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
         name = unsafe { CStr::from_ptr(start as *const libc::c_char) };
         field = unsafe { field.add(size_of::<libc::attrreference_t>()) };
     }
+    let mut devid = 0;
+    if returned.commonattr & libc::ATTR_CMN_DEVID != 0 {
+        devid = unsafe { (field as *const i32).read_unaligned() };
+        field = unsafe { field.add(size_of::<i32>()) };
+    }
     let mut objtype = 0;
     if returned.commonattr & libc::ATTR_CMN_OBJTYPE != 0 {
         objtype = unsafe { (field as *const u32).read_unaligned() };
@@ -133,6 +143,16 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
         accessmask = unsafe { (field as *const u32).read_unaligned() };
         field = unsafe { field.add(size_of::<u32>()) };
     }
+    let mut fileid = 0;
+    if returned.commonattr & libc::ATTR_CMN_FILEID != 0 {
+        fileid = unsafe { (field as *const u64).read_unaligned() };
+        field = unsafe { field.add(size_of::<u64>()) };
+    }
+    let mut linkcount = 0;
+    if returned.fileattr & libc::ATTR_FILE_LINKCOUNT != 0 {
+        linkcount = unsafe { (field as *const u32).read_unaligned() };
+        field = unsafe { field.add(size_of::<u32>()) };
+    }
     // Directories carry no data length; their size is what we sum underneath.
     let mut bytes = 0;
     if returned.fileattr & libc::ATTR_FILE_DATALENGTH != 0 {
@@ -141,8 +161,11 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
 
     let entry = Entry {
         name,
+        devid,
         objtype,
         accessmask,
+        fileid,
+        linkcount,
         bytes,
     };
     (entry, length)
@@ -150,7 +173,7 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
 
 /// The whole tree under `target`, or `None` if this filesystem will not answer
 /// bulk requests and the portable walk should take it instead.
-pub fn walk(options: &Options, target: &Path) -> Option<(Measure, Vec<Row>)> {
+pub fn walk(options: &Options, target: &Path) -> Option<Walked> {
     let dir = Dir::open(target)?;
     read(options, &dir, target, Path::new(""), 0)
 }
@@ -169,11 +192,10 @@ fn read(
     full: &Path,
     relative: &Path,
     depth: usize,
-) -> Option<(Measure, Vec<Row>)> {
+) -> Option<Walked> {
     let mut list = attributes();
     let mut buffer = vec![0u8; BATCH];
-    let mut measure = Measure::default();
-    let mut rows = Vec::new();
+    let mut walked = Walked::default();
     let mut children: Vec<Child> = Vec::new();
 
     loop {
@@ -207,13 +229,40 @@ fn read(
             batch.push(found);
         }
 
+        // Settle the ignore list before anything reads a file: an entry that
+        // is out stays out of the line counting too.
+        let skipped: Vec<bool> = if options.ignore.is_empty() {
+            Vec::new()
+        } else {
+            batch
+                .iter()
+                .map(|found| {
+                    if options.ignore.skips_name(&found.name.to_string_lossy()) {
+                        return true;
+                    }
+                    options.ignore.wants_paths() && {
+                        let name = Path::new(OsStr::from_bytes(found.name.to_bytes()));
+                        options
+                            .ignore
+                            .skips_path(&relative.join(name).to_string_lossy())
+                    }
+                })
+                .collect()
+        };
+        let is_skipped = |index: usize| skipped.get(index).copied().unwrap_or(false);
+        // Built once per batch rather than per link: a tree of build output can
+        // be almost all hardlinks, and each one would otherwise cost a PathBuf
+        // and a String to say where it sits.
+        let here = relative.to_string_lossy();
+
         // Counting lines means reading every file through, and file reads do
         // parallelise — unlike the metadata lookups the walk itself makes.
         let counted: Vec<Option<u64>> = if options.lines {
             batch
                 .par_iter()
-                .map(|found| {
-                    if found.objtype != VREG {
+                .enumerate()
+                .map(|(index, found)| {
+                    if found.objtype != VREG || is_skipped(index) {
                         return Some(0);
                     }
                     dir.open_file(found.name)
@@ -225,6 +274,9 @@ fn read(
         };
 
         for (index, found) in batch.iter().enumerate() {
+            if is_skipped(index) {
+                continue;
+            }
             // The portable walk's `hidden`, without rendering a String first.
             let is_hidden = found.name.to_bytes().first() == Some(&b'.');
             let visible = depth < options.display_depth && (options.all || !is_hidden);
@@ -245,10 +297,23 @@ fn read(
             }
 
             let found_measure = measure_entry(found, counted.get(index).copied());
-            measure.add(found_measure);
+            walked.measure.add(found_measure);
+            let name = Path::new(OsStr::from_bytes(found.name.to_bytes()));
+            if found.linkcount > 1 {
+                let leaf = name.to_string_lossy();
+                walked.links.push(Link {
+                    file: (found.devid as u64, found.fileid),
+                    path: if here.is_empty() {
+                        leaf.into_owned()
+                    } else {
+                        format!("{here}/{leaf}")
+                    },
+                    bytes: found_measure.bytes,
+                    lines: found_measure.lines,
+                });
+            }
             if visible {
-                let name = Path::new(OsStr::from_bytes(found.name.to_bytes()));
-                rows.push(Row {
+                walked.rows.push(Row {
                     name: relative.join(name).to_string_lossy().to_string(),
                     kind: kind_of(found.objtype),
                     executable: found.accessmask & 0o111 != 0,
@@ -261,13 +326,13 @@ fn read(
     // Subdirectories in parallel: separate directories do not contend the way
     // repeated lookups inside one of them do, and in line mode this is what
     // keeps every core busy reading files.
-    let walked: Vec<(Measure, Vec<Row>)> = children
+    let below: Vec<Walked> = children
         .par_iter()
         .map(|child| {
             let name = Path::new(OsStr::from_bytes(child.name.to_bytes()));
             let child_relative = relative.join(name);
             let child_full = full.join(name);
-            let (child_measure, mut child_rows) = match dir.open_child(&child.name) {
+            let mut child_walked = match dir.open_child(&child.name) {
                 Some(handle) => {
                     read(options, &handle, &child_full, &child_relative, child.depth)
                         // This directory will not answer; the portable walk can.
@@ -280,31 +345,25 @@ fn read(
                             )
                         })
                 }
-                None => (
-                    Measure {
-                        unreadable: 1,
-                        ..Measure::default()
-                    },
-                    Vec::new(),
-                ),
+                None => Walked::unreadable(),
             };
             if child.visible {
-                child_rows.push(Row {
+                let measure = child_walked.measure;
+                child_walked.rows.push(Row {
                     name: child_relative.to_string_lossy().to_string(),
                     kind: "directory",
                     executable: false,
-                    measure: child_measure,
+                    measure,
                 });
             }
-            (child_measure, child_rows)
+            child_walked
         })
         .collect();
-    for (child_measure, child_rows) in walked {
-        measure.add(child_measure);
-        rows.extend(child_rows);
+    for child_walked in below {
+        walked.absorb(child_walked);
     }
 
-    Some((measure, rows))
+    Some(walked)
 }
 
 /// `counted` is `None` outside line mode, and `Some(None)` for a file that
@@ -339,9 +398,18 @@ mod tests {
     /// One row, reduced to the fields both walks must agree on.
     type Shape = (String, &'static str, bool, u64, u64);
 
-    /// Everything the two walks have to agree about, in a comparable shape.
-    fn shape(measure: Measure, rows: Vec<Row>) -> (u64, u64, usize, Vec<Shape>) {
-        let mut rows: Vec<_> = rows
+    /// One link: which file it is, where it sits, and what it measures.
+    type Linked = ((u64, u64), String, u64, u64);
+
+    /// A whole walk, reduced the same way.
+    type Answer = (u64, u64, usize, Vec<Shape>, Vec<Linked>);
+
+    /// Everything the two walks have to agree about, in a comparable shape —
+    /// including the links, since the bulk walk reads device, inode and link
+    /// count out of a packed reply rather than out of a `stat`.
+    fn shape(walked: Walked) -> Answer {
+        let mut rows: Vec<Shape> = walked
+            .rows
             .into_iter()
             .map(|row| {
                 (
@@ -354,7 +422,19 @@ mod tests {
             })
             .collect();
         rows.sort();
-        (measure.bytes, measure.lines, measure.unreadable, rows)
+        let mut links: Vec<Linked> = walked
+            .links
+            .into_iter()
+            .map(|link| (link.file, link.path, link.bytes, link.lines))
+            .collect();
+        links.sort();
+        (
+            walked.measure.bytes,
+            walked.measure.lines,
+            walked.measure.unreadable,
+            rows,
+            links,
+        )
     }
 
     fn fixture() -> tempfile::TempDir {
@@ -376,6 +456,7 @@ mod tests {
         let mut mode = fs::metadata(&runnable).unwrap().permissions();
         std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
         fs::set_permissions(&runnable, mode).unwrap();
+        fs::hard_link(at("notes.txt"), at("visible/same-file.txt")).unwrap();
         std::os::unix::fs::symlink("notes.txt", at("link")).unwrap();
         std::os::unix::fs::symlink("/nowhere", at("broken")).unwrap();
         std::os::unix::fs::symlink("visible", at("dirlink")).unwrap();
@@ -394,13 +475,18 @@ mod tests {
                         lines,
                         all,
                         display_depth,
+                        ..Options::default()
                     };
-                    let (measure, rows) = walk(&options, root.path()).expect("bulk walk runs");
-                    let (portable, portable_rows) =
-                        super::super::walk_directory(&options, root.path(), Path::new(""), 0);
+                    let bulk = shape(walk(&options, root.path()).expect("bulk walk runs"));
+                    let portable = shape(super::super::walk_directory(
+                        &options,
+                        root.path(),
+                        Path::new(""),
+                        0,
+                    ));
+                    assert!(!bulk.4.is_empty(), "the fixture has a hardlink");
                     assert_eq!(
-                        shape(measure, rows),
-                        shape(portable, portable_rows),
+                        bulk, portable,
                         "lines={lines} all={all} depth={display_depth}"
                     );
                 }
@@ -408,7 +494,26 @@ mod tests {
         }
     }
 
-    /// A symlink pointing at a directory is a link, not a way in.
+    #[test]
+    fn ignored_entries_never_reach_the_totals() {
+        let root = fixture();
+        let plain = Options {
+            display_depth: 1,
+            ..Options::default()
+        };
+        let whole = walk(&plain, root.path()).expect("bulk walk runs");
+        let options = Options {
+            display_depth: 1,
+            ignore: super::super::Ignore::new(&["visible".to_string()]),
+            ..Options::default()
+        };
+        let trimmed = walk(&options, root.path()).expect("bulk walk runs");
+        assert!(trimmed.measure.bytes < whole.measure.bytes);
+        assert!(!trimmed.rows.iter().any(|row| row.name == "visible"));
+        let portable = super::super::walk_directory(&options, root.path(), Path::new(""), 0);
+        assert_eq!(trimmed.measure.bytes, portable.measure.bytes);
+    }
+
     #[test]
     fn directory_symlinks_are_not_followed() {
         let root = fixture();
@@ -416,8 +521,10 @@ mod tests {
             lines: false,
             all: false,
             display_depth: usize::MAX,
+            ..Options::default()
         };
-        let (_, rows) = walk(&options, root.path()).expect("bulk walk runs");
+        let walked = walk(&options, root.path()).expect("bulk walk runs");
+        let rows = &walked.rows;
         let dirlink = rows.iter().find(|row| row.name == "dirlink").unwrap();
         assert_eq!(dirlink.kind, "link");
         assert!(!rows.iter().any(|row| row.name.starts_with("dirlink/")));

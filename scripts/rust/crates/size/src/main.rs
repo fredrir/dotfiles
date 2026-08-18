@@ -4,10 +4,15 @@
 //! its total, `-r` lists a directory's immediate contents, `-R` recurses
 //! (`-L` limits how deep the listing goes), and `-l` swaps bytes for line
 //! counts everywhere. Totals always include hidden files; `-a` only decides
-//! whether hidden entries get their own rows. Listings run smallest to
-//! biggest, so the largest entries sit next to the total. On a terminal, names
-//! get the same colors and Nerd Font icons eza-flavoured `ls` shows.
+//! whether hidden entries get their own rows. `-i` is the other way round: a
+//! matching entry leaves the walk entirely, taking its bytes and — if it is a
+//! directory — everything underneath it. A file reachable under more than one
+//! name inside the tree counts once, the way `du` counts it. Listings run
+//! smallest to biggest, so the largest entries sit next to the total. On a
+//! terminal, names get the same colors and Nerd Font icons eza-flavoured `ls`
+//! shows.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -61,6 +66,10 @@ struct Cli {
     #[arg(short = 'a', long = "all")]
     all: bool,
 
+    /// Leave matching entries out of the listing and the totals (repeatable)
+    #[arg(short = 'i', long = "ignore", value_name = "PATTERN")]
+    ignore: Vec<String>,
+
     #[command(flatten)]
     completions: Completions,
 }
@@ -87,10 +96,128 @@ struct Row {
     measure: Measure,
 }
 
+#[derive(Default)]
 struct Options {
     lines: bool,
     all: bool,
     display_depth: usize,
+    ignore: Ignore,
+}
+
+/// What a walk found: the totals, the rows worth showing, and every file that
+/// turned out to have more than one name. The links ride along with the rest
+/// rather than through a shared collection, because a tree of build output can
+/// be almost entirely hardlinks and a lock per file is a lock too many.
+#[derive(Default)]
+struct Walked {
+    measure: Measure,
+    rows: Vec<Row>,
+    links: Vec<Link>,
+}
+
+impl Walked {
+    fn of(measure: Measure) -> Walked {
+        Walked {
+            measure,
+            ..Walked::default()
+        }
+    }
+
+    fn unreadable() -> Walked {
+        Walked::of(Measure {
+            unreadable: 1,
+            ..Measure::default()
+        })
+    }
+
+    fn absorb(&mut self, other: Walked) {
+        self.measure.add(other.measure);
+        self.rows.extend(other.rows);
+        self.links.extend(other.links);
+    }
+}
+
+/// One name of a file that has several.
+struct Link {
+    file: (u64, u64),
+    path: String,
+    bytes: u64,
+    lines: u64,
+}
+
+/// Patterns whose matches never enter the walk: no row, no bytes, and for a
+/// directory, nothing underneath it either.
+///
+/// A pattern holding a `/` is matched against the path relative to the target,
+/// anything else against the entry's own name. `*` stands for any run of
+/// characters, `?` for exactly one. A trailing slash is dropped, so `-i bin/`
+/// and `-i bin` mean the same thing — completion tends to supply the slash.
+#[derive(Default)]
+struct Ignore {
+    names: Vec<String>,
+    paths: Vec<String>,
+}
+
+impl Ignore {
+    fn new(patterns: &[String]) -> Ignore {
+        let mut ignore = Ignore::default();
+        for pattern in patterns {
+            let pattern = pattern.strip_suffix('/').unwrap_or(pattern);
+            if pattern.is_empty() {
+                continue;
+            }
+            if pattern.contains('/') {
+                ignore.paths.push(pattern.to_string());
+            } else {
+                ignore.names.push(pattern.to_string());
+            }
+        }
+        ignore
+    }
+
+    fn is_empty(&self) -> bool {
+        self.names.is_empty() && self.paths.is_empty()
+    }
+
+    fn wants_paths(&self) -> bool {
+        !self.paths.is_empty()
+    }
+
+    fn skips_name(&self, name: &str) -> bool {
+        self.names.iter().any(|pattern| matches(pattern, name))
+    }
+
+    fn skips_path(&self, path: &str) -> bool {
+        self.paths.iter().any(|pattern| matches(pattern, path))
+    }
+}
+
+/// Glob matching: `*` for any run of characters, `?` for one. Backtracking is
+/// bounded — a `*` only ever gives back a single character at a time.
+fn matches(pattern: &str, text: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let text: Vec<char> = text.chars().collect();
+    let (mut at_pattern, mut at_text) = (0, 0);
+    let (mut star, mut resume) = (None, 0);
+    while at_text < text.len() {
+        if at_pattern < pattern.len()
+            && (pattern[at_pattern] == '?' || pattern[at_pattern] == text[at_text])
+        {
+            at_pattern += 1;
+            at_text += 1;
+        } else if at_pattern < pattern.len() && pattern[at_pattern] == '*' {
+            star = Some(at_pattern);
+            resume = at_text;
+            at_pattern += 1;
+        } else if let Some(star) = star {
+            at_pattern = star + 1;
+            resume += 1;
+            at_text = resume;
+        } else {
+            return false;
+        }
+    }
+    pattern[at_pattern..].iter().all(|glyph| *glyph == '*')
 }
 
 fn main() -> ExitCode {
@@ -131,8 +258,14 @@ fn main() -> ExitCode {
         lines: cli.lines,
         all: cli.all,
         display_depth,
+        ignore: Ignore::new(&cli.ignore),
     };
-    let (total, mut rows) = walk(&options, &target);
+    let Walked {
+        measure: mut total,
+        mut rows,
+        links,
+    } = walk(&options, &target);
+    dedupe(&mut total, &mut rows, links);
 
     if !listing {
         println!("{}", plain_value(total, cli.lines));
@@ -146,7 +279,7 @@ fn main() -> ExitCode {
 
 /// The walk: in bulk where the platform allows it, otherwise a pool sized for
 /// contention rather than for cores.
-fn walk(options: &Options, target: &Path) -> (Measure, Vec<Row>) {
+fn walk(options: &Options, target: &Path) -> Walked {
     let walk = || {
         #[cfg(target_vendor = "apple")]
         if let Some(walked) = bulk::walk(options, target) {
@@ -159,6 +292,60 @@ fn walk(options: &Options, target: &Path) -> (Measure, Vec<Row>) {
     match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
         Ok(pool) => pool.install(walk),
         Err(_) => walk(),
+    }
+}
+
+/// A file reachable under several names is still one file, so count it for the
+/// first of those names and not again for the rest — what `du` does with
+/// hardlinks. "First" is the lowest path rather than whichever name the walk
+/// happened to reach first, so a parallel walk still answers the same thing
+/// twice running. Every directory the repeat sat under loses those bytes too,
+/// which keeps each row agreeing with the total below it.
+fn dedupe(total: &mut Measure, rows: &mut [Row], mut links: Vec<Link>) {
+    if links.is_empty() {
+        return;
+    }
+    links.sort_unstable_by(|a, b| a.file.cmp(&b.file).then(a.path.cmp(&b.path)));
+
+    // Every name after the first for a given file. Most trees have none, and
+    // one that does still only pays for the repeats themselves.
+    let repeats: Vec<&Link> = links
+        .windows(2)
+        .filter(|pair| pair[0].file == pair[1].file)
+        .map(|pair| &pair[1])
+        .collect();
+    if repeats.is_empty() {
+        return;
+    }
+    for repeat in &repeats {
+        total.bytes -= repeat.bytes;
+        total.lines -= repeat.lines;
+    }
+    if rows.is_empty() {
+        return;
+    }
+
+    let mut adjustments: Vec<(usize, u64, u64)> = Vec::new();
+    {
+        let index: HashMap<&str, usize> = rows
+            .iter()
+            .enumerate()
+            .map(|(at, row)| (row.name.as_str(), at))
+            .collect();
+        for repeat in repeats {
+            let ancestors = std::iter::successors(Some(repeat.path.as_str()), |path| {
+                path.rsplit_once('/').map(|(parent, _)| parent)
+            });
+            for ancestor in ancestors {
+                if let Some(&at) = index.get(ancestor) {
+                    adjustments.push((at, repeat.bytes, repeat.lines));
+                }
+            }
+        }
+    }
+    for (at, bytes, lines) in adjustments {
+        rows[at].measure.bytes -= bytes;
+        rows[at].measure.lines -= lines;
     }
 }
 
@@ -226,6 +413,28 @@ fn is_executable(_metadata: &fs::Metadata) -> bool {
     false
 }
 
+#[cfg(unix)]
+fn nlink(metadata: &fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::nlink(metadata)
+}
+
+/// What makes a file the same file under any of its names.
+#[cfg(unix)]
+fn file_id(metadata: &fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (metadata.dev(), metadata.ino())
+}
+
+#[cfg(not(unix))]
+fn nlink(_metadata: &fs::Metadata) -> u64 {
+    1
+}
+
+#[cfg(not(unix))]
+fn file_id(_metadata: &fs::Metadata) -> (u64, u64) {
+    (0, 0)
+}
+
 fn kind_of(metadata: &fs::Metadata) -> &'static str {
     if metadata.is_dir() {
         "directory"
@@ -289,35 +498,29 @@ fn count_lines_in(file: &mut fs::File) -> Option<u64> {
 /// recorded down to the display depth and, unless `-a`, only for visible
 /// entries — an invisible directory hides its whole subtree from the listing
 /// while still counting toward every total.
-fn walk_directory(
-    options: &Options,
-    directory: &Path,
-    relative: &Path,
-    depth: usize,
-) -> (Measure, Vec<Row>) {
-    let unreadable = || {
-        (
-            Measure {
-                unreadable: 1,
-                ..Measure::default()
-            },
-            Vec::new(),
-        )
-    };
+fn walk_directory(options: &Options, directory: &Path, relative: &Path, depth: usize) -> Walked {
     let entries: Vec<fs::DirEntry> = match fs::read_dir(directory) {
         Ok(entries) => entries.flatten().collect(),
-        Err(_) => return unreadable(),
+        Err(_) => return Walked::unreadable(),
     };
     entries
         .into_par_iter()
         .map(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
+            if !options.ignore.is_empty() && options.ignore.skips_name(&name) {
+                return Walked::default();
+            }
             let child_relative = relative.join(&name);
+            if options.ignore.wants_paths()
+                && options.ignore.skips_path(&child_relative.to_string_lossy())
+            {
+                return Walked::default();
+            }
             let Ok(metadata) = entry.metadata() else {
-                return unreadable();
+                return Walked::unreadable();
             };
             let visible = depth < options.display_depth && (options.all || !hidden(&name));
-            let (measure, mut rows) = if metadata.is_dir() {
+            let mut walked = if metadata.is_dir() {
                 // A hidden directory's children stay out of the listing even
                 // with room left in the depth budget, so cap their display
                 // depth.
@@ -328,29 +531,33 @@ fn walk_directory(
                 };
                 walk_directory(options, &entry.path(), &child_relative, child_depth)
             } else {
-                (
-                    measure_file(&entry.path(), &metadata, options.lines),
-                    Vec::new(),
-                )
+                let measure = measure_file(&entry.path(), &metadata, options.lines);
+                let mut walked = Walked::of(measure);
+                if nlink(&metadata) > 1 {
+                    walked.links.push(Link {
+                        file: file_id(&metadata),
+                        path: child_relative.to_string_lossy().to_string(),
+                        bytes: measure.bytes,
+                        lines: measure.lines,
+                    });
+                }
+                walked
             };
             if visible {
-                rows.push(Row {
+                let measure = walked.measure;
+                walked.rows.push(Row {
                     name: child_relative.to_string_lossy().to_string(),
                     kind: kind_of(&metadata),
                     executable: is_executable(&metadata),
                     measure,
                 });
             }
-            (measure, rows)
+            walked
         })
-        .reduce(
-            || (Measure::default(), Vec::new()),
-            |mut left, right| {
-                left.0.add(right.0);
-                left.1.extend(right.1);
-                (left.0, left.1)
-            },
-        )
+        .reduce(Walked::default, |mut left, right| {
+            left.absorb(right);
+            left
+        })
 }
 
 /// Smallest first, biggest last — the largest entries land next to the total,
@@ -416,6 +623,7 @@ struct Palette {
     link: String,
     executable: String,
     file: Option<String>,
+    extensions: HashMap<String, String>,
 }
 
 impl Palette {
@@ -430,45 +638,72 @@ impl Palette {
         Palette::parse(&table)
     }
 
+    /// Later entries win, the way both `ls` and eza read these tables: the
+    /// theme states a category and then overrides single extensions after it.
     fn parse(table: &str) -> Palette {
-        let lookup = |key: &str| {
-            table.split(':').find_map(|entry| {
-                entry
-                    .strip_prefix(key)?
-                    .strip_prefix('=')
-                    .map(str::to_string)
-            })
+        let mut palette = Palette {
+            directory: "01;34".to_string(),
+            link: "01;36".to_string(),
+            executable: "01;32".to_string(),
+            file: None,
+            extensions: HashMap::new(),
         };
-        Palette {
-            directory: lookup("di").unwrap_or_else(|| "01;34".to_string()),
-            link: lookup("ln").unwrap_or_else(|| "01;36".to_string()),
-            executable: lookup("ex").unwrap_or_else(|| "01;32".to_string()),
-            file: lookup("fi"),
+        for entry in table.split(':') {
+            let Some((key, color)) = entry.split_once('=') else {
+                continue;
+            };
+            match key {
+                "di" => palette.directory = color.to_string(),
+                "ln" => palette.link = color.to_string(),
+                "ex" => palette.executable = color.to_string(),
+                "fi" => palette.file = Some(color.to_string()),
+                _ => {
+                    if let Some(extension) = key.strip_prefix("*.") {
+                        palette
+                            .extensions
+                            .insert(extension.to_lowercase(), color.to_string());
+                    }
+                }
+            }
         }
+        palette
     }
 
-    fn color(&self, row: &Row) -> Option<&str> {
+    /// Kind first, the way `ls` orders it: a directory, link or executable is
+    /// coloured for what it is, and only a plain file is coloured for what it
+    /// is named.
+    fn color(&self, row: &Row, base: &str) -> Option<&str> {
         match row.kind {
             "directory" => Some(&self.directory),
             "link" => Some(&self.link),
             _ if row.executable => Some(&self.executable),
-            _ => self.file.as_deref(),
+            _ => extension_of(base)
+                .and_then(|extension| self.extensions.get(extension))
+                .map(String::as_str)
+                .or(self.file.as_deref()),
         }
     }
 }
 
+/// The final path component, lowercased: what the colour table and the icon
+/// table both match against.
+fn basename(name: &str) -> String {
+    name.rsplit('/').next().unwrap_or(name).to_lowercase()
+}
+
+fn extension_of(base: &str) -> Option<&str> {
+    match base.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => Some(extension),
+        _ => None,
+    }
+}
+
 /// The Nerd Font glyph eza would show for this entry.
-fn icon_for(row: &Row) -> char {
+fn icon_for(row: &Row, base: &str) -> char {
     if row.kind == "directory" {
         return '\u{f115}';
     }
-    let base = row
-        .name
-        .rsplit('/')
-        .next()
-        .unwrap_or(&row.name)
-        .to_lowercase();
-    match base.as_str() {
+    match base {
         "dockerfile" => return '\u{e650}',
         "makefile" | "justfile" => return '\u{e673}',
         "license" | "license.md" | "license.txt" => return '\u{f02d}',
@@ -478,11 +713,7 @@ fn icon_for(row: &Row) -> char {
     if base.starts_with(".git") {
         return '\u{f02a2}';
     }
-    let extension = match base.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() => extension,
-        _ => "",
-    };
-    match extension {
+    match extension_of(base).unwrap_or("") {
         "rs" => '\u{e68b}',
         "py" => '\u{e606}',
         "js" | "mjs" | "cjs" => '\u{e74e}',
@@ -548,8 +779,9 @@ fn print_table(rows: &[Row], total: Measure, lines: bool) {
         let padding = " ".repeat(name_width - row.name.chars().count() - prefix);
         let _ = match palette.as_ref() {
             Some(palette) => {
-                let icon = icon_for(row);
-                match palette.color(row) {
+                let base = basename(&row.name);
+                let icon = icon_for(row, &base);
+                match palette.color(row, &base) {
                     Some(color) => writeln!(
                         out,
                         "\x1b[{color}m{icon} {}{reset}{padding}  {value:>value_width$}",
@@ -592,10 +824,13 @@ mod tests {
             lines,
             all,
             display_depth: depth,
+            ..Options::default()
         };
-        let (total, mut rows) = walk_directory(&options, root, Path::new(""), 0);
+        let Walked {
+            measure, mut rows, ..
+        } = walk_directory(&options, root, Path::new(""), 0);
         sort_rows(&mut rows, lines);
-        (rows, total)
+        (rows, measure)
     }
 
     #[test]
@@ -703,36 +938,260 @@ mod tests {
     #[test]
     fn the_palette_reads_the_themes_entries() {
         let palette = Palette::parse("reset:fi=38;2;186:di=38;2;61:ex=38;2;124:ln=38;2;26");
-        assert_eq!(palette.color(&row("src", "directory")), Some("38;2;61"));
-        assert_eq!(palette.color(&row("link", "link")), Some("38;2;26"));
-        assert_eq!(palette.color(&row("notes.txt", "file")), Some("38;2;186"));
+        assert_eq!(
+            palette.color(&row("src", "directory"), "src"),
+            Some("38;2;61")
+        );
+        assert_eq!(palette.color(&row("link", "link"), "link"), Some("38;2;26"));
+        assert_eq!(
+            palette.color(&row("notes.txt", "file"), "notes.txt"),
+            Some("38;2;186")
+        );
         let mut runnable = row("build.sh", "file");
         runnable.executable = true;
-        assert_eq!(palette.color(&runnable), Some("38;2;124"));
+        assert_eq!(palette.color(&runnable, "build.sh"), Some("38;2;124"));
     }
 
     #[test]
     fn an_empty_table_falls_back_to_the_gnu_defaults() {
         let palette = Palette::parse("");
-        assert_eq!(palette.color(&row("src", "directory")), Some("01;34"));
-        assert_eq!(palette.color(&row("notes.txt", "file")), None);
+        assert_eq!(
+            palette.color(&row("src", "directory"), "src"),
+            Some("01;34")
+        );
+        assert_eq!(palette.color(&row("notes.txt", "file"), "notes.txt"), None);
     }
 
     /// `di` must not match `dirty=`; only a whole key followed by `=` counts.
     #[test]
     fn a_longer_key_is_not_mistaken_for_a_shorter_one() {
         let palette = Palette::parse("dirty=1:link=2");
-        assert_eq!(palette.color(&row("src", "directory")), Some("01;34"));
-        assert_eq!(palette.color(&row("l", "link")), Some("01;36"));
+        assert_eq!(
+            palette.color(&row("src", "directory"), "src"),
+            Some("01;34")
+        );
+        assert_eq!(palette.color(&row("l", "link"), "l"), Some("01;36"));
+    }
+
+    /// A tree where one file is reachable under two names, plus a name that
+    /// sorts before both so the walk has to pick rather than take the first.
+    fn linked() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("apples")).unwrap();
+        fs::create_dir(root.path().join("bananas")).unwrap();
+        fs::write(root.path().join("apples/one.txt"), "hello\n").unwrap();
+        fs::hard_link(
+            root.path().join("apples/one.txt"),
+            root.path().join("bananas/two.txt"),
+        )
+        .unwrap();
+        fs::write(root.path().join("solo.txt"), "abc").unwrap();
+        root
+    }
+
+    fn walk_and_dedupe(options: &Options, root: &Path) -> (Measure, Vec<Row>) {
+        let Walked {
+            measure: mut total,
+            mut rows,
+            links,
+        } = walk_directory(options, root, Path::new(""), 0);
+        dedupe(&mut total, &mut rows, links);
+        (total, rows)
+    }
+
+    #[test]
+    fn a_file_with_two_names_counts_once() {
+        let root = linked();
+        let options = Options {
+            display_depth: usize::MAX,
+            ..Options::default()
+        };
+        let (total, _) = walk_and_dedupe(&options, root.path());
+        // 6 for the linked file, counted once, and 3 for the other.
+        assert_eq!(total.bytes, 6 + 3);
+    }
+
+    /// The lowest path keeps the bytes, so a parallel walk cannot change which
+    /// of the names is the one that counts.
+    #[test]
+    fn the_lowest_path_is_the_one_that_counts() {
+        let root = linked();
+        let options = Options {
+            display_depth: usize::MAX,
+            ..Options::default()
+        };
+        for _ in 0..8 {
+            let (_, rows) = walk_and_dedupe(&options, root.path());
+            let bytes = |name: &str| {
+                rows.iter()
+                    .find(|row| row.name == name)
+                    .unwrap_or_else(|| panic!("no row for {name}"))
+                    .measure
+                    .bytes
+            };
+            assert_eq!(bytes("apples/one.txt"), 6);
+            assert_eq!(bytes("bananas/two.txt"), 0);
+            // The directory the repeat sat in loses the bytes with it, so the
+            // rows still agree with the total.
+            assert_eq!(bytes("apples"), 6);
+            assert_eq!(bytes("bananas"), 0);
+        }
+    }
+
+    /// Only one of the names is inside the tree, so there is nothing to
+    /// discount — the same answer `du` gives.
+    #[test]
+    fn a_link_from_outside_the_tree_still_counts() {
+        let root = linked();
+        let options = Options {
+            display_depth: usize::MAX,
+            ..Options::default()
+        };
+        let (total, _) = walk_and_dedupe(&options, &root.path().join("apples"));
+        assert_eq!(total.bytes, 6);
+    }
+
+    #[test]
+    fn globs_match_the_way_the_shell_would() {
+        assert!(matches("bin", "bin"));
+        assert!(!matches("bin", "binary"));
+        assert!(matches("*.log", "server.log"));
+        assert!(!matches("*.log", "server.log.gz"));
+        assert!(matches("*.log*", "server.log.gz"));
+        assert!(matches("node_*", "node_modules"));
+        assert!(matches("?ar", "tar"));
+        assert!(!matches("?ar", "star"));
+        assert!(matches("*", "anything"));
+        assert!(matches("*", ""));
+        assert!(matches("a*b*c", "axxbyyc"));
+        assert!(!matches("a*b*c", "axxbyy"));
+    }
+
+    #[test]
+    fn ignored_entries_leave_the_totals_as_well_as_the_rows() {
+        let root = tree();
+        let ignore = Ignore::new(&["assets".to_string()]);
+        let options = Options {
+            display_depth: 1,
+            ignore,
+            ..Options::default()
+        };
+        let walked = walk_directory(&options, root.path(), Path::new(""), 0);
+        // assets/a.bin is 2500 of the tree's bytes, and goes with it.
+        assert_eq!(walked.measure.bytes, 14 + 7 + 100);
+        assert!(!walked.rows.iter().any(|row| row.name == "assets"));
+    }
+
+    #[test]
+    fn a_trailing_slash_on_a_pattern_is_ignored() {
+        let root = tree();
+        for pattern in ["assets", "assets/"] {
+            let options = Options {
+                display_depth: 1,
+                ignore: Ignore::new(&[pattern.to_string()]),
+                ..Options::default()
+            };
+            let walked = walk_directory(&options, root.path(), Path::new(""), 0);
+            assert_eq!(walked.measure.bytes, 14 + 7 + 100, "pattern {pattern}");
+        }
+    }
+
+    /// A pattern with a slash in it is about where the entry sits, not what it
+    /// is called.
+    #[test]
+    fn a_pattern_with_a_slash_matches_the_relative_path() {
+        let root = tree();
+        let by_path = Options {
+            display_depth: usize::MAX,
+            ignore: Ignore::new(&["assets/a.bin".to_string()]),
+            ..Options::default()
+        };
+        let walked = walk_directory(&by_path, root.path(), Path::new(""), 0);
+        assert_eq!(walked.measure.bytes, 14 + 7 + 100);
+
+        // The same text as a bare name matches nothing, since no entry is
+        // called "assets/a.bin".
+        let by_name = Options {
+            display_depth: usize::MAX,
+            ignore: Ignore::new(&["a.bin".to_string()]),
+            ..Options::default()
+        };
+        let walked = walk_directory(&by_name, root.path(), Path::new(""), 0);
+        assert_eq!(walked.measure.bytes, 14 + 7 + 100);
+    }
+
+    #[test]
+    fn extension_colours_come_from_the_table() {
+        let palette = Palette::parse("fi=plain:*.rs=rust:*.MD=doc");
+        assert_eq!(
+            palette.color(&row("main.rs", "file"), "main.rs"),
+            Some("rust")
+        );
+        // The table's case should not decide whether a file matches.
+        assert_eq!(
+            palette.color(&row("README.md", "file"), "readme.md"),
+            Some("doc")
+        );
+        assert_eq!(
+            palette.color(&row("notes.txt", "file"), "notes.txt"),
+            Some("plain")
+        );
+    }
+
+    /// What an entry *is* outranks what it is named, the way `ls` orders it.
+    #[test]
+    fn kind_outranks_extension() {
+        let palette = Palette::parse("di=dir:ex=exec:ln=link:*.rs=rust");
+        assert_eq!(
+            palette.color(&row("src.rs", "directory"), "src.rs"),
+            Some("dir")
+        );
+        assert_eq!(palette.color(&row("to.rs", "link"), "to.rs"), Some("link"));
+        let mut runnable = row("build.rs", "file");
+        runnable.executable = true;
+        assert_eq!(palette.color(&runnable, "build.rs"), Some("exec"));
+    }
+
+    /// The theme names a category and then overrides single extensions after
+    /// it, so the later entry has to be the one that sticks.
+    #[test]
+    fn a_later_entry_overrides_an_earlier_one() {
+        let palette = Palette::parse("*.toml=first:*.toml=second:fi=one:fi=two");
+        assert_eq!(
+            palette.color(&row("Cargo.toml", "file"), "cargo.toml"),
+            Some("second")
+        );
+        assert_eq!(palette.color(&row("plain", "file"), "plain"), Some("two"));
     }
 
     #[test]
     fn icons_follow_the_eza_table() {
-        assert_eq!(icon_for(&row("src", "directory")), '\u{f115}');
-        assert_eq!(icon_for(&row("main.rs", "file")), '\u{e68b}');
-        assert_eq!(icon_for(&row("deep/path/notes.md", "file")), '\u{f48a}');
-        assert_eq!(icon_for(&row("README.md", "file")), '\u{f00ba}');
-        assert_eq!(icon_for(&row(".gitignore", "file")), '\u{f02a2}');
-        assert_eq!(icon_for(&row("mystery", "file")), '\u{f086f}');
+        assert_eq!(
+            icon_for(&row("src", "directory"), &basename("src")),
+            '\u{f115}'
+        );
+        assert_eq!(
+            icon_for(&row("main.rs", "file"), &basename("main.rs")),
+            '\u{e68b}'
+        );
+        assert_eq!(
+            icon_for(
+                &row("deep/path/notes.md", "file"),
+                &basename("deep/path/notes.md")
+            ),
+            '\u{f48a}'
+        );
+        assert_eq!(
+            icon_for(&row("README.md", "file"), &basename("README.md")),
+            '\u{f00ba}'
+        );
+        assert_eq!(
+            icon_for(&row(".gitignore", "file"), &basename(".gitignore")),
+            '\u{f02a2}'
+        );
+        assert_eq!(
+            icon_for(&row("mystery", "file"), &basename("mystery")),
+            '\u{f086f}'
+        );
     }
 }
