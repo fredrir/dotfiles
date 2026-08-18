@@ -15,13 +15,16 @@
 //!   (identical request_uid/method/payload).
 //! - Every attempt records a stable typed outcome token on its route.
 
-use std::io::{Read, Write};
-use std::process::{Command, Stdio};
+use std::io::Write;
+use std::os::unix::process::CommandExt;
+use std::process::{Child, Command, Stdio};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::childio::{BoundedCapture, bounded_read, kill_process_group};
 use crate::error::{ErrorCode, TypedError};
 use crate::model::{BackendInstanceUid, HostUid, ServerEpoch};
 use crate::recovery::{RecoveryControlAction, RecoveryControlRequest, RecoveryInspection};
@@ -260,67 +263,190 @@ impl RouteInvoker for DirectInvoker {
 // ---------------------------------------------------------------------------
 // One transport exchange
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Cap on the reply document one transport child may hand back.
+///
+/// stdout here carries exactly ONE JSON envelope, and the largest legitimate
+/// one is a `hello` whose payload holds the peer's FULL recorded revision
+/// chain from genesis ([`crate::remote::protocol::HelloInfo::revision_chain`],
+/// roughly 250 bytes per link) — so this admits a peer with some sixteen
+/// thousand authority revisions, orders of magnitude past any real registry.
+/// It sits deliberately between the crate's other single-document bounds:
+/// far above one GUI bridge message ([`crate::gui::MAX_MESSAGE_BYTES`],
+/// 64 KiB) because an envelope carries a whole payload, and far below a
+/// recovery manifest (16 MiB) because an envelope is not a manifest.
+///
+/// Past the cap the capture is a PREFIX, and [`interpret_reply`] refuses it
+/// as a typed malformed response rather than letting `serde_json` report the
+/// truncation as a confusing parse error.
+const MAX_REPLY_STDOUT_BYTES: usize = 4 * 1024 * 1024;
+
+/// Cap on one transport child's diagnostics.
+///
+/// Only [`first_line`] and [`classify_ssh_255`] ever read this stream, and
+/// the largest real ssh diagnostic — the changed-host-key warning block — is
+/// about a kilobyte, so this leaves ~60x headroom.  Truncation drops the
+/// TAIL, so the first line these two report survives it; a genuine ssh
+/// diagnostic pushed past the cap by peer noise simply matches no frozen
+/// shape and lands in the conservative unclassified-255 class, which is
+/// terminal rather than retried.
+const MAX_REPLY_STDERR_BYTES: usize = 64 * 1024;
+
+/// How long a reader thread may still be draining after the child is gone
+/// before it is abandoned instead of joined.
+///
+/// Once the direct child has exited, everything it wrote is already in the
+/// pipe buffer and drains in microseconds.  The only way to exceed this is a
+/// surviving descendant holding the write end open — precisely the case that
+/// must not turn into an unbounded join.
+const READER_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RawReply {
     pub status: i32,
     pub stdout: String,
     pub stderr: String,
+    /// The child wrote more than [`MAX_REPLY_STDOUT_BYTES`], so `stdout`
+    /// holds only a prefix of what it sent.  A prefix of an envelope is not
+    /// a short envelope — it is not an envelope at all — so
+    /// [`interpret_reply`] refuses it outright.
+    pub stdout_truncated: bool,
 }
 
-/// Spawn `argv`, write `request_bytes` to stdin, read stdout/stderr to EOF
-/// under the dmux-imposed deadline.
+/// Whether the transport child keeps this process's controlling-terminal
+/// foreground process group.
+///
+/// `read_to_end` on a child pipe returns only when EVERY write end is
+/// closed — the direct child's and every descendant's that inherited the
+/// descriptor.  Killing one pid therefore does not guarantee EOF, and the
+/// join that follows can outlive the deadline it was meant to obey.  A child
+/// spawned as its own group leader can be signalled as a group, which does
+/// guarantee it (see [`crate::childio`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportIsolation {
+    /// The child leads its own process group, so the exit and deadline paths
+    /// can close pipe write ends inherited by a backgrounded `ControlMaster`,
+    /// a `ProxyCommand` helper, or an askpass child as well as the direct
+    /// child's own.
+    ///
+    /// Such a group is a BACKGROUND group of this session's controlling
+    /// terminal, so any read of `/dev/tty` in it raises `SIGTTIN` and stops
+    /// the child.  Use this only for a transport that cannot prompt: the
+    /// route walk's `ssh -oBatchMode=yes`, or a direct local agent.
+    OwnProcessGroup,
+    /// The child shares this process's group, so OpenSSH's `/dev/tty`
+    /// prompts — first-contact host-key confirmation, key passphrases —
+    /// still reach the user.  Enrollment's deliberately non-BatchMode hello
+    /// (`remote::enroll`) needs exactly that, and pays for it with a
+    /// deadline that can only kill the direct child; the bounded reader
+    /// joins below are what keep even that case from hanging forever.
+    SharedProcessGroup,
+}
+
+/// Spawn `argv`, write `request_bytes` to stdin, read a bounded stdout and
+/// stderr under the dmux-imposed deadline.
+///
+/// This signature keeps the caller's process group, because the one caller
+/// of it outside the route walk is enrollment's non-BatchMode hello, whose
+/// host-key confirmation must reach the terminal.  The route walk calls
+/// [`exchange_with`] with [`TransportIsolation::OwnProcessGroup`].
 pub fn exchange(
     argv: &[String],
     request_bytes: &[u8],
     deadline: Duration,
 ) -> Result<RawReply, SpawnFailure> {
+    exchange_with(
+        argv,
+        request_bytes,
+        deadline,
+        TransportIsolation::SharedProcessGroup,
+    )
+}
+
+/// [`exchange`], with the child's process-group isolation chosen explicitly.
+pub fn exchange_with(
+    argv: &[String],
+    request_bytes: &[u8],
+    deadline: Duration,
+    isolation: TransportIsolation,
+) -> Result<RawReply, SpawnFailure> {
     let (program, args) = argv.split_first().ok_or_else(|| SpawnFailure {
         detail: "empty transport argv".to_string(),
     })?;
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| SpawnFailure {
-            detail: format!("spawn {program}: {e}"),
-        })?;
+        .stderr(Stdio::piped());
+    if isolation == TransportIsolation::OwnProcessGroup {
+        // Isolate the transport so exit/timeout can close pipes inherited by
+        // a descendant as well as by the direct child.
+        command.process_group(0);
+    }
+    let mut child = command.spawn().map_err(|e| SpawnFailure {
+        detail: format!("spawn {program}: {e}"),
+    })?;
+
+    // Drain both pipes BEFORE writing the request. A peer that answers
+    // before it finishes reading would otherwise fill its stdout pipe while
+    // this thread is still blocked in `write_all`, and neither side could
+    // progress — a deadlock reached before the deadline loop even starts.
+    // Both captures are bounded, so no reply and no diagnostic stream can
+    // grow local memory without limit for the length of the deadline.
+    let stdout_pipe = child.stdout.take().expect("piped stdout");
+    let stderr_pipe = child.stderr.take().expect("piped stderr");
+    let out_reader = std::thread::spawn(move || bounded_read(stdout_pipe, MAX_REPLY_STDOUT_BYTES));
+    let err_reader = std::thread::spawn(move || bounded_read(stderr_pipe, MAX_REPLY_STDERR_BYTES));
+
     // Write the one request document, then close stdin so the agent's
     // read-to-EOF completes.
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(request_bytes);
+    //
+    // The write is no longer discarded: a partial write followed by an error
+    // hands the peer a truncated document that still looks well formed, and
+    // idempotency is keyed on that document's own digest. A BROKEN PIPE is
+    // the deliberate exception — it means the child is already gone and its
+    // exit status is the real diagnostic. A missing remote `dmux` closes
+    // stdin exactly that way, and must stay the terminal `CommandMissing`
+    // class instead of becoming a retryable transport failure that re-sends
+    // the request to every other route.
+    if let Some(mut stdin) = child.stdin.take()
+        && let Err(error) = stdin.write_all(request_bytes)
+        && error.kind() != std::io::ErrorKind::BrokenPipe
+    {
+        drop(stdin);
+        abandon_child(&mut child, isolation, out_reader, err_reader);
+        return Err(SpawnFailure {
+            detail: format!("writing the request to {program} stdin: {error}"),
+        });
     }
-    let mut stdout_pipe = child.stdout.take().expect("piped stdout");
-    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
-    let out_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout_pipe.read_to_end(&mut buf);
-        buf
-    });
-    let err_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut buf);
-        buf
-    });
+
     let started = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stdout = out_reader.join().unwrap_or_default();
-                let stderr = err_reader.join().unwrap_or_default();
+                // The direct child is gone; close any write end an inherited
+                // descendant still holds so both captures reach EOF.
+                if isolation == TransportIsolation::OwnProcessGroup {
+                    kill_process_group(child.id());
+                }
+                let stdout = join_capture(out_reader).ok_or_else(|| SpawnFailure {
+                    detail: format!(
+                        "{program} exited but its stdout pipe stayed open past {}ms — \
+                         a surviving descendant still holds it",
+                        READER_DRAIN_GRACE.as_millis()
+                    ),
+                })?;
+                let stderr = join_capture(err_reader).unwrap_or_default();
                 return Ok(RawReply {
                     status: status.code().unwrap_or(-1),
-                    stdout: String::from_utf8_lossy(&stdout).into_owned(),
-                    stderr: String::from_utf8_lossy(&stderr).into_owned(),
+                    stdout: into_lossy_string(stdout.bytes),
+                    stderr: into_lossy_string(stderr.bytes),
+                    stdout_truncated: stdout.truncated,
                 });
             }
             Ok(None) => {
                 if started.elapsed() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = out_reader.join();
-                    let _ = err_reader.join();
+                    abandon_child(&mut child, isolation, out_reader, err_reader);
                     return Err(SpawnFailure {
                         detail: format!(
                             "dmux-imposed deadline ({}ms) elapsed",
@@ -331,12 +457,63 @@ pub fn exchange(
                 std::thread::sleep(Duration::from_millis(5));
             }
             Err(e) => {
-                let _ = child.kill();
+                abandon_child(&mut child, isolation, out_reader, err_reader);
                 return Err(SpawnFailure {
                     detail: format!("wait {program}: {e}"),
                 });
             }
         }
+    }
+}
+
+/// Kill the transport child — and, when it was isolated, everything it
+/// spawned — then let both readers finish, mirroring the ordering of
+/// `wez_compat::run_probe`: group kill, direct kill, reap, join.
+///
+/// The group kill comes first so the inherited pipe write ends are already
+/// closed by the time the joins run; the direct `kill`/`wait` still runs so
+/// a shared-group child is terminated and reaped rather than left a zombie.
+fn abandon_child(
+    child: &mut Child,
+    isolation: TransportIsolation,
+    out_reader: JoinHandle<BoundedCapture>,
+    err_reader: JoinHandle<BoundedCapture>,
+) {
+    if isolation == TransportIsolation::OwnProcessGroup {
+        kill_process_group(child.id());
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = join_capture(out_reader);
+    let _ = join_capture(err_reader);
+}
+
+/// Join one bounded reader, or abandon it after [`READER_DRAIN_GRACE`].
+///
+/// `std` has no timed join, and an untimed one is the whole hazard: a
+/// descendant holding the inherited write end keeps the reader blocked in
+/// `read`, so a plain `join()` after the deadline would void the deadline.
+/// Abandoning the thread costs one bounded buffer that is freed when the
+/// pipe finally closes; blocking on it costs the guarantee.
+fn join_capture(reader: JoinHandle<BoundedCapture>) -> Option<BoundedCapture> {
+    let until = Instant::now() + READER_DRAIN_GRACE;
+    while !reader.is_finished() {
+        if Instant::now() >= until {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    reader.join().ok()
+}
+
+/// `String::from_utf8_lossy(&bytes).into_owned()` without the second
+/// allocation: valid UTF-8 (the only shape a real reply has) reuses the
+/// capture's buffer, and only the lossy path — byte-identical to the old
+/// one — allocates.
+fn into_lossy_string(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
     }
 }
 
@@ -439,46 +616,134 @@ impl AttemptFailure {
     }
 }
 
+/// One frozen OpenSSH exit-255 diagnostic, recognized inside a SINGLE
+/// stderr line rather than anywhere in the captured blob.
+///
+/// The blob is not ssh's alone: the same stream carries whatever the remote
+/// command wrote, so a bare `contains` over it lets a peer pick this
+/// client's failure class with one line of prose.  ssh writes its
+/// diagnostics as `<context>: <context>: <reason>`, so a real one always
+/// OPENS one of a line's `": "`-delimited segments — `opener` is anchored
+/// to a segment start for exactly that reason, and prose that merely
+/// mentions the phrase mid-sentence opens no segment.
+///
+/// `also` names the rest of a two-part OpenSSH sentence whose middle is
+/// host-specific; it must follow `opener` within that same segment.
+struct SshDiagnostic {
+    opener: &'static str,
+    also: Option<&'static str>,
+}
+
+/// A one-part diagnostic: the segment begins with this reason.
+const fn shape(opener: &'static str) -> SshDiagnostic {
+    SshDiagnostic { opener, also: None }
+}
+
+/// A two-part OpenSSH sentence: the segment begins with `opener` and the
+/// rest of the sentence follows somewhere after the host-specific middle.
+const fn sentence(opener: &'static str, also: &'static str) -> SshDiagnostic {
+    SshDiagnostic {
+        opener,
+        also: Some(also),
+    }
+}
+
 /// The pre-authentication transport stderr classes (§8.3, exhaustive by
-/// substring on ssh's exit-255 diagnostics).
-const TRANSPORT_STDERR: &[&str] = &[
-    "connection refused",
-    "connection reset",
-    "connection timed out",
-    "operation timed out",
-    "timed out",
-    "no route to host",
-    "network is unreachable",
-    "could not resolve hostname",
-    "name or service not known",
-    "temporary failure in name resolution",
-    "nodename nor servname provided",
+/// anchored shape on ssh's exit-255 diagnostics).
+const TRANSPORT_STDERR: &[SshDiagnostic] = &[
+    shape("connection refused"),
+    // Also covers the "connection reset by peer" spelling.
+    shape("connection reset"),
+    // The two real timeout spellings only. A bare "timed out" used to be
+    // listed as a catch-all and matched anywhere in the blob, which let peer
+    // prose promote an unclassified — deliberately terminal — 255 into the
+    // one retryable class.
+    shape("connection timed out"),
+    shape("operation timed out"),
+    shape("no route to host"),
+    shape("network is unreachable"),
+    shape("could not resolve hostname"),
+    shape("name or service not known"),
+    shape("temporary failure in name resolution"),
+    shape("nodename nor servname provided"),
     // The server closed the TCP stream during connect/kex — before
     // authentication ("Connection closed by <addr> port <n>"; sshd rate
-    // limiting/MaxStartups early drop presents this way). Post-auth
-    // closures print "Connection to <host> closed" instead, which does
-    // NOT match this pattern.
-    "connection closed by",
+    // limiting/MaxStartups early drop presents this way, as does
+    // "kex_exchange_identification: Connection closed by remote host").
+    // Post-auth closures print "Connection to <host> closed" instead, which
+    // opens no segment with this reason and so does NOT match.
+    shape("connection closed by"),
 ];
 
-const HOSTKEY_STDERR: &[&str] = &[
-    "host key verification failed",
-    "remote host identification has changed",
-    "no matching host key type",
-    "host key for",
+const HOSTKEY_STDERR: &[SshDiagnostic] = &[
+    shape("host key verification failed"),
+    // "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" — the warning
+    // banner opens a segment after "warning: ".
+    shape("remote host identification has changed"),
+    // "Unable to negotiate with <addr> port <n>: no matching host key type
+    // found. Their offer: ..." — the reason opens the second segment.
+    shape("no matching host key type"),
+    // The WHOLE OpenSSH sentence, not the bare phrase. "host key for" on
+    // its own is three common words: matched loosely it let one line of
+    // peer-authored text force the terminal HostKey class, disabling route
+    // failover and persisting `host_key_failed` — the strongest trust
+    // signal the route table records — on a lie.
+    sentence(
+        "host key for",
+        "has changed and you have requested strict checking",
+    ),
 ];
 
-const AUTH_STDERR: &[&str] = &[
-    "permission denied",
-    "too many authentication failures",
-    "authentication failed",
-    "no supported authentication methods",
+const AUTH_STDERR: &[SshDiagnostic] = &[
+    // "<user>@<host>: Permission denied (publickey)." — the reason opens
+    // the segment after the destination.
+    shape("permission denied"),
+    // "Received disconnect from <addr> port <n>:<r>: Too many
+    // authentication failures".
+    shape("too many authentication failures"),
+    shape("authentication failed"),
+    shape("no supported authentication methods"),
 ];
+
+/// The `": "`-delimited segments of one diagnostic line, from the whole line
+/// down to each tail that begins just after a separator.
+fn diagnostic_segments(line: &str) -> impl Iterator<Item = &str> {
+    std::iter::once(line).chain(
+        line.match_indices(": ")
+            .map(|(at, separator)| &line[at + separator.len()..]),
+    )
+}
+
+/// Does any single line of `lines` (already trimmed and lowercased) carry
+/// one of `shapes`?
+fn any_line_matches(lines: &[String], shapes: &[SshDiagnostic]) -> bool {
+    lines.iter().any(|line| {
+        diagnostic_segments(line).any(|segment| {
+            shapes.iter().any(|shape| {
+                segment
+                    .strip_prefix(shape.opener)
+                    .is_some_and(|rest| shape.also.is_none_or(|tail| rest.contains(tail)))
+            })
+        })
+    })
+}
 
 /// Classify one ssh exit-255 stderr. Unknown 255 diagnostics are NOT
 /// retried: retry eligibility must be positively enumerated (§8.3).
+///
+/// Matching is per line and anchored (see [`SshDiagnostic`]), because this
+/// capture also carries the remote command's stderr. That raises the bar
+/// from "any prose containing the phrase" to "a line that IS the ssh
+/// sentence"; it cannot make a merged stream attributable, so a peer able to
+/// reproduce a diagnostic verbatim can still pick a class. Anchoring is what
+/// keeps ordinary output — a log line, a banner, a build message — from
+/// doing it by accident.
 pub fn classify_ssh_255(stderr: &str) -> AttemptFailure {
-    let lower = stderr.to_lowercase();
+    let lines: Vec<String> = stderr
+        .lines()
+        .map(|line| line.trim().to_lowercase())
+        .filter(|line| !line.is_empty())
+        .collect();
     let detail = || {
         stderr
             .lines()
@@ -487,15 +752,16 @@ pub fn classify_ssh_255(stderr: &str) -> AttemptFailure {
             .unwrap_or("ssh exited 255")
             .to_string()
     };
-    // Host-key classes first: "Host key verification failed" must never be
-    // mistaken for a generic failure.
-    if HOSTKEY_STDERR.iter().any(|p| lower.contains(p)) {
+    // Class-major, host-key classes first: "Host key verification failed"
+    // must never be mistaken for a generic failure, wherever in the capture
+    // it appears relative to the other lines.
+    if any_line_matches(&lines, HOSTKEY_STDERR) {
         return AttemptFailure::HostKey { detail: detail() };
     }
-    if AUTH_STDERR.iter().any(|p| lower.contains(p)) {
+    if any_line_matches(&lines, AUTH_STDERR) {
         return AttemptFailure::Auth { detail: detail() };
     }
-    if TRANSPORT_STDERR.iter().any(|p| lower.contains(p)) {
+    if any_line_matches(&lines, TRANSPORT_STDERR) {
         return AttemptFailure::Transport { detail: detail() };
     }
     AttemptFailure::Malformed {
@@ -507,6 +773,18 @@ pub fn classify_ssh_255(stderr: &str) -> AttemptFailure {
 /// The agent exits nonzero for typed errors while still writing one valid
 /// envelope, so a parseable envelope always wins over the exit status.
 pub fn interpret_reply(reply: &RawReply, request_uid: Uuid) -> Result<Envelope, AttemptFailure> {
+    // Checked before the parse, and regardless of whether the prefix happens
+    // to parse: a capture that hit its cap is not the document the peer
+    // sent, and an oversized reply must be a typed failure rather than a
+    // silently short buffer whose parse error names a column instead of the
+    // bound it broke.
+    if reply.stdout_truncated {
+        return Err(AttemptFailure::Malformed {
+            detail: format!(
+                "agent response exceeded the {MAX_REPLY_STDOUT_BYTES}-byte reply bound"
+            ),
+        });
+    }
     if let Ok(envelope) = serde_json::from_str::<Envelope>(reply.stdout.trim()) {
         if envelope.protocol_version != PROTOCOL_VERSION {
             return Err(AttemptFailure::Protocol {
@@ -572,13 +850,35 @@ fn first_line(text: &str, fallback: &str) -> String {
 
 /// One attempt over one argv: exchange + interpret. Spawn failures are
 /// transport-class (§8.3/ADR 009 §4); the dmux deadline is terminal.
+///
+/// Keeps this process's group, so enrollment's non-BatchMode hello can still
+/// prompt on the terminal; the route walk uses [`call_argv_with`] and
+/// [`TransportIsolation::OwnProcessGroup`].
 pub fn call_argv(
     argv: &[String],
     request_bytes: &[u8],
     request_uid: Uuid,
     deadline: Duration,
 ) -> Result<Envelope, AttemptFailure> {
-    match exchange(argv, request_bytes, deadline) {
+    call_argv_with(
+        argv,
+        request_bytes,
+        request_uid,
+        deadline,
+        TransportIsolation::SharedProcessGroup,
+    )
+}
+
+/// [`call_argv`], with the transport child's process-group isolation chosen
+/// explicitly.
+pub fn call_argv_with(
+    argv: &[String],
+    request_bytes: &[u8],
+    request_uid: Uuid,
+    deadline: Duration,
+    isolation: TransportIsolation,
+) -> Result<Envelope, AttemptFailure> {
+    match exchange_with(argv, request_bytes, deadline, isolation) {
         Ok(reply) => interpret_reply(&reply, request_uid),
         Err(failure) if failure.is_deadline() => Err(AttemptFailure::Timeout {
             detail: failure.detail,
@@ -644,7 +944,16 @@ pub fn call_over_routes(
     let mut last_failure: Option<AttemptFailure> = None;
     for route in &routes {
         let argv = invoker.argv_for(route, invocation);
-        match call_argv(&argv, &request_bytes, request.request_uid, deadline) {
+        // The route walk is the bounded machine-to-machine RPC: BatchMode
+        // means the child never prompts, so it can be isolated and its
+        // descendants signalled when the deadline expires.
+        match call_argv_with(
+            &argv,
+            &request_bytes,
+            request.request_uid,
+            deadline,
+            TransportIsolation::OwnProcessGroup,
+        ) {
             Ok(envelope) => {
                 let checked = validate_identity_and_lineage(registry, expectation, &envelope);
                 match checked {
@@ -718,7 +1027,13 @@ pub fn call_over_pinned_route(
     let request_bytes = serde_json::to_vec(request)
         .map_err(|e| TypedError::new(ErrorCode::OperationFailed, e.to_string()))?;
     let argv = invoker.argv_for(&route, invocation);
-    match call_argv(&argv, &request_bytes, request.request_uid, deadline) {
+    match call_argv_with(
+        &argv,
+        &request_bytes,
+        request.request_uid,
+        deadline,
+        TransportIsolation::OwnProcessGroup,
+    ) {
         Ok(envelope) => match validate_identity_and_lineage(registry, expectation, &envelope) {
             Ok(lineage) => {
                 let _ = registry.record_route_outcome(route.route_id, outcome::OK);
@@ -959,16 +1274,31 @@ fn validate_identity_and_lineage(
             .payload
             .clone()
             .unwrap_or_else(|| serde_json::json!({}));
-        let _ = registry.store_peer_cache(
-            expectation.host_uid,
-            &PeerCache {
-                registry_uid: presented.registry_uid,
-                authority_revision: presented.revision,
-                authority_head_hash: presented.head_hash.clone(),
-                snapshot_json: snapshot,
-                fetched_at: now_rfc3339(),
-            },
-        );
+        // Propagated, exactly like the read above it. This checkpoint is the
+        // anti-rollback anchor, not diagnostic state: with none stored,
+        // `lineage::assess` answers `FirstContact` for ANY presented
+        // identity, so the Conflict and RollbackSuspect branches are dead
+        // code and a peer may swap its RegistryUid unchallenged; with a
+        // stale one, a replayed older revision grades `Current` instead of
+        // `RollbackSuspect`. A discarded error here is therefore not "retry
+        // next time" — it pins this host in the weakest lineage state for
+        // good, and reports it as a clean assessment. A busy registry
+        // (`store_peer_cache` runs an immediate transaction) and a revision
+        // the store refuses rather than narrows both land here.
+        registry
+            .store_peer_cache(
+                expectation.host_uid,
+                &PeerCache {
+                    registry_uid: presented.registry_uid,
+                    authority_revision: presented.revision,
+                    authority_head_hash: presented.head_hash.clone(),
+                    snapshot_json: snapshot,
+                    fetched_at: now_rfc3339(),
+                },
+            )
+            .map_err(|e| AttemptFailure::Malformed {
+                detail: format!("persisting the peer lineage checkpoint: {e}"),
+            })?;
     }
     Ok(assessment)
 }
@@ -1031,7 +1361,7 @@ mod tests {
         let reply = RawReply {
             status: 4,
             stdout: envelope.to_string(),
-            stderr: String::new(),
+            ..RawReply::default()
         };
         match interpret_reply(&reply, identity) {
             Err(AttemptFailure::Agent(error)) => {
@@ -1045,8 +1375,8 @@ mod tests {
     fn missing_remote_command_is_terminal_not_transport() {
         let reply = RawReply {
             status: 127,
-            stdout: String::new(),
             stderr: "bash: line 1: dmux: command not found\n".into(),
+            ..RawReply::default()
         };
         let failure = interpret_reply(&reply, uuid::Uuid::nil()).unwrap_err();
         assert!(!failure.retries_next_route());
@@ -1072,7 +1402,7 @@ mod tests {
         let reply = RawReply {
             status: 0,
             stdout: envelope.to_string(),
-            stderr: String::new(),
+            ..RawReply::default()
         };
         let failure = interpret_reply(&reply, sent).unwrap_err();
         assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
@@ -1110,6 +1440,356 @@ mod tests {
                 "1",
                 "hello"
             ]
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Bounded captures and the isolated transport
+
+    /// `/bin/sh -c <script>` as a transport argv.
+    fn sh(script: &str) -> Vec<String> {
+        vec!["/bin/sh".to_string(), "-c".to_string(), script.to_string()]
+    }
+
+    #[test]
+    fn a_truncated_stdout_capture_is_a_typed_failure_not_a_parse_error() {
+        // The bytes here are a perfectly good envelope: truncation alone
+        // must refuse the reply, because a capture that hit its cap is a
+        // prefix of what the peer sent, whatever it happens to parse as.
+        let sent = uuid::Uuid::from_u128(31);
+        let envelope = serde_json::json!({
+            "protocol_version": 1,
+            "request_uid": sent.to_string(),
+            "method": "spaces",
+            "payload_sha256": "00",
+            "host_uid": uuid::Uuid::from_u128(2).to_string(),
+            "registry_uid": uuid::Uuid::from_u128(3).to_string(),
+            "authority_revision": 1,
+            "authority_head_hash": "sha256:x",
+            "capabilities": [],
+            "payload": {}
+        });
+        let intact = RawReply {
+            status: 0,
+            stdout: envelope.to_string(),
+            ..RawReply::default()
+        };
+        interpret_reply(&intact, sent).expect("the untruncated reply is accepted");
+
+        let truncated = RawReply {
+            stdout_truncated: true,
+            ..intact
+        };
+        let failure = interpret_reply(&truncated, sent).unwrap_err();
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+        assert!(!failure.retries_next_route());
+        assert!(
+            failure
+                .typed_error()
+                .message
+                .contains(&MAX_REPLY_STDOUT_BYTES.to_string()),
+            "the refusal names the bound it broke: {}",
+            failure.typed_error().message
+        );
+    }
+
+    #[test]
+    fn a_firehose_reply_is_capped_and_refused_instead_of_buffered_whole() {
+        // Without a cap this child's output is bounded only by the 30s
+        // deadline and the link rate. `bounded_read` keeps draining past the
+        // cap, so the child still runs to completion rather than wedging on
+        // a full pipe.
+        let over = MAX_REPLY_STDOUT_BYTES + 128 * 1024;
+        let reply = exchange_with(
+            &sh(&format!(
+                "cat >/dev/null; dd if=/dev/zero bs=4096 count={} 2>/dev/null | tr '\\0' 'a'",
+                over / 4096
+            )),
+            b"{}",
+            Duration::from_secs(30),
+            TransportIsolation::OwnProcessGroup,
+        )
+        .expect("the transport returns rather than allocating without limit");
+        assert_eq!(reply.stdout.len(), MAX_REPLY_STDOUT_BYTES);
+        assert!(reply.stdout_truncated);
+        assert_eq!(reply.status, 0);
+
+        let failure = interpret_reply(&reply, uuid::Uuid::nil()).unwrap_err();
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+    }
+
+    #[test]
+    fn an_isolated_transport_does_not_wait_on_a_grandchild_holding_the_pipe() {
+        // The direct child answers and exits at once but leaves a
+        // backgrounded grandchild holding the inherited stdout/stderr write
+        // ends, so neither pipe reaches EOF on the direct child's exit
+        // alone. Only the group-wide kill closes them; without it this join
+        // outlives the deadline it exists to enforce.
+        let started = Instant::now();
+        let reply = exchange_with(
+            &sh("cat >/dev/null; sleep 30 & printf 'ok'; exit 0"),
+            b"{}",
+            Duration::from_secs(30),
+            TransportIsolation::OwnProcessGroup,
+        )
+        .expect("the isolated transport returns");
+        assert_eq!(reply.stdout, "ok");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "a held pipe must not stall the exchange: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_shared_group_transport_gives_up_on_a_held_pipe_rather_than_blocking() {
+        // Enrollment keeps this process's group so its host-key prompt
+        // reaches the terminal, which means it cannot signal a group. The
+        // bounded join is the only thing standing between a descendant
+        // holding the pipe and a permanent hang, so it must end in a typed
+        // failure well inside the caller's deadline.
+        let started = Instant::now();
+        let failure = exchange_with(
+            &sh("cat >/dev/null; sleep 5 & printf 'ok'; exit 0"),
+            b"{}",
+            Duration::from_secs(60),
+            TransportIsolation::SharedProcessGroup,
+        )
+        .expect_err("a pipe that never closes is a failure, not a hang");
+        assert!(
+            failure.detail.contains("stayed open"),
+            "unexpected detail: {}",
+            failure.detail
+        );
+        assert!(!failure.is_deadline());
+        assert!(
+            started.elapsed() < READER_DRAIN_GRACE + Duration::from_secs(3),
+            "the grace period must bound the join: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn the_deadline_holds_when_the_whole_group_is_still_running() {
+        let started = Instant::now();
+        let failure = exchange_with(
+            &sh("sleep 30 & sleep 30"),
+            b"{}",
+            Duration::from_millis(200),
+            TransportIsolation::OwnProcessGroup,
+        )
+        .expect_err("the deadline elapses");
+        assert!(failure.is_deadline());
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the deadline must bound the joins too: {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_child_that_never_reads_the_request_is_still_classified_by_its_exit() {
+        // A missing remote `dmux` closes stdin the instant the login shell
+        // exits, so this write fails with EPIPE after a partial write. That
+        // must NOT become a retryable transport failure: 127 is the terminal
+        // "no agent over there" answer, and turning it into a route-walk
+        // trigger would re-send the request to every other route.
+        let request = vec![b'x'; 256 * 1024];
+        let reply = exchange_with(
+            &sh("printf 'sh: dmux: command not found\\n' >&2; exit 127"),
+            &request,
+            Duration::from_secs(30),
+            TransportIsolation::OwnProcessGroup,
+        )
+        .expect("a child that ignores stdin still yields its exit status");
+        assert_eq!(reply.status, 127);
+        let failure = interpret_reply(&reply, uuid::Uuid::nil()).unwrap_err();
+        assert_eq!(failure.outcome_token(), outcome::COMMAND_MISSING);
+        assert!(!failure.retries_next_route());
+    }
+
+    // -----------------------------------------------------------------
+    // Anchored ssh-255 classification
+
+    #[test]
+    fn peer_authored_prose_cannot_pick_the_failure_class() {
+        // Every line here contains a phrase the old whole-blob `contains`
+        // matched. None of them is an ssh diagnostic, so none may classify.
+        for text in [
+            // The exact substring that used to force the terminal HostKey
+            // class, and with it `host_key_failed` on the route.
+            "dmux-agent: host key for cluster-7 is rotated weekly\n",
+            "remote: fatal: the host key for cluster-7 could not be read\n",
+            // The inverse: prose that used to promote an unclassified 255
+            // into the one retryable class.
+            "nightly job timed out after 30s; see the log\n",
+            "warning: the build timed out\n",
+        ] {
+            let failure = classify_ssh_255(text);
+            assert_eq!(
+                failure.outcome_token(),
+                outcome::MALFORMED_RESPONSE,
+                "peer prose classified: {text:?} -> {failure:?}"
+            );
+            assert!(!failure.retries_next_route(), "{text:?}");
+        }
+
+        // With a genuine ssh diagnostic alongside it, the diagnostic — not
+        // the prose — decides. Before anchoring, the first line forced
+        // HostKey here: failover disabled for the host and a false
+        // host-key-compromise alarm persisted on the route.
+        let mixed = "dmux-agent: host key for cluster-7 is rotated weekly\n\
+                     ssh: connect to host archie port 22: Connection timed out\n";
+        let failure = classify_ssh_255(mixed);
+        assert_eq!(failure.outcome_token(), outcome::TRANSPORT_UNREACHABLE);
+        assert!(failure.retries_next_route());
+
+        // And the reverse direction stays terminal: peer prose about a
+        // timeout cannot make an unclassified ssh failure retryable.
+        let noisy = "dmux-agent: the nightly build timed out\n\
+                     kex_exchange_identification: banner exchange broke\n";
+        assert!(!classify_ssh_255(noisy).retries_next_route());
+    }
+
+    #[test]
+    fn genuine_ssh_diagnostics_still_classify_after_anchoring() {
+        for text in [
+            "ssh: connect to host archie port 22: Connection refused",
+            "ssh: connect to host archie port 22: Connection timed out",
+            "ssh: connect to host archie port 22: Operation timed out",
+            "ssh: connect to host archie port 22: No route to host",
+            "ssh: connect to host archie port 22: Network is unreachable",
+            "ssh: Could not resolve hostname nope: Name or service not known",
+            "ssh: Could not resolve hostname nope: Temporary failure in name resolution",
+            "ssh: Could not resolve hostname nope: nodename nor servname provided, or not known",
+            "kex_exchange_identification: read: Connection reset by peer",
+            "kex_exchange_identification: Connection closed by remote host",
+            "Connection closed by 10.77.77.2 port 22",
+        ] {
+            let failure = classify_ssh_255(text);
+            assert_eq!(
+                failure.outcome_token(),
+                outcome::TRANSPORT_UNREACHABLE,
+                "{text:?} -> {failure:?}"
+            );
+        }
+
+        for (text, token) in [
+            ("Host key verification failed.", outcome::HOST_KEY_FAILED),
+            (
+                "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                 WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\n\
+                 Offending ECDSA key in /home/fredrir/.ssh/known_hosts:3",
+                outcome::HOST_KEY_FAILED,
+            ),
+            (
+                "Host key for archie has changed and you have requested strict checking.",
+                outcome::HOST_KEY_FAILED,
+            ),
+            (
+                "Unable to negotiate with 10.0.0.1 port 22: no matching host key type found. \
+                 Their offer: ssh-rsa",
+                outcome::HOST_KEY_FAILED,
+            ),
+            (
+                "fredrir@archie: Permission denied (publickey).",
+                outcome::AUTH_FAILED,
+            ),
+            (
+                "Received disconnect from 10.0.0.1 port 22:2: Too many authentication failures",
+                outcome::AUTH_FAILED,
+            ),
+            (
+                "No supported authentication methods available (server sent: publickey)",
+                outcome::AUTH_FAILED,
+            ),
+        ] {
+            let failure = classify_ssh_255(text);
+            assert_eq!(failure.outcome_token(), token, "{text:?} -> {failure:?}");
+            assert!(!failure.retries_next_route(), "{text:?}");
+        }
+
+        // "Connection to <host> closed" is a POST-auth closure and still
+        // must not be read as the pre-auth "Connection closed by" class.
+        assert_eq!(
+            classify_ssh_255("Connection to archie closed.").outcome_token(),
+            outcome::MALFORMED_RESPONSE
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Peer lineage checkpoint persistence
+
+    fn scratch_registry() -> (tempfile::TempDir, Registry) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let registry = Registry::open(crate::registry::RegistryConfig::new(
+            dir.path().join("registry.sqlite3"),
+            dir.path().join("locks"),
+        ))
+        .expect("open scratch registry");
+        (dir, registry)
+    }
+
+    fn peer_response(host: HostUid) -> Envelope {
+        serde_json::from_value(serde_json::json!({
+            "protocol_version": 1,
+            "request_uid": uuid::Uuid::from_u128(77).to_string(),
+            "method": "spaces",
+            "payload_sha256": "00",
+            "host_uid": host.0.to_string(),
+            "registry_uid": uuid::Uuid::from_u128(88).to_string(),
+            "authority_revision": 12,
+            "authority_head_hash": "sha256:peer-head",
+            "capabilities": [],
+            "payload": {"spaces": []}
+        }))
+        .expect("a well-formed response envelope")
+    }
+
+    #[test]
+    fn a_failed_lineage_checkpoint_write_is_propagated_not_discarded() {
+        let (_dir, mut registry) = scratch_registry();
+        let host = HostUid(uuid::Uuid::from_u128(0x51));
+        let envelope = peer_response(host);
+        let expectation = PeerExpectation {
+            host_uid: host,
+            need_capability: None,
+            claimed_current: false,
+        };
+
+        // The host is not enrolled, so the checkpoint's foreign key refuses
+        // the write — the same shape as a busy or read-only registry. A
+        // discarded error here would return a clean `FirstContact` while
+        // leaving no anchor, so the NEXT contact is `FirstContact` too and
+        // the peer may present any RegistryUid it likes, forever.
+        let failure = validate_identity_and_lineage(&mut registry, &expectation, &envelope)
+            .expect_err("an unpersisted anti-rollback anchor is not a clean assessment");
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+        assert!(
+            failure.typed_error().message.contains("lineage checkpoint"),
+            "unexpected message: {}",
+            failure.typed_error().message
+        );
+        assert_eq!(registry.peer_cache(host).unwrap(), None);
+
+        // Positive control: with the host enrolled the same response stores
+        // its checkpoint and reports first contact, unchanged.
+        registry.enroll_host(host, None).expect("enroll");
+        let assessment = validate_identity_and_lineage(&mut registry, &expectation, &envelope)
+            .expect("a storable checkpoint assesses cleanly");
+        assert_eq!(assessment, PeerLineage::FirstContact);
+        let cached = registry
+            .peer_cache(host)
+            .unwrap()
+            .expect("the checkpoint is durable");
+        assert_eq!(cached.authority_revision, 12);
+        assert_eq!(cached.authority_head_hash, "sha256:peer-head");
+
+        // And with the anchor in place the next identical response is
+        // graded against it rather than trusted afresh.
+        assert_eq!(
+            validate_identity_and_lineage(&mut registry, &expectation, &envelope).unwrap(),
+            PeerLineage::Current
         );
     }
 }

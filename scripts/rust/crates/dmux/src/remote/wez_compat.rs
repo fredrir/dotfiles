@@ -20,13 +20,13 @@
 
 use std::fmt;
 use std::fs;
-use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::childio::{bounded_read, kill_process_group};
 use crate::error::{ErrorCode, TypedError};
 
 /// Existing coarse backend capability, retained for route compatibility.
@@ -207,7 +207,8 @@ struct ProbeOutput {
 
 /// Bounded child runner specialized to the two read-only probes above.
 /// Output readers keep draining after their bounded capture fills, so a
-/// noisy/broken executable cannot deadlock on a full pipe.
+/// noisy/broken executable cannot deadlock on a full pipe; see
+/// [`crate::childio`] for the shared machinery and the hazards it answers.
 fn run_probe(
     wezterm_bin: &str,
     args: &[&str],
@@ -232,17 +233,17 @@ fn run_probe(
 
     let stdout = child.stdout.take().expect("piped stdout");
     let stderr = child.stderr.take().expect("piped stderr");
-    let stdout_reader = std::thread::spawn(move || bounded_read(stdout));
-    let stderr_reader = std::thread::spawn(move || bounded_read(stderr));
+    let stdout_reader = std::thread::spawn(move || bounded_read(stdout, MAX_PROBE_OUTPUT));
+    let stderr_reader = std::thread::spawn(move || bounded_read(stderr, MAX_PROBE_OUTPUT));
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                kill_probe_group(child.id());
+                kill_process_group(child.id());
                 break status;
             }
             Ok(None) if started.elapsed() >= deadline => {
-                kill_probe_group(child.id());
+                kill_process_group(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = stdout_reader.join();
@@ -251,7 +252,7 @@ fn run_probe(
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(5)),
             Err(error) => {
-                kill_probe_group(child.id());
+                kill_process_group(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = stdout_reader.join();
@@ -266,35 +267,12 @@ fn run_probe(
         return Err(WezProbeError::Failed {
             argv: format!("{} {}", wezterm_bin, args.join(" ")),
             status: status.code().unwrap_or(-1),
-            detail: first_line(&stderr, "no diagnostic"),
+            detail: first_line(&stderr.bytes, "no diagnostic"),
         });
     }
-    Ok(ProbeOutput { stdout })
-}
-
-fn kill_probe_group(child_pid: u32) {
-    if let Ok(pid) = libc::pid_t::try_from(child_pid) {
-        // SAFETY: the child was spawned as leader of its own process group;
-        // a negative PID targets only that group. ESRCH is the normal case
-        // when the direct child exited without leaving descendants.
-        unsafe {
-            libc::kill(-pid, libc::SIGKILL);
-        }
-    }
-}
-
-fn bounded_read(mut reader: impl Read) -> Vec<u8> {
-    let mut captured = Vec::with_capacity(MAX_PROBE_OUTPUT.min(4096));
-    let mut chunk = [0_u8; 4096];
-    loop {
-        match reader.read(&mut chunk) {
-            Ok(0) | Err(_) => return captured,
-            Ok(count) => {
-                let room = MAX_PROBE_OUTPUT.saturating_sub(captured.len());
-                captured.extend_from_slice(&chunk[..count.min(room)]);
-            }
-        }
-    }
+    Ok(ProbeOutput {
+        stdout: stdout.bytes,
+    })
 }
 
 fn first_line(bytes: &[u8], fallback: &str) -> String {

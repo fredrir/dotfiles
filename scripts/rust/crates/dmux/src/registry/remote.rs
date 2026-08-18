@@ -556,7 +556,18 @@ impl Registry {
             .map(|(registry, revision, head, snapshot, fetched)| {
                 Ok(PeerCache {
                     registry_uid: RegistryUid(parse_uuid(&registry)?),
-                    authority_revision: revision as u64,
+                    // A negative revision is not a small revision: it is a
+                    // row no in-range write could have produced. Reading it
+                    // back through `as u64` would resurrect an enormous
+                    // checkpoint and quarantine the host forever with no
+                    // diagnostic; surfacing it names the exact bad row
+                    // instead. Never treat it as "no checkpoint" — that
+                    // would silently drop this peer's anti-rollback anchor.
+                    authority_revision: u64::try_from(revision).map_err(|_| {
+                        RegistryError::Corrupt(format!(
+                            "cached peer authority_revision {revision} is negative"
+                        ))
+                    })?,
                     authority_head_hash: head,
                     snapshot_json: serde_json::from_str(&snapshot)
                         .map_err(|e| RegistryError::Corrupt(format!("cached snapshot: {e}")))?,
@@ -569,8 +580,20 @@ impl Registry {
     /// Store (replace) the checkpoint for a peer, verbatim. Whether the
     /// checkpoint SHOULD replace the cached one — conflict, stale, rollback
     /// (plan §12.1) — is the caller's policy, decided before this call.
-    /// Cache state: does not advance the authority revision.
+    /// Cache state: does not advance the authority revision. A revision
+    /// outside the storable range is refused, never narrowed.
     pub fn store_peer_cache(&mut self, host_uid: HostUid, cache: &PeerCache) -> Result<()> {
+        // Total, not narrowing: the checkpoint is the durable anti-rollback
+        // anchor, and `as i64` would silently store a peer-supplied
+        // revision >= 2^63 as a negative one. The wire bound
+        // (`remote::protocol::MAX_JSON_INTEGER`) keeps such a value off the
+        // peer surface; this refuses it for every other caller too.
+        let revision = i64::try_from(cache.authority_revision).map_err(|_| {
+            RegistryError::Corrupt(format!(
+                "peer authority_revision {} exceeds the storable range",
+                cache.authority_revision
+            ))
+        })?;
         let snapshot = cache.snapshot_json.to_string();
         let cache = cache.clone();
         self.immediate(|tx| {
@@ -586,7 +609,7 @@ impl Registry {
                 params![
                     host_uid.0.to_string(),
                     cache.registry_uid.0.to_string(),
-                    cache.authority_revision as i64,
+                    revision,
                     cache.authority_head_hash,
                     snapshot,
                     cache.fetched_at
@@ -600,6 +623,83 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::RegistryConfig;
+
+    /// The exact LOSSYFROM-001 attack value: 2^63, which an unchecked
+    /// `as i64` stores as `i64::MIN`.
+    const POISON_REVISION: u64 = 9_223_372_036_854_775_808;
+
+    fn scratch_registry() -> (tempfile::TempDir, Registry) {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Registry::open(RegistryConfig::new(
+            dir.path().join("registry.sqlite3"),
+            dir.path().join("locks"),
+        ))
+        .unwrap();
+        (dir, registry)
+    }
+
+    fn checkpoint(revision: u64) -> PeerCache {
+        PeerCache {
+            registry_uid: RegistryUid(Uuid::nil()),
+            authority_revision: revision,
+            authority_head_hash: "sha256:abc".into(),
+            snapshot_json: serde_json::json!({ "spaces": [] }),
+            fetched_at: now_rfc3339(),
+        }
+    }
+
+    #[test]
+    fn store_peer_cache_refuses_a_revision_outside_the_storable_range() {
+        let (_dir, mut registry) = scratch_registry();
+        let host = HostUid(Uuid::new_v4());
+        registry.enroll_host(host, None).unwrap();
+        for absurd in [POISON_REVISION, u64::MAX] {
+            let error = registry
+                .store_peer_cache(host, &checkpoint(absurd))
+                .expect_err("an unstorable revision must not be narrowed and committed");
+            assert!(matches!(error, RegistryError::Corrupt(_)), "{error}");
+            assert!(error.to_string().contains(&absurd.to_string()), "{error}");
+        }
+        // Nothing was written, so no poisoned anti-rollback anchor exists
+        // for a later honest handshake to be measured against.
+        assert_eq!(registry.peer_cache(host).unwrap(), None);
+    }
+
+    #[test]
+    fn store_peer_cache_round_trips_a_large_but_legal_revision() {
+        let (_dir, mut registry) = scratch_registry();
+        let host = HostUid(Uuid::new_v4());
+        registry.enroll_host(host, None).unwrap();
+        // The largest revision the wire admits (protocol::MAX_JSON_INTEGER)
+        // is stored and returned verbatim, unchanged by the fix.
+        let large = checkpoint(crate::remote::protocol::MAX_JSON_INTEGER);
+        registry.store_peer_cache(host, &large).unwrap();
+        assert_eq!(registry.peer_cache(host).unwrap(), Some(large));
+        let ordinary = checkpoint(7);
+        registry.store_peer_cache(host, &ordinary).unwrap();
+        assert_eq!(registry.peer_cache(host).unwrap(), Some(ordinary));
+    }
+
+    #[test]
+    fn peer_cache_read_refuses_a_negative_revision_already_on_disk() {
+        let (_dir, mut registry) = scratch_registry();
+        let host = HostUid(Uuid::new_v4());
+        registry.enroll_host(host, None).unwrap();
+        registry.store_peer_cache(host, &checkpoint(9)).unwrap();
+        // Exactly the row a registry poisoned before this fix holds.
+        registry
+            .conn
+            .execute(
+                "UPDATE remote_cache SET authority_revision = ?1 WHERE host_uid = ?2",
+                params![i64::MIN, host.0.to_string()],
+            )
+            .unwrap();
+        let error = registry
+            .peer_cache(host)
+            .expect_err("a negative checkpoint must not read back as an enormous revision");
+        assert!(matches!(error, RegistryError::Corrupt(_)), "{error}");
+    }
 
     #[test]
     fn transport_and_network_class_tokens_match_the_contract() {

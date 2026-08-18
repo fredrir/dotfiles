@@ -160,6 +160,17 @@ pub enum RegistryError {
     NotFound {
         what: String,
     },
+    /// Schema maintenance needs the *exclusive* authority gate, but the
+    /// calling thread already holds that gate on a live `HeldLock` —
+    /// typically a read fence taken shared before the registry was opened.
+    /// The gate is an open-file-description lock, so the upgrade conflicts
+    /// with our own description and can never be granted; blocking on it
+    /// would hang forever (OFD locks get no `EDEADLK`), and migrating without
+    /// it would race every other process. Open the registry *before* taking
+    /// the fence.
+    SchemaMaintenanceBlocked {
+        held: &'static str,
+    },
     Corrupt(String),
     Io(io::Error),
     Sqlite(rusqlite::Error),
@@ -172,9 +183,9 @@ impl RegistryError {
         match self {
             RegistryError::Busy => ErrorCode::RegistryBusy,
             RegistryError::NameConflict { .. } => ErrorCode::NameConflict,
-            RegistryError::OperationInProgress { .. } | RegistryError::LeaseHeld { .. } => {
-                ErrorCode::OperationInProgress
-            }
+            RegistryError::OperationInProgress { .. }
+            | RegistryError::LeaseHeld { .. }
+            | RegistryError::SchemaMaintenanceBlocked { .. } => ErrorCode::OperationInProgress,
             RegistryError::NativeTokenConflict { .. }
             | RegistryError::BootstrapRequestExists { .. }
             | RegistryError::SpellingBound { .. }
@@ -278,6 +289,11 @@ impl fmt::Display for RegistryError {
                 )
             }
             RegistryError::NotFound { what } => write!(f, "{what} not found"),
+            RegistryError::SchemaMaintenanceBlocked { held } => write!(
+                f,
+                "registry schema maintenance needs the exclusive authority gate, but {held}; \
+                 open the registry before taking the authority fence"
+            ),
             RegistryError::Corrupt(msg) => write!(f, "registry corrupt: {msg}"),
             RegistryError::Io(e) => write!(f, "registry i/o: {e}"),
             RegistryError::Sqlite(e) => write!(f, "sqlite: {e}"),
@@ -412,6 +428,93 @@ impl RegistryConfig {
             crate::runtime::dmux_runtime_dir()?,
         ))
     }
+}
+
+/// Create the registry database privately, or harden one that already
+/// exists, before any SQLite connection touches the path.
+///
+/// `Connection::open` creates a missing database with `0666 & ~umask`
+/// (commonly 0644) and SQLite derives the `-wal`/`-shm` sidecar modes from
+/// the database file, so the mode has to be settled *first* — the
+/// create-with-`.mode(0o600)` discipline every other private artifact in this
+/// crate follows. Repairing afterwards is not equivalent: the file is
+/// world-readable for the window, and a repair gated on "did it already
+/// exist?" never runs again once an interrupted first run has left the file
+/// behind. So the mode is re-checked on every open and every failure is
+/// propagated instead of discarded.
+///
+/// Existing files are stat'd and chmod'd by path, never by opening a
+/// descriptor: closing a descriptor to a database some other connection in
+/// this process has open would drop that connection's POSIX record locks.
+fn ensure_private_db_file(db_path: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC)
+        .open(db_path)
+    {
+        // Created empty and private; SQLite initializes the pages into it and
+        // takes the sidecar modes from it.
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e.into()),
+    }
+    if !harden_to_0600(db_path)? {
+        return Err(RegistryError::Io(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "{} is not a file after creating it (dangling symlink?)",
+                db_path.display()
+            ),
+        )));
+    }
+    // Sidecars SQLite is about to create inherit the database's mode; ones an
+    // older dmux already created keep whatever it left them at.
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = db_path.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        harden_to_0600(Path::new(&sidecar))?;
+    }
+    Ok(())
+}
+
+/// Force one path to `0600`, verifying the result; `Ok(false)` means the path
+/// does not exist. Failures are returned, never swallowed: a silent chmod
+/// failure used to leave the authority store at its umask mode with no
+/// diagnostic anywhere in the tool.
+fn harden_to_0600(path: &Path) -> Result<bool> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    if !meta.is_file() {
+        // Never chmod a directory, fifo or device that happens to sit on the
+        // path; refuse it instead, the way the rest of the crate refuses
+        // unexpected file types at a private location.
+        return Err(RegistryError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a regular file", path.display()),
+        )));
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o7777 == 0o600 {
+        return Ok(true);
+    }
+    std::fs::set_permissions(path, PermissionsExt::from_mode(0o600))?;
+    let now = std::fs::metadata(path)?.permissions().mode() & 0o7777;
+    if now != 0o600 {
+        return Err(RegistryError::Io(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} stayed at mode {now:o} after hardening", path.display()),
+        )));
+    }
+    Ok(true)
 }
 
 /// `$XDG_DATA_HOME/dmux/registry.sqlite3`, falling back to
@@ -840,14 +943,16 @@ impl Registry {
                 .create(&config.lock_dir)?;
         }
 
-        let existed = config.db_path.exists();
+        // The database is private *before* SQLite ever sees the path, not
+        // repaired afterwards: `Connection::open` creates a missing database
+        // with `0666 & ~umask` (commonly 0644), and the authority store holds
+        // host/registry identity, the revision chain, route specs, leases with
+        // fencing tokens and the RPC idempotency ledger. Enforced on every
+        // open, not only on creation, so a database left world-readable by an
+        // older dmux (or by an interrupted first run) is hardened rather than
+        // trusted forever.
+        ensure_private_db_file(&config.db_path)?;
         let conn = Connection::open(&config.db_path)?;
-        if !existed {
-            let _ = std::fs::set_permissions(
-                &config.db_path,
-                std::os::unix::fs::PermissionsExt::from_mode(0o600),
-            );
-        }
 
         // Connection settings, with bounded jittered retries: a concurrent
         // first-run's WAL switch needs a brief write lock.
@@ -877,36 +982,82 @@ impl Registry {
         if schema::user_version(&self.conn)? >= schema::SCHEMA_VERSION && self.meta_present()? {
             return Ok(());
         }
-        // Maintenance: the exclusive authority gate overlaps nothing.
-        let gate = locks::acquire(
-            &self.config.lock_dir,
-            LockScope::AuthorityGate,
-            LockMode::Exclusive,
-        )?;
+        // Maintenance needs the authority gate *exclusively*, and the gate is
+        // an open-file-description lock: it conflicts with descriptions this
+        // very process already owns, and `F_OFD_SETLKW` gets no deadlock
+        // detection on either Linux or macOS. Read fences all over the crate
+        // take the gate shared and then open a registry underneath it
+        // (plan §10.1), so blocking unconditionally here is a self-deadlock
+        // waiting for the next schema bump. Ask the process-local ledger
+        // which of the three situations this is.
+        //
+        // The question is per *thread*, not per process: a holder on another
+        // thread releases in bounded time exactly like a holder in another
+        // process, and concurrent first-run depends on waiting for it. Only
+        // a lock this very thread holds can never be released in time to
+        // satisfy the request it is blocking.
+        let held = locks::self_held(&self.config.lock_dir, &LockScope::AuthorityGate);
+        match held.current_thread {
+            // Already the exclusive maintenance holder: an exclusive OFD lock
+            // excludes every other description, this process's own included,
+            // so that acquisition already provides exactly the serialization
+            // migration needs. A second one could only block on ourselves.
+            Some(LockMode::Exclusive) => self.migrate_and_init(None),
+            // A read fence on this thread. The upgrade is unsatisfiable — the
+            // kernel would make us wait on our own open description forever —
+            // and migrating without the gate would race every other process
+            // on the machine. Fail loudly instead of hanging or corrupting.
+            Some(LockMode::Shared) => Err(RegistryError::SchemaMaintenanceBlocked {
+                held: held.describe(),
+            }),
+            // Nothing held here: block exactly as before, so legitimate
+            // first-run/upgrade serialization against other threads and other
+            // processes is unchanged.
+            None => {
+                let gate = locks::acquire(
+                    &self.config.lock_dir,
+                    LockScope::AuthorityGate,
+                    LockMode::Exclusive,
+                )?;
+                let done = self.migrate_and_init(Some(&gate));
+                drop(gate);
+                done
+            }
+        }
+    }
+
+    /// Migrate to the current schema and initialize identity. `gate` is the
+    /// exclusive authority gate when this call took it; `None` when the
+    /// caller already holds it exclusively, in which case the 'maintenance'
+    /// lease is skipped — pairing a lease with a kernel lock needs the
+    /// [`HeldLock`] itself, which OFD semantics forbid us from obtaining
+    /// twice, and the caller's exclusive gate is that exclusion already.
+    fn migrate_and_init(&mut self, gate: Option<&HeldLock>) -> Result<()> {
         if schema::user_version(&self.conn)? < schema::SCHEMA_VERSION {
             // On an upgrade of an existing registry, additionally hold the
             // 'maintenance' database lease with an advanced fencing token.
             // On a fresh database the lease tables do not exist yet; the
             // exclusive gate alone serializes first-run.
-            let upgrading = self.table_exists("lease_scopes")?;
-            let holder = LeaseHolder::current(Uuid::new_v4());
-            if upgrading {
+            let mut lease = None;
+            if let Some(gate) = gate
+                && self.table_exists("lease_scopes")?
+            {
+                let holder = LeaseHolder::current(Uuid::new_v4());
                 self.acquire_lease(
                     &LeaseScope::Maintenance,
                     &holder,
                     Duration::from_secs(300),
-                    &gate,
+                    gate,
                     None,
                 )?;
+                lease = Some(holder);
             }
             schema::migrate(&mut self.conn)?;
-            if upgrading {
+            if let Some(holder) = lease {
                 self.release_lease(&LeaseScope::Maintenance, holder.request_uid)?;
             }
         }
-        self.init_meta_if_missing()?;
-        drop(gate);
-        Ok(())
+        self.init_meta_if_missing()
     }
 
     fn table_exists(&self, name: &str) -> Result<bool> {
@@ -2384,12 +2535,11 @@ impl Registry {
             ));
         };
 
-        let existed = dest.exists();
+        // A backup is a full copy of the authority store, so it is created
+        // private up front and verified, exactly like the live database — not
+        // created at the umask mode and repaired with a discarded result.
+        ensure_private_db_file(dest)?;
         let mut dst = Connection::open(dest)?;
-        if !existed {
-            let _ =
-                std::fs::set_permissions(dest, std::os::unix::fs::PermissionsExt::from_mode(0o600));
-        }
         {
             let backup = rusqlite::backup::Backup::new(&self.conn, &mut dst)?;
             backup.run_to_completion(64, Duration::from_millis(5), None)?;
@@ -2837,5 +2987,207 @@ mod tests {
         assert_eq!(probe_pid(std::process::id() as i32), HolderLiveness::Alive);
         // PID from far beyond any real pid space on both platforms.
         assert_eq!(probe_pid(99_999_999), HolderLiveness::Dead);
+    }
+
+    // -- schema maintenance under a caller's authority gate ------------------
+
+    fn scratch_config(dir: &tempfile::TempDir) -> RegistryConfig {
+        RegistryConfig {
+            db_path: dir.path().join("registry.sqlite3"),
+            lock_dir: dir.path().join("locks"),
+            busy: BusyPolicy {
+                busy_timeout: Duration::from_millis(500),
+                attempts: 5,
+                retry_base: Duration::from_millis(2),
+            },
+        }
+    }
+
+    /// Run `job` on a worker thread and fail the test if it does not finish
+    /// in `limit`, so a lock regression is a failure rather than a hung CI
+    /// job. The worker is abandoned on timeout; the test binary still exits.
+    fn with_timeout<T: Send + 'static>(
+        limit: Duration,
+        job: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(job());
+        });
+        rx.recv_timeout(limit)
+            .expect("timed out waiting for the authority gate")
+    }
+
+    fn mode_of(path: &Path) -> Option<u32> {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .ok()
+            .map(|meta| meta.permissions().mode() & 0o7777)
+    }
+
+    fn sidecars(db_path: &Path) -> [PathBuf; 2] {
+        ["-wal", "-shm"].map(|suffix| {
+            let mut path = db_path.as_os_str().to_os_string();
+            path.push(suffix);
+            PathBuf::from(path)
+        })
+    }
+
+    #[test]
+    fn schema_maintenance_under_a_held_gate_fails_instead_of_deadlocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        std::fs::create_dir_all(&config.lock_dir).unwrap();
+        let err = with_timeout(Duration::from_secs(20), move || {
+            // Exactly the shape of the tmux-hook, attach-correlation and GUI
+            // read fences: the authority gate is taken shared and the guard
+            // stays live across Registry::open.
+            let mut fence = locks::OrderedLocks::new(&config.lock_dir);
+            fence
+                .acquire(LockScope::AuthorityGate, LockMode::Shared)
+                .unwrap();
+            // A fresh database has to migrate, which needs the gate
+            // exclusively — unsatisfiable underneath our own shared hold, and
+            // a blocking request would wait on our own descriptions forever.
+            let outcome = Registry::open(config);
+            drop(fence);
+            outcome.map(|_| ()).unwrap_err()
+        });
+        assert!(
+            matches!(err, RegistryError::SchemaMaintenanceBlocked { .. }),
+            "{err}"
+        );
+        assert_eq!(err.error_code(), ErrorCode::OperationInProgress);
+    }
+
+    #[test]
+    fn schema_maintenance_under_our_own_exclusive_gate_proceeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        std::fs::create_dir_all(&config.lock_dir).unwrap();
+        let identity = with_timeout(Duration::from_secs(20), move || {
+            let mut gate = locks::OrderedLocks::new(&config.lock_dir);
+            gate.acquire(LockScope::AuthorityGate, LockMode::Exclusive)
+                .unwrap();
+            // An exclusive OFD gate excludes every other open description,
+            // this process's own included, so it already is the maintenance
+            // serialization: migrate under it instead of re-acquiring it.
+            let registry = Registry::open(config).unwrap();
+            let identity = registry.identity().unwrap();
+            drop(registry);
+            drop(gate);
+            identity
+        });
+        assert_eq!(identity.schema_version, schema::SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn a_first_run_open_takes_the_gate_and_leaves_nothing_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        // No lock held anywhere in this process: the blocking acquisition
+        // that serializes concurrent first runs across processes is
+        // unchanged, and the gate is released before open returns.
+        let registry = with_timeout(Duration::from_secs(20), {
+            let config = config.clone();
+            move || Registry::open(config).unwrap()
+        });
+        assert_eq!(
+            registry.identity().unwrap().schema_version,
+            schema::SCHEMA_VERSION
+        );
+        assert!(locks::self_held(&config.lock_dir, &LockScope::AuthorityGate).is_free());
+        assert!(
+            locks::try_acquire(
+                &config.lock_dir,
+                LockScope::AuthorityGate,
+                LockMode::Exclusive
+            )
+            .unwrap()
+            .is_some(),
+            "the maintenance gate must not outlive Registry::open"
+        );
+    }
+
+    #[test]
+    fn concurrent_first_runs_on_other_threads_still_serialize_on_the_gate() {
+        // The refusal above is per thread on purpose: a gate holder on
+        // another thread releases in bounded time exactly like one in another
+        // process, and first-run serialization depends on waiting for it. A
+        // process-wide refusal would turn this into eight errors.
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        let identities = with_timeout(Duration::from_secs(60), move || {
+            let openers: Vec<_> = (0..8)
+                .map(|_| {
+                    let config = config.clone();
+                    std::thread::spawn(move || Registry::open(config).unwrap().identity().unwrap())
+                })
+                .collect();
+            openers
+                .into_iter()
+                .map(|opener| opener.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        for identity in &identities {
+            assert_eq!(identity, &identities[0], "one identity for every opener");
+        }
+    }
+
+    // -- private-by-construction database ------------------------------------
+
+    #[test]
+    fn a_created_database_and_its_wal_sidecars_are_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        let registry = Registry::open(config.clone()).unwrap();
+        assert_eq!(mode_of(&config.db_path), Some(0o600));
+        // SQLite derives the -wal/-shm modes from the database file, so
+        // creating it private before rusqlite sees the path covers them too.
+        for sidecar in sidecars(&config.db_path) {
+            assert_eq!(mode_of(&sidecar), Some(0o600), "{}", sidecar.display());
+        }
+        drop(registry);
+    }
+
+    #[test]
+    fn an_existing_world_readable_database_is_hardened_on_open() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        drop(Registry::open(config.clone()).unwrap());
+
+        // What a registry created by the old create-then-chmod path looks
+        // like when the chmod never ran: readable by every local account.
+        let mut loosened = vec![config.db_path.clone()];
+        loosened.extend(sidecars(&config.db_path).into_iter().filter(|p| p.exists()));
+        for path in &loosened {
+            std::fs::set_permissions(path, PermissionsExt::from_mode(0o644)).unwrap();
+            assert_eq!(mode_of(path), Some(0o644));
+        }
+
+        // Opening it again must harden it, not trust it: the old code only
+        // ever hardened on creation, so this file stayed 0644 forever.
+        let registry = Registry::open(config.clone()).unwrap();
+        assert_eq!(mode_of(&config.db_path), Some(0o600));
+        for sidecar in sidecars(&config.db_path) {
+            assert!(
+                mode_of(&sidecar).is_none_or(|mode| mode == 0o600),
+                "{}",
+                sidecar.display()
+            );
+        }
+        drop(registry);
+    }
+
+    #[test]
+    fn a_backup_destination_is_created_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = scratch_config(&dir);
+        let registry = Registry::open(config.clone()).unwrap();
+        let dest = dir.path().join("backup.sqlite3");
+        registry.backup_to(&dest).unwrap();
+        assert_eq!(mode_of(&dest), Some(0o600));
     }
 }

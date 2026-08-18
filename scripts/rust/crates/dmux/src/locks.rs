@@ -13,13 +13,20 @@
 //! Locks are open-file-description (OFD) locks, so two lock handles conflict
 //! even inside one process (each `HeldLock` owns its own open description),
 //! and the lock dies with the last descriptor of that description — a paused
-//! live holder keeps it, and nothing can steal it.
+//! live holder keeps it, and nothing can steal it. Because that conflict is
+//! blind to which process owns the other description, every live [`HeldLock`]
+//! also records itself in a process-local ledger; [`self_held`] reads it so
+//! code that may run underneath a caller's guard can tell "already mine" from
+//! "someone else's" instead of blocking forever on itself.
 
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io;
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use crate::model::{BackendInstanceUid, HostUid, SpaceUid};
 use crate::registry::sha256::sha256_hex;
@@ -108,6 +115,12 @@ pub enum LockMode {
 /// cannot be stolen, only dropped by its holder or by holder death.
 #[derive(Debug)]
 pub struct HeldLock {
+    /// Declared before the descriptor so drop (which runs in declaration
+    /// order, including while unwinding from a panic) retires the
+    /// process-local record *before* the lock is released. The reverse order
+    /// would leave a window in which [`self_held`] claims a lock this process
+    /// no longer holds, turning a released lock into a spurious refusal.
+    _ledger: LedgerEntry,
     _file: std::fs::File,
     scope: LockScope,
     mode: LockMode,
@@ -150,8 +163,11 @@ fn lock_file(
         .truncate(false)
         .mode(0o600)
         .open(&path)?;
+    let id = file_id(&file.metadata()?);
     if fcntl_lock(&file, mode, blocking)? {
         Ok(Some(HeldLock {
+            // Recorded only once the kernel actually granted the lock.
+            _ledger: LedgerEntry::record(id, mode),
             _file: file,
             scope,
             mode,
@@ -183,6 +199,164 @@ fn fcntl_lock(file: &std::fs::File, mode: LockMode, blocking: bool) -> io::Resul
             Some(libc::EAGAIN) | Some(libc::EACCES) if !blocking => return Ok(false),
             _ => return Err(err),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Process-local ledger of live locks
+//
+// `fcntl` reports a conflict between two open descriptions of one file
+// without regard to which process owns them, and neither Linux nor macOS
+// reports `EDEADLK` for OFD locks: a blocking acquisition of a scope this
+// process already holds in a conflicting mode simply never returns. Nothing
+// in the kernel can be asked "is that other holder me?", and `OrderedLocks`
+// only knows about its own guard, so code that may run underneath somebody
+// else's guard — schema maintenance opened inside a read fence, above all —
+// has no way to tell an impossible upgrade from ordinary contention.
+//
+// Every live `HeldLock` therefore records itself here, keyed by the identity
+// of the file it locked, and removes the record when it drops.
+
+/// The identity of a lock file: `(device, inode)`, never its path spelling,
+/// so two spellings of one file agree and two files never collide. A live
+/// `HeldLock` keeps its file open, so the kernel cannot recycle that inode
+/// for a different file while the record is in the ledger.
+type LockFileId = (u64, u64);
+
+#[derive(Debug)]
+struct LedgerRecord {
+    token: u64,
+    thread: std::thread::ThreadId,
+    mode: LockMode,
+}
+
+fn ledger() -> &'static Mutex<HashMap<LockFileId, Vec<LedgerRecord>>> {
+    static LEDGER: OnceLock<Mutex<HashMap<LockFileId, Vec<LedgerRecord>>>> = OnceLock::new();
+    LEDGER.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The ledger is plain bookkeeping with no invariant a panic can leave
+/// half-applied, and lock accounting has to keep working after any unrelated
+/// panic (a poisoned ledger would wedge every later acquisition), so
+/// poisoning is deliberately ignored.
+fn ledger_lock() -> MutexGuard<'static, HashMap<LockFileId, Vec<LedgerRecord>>> {
+    ledger()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn file_id(meta: &std::fs::Metadata) -> LockFileId {
+    (meta.dev(), meta.ino())
+}
+
+/// One live lock's ledger record, retired on drop — including while
+/// unwinding from a panic, which is exactly when a leaked record would
+/// otherwise make the scope look permanently held.
+#[derive(Debug)]
+struct LedgerEntry {
+    id: LockFileId,
+    token: u64,
+}
+
+impl LedgerEntry {
+    fn record(id: LockFileId, mode: LockMode) -> LedgerEntry {
+        static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
+        let token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
+        ledger_lock().entry(id).or_default().push(LedgerRecord {
+            token,
+            thread: std::thread::current().id(),
+            mode,
+        });
+        LedgerEntry { id, token }
+    }
+}
+
+impl Drop for LedgerEntry {
+    fn drop(&mut self) {
+        let mut ledger = ledger_lock();
+        if let Some(records) = ledger.get_mut(&self.id) {
+            records.retain(|record| record.token != self.token);
+            if records.is_empty() {
+                ledger.remove(&self.id);
+            }
+        }
+    }
+}
+
+/// What this process's own live [`HeldLock`]s say about one scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SelfHeld {
+    /// Strongest mode a live `HeldLock` on the calling thread holds.
+    pub current_thread: Option<LockMode>,
+    /// Strongest mode a live `HeldLock` anywhere in this process holds.
+    pub process: Option<LockMode>,
+}
+
+impl SelfHeld {
+    /// Nothing in this process holds the scope, so an acquisition contends
+    /// only with other processes and blocking on it is legitimate.
+    pub fn is_free(self) -> bool {
+        self.process.is_none()
+    }
+
+    /// The calling thread already holds the scope exclusively: it therefore
+    /// already has every exclusion an exclusive acquisition would grant (an
+    /// exclusive OFD lock conflicts with every other description, this
+    /// process's own included), and cannot be granted a second one.
+    pub fn current_thread_is_exclusive(self) -> bool {
+        self.current_thread == Some(LockMode::Exclusive)
+    }
+
+    /// How a refusal should describe what is in the way.
+    pub fn describe(self) -> &'static str {
+        match (self.current_thread, self.process) {
+            (Some(LockMode::Exclusive), _) => "this thread holds it exclusively",
+            (Some(LockMode::Shared), _) => "this thread holds it shared",
+            (None, Some(LockMode::Exclusive)) => {
+                "another thread in this process holds it exclusively"
+            }
+            (None, Some(LockMode::Shared)) => "another thread in this process holds it shared",
+            (None, None) => "nothing in this process holds it",
+        }
+    }
+}
+
+/// What this process already holds for `scope` under `dir`, from the ledger
+/// of live [`HeldLock`]s.
+///
+/// This answers the question the kernel cannot: whether a conflicting holder
+/// is this very process (in which case a blocking acquisition would hang
+/// forever) or another one (in which case blocking is the correct, bounded
+/// wait). Consult it before any blocking acquisition made underneath a
+/// caller-supplied lock guard.
+///
+/// A scope whose lock file cannot be stat'd is reported free: no `HeldLock`
+/// can exist without that file, and reporting free only ever falls back to
+/// the plain kernel behaviour.
+pub fn self_held(dir: &Path, scope: &LockScope) -> SelfHeld {
+    let Ok(meta) = std::fs::metadata(dir.join(scope.file_name())) else {
+        return SelfHeld::default();
+    };
+    let id = file_id(&meta);
+    let ledger = ledger_lock();
+    let Some(records) = ledger.get(&id) else {
+        return SelfHeld::default();
+    };
+    let current = std::thread::current().id();
+    let mut held = SelfHeld::default();
+    for record in records {
+        held.process = strongest(held.process, record.mode);
+        if record.thread == current {
+            held.current_thread = strongest(held.current_thread, record.mode);
+        }
+    }
+    held
+}
+
+fn strongest(current: Option<LockMode>, mode: LockMode) -> Option<LockMode> {
+    match (current, mode) {
+        (Some(LockMode::Exclusive), _) | (_, LockMode::Exclusive) => Some(LockMode::Exclusive),
+        _ => Some(LockMode::Shared),
     }
 }
 
@@ -384,6 +558,101 @@ mod tests {
         drop(a);
         let c = try_acquire(dir.path(), LockScope::AuthorityGate, LockMode::Exclusive).unwrap();
         assert!(c.is_some());
+    }
+
+    #[test]
+    fn self_held_reports_mode_owner_and_release() {
+        let dir = dir();
+        let gate = LockScope::AuthorityGate;
+        // No lock file at all: nothing can be held.
+        assert!(self_held(dir.path(), &gate).is_free());
+
+        let shared = acquire(dir.path(), gate.clone(), LockMode::Shared).unwrap();
+        let held = self_held(dir.path(), &gate);
+        assert_eq!(held.current_thread, Some(LockMode::Shared));
+        assert_eq!(held.process, Some(LockMode::Shared));
+        assert!(!held.is_free() && !held.current_thread_is_exclusive());
+
+        // A holder on another thread is this process's, but not this
+        // thread's: the distinction between "would deadlock on myself" and
+        // "ordinary contention".
+        let path = dir.path().to_path_buf();
+        let seen = std::thread::spawn(move || self_held(&path, &LockScope::AuthorityGate))
+            .join()
+            .unwrap();
+        assert_eq!(seen.current_thread, None);
+        assert_eq!(seen.process, Some(LockMode::Shared));
+
+        // A different scope is unaffected; a different dir is a different
+        // file and so a different ledger key.
+        assert!(self_held(dir.path(), &LockScope::Space(SpaceUid(Uuid::nil()))).is_free());
+        let elsewhere = tempfile::tempdir().unwrap();
+        assert!(self_held(elsewhere.path(), &gate).is_free());
+
+        drop(shared);
+        assert!(self_held(dir.path(), &gate).is_free());
+
+        let exclusive = acquire(dir.path(), gate.clone(), LockMode::Exclusive).unwrap();
+        assert!(self_held(dir.path(), &gate).current_thread_is_exclusive());
+        drop(exclusive);
+        assert!(self_held(dir.path(), &gate).is_free());
+    }
+
+    #[test]
+    fn a_blocking_exclusive_request_waits_on_this_process_own_shared_hold() {
+        // The premise `self_held` exists for: an exclusive acquisition made
+        // while this process already holds the scope shared does not fail, it
+        // *waits* — and OFD locks get no EDEADLK, so it waits forever unless
+        // the holder releases. A caller that cannot release (it is the same
+        // thread) has to consult the ledger instead of asking the kernel.
+        let dir = dir();
+        let shared = acquire(dir.path(), LockScope::AuthorityGate, LockMode::Shared).unwrap();
+        let path = dir.path().to_path_buf();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let held = acquire(&path, LockScope::AuthorityGate, LockMode::Exclusive).unwrap();
+            let _ = tx.send(());
+            drop(held);
+        });
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "the exclusive request must block behind this process's shared hold"
+        );
+        assert_eq!(
+            self_held(dir.path(), &LockScope::AuthorityGate).process,
+            Some(LockMode::Shared)
+        );
+        drop(shared);
+        rx.recv_timeout(std::time::Duration::from_secs(20))
+            .expect("the waiter proceeds once the shared hold is released");
+        waiter.join().unwrap();
+    }
+
+    #[test]
+    fn ledger_records_the_strongest_mode_and_survives_a_panicking_holder() {
+        let dir = dir();
+        let gate = LockScope::AuthorityGate;
+        let shared = acquire(dir.path(), gate.clone(), LockMode::Shared).unwrap();
+        let also_shared = try_acquire(dir.path(), gate.clone(), LockMode::Shared)
+            .unwrap()
+            .expect("two shared holders coexist");
+        assert_eq!(self_held(dir.path(), &gate).process, Some(LockMode::Shared));
+        drop(also_shared);
+        assert_eq!(self_held(dir.path(), &gate).process, Some(LockMode::Shared));
+        drop(shared);
+
+        // A holder dropped while unwinding must not leave the scope looking
+        // permanently held — that would turn one panic into a refusal of
+        // every later acquisition in the process.
+        let path = dir.path().to_path_buf();
+        let panicked = std::thread::spawn(move || {
+            let _held = acquire(&path, LockScope::AuthorityGate, LockMode::Exclusive).unwrap();
+            panic!("holder panics with the lock live");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(self_held(dir.path(), &gate).is_free());
     }
 
     #[test]

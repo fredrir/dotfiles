@@ -23,6 +23,8 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use rusqlite::OptionalExtension;
 use serde_json::Value;
@@ -74,19 +76,169 @@ pub struct AgentArgs {
     pub lock_dir: Option<PathBuf>,
 }
 
+// ---------------------------------------------------------------------------
+// Bounded request ingest
+//
+// stdin here is the ONE place in this crate where an unauthenticated-by-us
+// remote peer chooses how many bytes we allocate and how long we wait: the
+// peer reaches this process as `ssh <route> dmux _agent --protocol 1
+// <method>` and every protocol check (version, method, `payload_sha256`)
+// happens only once a whole document is resident.  Both bounds below are
+// therefore applied BEFORE any of that validation, and both refuse with the
+// same single-envelope contract the rest of this endpoint keeps.
+
+/// Maximum bytes accepted for ONE request document.
+///
+/// Sized against the crate's other ingest bounds rather than invented: the
+/// GUI bridge caps one signed control message at 64 KiB
+/// (`crate::gui::MAX_MESSAGE_BYTES`), a subprocess capture at 1 MiB
+/// (`crate::childio::DEFAULT_CAPTURE_LIMIT`), and a recovery manifest — the
+/// only genuinely bulk document in the crate — at 16 MiB.  A request
+/// envelope belongs at the control-message end: its fixed fields are a few
+/// hundred bytes of UUIDs, a digest and a method name, and the only
+/// caller-sized fields are a Space name, an optional `cwd`, and the user's
+/// `program` argv.  64 KiB would very likely be enough, but "very likely"
+/// is the wrong bar for a bound whose false positive is a refused legal
+/// command: the argv the client forwards is itself bounded by the `ARG_MAX`
+/// it was exec'd under (256 KiB on macOS), so 1 MiB clears the largest
+/// legitimate request with room to spare while still being 16x below the
+/// bulk-document cap and small enough that even many concurrent agents
+/// cannot threaten the host.
+const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+
+/// Wall-clock bound on the peer delivering that document.
+///
+/// A cap alone does not close the hole: a sender that trickles bytes and
+/// never closes its end never reaches the cap and never reaches EOF, so it
+/// pins one agent process per SSH session for as long as it likes.  30 s
+/// matches `crate::remote::client::DEFAULT_DEADLINE`, the client's own
+/// end-to-end bound for one exchange — past that the caller has already
+/// abandoned the RPC, so waiting longer for its request can only serve a
+/// peer that is not the client.
+const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Why the peer's bytes never became one request document.
+#[derive(Debug)]
+enum RequestReadError {
+    /// More than `limit` bytes were offered.  The request is refused whole
+    /// rather than truncated: a cut-off JSON document could not parse, and
+    /// a prefix is not what the peer's `payload_sha256` covers.
+    TooLarge { limit: usize },
+    /// No EOF within the deadline — an incomplete request, whether from a
+    /// deliberate trickle or a wedged transport.
+    TimedOut { deadline: Duration },
+    /// stdin itself failed, or the bytes were not UTF-8.
+    Io(std::io::Error),
+}
+
+impl RequestReadError {
+    fn into_typed(self) -> TypedError {
+        match self {
+            // Validation of the peer's input, exactly like the "not one JSON
+            // envelope" and `payload_sha256` refusals below — exit 2, not the
+            // exit 1 that would blame this host for the peer's request.
+            RequestReadError::TooLarge { limit } => TypedError::new(
+                ErrorCode::Usage,
+                format!("request exceeds the protocol maximum of {limit} bytes"),
+            ),
+            // An incomplete read is a failed read: same family, and same
+            // exit status, as the I/O arm below.
+            RequestReadError::TimedOut { deadline } => TypedError::new(
+                ErrorCode::OperationFailed,
+                format!("reading request: no complete request within {deadline:?}"),
+            ),
+            RequestReadError::Io(e) => {
+                TypedError::new(ErrorCode::OperationFailed, format!("reading request: {e}"))
+            }
+        }
+    }
+}
+
+/// Read at most `limit` bytes of UTF-8, refusing rather than truncating when
+/// the peer offers more.
+///
+/// Deliberately NOT [`crate::childio::bounded_read`]: that helper keeps
+/// draining past its cap so a child blocked in `write(2)` can reach exit,
+/// which is right when we own both ends of the pipe and only the child's
+/// *volume* is hostile.  Here the writer is the remote peer, so "keep
+/// reading forever and discard" would trade the memory DoS for a liveness
+/// one.  This reader stops instead, at exactly one byte past the cap — the
+/// least that can still tell "at the limit" from "over it".
+fn read_request(reader: impl Read, limit: usize) -> Result<String, RequestReadError> {
+    let ceiling = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+    let mut bytes = Vec::new();
+    reader
+        .take(ceiling)
+        .read_to_end(&mut bytes)
+        .map_err(RequestReadError::Io)?;
+    if bytes.len() > limit {
+        return Err(RequestReadError::TooLarge { limit });
+    }
+    // Same refusal `read_to_string` produced here before the cap existed,
+    // down to the message, so a non-UTF-8 request answers as it always did.
+    String::from_utf8(bytes).map_err(|_| {
+        RequestReadError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8",
+        ))
+    })
+}
+
+/// Read one request document under BOTH bounds: at most `limit` bytes and
+/// at most `deadline` of wall clock.
+///
+/// `std::io::stdin()` exposes no read timeout, and the descriptor behind it
+/// is whatever sshd handed us, so there is no portable `SO_RCVTIMEO` to set
+/// either.  The read therefore runs on its own thread and this one waits on
+/// a channel with a deadline — a condvar wait, so a stalled peer costs no
+/// CPU.  `open` builds the reader on that thread so the reader itself never
+/// has to cross one.
+///
+/// The fast path is unaffected: the client writes one small document and
+/// closes its end, the reader finishes, and `recv_timeout` returns at once.
+/// On the slow path this returns `TimedOut` while the reader stays parked in
+/// `read(2)`; that thread is deliberately not joined, because the caller is
+/// about to print its refusal envelope and return, and a detached thread
+/// does not delay process exit.  It cannot grow without bound while it waits
+/// either — it is reading through the same `limit`.
+fn read_request_deadlined<R, F>(
+    open: F,
+    limit: usize,
+    deadline: Duration,
+) -> Result<String, RequestReadError>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Read,
+{
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        // A closed receiver is the timeout path: dropping the result is the
+        // entire cleanup this thread owes anyone.
+        let _ = tx.send(read_request(open(), limit));
+    });
+    match rx.recv_timeout(deadline) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(RequestReadError::TimedOut { deadline }),
+        // The sender lives exactly as long as the closure above, which
+        // always sends before returning; a disconnect without a value means
+        // the read panicked, which bounds the request no less finally.
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(RequestReadError::Io(
+            std::io::Error::other("request reader ended without a result"),
+        )),
+    }
+}
+
 /// Run the agent endpoint. Returns the process exit code; the response
 /// envelope (payload or typed error) has already been written to stdout.
 pub fn run(args: &AgentArgs) -> i32 {
+    // Must stay first: `normalize_utf8_locale` sets environment variables
+    // and is sound only while this process is single-threaded, and the
+    // bounded read below spawns the reader thread.
     crate::remote::normalize_utf8_locale();
-    let mut raw = String::new();
-    let read = std::io::stdin().read_to_string(&mut raw);
+    let read = read_request_deadlined(std::io::stdin, MAX_REQUEST_BYTES, REQUEST_READ_DEADLINE);
     let (envelope, code) = match read {
-        Ok(_) => serve(args, &raw),
-        Err(e) => degraded(
-            Uuid::nil(),
-            &args.method,
-            TypedError::new(ErrorCode::OperationFailed, format!("reading request: {e}")),
-        ),
+        Ok(raw) => serve(args, &raw),
+        Err(e) => degraded(Uuid::nil(), &args.method, e.into_typed()),
     };
     match serde_json::to_string(&envelope) {
         Ok(doc) => println!("{doc}"),
@@ -2845,4 +2997,318 @@ fn split_rm(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Repl
     )
     .map_err(typed_op)?;
     to_reply(&target, &removed)
+}
+
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Instant;
+
+    /// One ordinary request document, in the exact shape a client sends.
+    fn sample_request() -> Envelope {
+        let payload = serde_json::to_value(HelloPayload {
+            nonce: Some(Uuid::from_u128(0x5f)),
+        })
+        .expect("hello payload serializes");
+        Envelope {
+            protocol_version: PROTOCOL_VERSION,
+            request_uid: Uuid::from_u128(0xa1),
+            method: protocol::methods::HELLO.to_string(),
+            payload_sha256: canonical_payload_sha256(&payload),
+            host_uid: HostUid(Uuid::nil()),
+            registry_uid: RegistryUid(Uuid::nil()),
+            authority_revision: 0,
+            authority_head_hash: String::new(),
+            backend_instance_uid: None,
+            server_epoch: None,
+            capabilities: Vec::new(),
+            payload: Some(payload),
+            error: None,
+        }
+    }
+
+    /// A peer that never stops sending and never sends EOF, counting what it
+    /// actually got to hand over.
+    struct EndlessReader {
+        served: Arc<AtomicUsize>,
+    }
+
+    impl io::Read for EndlessReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if buf.is_empty() {
+                return Ok(0);
+            }
+            buf.fill(b'x');
+            self.served.fetch_add(buf.len(), Ordering::Relaxed);
+            Ok(buf.len())
+        }
+    }
+
+    /// A peer that opens the channel and then sends nothing.  The release
+    /// channel exists only so the reader thread ends with the test.
+    struct StalledReader {
+        release: mpsc::Receiver<()>,
+    }
+
+    impl io::Read for StalledReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            let _ = self.release.recv();
+            Ok(0)
+        }
+    }
+
+    /// A peer that keeps the byte stream alive one byte at a time and never
+    /// closes it: always far under the cap, so only a deadline stops it.
+    struct TricklingReader {
+        stop: Arc<AtomicBool>,
+    }
+
+    impl io::Read for TricklingReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if buf.is_empty() {
+                return Ok(0);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+            if self.stop.load(Ordering::Relaxed) {
+                return Ok(0);
+            }
+            buf[0] = b'x';
+            Ok(1)
+        }
+    }
+
+    struct FailingReader;
+
+    impl io::Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("stdin went away"))
+        }
+    }
+
+    #[test]
+    fn the_request_bounds_are_the_ones_this_endpoint_documents() {
+        assert_eq!(MAX_REQUEST_BYTES, 1024 * 1024);
+        assert_eq!(REQUEST_READ_DEADLINE, Duration::from_secs(30));
+        // A request envelope must never be capped below the crate's other
+        // control-message bound, or a legal command could be refused.
+        const {
+            assert!(
+                MAX_REQUEST_BYTES > crate::gui::MAX_MESSAGE_BYTES,
+                "a request envelope must never be capped below one GUI bridge message"
+            )
+        };
+    }
+
+    #[test]
+    fn a_normal_request_round_trips_through_the_bounded_read_unchanged() {
+        let request = sample_request();
+        let document = serde_json::to_string(&request).expect("serialize request");
+        let raw = read_request(document.as_bytes(), MAX_REQUEST_BYTES).expect("bounded read");
+        assert_eq!(raw, document, "the bound must not alter a legal document");
+        let parsed: Envelope = serde_json::from_str(raw.trim()).expect("reparse");
+        assert!(parsed.is_well_formed());
+        assert_eq!(parsed, request);
+    }
+
+    #[test]
+    fn a_document_exactly_at_the_cap_is_accepted() {
+        for limit in [1_usize, 64, 4096] {
+            let document = "x".repeat(limit);
+            let raw = read_request(document.as_bytes(), limit).expect("at the cap");
+            assert_eq!(raw.len(), limit, "cap {limit}");
+        }
+    }
+
+    #[test]
+    fn one_byte_past_the_cap_is_refused_whole() {
+        let document = "x".repeat(4097);
+        let error = read_request(document.as_bytes(), 4096).expect_err("must refuse");
+        assert!(matches!(error, RequestReadError::TooLarge { limit: 4096 }));
+    }
+
+    #[test]
+    fn the_production_cap_refuses_a_document_past_it() {
+        let document = "x".repeat(MAX_REQUEST_BYTES + 1);
+        let error = read_request(document.as_bytes(), MAX_REQUEST_BYTES).expect_err("must refuse");
+        assert!(
+            matches!(error, RequestReadError::TooLarge { limit } if limit == MAX_REQUEST_BYTES)
+        );
+    }
+
+    #[test]
+    fn an_endless_sender_is_refused_rather_than_buffered() {
+        // Uncapped, this reader is an out-of-memory abort: it never returns
+        // EOF.  The refusal must also STOP reading — draining to EOF (what
+        // `childio::bounded_read` correctly does for a child pipe) would
+        // never return here.
+        let served = Arc::new(AtomicUsize::new(0));
+        let error = read_request(
+            EndlessReader {
+                served: Arc::clone(&served),
+            },
+            4096,
+        )
+        .expect_err("an endless stream must be refused");
+        assert!(matches!(error, RequestReadError::TooLarge { limit: 4096 }));
+        assert_eq!(
+            served.load(Ordering::Relaxed),
+            4097,
+            "must stop one byte past the cap instead of draining"
+        );
+    }
+
+    #[test]
+    fn an_oversized_request_still_answers_with_one_well_formed_envelope() {
+        let error = read_request("x".repeat(4097).as_bytes(), 4096).expect_err("must refuse");
+        let (envelope, code) = degraded(Uuid::nil(), protocol::methods::NEW, error.into_typed());
+
+        // The client parses stdout, so a refused request owes it exactly one
+        // envelope on one line — not a truncated document and not silence.
+        let document = serde_json::to_string(&envelope).expect("serialize refusal");
+        assert!(!document.contains('\n'), "one line: {document}");
+        let parsed: Envelope = serde_json::from_str(&document).expect("refusal must reparse");
+        assert!(parsed.is_well_formed());
+        assert_eq!(parsed.protocol_version, PROTOCOL_VERSION);
+        assert_eq!(parsed.method, protocol::methods::NEW);
+        assert_eq!(parsed.request_uid, Uuid::nil());
+        assert!(parsed.payload.is_none());
+        let typed = parsed.error.clone().expect("typed error half");
+        assert_eq!(typed.code, ErrorCode::Usage);
+        assert!(
+            typed.message.contains("exceeds the protocol maximum"),
+            "{}",
+            typed.message
+        );
+        // The digest still covers whichever half is present.
+        assert_eq!(
+            parsed.payload_sha256,
+            canonical_payload_sha256(&serde_json::to_value(&typed).expect("error value"))
+        );
+        assert_eq!(code, 2, "usage/validation is exit 2 in the plan's table");
+    }
+
+    #[test]
+    fn a_read_error_keeps_its_pre_existing_typed_shape() {
+        let error = read_request(FailingReader, MAX_REQUEST_BYTES).expect_err("must fail");
+        let typed = error.into_typed();
+        assert_eq!(typed.code, ErrorCode::OperationFailed);
+        assert_eq!(typed.code.exit_status().code(), 1);
+        assert!(
+            typed.message.starts_with("reading request: "),
+            "{}",
+            typed.message
+        );
+    }
+
+    #[test]
+    fn a_non_utf8_request_keeps_its_pre_existing_refusal() {
+        let error =
+            read_request([0xff_u8, 0xfe].as_slice(), MAX_REQUEST_BYTES).expect_err("must fail");
+        let typed = error.into_typed();
+        assert_eq!(typed.code, ErrorCode::OperationFailed);
+        assert_eq!(
+            typed.message,
+            "reading request: stream did not contain valid UTF-8"
+        );
+    }
+
+    #[test]
+    fn the_deadline_does_not_delay_a_request_that_is_already_there() {
+        // The fast path: one small document, sender's end already closed.
+        let request = sample_request();
+        let document = serde_json::to_string(&request).expect("serialize request");
+        let body = document.clone();
+        let started = Instant::now();
+        let raw = read_request_deadlined(
+            move || io::Cursor::new(body.into_bytes()),
+            MAX_REQUEST_BYTES,
+            REQUEST_READ_DEADLINE,
+        )
+        .expect("the ordinary fast path");
+        let elapsed = started.elapsed();
+        assert_eq!(raw, document);
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "the fast path waited on the deadline: {elapsed:?}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Envelope>(raw.trim()).expect("reparse"),
+            request
+        );
+    }
+
+    #[test]
+    fn a_silent_sender_is_bounded_by_the_deadline() {
+        let (release, stalled) = mpsc::channel::<()>();
+        let started = Instant::now();
+        let error = read_request_deadlined(
+            move || StalledReader { release: stalled },
+            MAX_REQUEST_BYTES,
+            Duration::from_millis(150),
+        )
+        .expect_err("a silent sender must not be waited on forever");
+        let elapsed = started.elapsed();
+        assert!(matches!(error, RequestReadError::TimedOut { .. }));
+        assert!(
+            elapsed >= Duration::from_millis(150),
+            "returned before the deadline: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the deadline did not bound the read: {elapsed:?}"
+        );
+        let typed = error.into_typed();
+        assert_eq!(typed.code, ErrorCode::OperationFailed);
+        assert_eq!(typed.code.exit_status().code(), 1);
+        drop(release);
+    }
+
+    #[test]
+    fn a_trickling_sender_is_bounded_by_the_deadline_too() {
+        // The case the cap alone cannot catch: real bytes, forever under the
+        // cap, and no EOF ever.
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader_stop = Arc::clone(&stop);
+        let started = Instant::now();
+        let error = read_request_deadlined(
+            move || TricklingReader { stop: reader_stop },
+            MAX_REQUEST_BYTES,
+            Duration::from_millis(150),
+        )
+        .expect_err("a trickle must not hold the agent open");
+        let elapsed = started.elapsed();
+        stop.store(true, Ordering::Relaxed);
+        assert!(matches!(error, RequestReadError::TimedOut { .. }));
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the deadline did not bound the read: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn the_deadlined_read_still_enforces_the_cap() {
+        // Both bounds are live on the same path: an endless sender is
+        // refused on size at once, not waited out to the deadline.
+        let served = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&served);
+        let started = Instant::now();
+        let error = read_request_deadlined(
+            move || EndlessReader { served: counter },
+            4096,
+            REQUEST_READ_DEADLINE,
+        )
+        .expect_err("endless must be refused, not waited out");
+        let elapsed = started.elapsed();
+        assert!(matches!(error, RequestReadError::TooLarge { limit: 4096 }));
+        assert_eq!(served.load(Ordering::Relaxed), 4097);
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the cap must fire long before the deadline: {elapsed:?}"
+        );
+    }
 }

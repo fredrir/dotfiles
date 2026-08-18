@@ -12,6 +12,7 @@
 
 pub mod backend;
 pub mod bootstrap;
+pub mod childio;
 pub mod connect_cli;
 pub mod error;
 pub mod gui;

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::error::TypedError;
+use crate::error::{ErrorCode, TypedError};
 use crate::model::{
     BackendInstanceUid, ChildKind, Health, HostUid, ProviderHandle, RegistryUid, ServerEpoch,
     SpaceUid,
@@ -27,6 +27,42 @@ pub const CAP_NEW_FENCED_COLLISION: &str = "new_fenced_collision_v1";
 /// The owner can validate a controller-stamped tmux client UID against an
 /// exact live client process/tty witness and switch only that client.
 pub const CAP_TMUX_CLIENT_CORRELATION: &str = "tmux_client_correlation_v1";
+
+/// Largest integer this wire round-trips exactly: 2^53 - 1, the IEEE-754
+/// double mantissa bound every JSON reader on either side of the RPC shares.
+/// The GUI bridge holds every wire integer to it (`gui.rs`); the peer
+/// surface holds the lineage revisions to it here, so a peer-supplied
+/// revision can never reach the registry — or the durable anti-rollback
+/// checkpoint it anchors (plan §12.1) — as an unrepresentable magnitude.
+pub const MAX_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// The typed refusal for a lineage revision outside the exact-integer
+/// range. Every rejection of an out-of-range revision — on the wire and in
+/// process — carries this shape; none of them panics, and none of them
+/// narrows the value to something storable.
+pub fn revision_out_of_range(label: &str, revision: u64) -> TypedError {
+    TypedError::new(
+        ErrorCode::ProtocolMismatch,
+        format!("{label} {revision} exceeds the exact JSON integer range (max {MAX_JSON_INTEGER})"),
+    )
+}
+
+/// Deserialization bound for every authority revision the peer surface
+/// carries. Applied at parse time so an absurd revision is refused with the
+/// rest of the malformed document and never reaches lineage assessment or
+/// [`crate::registry::Registry::store_peer_cache`].
+fn exact_json_revision<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let revision = u64::deserialize(deserializer)?;
+    if revision > MAX_JSON_INTEGER {
+        return Err(serde::de::Error::custom(
+            revision_out_of_range("authority revision", revision).message,
+        ));
+    }
+    Ok(revision)
+}
 
 /// Method names carried in the envelope. The set grows per phase; the
 /// envelope shape is what P1 freezes. `hello` (enrollment/lineage handshake,
@@ -91,6 +127,7 @@ pub struct Envelope {
     pub payload_sha256: String,
     pub host_uid: HostUid,
     pub registry_uid: RegistryUid,
+    #[serde(deserialize_with = "exact_json_revision")]
     pub authority_revision: u64,
     pub authority_head_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,9 +144,12 @@ pub struct Envelope {
 
 impl Envelope {
     /// Contract invariant: a well-formed envelope carries exactly one of
-    /// payload/error (requests always use `payload`).
+    /// payload/error (requests always use `payload`) and an authority
+    /// revision inside the exact JSON integer range.
     pub fn is_well_formed(&self) -> bool {
-        self.protocol_version == PROTOCOL_VERSION && (self.payload.is_some() ^ self.error.is_some())
+        self.protocol_version == PROTOCOL_VERSION
+            && self.authority_revision <= MAX_JSON_INTEGER
+            && (self.payload.is_some() ^ self.error.is_some())
     }
 }
 
@@ -200,6 +240,7 @@ pub struct BackendStatus {
 /// to verify descent from its cached checkpoint (or from the genesis hash).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChainLink {
+    #[serde(deserialize_with = "exact_json_revision")]
     pub revision: u64,
     pub parent_head_hash: String,
     pub head_hash: String,
@@ -211,6 +252,7 @@ pub struct ChainLink {
 pub struct HelloInfo {
     pub host_uid: HostUid,
     pub registry_uid: RegistryUid,
+    #[serde(deserialize_with = "exact_json_revision")]
     pub authority_revision: u64,
     pub authority_head_hash: String,
     pub protocol_version: u32,
@@ -861,6 +903,89 @@ mod tests {
         assert_eq!(back, rename);
         let hello: HelloPayload = serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(hello.nonce, None);
+    }
+
+    /// The exact LOSSYFROM-001 attack value: 2^63, which an unchecked
+    /// `as i64` reinterprets as `i64::MIN` in the durable peer-lineage
+    /// checkpoint, so every later honest handshake reads as a rollback.
+    const POISON_REVISION: u64 = 9_223_372_036_854_775_808;
+
+    fn golden_with_revision(revision: u64) -> String {
+        let replaced = GOLDEN.replace(
+            "\"authority_revision\": 42",
+            &format!("\"authority_revision\": {revision}"),
+        );
+        assert_ne!(replaced, GOLDEN);
+        replaced
+    }
+
+    #[test]
+    fn envelope_rejects_an_authority_revision_past_the_exact_json_integer_range() {
+        for absurd in [POISON_REVISION, MAX_JSON_INTEGER + 1, u64::MAX] {
+            let error = serde_json::from_str::<Envelope>(&golden_with_revision(absurd))
+                .expect_err("an out-of-range authority revision must not parse");
+            assert!(
+                error.to_string().contains("exact JSON integer range"),
+                "unexpected rejection for {absurd}: {error}"
+            );
+        }
+        // The bound is inclusive: the largest exactly representable
+        // revision still parses, stays well formed, and re-serializes byte
+        // for byte.
+        let text = golden_with_revision(MAX_JSON_INTEGER);
+        let env: Envelope = serde_json::from_str(&text).unwrap();
+        assert_eq!(env.authority_revision, MAX_JSON_INTEGER);
+        assert!(env.is_well_formed());
+        assert_eq!(
+            serde_json::to_value(&env).unwrap(),
+            serde_json::from_str::<Value>(&text).unwrap()
+        );
+        // An envelope assembled in process past the bound is not well
+        // formed either, and the refusal is the crate's typed shape.
+        let mut poisoned = env;
+        poisoned.authority_revision = POISON_REVISION;
+        assert!(!poisoned.is_well_formed());
+        let typed = revision_out_of_range("authority revision", POISON_REVISION);
+        assert_eq!(typed.code, ErrorCode::ProtocolMismatch);
+        assert!(typed.message.contains(&POISON_REVISION.to_string()));
+    }
+
+    #[test]
+    fn hello_lineage_revisions_are_bounded_at_the_protocol_edge() {
+        let hello = serde_json::json!({
+            "host_uid": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0002",
+            "registry_uid": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0003",
+            "authority_revision": 7,
+            "authority_head_hash": "sha256:abc",
+            "protocol_version": 1,
+            "agent_version": "0.1.0",
+            "capabilities": [],
+            "backends": [],
+            "revision_chain": [{
+                "revision": 7,
+                "parent_head_hash": "sha256:parent",
+                "head_hash": "sha256:abc",
+                "txn_uid": "0192aaaa-bbbb-4ccc-8ddd-eeeeffff0006"
+            }]
+        });
+        let parsed: HelloInfo = serde_json::from_value(hello.clone()).unwrap();
+        assert_eq!(parsed.authority_revision, 7);
+        assert_eq!(parsed.revision_chain[0].revision, 7);
+
+        let mut poisoned_head = hello.clone();
+        poisoned_head["authority_revision"] = serde_json::json!(POISON_REVISION);
+        assert!(serde_json::from_value::<HelloInfo>(poisoned_head).is_err());
+
+        let mut poisoned_link = hello.clone();
+        poisoned_link["revision_chain"][0]["revision"] = serde_json::json!(MAX_JSON_INTEGER + 1);
+        assert!(serde_json::from_value::<HelloInfo>(poisoned_link).is_err());
+
+        let mut legal = hello;
+        legal["authority_revision"] = serde_json::json!(MAX_JSON_INTEGER);
+        legal["revision_chain"][0]["revision"] = serde_json::json!(MAX_JSON_INTEGER);
+        let parsed: HelloInfo = serde_json::from_value(legal).unwrap();
+        assert_eq!(parsed.authority_revision, MAX_JSON_INTEGER);
+        assert_eq!(parsed.revision_chain[0].revision, MAX_JSON_INTEGER);
     }
 
     #[test]
