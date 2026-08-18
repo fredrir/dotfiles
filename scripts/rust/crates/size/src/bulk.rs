@@ -61,6 +61,22 @@ impl Dir {
         (fd >= 0).then_some(Dir(fd))
     }
 
+    /// What this directory says about itself once it is open. A mount point is
+    /// an ordinary directory of the parent filesystem in the batch reply that
+    /// names it — the reply describes the entry, not what is mounted over it —
+    /// so both the device `-x` compares and the blocks the directory itself
+    /// costs have to be read from the open descriptor.
+    fn status(&self) -> Option<Status> {
+        // SAFETY: `stat` is plain data, `self.0` is an open descriptor, and
+        // the fields are only read once the call reports success.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        let read = unsafe { libc::fstat(self.0, &mut stat) };
+        (read == 0).then(|| Status {
+            device: stat.st_dev as u64,
+            bytes: stat.st_blocks as u64 * 512,
+        })
+    }
+
     fn open_file(&self, name: &CStr) -> Option<File> {
         // SAFETY: as above; the descriptor is handed straight to `File`, which
         // takes ownership of closing it.
@@ -80,6 +96,13 @@ impl Drop for Dir {
         // SAFETY: we own this descriptor and are the last to touch it.
         unsafe { libc::close(self.0) };
     }
+}
+
+/// What an open directory says about itself, as against what the entry naming
+/// it said.
+struct Status {
+    device: u64,
+    bytes: u64,
 }
 
 /// What one entry of a batch says about itself.
@@ -209,7 +232,8 @@ struct Child {
     name: CString,
     visible: bool,
     depth: usize,
-    /// Its own blocks, added back once the walk underneath it returns.
+    /// Its own blocks as the batch reported them — what a directory that will
+    /// not open leaves us to go on.
     bytes: u64,
 }
 
@@ -256,14 +280,18 @@ fn read(
             batch.push(found);
         }
 
-        // Settle the ignore list before anything reads a file: an entry that
-        // is out stays out of the line counting too.
-        let skipped: Vec<bool> = if options.ignore.is_empty() {
+        // Settle what is out before anything reads a file: an entry that is
+        // out stays out of the line counting too. The device each entry
+        // reports came back with the batch, so `-x` costs nothing extra here.
+        let skipped: Vec<bool> = if options.ignore.is_empty() && options.device.is_none() {
             Vec::new()
         } else {
             batch
                 .iter()
                 .map(|found| {
+                    if options.skips_device(found.devid as u64) {
+                        return true;
+                    }
                     if options.ignore.skips_name(&found.name.to_string_lossy()) {
                         return true;
                     }
@@ -319,7 +347,7 @@ fn read(
                     } else {
                         options.display_depth
                     },
-                    bytes: if options.apparent { 0 } else { found.allocated },
+                    bytes: found.allocated,
                 });
                 continue;
             }
@@ -360,7 +388,17 @@ fn read(
             let name = Path::new(OsStr::from_bytes(child.name.to_bytes()));
             let child_relative = relative.join(name);
             let child_full = full.join(name);
-            let mut child_walked = match dir.open_child(&child.name) {
+            let handle = dir.open_child(&child.name);
+            // One `fstat` on a descriptor we already hold, and only per
+            // directory: no path to resolve, so none of the contention that
+            // made a `stat` per entry worth avoiding in the first place.
+            let opened = handle.as_ref().and_then(Dir::status);
+            if let Some(status) = &opened
+                && options.skips_device(status.device)
+            {
+                return Walked::default();
+            }
+            let mut child_walked = match handle {
                 Some(handle) => {
                     read(options, &handle, &child_full, &child_relative, child.depth)
                         // This directory will not answer; the portable walk can.
@@ -375,7 +413,9 @@ fn read(
                 }
                 None => Walked::unreadable(),
             };
-            child_walked.measure.bytes += child.bytes;
+            if !options.apparent {
+                child_walked.measure.bytes += opened.map_or(child.bytes, |status| status.bytes);
+            }
             if child.visible {
                 let measure = child_walked.measure;
                 child_walked.rows.push(Row {
@@ -548,6 +588,39 @@ mod tests {
         assert!(!trimmed.rows.iter().any(|row| row.name == "visible"));
         let portable = super::super::walk_directory(&options, root.path(), Path::new(""), 0);
         assert_eq!(trimmed.measure.bytes, portable.measure.bytes);
+    }
+
+    /// The device comes out of the packed reply rather than a `stat`, so `-x`
+    /// has to agree with the portable walk about which entries it drops.
+    #[test]
+    fn one_file_system_agrees_with_the_portable_walk() {
+        let root = fixture();
+        let here = super::super::device(&fs::symlink_metadata(root.path()).unwrap());
+        for device in [Some(here), Some(here.wrapping_add(1)), None] {
+            let options = Options {
+                display_depth: usize::MAX,
+                device,
+                ..Options::default()
+            };
+            let bulk = shape(walk(&options, root.path()).expect("bulk walk runs"));
+            let portable = shape(super::super::walk_directory(
+                &options,
+                root.path(),
+                Path::new(""),
+                0,
+            ));
+            assert_eq!(bulk, portable, "device={device:?}");
+        }
+        // The fixture is all on one device, so only a device it is not on can
+        // show that anything is being dropped at all.
+        let elsewhere = Options {
+            display_depth: usize::MAX,
+            device: Some(here.wrapping_add(1)),
+            ..Options::default()
+        };
+        let walked = walk(&elsewhere, root.path()).expect("bulk walk runs");
+        assert_eq!(walked.measure.bytes, 0);
+        assert!(walked.rows.is_empty());
     }
 
     #[test]

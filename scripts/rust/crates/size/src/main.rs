@@ -6,7 +6,8 @@
 //! counts everywhere. Totals always include hidden files; `-a` only decides
 //! whether hidden entries get their own rows. `-i` is the other way round: a
 //! matching entry leaves the walk entirely, taking its bytes and — if it is a
-//! directory — everything underneath it. A file reachable under more than one
+//! directory — everything underneath it; `-x` does the same to anything on a
+//! filesystem other than the target's. A file reachable under more than one
 //! name inside the tree counts once, the way `du` counts it. Bytes are the
 //! space the tree occupies, blocks and all, so a sparse disk image measures
 //! what it holds rather than what it claims and a directory of tiny files
@@ -77,6 +78,10 @@ struct Cli {
     #[arg(short = 'i', long = "ignore", value_name = "PATTERN")]
     ignore: Vec<String>,
 
+    /// Stay on the filesystem the target sits on, leaving other mounts out
+    #[arg(short = 'x', long = "one-file-system")]
+    one_file_system: bool,
+
     #[command(flatten)]
     completions: Completions,
 }
@@ -110,6 +115,18 @@ struct Options {
     apparent: bool,
     display_depth: usize,
     ignore: Ignore,
+    /// `-x`: the device the target sits on, once nothing on another one is
+    /// wanted. `None` lets the walk cross mounts, which is what it does by
+    /// default.
+    device: Option<u64>,
+}
+
+impl Options {
+    /// An entry on another filesystem leaves the walk exactly the way an
+    /// ignored one does: no row, no bytes, and nothing underneath it either.
+    fn skips_device(&self, device: u64) -> bool {
+        self.device.is_some_and(|target| target != device)
+    }
 }
 
 /// What a walk found: the totals, the rows worth showing, and every file that
@@ -259,6 +276,7 @@ fn main() -> ExitCode {
         apparent: cli.apparent,
         display_depth,
         ignore: Ignore::new(&cli.ignore),
+        device: cli.one_file_system.then(|| device(&metadata)),
     };
 
     if !metadata.is_dir() {
@@ -439,6 +457,14 @@ fn file_id(metadata: &fs::Metadata) -> (u64, u64) {
     (metadata.dev(), metadata.ino())
 }
 
+/// Which filesystem an entry lives on. A mount point reports the filesystem
+/// mounted over it rather than the directory underneath, which is what makes
+/// this enough to spot one.
+#[cfg(unix)]
+fn device(metadata: &fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::dev(metadata)
+}
+
 #[cfg(not(unix))]
 fn nlink(_metadata: &fs::Metadata) -> u64 {
     1
@@ -447,6 +473,11 @@ fn nlink(_metadata: &fs::Metadata) -> u64 {
 #[cfg(not(unix))]
 fn file_id(_metadata: &fs::Metadata) -> (u64, u64) {
     (0, 0)
+}
+
+#[cfg(not(unix))]
+fn device(_metadata: &fs::Metadata) -> u64 {
+    0
 }
 
 fn kind_of(metadata: &fs::Metadata) -> &'static str {
@@ -566,6 +597,9 @@ fn walk_directory(options: &Options, directory: &Path, relative: &Path, depth: u
             let Ok(metadata) = entry.metadata() else {
                 return Walked::unreadable();
             };
+            if options.skips_device(device(&metadata)) {
+                return Walked::default();
+            }
             let visible = depth < options.display_depth && (options.all || !hidden(&name));
             let mut walked = if metadata.is_dir() {
                 // A hidden directory's children stay out of the listing even
@@ -951,6 +985,28 @@ mod tests {
         };
         let walked = walk_directory(&options, root.path(), Path::new(""), 0);
         assert_eq!(walked.measure.bytes, by_hand(root.path()));
+    }
+
+    /// A mount inside a temporary directory is not something a test can
+    /// arrange, so drive `-x` from both ends instead: the device the tree
+    /// really sits on changes nothing, and a device nothing sits on empties
+    /// the walk.
+    #[test]
+    fn one_file_system_keeps_the_targets_device_and_drops_the_rest() {
+        let root = tree();
+        let here = device(&fs::symlink_metadata(root.path()).unwrap());
+        let walk = |device| {
+            let options = Options {
+                display_depth: usize::MAX,
+                device,
+                ..logical()
+            };
+            let walked = walk_directory(&options, root.path(), Path::new(""), 0);
+            (walked.measure.bytes, walked.rows.len())
+        };
+
+        assert_eq!(walk(Some(here)), walk(None));
+        assert_eq!(walk(Some(here.wrapping_add(1))), (0, 0));
     }
 
     #[test]
