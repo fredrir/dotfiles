@@ -202,6 +202,18 @@ local null_value = json.decode '{"a":null}'
 truthy(not null_value, 'JSON null rejected from protocol subset')
 local fraction = json.decode '{"a":1.5}'
 truthy(not fraction, 'fractional JSON number rejected from protocol subset')
+-- Integer arithmetic wraps, so math.abs(math.mininteger) is math.mininteger: an
+-- absolute-value range guard passes the one literal it exists to stop, and the
+-- decoder builds the substring with its leading '-' already attached.
+local wrapped, wrapped_err = json.decode '{"a":-9223372036854775808}'
+truthy(
+  not wrapped and wrapped_err:match 'exactly representable JSON range',
+  'the wrapping negative integer rejected from protocol subset'
+)
+local min_exact = json.decode '{"a":-9007199254740991}'
+truthy(min_exact and min_exact.a == -9007199254740991, 'lowest exactly representable integer decodes')
+local below_exact = json.decode '{"a":-9007199254740992}'
+truthy(not below_exact, 'integer below the exactly representable JSON range rejected')
 
 local tampered = clone(request)
 tampered.target.alternate_domains[1] = 'dmux-b-other'
@@ -539,5 +551,24 @@ truthy(context.tab_summary(mixed_group_tab).mixed, 'different logical Groups in 
 local escaped, escape_err = canonical.encode { text = 'quote"\n\0' }
 equal(escape_err, nil, 'canonical string escapes encode')
 equal(escaped, '{"text":"quote\\"\\n\\u0000"}', 'canonical RFC8259 escapes pinned')
+
+-- The encode side of the same wrap: %.0f would otherwise write
+-- -9223372036854775808 into a document the GUI then signs.
+local wrapped_encode, wrapped_encode_err = canonical.encode { a = math.mininteger }
+equal(wrapped_encode, nil, 'the wrapping negative integer never reaches a signing document')
+truthy(
+  wrapped_encode_err and wrapped_encode_err:match 'exactly representable JSON range',
+  'canonical encode names the range it enforces'
+)
+equal(
+  canonical.encode { a = -9007199254740991 },
+  '{"a":-9007199254740991}',
+  'lowest exactly representable integer encodes'
+)
+equal(
+  select(2, canonical.encode { a = -9007199254740992 }),
+  'object.a: integer exceeds the exactly representable JSON range',
+  'integer below the exactly representable JSON range refused'
+)
 
 io.stdout:write(string.format('dmux bridge lua tests: %d passed\n', tests))

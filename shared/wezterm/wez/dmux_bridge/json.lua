@@ -234,7 +234,9 @@ local function decoder(raw)
       return fail 'only integer JSON numbers are allowed'
     end
     local value = tonumber(raw:sub(start, position - 1))
-    if not value or value % 1 ~= 0 or math.abs(value) > 9007199254740991 then
+    -- Two-sided, not math.abs: integer arithmetic wraps, so abs(math.mininteger)
+    -- is math.mininteger, and an absolute-value bound lets that literal through.
+    if not value or value % 1 ~= 0 or value < -9007199254740991 or value > 9007199254740991 then
       return fail 'integer exceeds the exactly representable JSON range'
     end
     return value

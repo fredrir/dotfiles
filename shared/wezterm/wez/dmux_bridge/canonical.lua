@@ -122,7 +122,9 @@ encode = function(value)
     if value ~= value or value == math.huge or value == -math.huge or value % 1 ~= 0 then
       return nil, 'only finite integer numbers are allowed'
     end
-    if math.abs(value) > 9007199254740991 then
+    -- Two-sided, not math.abs: abs(math.mininteger) is itself, so an
+    -- absolute-value bound would sign -9223372036854775808 into the document.
+    if value < -9007199254740991 or value > 9007199254740991 then
       return nil, 'integer exceeds the exactly representable JSON range'
     end
     return string.format('%.0f', value)

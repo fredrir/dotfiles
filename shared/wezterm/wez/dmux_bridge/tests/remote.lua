@@ -53,6 +53,8 @@ local rows = {
 }
 
 local response = { schema_version = 1, ok = true, result = { domains = clone(rows) } }
+-- Set to send a backend payload the GUI's own encoder would never produce.
+local raw_response
 local logs = {}
 local act = setmetatable({}, {
   __index = function(_, name)
@@ -78,7 +80,7 @@ local fake_wezterm = {
   end,
   run_child_process = function(argv)
     assert(argv[2] == '_gui' and argv[3] == 'domains')
-    return true, assert(json.encode(response)), ''
+    return true, raw_response or assert(json.encode(response)), ''
   end,
   target_triple = 'aarch64-apple-darwin',
 }
@@ -130,6 +132,18 @@ assert(#mux.domains() == 0, 'one owner cannot name multiple backend instances')
 response.result.domains = clone(rows)
 response.result.domains[2].host_uid = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 assert(#mux.domains() == 0, 'one backend instance cannot alias multiple owners')
+
+-- Integer arithmetic wraps, so math.abs(math.mininteger) is math.mininteger. An
+-- absolute-value range guard admits the one integer no exact-JSON consumer can
+-- carry, and priority holds no second bound of its own the way route_id does.
+-- The GUI encoder refuses to write that literal, so the backend has to speak it.
+response.result.domains = clone(rows)
+local tampered_wire, substituted =
+  assert(json.encode(response)):gsub('"priority":10', '"priority":-9223372036854775808', 1)
+assert(substituted == 1, 'priority must be substituted into the manifest wire')
+raw_response = tampered_wire
+assert(#mux.domains() == 0, 'a wrapping negative priority must fail closed')
+raw_response = nil
 
 response.result.domains = clone(rows)
 response.result.domains[1].alternate_domains = { 'dmux-b-ts' }
