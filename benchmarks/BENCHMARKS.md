@@ -4,7 +4,7 @@
 
 ## `archie`
 
-1 clean run  ·  arch
+2 clean runs  ·  arch
 
 ### `10db7d1f`
 
@@ -14,17 +14,23 @@ Baseline: `2026-08-13T11-34-32Z-10db7d1f`
 
 | metric | unit | latest | runs | best |
 | --- | --- | --- | --- | --- |
-| `cpu.crypto` | MB/s | 23 624 | 1 | 23 624 |
-| `cpu.multi` | MIPS | 124 256 | 1 | 124 256 |
-| `cpu.single` | MIPS | 12 793 | 1 | 12 793 |
+| `cache.read` | MiB/s | 105 415 | 1 | 105 415 |
+| `cache.write` | MiB/s | 40 353 | 1 | 40 353 |
+| `cpu.crypto` | MB/s | 24 469 | 2 | 24 469 |
+| `cpu.multi` | MIPS | 130 710 | 2 | 130 710 |
+| `cpu.native_multi` | Mops/s | 12 288 | 1 | 12 288 |
+| `cpu.native_single` | Mops/s | 862.5 | 1 | 862.5 |
+| `cpu.single` | MIPS | 13 026 | 2 | 13 026 |
 | `gpu.graphics` | score | 81 296 | 1 | 81 296 |
-| `mem.random` | MiB/s | 648.3 | 1 | 648.3 |
-| `mem.read` | MiB/s | 101 315 | 1 | 101 315 |
-| `mem.write` | MiB/s | 39 995 | 1 | 39 995 |
-| `workload.git_log` | ms | 1.41 | 1 | 1.41 |
-| `workload.git_status` | ms | 2.07 | 1 | 2.07 |
-| `workload.nvim_startup` | ms | 23.8 | 1 | 23.8 |
-| `workload.tar_repo` | ms | 0.84 | 1 | 0.84 |
+| `mem.native_read` | GiB/s | 66.9 | 1 | 66.9 |
+| `mem.native_write` | GiB/s | 33.3 | 1 | 33.3 |
+| `mem.random` | MiB/s | 949.1 | 2 | 949.1 |
+| `mem.read` | MiB/s | 57 437 | 2 | 101 315 |
+| `mem.write` | MiB/s | 28 713 | 2 | 39 995 |
+| `workload.git_log` | ms | 1.57 | 2 | 1.41 |
+| `workload.git_status` | ms | 2.04 | 2 | 2.04 |
+| `workload.nvim_startup` | ms | 23.0 | 2 | 23.0 |
+| `workload.tar_repo` | ms | 0.77 | 2 | 0.77 |
 
 
 ## `macie`
