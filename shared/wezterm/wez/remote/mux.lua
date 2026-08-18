@@ -59,7 +59,8 @@ local function valid_domain(value)
 end
 
 local function valid_integer(value)
-  return type(value) == 'number' and value % 1 == 0 and math.abs(value) <= 9007199254740991
+  -- Two-sided, not math.abs: abs(math.mininteger) is itself and would pass.
+  return type(value) == 'number' and value % 1 == 0 and value >= -9007199254740991 and value <= 9007199254740991
 end
 
 local function dense_array(value, validator)
