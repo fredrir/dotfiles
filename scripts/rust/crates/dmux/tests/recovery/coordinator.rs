@@ -782,10 +782,9 @@ fn fake_bootstrap_helper(runtime: PathBuf, request_uid: Uuid, pane_id: String) -
 }
 
 fn write_response(path: &Path, response: &RecoveryResponse) {
-    let tmp = path.with_extension(format!("tmp-{}", Uuid::new_v4()));
-    fs::write(&tmp, serde_json::to_vec(response).unwrap()).unwrap();
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)).unwrap();
-    fs::rename(tmp, path).unwrap();
+    // Via write_private: creating the staging file at the mode it will be
+    // published with leaves no umask-widened window in the spool directory.
+    write_private(path, serde_json::to_vec(response).unwrap());
 }
 
 fn same_native_ids(left: &CreatedNode, right: &CreatedNode) -> bool {

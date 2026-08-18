@@ -1301,6 +1301,17 @@ fn validate_private_directory(path: &Path, metadata: &fs::Metadata) -> io::Resul
 }
 
 fn validate_private_file(name: &str, metadata: &fs::Metadata, maximum: u64) -> io::Result<()> {
+    // Every caller stats a descriptor it opened by name or created itself, so
+    // the name had a link at that moment.  Zero links now means the name was
+    // unlinked or renamed over in between -- a concurrent republish, not a
+    // hostile file.  Report the same transient signal `read_file` raises when
+    // the inode moves under it, so pollers retry instead of failing the run.
+    if metadata.nlink() == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            format!("private file {name} was replaced while it was open"),
+        ));
+    }
     let euid = unsafe { libc::geteuid() };
     if !metadata.is_file()
         || metadata.uid() != euid
@@ -1700,6 +1711,20 @@ pub fn request_recovery_abort(
     request_recovery_control(config, runtime_dir, instance, RecoveryControlAction::Abort)
 }
 
+/// Lua publishes each spool document by atomic rename, so a poll can catch the
+/// swap: the name is momentarily absent, or the inode the reader already opened
+/// is unlinked under it mid-read.  Neither is a verdict on the document -- the
+/// next poll observes the settled one, and the caller's deadline still bounds
+/// the wait.
+fn spool_read_is_transient(error: &RecoveryError) -> bool {
+    matches!(
+        error,
+        RecoveryError::Io(error)
+            if error.kind() == io::ErrorKind::NotFound
+                || error.kind() == io::ErrorKind::Interrupted
+    )
+}
+
 fn wait_for_response(
     spool: &RecoverySpool,
     command: &RecoveryCommand,
@@ -1744,7 +1769,7 @@ fn wait_for_response(
                 }
                 return Ok(response);
             }
-            Err(RecoveryError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) if spool_read_is_transient(&e) => {}
             Err(e) => return Err(e),
         }
         if started.elapsed() >= timeout {
@@ -4964,5 +4989,84 @@ mod secure_incarnation_tests {
         .unwrap()
         .unwrap();
         assert_eq!(verified.pid, pid);
+    }
+}
+
+#[cfg(test)]
+mod private_spool_race_tests {
+    use super::*;
+    use std::os::unix::fs::DirBuilderExt;
+
+    fn spool_dir(scratch: &Path) -> PrivateDir {
+        let path = scratch.join("spool");
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        PrivateDir::open(&path).unwrap()
+    }
+
+    /// The state a loaded coordinator hits: Lua renames the next response over
+    /// `response.json` while the poller already holds the previous inode open,
+    /// dropping that inode to zero links.  Classifying that as a permission
+    /// verdict failed whole recovery runs; it must read as retryable instead.
+    #[test]
+    fn response_replaced_under_an_open_reader_is_transient_not_a_permission_verdict() {
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = spool_dir(scratch.path());
+        dir.atomic_replace("response.json", b"first\n", MAX_RECOVERY_MESSAGE_BYTES)
+            .unwrap();
+
+        let held = dir
+            .open_file("response.json", libc::O_RDONLY | libc::O_NONBLOCK, 0)
+            .unwrap();
+        validate_private_file(
+            "response.json",
+            &held.metadata().unwrap(),
+            MAX_RECOVERY_MESSAGE_BYTES,
+        )
+        .expect("the published response is private before it is replaced");
+
+        dir.atomic_replace("response.json", b"second\n", MAX_RECOVERY_MESSAGE_BYTES)
+            .unwrap();
+
+        let error = validate_private_file(
+            "response.json",
+            &held.metadata().unwrap(),
+            MAX_RECOVERY_MESSAGE_BYTES,
+        )
+        .expect_err("an inode replaced under the reader must never be accepted");
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted, "{error}");
+        assert!(
+            spool_read_is_transient(&RecoveryError::Io(error)),
+            "the response poller must retry a replaced inode, not fail the run"
+        );
+        assert_eq!(
+            dir.read_file("response.json", MAX_RECOVERY_MESSAGE_BYTES)
+                .unwrap()
+                .as_slice(),
+            b"second\n".as_slice(),
+            "the retry must observe the settled document"
+        );
+    }
+
+    /// The transient carve-out must not blunt the check itself: a linked file
+    /// that fails it is a verdict the poller has to surface, not spin on.
+    #[test]
+    fn a_group_readable_response_stays_a_terminal_permission_verdict() {
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = spool_dir(scratch.path());
+        let file = dir
+            .open_file(
+                "response.json",
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+                0o600,
+            )
+            .unwrap();
+        // fchmod, not the open mode: umask would otherwise decide the outcome.
+        assert_eq!(unsafe { libc::fchmod(file.as_raw_fd(), 0o644) }, 0);
+
+        let error = dir
+            .read_file("response.json", MAX_RECOVERY_MESSAGE_BYTES)
+            .expect_err("a group-readable response must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+        assert!(!spool_read_is_transient(&RecoveryError::Io(error)));
     }
 }
