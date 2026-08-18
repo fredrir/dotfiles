@@ -168,9 +168,7 @@ pub enum RegistryError {
     /// would hang forever (OFD locks get no `EDEADLK`), and migrating without
     /// it would race every other process. Open the registry *before* taking
     /// the fence.
-    SchemaMaintenanceBlocked {
-        held: &'static str,
-    },
+    SchemaMaintenanceBlocked,
     Corrupt(String),
     Io(io::Error),
     Sqlite(rusqlite::Error),
@@ -185,7 +183,7 @@ impl RegistryError {
             RegistryError::NameConflict { .. } => ErrorCode::NameConflict,
             RegistryError::OperationInProgress { .. }
             | RegistryError::LeaseHeld { .. }
-            | RegistryError::SchemaMaintenanceBlocked { .. } => ErrorCode::OperationInProgress,
+            | RegistryError::SchemaMaintenanceBlocked => ErrorCode::OperationInProgress,
             RegistryError::NativeTokenConflict { .. }
             | RegistryError::BootstrapRequestExists { .. }
             | RegistryError::SpellingBound { .. }
@@ -289,10 +287,10 @@ impl fmt::Display for RegistryError {
                 )
             }
             RegistryError::NotFound { what } => write!(f, "{what} not found"),
-            RegistryError::SchemaMaintenanceBlocked { held } => write!(
+            RegistryError::SchemaMaintenanceBlocked => write!(
                 f,
-                "registry schema maintenance needs the exclusive authority gate, but {held}; \
-                 open the registry before taking the authority fence"
+                "registry schema maintenance needs the exclusive authority gate, but this \
+                 thread holds it shared; open the registry before taking the authority fence"
             ),
             RegistryError::Corrupt(msg) => write!(f, "registry corrupt: {msg}"),
             RegistryError::Io(e) => write!(f, "registry i/o: {e}"),
@@ -525,6 +523,205 @@ pub fn production_db_path() -> Option<PathBuf> {
         None => PathBuf::from(std::env::var_os("HOME")?).join(".local/share"),
     };
     Some(base.join("dmux/registry.sqlite3"))
+}
+
+// ---------------------------------------------------------------------------
+// Directory exposure (diagnostic; never enforced)
+
+/// How far a uid other than the owner gets into a directory. POSIX picks the
+/// *first* matching class, so a group member is judged by the group bits
+/// even when the world bits are wider — `0o701` keeps group members out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirReach {
+    /// Members of the directory's group can enter it.
+    Group,
+    /// Every local user can enter it.
+    World,
+}
+
+/// What another local user can do with the directory the registry lives in.
+///
+/// The database itself is `0600` and re-hardened on every open, but the mode
+/// of a *pre-existing* parent is deliberately never forced: with
+/// `--data-dir X` the parent is X itself, so chmod'ing it would silently
+/// re-permission a directory the user keeps other things in — worst case
+/// `--data-dir ~`. The exposure is reported instead, and only reported: a
+/// traversable parent leaves the `-wal`/`-shm` sidecars, the lock-file
+/// names and the mere existence of the registry visible to other uids, which
+/// the user may have chosen knowingly and must stay free to choose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirExposure {
+    pub dir: PathBuf,
+    /// Permission bits (`mode & 0o7777`); `None` when the directory does not
+    /// exist yet, in which case [`Registry::open`] will create it `0700`.
+    pub mode: Option<u32>,
+    /// Some other uid can enter the directory *and* every directory above it
+    /// is traversable, so the exposure is real rather than theoretical.
+    pub reach: Option<DirReach>,
+    /// With [`DirExposure::reach`], that class can also list the entries.
+    pub list: bool,
+    /// With [`DirExposure::reach`], that class can also create entries and
+    /// (unless [`DirExposure::sticky`]) replace or remove ours.
+    pub write: bool,
+    /// The sticky bit is set, so `write` is limited to entries that uid owns.
+    pub sticky: bool,
+    /// Owned by a uid other than this process's effective uid.
+    pub foreign_owner: Option<u32>,
+}
+
+impl DirExposure {
+    /// No other uid can reach into it, and it is ours.
+    pub fn is_private(&self) -> bool {
+        self.reach.is_none() && self.foreign_owner.is_none()
+    }
+
+    /// One diagnostic line: the mode plus what it actually grants.
+    pub fn summary(&self) -> String {
+        let Some(mode) = self.mode else {
+            return "absent, created 0700 on first use".to_string();
+        };
+        let mut notes = Vec::new();
+        if self.reach.is_some() {
+            // `list` and `write` are a union over every non-owner uid, so
+            // they must not all be attributed to the widest class: 0751 lets
+            // any local user in but only the group list. Describe each class
+            // by its own bits, and mention the group only where it grants
+            // something the world does not.
+            let world = class_verbs(mode & 0o007, self.sticky);
+            let group = class_verbs((mode & 0o070) >> 3, self.sticky);
+            if !world.is_empty() {
+                notes.push(format!("any local user can {}", join_words(&world)));
+            }
+            let extra: Vec<&str> = group
+                .iter()
+                .copied()
+                .filter(|verb| !world.contains(verb))
+                .collect();
+            if !extra.is_empty() {
+                notes.push(format!("the group can {}", join_words(&extra)));
+            }
+        }
+        if let Some(uid) = self.foreign_owner {
+            notes.push(format!("owned by uid {uid}"));
+        }
+        if notes.is_empty() {
+            notes.push("private".to_string());
+        }
+        format!("{mode:04o}, {}", notes.join("; "))
+    }
+}
+
+/// What one permission class (the low three bits of its octal digit) can do
+/// to a directory. Entering is the precondition for everything else, so a
+/// class without execute gets nothing.
+fn class_verbs(bits: u32, sticky: bool) -> Vec<&'static str> {
+    if bits & 0o1 == 0 {
+        return Vec::new();
+    }
+    let mut verbs = vec!["enter"];
+    if bits & 0o4 != 0 {
+        verbs.push("list");
+    }
+    if bits & 0o2 != 0 {
+        verbs.push(if sticky { "add to" } else { "rewrite" });
+    }
+    verbs
+}
+
+fn join_words(words: &[&str]) -> String {
+    match words {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// Report what other local users can do with the directory holding
+/// `db_path`. Pure observation — nothing is created, chmod'd or refused.
+pub fn parent_dir_exposure(db_path: &Path) -> io::Result<DirExposure> {
+    let parent = match db_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    dir_exposure(parent)
+}
+
+fn dir_exposure(dir: &Path) -> io::Result<DirExposure> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut exposure = DirExposure {
+        dir: dir.to_path_buf(),
+        mode: None,
+        reach: None,
+        list: false,
+        write: false,
+        sticky: false,
+        foreign_owner: None,
+    };
+    let meta = match std::fs::metadata(dir) {
+        Ok(meta) => meta,
+        // Not yet created: `Registry::open` will make it 0700.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(exposure),
+        Err(e) => return Err(e),
+    };
+    if !meta.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a directory", dir.display()),
+        ));
+    }
+    let mode = meta.mode() & 0o7777;
+    exposure.mode = Some(mode);
+    exposure.sticky = mode & 0o1000 != 0;
+    if meta.uid() != unsafe { libc::geteuid() } {
+        exposure.foreign_owner = Some(meta.uid());
+    }
+
+    // Precision, not a blunt "is it 0700": entering this directory means
+    // traversing every directory above it first, so a permissive mode under
+    // a private ancestor (the usual `~` at 0700) exposes nothing and must
+    // not be reported. Ancestors are read through the resolved path, since
+    // traversal follows symlinks rather than the spelling.
+    let resolved = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !ancestors_traversable_by_others(&resolved) {
+        return Ok(exposure);
+    }
+    if mode & 0o010 != 0 {
+        exposure.reach = Some(DirReach::Group);
+        exposure.list |= mode & 0o040 != 0;
+        exposure.write |= mode & 0o020 != 0;
+    }
+    if mode & 0o001 != 0 {
+        exposure.reach = Some(DirReach::World);
+        exposure.list |= mode & 0o004 != 0;
+        exposure.write |= mode & 0o002 != 0;
+    }
+    Ok(exposure)
+}
+
+/// Can a uid other than the owner get *to* this directory at all? Every
+/// strict ancestor has to be traversable by someone else — group or other,
+/// because a would-be reader may be in any of those groups, and this is the
+/// union over every uid that is not the owner. Deliberately stops at
+/// reachability: ancestor modes above the parent are not findings of their
+/// own, since `/`, `/Users` and `~` are not directories dmux owns or should
+/// nag about, and the parent is the one boundary dmux places the registry
+/// behind. An ancestor that cannot be stat'd is treated as blocking.
+fn ancestors_traversable_by_others(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    for ancestor in dir.ancestors().skip(1) {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(ancestor) else {
+            return false;
+        };
+        if meta.mode() & 0o011 == 0 {
+            return false;
+        }
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -927,6 +1124,16 @@ impl Registry {
     pub fn open(config: RegistryConfig) -> Result<Registry> {
         use std::os::unix::fs::DirBuilderExt;
 
+        // A parent we create is 0700; a parent that already exists is left
+        // exactly as the user made it. Forcing its mode is not ours to do —
+        // `--data-dir X` makes X itself the parent, so a chmod here would
+        // re-permission a directory the user keeps other things in (worst
+        // case `--data-dir ~`) — and refusing to open would lock the user
+        // out of their own registry over a permission they may have chosen
+        // deliberately. Open stays silent for the same reason it stays
+        // permissive: it runs on every command, so a warning here is either
+        // spam or hidden behind state. The exposure is instead *reported*,
+        // on demand, by `dmux doctor`, over `parent_dir_exposure` below.
         if let Some(parent) = config.db_path.parent()
             && !parent.as_os_str().is_empty()
             && !parent.exists()
@@ -1007,9 +1214,7 @@ impl Registry {
             // kernel would make us wait on our own open description forever —
             // and migrating without the gate would race every other process
             // on the machine. Fail loudly instead of hanging or corrupting.
-            Some(LockMode::Shared) => Err(RegistryError::SchemaMaintenanceBlocked {
-                held: held.describe(),
-            }),
+            Some(LockMode::Shared) => Err(RegistryError::SchemaMaintenanceBlocked),
             // Nothing held here: block exactly as before, so legitimate
             // first-run/upgrade serialization against other threads and other
             // processes is unchanged.
@@ -3054,7 +3259,7 @@ mod tests {
             outcome.map(|_| ()).unwrap_err()
         });
         assert!(
-            matches!(err, RegistryError::SchemaMaintenanceBlocked { .. }),
+            matches!(err, RegistryError::SchemaMaintenanceBlocked),
             "{err}"
         );
         assert_eq!(err.error_code(), ErrorCode::OperationInProgress);
@@ -3189,5 +3394,169 @@ mod tests {
         let dest = dir.path().join("backup.sqlite3");
         registry.backup_to(&dest).unwrap();
         assert_eq!(mode_of(&dest), Some(0o600));
+    }
+
+    // -- parent-directory exposure (reported, never forced) ------------------
+
+    /// A scratch directory whose *ancestors* other users can traverse.
+    /// `$TMPDIR` will not do: on macOS it is a per-user `0700` directory, so
+    /// everything under it is unreachable by construction and every reach
+    /// assertion below would pass for the wrong reason. `/tmp` is the one
+    /// world-traversable location POSIX guarantees.
+    fn reachable_tempdir() -> tempfile::TempDir {
+        let dir = tempfile::Builder::new()
+            .prefix("dmux-exposure-")
+            .tempdir_in("/tmp")
+            .expect("/tmp must be writable");
+        assert!(
+            ancestors_traversable_by_others(&std::fs::canonicalize(dir.path()).unwrap()),
+            "/tmp must be traversable for these assertions to mean anything"
+        );
+        dir
+    }
+
+    fn chmod(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, PermissionsExt::from_mode(mode)).unwrap();
+    }
+
+    #[test]
+    fn a_private_parent_is_not_flagged() {
+        let dir = reachable_tempdir();
+        chmod(dir.path(), 0o700);
+        let exposure = parent_dir_exposure(&dir.path().join("registry.sqlite3")).unwrap();
+        assert_eq!(exposure.dir, dir.path());
+        assert_eq!(exposure.mode, Some(0o700));
+        assert_eq!(exposure.reach, None);
+        assert!(exposure.is_private());
+        assert_eq!(exposure.summary(), "0700, private");
+    }
+
+    #[test]
+    fn a_traversable_parent_is_reported_with_exactly_what_it_grants() {
+        let dir = reachable_tempdir();
+        let db = dir.path().join("registry.sqlite3");
+
+        // Group-only: a group member can enter, but cannot enumerate the
+        // filenames. World users are shut out entirely (POSIX matches the
+        // first class, so a wider `other` field would not help them here).
+        chmod(dir.path(), 0o710);
+        let exposure = parent_dir_exposure(&db).unwrap();
+        assert_eq!(exposure.reach, Some(DirReach::Group));
+        assert!(!exposure.list && !exposure.write);
+        assert!(!exposure.is_private());
+        assert_eq!(exposure.summary(), "0710, the group can enter");
+
+        // The everyday accident: 0755. The database is 0600, but its
+        // existence, its name and the -wal/-shm sidecars are enumerable.
+        chmod(dir.path(), 0o755);
+        let exposure = parent_dir_exposure(&db).unwrap();
+        assert_eq!(exposure.reach, Some(DirReach::World));
+        assert!(exposure.list && !exposure.write);
+        assert_eq!(
+            exposure.summary(),
+            "0755, any local user can enter and list"
+        );
+
+        // World-writable: other uids can also replace what is in it.
+        chmod(dir.path(), 0o777);
+        let exposure = parent_dir_exposure(&db).unwrap();
+        assert!(exposure.write && !exposure.sticky);
+        assert_eq!(
+            exposure.summary(),
+            "0777, any local user can enter, list and rewrite"
+        );
+
+        // Split classes: the world can get in, but only the group can
+        // enumerate. `list` stays true — it is a union over every non-owner
+        // uid, and a group member really can list — but the sentence must
+        // not hand that capability to "any local user".
+        chmod(dir.path(), 0o751);
+        let exposure = parent_dir_exposure(&db).unwrap();
+        assert_eq!(exposure.reach, Some(DirReach::World));
+        assert!(exposure.list && !exposure.write);
+        assert_eq!(
+            exposure.summary(),
+            "0751, any local user can enter; the group can list"
+        );
+
+        // Sticky narrows that to "can add, cannot remove ours".
+        chmod(dir.path(), 0o1777);
+        let exposure = parent_dir_exposure(&db).unwrap();
+        assert!(exposure.write && exposure.sticky);
+        assert_eq!(
+            exposure.summary(),
+            "1777, any local user can enter, list and add to"
+        );
+
+        chmod(dir.path(), 0o700);
+    }
+
+    /// Precision: the mode of the parent only matters if another uid can
+    /// *reach* it. A 0755 directory inside a 0700 one — the shape of every
+    /// registry under a private home — is not a finding.
+    #[test]
+    fn a_private_ancestor_suppresses_the_finding() {
+        let dir = reachable_tempdir();
+        let inner = dir.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        chmod(&inner, 0o755);
+        chmod(dir.path(), 0o700);
+
+        let exposure = parent_dir_exposure(&inner.join("registry.sqlite3")).unwrap();
+        assert_eq!(exposure.mode, Some(0o755));
+        assert_eq!(
+            exposure.reach, None,
+            "a 0700 ancestor blocks every other uid"
+        );
+        assert!(exposure.is_private());
+
+        // Open the ancestor and the same 0755 directory becomes reachable.
+        chmod(dir.path(), 0o755);
+        let exposure = parent_dir_exposure(&inner.join("registry.sqlite3")).unwrap();
+        assert_eq!(exposure.reach, Some(DirReach::World));
+        chmod(dir.path(), 0o700);
+    }
+
+    #[test]
+    fn a_parent_owned_by_another_uid_is_reported() {
+        // Root's `/` stands in for "a directory this user does not own";
+        // skip when the suite itself runs as root and owns it.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let exposure = dir_exposure(Path::new("/")).unwrap();
+        assert_eq!(exposure.foreign_owner, Some(0));
+        assert!(!exposure.is_private());
+        assert!(
+            exposure.summary().contains("owned by uid 0"),
+            "{exposure:?}"
+        );
+    }
+
+    #[test]
+    fn an_absent_parent_is_reported_as_absent_not_as_a_finding() {
+        let dir = reachable_tempdir();
+        let exposure = parent_dir_exposure(&dir.path().join("not-yet/registry.sqlite3")).unwrap();
+        assert_eq!(exposure.mode, None);
+        assert!(exposure.is_private());
+        assert_eq!(exposure.summary(), "absent, created 0700 on first use");
+    }
+
+    /// The rejected fix, kept rejected: opening a registry never
+    /// re-permissions a parent the user already had. `--data-dir X` makes X
+    /// the parent, and X may be a directory the user keeps other things in.
+    #[test]
+    fn open_never_changes_the_mode_of_an_existing_parent() {
+        let dir = reachable_tempdir();
+        chmod(dir.path(), 0o755);
+        let config = scratch_config(&dir);
+        drop(Registry::open(config.clone()).unwrap());
+        assert_eq!(mode_of(dir.path()), Some(0o755), "the parent was chmod'd");
+        // The file dmux does own is private regardless.
+        assert_eq!(mode_of(&config.db_path), Some(0o600));
+        // And the exposure is available to report, not acted on.
+        assert!(!parent_dir_exposure(&config.db_path).unwrap().is_private());
+        chmod(dir.path(), 0o700);
     }
 }

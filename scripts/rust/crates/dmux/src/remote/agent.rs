@@ -91,8 +91,8 @@ pub struct AgentArgs {
 ///
 /// Sized against the crate's other ingest bounds rather than invented: the
 /// GUI bridge caps one signed control message at 64 KiB
-/// (`crate::gui::MAX_MESSAGE_BYTES`), a subprocess capture at 1 MiB
-/// (`crate::childio::DEFAULT_CAPTURE_LIMIT`), and a recovery manifest — the
+/// (`crate::gui::MAX_MESSAGE_BYTES`), a wezterm probe capture at 16 KiB, and
+/// a recovery manifest — the
 /// only genuinely bulk document in the crate — at 16 MiB.  A request
 /// envelope belongs at the control-message end: its fixed fields are a few
 /// hundred bytes of UUIDs, a digest and a method name, and the only

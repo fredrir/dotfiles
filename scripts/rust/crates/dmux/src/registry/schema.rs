@@ -1,7 +1,8 @@
 //! Versioned SQLite migrations implementing the frozen storage contract
 //! `docs/adr/dmux/registry-v1.sql` (plan §10.1), the v2 extension frozen
 //! in `docs/adr/dmux/009-w5-dispatch.md` §3 (attach tokens, pane stamps),
-//! and the v3 durable terminal-abort extension for cold recovery.
+//! the v3 durable terminal-abort extension for cold recovery, and the v4
+//! non-negative revision constraints.
 //!
 //! The v1 DDL below is the contract file transcribed verbatim — identical
 //! index names, identical semantics, including every `-- REQUIRED` partial
@@ -17,9 +18,9 @@ use rusqlite::Connection;
 
 /// Current schema version. Each entry in [`MIGRATIONS`] moves
 /// `user_version` from `n-1` to `n`.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL), (2, V2_DDL), (3, V3_DDL)];
+const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL), (2, V2_DDL), (3, V3_DDL), (4, V4_DDL)];
 
 /// registry-v1.sql, verbatim semantics (contract: equivalent index names
 /// allowed, weaker semantics not — the names are kept identical anyway).
@@ -344,6 +345,111 @@ DROP TABLE recovery_journal;
 ALTER TABLE recovery_journal_v3 RENAME TO recovery_journal;
 "#;
 
+/// Schema v4: a revision is a count of committed mutations, so it is never
+/// negative — the database now says so, as the last defence-in-depth layer
+/// under the protocol bound (`remote::protocol`, 2^53−1 via serde) and the
+/// total `i64::try_from` in `registry::remote::store_peer_cache`. The
+/// omission was an oversight rather than policy: the neighbouring
+/// `meta.space_no_counter`, `spaces.space_no` and
+/// `lease_scopes.last_fencing_token` all carry the equivalent CHECK.
+///
+/// SQLite cannot `ALTER TABLE ... ADD CONSTRAINT`, so both tables are
+/// rebuilt with the documented 12-step procedure: create the replacement,
+/// copy, drop, rename. Notes on the steps that are *not* spelled out here:
+///
+/// * Neither table has an explicit index or a trigger. Every index they own
+///   is an implicit `sqlite_autoindex_*` for a `PRIMARY KEY`/`UNIQUE`
+///   column, and those are recreated by the replacement's own column
+///   constraints — which are transcribed verbatim, so `remote_cache`'s
+///   `REFERENCES hosts(host_uid)`, `authority_revisions`' two UNIQUE
+///   columns, and `revision`'s rowid-alias `INTEGER PRIMARY KEY` all
+///   survive. No `CREATE INDEX` is needed and none is omitted.
+/// * Steps 1 and 12 (`PRAGMA foreign_keys=OFF`/`ON`) are deliberately not
+///   performed, and cannot be: the migration runs inside a transaction,
+///   where that pragma is a documented no-op. They exist to protect tables
+///   that other tables *reference* — the `DROP` would fire the parent's
+///   implicit delete, and the `RENAME` would rewrite the children's
+///   `REFERENCES` clauses. Both of these tables are leaves: nothing in the
+///   schema references `remote_cache` or `authority_revisions`, so with
+///   foreign keys left on there is nothing for the drop to cascade into and
+///   nothing for the rename to rewrite. `legacy_alter_table` is likewise
+///   left at its default: the schema has no view or trigger for the modern
+///   rename to re-parse, exactly as in the v3 rebuild above.
+///
+/// Rows that already violate the new constraint get deliberately different
+/// treatment, because the two tables are different kinds of state:
+///
+/// * `remote_cache` is a cache. A negative `authority_revision` there is a
+///   row no in-range write could have produced (the LOSSYFROM-001 shape:
+///   a peer-supplied `2^63` narrowed by an unchecked `as i64`), and the
+///   read path already refuses it with `RegistryError::Corrupt` — so the
+///   row is unusable *and* it poisons the peer's anti-rollback anchor for
+///   as long as it exists. Dropping it costs one trust-on-first-use
+///   re-fetch; keeping it would mean the migration fails and the whole
+///   registry — identity, spaces, leases — becomes unopenable. The copy
+///   therefore filters those rows out. The same filter drops a row whose
+///   `host_uid` has no `hosts` row: referential integrity makes that
+///   impossible to write, but if one ever existed the per-row foreign-key
+///   check on the copy would brick the registry rather than the cache.
+/// * `authority_revisions` is authority state — an append-only hash chain
+///   in which every head hash commits to its parent. A negative revision
+///   cannot arrive from a peer (only `remote_cache` takes peer input);
+///   it would take direct tampering. Deleting such a row would silently
+///   forge a chain that `verify_lineage` then walks as if it were intact,
+///   which is strictly worse than not opening. So the copy is unfiltered:
+///   a poisoned row aborts the migration inside its transaction, the
+///   database stays at v3 with every row untouched, and the operator gets
+///   `CHECK constraint failed: authority_revisions_revision_nonnegative`
+///   naming the exact constraint.
+const V4_DDL: &str = r#"
+CREATE TABLE authority_revisions_v4 (
+  revision         INTEGER PRIMARY KEY
+    CONSTRAINT authority_revisions_revision_nonnegative CHECK (revision >= 0),
+  parent_head_hash TEXT    NOT NULL,
+  head_hash        TEXT    NOT NULL UNIQUE,
+  txn_uid          TEXT    NOT NULL UNIQUE,
+  committed_at     TEXT    NOT NULL
+);
+
+-- Unfiltered on purpose: authority history is never silently rewritten.
+INSERT INTO authority_revisions_v4 (
+  revision, parent_head_hash, head_hash, txn_uid, committed_at
+)
+SELECT
+  revision, parent_head_hash, head_hash, txn_uid, committed_at
+FROM authority_revisions;
+
+DROP TABLE authority_revisions;
+ALTER TABLE authority_revisions_v4 RENAME TO authority_revisions;
+
+CREATE TABLE remote_cache_v4 (
+  host_uid            TEXT PRIMARY KEY REFERENCES hosts(host_uid),
+  registry_uid        TEXT NOT NULL,
+  authority_revision  INTEGER NOT NULL
+    CONSTRAINT remote_cache_authority_revision_nonnegative
+    CHECK (authority_revision >= 0),
+  authority_head_hash TEXT NOT NULL,
+  snapshot_json       TEXT NOT NULL,
+  fetched_at          TEXT NOT NULL
+);
+
+-- Filtered on purpose: an unusable cache row is dropped rather than left to
+-- make the entire registry unopenable (see the doc comment above).
+INSERT INTO remote_cache_v4 (
+  host_uid, registry_uid, authority_revision, authority_head_hash,
+  snapshot_json, fetched_at
+)
+SELECT
+  host_uid, registry_uid, authority_revision, authority_head_hash,
+  snapshot_json, fetched_at
+FROM remote_cache
+WHERE authority_revision >= 0
+  AND host_uid IN (SELECT host_uid FROM hosts);
+
+DROP TABLE remote_cache;
+ALTER TABLE remote_cache_v4 RENAME TO remote_cache;
+"#;
+
 /// Apply the normative per-connection settings from the contract header:
 /// foreign_keys=ON, journal_mode=WAL, synchronous=FULL, trusted_schema=OFF,
 /// busy_timeout (5000 ms in production). Returns the resulting journal mode
@@ -396,6 +502,103 @@ pub fn migrate_to(conn: &mut Connection, target: i64) -> rusqlite::Result<()> {
 mod tests {
     use super::*;
 
+    /// `(name, unique, origin)` for every index SQLite keeps for `table`,
+    /// implicit `sqlite_autoindex_*` entries included.
+    fn index_list(conn: &Connection, table: &str) -> Vec<(String, i64, String)> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA index_list({table})"))
+            .unwrap();
+        let mut rows: Vec<(String, i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        rows.sort();
+        rows
+    }
+
+    /// `(parent_table, from_column, to_column)` for every foreign key.
+    fn foreign_keys(conn: &Connection, table: &str) -> Vec<(String, String, String)> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA foreign_key_list({table})"))
+            .unwrap();
+        let mut rows: Vec<(String, String, String)> = stmt
+            .query_map([], |row| Ok((row.get(2)?, row.get(3)?, row.get(4)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        rows.sort();
+        rows
+    }
+
+    /// `(name, type, notnull, pk_position)` per column, in declared order.
+    fn columns(conn: &Connection, table: &str) -> Vec<(String, String, i64, i64)> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap();
+        stmt.query_map([], |row| {
+            Ok((row.get(1)?, row.get(2)?, row.get(3)?, row.get(5)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap()
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |row| row.get(0)).unwrap()
+    }
+
+    fn violations(conn: &Connection) -> i64 {
+        let mut stmt = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        let n = stmt.query_map([], |_| Ok(())).unwrap().count();
+        n as i64
+    }
+
+    /// A v3 database holding one enrolled host, a two-link chain and one
+    /// peer-cache row — everything the v4 rebuild has to carry across.
+    /// `cache_revision` seeds `remote_cache.authority_revision`; the pre-fix
+    /// poison value is passed here to exercise the drop policy.
+    fn seed_v3(conn: &mut Connection, cache_revision: i64, chain: &[i64]) {
+        migrate_to(conn, 3).unwrap();
+        assert_eq!(user_version(conn).unwrap(), 3);
+        conn.execute_batch(
+            "INSERT INTO meta (id, schema_version, host_uid, registry_uid, \
+               authority_revision, authority_head_hash, space_no_counter, created_at) \
+             VALUES (1, 3, 'host-1', 'registry-1', 1, 'sha256:head1', 1, '2024-01-01T00:00:00Z'); \
+             INSERT INTO hosts (host_uid, lifecycle, enrolled_at) \
+             VALUES ('host-1', 'enrolled', '2024-01-01T00:00:00Z'), \
+                    ('peer-1', 'enrolled', '2024-01-01T00:00:00Z');",
+        )
+        .unwrap();
+        for revision in chain {
+            conn.execute(
+                "INSERT INTO authority_revisions \
+                 (revision, parent_head_hash, head_hash, txn_uid, committed_at) \
+                 VALUES (?1, 'sha256:parent', ?2, ?3, '2024-01-01T00:00:00Z')",
+                rusqlite::params![
+                    revision,
+                    format!("sha256:head{revision}"),
+                    format!("txn-{revision}")
+                ],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO remote_cache (host_uid, registry_uid, authority_revision, \
+               authority_head_hash, snapshot_json, fetched_at) \
+             VALUES ('peer-1', 'registry-2', ?1, 'sha256:peerhead', '{\"spaces\":[]}', \
+                     '2024-01-01T00:00:00Z')",
+            [cache_revision],
+        )
+        .unwrap();
+    }
+
+    fn scratch_conn(dir: &tempfile::TempDir) -> Connection {
+        let conn = Connection::open(dir.path().join("t.sqlite3")).unwrap();
+        apply_connection_settings(&conn, Duration::from_millis(100)).unwrap();
+        conn
+    }
+
     #[test]
     fn migrates_a_fresh_database_to_current_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -412,8 +615,7 @@ mod tests {
     #[test]
     fn migrate_to_stops_at_the_target_and_resumes_cleanly() {
         let dir = tempfile::tempdir().unwrap();
-        let mut conn = Connection::open(dir.path().join("t.sqlite3")).unwrap();
-        apply_connection_settings(&conn, Duration::from_millis(100)).unwrap();
+        let mut conn = scratch_conn(&dir);
         migrate_to(&mut conn, 1).unwrap();
         assert_eq!(user_version(&conn).unwrap(), 1);
         let has_tokens: i64 = conn
@@ -441,8 +643,7 @@ mod tests {
     #[test]
     fn all_required_partial_indexes_exist_with_contract_semantics() {
         let dir = tempfile::tempdir().unwrap();
-        let mut conn = Connection::open(dir.path().join("t.sqlite3")).unwrap();
-        apply_connection_settings(&conn, Duration::from_millis(100)).unwrap();
+        let mut conn = scratch_conn(&dir);
         migrate(&mut conn).unwrap();
         // The five REQUIRED indexes, by name, must exist and be UNIQUE.
         for name in [
@@ -465,5 +666,247 @@ mod tests {
                 "{name} must be UNIQUE: {sql}"
             );
         }
+    }
+
+    // -- v4: revisions are counts, so the database refuses negatives --------
+
+    /// A fresh database is born with both constraints live; SQLite, not just
+    /// the Rust call sites, refuses a negative revision.
+    #[test]
+    fn a_fresh_v4_database_refuses_a_negative_revision_in_either_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = scratch_conn(&dir);
+        migrate(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO hosts (host_uid, lifecycle, enrolled_at) \
+             VALUES ('peer-1', 'enrolled', 'now')",
+            [],
+        )
+        .unwrap();
+
+        // Legal values still go in, on both the insert and the upsert path.
+        conn.execute(
+            "INSERT INTO remote_cache (host_uid, registry_uid, authority_revision, \
+               authority_head_hash, snapshot_json, fetched_at) \
+             VALUES ('peer-1', 'registry-2', 0, 'sha256:h', '{}', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO authority_revisions \
+             (revision, parent_head_hash, head_hash, txn_uid, committed_at) \
+             VALUES (0, 'sha256:p', 'sha256:h', 'txn-0', 'now')",
+            [],
+        )
+        .unwrap();
+
+        for (label, sql) in [
+            (
+                "remote_cache_authority_revision_nonnegative",
+                "INSERT INTO remote_cache (host_uid, registry_uid, authority_revision, \
+                   authority_head_hash, snapshot_json, fetched_at) \
+                 VALUES ('peer-2', 'registry-3', -1, 'sha256:h', '{}', 'now')",
+            ),
+            (
+                "remote_cache_authority_revision_nonnegative",
+                // The exact LOSSYFROM-001 shape: 2^63 narrowed by an
+                // unchecked `as i64`.
+                "UPDATE remote_cache SET authority_revision = -9223372036854775808",
+            ),
+            (
+                "authority_revisions_revision_nonnegative",
+                "INSERT INTO authority_revisions \
+                 (revision, parent_head_hash, head_hash, txn_uid, committed_at) \
+                 VALUES (-3, 'sha256:p', 'sha256:h2', 'txn-2', 'now')",
+            ),
+        ] {
+            let error = conn
+                .execute(sql, [])
+                .expect_err("SQLite must refuse a negative revision");
+            assert!(
+                error.to_string().contains(label),
+                "expected {label} to name the failure, got {error}"
+            );
+        }
+
+        // The refusals wrote nothing.
+        assert_eq!(count(&conn, "SELECT count(*) FROM remote_cache"), 1);
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT count(*) FROM remote_cache WHERE authority_revision = 0"
+            ),
+            1
+        );
+        assert_eq!(count(&conn, "SELECT count(*) FROM authority_revisions"), 1);
+    }
+
+    /// The 12-step rebuild is lossless: every clean v3 row, every index
+    /// (autoindexes included), every foreign key and the rowid-alias primary
+    /// key come out the other side unchanged.
+    #[test]
+    fn the_v4_rebuild_keeps_every_v3_row_index_and_foreign_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = scratch_conn(&dir);
+        seed_v3(&mut conn, 5, &[0, 1]);
+
+        let before: Vec<_> = ["authority_revisions", "remote_cache"]
+            .iter()
+            .map(|t| {
+                (
+                    index_list(&conn, t),
+                    foreign_keys(&conn, t),
+                    columns(&conn, t),
+                )
+            })
+            .collect();
+        assert!(
+            !before[0].0.is_empty() && !before[1].0.is_empty(),
+            "both tables must own indexes before the rebuild"
+        );
+        assert_eq!(
+            before[1].1,
+            vec![("hosts".to_string(), "host_uid".into(), "host_uid".into())],
+            "remote_cache must reference hosts before the rebuild"
+        );
+
+        migrate(&mut conn).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            count(&conn, "SELECT schema_version FROM meta WHERE id = 1"),
+            SCHEMA_VERSION
+        );
+
+        let after: Vec<_> = ["authority_revisions", "remote_cache"]
+            .iter()
+            .map(|t| {
+                (
+                    index_list(&conn, t),
+                    foreign_keys(&conn, t),
+                    columns(&conn, t),
+                )
+            })
+            .collect();
+        assert_eq!(after, before, "index/foreign-key/column shape changed");
+        assert_eq!(violations(&conn), 0, "foreign_key_check found violations");
+
+        // Rows survived byte for byte, `revision` included.
+        let chain: Vec<(i64, String, String)> = conn
+            .prepare(
+                "SELECT revision, head_hash, txn_uid FROM authority_revisions ORDER BY revision",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            chain,
+            vec![
+                (0, "sha256:head0".into(), "txn-0".into()),
+                (1, "sha256:head1".into(), "txn-1".into()),
+            ]
+        );
+        let cache: (String, i64, String) = conn
+            .query_row(
+                "SELECT host_uid, authority_revision, snapshot_json FROM remote_cache",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(cache, ("peer-1".into(), 5, "{\"spaces\":[]}".into()));
+
+        // `revision INTEGER PRIMARY KEY` is still the rowid alias, so the
+        // chain keeps allocating the next revision the way it always did.
+        conn.execute(
+            "INSERT INTO authority_revisions \
+             (parent_head_hash, head_hash, txn_uid, committed_at) \
+             VALUES ('sha256:head1', 'sha256:head2', 'txn-2', 'now')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            count(&conn, "SELECT max(revision) FROM authority_revisions"),
+            2
+        );
+    }
+
+    /// Policy, cache half: a registry poisoned before the LOSSYFROM-001 fix
+    /// migrates. The unusable cache row is dropped — the read path already
+    /// refuses it, and a cache re-fetch is cheap — while every other row,
+    /// authority history included, is kept.
+    #[test]
+    fn a_poisoned_cache_row_is_dropped_and_the_rest_of_the_registry_survives() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = scratch_conn(&dir);
+        seed_v3(&mut conn, i64::MIN, &[0, 1]);
+
+        migrate(&mut conn).unwrap();
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            count(&conn, "SELECT count(*) FROM remote_cache"),
+            0,
+            "the poisoned cache row must not survive"
+        );
+        assert_eq!(count(&conn, "SELECT count(*) FROM authority_revisions"), 2);
+        assert_eq!(count(&conn, "SELECT count(*) FROM hosts"), 2);
+        assert_eq!(
+            count(&conn, "SELECT authority_revision FROM meta WHERE id = 1"),
+            1
+        );
+        // Trust-on-first-use re-opens: a fresh checkpoint stores normally.
+        conn.execute(
+            "INSERT INTO remote_cache (host_uid, registry_uid, authority_revision, \
+               authority_head_hash, snapshot_json, fetched_at) \
+             VALUES ('peer-1', 'registry-2', 9, 'sha256:h', '{}', 'now')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            count(&conn, "SELECT authority_revision FROM remote_cache"),
+            9
+        );
+    }
+
+    /// Policy, authority half: a negative link in the hash chain is not a
+    /// cache miss, and deleting it would forge a chain `verify_lineage` then
+    /// walks as if intact. The migration aborts inside its transaction, the
+    /// database stays at v3 with every row present, and the error names the
+    /// constraint.
+    #[test]
+    fn a_negative_chain_revision_aborts_the_migration_and_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = scratch_conn(&dir);
+        seed_v3(&mut conn, 5, &[0, 1]);
+        conn.execute(
+            "INSERT INTO authority_revisions \
+             (revision, parent_head_hash, head_hash, txn_uid, committed_at) \
+             VALUES (-1, 'sha256:parent', 'sha256:tampered', 'txn-tampered', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let error = migrate(&mut conn).expect_err("a negative chain link must not be migrated");
+        assert!(
+            error
+                .to_string()
+                .contains("authority_revisions_revision_nonnegative"),
+            "{error}"
+        );
+        // Rolled back whole: still v3, still every row, cache untouched.
+        assert_eq!(user_version(&conn).unwrap(), 3);
+        assert_eq!(count(&conn, "SELECT count(*) FROM authority_revisions"), 3);
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT count(*) FROM authority_revisions WHERE revision = -1"
+            ),
+            1
+        );
+        assert_eq!(count(&conn, "SELECT count(*) FROM remote_cache"), 1);
+        assert_eq!(
+            count(&conn, "SELECT schema_version FROM meta WHERE id = 1"),
+            3
+        );
     }
 }

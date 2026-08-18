@@ -2,15 +2,17 @@
 //!
 //! Each line is a fact dmux would otherwise act on silently: which machine
 //! this is, whether wezterm and tmux are within reach, whether the cable
-//! answers, and what `dmux -` would attach. The slow probes run on their own
-//! threads so the whole report costs one ssh timeout, not the sum. `--json`
-//! emits the same probes as an object of `name: {ok, detail}` for scripts;
-//! the human report is unchanged.
+//! answers, what `dmux -` would attach, and who besides this user can reach
+//! the registry directory. The slow probes run on their own threads so the
+//! whole report costs one ssh timeout, not the sum. `--json` emits the same
+//! probes as an object of `name: {ok, detail}` for scripts; the human report
+//! is unchanged.
 
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use dmux::registry::{self, DirExposure};
 use workstation::Style;
 
 use crate::hosts::{self, Context, Host};
@@ -102,12 +104,22 @@ fn human(context: &Context, report: &Report) -> ExitCode {
             style.red(&state_text)
         },
     );
+    let (registry_ok, registry_text) = registry_detail();
+    line(
+        "registry dir",
+        if registry_ok {
+            style.dim(&registry_text)
+        } else {
+            style.red(&registry_text)
+        },
+    );
     ExitCode::SUCCESS
 }
 
 fn machine(context: &Context, report: &Report) -> ExitCode {
     let probe = |ok: bool, detail: String| serde_json::json!({ "ok": ok, "detail": detail });
     let (state_ok, state_text) = state_detail(context);
+    let (registry_ok, registry_text) = registry_detail();
     let probes = serde_json::json!({
         "host": probe(
             true,
@@ -121,6 +133,7 @@ fn machine(context: &Context, report: &Report) -> ExitCode {
         "usb_link": probe(report.usb.is_some(), usb_detail(report.usb)),
         "ssh_peer": probe(report.ssh, reachable(report.ssh).to_string()),
         "state": probe(state_ok, state_text),
+        "registry_dir": probe(registry_ok, registry_text),
     });
     println!("{probes}");
     ExitCode::SUCCESS
@@ -171,6 +184,40 @@ fn state_detail(context: &Context) -> (bool, String) {
         ),
         None => (false, "unavailable (no HOME)".to_string()),
     }
+}
+
+/// Who besides this user can reach the directory the registry sits in.
+///
+/// The registry file is `0600` and re-hardened on every open, but that only
+/// closes the *contents*: a group- or world-traversable parent still leaks
+/// the database's existence and name, its `-wal`/`-shm` sidecars and the
+/// lock filenames, and a writable one lets another uid put files beside it.
+/// The mode of a directory the user already had is deliberately never forced
+/// — `--data-dir X` makes X itself the parent — so this is where that
+/// decision becomes visible instead of silent. Reported, never repaired:
+/// doctor is a report.
+///
+/// Only the production location is inspected; `doctor` takes no `--data-dir`
+/// and never opens the registry, so this costs a couple of `stat` calls and
+/// creates nothing.
+fn registry_detail() -> (bool, String) {
+    let Some(db_path) = registry::production_db_path() else {
+        return (false, "unavailable (no HOME)".to_string());
+    };
+    match registry::parent_dir_exposure(&db_path) {
+        Ok(exposure) => (exposure.is_private(), dir_detail(&exposure)),
+        Err(error) => (
+            false,
+            format!(
+                "{} (unreadable: {error})",
+                db_path.parent().unwrap_or(&db_path).display()
+            ),
+        ),
+    }
+}
+
+fn dir_detail(exposure: &DirExposure) -> String {
+    format!("{} ({})", exposure.dir.display(), exposure.summary())
 }
 
 fn wezterm_ok() -> bool {
@@ -227,5 +274,68 @@ mod tests {
         assert_eq!(yes_no(true), "yes");
         assert_eq!(reachable(false), "unreachable");
         assert!(peer_detail(Host::Archie).starts_with("archie (usb 10.77.77.2"));
+    }
+
+    /// The registry line names the directory and what its mode grants, and
+    /// it is a finding only when another uid can actually get in. `/tmp`
+    /// rather than `$TMPDIR`: on macOS the per-user temp dir is 0700, which
+    /// would make every parent unreachable and the assertion vacuous.
+    #[test]
+    fn the_registry_line_names_the_directory_and_what_its_mode_grants() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::Builder::new()
+            .prefix("dmux-doctor-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let db = dir.path().join("registry.sqlite3");
+        let chmod = |mode: u32| {
+            std::fs::set_permissions(dir.path(), PermissionsExt::from_mode(mode)).unwrap()
+        };
+
+        chmod(0o700);
+        let private = registry::parent_dir_exposure(&db).unwrap();
+        assert!(private.is_private());
+        assert_eq!(
+            dir_detail(&private),
+            format!("{} (0700, private)", dir.path().display())
+        );
+
+        chmod(0o755);
+        let exposed = registry::parent_dir_exposure(&db).unwrap();
+        assert!(
+            !exposed.is_private(),
+            "/tmp must be traversable for this assertion to mean anything"
+        );
+        assert_eq!(
+            dir_detail(&exposed),
+            format!(
+                "{} (0755, any local user can enter and list)",
+                dir.path().display()
+            )
+        );
+        chmod(0o700);
+    }
+
+    /// Whatever the environment, the probe answers without panicking and
+    /// never creates or repairs anything.
+    #[test]
+    fn the_registry_probe_is_read_only_and_always_answers() {
+        let db = registry::production_db_path();
+        let before = db.as_ref().map(|path| path.exists());
+        let (_ok, detail) = registry_detail();
+        assert!(!detail.is_empty());
+        assert_eq!(
+            db.as_ref().map(|path| path.exists()),
+            before,
+            "the probe must not create the registry"
+        );
+        if let Some(db) = db {
+            assert!(
+                detail.contains(&db.parent().unwrap().display().to_string())
+                    || detail.contains("unreadable"),
+                "{detail}"
+            );
+        }
     }
 }

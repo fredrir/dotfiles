@@ -30,7 +30,7 @@ use crate::gui::{
     GuiStatusCache, GuiStatusDisplay, RemoteDomainSource,
 };
 use crate::history::{GuiHistoryTarget, History, PendingGuiTransition};
-use crate::locks::{LockMode, LockScope, OrderedLocks};
+use crate::locks::{LockMode, OrderedLocks};
 use crate::model::{
     Backend, BackendInstanceUid, ChildKind, Health, HostUid, Lifecycle, ServerEpoch, SpaceNo,
     SpaceUid,
@@ -4299,26 +4299,25 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         Ok(result)
     }
 
+    /// The §10.1 presentation read fence. Delegates to
+    /// [`crate::remote::attach::open_local_read_fence`], which owns the
+    /// open-before-gate rule and the reasoning behind it.
     fn local_tmux_client_read_fence(
         &self,
         instance: BackendInstanceUid,
         backend_mode: LockMode,
-    ) -> Result<OrderedLocks, TypedError> {
-        let mut locks = OrderedLocks::new(&self.env.lock_dir);
-        locks
-            .acquire(LockScope::AuthorityGate, LockMode::Shared)
-            .and_then(|_| locks.acquire(LockScope::BackendInstance(instance), backend_mode))
-            .map_err(|error| {
-                TypedError::new(
-                    ErrorCode::OperationFailed,
-                    format!("tmux GUI presentation read fence: {error}"),
-                )
-            })?;
-        Ok(locks)
+    ) -> Result<(Registry, OrderedLocks), TypedError> {
+        crate::remote::attach::open_local_read_fence(
+            &self.env,
+            instance,
+            backend_mode,
+            "tmux GUI presentation read fence",
+        )
     }
 
     fn tmux_client_target(
         &self,
+        registry: &Registry,
         authority: &AuthorityMarker,
         group_ref: Option<&str>,
         split_ref: Option<&str>,
@@ -4335,7 +4334,6 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 "local tmux client correlation received a remote authority",
             ));
         }
-        let registry = self.registry()?;
         let identity = registry.identity().map_err(typed_registry)?;
         let row = registry
             .space(authority.marker.space_uid)
@@ -4415,9 +4413,10 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         "tmux marker changed during invoking-client preflight",
                     ));
                 }
-                let _locks = self
+                let (registry, _locks) = self
                     .local_tmux_client_read_fence(authority.backend_instance, LockMode::Shared)?;
                 let target = self.tmux_client_target(
+                    &registry,
                     &refreshed,
                     Some(&authority.marker.group_ref),
                     Some(&authority.marker.split_ref),
@@ -4494,11 +4493,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         "tmux context-refresh Space changed owner/backend incarnation",
                     ));
                 }
-                let _locks = self.local_tmux_client_read_fence(
+                let (registry, _locks) = self.local_tmux_client_read_fence(
                     bound.authority.backend_instance,
                     LockMode::Shared,
                 )?;
-                let target = self.tmux_client_target(&refreshed, group_ref, split_ref)?;
+                let target =
+                    self.tmux_client_target(&registry, &refreshed, group_ref, split_ref)?;
                 let (marker, published_clients) =
                     crate::remote::attach::publish_correlated_session_contexts(
                         &self.env.lock_dir,
@@ -4713,16 +4713,17 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         "tmux presentation target changed under its read fence",
                     ));
                 }
-                let _locks = self.local_tmux_client_read_fence(
+                let (registry, _locks) = self.local_tmux_client_read_fence(
                     bound.authority.backend_instance,
                     LockMode::Exclusive,
                 )?;
                 let from_target = self.tmux_client_target(
+                    &registry,
                     &from,
                     Some(&bound.authority.marker.group_ref),
                     Some(&bound.authority.marker.split_ref),
                 )?;
-                let to_target = self.tmux_client_target(&to, None, None)?;
+                let to_target = self.tmux_client_target(&registry, &to, None, None)?;
                 crate::remote::attach::switch_correlated_client(
                     &self.env.lock_dir,
                     client_uid,
@@ -4806,11 +4807,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         "tmux detach target changed before its mutation fence",
                     ));
                 }
-                let _locks = self.local_tmux_client_read_fence(
+                let (registry, _locks) = self.local_tmux_client_read_fence(
                     bound.authority.backend_instance,
                     LockMode::Exclusive,
                 )?;
                 let target = self.tmux_client_target(
+                    &registry,
                     &refreshed,
                     Some(&bound.authority.marker.group_ref),
                     Some(&bound.authority.marker.split_ref),
@@ -7828,5 +7830,104 @@ mod tests {
             .child
             .unwrap()
             .handle
+    }
+
+    /// DLOCK-003: the GUI tmux presentation fence must open the registry
+    /// BEFORE it takes the authority gate. `Registry::open` runs
+    /// `ensure_schema`, which needs the gate *exclusively* whenever a
+    /// migration is pending; the gate is an OFD lock, so a shared hold taken
+    /// by this very thread can never be upgraded and `ensure_schema` refuses
+    /// with `SchemaMaintenanceBlocked` (`OperationInProgress`).
+    #[test]
+    fn tmux_presentation_fence_completes_with_a_schema_migration_pending() {
+        use crate::registry::schema;
+
+        let data = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let db_path = data.path().join("registry.sqlite3");
+        let lock_dir = runtime.path().to_path_buf();
+
+        // Freeze the database one schema version behind this binary, so the
+        // next open *must* migrate. Expressed against `SCHEMA_VERSION` rather
+        // than a literal so the next schema bump keeps exercising this.
+        {
+            let mut conn = rusqlite::Connection::open(&db_path).unwrap();
+            schema::apply_connection_settings(&conn, std::time::Duration::from_secs(5)).unwrap();
+            schema::migrate_to(&mut conn, schema::SCHEMA_VERSION - 1).unwrap();
+            assert_eq!(
+                schema::user_version(&conn).unwrap(),
+                schema::SCHEMA_VERSION - 1,
+                "the fixture must leave a migration pending"
+            );
+        }
+
+        let instance = BackendInstanceUid(Uuid::new_v4());
+        let (fence_db, fence_locks) = (db_path.clone(), lock_dir.clone());
+        let runtime_dir = runtime.path().to_path_buf();
+        let state_dir = state.path().to_path_buf();
+
+        // A regression either refuses with `OperationInProgress` or, with the
+        // `ensure_schema` guard removed, blocks forever on this process's own
+        // gate description — so the call runs under a hard deadline.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let gui = ProductionGuiAuthority::with_dependencies(
+                OperationEnv {
+                    db_path: fence_db.clone(),
+                    lock_dir: fence_locks.clone(),
+                },
+                runtime_dir,
+                state_dir,
+                "/bin/false".into(),
+                "/dev/null".into(),
+                PathBuf::from("/dev/null"),
+                "/bin/false".into(),
+                DirectInvoker,
+            );
+            let outcome = gui
+                .local_tmux_client_read_fence(instance, LockMode::Shared)
+                .map(|(_registry, locks)| {
+                    let scopes: Vec<String> = locks
+                        .held_scopes()
+                        .iter()
+                        .map(|scope| scope.key())
+                        .collect();
+                    // The registries opened deeper inside the fenced work
+                    // (`frozen_binding_for_authority`, `local_provider`) find
+                    // the schema already current and never touch the gate.
+                    let nested =
+                        Registry::open(RegistryConfig::new(&fence_db, &fence_locks)).is_ok();
+                    (scopes, nested)
+                });
+            let _ = tx.send(outcome);
+        });
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the tmux presentation read fence did not complete within 30s");
+        let (scopes, nested) = match outcome {
+            Ok(value) => value,
+            Err(error) => {
+                panic!("a pending migration must not refuse the presentation fence: {error:?}")
+            }
+        };
+        assert_eq!(
+            scopes,
+            vec![
+                "authority-gate".to_string(),
+                format!("backend:{}", instance.0)
+            ],
+            "the fence must still hold the gate and the backend-instance lock it protects reads with"
+        );
+        assert!(
+            nested,
+            "a registry opened under the fence must find the schema current"
+        );
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        assert_eq!(
+            schema::user_version(&conn).unwrap(),
+            schema::SCHEMA_VERSION,
+            "the fence must have migrated the registry on its way in"
+        );
     }
 }

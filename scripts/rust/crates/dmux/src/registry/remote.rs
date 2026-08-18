@@ -625,9 +625,7 @@ mod tests {
     use super::*;
     use crate::registry::RegistryConfig;
 
-    /// The exact LOSSYFROM-001 attack value: 2^63, which an unchecked
-    /// `as i64` stores as `i64::MIN`.
-    const POISON_REVISION: u64 = 9_223_372_036_854_775_808;
+    use crate::remote::protocol::POISON_REVISION;
 
     fn scratch_registry() -> (tempfile::TempDir, Registry) {
         let dir = tempfile::tempdir().unwrap();
@@ -687,13 +685,25 @@ mod tests {
         let host = HostUid(Uuid::new_v4());
         registry.enroll_host(host, None).unwrap();
         registry.store_peer_cache(host, &checkpoint(9)).unwrap();
-        // Exactly the row a registry poisoned before this fix holds.
+        // Exactly the row a registry poisoned before this fix holds. Schema
+        // v4 added `CHECK (authority_revision >= 0)`, so writing one now
+        // takes suspending check enforcement for this connection — which is
+        // the point of the read-path defence this test covers: rows written
+        // before the constraint existed still have to be refused on read.
+        registry
+            .conn
+            .pragma_update(None, "ignore_check_constraints", "ON")
+            .unwrap();
         registry
             .conn
             .execute(
                 "UPDATE remote_cache SET authority_revision = ?1 WHERE host_uid = ?2",
                 params![i64::MIN, host.0.to_string()],
             )
+            .unwrap();
+        registry
+            .conn
+            .pragma_update(None, "ignore_check_constraints", "OFF")
             .unwrap();
         let error = registry
             .peer_cache(host)

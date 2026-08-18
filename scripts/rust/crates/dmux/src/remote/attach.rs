@@ -570,7 +570,7 @@ fn resolve_current_tmux_marker(
 }
 
 fn revalidate_local_plan_marker(
-    env: &OperationEnv,
+    registry: &Registry,
     target: &FrozenConnectTarget,
 ) -> Result<MarkerContext, TypedError> {
     if target.backend != Backend::Tmux {
@@ -579,8 +579,6 @@ fn revalidate_local_plan_marker(
             "tmux controller correlation received a non-tmux exec target",
         ));
     }
-    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
-        .map_err(|error| TypedError::new(error.error_code(), format!("registry: {error}")))?;
     let identity = registry
         .identity()
         .map_err(|error| TypedError::new(error.error_code(), format!("identity: {error}")))?;
@@ -667,6 +665,64 @@ fn revalidate_local_plan_marker(
         &target.binding.native_token,
         target.child.as_ref(),
     )
+}
+
+/// Take a §10.1 local read fence — authority gate shared, then the backend
+/// instance — returning the registry the fenced reads run on alongside the
+/// guard that keeps the fence live.
+///
+/// **The registry is opened BEFORE the authority gate, never underneath it.**
+/// `Registry::open` runs `ensure_schema`, which needs the gate *exclusively*
+/// whenever a migration is pending; the gate is an OFD lock, so a shared hold
+/// taken by this very thread can never be upgraded, and `ensure_schema`
+/// refuses with `SchemaMaintenanceBlocked` (`OperationInProgress`) rather
+/// than hang. Opening first is semantically inert for the fence:
+/// `Registry::open` reads no authority state, it only opens the connection
+/// and ensures the schema. Every authority read a fence exists to protect
+/// still happens under the gate on the returned handle, and each such read
+/// takes its own SQLite snapshot at statement time — not at connection time —
+/// so the earlier open cannot widen what they observe.
+///
+/// Returning the handle also settles the registries opened deeper inside
+/// fenced work (`frozen_binding_for_authority`, `local_provider` in
+/// `gui_cli`): once this open has ensured the schema, `user_version` is
+/// durably at `SCHEMA_VERSION` and migrations are forward-only, so every
+/// later `Registry::open` inside the fence early-returns without touching
+/// the gate.
+///
+/// This is the one place that rule is implemented; callers that need a local
+/// read fence must come through here rather than pairing an open with an
+/// `OrderedLocks` of their own.
+pub(crate) fn open_local_read_fence(
+    env: &OperationEnv,
+    instance: BackendInstanceUid,
+    backend_mode: LockMode,
+    fence: &str,
+) -> Result<(Registry, OrderedLocks), TypedError> {
+    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+        .map_err(|error| TypedError::new(error.error_code(), format!("registry: {error}")))?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .and_then(|_| locks.acquire(LockScope::BackendInstance(instance), backend_mode))
+        .map_err(|error| {
+            TypedError::new(ErrorCode::OperationFailed, format!("{fence}: {error}"))
+        })?;
+    Ok((registry, locks))
+}
+
+/// The read fence both local controller-correlation arms take, with the
+/// frozen exec target revalidated underneath it. The returned guard keeps the
+/// fence live for the caller's remaining work.
+fn fenced_local_plan_revalidation(
+    env: &OperationEnv,
+    target: &FrozenConnectTarget,
+    fence: &str,
+) -> Result<OrderedLocks, TypedError> {
+    let (registry, locks) =
+        open_local_read_fence(env, target.backend_instance_uid, LockMode::Shared, fence)?;
+    revalidate_local_plan_marker(&registry, target)?;
+    Ok(locks)
 }
 
 /// Reserve the exact controller correlation for a feature-on terminal
@@ -766,22 +822,8 @@ pub fn reserve_controller_correlation(
                 TypedError::new(ErrorCode::OperationFailed, format!("environment: {error}"))
             })?;
             let target = plan.target();
-            let mut locks = OrderedLocks::new(&env.lock_dir);
-            locks
-                .acquire(LockScope::AuthorityGate, LockMode::Shared)
-                .and_then(|_| {
-                    locks.acquire(
-                        LockScope::BackendInstance(target.backend_instance_uid),
-                        LockMode::Shared,
-                    )
-                })
-                .map_err(|error| {
-                    TypedError::new(
-                        ErrorCode::OperationFailed,
-                        format!("tmux switch correlation fence: {error}"),
-                    )
-                })?;
-            revalidate_local_plan_marker(&env, target)?;
+            let _locks =
+                fenced_local_plan_revalidation(&env, target, "tmux switch correlation fence")?;
             validate_existing_switch_record(&env.lock_dir, client_uid, target)?;
             Ok(Some(ControllerCorrelationReservation {
                 client_uid,
@@ -794,22 +836,8 @@ pub fn reserve_controller_correlation(
                 TypedError::new(ErrorCode::OperationFailed, format!("environment: {error}"))
             })?;
             let target = plan.target();
-            let mut locks = OrderedLocks::new(&env.lock_dir);
-            locks
-                .acquire(LockScope::AuthorityGate, LockMode::Shared)
-                .and_then(|_| {
-                    locks.acquire(
-                        LockScope::BackendInstance(target.backend_instance_uid),
-                        LockMode::Shared,
-                    )
-                })
-                .map_err(|error| {
-                    TypedError::new(
-                        ErrorCode::OperationFailed,
-                        format!("tmux controller correlation fence: {error}"),
-                    )
-                })?;
-            revalidate_local_plan_marker(&env, target)?;
+            let _locks =
+                fenced_local_plan_revalidation(&env, target, "tmux controller correlation fence")?;
             let record = publish_current_client_record(
                 &env.lock_dir,
                 client_uid,
@@ -1547,6 +1575,19 @@ pub fn refresh_controller_context_from_tmux_hook(
         ));
     }
 
+    // The registry is opened BEFORE the fence, never underneath it.
+    // `Registry::open` runs `ensure_schema`, which takes the authority gate
+    // *exclusively* whenever a migration is pending; the gate is an OFD lock,
+    // so a shared hold taken by this very thread can never be upgraded and
+    // `ensure_schema` would refuse with `SchemaMaintenanceBlocked`
+    // (`OperationInProgress`) on the first schema bump. Opening first is also
+    // semantically inert for the fence: `Registry::open` reads no authority
+    // state, it only opens the connection and ensures the schema. Every read
+    // below still happens under the gate, and each of those reads takes its
+    // own SQLite snapshot at statement time — not at connection time — so
+    // moving the open earlier cannot widen what they observe.
+    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+        .map_err(|error| TypedError::new(error.error_code(), format!("registry: {error}")))?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     if !locks
         .try_acquire(LockScope::AuthorityGate, LockMode::Shared)
@@ -1579,8 +1620,6 @@ pub fn refresh_controller_context_from_tmux_hook(
             "tmux hook refresh skipped while the backend is mutating or recovering",
         ));
     }
-    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
-        .map_err(|error| TypedError::new(error.error_code(), format!("registry: {error}")))?;
     let identity = registry
         .identity()
         .map_err(|error| TypedError::new(error.error_code(), format!("identity: {error}")))?;
@@ -2726,6 +2765,201 @@ mod tests {
                 .unwrap_err()
                 .code,
             ErrorCode::IdentityConflict
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // DLOCK-001/002: the registry must be opened BEFORE the §10.1 read
+    // fence, never underneath it. `Registry::open` runs `ensure_schema`,
+    // which needs the authority gate *exclusively* whenever a migration is
+    // pending; the gate is an OFD lock, so a shared hold taken by this very
+    // thread can never be upgraded and `ensure_schema` refuses with
+    // `SchemaMaintenanceBlocked` (`OperationInProgress`).
+
+    fn scratch_env(data: &tempfile::TempDir, runtime: &tempfile::TempDir) -> OperationEnv {
+        OperationEnv {
+            db_path: data.path().join("registry.sqlite3"),
+            lock_dir: runtime.path().to_path_buf(),
+        }
+    }
+
+    /// A registry database frozen one schema version behind this binary, so
+    /// the next `Registry::open` *must* migrate — the exact state that makes
+    /// `ensure_schema` demand the exclusive authority gate. Expressed against
+    /// `SCHEMA_VERSION` rather than a literal so the next schema bump keeps
+    /// exercising the same condition.
+    fn freeze_registry_one_version_back(env: &OperationEnv) {
+        use crate::registry::schema;
+
+        std::fs::create_dir_all(env.db_path.parent().unwrap()).unwrap();
+        let mut conn = rusqlite::Connection::open(&env.db_path).unwrap();
+        schema::apply_connection_settings(&conn, Duration::from_secs(5)).unwrap();
+        schema::migrate_to(&mut conn, schema::SCHEMA_VERSION - 1).unwrap();
+        assert_eq!(
+            schema::user_version(&conn).unwrap(),
+            schema::SCHEMA_VERSION - 1,
+            "the fixture must leave a migration pending"
+        );
+    }
+
+    fn registry_schema_version(env: &OperationEnv) -> i64 {
+        let conn = rusqlite::Connection::open(&env.db_path).unwrap();
+        crate::registry::schema::user_version(&conn).unwrap()
+    }
+
+    /// Run `body` with a hard deadline: a regression of this fix either
+    /// refuses with `OperationInProgress` or (with the guard removed) hangs
+    /// on the process's own gate description, so the test must fail rather
+    /// than block the suite forever.
+    fn within<T: Send + 'static>(what: &str, body: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let _ = tx.send(body());
+        });
+        match rx.recv_timeout(Duration::from_secs(30)) {
+            Ok(value) => value,
+            Err(_) => panic!("{what} did not complete within 30s: the self-deadlock is back"),
+        }
+    }
+
+    #[test]
+    fn tmux_hook_refresh_completes_with_a_schema_migration_pending() {
+        let data = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let env = scratch_env(&data, &runtime);
+        freeze_registry_one_version_back(&env);
+
+        // The pre-fence half of the path is a deterministic PID/start-token/
+        // tty join, so the records describe this very test process and the
+        // call reaches the fence and the registry open for real.
+        let pid = std::process::id();
+        let tty = "/dev/ttys999".to_string();
+        let record = TmuxClientRecord {
+            record_version: CLIENT_RECORD_VERSION,
+            client_uid: Uuid::new_v4(),
+            host_uid: HostUid(Uuid::new_v4()),
+            space_uid: SpaceUid(Uuid::new_v4()),
+            backend_instance_uid: BackendInstanceUid(Uuid::new_v4()),
+            server_epoch: ServerEpoch(Uuid::new_v4()),
+            client_pid: pid,
+            process_start_token: process_start_token(pid).unwrap(),
+            client_tty: tty.clone(),
+            recorded_at: now_rfc3339(),
+        };
+        publish_record(&env.lock_dir, &record).unwrap();
+        let claim = TmuxHookClientClaim {
+            namespace: "dmux-schema-fence".to_string(),
+            hook_client: tty.clone(),
+            client_pid: pid,
+            client_tty: tty,
+            session_id: "$0".to_string(),
+            window_id: "@0".to_string(),
+            pane_id: "%0".to_string(),
+        };
+
+        let (db_path, lock_dir) = (env.db_path.clone(), env.lock_dir.clone());
+        let error = within("the tmux hook refresh", move || {
+            let env = OperationEnv { db_path, lock_dir };
+            refresh_controller_context_from_tmux_hook(&env, &claim).unwrap_err()
+        });
+
+        assert_ne!(
+            error.code,
+            ErrorCode::OperationInProgress,
+            "a pending migration must not turn the hook refresh into a refusal: {error:?}"
+        );
+        // The scratch registry is empty, so the first fenced read is the one
+        // that fails — proof the path got past `Registry::open` and into the
+        // reads the fence exists to protect.
+        assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
+        assert_eq!(
+            registry_schema_version(&env),
+            crate::registry::schema::SCHEMA_VERSION,
+            "the hook refresh must have migrated the registry on its way in"
+        );
+    }
+
+    #[test]
+    fn local_controller_correlation_fence_completes_with_a_schema_migration_pending() {
+        // Both local `reserve_controller_correlation` arms (ExistingLocal and
+        // FreshLocal) share this exact prologue; the rest of each arm is
+        // tty/record work that needs a live terminal.
+        for fence in [
+            "tmux switch correlation fence",
+            "tmux controller correlation fence",
+        ] {
+            let data = tempfile::tempdir().unwrap();
+            let runtime = tempfile::tempdir().unwrap();
+            let env = scratch_env(&data, &runtime);
+            freeze_registry_one_version_back(&env);
+
+            let target = FrozenConnectTarget {
+                owner: HostUid(Uuid::new_v4()),
+                space_uid: SpaceUid(Uuid::new_v4()),
+                space_no: SpaceNo(std::num::NonZeroU64::new(1).unwrap()),
+                logical_name: "fence".to_string(),
+                backend: Backend::Tmux,
+                backend_instance_uid: BackendInstanceUid(Uuid::new_v4()),
+                server_epoch: ServerEpoch(Uuid::new_v4()),
+                binding: crate::connect_cli::FrozenBinding {
+                    native_token: "$0".to_string(),
+                    endpoint: "dmux-schema-fence".to_string(),
+                },
+                child: None,
+            };
+
+            let (db_path, lock_dir) = (env.db_path.clone(), env.lock_dir.clone());
+            let fence_label = fence.to_string();
+            let error = within("the local controller correlation fence", move || {
+                let env = OperationEnv { db_path, lock_dir };
+                fenced_local_plan_revalidation(&env, &target, &fence_label).unwrap_err()
+            });
+
+            assert_ne!(
+                error.code,
+                ErrorCode::OperationInProgress,
+                "{fence}: a pending migration must not refuse the reservation: {error:?}"
+            );
+            assert_eq!(error.code, ErrorCode::NotFound, "{fence}: {error:?}");
+            assert_eq!(
+                registry_schema_version(&env),
+                crate::registry::schema::SCHEMA_VERSION,
+                "{fence}: the reservation must have migrated the registry on its way in"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_fence_taken_first_would_still_refuse_the_migration() {
+        // The premise the two tests above rest on: the guard in
+        // `ensure_schema` is intact, so opening the registry *underneath* the
+        // shared gate is still a loud, typed refusal. Removing the guard must
+        // not silently make those tests vacuous.
+        let data = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        let env = scratch_env(&data, &runtime);
+        freeze_registry_one_version_back(&env);
+
+        let (db_path, lock_dir) = (env.db_path.clone(), env.lock_dir.clone());
+        let error = within("the inverted fence order", move || {
+            let mut locks = OrderedLocks::new(&lock_dir);
+            locks
+                .acquire(LockScope::AuthorityGate, LockMode::Shared)
+                .unwrap();
+            match Registry::open(RegistryConfig::new(&db_path, &lock_dir)) {
+                Ok(_) => panic!("the ensure_schema guard is gone: the open succeeded"),
+                Err(error) => error,
+            }
+        });
+        assert_eq!(
+            error.error_code(),
+            ErrorCode::OperationInProgress,
+            "{error}"
+        );
+        assert_eq!(
+            registry_schema_version(&env),
+            crate::registry::schema::SCHEMA_VERSION - 1,
+            "the refused open must leave the schema untouched"
         );
     }
 }

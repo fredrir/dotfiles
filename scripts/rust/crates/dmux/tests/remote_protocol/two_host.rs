@@ -509,6 +509,55 @@ fn archie_end_to_end_matrix() {
     let result: protocol::RmResult = serde_json::from_value(response.payload.unwrap()).unwrap();
     assert!(result.replayed && result.removed);
 
+    // --- STRCMP-005 over REAL ssh: the peer cannot pick the failure class.
+    // The remote command reproduces OpenSSH's changed-host-key sentences
+    // verbatim on stderr and exits 255 — the one forgery per-line anchoring
+    // cannot refuse, because those lines ARE the ssh sentences. ssh's own
+    // diagnostics now go to a private `-E` log the peer never learns the
+    // path of, so the stderr this peer writes is no longer evidence about
+    // ssh: the attempt must NOT come back as the terminal HostKey class,
+    // and must NOT stamp `host_key_failed` — the strongest trust signal the
+    // route table records — on the healthy Archie route.
+    {
+        let mut forging = remote.invocation(protocol::methods::HELLO);
+        // `#` comments out the `_agent ...` words ssh appends after this
+        // one, so the peer's whole remote command is what runs.
+        forging.remote_bin = "{ printf 'Host key for archie has changed and you have \
+                              requested strict checking.\\nHost key verification failed.\\n' \
+                              >&2; exit 255; } #"
+            .to_string();
+        let hello_request = request(&client, protocol::methods::HELLO, json!({}));
+        let mut registry = client.registry();
+        let error = call_over_routes(
+            &mut registry,
+            &expectation,
+            &hello_request,
+            &invoker(),
+            &forging,
+            Duration::from_secs(60),
+        )
+        .expect_err("a 255 with no envelope is a failure");
+        assert_ne!(
+            error.code,
+            dmux::error::ErrorCode::HostIdentityChanged,
+            "the peer picked the host-key class: {}",
+            error.message
+        );
+        assert_eq!(error.code, dmux::error::ErrorCode::OperationFailed);
+        let route = registry
+            .routes_for(owner_uid)
+            .unwrap()
+            .into_iter()
+            .find(|r| r.endpoint == HOST)
+            .unwrap();
+        assert_eq!(
+            route.last_outcome.as_deref(),
+            Some(outcome::MALFORMED_RESPONSE),
+            "an unattributable 255 is terminal and unclassified, not a \
+             host-key compromise report"
+        );
+    }
+
     // --- Route fault matrix over REAL ssh (acceptance 21). ---
     // Dead endpoint first by priority: connection refused on 127.0.0.1:1
     // (pre-auth transport class) must fail over to the Archie route with
