@@ -11,8 +11,8 @@
 //! large as the child decides to make it.  A wedged, misconfigured, or
 //! hostile executable that writes without end turns a diagnostic capture
 //! into an out-of-memory abort of the dmux process holding the locks and
-//! leases — so every capture carries an explicit byte cap
-//! ([`bounded_read`], default [`DEFAULT_CAPTURE_LIMIT`]).
+//! leases — so every capture carries an explicit byte cap, passed by the
+//! call site that knows its real bound ([`bounded_read`]).
 //!
 //! **The full-pipe deadlock.**  Stopping at the cap is not enough.  A pipe
 //! is only a kernel buffer (64 KiB on Linux, 16 KiB on macOS by default),
@@ -45,17 +45,29 @@
 //! wait-error paths before joining those threads.
 
 use std::io::Read;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
-/// Default cap for capturing one subprocess stream.
+/// Join one [`bounded_read`] thread, or abandon it once `until` has passed.
 ///
-/// It sits between this crate's other two byte bounds — 64 KiB for a single
-/// GUI bridge message (`crate::gui::MAX_MESSAGE_BYTES`) and 16 MiB for a
-/// recovery manifest — so a whole protocol reply plus its diagnostics still
-/// fits, while a runaway child is cut off long before its output can
-/// threaten the process.  This is a default, not a policy: a call site that
-/// knows its real bound (a fixed-shape probe, a sized protocol document)
-/// should pass that bound explicitly instead.
-pub const DEFAULT_CAPTURE_LIMIT: usize = 1024 * 1024;
+/// `std` has no timed join, and an untimed one is the whole hazard this
+/// module exists to answer: a descendant holding an inherited write end
+/// keeps the reader blocked in `read`, so a plain `join()` after a deadline
+/// would void that deadline. Abandoning the thread costs one bounded buffer,
+/// freed when the pipe finally closes; blocking on it costs the guarantee.
+///
+/// `until` is a shared instant rather than a per-call duration on purpose: a
+/// caller joining several readers must bound their *total* wait, not grant
+/// each one the full grace.
+pub fn join_capture(reader: JoinHandle<BoundedCapture>, until: Instant) -> Option<BoundedCapture> {
+    while !reader.is_finished() {
+        if Instant::now() >= until {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    reader.join().ok()
+}
 
 /// What [`bounded_read`] retained, and whether anything was dropped.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

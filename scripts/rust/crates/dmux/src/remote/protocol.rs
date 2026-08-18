@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::error::{ErrorCode, TypedError};
+use crate::error::TypedError;
 use crate::model::{
     BackendInstanceUid, ChildKind, Health, HostUid, ProviderHandle, RegistryUid, ServerEpoch,
     SpaceUid,
@@ -36,14 +36,21 @@ pub const CAP_TMUX_CLIENT_CORRELATION: &str = "tmux_client_correlation_v1";
 /// checkpoint it anchors (plan §12.1) — as an unrepresentable magnitude.
 pub const MAX_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 
-/// The typed refusal for a lineage revision outside the exact-integer
-/// range. Every rejection of an out-of-range revision — on the wire and in
-/// process — carries this shape; none of them panics, and none of them
-/// narrows the value to something storable.
-pub fn revision_out_of_range(label: &str, revision: u64) -> TypedError {
-    TypedError::new(
-        ErrorCode::ProtocolMismatch,
-        format!("{label} {revision} exceeds the exact JSON integer range (max {MAX_JSON_INTEGER})"),
+/// The exact LOSSYFROM-001 attack value: 2^63, which an unchecked `as i64`
+/// reinterprets as `i64::MIN` in the durable peer-lineage checkpoint, so
+/// every later honest handshake reads as a rollback. Shared so the protocol
+/// edge and the storage layer pin their regression tests to one value.
+#[cfg(test)]
+pub(crate) const POISON_REVISION: u64 = 9_223_372_036_854_775_808;
+
+/// The refusal message for a lineage revision outside the exact-integer
+/// range. Every rejection of an out-of-range revision carries this text;
+/// none of them panics, and none of them narrows the value to something
+/// storable.
+fn revision_out_of_range(revision: u64) -> String {
+    format!(
+        "authority revision {revision} exceeds the exact JSON integer range \
+         (max {MAX_JSON_INTEGER})"
     )
 }
 
@@ -57,9 +64,7 @@ where
 {
     let revision = u64::deserialize(deserializer)?;
     if revision > MAX_JSON_INTEGER {
-        return Err(serde::de::Error::custom(
-            revision_out_of_range("authority revision", revision).message,
-        ));
+        return Err(serde::de::Error::custom(revision_out_of_range(revision)));
     }
     Ok(revision)
 }
@@ -905,11 +910,6 @@ mod tests {
         assert_eq!(hello.nonce, None);
     }
 
-    /// The exact LOSSYFROM-001 attack value: 2^63, which an unchecked
-    /// `as i64` reinterprets as `i64::MIN` in the durable peer-lineage
-    /// checkpoint, so every later honest handshake reads as a rollback.
-    const POISON_REVISION: u64 = 9_223_372_036_854_775_808;
-
     fn golden_with_revision(revision: u64) -> String {
         let replaced = GOLDEN.replace(
             "\"authority_revision\": 42",
@@ -945,9 +945,9 @@ mod tests {
         let mut poisoned = env;
         poisoned.authority_revision = POISON_REVISION;
         assert!(!poisoned.is_well_formed());
-        let typed = revision_out_of_range("authority revision", POISON_REVISION);
-        assert_eq!(typed.code, ErrorCode::ProtocolMismatch);
-        assert!(typed.message.contains(&POISON_REVISION.to_string()));
+        let refusal = revision_out_of_range(POISON_REVISION);
+        assert!(refusal.contains(&POISON_REVISION.to_string()));
+        assert!(refusal.contains(&MAX_JSON_INTEGER.to_string()));
     }
 
     #[test]

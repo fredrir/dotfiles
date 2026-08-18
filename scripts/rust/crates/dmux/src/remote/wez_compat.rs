@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::childio::{bounded_read, kill_process_group};
+use crate::childio::{BoundedCapture, bounded_read, join_capture, kill_process_group};
 use crate::error::{ErrorCode, TypedError};
 
 /// Existing coarse backend capability, retained for route compatibility.
@@ -205,6 +205,29 @@ struct ProbeOutput {
     stdout: Vec<u8>,
 }
 
+/// Total extra time a probe may spend letting its readers drain after the
+/// child has been reaped. Mirrors `remote::client`'s transport grace.
+const PROBE_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// Kill the probe's whole process group, reap the direct child, then let both
+/// readers finish within one shared grace.
+///
+/// The deadline and wait-error paths are otherwise identical, and both must
+/// do the group kill *before* the joins so the inherited pipe write ends are
+/// already closed when the readers are waited on.
+fn abandon_probe(
+    child: &mut std::process::Child,
+    stdout_reader: std::thread::JoinHandle<BoundedCapture>,
+    stderr_reader: std::thread::JoinHandle<BoundedCapture>,
+) {
+    kill_process_group(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
+    let until = Instant::now() + PROBE_DRAIN_GRACE;
+    let _ = join_capture(stdout_reader, until);
+    let _ = join_capture(stderr_reader, until);
+}
+
 /// Bounded child runner specialized to the two read-only probes above.
 /// Output readers keep draining after their bounded capture fills, so a
 /// noisy/broken executable cannot deadlock on a full pipe; see
@@ -243,26 +266,23 @@ fn run_probe(
                 break status;
             }
             Ok(None) if started.elapsed() >= deadline => {
-                kill_process_group(child.id());
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                abandon_probe(&mut child, stdout_reader, stderr_reader);
                 return Err(WezProbeError::Timeout);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(5)),
             Err(error) => {
-                kill_process_group(child.id());
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
+                abandon_probe(&mut child, stdout_reader, stderr_reader);
                 return Err(WezProbeError::Spawn(format!("wait: {error}")));
             }
         }
     };
-    let stdout = stdout_reader.join().unwrap_or_default();
-    let stderr = stderr_reader.join().unwrap_or_default();
+    // Bounded even on the success path: the group kill above closes the write
+    // ends an inherited descendant held, but a plain `join()` here would
+    // still hand a surviving grandchild the power to hang the probe past its
+    // deadline. One budget across both, as in `remote::client`.
+    let drain_until = Instant::now() + PROBE_DRAIN_GRACE;
+    let stdout = join_capture(stdout_reader, drain_until).unwrap_or_default();
+    let stderr = join_capture(stderr_reader, drain_until).unwrap_or_default();
     if !status.success() {
         return Err(WezProbeError::Failed {
             argv: format!("{} {}", wezterm_bin, args.join(" ")),

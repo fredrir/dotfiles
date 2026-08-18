@@ -298,27 +298,6 @@ impl SelfHeld {
     pub fn is_free(self) -> bool {
         self.process.is_none()
     }
-
-    /// The calling thread already holds the scope exclusively: it therefore
-    /// already has every exclusion an exclusive acquisition would grant (an
-    /// exclusive OFD lock conflicts with every other description, this
-    /// process's own included), and cannot be granted a second one.
-    pub fn current_thread_is_exclusive(self) -> bool {
-        self.current_thread == Some(LockMode::Exclusive)
-    }
-
-    /// How a refusal should describe what is in the way.
-    pub fn describe(self) -> &'static str {
-        match (self.current_thread, self.process) {
-            (Some(LockMode::Exclusive), _) => "this thread holds it exclusively",
-            (Some(LockMode::Shared), _) => "this thread holds it shared",
-            (None, Some(LockMode::Exclusive)) => {
-                "another thread in this process holds it exclusively"
-            }
-            (None, Some(LockMode::Shared)) => "another thread in this process holds it shared",
-            (None, None) => "nothing in this process holds it",
-        }
-    }
 }
 
 /// What this process already holds for `scope` under `dir`, from the ledger
@@ -571,7 +550,7 @@ mod tests {
         let held = self_held(dir.path(), &gate);
         assert_eq!(held.current_thread, Some(LockMode::Shared));
         assert_eq!(held.process, Some(LockMode::Shared));
-        assert!(!held.is_free() && !held.current_thread_is_exclusive());
+        assert!(!held.is_free() && held.current_thread != Some(LockMode::Exclusive));
 
         // A holder on another thread is this process's, but not this
         // thread's: the distinction between "would deadlock on myself" and
@@ -593,7 +572,10 @@ mod tests {
         assert!(self_held(dir.path(), &gate).is_free());
 
         let exclusive = acquire(dir.path(), gate.clone(), LockMode::Exclusive).unwrap();
-        assert!(self_held(dir.path(), &gate).current_thread_is_exclusive());
+        assert_eq!(
+            self_held(dir.path(), &gate).current_thread,
+            Some(LockMode::Exclusive)
+        );
         drop(exclusive);
         assert!(self_held(dir.path(), &gate).is_free());
     }

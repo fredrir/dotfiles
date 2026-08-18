@@ -14,6 +14,13 @@
 //! - A cross-route retry re-sends the byte-identical request envelope
 //!   (identical request_uid/method/payload).
 //! - Every attempt records a stable typed outcome token on its route.
+//!
+//! Those exit-255 classes are read from the TRANSPORT's own diagnostics,
+//! not from the stream it shares with the remote command: ssh multiplexes
+//! the peer's stderr onto the same local descriptor, so on that stream a
+//! peer choosing its own words is indistinguishable from ssh. The route
+//! walk gives ssh a private log ([`TransportDiagnostics`]) and classifies
+//! that, so the outcome token a route carries is always ssh's report.
 
 use std::io::Write;
 use std::os::unix::process::CommandExt;
@@ -24,7 +31,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::childio::{BoundedCapture, bounded_read, kill_process_group};
+use crate::childio::{BoundedCapture, bounded_read, join_capture, kill_process_group};
 use crate::error::{ErrorCode, TypedError};
 use crate::model::{BackendInstanceUid, HostUid, ServerEpoch};
 use crate::recovery::{RecoveryControlAction, RecoveryControlRequest, RecoveryInspection};
@@ -198,9 +205,100 @@ impl AgentInvocation {
     }
 }
 
+/// A private file the LOCAL transport writes its OWN diagnostics to, out of
+/// the peer's reach (OpenSSH `-E`).
+///
+/// A transport child's stderr is not the transport's alone: ssh multiplexes
+/// the REMOTE command's stderr onto the very same local descriptor. In that
+/// merged stream a peer that prints an OpenSSH sentence verbatim and exits
+/// 255 is indistinguishable from ssh having failed that way itself — so the
+/// peer, not ssh, gets to pick this client's failure class. The class it
+/// would pick is [`AttemptFailure::HostKey`]: terminal, so route failover
+/// stops, and recorded as `host_key_failed`, the strongest trust signal the
+/// route table keeps — asserted on nothing but the peer's say-so.
+///
+/// `-E` moves ssh's log off the shared descriptor onto a file this process
+/// creates locally, before ssh runs. The remote command's stderr still
+/// arrives on fd 2 and is still captured — nothing is thrown away, and no
+/// remote diagnostic is lost — it simply stops being evidence about ssh.
+/// The peer cannot reach this file: it is created in this machine's private
+/// temp directory, mode 0600, under a random name the peer never learns,
+/// and the path travels only in ssh's own option list, never in the remote
+/// command string.
+///
+/// One log per attempt, removed when this value drops. A backgrounded
+/// `ControlPersist` master started by the attempt inherits the descriptor
+/// and may keep writing to the (already unlinked) inode until it exits;
+/// that costs nothing but the master's own lifetime.
+#[derive(Debug)]
+pub struct TransportDiagnostics {
+    file: tempfile::NamedTempFile,
+}
+
+impl TransportDiagnostics {
+    /// A fresh, empty, private log for ONE attempt.
+    pub fn create() -> std::io::Result<TransportDiagnostics> {
+        Ok(TransportDiagnostics {
+            file: tempfile::Builder::new()
+                .prefix("dmux-transport-")
+                .suffix(".log")
+                .tempfile()?,
+        })
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        self.file.path()
+    }
+
+    /// What the transport logged, bounded exactly like every other child
+    /// capture.
+    ///
+    /// An unreadable log reads as EMPTY, and an empty log grants no class
+    /// at all (§8.3 enumerates retry eligibility positively), so the
+    /// failure mode of this channel is a conservative terminal
+    /// classification — never a class the peer chose.
+    pub fn read(&self) -> String {
+        match std::fs::File::open(self.file.path()) {
+            Ok(file) => into_lossy_string(bounded_read(file, MAX_REPLY_STDERR_BYTES).bytes),
+            Err(_) => String::new(),
+        }
+    }
+}
+
+/// One spawnable transport attempt: the argv, plus the private channel this
+/// transport's own diagnostics go to when it has one.
+#[derive(Debug)]
+pub struct TransportAttempt {
+    pub argv: Vec<String>,
+    /// `None` means this transport has no channel of its own, so its stderr
+    /// is the merged stream and classification has to read that.
+    pub diagnostics: Option<TransportDiagnostics>,
+}
+
 /// Maps one verified route row to the exact spawn argv for one RPC.
 pub trait RouteInvoker {
     fn argv_for(&self, route: &RouteRow, invocation: &AgentInvocation) -> Vec<String>;
+
+    /// The full attempt for one route: [`argv_for`](RouteInvoker::argv_for)
+    /// plus, when this transport can keep its own diagnostics away from the
+    /// peer's, the private log it writes them to.
+    ///
+    /// The default claims no such channel, which is right for a transport
+    /// that IS the agent — [`DirectInvoker`] and the test doubles spawn the
+    /// remote command itself, so nothing else writes to that stderr and
+    /// there is no second party to attribute it to. [`SshInvoker`] overrides
+    /// it, because ssh's stderr is shared with the peer's (see
+    /// [`TransportDiagnostics`]).
+    fn attempt_for(
+        &self,
+        route: &RouteRow,
+        invocation: &AgentInvocation,
+    ) -> std::io::Result<TransportAttempt> {
+        Ok(TransportAttempt {
+            argv: self.argv_for(route, invocation),
+            diagnostics: None,
+        })
+    }
 }
 
 /// Production transport: `ssh [-oBatchMode=yes] [user@]endpoint dmux
@@ -226,8 +324,21 @@ impl Default for SshInvoker {
     }
 }
 
-impl RouteInvoker for SshInvoker {
-    fn argv_for(&self, route: &RouteRow, invocation: &AgentInvocation) -> Vec<String> {
+impl SshInvoker {
+    /// The spawn argv, with ssh's own log sent to `log` when one was opened.
+    ///
+    /// `-E` is placed LAST among the options, after `extra_options` and
+    /// immediately before the destination: OpenSSH keeps the last `-E` on
+    /// the line, so nothing a caller passes through `extra_options` can
+    /// quietly put ssh's diagnostics back on the stream the peer writes to.
+    /// Being before the destination, it is an option to the local `ssh`
+    /// and never part of the remote command string.
+    fn argv_with(
+        &self,
+        route: &RouteRow,
+        invocation: &AgentInvocation,
+        log: Option<&str>,
+    ) -> Vec<String> {
         let mut argv = vec!["ssh".to_string()];
         if self.batch_mode {
             argv.push("-oBatchMode=yes".to_string());
@@ -236,6 +347,10 @@ impl RouteInvoker for SshInvoker {
             argv.push(format!("-oConnectTimeout={secs}"));
         }
         argv.extend(self.extra_options.iter().cloned());
+        if let Some(log) = log {
+            argv.push("-E".to_string());
+            argv.push(log.to_string());
+        }
         let destination = match &route.username {
             Some(user) => format!("{user}@{}", route.endpoint),
             None => route.endpoint.clone(),
@@ -244,6 +359,47 @@ impl RouteInvoker for SshInvoker {
         argv.push(invocation.remote_bin.clone());
         argv.extend(invocation.agent_args());
         argv
+    }
+}
+
+impl RouteInvoker for SshInvoker {
+    fn argv_for(&self, route: &RouteRow, invocation: &AgentInvocation) -> Vec<String> {
+        self.argv_with(route, invocation, None)
+    }
+
+    fn attempt_for(
+        &self,
+        route: &RouteRow,
+        invocation: &AgentInvocation,
+    ) -> std::io::Result<TransportAttempt> {
+        if !self.batch_mode {
+            // A non-BatchMode ssh is talking to a PERSON: enrollment's
+            // first-contact hello wants OpenSSH's own host-key handling,
+            // and its "Warning: Permanently added ..." belongs on the
+            // terminal the user is watching, not in a file dmux deletes.
+            // That path also records no route outcome — it has no verified
+            // route yet — so the trust signal this channel protects is not
+            // at stake there.
+            return Ok(TransportAttempt {
+                argv: self.argv_for(route, invocation),
+                diagnostics: None,
+            });
+        }
+        let diagnostics = TransportDiagnostics::create()?;
+        let log = diagnostics.path().to_str().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "transport diagnostic log path is not unicode: {:?}",
+                    diagnostics.path()
+                ),
+            )
+        })?;
+        let argv = self.argv_with(route, invocation, Some(log));
+        Ok(TransportAttempt {
+            argv,
+            diagnostics: Some(diagnostics),
+        })
     }
 }
 
@@ -280,9 +436,10 @@ impl RouteInvoker for DirectInvoker {
 /// truncation as a confusing parse error.
 const MAX_REPLY_STDOUT_BYTES: usize = 4 * 1024 * 1024;
 
-/// Cap on one transport child's diagnostics.
+/// Cap on one transport child's diagnostics, and on the private
+/// [`TransportDiagnostics`] log that separates ssh's share of them.
 ///
-/// Only [`first_line`] and [`classify_ssh_255`] ever read this stream, and
+/// Only [`first_line`] and [`classify_ssh_255`] ever read these, and
 /// the largest real ssh diagnostic — the changed-host-key warning block — is
 /// about a kilobyte, so this leaves ~60x headroom.  Truncation drops the
 /// TAIL, so the first line these two report survives it; a genuine ssh
@@ -310,6 +467,14 @@ pub struct RawReply {
     /// a short envelope — it is not an envelope at all — so
     /// [`interpret_reply`] refuses it outright.
     pub stdout_truncated: bool,
+    /// What the TRANSPORT itself logged, when it had a channel of its own
+    /// that the peer cannot write to (see [`TransportDiagnostics`]).
+    ///
+    /// `Some` — even `Some("")` — means `stderr` above is the REMOTE
+    /// command's alone and carries no evidence about ssh; the exit-255
+    /// classification reads this instead. `None` means no separation was
+    /// possible and `stderr` is the merged stream.
+    pub transport_diagnostics: Option<String>,
 }
 
 /// Whether the transport child keeps this process's controlling-terminal
@@ -343,26 +508,15 @@ pub enum TransportIsolation {
 }
 
 /// Spawn `argv`, write `request_bytes` to stdin, read a bounded stdout and
-/// stderr under the dmux-imposed deadline.
+/// stderr under the dmux-imposed deadline, with the child's process-group
+/// isolation chosen explicitly.
 ///
-/// This signature keeps the caller's process group, because the one caller
-/// of it outside the route walk is enrollment's non-BatchMode hello, whose
-/// host-key confirmation must reach the terminal.  The route walk calls
-/// [`exchange_with`] with [`TransportIsolation::OwnProcessGroup`].
-pub fn exchange(
-    argv: &[String],
-    request_bytes: &[u8],
-    deadline: Duration,
-) -> Result<RawReply, SpawnFailure> {
-    exchange_with(
-        argv,
-        request_bytes,
-        deadline,
-        TransportIsolation::SharedProcessGroup,
-    )
-}
-
-/// [`exchange`], with the child's process-group isolation chosen explicitly.
+/// The route walk passes [`TransportIsolation::OwnProcessGroup`] so exit or
+/// timeout can close pipes inherited by a descendant.  Enrollment's
+/// non-BatchMode hello passes [`TransportIsolation::SharedProcessGroup`],
+/// because a child in its own group is a *background* group of the
+/// controlling terminal and would take `SIGTTIN` on the host-key
+/// confirmation prompt instead of reaching the user.
 pub fn exchange_with(
     argv: &[String],
     request_bytes: &[u8],
@@ -429,19 +583,24 @@ pub fn exchange_with(
                 if isolation == TransportIsolation::OwnProcessGroup {
                     kill_process_group(child.id());
                 }
-                let stdout = join_capture(out_reader).ok_or_else(|| SpawnFailure {
+                // One budget across both joins — see `abandon_child`.
+                let drain_until = Instant::now() + READER_DRAIN_GRACE;
+                let stdout = join_capture(out_reader, drain_until).ok_or_else(|| SpawnFailure {
                     detail: format!(
                         "{program} exited but its stdout pipe stayed open past {}ms — \
-                         a surviving descendant still holds it",
+                             a surviving descendant still holds it",
                         READER_DRAIN_GRACE.as_millis()
                     ),
                 })?;
-                let stderr = join_capture(err_reader).unwrap_or_default();
+                let stderr = join_capture(err_reader, drain_until).unwrap_or_default();
                 return Ok(RawReply {
                     status: status.code().unwrap_or(-1),
                     stdout: into_lossy_string(stdout.bytes),
                     stderr: into_lossy_string(stderr.bytes),
                     stdout_truncated: stdout.truncated,
+                    // Filled in by the caller that opened one: `exchange`
+                    // only knows about the child's two pipes.
+                    transport_diagnostics: None,
                 });
             }
             Ok(None) => {
@@ -484,26 +643,13 @@ fn abandon_child(
     }
     let _ = child.kill();
     let _ = child.wait();
-    let _ = join_capture(out_reader);
-    let _ = join_capture(err_reader);
-}
-
-/// Join one bounded reader, or abandon it after [`READER_DRAIN_GRACE`].
-///
-/// `std` has no timed join, and an untimed one is the whole hazard: a
-/// descendant holding the inherited write end keeps the reader blocked in
-/// `read`, so a plain `join()` after the deadline would void the deadline.
-/// Abandoning the thread costs one bounded buffer that is freed when the
-/// pipe finally closes; blocking on it costs the guarantee.
-fn join_capture(reader: JoinHandle<BoundedCapture>) -> Option<BoundedCapture> {
+    // One budget across BOTH joins, not one each: `READER_DRAIN_GRACE` is
+    // the total extra time this call may take after the child is reaped, so
+    // giving each reader its own would let the deadline path overrun by
+    // twice the grace.
     let until = Instant::now() + READER_DRAIN_GRACE;
-    while !reader.is_finished() {
-        if Instant::now() >= until {
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    reader.join().ok()
+    let _ = join_capture(out_reader, until);
+    let _ = join_capture(err_reader, until);
 }
 
 /// `String::from_utf8_lossy(&bytes).into_owned()` without the second
@@ -728,16 +874,19 @@ fn any_line_matches(lines: &[String], shapes: &[SshDiagnostic]) -> bool {
     })
 }
 
-/// Classify one ssh exit-255 stderr. Unknown 255 diagnostics are NOT
-/// retried: retry eligibility must be positively enumerated (§8.3).
+/// Classify one ssh exit-255 diagnostic stream. Unknown 255 diagnostics are
+/// NOT retried: retry eligibility must be positively enumerated (§8.3).
 ///
-/// Matching is per line and anchored (see [`SshDiagnostic`]), because this
-/// capture also carries the remote command's stderr. That raises the bar
-/// from "any prose containing the phrase" to "a line that IS the ssh
-/// sentence"; it cannot make a merged stream attributable, so a peer able to
-/// reproduce a diagnostic verbatim can still pick a class. Anchoring is what
-/// keeps ordinary output — a log line, a banner, a build message — from
-/// doing it by accident.
+/// ATTRIBUTION IS THE CALLER'S JOB. Anchored per-line matching (see
+/// [`SshDiagnostic`]) raises the bar from "any prose containing the phrase"
+/// to "a line that IS the ssh sentence", which is what keeps ordinary
+/// output — a log line, a banner, a build message — from picking a class by
+/// accident. It cannot make a MERGED stream attributable: a peer that
+/// reproduces the sentence verbatim satisfies it exactly. Callers with a
+/// [`TransportDiagnostics`] channel therefore hand this ssh's own log,
+/// which the peer cannot write to at all; [`classify_255`] does that, and
+/// the anchoring below is defence in depth for the transports that have no
+/// such channel.
 pub fn classify_ssh_255(stderr: &str) -> AttemptFailure {
     let lines: Vec<String> = stderr
         .lines()
@@ -767,6 +916,34 @@ pub fn classify_ssh_255(stderr: &str) -> AttemptFailure {
     AttemptFailure::Malformed {
         detail: format!("unclassified ssh failure: {}", detail()),
     }
+}
+
+/// Classify one exit-255 reply from whichever stream is actually about the
+/// TRANSPORT.
+///
+/// With a private channel, only ssh's own log decides — the remote
+/// command's stderr never reaches [`classify_ssh_255`], so no line the peer
+/// writes can select `Transport`, `Auth`, or `HostKey`, and the trust
+/// signal recorded on the route is ssh's alone.
+///
+/// An EMPTY log with a 255 exit means ssh had nothing to report and the 255
+/// is the remote command's own status. That is not an ssh diagnostic, so it
+/// stays unclassified and terminal; the peer's stderr is still worth
+/// naming, and appears in the detail as what it is — remote output, not
+/// evidence.
+fn classify_255(reply: &RawReply) -> AttemptFailure {
+    let Some(own) = reply.transport_diagnostics.as_deref() else {
+        return classify_ssh_255(&reply.stderr);
+    };
+    if own.trim().is_empty() {
+        return AttemptFailure::Malformed {
+            detail: format!(
+                "remote command exited 255 with no ssh diagnostic; its stderr: {}",
+                first_line(&reply.stderr, "empty")
+            ),
+        };
+    }
+    classify_ssh_255(own)
 }
 
 /// Interpret one raw exchange as an envelope or a classified failure.
@@ -820,7 +997,7 @@ pub fn interpret_reply(reply: &RawReply, request_uid: Uuid) -> Result<Envelope, 
         return Ok(envelope);
     }
     match reply.status {
-        255 => Err(classify_ssh_255(&reply.stderr)),
+        255 => Err(classify_255(reply)),
         127 => Err(AttemptFailure::CommandMissing {
             detail: first_line(&reply.stderr, "exit 127"),
         }),
@@ -852,34 +1029,48 @@ fn first_line(text: &str, fallback: &str) -> String {
 /// transport-class (§8.3/ADR 009 §4); the dmux deadline is terminal.
 ///
 /// Keeps this process's group, so enrollment's non-BatchMode hello can still
-/// prompt on the terminal; the route walk uses [`call_argv_with`] and
-/// [`TransportIsolation::OwnProcessGroup`].
+/// prompt on the terminal; the route walk calls
+/// [`call_argv_with_diagnostics`] with
+/// [`TransportIsolation::OwnProcessGroup`] instead.
 pub fn call_argv(
     argv: &[String],
     request_bytes: &[u8],
     request_uid: Uuid,
     deadline: Duration,
 ) -> Result<Envelope, AttemptFailure> {
-    call_argv_with(
+    call_argv_with_diagnostics(
         argv,
         request_bytes,
         request_uid,
         deadline,
         TransportIsolation::SharedProcessGroup,
+        None,
     )
 }
 
-/// [`call_argv`], with the transport child's process-group isolation chosen
-/// explicitly.
-pub fn call_argv_with(
+/// [`call_argv`], reading the transport's exit-255 diagnostics from
+/// the private channel [`RouteInvoker::attempt_for`] opened for this attempt
+/// rather than from the stream it shares with the peer.
+pub fn call_argv_with_diagnostics(
     argv: &[String],
     request_bytes: &[u8],
     request_uid: Uuid,
     deadline: Duration,
     isolation: TransportIsolation,
+    diagnostics: Option<&TransportDiagnostics>,
 ) -> Result<Envelope, AttemptFailure> {
     match exchange_with(argv, request_bytes, deadline, isolation) {
-        Ok(reply) => interpret_reply(&reply, request_uid),
+        Ok(mut reply) => {
+            // Only `interpret_reply`'s exit-255 arm consults this channel, so
+            // reading it on a successful reply would open, read and discard
+            // the log once per route attempted, on every remote command. The
+            // `Some("")`-versus-`None` distinction inside `classify_255` is
+            // likewise only reachable at 255, where the read still happens.
+            if reply.status == 255 {
+                reply.transport_diagnostics = diagnostics.map(TransportDiagnostics::read);
+            }
+            interpret_reply(&reply, request_uid)
+        }
         Err(failure) if failure.is_deadline() => Err(AttemptFailure::Timeout {
             detail: failure.detail,
         }),
@@ -943,16 +1134,32 @@ pub fn call_over_routes(
 
     let mut last_failure: Option<AttemptFailure> = None;
     for route in &routes {
-        let argv = invoker.argv_for(route, invocation);
-        // The route walk is the bounded machine-to-machine RPC: BatchMode
-        // means the child never prompts, so it can be isolated and its
-        // descendants signalled when the deadline expires.
-        match call_argv_with(
-            &argv,
+        // The route walk is the path that RECORDS trust: every attempt
+        // stamps a typed outcome on its route. It therefore takes the
+        // transport's own diagnostic channel rather than the stream the
+        // peer shares — and if that channel cannot be opened, it refuses
+        // the attempt instead of silently falling back to the merged
+        // stream, which is the whole hazard.
+        let attempt = match invoker.attempt_for(route, invocation) {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                let failure = AttemptFailure::Transport {
+                    detail: format!("preparing the transport for this route: {error}"),
+                };
+                let _ = registry.record_route_outcome(route.route_id, failure.outcome_token());
+                last_failure = Some(failure);
+                continue;
+            }
+        };
+        // BatchMode means the child never prompts, so it can be isolated
+        // and its descendants signalled when the deadline expires.
+        match call_argv_with_diagnostics(
+            &attempt.argv,
             &request_bytes,
             request.request_uid,
             deadline,
             TransportIsolation::OwnProcessGroup,
+            attempt.diagnostics.as_ref(),
         ) {
             Ok(envelope) => {
                 let checked = validate_identity_and_lineage(registry, expectation, &envelope);
@@ -1026,13 +1233,22 @@ pub fn call_over_pinned_route(
         })?;
     let request_bytes = serde_json::to_vec(request)
         .map_err(|e| TypedError::new(ErrorCode::OperationFailed, e.to_string()))?;
-    let argv = invoker.argv_for(&route, invocation);
-    match call_argv_with(
-        &argv,
+    // Same reasoning as the walk: this attempt records a typed outcome on a
+    // real route, so it classifies from the transport's own diagnostics or
+    // it does not run at all.
+    let attempt = invoker.attempt_for(&route, invocation).map_err(|error| {
+        TypedError::new(
+            ErrorCode::RouteUnavailable,
+            format!("preparing the transport for route {route_id}: {error}"),
+        )
+    })?;
+    match call_argv_with_diagnostics(
+        &attempt.argv,
         &request_bytes,
         request.request_uid,
         deadline,
         TransportIsolation::OwnProcessGroup,
+        attempt.diagnostics.as_ref(),
     ) {
         Ok(envelope) => match validate_identity_and_lineage(registry, expectation, &envelope) {
             Ok(lineage) => {
@@ -1408,9 +1624,8 @@ mod tests {
         assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
     }
 
-    #[test]
-    fn ssh_invoker_builds_the_fixed_hidden_command() {
-        let route = RouteRow {
+    fn archie_route() -> RouteRow {
+        RouteRow {
             route_id: 1,
             host_uid: HostUid(uuid::Uuid::nil()),
             transport: crate::registry::Transport::Openssh,
@@ -1424,7 +1639,12 @@ mod tests {
             enabled: true,
             last_outcome: None,
             last_outcome_at: None,
-        };
+        }
+    }
+
+    #[test]
+    fn ssh_invoker_builds_the_fixed_hidden_command() {
+        let route = archie_route();
         let invocation = AgentInvocation::new("hello");
         let argv = SshInvoker::default().argv_for(&route, &invocation);
         assert_eq!(
@@ -1651,62 +1871,97 @@ mod tests {
         assert!(!classify_ssh_255(noisy).retries_next_route());
     }
 
+    /// Real OpenSSH exit-255 sentences, verbatim, with the class each one
+    /// must reach.  Both routes into the classifier are pinned against this
+    /// same table: the merged stream (`classify_ssh_255`, still the shape
+    /// enrollment's interactive hello sees) and the private `ssh -E`
+    /// channel the route walk now uses (`classify_255`).
+    const GENUINE_SSH_DIAGNOSTICS: &[(&str, &str)] = &[
+        (
+            "ssh: connect to host archie port 22: Connection refused",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: connect to host archie port 22: Connection timed out",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: connect to host archie port 22: Operation timed out",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: connect to host archie port 22: No route to host",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: connect to host archie port 22: Network is unreachable",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: Could not resolve hostname nope: Name or service not known",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: Could not resolve hostname nope: Temporary failure in name resolution",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "ssh: Could not resolve hostname nope: nodename nor servname provided, or not known",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "kex_exchange_identification: read: Connection reset by peer",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "kex_exchange_identification: Connection closed by remote host",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        (
+            "Connection closed by 10.77.77.2 port 22",
+            outcome::TRANSPORT_UNREACHABLE,
+        ),
+        ("Host key verification failed.", outcome::HOST_KEY_FAILED),
+        (
+            "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+             WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\n\
+             Offending ECDSA key in /home/fredrir/.ssh/known_hosts:3",
+            outcome::HOST_KEY_FAILED,
+        ),
+        (
+            "Host key for archie has changed and you have requested strict checking.",
+            outcome::HOST_KEY_FAILED,
+        ),
+        (
+            "Unable to negotiate with 10.0.0.1 port 22: no matching host key type found. \
+             Their offer: ssh-rsa",
+            outcome::HOST_KEY_FAILED,
+        ),
+        (
+            "fredrir@archie: Permission denied (publickey).",
+            outcome::AUTH_FAILED,
+        ),
+        (
+            "Received disconnect from 10.0.0.1 port 22:2: Too many authentication failures",
+            outcome::AUTH_FAILED,
+        ),
+        (
+            "No supported authentication methods available (server sent: publickey)",
+            outcome::AUTH_FAILED,
+        ),
+    ];
+
     #[test]
     fn genuine_ssh_diagnostics_still_classify_after_anchoring() {
-        for text in [
-            "ssh: connect to host archie port 22: Connection refused",
-            "ssh: connect to host archie port 22: Connection timed out",
-            "ssh: connect to host archie port 22: Operation timed out",
-            "ssh: connect to host archie port 22: No route to host",
-            "ssh: connect to host archie port 22: Network is unreachable",
-            "ssh: Could not resolve hostname nope: Name or service not known",
-            "ssh: Could not resolve hostname nope: Temporary failure in name resolution",
-            "ssh: Could not resolve hostname nope: nodename nor servname provided, or not known",
-            "kex_exchange_identification: read: Connection reset by peer",
-            "kex_exchange_identification: Connection closed by remote host",
-            "Connection closed by 10.77.77.2 port 22",
-        ] {
+        for (text, token) in GENUINE_SSH_DIAGNOSTICS {
             let failure = classify_ssh_255(text);
+            assert_eq!(failure.outcome_token(), *token, "{text:?} -> {failure:?}");
+            // §8.3: the transport class, and only it, retries.
             assert_eq!(
-                failure.outcome_token(),
-                outcome::TRANSPORT_UNREACHABLE,
-                "{text:?} -> {failure:?}"
+                failure.retries_next_route(),
+                *token == outcome::TRANSPORT_UNREACHABLE,
+                "{text:?}"
             );
-        }
-
-        for (text, token) in [
-            ("Host key verification failed.", outcome::HOST_KEY_FAILED),
-            (
-                "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
-                 WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\n\
-                 Offending ECDSA key in /home/fredrir/.ssh/known_hosts:3",
-                outcome::HOST_KEY_FAILED,
-            ),
-            (
-                "Host key for archie has changed and you have requested strict checking.",
-                outcome::HOST_KEY_FAILED,
-            ),
-            (
-                "Unable to negotiate with 10.0.0.1 port 22: no matching host key type found. \
-                 Their offer: ssh-rsa",
-                outcome::HOST_KEY_FAILED,
-            ),
-            (
-                "fredrir@archie: Permission denied (publickey).",
-                outcome::AUTH_FAILED,
-            ),
-            (
-                "Received disconnect from 10.0.0.1 port 22:2: Too many authentication failures",
-                outcome::AUTH_FAILED,
-            ),
-            (
-                "No supported authentication methods available (server sent: publickey)",
-                outcome::AUTH_FAILED,
-            ),
-        ] {
-            let failure = classify_ssh_255(text);
-            assert_eq!(failure.outcome_token(), token, "{text:?} -> {failure:?}");
-            assert!(!failure.retries_next_route(), "{text:?}");
         }
 
         // "Connection to <host> closed" is a POST-auth closure and still
@@ -1714,6 +1969,221 @@ mod tests {
         assert_eq!(
             classify_ssh_255("Connection to archie closed.").outcome_token(),
             outcome::MALFORMED_RESPONSE
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The private transport diagnostic channel (`ssh -E`)
+
+    /// One exit-255 reply whose ssh log and remote stderr are separate.
+    fn separated_255(own: &str, peer_stderr: &str) -> RawReply {
+        RawReply {
+            status: 255,
+            stderr: peer_stderr.to_string(),
+            transport_diagnostics: Some(own.to_string()),
+            ..RawReply::default()
+        }
+    }
+
+    #[test]
+    fn genuine_ssh_diagnostics_classify_through_the_private_channel() {
+        // The same frozen sentences, now arriving where ssh -E puts them —
+        // and with peer output on the OTHER stream loud enough to have
+        // decided the class under the old merged reading.
+        let peer_noise = "dmux-agent: Host key verification failed.\n\
+                          dmux-agent: ssh: connect to host x port 22: Connection refused\n";
+        for (text, token) in GENUINE_SSH_DIAGNOSTICS {
+            let failure = classify_255(&separated_255(text, peer_noise));
+            assert_eq!(failure.outcome_token(), *token, "{text:?} -> {failure:?}");
+            assert_eq!(
+                failure.retries_next_route(),
+                *token == outcome::TRANSPORT_UNREACHABLE,
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_peer_cannot_pick_the_failure_class_through_the_private_channel() {
+        // The exact OpenSSH sentences, reproduced verbatim by the peer.
+        // Anchoring alone accepts these — they ARE the ssh sentences — so
+        // this is precisely the residue anchoring could not close.
+        let forged = "Host key for archie has changed and you have requested strict checking.\n\
+                      Host key verification failed.\n\
+                      fredrir@archie: Permission denied (publickey).\n\
+                      ssh: connect to host archie port 22: Connection refused\n";
+
+        // Merged stream (no separation): the peer wins. This is the bug.
+        let merged = RawReply {
+            status: 255,
+            stderr: forged.to_string(),
+            ..RawReply::default()
+        };
+        assert_eq!(
+            classify_255(&merged).outcome_token(),
+            outcome::HOST_KEY_FAILED,
+            "the merged reading is what the private channel exists to replace"
+        );
+
+        // Separated, with ssh silent: 255 is then the REMOTE command's own
+        // status, no ssh diagnostic exists, and no class may be granted.
+        let failure = classify_255(&separated_255("", forged));
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+        assert!(
+            !failure.retries_next_route(),
+            "an unclassified 255 stays terminal (§8.3)"
+        );
+        // The peer's output is not evidence, but it is still reported.
+        assert!(
+            failure
+                .typed_error()
+                .message
+                .contains("Host key for archie"),
+            "the remote stderr is still surfaced: {}",
+            failure.typed_error().message
+        );
+
+        // And the peer cannot suppress failover either: with a genuine
+        // transport diagnostic in ssh's log, forged host-key prose on the
+        // other stream does not make the attempt terminal.
+        let failure = classify_255(&separated_255(
+            "ssh: connect to host archie port 22: Connection timed out",
+            forged,
+        ));
+        assert_eq!(failure.outcome_token(), outcome::TRANSPORT_UNREACHABLE);
+        assert!(failure.retries_next_route());
+    }
+
+    #[test]
+    fn a_forging_child_over_the_real_transport_seam_gets_no_class() {
+        // End to end through spawn/capture/classify, with a real private
+        // log the child cannot write to (it is never told the path).
+        let diagnostics = TransportDiagnostics::create().expect("private diagnostic log");
+        let failure = call_argv_with_diagnostics(
+            &sh(
+                "echo 'Host key for archie has changed and you have requested strict checking.' \
+                 >&2; echo 'Host key verification failed.' >&2; exit 255",
+            ),
+            b"",
+            uuid::Uuid::nil(),
+            Duration::from_secs(10),
+            TransportIsolation::OwnProcessGroup,
+            Some(&diagnostics),
+        )
+        .expect_err("a 255 with no envelope is a failure");
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+        assert!(!failure.retries_next_route());
+
+        // Positive control: the same child, but with ssh's own log holding
+        // a real diagnostic, classifies from the log.
+        std::fs::write(
+            diagnostics.path(),
+            "ssh: connect to host archie port 22: Connection refused\n",
+        )
+        .expect("seed the transport log");
+        let failure = call_argv_with_diagnostics(
+            &sh("echo 'Host key verification failed.' >&2; exit 255"),
+            b"",
+            uuid::Uuid::nil(),
+            Duration::from_secs(10),
+            TransportIsolation::OwnProcessGroup,
+            Some(&diagnostics),
+        )
+        .expect_err("a 255 with no envelope is a failure");
+        assert_eq!(failure.outcome_token(), outcome::TRANSPORT_UNREACHABLE);
+    }
+
+    #[test]
+    fn the_batch_ssh_attempt_opens_a_private_log_and_pins_it_last() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let route = archie_route();
+        let invocation = AgentInvocation::new("hello");
+        // A caller-supplied `-E` must not be able to win: OpenSSH keeps the
+        // LAST one, so dmux's comes after `extra_options`.
+        let invoker = SshInvoker {
+            extra_options: vec!["-E".into(), "/tmp/attacker-chosen".into()],
+            ..SshInvoker::default()
+        };
+        let attempt = invoker
+            .attempt_for(&route, &invocation)
+            .expect("a private log in the temp dir");
+        let log = attempt
+            .diagnostics
+            .as_ref()
+            .expect("the batch transport separates its own diagnostics");
+        let path = log.path().to_path_buf();
+
+        let at = attempt
+            .argv
+            .iter()
+            .rposition(|arg| arg == "-E")
+            .expect("dmux's own -E");
+        assert_eq!(attempt.argv[at + 1], path.to_string_lossy());
+        assert_eq!(
+            attempt.argv[at + 2],
+            "fredrir@archie",
+            "-E is an option to the LOCAL ssh, immediately before the \
+             destination — never part of the remote command"
+        );
+        assert!(
+            attempt.argv[at + 3..].starts_with(&["dmux".to_string(), "_agent".to_string()]),
+            "the remote command is untouched: {:?}",
+            attempt.argv
+        );
+
+        // Private and empty before ssh runs, and gone afterwards.
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "the log is not readable by others");
+        assert_eq!(log.read(), "");
+        std::fs::write(
+            &path,
+            "ssh: connect to host archie port 22: No route to host\n",
+        )
+        .unwrap();
+        assert!(log.read().contains("No route to host"));
+        drop(attempt);
+        assert!(!path.exists(), "the per-attempt log is removed");
+    }
+
+    #[test]
+    fn an_interactive_ssh_keeps_its_diagnostics_on_the_terminal_path() {
+        // Enrollment's hello (`batch_mode: false`) is first contact with a
+        // person watching: OpenSSH's own host-key confirmation and its
+        // "Permanently added" notice must reach the terminal, and that path
+        // records no route outcome, so it keeps the merged stream.
+        let route = archie_route();
+        let invocation = AgentInvocation::new("hello");
+        let invoker = SshInvoker {
+            batch_mode: false,
+            ..SshInvoker::default()
+        };
+        let attempt = invoker.attempt_for(&route, &invocation).unwrap();
+        assert!(attempt.diagnostics.is_none());
+        assert_eq!(attempt.argv, invoker.argv_for(&route, &invocation));
+        assert!(!attempt.argv.iter().any(|arg| arg == "-E"));
+    }
+
+    #[test]
+    fn a_transport_that_is_the_agent_needs_no_private_channel() {
+        // DirectInvoker spawns the agent itself: there is no intermediary
+        // whose diagnostics could be confused with the agent's, so the
+        // default attempt is the plain argv.
+        let route = archie_route();
+        let invocation = AgentInvocation::new("hello");
+        let attempt = DirectInvoker.attempt_for(&route, &invocation).unwrap();
+        assert!(attempt.diagnostics.is_none());
+        assert_eq!(attempt.argv, DirectInvoker.argv_for(&route, &invocation));
+
+        // With no channel the merged reading is what remains, unchanged.
+        let merged = RawReply {
+            status: 255,
+            stderr: "ssh: connect to host archie port 22: Connection refused".into(),
+            ..RawReply::default()
+        };
+        assert_eq!(
+            classify_255(&merged).outcome_token(),
+            outcome::TRANSPORT_UNREACHABLE
         );
     }
 
