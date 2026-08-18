@@ -13,6 +13,9 @@ use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+#[cfg(target_vendor = "apple")]
+mod bulk;
+
 use clap::{Parser, ValueHint};
 use rayon::prelude::*;
 use workstation::Completions;
@@ -141,13 +144,21 @@ fn main() -> ExitCode {
     done(total.unreadable)
 }
 
-/// The walk, on a pool sized for contention rather than for cores.
+/// The walk: in bulk where the platform allows it, otherwise a pool sized for
+/// contention rather than for cores.
 fn walk(options: &Options, target: &Path) -> (Measure, Vec<Row>) {
+    let walk = || {
+        #[cfg(target_vendor = "apple")]
+        if let Some(walked) = bulk::walk(options, target) {
+            return walked;
+        }
+        walk_directory(options, target, Path::new(""), 0)
+    };
     let threads = std::thread::available_parallelism()
         .map_or(WALK_THREADS, |cores| cores.get().min(WALK_THREADS));
     match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
-        Ok(pool) => pool.install(|| walk_directory(options, target, Path::new(""), 0)),
-        Err(_) => walk_directory(options, target, Path::new(""), 0),
+        Ok(pool) => pool.install(walk),
+        Err(_) => walk(),
     }
 }
 
@@ -249,7 +260,10 @@ thread_local! {
 }
 
 fn count_lines(path: &Path) -> Option<u64> {
-    let mut file = fs::File::open(path).ok()?;
+    count_lines_in(&mut fs::File::open(path).ok()?)
+}
+
+fn count_lines_in(file: &mut fs::File) -> Option<u64> {
     BUFFER.with(|buffer| {
         let mut buffer = buffer.borrow_mut();
         let mut lines = 0u64;

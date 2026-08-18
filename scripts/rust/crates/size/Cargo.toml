@@ -11,5 +11,8 @@ memchr = "2"
 rayon.workspace = true
 workstation.workspace = true
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
