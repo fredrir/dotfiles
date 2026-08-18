@@ -1,3 +1,5 @@
+alias -g NV='| nvim -R -' # open stdin in nvim read-only
+
 alias cp="cp -i"
 alias mv="mv -i"
 alias rm="rm -i"
@@ -45,9 +47,8 @@ alias cdb="cd ../backend"
 
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
 
-# --force-if-includes is the load-bearing half. --force-with-lease alone only
-# proves nobody else pushed since the last fetch, so amending while merely
-# behind still discards upstream commits and the lease check passes.
+alias u="uname -mrs"
+
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
 alias gdd='git-discard'
 
