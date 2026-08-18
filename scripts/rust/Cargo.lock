@@ -1917,6 +1917,8 @@ name = "size"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "libc",
+ "memchr",
  "rayon",
  "tempfile",
  "workstation",
