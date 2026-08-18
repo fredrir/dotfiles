@@ -73,11 +73,13 @@ test_git_root_walks_to_dot_git() {
   ' || fail "_git_root walk misbehaved"
 }
 
-# The ssa/ssm wrappers translate a lone bare word into `con -A <word>` —
-# unless it is a dmux subcommand (or alias), which must pass through. The
-# case list is maintained by hand, so every verb the CLI grows has to show
-# up here: `ssa detach` must detach, not create a session named "detach".
-test_ssa_wrapper_passes_every_subcommand_through() {
+# The ssa/ssm wrappers are narrow create-or-connect shortcuts (plan §17): a
+# lone bare word is a Space name, everything else forwards verbatim. There is
+# no subcommand allowlist, so `ssa ls` creates a Space named "ls" rather than
+# listing -- listing is `dmux --host archie ls`. This test exists to keep that
+# boundary explicit, since the old wrapper silently reinterpreted any name
+# that collided with a verb.
+test_ssa_wrapper_forwards_verbatim_except_a_lone_name() {
   command -v zsh >/dev/null 2>&1 || fail "zsh is required"
 
   mkdir -p "$SANDBOX/bin"
@@ -91,30 +93,22 @@ test_ssa_wrapper_passes_every_subcommand_through() {
       path=($STUBBIN $path)
       source $WRAPPERS
       {
-        ssa ls; ssa list; ssa con dev; ssa attach; ssa a; ssa new
-        ssa detach; ssa rm; ssa kill; ssa delete; ssa rename
-        ssa keys; ssa doctor; ssa help
-        ssa dev; ssa -; ssm dev
+        ssa dev; ssm dev
+        ssa ls; ssa detach
+        ssa con dev; ssa rm dev; ssa new dev
+        ssa; ssa -
       } > $TRACE
     ' || fail "wrapper run failed"
 
-  assert_file_is "$trace" 'dmux --host archie ls
-dmux --host archie list
+  assert_file_is "$trace" 'dmux --host archie new dev
+dmux --host macie new dev
+dmux --host archie new ls
+dmux --host archie new detach
 dmux --host archie con dev
-dmux --host archie attach
-dmux --host archie a
-dmux --host archie new
-dmux --host archie detach
-dmux --host archie rm
-dmux --host archie kill
-dmux --host archie delete
-dmux --host archie rename
-dmux --host archie keys
-dmux --host archie doctor
-dmux --host archie help
-dmux --host archie con -A dev
-dmux --host archie -
-dmux --host macie con -A dev'
+dmux --host archie rm dev
+dmux --host archie new dev
+dmux --host archie
+dmux --host archie -'
 }
 
 test_git_from_root_p_escape_hatch() {

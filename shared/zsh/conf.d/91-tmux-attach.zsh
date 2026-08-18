@@ -2,12 +2,16 @@
 #
 #   ssa   archie      ssm   macie
 #
-# The logic — transport probing, session handling, the lot — lives in the
-# dmux crate (scripts/rust/crates/dmux). These wrappers keep the old names
-# and most of the old muscle memory: a bare name is create-or-attach
-# (`ssa dev` → `dmux con -A dev`), the list/delete spellings and the `-`
-# toggle still work, and the remaining old flags (`--tmux`, `-l`)
-# intentionally error rather than silently change meaning.
+# Narrow create-or-connect shortcuts, not alternate CLIs (plan §17). A lone
+# bare word is a Space name, so `ssa dev` is `dmux --host archie new dev` and
+# `new` is already idempotent create-or-connect. Everything else forwards
+# verbatim, which is how every other operation is spelled: `ssa ls` would
+# create a Space called "ls", so list it with `dmux --host archie ls`.
+#
+# There is deliberately no subcommand allowlist here. The old one had to name
+# every verb the CLI grows, and it silently reinterpreted a Space whose name
+# collided with a verb. The CLI owns that ambiguity instead: `--name` is the
+# exact-name escape for a legacy name that looks like a ref or a subcommand.
 _dmux_wrap() {
   local _wrap_name=$1 _wrap_host=$2
   shift 2
@@ -15,17 +19,9 @@ _dmux_wrap() {
     print -u2 -r -- "$_wrap_name: dmux not installed (run ./setup.sh)"
     return 127
   fi
-  # Old ssa took a bare session name; dmux spells that `con -A`. Translate
-  # a lone non-flag word that is not a subcommand — keep the case list in
-  # sync with the dmux CLI (subcommands and their aliases).
   if (( $# == 1 )) && [[ "$1" != -* ]]; then
-    case "$1" in
-      ls|list|con|attach|a|new|detach|rm|kill|delete|rename|keys|doctor|help) ;;
-      *)
-        dmux --host "$_wrap_host" con -A "$1"
-        return $?
-        ;;
-    esac
+    dmux --host "$_wrap_host" new "$1"
+    return $?
   fi
   dmux --host "$_wrap_host" "$@"
 }
