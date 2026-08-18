@@ -13,8 +13,8 @@ use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
 use dmux::remote::protocol::{self, HelloInfo};
 use dmux::remote::wez_compat::{
     CAP_ACTIVATE_EXISTING, CAP_ATTACH_NO_CREATE, CAP_TMUX, CAP_WEZ, RemoteWezRefusal,
-    WEZ_BUILD_PREFIX, WEZ_PATH_PREFIX, assess_automatic_remote_wez, probe_wezterm_capabilities,
-    reported_remote_wezterm_path,
+    WEZ_BUILD_PREFIX, WEZ_PATH_PREFIX, WEZ_SOCKET_PREFIX, assess_automatic_remote_wez,
+    probe_wezterm_capabilities, reported_managed_wez_socket, reported_remote_wezterm_path,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -55,11 +55,16 @@ esac
     path
 }
 
+/// Archie's real published endpoint. Nothing here dials it: hello reports
+/// the registry row, and the argv probes never open a socket.
+const MANAGED_SOCKET: &str = "/run/user/1000/dmux/wez-dmux.sock";
+
 fn report(build: &str) -> Vec<String> {
     vec![
         CAP_WEZ.into(),
         format!("{WEZ_BUILD_PREFIX}{build}"),
         format!("{WEZ_PATH_PREFIX}/opt/dmux-test/wezterm"),
+        format!("{WEZ_SOCKET_PREFIX}{MANAGED_SOCKET}"),
         CAP_ATTACH_NO_CREATE.into(),
         CAP_ACTIVATE_EXISTING.into(),
     ]
@@ -192,7 +197,7 @@ fn owner_hello_reports_exact_build_and_presentation_tokens_once() {
     let scratch = Scratch::new("wez-build-hello");
     scratch
         .registry()
-        .register_backend_instance(Backend::Wez, Some("/not-contacted.sock"), None)
+        .register_backend_instance(Backend::Wez, Some(MANAGED_SOCKET), None)
         .unwrap();
     let bin = positive_probe(scratch.data.path(), "20260816-143635-72f3fd75");
     let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
@@ -207,6 +212,7 @@ fn owner_hello_reports_exact_build_and_presentation_tokens_once() {
             "{WEZ_PATH_PREFIX}{}",
             fs::canonicalize(&bin).unwrap().display()
         ),
+        format!("{WEZ_SOCKET_PREFIX}{MANAGED_SOCKET}"),
         CAP_ATTACH_NO_CREATE.into(),
         CAP_ACTIVATE_EXISTING.into(),
     ];
@@ -385,6 +391,90 @@ fn remote_wezterm_path_is_exactly_one_strict_absolute_fact() {
     assert_eq!(
         refusal.typed_error().unwrap().code,
         ErrorCode::ProviderUnavailable
+    );
+}
+
+#[test]
+fn managed_wez_socket_is_exactly_one_fixed_endpoint_fact() {
+    let caps = report("build-a");
+    assert_eq!(
+        reported_managed_wez_socket(&caps).unwrap().as_deref(),
+        Some(MANAGED_SOCKET)
+    );
+    // Macie publishes beneath `_CS_DARWIN_USER_TEMP_DIR`.
+    assert!(
+        reported_managed_wez_socket(&[format!(
+            "{WEZ_SOCKET_PREFIX}/var/folders/xg/l7zk7hdd3f50h289ypshmp9m0000gn/T/dmux/wez-dmux.sock"
+        )])
+        .is_ok()
+    );
+
+    for bad in [
+        format!("{WEZ_SOCKET_PREFIX}run/user/1000/dmux/wez-dmux.sock"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/1000/dmux/../dmux/wez-dmux.sock"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/1000//dmux/wez-dmux.sock"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/1000/dmux/wez-dmux.sock\nforged"),
+        format!("{WEZ_SOCKET_PREFIX}/dmux/wez-dmux.sock"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/1000/dmux/wezterm.sock"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/spaced dir/dmux/wez-dmux.sock"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/$(id -u)/dmux/wez-dmux.sock"),
+        format!(
+            "{WEZ_SOCKET_PREFIX}/run/user/{}/dmux/wez-dmux.sock",
+            "x".repeat(90)
+        ),
+    ] {
+        assert!(
+            reported_managed_wez_socket(std::slice::from_ref(&bad)).is_err(),
+            "accepted {bad:?}"
+        );
+    }
+    let duplicate = vec![
+        format!("{WEZ_SOCKET_PREFIX}{MANAGED_SOCKET}"),
+        format!("{WEZ_SOCKET_PREFIX}/run/user/1001/dmux/wez-dmux.sock"),
+    ];
+    assert!(reported_managed_wez_socket(&duplicate).is_err());
+
+    let mut missing = report("build-a");
+    missing.retain(|cap| !cap.starts_with(WEZ_SOCKET_PREFIX));
+    let refusal = assess_automatic_remote_wez(&report("build-a"), &missing);
+    assert_eq!(refusal.refusal, Some(RemoteWezRefusal::OwnerSocketMissing));
+    assert_eq!(
+        refusal.typed_error().unwrap().code,
+        ErrorCode::ProviderUnavailable
+    );
+
+    let mut malformed = report("build-a");
+    malformed.retain(|cap| !cap.starts_with(WEZ_SOCKET_PREFIX));
+    malformed.push(format!("{WEZ_SOCKET_PREFIX}/tmp/wez-dmux.sock"));
+    assert!(matches!(
+        assess_automatic_remote_wez(&report("build-a"), &malformed).refusal,
+        Some(RemoteWezRefusal::OwnerSocketMalformed(_))
+    ));
+}
+
+#[test]
+fn an_off_shape_owner_endpoint_reports_no_socket_token() {
+    let scratch = Scratch::new("wez-socket-off-shape");
+    scratch
+        .registry()
+        .register_backend_instance(Backend::Wez, Some("/not-contacted.sock"), None)
+        .unwrap();
+    let bin = positive_probe(scratch.data.path(), "20260816-143635-72f3fd75");
+    let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
+    let (code, response) =
+        scratch.agent_env(&request, &[("DMUX_WEZ_BIN", bin.display().to_string())]);
+    assert_eq!(code, 0, "{response:?}");
+    assert!(response.capabilities.iter().any(|cap| cap == CAP_WEZ));
+    assert!(
+        !response
+            .capabilities
+            .iter()
+            .any(|cap| cap.starts_with(WEZ_SOCKET_PREFIX))
+    );
+    let controller = report("20260816-143635-72f3fd75");
+    assert_eq!(
+        assess_automatic_remote_wez(&controller, &response.capabilities).refusal,
+        Some(RemoteWezRefusal::OwnerSocketMissing)
     );
 }
 

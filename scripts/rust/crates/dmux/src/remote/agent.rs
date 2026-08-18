@@ -530,7 +530,7 @@ fn capabilities(registry: &Registry, positive_wez_hello: bool) -> Vec<String> {
         caps.push(crate::remote::wez_compat::CAP_TMUX.to_string());
         caps.push(protocol::CAP_TMUX_CLIENT_CORRELATION.to_string());
     }
-    if let Ok(Some(_)) = find_instance(registry, Backend::Wez) {
+    if let Ok(Some((_, socket))) = find_instance(registry, Backend::Wez) {
         if !positive_wez_hello {
             caps.push(crate::remote::wez_compat::CAP_WEZ.to_string());
         } else {
@@ -543,6 +543,19 @@ fn capabilities(registry: &Registry, positive_wez_hello: bool) -> Vec<String> {
                 crate::remote::wez_compat::DEFAULT_PROBE_DEADLINE,
             ) {
                 caps.extend(report.capabilities);
+            }
+            // Only this host knows its runtime dir, so it reports the exact
+            // endpoint a controller must pin into the ssh domain's proxy
+            // command.  An off-shape endpoint stays unreported: a remote
+            // proxy that cannot name the managed socket must refuse, not
+            // fall back to discovery.
+            if let Some(socket) =
+                socket.filter(|socket| crate::remote::wez_compat::valid_managed_socket(socket))
+            {
+                caps.push(format!(
+                    "{}{socket}",
+                    crate::remote::wez_compat::WEZ_SOCKET_PREFIX
+                ));
             }
         }
     }

@@ -29,6 +29,7 @@ local DOMAIN_ROW_KEYS = {
   host_uid = true,
   name = true,
   network_class = true,
+  override_proxy_command = true,
   priority = true,
   remote_address = true,
   remote_wezterm_path = true,
@@ -37,6 +38,13 @@ local DOMAIN_ROW_KEYS = {
   unavailable_reason = true,
   username = true,
 }
+
+-- Left to itself WezTerm runs a bare `wezterm cli --prefer-mux proxy` on the
+-- first connect, which picks its own socket and auto-starts a second,
+-- unmanaged mux server on the owner. The authority pins the exact managed
+-- endpoint instead; these halves are what a row's command must be made of.
+local PROXY_PREFIX = 'env -u WEZTERM_PANE -u TMUX -u TMUX_PANE WEZTERM_UNIX_SOCKET='
+local PROXY_SUFFIX = ' cli --prefer-mux --no-auto-start proxy'
 
 local function exact_keys(value, allowed)
   if type(value) ~= 'table' then
@@ -80,6 +88,21 @@ local function dense_array(value, validator)
   return true
 end
 
+local function valid_proxy_command(command, wezterm_path)
+  local tail = ' ' .. wezterm_path .. PROXY_SUFFIX
+  if
+    not bounded_string(command, 1024)
+    or command:sub(1, #PROXY_PREFIX) ~= PROXY_PREFIX
+    or command:sub(-#tail) ~= tail
+  then
+    return false
+  end
+  local socket = command:sub(#PROXY_PREFIX + 1, #command - #tail)
+  -- Same fixed endpoint the runtime descriptor names, and nothing the
+  -- owner's login shell would have to unquote.
+  return #socket <= 103 and socket:match '^/[%w/._-]*/dmux/wez%-dmux%.sock$' ~= nil
+end
+
 local function valid_manifest_row(row)
   if not exact_keys(row, DOMAIN_ROW_KEYS) then
     return false
@@ -113,9 +136,11 @@ local function valid_manifest_row(row)
     return false
   end
   if row.compatible then
-    return row.remote_wezterm_path ~= nil and row.unavailable_reason == nil
+    return row.remote_wezterm_path ~= nil
+      and row.unavailable_reason == nil
+      and valid_proxy_command(row.override_proxy_command, row.remote_wezterm_path)
   end
-  return bounded_string(row.unavailable_reason, 4096)
+  return row.override_proxy_command == nil and bounded_string(row.unavailable_reason, 4096)
 end
 
 local function validate_manifest(rows)
@@ -240,6 +265,7 @@ function M.domains()
           username = row.username,
           multiplexing = 'WezTerm',
           remote_wezterm_path = row.remote_wezterm_path,
+          override_proxy_command = row.override_proxy_command,
           assume_shell = 'Posix',
         })
         instances[row.name] = row.backend_instance_uid

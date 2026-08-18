@@ -26,6 +26,7 @@ use crate::model::{Backend, BackendInstanceUid, ChildKind, HostUid, ProviderHand
 use crate::refs::parse_ref;
 use crate::registry::sha256::sha256;
 use crate::registry::{NetworkClass, Transport};
+use crate::remote::wez_compat::{unquoted_shell_word, valid_managed_socket};
 
 pub const BRIDGE_PROTOCOL_VERSION: u64 = 1;
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
@@ -266,6 +267,7 @@ pub struct RemoteDomainSource {
     pub remote_address: String,
     pub username: String,
     pub remote_wezterm_path: Option<String>,
+    pub managed_socket: Option<String>,
     pub host_uid: HostUid,
     pub backend_instance_uid: BackendInstanceUid,
     pub route_id: i64,
@@ -287,6 +289,8 @@ pub struct GuiDomainManifestRow {
     pub username: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_wezterm_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_proxy_command: Option<String>,
     pub host_uid: HostUid,
     pub backend_instance_uid: BackendInstanceUid,
     pub route_id: i64,
@@ -1125,6 +1129,11 @@ pub fn build_domain_manifest(
             remote_address: source.remote_address.clone(),
             username: source.username.clone(),
             remote_wezterm_path: source.remote_wezterm_path.clone(),
+            override_proxy_command: source
+                .managed_socket
+                .as_deref()
+                .zip(source.remote_wezterm_path.as_deref())
+                .map(|(socket, path)| managed_proxy_command(path, socket)),
             host_uid: source.host_uid,
             backend_instance_uid: source.backend_instance_uid,
             route_id: source.route_id,
@@ -1186,10 +1195,14 @@ pub fn validate_domain_manifest(rows: &[GuiDomainManifestRow]) -> Result<(), Gui
         match (
             row.compatible,
             row.remote_wezterm_path.as_deref(),
+            row.override_proxy_command.as_deref(),
             row.unavailable_reason.as_deref(),
         ) {
-            (true, Some(path), None) => validate_absolute_path(path, "domain.remote_wezterm_path")?,
-            (false, path, Some(reason)) => {
+            (true, Some(path), Some(command), None) => {
+                validate_absolute_path(path, "domain.remote_wezterm_path")?;
+                validate_proxy_command(command, path)?
+            }
+            (false, path, None, Some(reason)) => {
                 if let Some(path) = path {
                     validate_absolute_path(path, "domain.remote_wezterm_path")?;
                 }
@@ -1197,7 +1210,7 @@ pub fn validate_domain_manifest(rows: &[GuiDomainManifestRow]) -> Result<(), Gui
             }
             _ => {
                 return invalid(
-                    "compatible domains require an absolute remote_wezterm_path and omit unavailable_reason; incompatible domains require unavailable_reason and may omit the path",
+                    "compatible domains require an absolute remote_wezterm_path plus its pinned proxy command and omit unavailable_reason; incompatible domains require unavailable_reason, carry no proxy command, and may omit the path",
                 );
             }
         }
@@ -3226,6 +3239,48 @@ fn validate_status_display(
     Ok(())
 }
 
+const MANAGED_PROXY_PREFIX: &str = "env -u WEZTERM_PANE -u TMUX -u TMUX_PANE WEZTERM_UNIX_SOCKET=";
+const MANAGED_PROXY_SUFFIX: &str = " cli --prefer-mux --no-auto-start proxy";
+
+/// WezTerm's own first connect runs a bare `wezterm cli --prefer-mux
+/// proxy` on the owner: no endpoint, no `--no-auto-start`, so it discovers
+/// a socket of its own and auto-starts a second, unmanaged server the
+/// controller then attaches to.  Every managed domain therefore carries a
+/// complete proxy command naming the owner's exact socket, built here in
+/// one place from ADR 001's frozen strict-endpoint template rather than
+/// string-formatted by the Lua config (plan §2 decision 16, §15.1).
+fn managed_proxy_command(wezterm_path: &str, socket: &str) -> String {
+    format!("{MANAGED_PROXY_PREFIX}{socket} {wezterm_path}{MANAGED_PROXY_SUFFIX}")
+}
+
+/// Accept only a command this host would itself have built for the row's
+/// own reported executable and a well-formed managed socket.
+fn validate_proxy_command(command: &str, wezterm_path: &str) -> Result<(), GuiError> {
+    validate_control_free_string(command, "domain.override_proxy_command", 1024)?;
+    let Some(socket) = command
+        .strip_prefix(MANAGED_PROXY_PREFIX)
+        .and_then(|rest| rest.strip_suffix(MANAGED_PROXY_SUFFIX))
+        .and_then(|rest| rest.strip_suffix(wezterm_path))
+        .and_then(|rest| rest.strip_suffix(' '))
+    else {
+        return invalid(
+            "domain.override_proxy_command is not the strict-endpoint proxy invocation for this domain's executable",
+        );
+    };
+    validate_managed_socket(wezterm_path, socket)
+}
+
+/// Both facts are spliced into a command the remote login shell re-parses,
+/// so both must be published owner shapes that need no quoting.
+fn validate_managed_socket(wezterm_path: &str, socket: &str) -> Result<(), GuiError> {
+    if !valid_managed_socket(socket) || !unquoted_shell_word(wezterm_path) {
+        return invalid(
+            "domain.managed_socket must be the owner's fixed dmux/wez-dmux.sock, and neither it nor the reported executable may need shell quoting",
+        );
+    }
+    Ok(())
+}
+
 fn validate_domain_source(source: &RemoteDomainSource) -> Result<(), GuiError> {
     validate_domain(&source.name, "domain.name")?;
     validate_control_free_string(&source.remote_address, "domain.remote_address", 1024)?;
@@ -3242,17 +3297,21 @@ fn validate_domain_source(source: &RemoteDomainSource) -> Result<(), GuiError> {
     match (
         source.compatible,
         source.remote_wezterm_path.as_deref(),
+        source.managed_socket.as_deref(),
         source.unavailable_reason.as_deref(),
     ) {
-        (true, Some(path), None) => validate_absolute_path(path, "domain.remote_wezterm_path"),
-        (false, path, Some(reason)) => {
+        (true, Some(path), Some(socket), None) => {
+            validate_absolute_path(path, "domain.remote_wezterm_path")?;
+            validate_managed_socket(path, socket)
+        }
+        (false, path, None, Some(reason)) => {
             if let Some(path) = path {
                 validate_absolute_path(path, "domain.remote_wezterm_path")?;
             }
             validate_control_free_string(reason, "unavailable_reason", 4096)
         }
         _ => invalid(
-            "compatible domains require an absolute remote_wezterm_path and omit unavailable_reason; incompatible domains require unavailable_reason and may omit the path",
+            "compatible domains require an absolute remote_wezterm_path plus the owner's managed socket and omit unavailable_reason; incompatible domains require unavailable_reason, carry no socket, and may omit the path",
         ),
     }
 }
@@ -3899,6 +3958,10 @@ mod tests {
         assert_eq!(fs::read(&outside).unwrap(), b"unchanged");
     }
 
+    /// Archie's real published endpoint; Macie's long
+    /// `_CS_DARWIN_USER_TEMP_DIR` form is exercised below.
+    const ARCHIE_SOCKET: &str = "/run/user/1000/dmux/wez-dmux.sock";
+
     fn domain_source(
         name: &str,
         route_id: i64,
@@ -3910,6 +3973,7 @@ mod tests {
             remote_address: format!("10.77.77.{route_id}"),
             username: "fredrir".into(),
             remote_wezterm_path: compatible.then(|| "/usr/bin/wezterm".into()),
+            managed_socket: compatible.then(|| ARCHIE_SOCKET.into()),
             host_uid: HostUid(Uuid::from_u128(11)),
             backend_instance_uid: BackendInstanceUid(Uuid::from_u128(12)),
             route_id,
@@ -3956,6 +4020,73 @@ mod tests {
         let mut imprecise = domain_source("dmux-large", 4, Transport::Openssh, true);
         imprecise.priority = MAX_JSON_SIGNED_INTEGER + 1;
         assert!(build_domain_manifest(vec![imprecise]).is_err());
+    }
+
+    #[test]
+    fn managed_domain_rows_pin_the_owner_socket_into_their_proxy_command() {
+        let rows = build_domain_manifest(vec![
+            domain_source("dmux-b-usb", 1, Transport::Openssh, true),
+            domain_source("dmux-b-ts", 2, Transport::WezSsh, false),
+        ])
+        .unwrap();
+        assert_eq!(
+            rows[0].override_proxy_command.as_deref(),
+            Some(
+                "env -u WEZTERM_PANE -u TMUX -u TMUX_PANE \
+                 WEZTERM_UNIX_SOCKET=/run/user/1000/dmux/wez-dmux.sock \
+                 /usr/bin/wezterm cli --prefer-mux --no-auto-start proxy"
+            )
+        );
+        let serialized = serde_json::to_value(&rows).unwrap();
+        assert!(serialized[1].get("override_proxy_command").is_none());
+
+        // Macie publishes beneath `_CS_DARWIN_USER_TEMP_DIR`, so the
+        // accepted shape must survive a long /var/folders prefix.
+        let mut macie = domain_source("dmux-b-usb", 1, Transport::Openssh, true);
+        macie.managed_socket =
+            Some("/var/folders/xg/l7zk7hdd3f50h289ypshmp9m0000gn/T/dmux/wez-dmux.sock".into());
+        assert!(build_domain_manifest(vec![macie]).is_ok());
+
+        for rejected in [
+            "/dmux/wez-dmux.sock".to_string(),
+            "/run/user/1000/wez-dmux.sock".to_string(),
+            "/run/user/1000/dmux/wez-dmux.sock.old".to_string(),
+            "/run/user/my runtime/dmux/wez-dmux.sock".to_string(),
+            "run/user/1000/dmux/wez-dmux.sock".to_string(),
+            format!("/run/user/{}/dmux/wez-dmux.sock", "x".repeat(90)),
+        ] {
+            let mut source = domain_source("dmux-b-usb", 1, Transport::Openssh, true);
+            source.managed_socket = Some(rejected.clone());
+            assert!(
+                build_domain_manifest(vec![source]).is_err(),
+                "accepted {rejected:?}"
+            );
+        }
+
+        let mut socketless = domain_source("dmux-b-usb", 1, Transport::Openssh, true);
+        socketless.managed_socket = None;
+        assert!(build_domain_manifest(vec![socketless]).is_err());
+
+        let mut unpinned = rows.clone();
+        unpinned[0].override_proxy_command = None;
+        assert!(validate_domain_manifest(&unpinned).is_err());
+
+        let mut refused = rows.clone();
+        refused[1].override_proxy_command = rows[0].override_proxy_command.clone();
+        assert!(validate_domain_manifest(&refused).is_err());
+
+        let mut auto_starting = rows.clone();
+        auto_starting[0].override_proxy_command = Some(
+            "env -u WEZTERM_PANE -u TMUX -u TMUX_PANE \
+             WEZTERM_UNIX_SOCKET=/run/user/1000/dmux/wez-dmux.sock \
+             /usr/bin/wezterm cli --prefer-mux proxy"
+                .into(),
+        );
+        assert!(validate_domain_manifest(&auto_starting).is_err());
+
+        let mut foreign = rows.clone();
+        foreign[0].remote_wezterm_path = Some("/opt/homebrew/bin/wezterm".into());
+        assert!(validate_domain_manifest(&foreign).is_err());
     }
 
     #[test]

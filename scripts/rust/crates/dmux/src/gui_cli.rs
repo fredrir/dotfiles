@@ -1889,6 +1889,15 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     )),
                 ),
             };
+            // A refused owner advertises no attachable endpoint, so its
+            // rows carry no proxy command to build one from.
+            let managed_socket = if compatible {
+                crate::remote::wez_compat::reported_managed_wez_socket(&hello.capabilities)
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
             for route in registry
                 .routes_for(host.host_uid)
                 .map_err(typed_registry)?
@@ -1903,6 +1912,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     remote_address: route.endpoint,
                     username,
                     remote_wezterm_path: remote_path.clone(),
+                    managed_socket: managed_socket.clone(),
                     host_uid: host.host_uid,
                     backend_instance_uid: backend.backend_instance_uid,
                     route_id: route.route_id,
@@ -1947,6 +1957,10 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             crate::remote::wez_compat::reported_remote_wezterm_path(&hello.capabilities)
                 .map_err(|error| unavailable(format!("remote Wez executable fact: {error}")))?
                 .ok_or_else(|| unavailable("remote hello omitted its canonical Wez executable"))?;
+        let managed_socket =
+            crate::remote::wez_compat::reported_managed_wez_socket(&hello.capabilities)
+                .map_err(|error| unavailable(format!("remote managed Wez socket fact: {error}")))?
+                .ok_or_else(|| unavailable("remote hello omitted its managed Wez socket"))?;
 
         let wez_backends: Vec<_> = hello
             .backends
@@ -1972,6 +1986,15 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             return Err(TypedError::new(
                 ErrorCode::ProtocolMismatch,
                 "selected owner's managed Wez socket is not a strict absolute path",
+            ));
+        }
+        // Both facts come from the owner's one managed instance row, so a
+        // disagreement means the endpoint the domains would dial is not the
+        // instance whose epoch this preflight verified.
+        if socket != managed_socket {
+            return Err(TypedError::new(
+                ErrorCode::ProtocolMismatch,
+                "selected owner's backend socket differs from its reported proxy endpoint",
             ));
         }
 
@@ -2003,6 +2026,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     remote_address: route.endpoint,
                     username,
                     remote_wezterm_path: Some(remote_wezterm_path.clone()),
+                    managed_socket: Some(managed_socket.clone()),
                     host_uid: owner,
                     backend_instance_uid: backend.backend_instance_uid,
                     route_id: route.route_id,
@@ -7446,6 +7470,7 @@ mod tests {
             remote_address: "10.77.77.2".into(),
             username: "fredrir".into(),
             remote_wezterm_path: Some("/usr/bin/wezterm".into()),
+            managed_socket: None,
             host_uid: marker().host_uid,
             backend_instance_uid: BackendInstanceUid(Uuid::new_v4()),
             route_id: 7,
@@ -7476,6 +7501,7 @@ mod tests {
             remote_address: "archie.tail.example".into(),
             username: "fredrir".into(),
             remote_wezterm_path: None,
+            managed_socket: None,
             host_uid: marker().host_uid,
             backend_instance_uid: BackendInstanceUid(Uuid::new_v4()),
             route_id: 8,
@@ -7684,6 +7710,7 @@ mod tests {
                 remote_address: "10.77.77.2".into(),
                 username: "fredrir".into(),
                 remote_wezterm_path: Some("/usr/bin/wezterm".into()),
+                managed_socket: Some("/run/user/1000/dmux/wez-dmux.sock".into()),
                 host_uid,
                 backend_instance_uid,
                 route_id: 7,
@@ -7698,6 +7725,7 @@ mod tests {
                 remote_address: "archie.tail.example".into(),
                 username: "fredrir".into(),
                 remote_wezterm_path: Some("/usr/bin/wezterm".into()),
+                managed_socket: Some("/run/user/1000/dmux/wez-dmux.sock".into()),
                 host_uid,
                 backend_instance_uid,
                 route_id: 8,

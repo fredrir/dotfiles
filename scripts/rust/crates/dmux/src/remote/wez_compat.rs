@@ -7,6 +7,7 @@
 //!
 //! - `wez:build:<exact wezterm_version()>`
 //! - `wez:path:<canonical absolute owner executable>`
+//! - `wez:socket:<owner's managed mux socket>`
 //! - [`CAP_ATTACH_NO_CREATE`] (P0 `attach_no_create.json`)
 //! - [`CAP_ACTIVATE_EXISTING`] (P0 `activate_existing.json`)
 //!
@@ -41,6 +42,21 @@ pub const WEZ_BUILD_PREFIX: &str = "wez:build:";
 /// domains consume this as `remote_wezterm_path`; controllers must never
 /// infer an owner OS path.
 pub const WEZ_PATH_PREFIX: &str = "wez:path:";
+/// Prefix for the owner's managed mux socket.  The controller pins this
+/// into every managed ssh domain's `override_proxy_command`; left to
+/// itself, the first WezTerm connect runs a bare `wezterm cli --prefer-mux
+/// proxy`, which falls through to default socket discovery and auto-starts
+/// a second, unmanaged owner-side server (plan §2 decision 16, §15.1).
+pub const WEZ_SOCKET_PREFIX: &str = "wez:socket:";
+
+/// The service publishes exactly one socket name beneath the runtime dir;
+/// see [`crate::runtime::WEZ_SOCKET_FILE`] and the descriptor validator in
+/// `wez/domains/init.lua`, which enforces the same tail.
+const MANAGED_SOCKET_SUFFIX: &str = "/dmux/wez-dmux.sock";
+
+/// `sun_path` is 104 bytes including the NUL on macOS, so nothing longer
+/// was ever bound.
+const MAX_SOCKET_LEN: usize = 103;
 
 /// P0 `attach_no_create.json`: `start --always-new-process --domain D
 /// --attach`, guarded by the sentinel precondition, attaches without
@@ -394,6 +410,16 @@ impl fmt::Display for PathReportError {
     }
 }
 
+/// Reported owner paths are spliced verbatim into the managed domain's
+/// proxy command, which the remote login shell re-parses.  Neither
+/// published shape ever needs quoting, so one that would is refused rather
+/// than escaped.
+pub fn unquoted_shell_word(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-'))
+}
+
 fn valid_reported_path(path: &str) -> bool {
     if path.is_empty() || path.chars().any(char::is_control) {
         return false;
@@ -426,7 +452,7 @@ pub fn reported_remote_wezterm_path(
         let Some(path) = token.strip_prefix(WEZ_PATH_PREFIX) else {
             continue;
         };
-        if !valid_reported_path(path) {
+        if !valid_reported_path(path) || !unquoted_shell_word(path) {
             return Err(PathReportError::Malformed(token.clone()));
         }
         paths.push(path.to_string());
@@ -435,6 +461,63 @@ pub fn reported_remote_wezterm_path(
         0 => Ok(None),
         1 => Ok(paths.pop()),
         _ => Err(PathReportError::Ambiguous(paths)),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketReportError {
+    Malformed(String),
+    Ambiguous(Vec<String>),
+}
+
+impl fmt::Display for SocketReportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SocketReportError::Malformed(token) => {
+                write!(f, "malformed managed Wez socket capability {token:?}")
+            }
+            SocketReportError::Ambiguous(sockets) => write!(
+                f,
+                "multiple managed Wez sockets reported: {}",
+                sockets.join(", ")
+            ),
+        }
+    }
+}
+
+/// The one endpoint the owner's service published: a strict absolute,
+/// shell-bare path whose final components are the fixed
+/// `dmux/wez-dmux.sock` the runtime descriptor and the Lua descriptor
+/// validator also pin.
+pub fn valid_managed_socket(socket: &str) -> bool {
+    socket.len() <= MAX_SOCKET_LEN
+        && valid_reported_path(socket)
+        && unquoted_shell_word(socket)
+        && socket
+            .strip_suffix(MANAGED_SOCKET_SUFFIX)
+            .is_some_and(|runtime_base| !runtime_base.is_empty())
+}
+
+/// Extract the owner's managed socket for the ssh domain's proxy command.
+/// The owner reports its own endpoint because only it knows its runtime
+/// dir; the controller proves the shape and never guesses or completes one.
+pub fn reported_managed_wez_socket(
+    capabilities: &[String],
+) -> Result<Option<String>, SocketReportError> {
+    let mut sockets = Vec::new();
+    for token in capabilities {
+        let Some(socket) = token.strip_prefix(WEZ_SOCKET_PREFIX) else {
+            continue;
+        };
+        if !valid_managed_socket(socket) {
+            return Err(SocketReportError::Malformed(token.clone()));
+        }
+        sockets.push(socket.to_string());
+    }
+    match sockets.len() {
+        0 => Ok(None),
+        1 => Ok(sockets.pop()),
+        _ => Err(SocketReportError::Ambiguous(sockets)),
     }
 }
 
@@ -448,6 +531,8 @@ pub enum RemoteWezRefusal {
     OwnerBuildMalformed(String),
     OwnerPathMissing,
     OwnerPathMalformed(String),
+    OwnerSocketMissing,
+    OwnerSocketMalformed(String),
     BuildMismatch { controller: String, owner: String },
     ControllerCapabilityMissing(String),
     OwnerCapabilityMissing(String),
@@ -495,6 +580,12 @@ impl fmt::Display for RemoteWezRefusal {
                     f,
                     "owner WezTerm executable path report is malformed: {detail}"
                 )
+            }
+            RemoteWezRefusal::OwnerSocketMissing => {
+                f.write_str("owner omitted its managed Wez mux socket")
+            }
+            RemoteWezRefusal::OwnerSocketMalformed(detail) => {
+                write!(f, "owner managed Wez socket report is malformed: {detail}")
             }
             RemoteWezRefusal::BuildMismatch { controller, owner } => write!(
                 f,
@@ -597,6 +688,15 @@ pub fn assess_automatic_remote_wez(
         Ok(None) => return refused(RemoteWezRefusal::OwnerPathMissing),
         Err(error) => {
             return refused(RemoteWezRefusal::OwnerPathMalformed(error.to_string()));
+        }
+    }
+    // Without it the controller cannot pin the domain's proxy command, and
+    // an unpinned proxy auto-starts an unmanaged owner-side server.
+    match reported_managed_wez_socket(owner_capabilities) {
+        Ok(Some(_)) => {}
+        Ok(None) => return refused(RemoteWezRefusal::OwnerSocketMissing),
+        Err(error) => {
+            return refused(RemoteWezRefusal::OwnerSocketMalformed(error.to_string()));
         }
     }
 

@@ -21,12 +21,15 @@ end
 
 local host = '22222222-2222-4222-8222-222222222222'
 local backend = '44444444-4444-4444-8444-444444444444'
+local proxy = 'env -u WEZTERM_PANE -u TMUX -u TMUX_PANE WEZTERM_UNIX_SOCKET=/run/user/1000/dmux/wez-dmux.sock '
+  .. '/usr/bin/wezterm cli --prefer-mux --no-auto-start proxy'
 local rows = {
   {
     name = 'dmux-b-usb',
     remote_address = '10.77.77.2',
     username = 'fredrir',
     remote_wezterm_path = '/usr/bin/wezterm',
+    override_proxy_command = proxy,
     host_uid = host,
     backend_instance_uid = backend,
     route_id = 1,
@@ -93,6 +96,7 @@ local domains = mux.domains()
 assert(#domains == 1, 'only compatible authority rows may enter WezTerm domain config')
 assert(domains[1].name == 'dmux-b-usb')
 assert(domains[1].multiplexing == 'WezTerm' and domains[1].assume_shell == 'Posix')
+assert(domains[1].override_proxy_command == proxy, "a managed domain must dial the owner's exact socket")
 assert(logs[1]:match 'dmux%-b%-ts unavailable')
 local instances = assert(mux.managed_persistent_domain_instances())
 local owners = assert(mux.managed_persistent_domain_owners())
@@ -121,9 +125,34 @@ response.result.domains[1].remote_wezterm_path = nil
 assert(#mux.domains() == 0, 'compatible row without an owner executable path must fail closed')
 
 response.result.domains = clone(rows)
+response.result.domains[1].override_proxy_command = nil
+assert(#mux.domains() == 0, 'compatible row without a pinned proxy command must fail closed')
+
+response.result.domains = clone(rows)
+response.result.domains[2].override_proxy_command = proxy
+assert(#mux.domains() == 0, 'an incompatible row must carry no proxy command')
+
+response.result.domains = clone(rows)
+response.result.domains[1].override_proxy_command = proxy:gsub(' %-%-no%-auto%-start', '')
+assert(#mux.domains() == 0, 'a proxy command that may auto-start a server must fail closed')
+
+response.result.domains = clone(rows)
+response.result.domains[1].override_proxy_command =
+  proxy:gsub('/run/user/1000/dmux/wez%-dmux%.sock', '/run/user/1000/wezterm.sock')
+assert(#mux.domains() == 0, 'a proxy command naming another endpoint must fail closed')
+
+response.result.domains = clone(rows)
+response.result.domains[1].remote_wezterm_path = '/opt/homebrew/bin/wezterm'
+assert(#mux.domains() == 0, 'a proxy command must name its own row executable')
+
+response.result.domains = clone(rows)
+response.result.domains[1].wez_socket = '/run/user/1000/dmux/wez-dmux.sock'
+assert(#mux.domains() == 0, 'an unknown manifest key must fail closed')
+
+response.result.domains = clone(rows)
 response.result.domains[2].remote_wezterm_path = 'relative/wezterm'
 assert(#mux.domains() == 0, 'optional incompatible executable path must still be absolute')
-assert(#logs == 6)
+assert(#logs == 12)
 
 response.result.domains = clone(rows)
 response.result.domains[2].backend_instance_uid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
@@ -150,6 +179,7 @@ response.result.domains[1].alternate_domains = { 'dmux-b-ts' }
 response.result.domains[2].compatible = true
 response.result.domains[2].unavailable_reason = nil
 response.result.domains[2].remote_wezterm_path = '/usr/bin/wezterm'
+response.result.domains[2].override_proxy_command = proxy
 response.result.domains[2].alternate_domains = { 'dmux-b-usb' }
 domains = mux.domains()
 instances = assert(mux.managed_persistent_domain_instances())
