@@ -7,10 +7,13 @@
 //! whether hidden entries get their own rows. `-i` is the other way round: a
 //! matching entry leaves the walk entirely, taking its bytes and — if it is a
 //! directory — everything underneath it. A file reachable under more than one
-//! name inside the tree counts once, the way `du` counts it. Listings run
-//! smallest to biggest, so the largest entries sit next to the total. On a
-//! terminal, names get the same colors and Nerd Font icons eza-flavoured `ls`
-//! shows.
+//! name inside the tree counts once, the way `du` counts it. Bytes are the
+//! space the tree occupies, blocks and all, so a sparse disk image measures
+//! what it holds rather than what it claims and a directory of tiny files
+//! measures the blocks they round up to; `-A` asks for the logical lengths
+//! instead. Listings run smallest to biggest, so the largest entries sit next
+//! to the total. On a terminal, names get the same colors and Nerd Font icons
+//! eza-flavoured `ls` shows.
 
 use std::collections::HashMap;
 use std::fs;
@@ -52,6 +55,10 @@ struct Cli {
     /// Count lines instead of bytes
     #[arg(short = 'l', long = "lines")]
     lines: bool,
+
+    /// Measure logical lengths rather than the space actually taken up
+    #[arg(short = 'A', long = "apparent", conflicts_with = "lines")]
+    apparent: bool,
 
     /// Limit how deep the recursive listing goes
     #[arg(
@@ -100,6 +107,7 @@ struct Row {
 struct Options {
     lines: bool,
     all: bool,
+    apparent: bool,
     display_depth: usize,
     ignore: Ignore,
 }
@@ -239,15 +247,6 @@ fn main() -> ExitCode {
         }
     };
 
-    if !metadata.is_dir() {
-        if cli.list || cli.recursive {
-            return workstation::fail(PROGRAM, format!("not a directory: {}", target.display()));
-        }
-        let measure = measure_file(&target, &metadata, cli.lines);
-        println!("{}", plain_value(measure, cli.lines));
-        return done(measure.unreadable);
-    }
-
     let listing = cli.list || cli.recursive || !named_target;
     let display_depth = if cli.recursive {
         cli.limit.unwrap_or(usize::MAX).max(1)
@@ -257,14 +256,29 @@ fn main() -> ExitCode {
     let options = Options {
         lines: cli.lines,
         all: cli.all,
+        apparent: cli.apparent,
         display_depth,
         ignore: Ignore::new(&cli.ignore),
     };
+
+    if !metadata.is_dir() {
+        if cli.list || cli.recursive {
+            return workstation::fail(PROGRAM, format!("not a directory: {}", target.display()));
+        }
+        let measure = measure_file(&target, &metadata, &options);
+        println!("{}", plain_value(measure, cli.lines));
+        return done(measure.unreadable);
+    }
+
     let Walked {
         measure: mut total,
         mut rows,
         links,
     } = walk(&options, &target);
+    // The walks answer for a directory's contents; its own blocks are the
+    // caller's to add, so that a subdirectory is counted by whoever lists it
+    // and the target itself exactly once, here.
+    total.bytes += directory_bytes(&metadata, &options);
     dedupe(&mut total, &mut rows, links);
 
     if !listing {
@@ -447,12 +461,45 @@ fn kind_of(metadata: &fs::Metadata) -> &'static str {
     }
 }
 
-fn measure_file(path: &Path, metadata: &fs::Metadata, want_lines: bool) -> Measure {
+/// What a file costs the filesystem, which is what `du` reports and what
+/// deleting it hands back. It is not the length: a sparse file — a disk image,
+/// a database, anything under `/proc` — claims a length it has never written,
+/// and a tree of small files costs the block each one rounds up to. Both gaps
+/// run to orders of magnitude, in opposite directions.
+#[cfg(unix)]
+fn allocated(metadata: &fs::Metadata) -> u64 {
+    // POSIX fixes `st_blocks` at 512 bytes a block, whatever the filesystem
+    // allocates in.
+    std::os::unix::fs::MetadataExt::blocks(metadata) * 512
+}
+
+#[cfg(not(unix))]
+fn allocated(metadata: &fs::Metadata) -> u64 {
+    metadata.len()
+}
+
+/// A directory's own entry blocks, which `du` counts and a tree of many small
+/// directories pays for. In apparent mode there is nothing to count: the
+/// length a directory reports is a filesystem's bookkeeping rather than
+/// anything the tree holds.
+fn directory_bytes(metadata: &fs::Metadata, options: &Options) -> u64 {
+    if options.apparent {
+        0
+    } else {
+        allocated(metadata)
+    }
+}
+
+fn measure_file(path: &Path, metadata: &fs::Metadata, options: &Options) -> Measure {
     let mut measure = Measure {
-        bytes: metadata.len(),
+        bytes: if options.apparent {
+            metadata.len()
+        } else {
+            allocated(metadata)
+        },
         ..Measure::default()
     };
-    if want_lines && metadata.is_file() {
+    if options.lines && metadata.is_file() {
         match count_lines(path) {
             Some(lines) => measure.lines = lines,
             None => measure.unreadable += 1,
@@ -529,9 +576,12 @@ fn walk_directory(options: &Options, directory: &Path, relative: &Path, depth: u
                 } else {
                     options.display_depth
                 };
-                walk_directory(options, &entry.path(), &child_relative, child_depth)
+                let mut walked =
+                    walk_directory(options, &entry.path(), &child_relative, child_depth);
+                walked.measure.bytes += directory_bytes(&metadata, options);
+                walked
             } else {
-                let measure = measure_file(&entry.path(), &metadata, options.lines);
+                let measure = measure_file(&entry.path(), &metadata, options);
                 let mut walked = Walked::of(measure);
                 if nlink(&metadata) > 1 {
                     walked.links.push(Link {
@@ -819,12 +869,22 @@ mod tests {
         root
     }
 
+    /// Options that measure logical lengths, so a test can assert the bytes it
+    /// wrote rather than whatever the filesystem rounded them up to. The
+    /// default — space on disk — gets its own tests below.
+    fn logical() -> Options {
+        Options {
+            apparent: true,
+            ..Options::default()
+        }
+    }
+
     fn walk_all(root: &Path, lines: bool, all: bool, depth: usize) -> (Vec<Row>, Measure) {
         let options = Options {
             lines,
             all,
             display_depth: depth,
-            ..Options::default()
+            ..logical()
         };
         let Walked {
             measure, mut rows, ..
@@ -842,6 +902,55 @@ mod tests {
         assert_eq!(names, vec!["notes.txt", "assets"]);
         let assets = rows.iter().find(|row| row.name == "assets").unwrap();
         assert_eq!(assets.measure.bytes, 2500);
+    }
+
+    /// A file that claims a length it never wrote costs the blocks it holds
+    /// and nothing more — the disk image, the database, everything under
+    /// `/proc`. Only `-A` should believe the claim.
+    #[test]
+    fn a_sparse_file_measures_what_it_holds() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("image.raw");
+        let claimed = 64 * 1024 * 1024;
+        fs::File::create(&path).unwrap().set_len(claimed).unwrap();
+        let metadata = fs::symlink_metadata(&path).unwrap();
+
+        assert_eq!(measure_file(&path, &metadata, &logical()).bytes, claimed);
+        let on_disk = measure_file(&path, &metadata, &Options::default()).bytes;
+        assert!(
+            on_disk < claimed,
+            "{on_disk} blocks for a hole of {claimed}"
+        );
+    }
+
+    /// Disk mode has to account for every entry in the tree, directories
+    /// included. The aggregation is the part that can drift, so add the same
+    /// tree up a second way and compare.
+    #[test]
+    fn disk_mode_counts_every_entry_the_tree_holds() {
+        fn by_hand(directory: &Path) -> u64 {
+            fs::read_dir(directory)
+                .unwrap()
+                .flatten()
+                .map(|entry| {
+                    let metadata = entry.metadata().unwrap();
+                    let below = if metadata.is_dir() {
+                        by_hand(&entry.path())
+                    } else {
+                        0
+                    };
+                    allocated(&metadata) + below
+                })
+                .sum()
+        }
+
+        let root = tree();
+        let options = Options {
+            display_depth: usize::MAX,
+            ..Options::default()
+        };
+        let walked = walk_directory(&options, root.path(), Path::new(""), 0);
+        assert_eq!(walked.measure.bytes, by_hand(root.path()));
     }
 
     #[test]
@@ -1004,7 +1113,7 @@ mod tests {
         let root = linked();
         let options = Options {
             display_depth: usize::MAX,
-            ..Options::default()
+            ..logical()
         };
         let (total, _) = walk_and_dedupe(&options, root.path());
         // 6 for the linked file, counted once, and 3 for the other.
@@ -1018,7 +1127,7 @@ mod tests {
         let root = linked();
         let options = Options {
             display_depth: usize::MAX,
-            ..Options::default()
+            ..logical()
         };
         for _ in 0..8 {
             let (_, rows) = walk_and_dedupe(&options, root.path());
@@ -1045,7 +1154,7 @@ mod tests {
         let root = linked();
         let options = Options {
             display_depth: usize::MAX,
-            ..Options::default()
+            ..logical()
         };
         let (total, _) = walk_and_dedupe(&options, &root.path().join("apples"));
         assert_eq!(total.bytes, 6);
@@ -1074,7 +1183,7 @@ mod tests {
         let options = Options {
             display_depth: 1,
             ignore,
-            ..Options::default()
+            ..logical()
         };
         let walked = walk_directory(&options, root.path(), Path::new(""), 0);
         // assets/a.bin is 2500 of the tree's bytes, and goes with it.
@@ -1089,7 +1198,7 @@ mod tests {
             let options = Options {
                 display_depth: 1,
                 ignore: Ignore::new(&[pattern.to_string()]),
-                ..Options::default()
+                ..logical()
             };
             let walked = walk_directory(&options, root.path(), Path::new(""), 0);
             assert_eq!(walked.measure.bytes, 14 + 7 + 100, "pattern {pattern}");
@@ -1104,7 +1213,7 @@ mod tests {
         let by_path = Options {
             display_depth: usize::MAX,
             ignore: Ignore::new(&["assets/a.bin".to_string()]),
-            ..Options::default()
+            ..logical()
         };
         let walked = walk_directory(&by_path, root.path(), Path::new(""), 0);
         assert_eq!(walked.measure.bytes, 14 + 7 + 100);
@@ -1114,7 +1223,7 @@ mod tests {
         let by_name = Options {
             display_depth: usize::MAX,
             ignore: Ignore::new(&["a.bin".to_string()]),
-            ..Options::default()
+            ..logical()
         };
         let walked = walk_directory(&by_name, root.path(), Path::new(""), 0);
         assert_eq!(walked.measure.bytes, 14 + 7 + 100);

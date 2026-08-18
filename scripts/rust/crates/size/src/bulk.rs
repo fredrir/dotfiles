@@ -90,6 +90,10 @@ struct Entry<'a> {
     accessmask: u32,
     fileid: u64,
     linkcount: u32,
+    /// The space it occupies, and what every mode but `-A` measures.
+    allocated: u64,
+    /// The length it reports, which `-A` measures and which a sparse file can
+    /// inflate without limit.
     bytes: u64,
 }
 
@@ -103,13 +107,19 @@ fn attributes() -> libc::attrlist {
         | libc::ATTR_CMN_OBJTYPE
         | libc::ATTR_CMN_ACCESSMASK
         | libc::ATTR_CMN_FILEID;
-    list.fileattr = libc::ATTR_FILE_LINKCOUNT | libc::ATTR_FILE_DATALENGTH;
+    // Both sizes on every entry: the extra sixteen bytes a reply carries are
+    // nothing beside a second pass for whichever one the flags turn out to
+    // want.
+    list.dirattr = libc::ATTR_DIR_ALLOCSIZE;
+    list.fileattr =
+        libc::ATTR_FILE_LINKCOUNT | libc::ATTR_FILE_ALLOCSIZE | libc::ATTR_FILE_DATALENGTH;
     list
 }
 
-/// Walks one entry of the reply. Fields arrive in the order they were asked
-/// for, each present only if `ATTR_CMN_RETURNED_ATTRS` says so, and packed
-/// without padding — hence the unaligned reads.
+/// Walks one entry of the reply. Fields arrive by attribute group — common,
+/// then directory, then file — and by bit within a group, each present only if
+/// `ATTR_CMN_RETURNED_ATTRS` says so, and packed without padding — hence the
+/// unaligned reads.
 ///
 /// # Safety
 ///
@@ -148,12 +158,24 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
         fileid = unsafe { (field as *const u64).read_unaligned() };
         field = unsafe { field.add(size_of::<u64>()) };
     }
+    // Directory attributes precede file ones, and only one of the two groups
+    // ever arrives for a given entry.
+    let mut allocated = None;
+    if returned.dirattr & libc::ATTR_DIR_ALLOCSIZE != 0 {
+        allocated = Some(unsafe { (field as *const i64).read_unaligned() } as u64);
+        field = unsafe { field.add(size_of::<i64>()) };
+    }
     let mut linkcount = 0;
     if returned.fileattr & libc::ATTR_FILE_LINKCOUNT != 0 {
         linkcount = unsafe { (field as *const u32).read_unaligned() };
         field = unsafe { field.add(size_of::<u32>()) };
     }
-    // Directories carry no data length; their size is what we sum underneath.
+    if returned.fileattr & libc::ATTR_FILE_ALLOCSIZE != 0 {
+        allocated = Some(unsafe { (field as *const i64).read_unaligned() } as u64);
+        field = unsafe { field.add(size_of::<i64>()) };
+    }
+    // A directory's own contents are what we sum underneath it, so no data
+    // length arrives for one.
     let mut bytes = 0;
     if returned.fileattr & libc::ATTR_FILE_DATALENGTH != 0 {
         bytes = unsafe { (field as *const i64).read_unaligned() } as u64;
@@ -166,6 +188,9 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
         accessmask,
         fileid,
         linkcount,
+        // A filesystem that answers bulk requests without offering an
+        // allocated size leaves the length as the only thing to go on.
+        allocated: allocated.unwrap_or(bytes),
         bytes,
     };
     (entry, length)
@@ -184,6 +209,8 @@ struct Child {
     name: CString,
     visible: bool,
     depth: usize,
+    /// Its own blocks, added back once the walk underneath it returns.
+    bytes: u64,
 }
 
 fn read(
@@ -292,11 +319,12 @@ fn read(
                     } else {
                         options.display_depth
                     },
+                    bytes: if options.apparent { 0 } else { found.allocated },
                 });
                 continue;
             }
 
-            let found_measure = measure_entry(found, counted.get(index).copied());
+            let found_measure = measure_entry(found, options, counted.get(index).copied());
             walked.measure.add(found_measure);
             let name = Path::new(OsStr::from_bytes(found.name.to_bytes()));
             if found.linkcount > 1 {
@@ -347,6 +375,7 @@ fn read(
                 }
                 None => Walked::unreadable(),
             };
+            child_walked.measure.bytes += child.bytes;
             if child.visible {
                 let measure = child_walked.measure;
                 child_walked.rows.push(Row {
@@ -368,9 +397,13 @@ fn read(
 
 /// `counted` is `None` outside line mode, and `Some(None)` for a file that
 /// would not open — the same thing the portable walk calls unreadable.
-fn measure_entry(entry: &Entry, counted: Option<Option<u64>>) -> Measure {
+fn measure_entry(entry: &Entry, options: &Options, counted: Option<Option<u64>>) -> Measure {
     let mut measure = Measure {
-        bytes: entry.bytes,
+        bytes: if options.apparent {
+            entry.bytes
+        } else {
+            entry.allocated
+        },
         ..Measure::default()
     };
     match counted {
@@ -470,25 +503,28 @@ mod tests {
         let root = fixture();
         for lines in [false, true] {
             for all in [false, true] {
-                for display_depth in [1, 2, usize::MAX] {
-                    let options = Options {
-                        lines,
-                        all,
-                        display_depth,
-                        ..Options::default()
-                    };
-                    let bulk = shape(walk(&options, root.path()).expect("bulk walk runs"));
-                    let portable = shape(super::super::walk_directory(
-                        &options,
-                        root.path(),
-                        Path::new(""),
-                        0,
-                    ));
-                    assert!(!bulk.4.is_empty(), "the fixture has a hardlink");
-                    assert_eq!(
-                        bulk, portable,
-                        "lines={lines} all={all} depth={display_depth}"
-                    );
+                for apparent in [false, true] {
+                    for display_depth in [1, 2, usize::MAX] {
+                        let options = Options {
+                            lines,
+                            all,
+                            apparent,
+                            display_depth,
+                            ..Options::default()
+                        };
+                        let bulk = shape(walk(&options, root.path()).expect("bulk walk runs"));
+                        let portable = shape(super::super::walk_directory(
+                            &options,
+                            root.path(),
+                            Path::new(""),
+                            0,
+                        ));
+                        assert!(!bulk.4.is_empty(), "the fixture has a hardlink");
+                        assert_eq!(
+                            bulk, portable,
+                            "lines={lines} all={all} apparent={apparent} depth={display_depth}"
+                        );
+                    }
                 }
             }
         }
