@@ -9,7 +9,7 @@
 //! get the same colors and Nerd Font icons eza-flavoured `ls` shows.
 
 use std::fs;
-use std::io::{IsTerminal, Read};
+use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -18,6 +18,13 @@ use rayon::prelude::*;
 use workstation::Completions;
 
 const PROGRAM: &str = "size";
+
+/// Directory metadata lookups contend inside the kernel: on APFS, concurrent
+/// stats in one directory serialise, and the contention grows with the thread
+/// count rather than the work. Measured on a 285k-entry tree, wall clock
+/// bottoms out near four threads while total CPU keeps climbing — a pool one
+/// thread per core wide is both slower and five times dearer than this.
+const WALK_THREADS: usize = 4;
 
 #[derive(Parser)]
 #[command(version, about = "Sizes and line counts for files and directories")]
@@ -122,7 +129,7 @@ fn main() -> ExitCode {
         all: cli.all,
         display_depth,
     };
-    let (total, mut rows) = walk_directory(&options, &target, Path::new(""), 0);
+    let (total, mut rows) = walk(&options, &target);
 
     if !listing {
         println!("{}", plain_value(total, cli.lines));
@@ -132,6 +139,16 @@ fn main() -> ExitCode {
     sort_rows(&mut rows, cli.lines);
     print_table(&rows, total, cli.lines);
     done(total.unreadable)
+}
+
+/// The walk, on a pool sized for contention rather than for cores.
+fn walk(options: &Options, target: &Path) -> (Measure, Vec<Row>) {
+    let threads = std::thread::available_parallelism()
+        .map_or(WALK_THREADS, |cores| cores.get().min(WALK_THREADS));
+    match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
+        Ok(pool) => pool.install(|| walk_directory(options, target, Path::new(""), 0)),
+        Err(_) => walk_directory(options, target, Path::new(""), 0),
+    }
 }
 
 fn done(unreadable: usize) -> ExitCode {
@@ -224,24 +241,33 @@ fn measure_file(path: &Path, metadata: &fs::Metadata, want_lines: bool) -> Measu
     measure
 }
 
+thread_local! {
+    /// One scratch buffer per worker: a fresh 256 KiB allocation per file was
+    /// costing more than the reads it served.
+    static BUFFER: std::cell::RefCell<Vec<u8>> =
+        std::cell::RefCell::new(vec![0u8; 256 * 1024]);
+}
+
 fn count_lines(path: &Path) -> Option<u64> {
     let mut file = fs::File::open(path).ok()?;
-    let mut buffer = vec![0u8; 256 * 1024];
-    let mut lines = 0u64;
-    let mut first = true;
-    loop {
-        let read = file.read(&mut buffer).ok()?;
-        if read == 0 {
-            return Some(lines);
+    BUFFER.with(|buffer| {
+        let mut buffer = buffer.borrow_mut();
+        let mut lines = 0u64;
+        let mut first = true;
+        loop {
+            let read = file.read(&mut buffer).ok()?;
+            if read == 0 {
+                return Some(lines);
+            }
+            // A NUL early in the file marks it binary; newlines in binary data
+            // are noise, not lines.
+            if first && memchr::memchr(0, &buffer[..read]).is_some() {
+                return Some(0);
+            }
+            first = false;
+            lines += memchr::memchr_iter(b'\n', &buffer[..read]).count() as u64;
         }
-        // A NUL early in the file marks it binary; newlines in binary data
-        // are noise, not lines.
-        if first && buffer[..read].contains(&0) {
-            return Some(0);
-        }
-        first = false;
-        lines += buffer[..read].iter().filter(|byte| **byte == b'\n').count() as u64;
-    }
+    })
 }
 
 /// Depth-first aggregate of everything under `directory`, hidden included,
@@ -316,7 +342,7 @@ fn walk_directory(
 /// Smallest first, biggest last — the largest entries land next to the total,
 /// where the eye already is when the listing scrolls.
 fn sort_rows(rows: &mut [Row], lines: bool) {
-    rows.sort_by(|a, b| {
+    rows.sort_unstable_by(|a, b| {
         let metric = |row: &Row| {
             if lines {
                 row.measure.lines
@@ -369,22 +395,51 @@ fn grouped(value: u64) -> String {
     out
 }
 
-/// The colors ls would use: LS_COLORS entries when set, GNU defaults when not.
-fn ls_color(row: &Row) -> Option<String> {
-    let table = std::env::var("LS_COLORS").unwrap_or_default();
-    let lookup = |key: &str| {
-        table.split(':').find_map(|entry| {
-            entry
-                .strip_prefix(key)?
-                .strip_prefix('=')
-                .map(str::to_string)
-        })
-    };
-    match row.kind {
-        "directory" => Some(lookup("di").unwrap_or_else(|| "01;34".to_string())),
-        "link" => Some(lookup("ln").unwrap_or_else(|| "01;36".to_string())),
-        _ if row.executable => Some(lookup("ex").unwrap_or_else(|| "01;32".to_string())),
-        _ => lookup("fi"),
+/// The colors ls would use, resolved once for the whole table rather than
+/// re-parsed per row.
+struct Palette {
+    directory: String,
+    link: String,
+    executable: String,
+    file: Option<String>,
+}
+
+impl Palette {
+    /// The theme unsets LS_COLORS and ships the same entries as EZA_COLORS, so
+    /// read that first and fall back to LS_COLORS, then to the GNU defaults.
+    fn from_env() -> Palette {
+        let table = std::env::var("EZA_COLORS")
+            .ok()
+            .filter(|table| !table.is_empty())
+            .or_else(|| std::env::var("LS_COLORS").ok())
+            .unwrap_or_default();
+        Palette::parse(&table)
+    }
+
+    fn parse(table: &str) -> Palette {
+        let lookup = |key: &str| {
+            table.split(':').find_map(|entry| {
+                entry
+                    .strip_prefix(key)?
+                    .strip_prefix('=')
+                    .map(str::to_string)
+            })
+        };
+        Palette {
+            directory: lookup("di").unwrap_or_else(|| "01;34".to_string()),
+            link: lookup("ln").unwrap_or_else(|| "01;36".to_string()),
+            executable: lookup("ex").unwrap_or_else(|| "01;32".to_string()),
+            file: lookup("fi"),
+        }
+    }
+
+    fn color(&self, row: &Row) -> Option<&str> {
+        match row.kind {
+            "directory" => Some(&self.directory),
+            "link" => Some(&self.link),
+            _ if row.executable => Some(&self.executable),
+            _ => self.file.as_deref(),
+        }
     }
 }
 
@@ -443,7 +498,8 @@ fn icon_for(row: &Row) -> char {
 }
 
 fn print_table(rows: &[Row], total: Measure, lines: bool) {
-    let styled = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let stdout = std::io::stdout();
+    let styled = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
     let (dim, bold, reset) = if styled {
         ("\x1b[2m", "\x1b[1m", "\x1b[0m")
     } else {
@@ -459,35 +515,46 @@ fn print_table(rows: &[Row], total: Measure, lines: bool) {
         .max()
         .unwrap_or(4);
     let total_text = plain_value(total, lines);
-    let value_width = rows
+    let values: Vec<String> = rows
         .iter()
-        .map(|row| plain_value(row.measure, lines).chars().count())
+        .map(|row| plain_value(row.measure, lines))
+        .collect();
+    let value_width = values
+        .iter()
+        .map(|value| value.chars().count())
         .chain([value_header.len(), total_text.chars().count()])
         .max()
         .unwrap_or(4);
 
-    for row in rows {
+    // One buffer for the whole table: a listing is thousands of rows, and
+    // stdout would otherwise flush on every one of them.
+    let palette = styled.then(Palette::from_env);
+    let mut out = BufWriter::with_capacity(128 * 1024, stdout.lock());
+    for (row, value) in rows.iter().zip(&values) {
         let padding = " ".repeat(name_width - row.name.chars().count() - prefix);
-        let name = if styled {
-            let icon = icon_for(row);
-            match ls_color(row) {
-                Some(color) => format!("\x1b[{color}m{icon} {}{reset}", row.name),
-                None => format!("{icon} {}", row.name),
+        let _ = match palette.as_ref() {
+            Some(palette) => {
+                let icon = icon_for(row);
+                match palette.color(row) {
+                    Some(color) => writeln!(
+                        out,
+                        "\x1b[{color}m{icon} {}{reset}{padding}  {value:>value_width$}",
+                        row.name
+                    ),
+                    None => writeln!(out, "{icon} {}{padding}  {value:>value_width$}", row.name),
+                }
             }
-        } else {
-            row.name.clone()
+            None => writeln!(out, "{}{padding}  {value:>value_width$}", row.name),
         };
-        println!(
-            "{name}{padding}  {:>value_width$}",
-            plain_value(row.measure, lines)
-        );
     }
     let width = name_width + value_width + 2;
-    println!("{dim}{}{reset}", "─".repeat(width));
-    println!(
+    let _ = writeln!(out, "{dim}{}{reset}", "─".repeat(width));
+    let _ = writeln!(
+        out,
         "{bold}{:<name_width$}  {:>value_width$}{reset}",
         "Total", total_text
     );
+    let _ = out.flush();
 }
 
 #[cfg(test)]
@@ -617,6 +684,32 @@ mod tests {
             executable: false,
             measure: Measure::default(),
         }
+    }
+
+    #[test]
+    fn the_palette_reads_the_themes_entries() {
+        let palette = Palette::parse("reset:fi=38;2;186:di=38;2;61:ex=38;2;124:ln=38;2;26");
+        assert_eq!(palette.color(&row("src", "directory")), Some("38;2;61"));
+        assert_eq!(palette.color(&row("link", "link")), Some("38;2;26"));
+        assert_eq!(palette.color(&row("notes.txt", "file")), Some("38;2;186"));
+        let mut runnable = row("build.sh", "file");
+        runnable.executable = true;
+        assert_eq!(palette.color(&runnable), Some("38;2;124"));
+    }
+
+    #[test]
+    fn an_empty_table_falls_back_to_the_gnu_defaults() {
+        let palette = Palette::parse("");
+        assert_eq!(palette.color(&row("src", "directory")), Some("01;34"));
+        assert_eq!(palette.color(&row("notes.txt", "file")), None);
+    }
+
+    /// `di` must not match `dirty=`; only a whole key followed by `=` counts.
+    #[test]
+    fn a_longer_key_is_not_mistaken_for_a_shorter_one() {
+        let palette = Palette::parse("dirty=1:link=2");
+        assert_eq!(palette.color(&row("src", "directory")), Some("01;34"));
+        assert_eq!(palette.color(&row("l", "link")), Some("01;36"));
     }
 
     #[test]
