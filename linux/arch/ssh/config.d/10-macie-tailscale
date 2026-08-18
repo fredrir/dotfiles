@@ -1,6 +1,9 @@
+# The fallback route, used when the probe in 05- does not answer. Slacker
+# keepalives than the cable on purpose; see the mirror of this file on macie.
+
 Host macie
     HostName macie
     User fredrir
     HostKeyAlias macie
-    ServerAliveInterval 5
-    ServerAliveCountMax 2
+    ServerAliveInterval 15
+    ServerAliveCountMax 4

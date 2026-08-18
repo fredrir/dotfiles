@@ -1,7 +1,11 @@
-Match originalhost macie exec "nc -z -w 1 -s 10.77.77.2 10.77.77.1 22 >/dev/null 2>&1"
+# Prefer the cable when macie answers on it.
+
+Match originalhost macie exec "/usr/bin/nc -z -w 1 -s 10.77.77.2 10.77.77.1 22 >/dev/null 2>&1"
     HostName 10.77.77.1
     User fredrir
     HostKeyAlias macie
     BindInterface macie0
+    ServerAliveInterval 5
+    ServerAliveCountMax 2
 
 Match all

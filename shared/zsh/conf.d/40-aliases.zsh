@@ -37,6 +37,9 @@ alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/acti
 alias cdz="cd $CONFIG/zsh/conf.d"
 alias cds="cd $HOME/.ssh/config.d"
 
+alias sshmux="ssh -O check"    
+alias sshmux-exit="ssh -O exit" 
+
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"
 

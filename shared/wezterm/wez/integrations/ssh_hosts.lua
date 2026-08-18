@@ -10,7 +10,10 @@ local function read_hosts(path, out, seen)
     return
   end
   for line in file:lines() do
-    local names = line:match '^%s*[Hh]ost%s+(.+)$'
+    -- Strip trailing comments first, or `Host foo # note` contributes the
+    -- comment words to the launcher as if they were hostnames.
+    local uncommented = line:gsub('#.*$', '')
+    local names = uncommented:match '^%s*[Hh]ost%s+(.+)$'
     if names then
       for name in names:gmatch '%S+' do
         if not name:match '[*?!]' and not seen[name] then

@@ -1,5 +1,13 @@
+# Fallback route, used when the probe in 05- does not answer.
+#
+# Slacker keepalives than the cable on purpose. This path measures ~56 ms
+# with ±68 ms of jitter over wifi, and it is the route in use when the laptop
+# roams or sleeps, so a minute of tolerance beats dropping the session at ten
+# seconds. HostKeyAlias keeps every route to archie on one known_hosts entry.
+
 Host archie
     HostName archie
     User fredrir
-    ServerAliveInterval 5
-    ServerAliveCountMax 2
+    HostKeyAlias archie
+    ServerAliveInterval 15
+    ServerAliveCountMax 4
