@@ -1,18 +1,18 @@
 ---
 name: wezterm-lua-config
-description: >
-  Conventions, module contract, and the shared validation loop for the WezTerm Lua configuration in
-  this dotfiles repo (shared/wezterm/**) — appearance, keybindings, plugins, integrations, and the
-  tests and static checks covering all of it. Use when editing, adding, reviewing, formatting, or
-  testing Lua here, and whenever a Lua change needs verifying before commit. Covers the apply/setup
-  contract, module load order, the managed-mode key sanitizer, the DMUX_WEZ_FIRST gate, stylua and
-  luacheck house style, and the exact test commands. Also fires on "run the wezterm tests", "add a
-  test for this Lua module", "why did my keybinding disappear", or "format this config". For the
-  signed bridge protocol under wez/dmux_bridge use dmux-bridge-actions; for mux/dmux-mux.lua,
-  wez/domains/init.lua, wez/plugins/resurrect.lua and the service units use dmux-mux-lifecycle.
-compatibility: >
-  Needs a Lua 5.4-compatible interpreter on PATH for the test suite, plus stylua and luacheck for
-  the static checks. Two suite cases stay skipped without a WezTerm fork checkout.
+description: Conventions, module contract, and the shared validation loop for the WezTerm Lua
+  configuration in this dotfiles repo (shared/wezterm/**) — appearance, keybindings, plugins,
+  integrations, and the tests and static checks covering all of it. Use when editing, adding,
+  reviewing, formatting, or testing Lua here, and whenever a Lua change needs verifying before
+  commit. Covers the apply/setup contract, module load order, the managed-mode key sanitizer,
+  the DMUX_WEZ_FIRST gate, stylua and luacheck house style, and the exact test commands. Also
+  fires on "run the wezterm tests", "add a test for this Lua module", "why did my keybinding
+  disappear", or "format this config". For the signed bridge protocol under wez/dmux_bridge use
+  dmux-bridge-actions; for mux/dmux-mux.lua, wez/domains/init.lua, wez/plugins/resurrect.lua and
+  the service units use dmux-mux-lifecycle.
+compatibility: Needs a Lua 5.4-compatible interpreter on PATH for the test suite, plus stylua
+  and luacheck for the static checks. Two suite cases stay skipped without a WezTerm fork
+  checkout.
 metadata:
   version: "1"
 ---

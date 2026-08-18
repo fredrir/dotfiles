@@ -53,3 +53,8 @@ scripts/rust/target/
 
 # Benchmark run lock: process state, never tracked.
 benchmarks/.lock
+
+# Agent worktrees: nested git checkouts, never tracked. Committing one adds a
+# gitlink (mode 160000) that no clone can resolve. Skills under .claude/skills/
+# stay tracked.
+**/.claude/worktrees/

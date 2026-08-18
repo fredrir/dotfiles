@@ -1,19 +1,17 @@
 ---
 name: dmux-mux-lifecycle
-description: >
-  The service-owned WezTerm mux server, its startup handler, sentinel and epoch handshake, managed
-  unix domain, resurrection split, and guarded cold recovery — shared/wezterm/mux/dmux-mux.lua,
-  wez/domains/init.lua, wez/plugins/resurrect.lua, linux/arch/wezterm-mux/**, and
-  macos/launchd/com.fredrir.wezterm-mux.plist. Use when editing mux-startup, the sentinel, the
-  runtime descriptor, the unix domain declaration, snapshot or restore logic, the systemd unit or
-  launchd plist, or when a managed GUI will not start, the server was replaced, panes vanished
-  after a restart, or recovery restored the wrong thing. Also fires on "the mux service won't
-  start", "why is there a DMUX-CANARY pane", "restore my workspaces on boot", or "make wezterm
-  reconnect after reboot". For the GUI-side signed bridge use dmux-bridge-actions; for general Lua
-  style and tests use wezterm-lua-config.
-compatibility: >
-  Needs a Lua 5.4-compatible interpreter for the test suite, plus systemctl (Linux) or launchctl
-  (macOS) to manage the mux service. Restarting that service kills live panes.
+description: The service-owned WezTerm mux server, its startup handler, sentinel and epoch
+  handshake, managed unix domain, resurrection split, and guarded cold recovery —
+  shared/wezterm/mux/dmux-mux.lua, wez/domains/init.lua, wez/plugins/resurrect.lua,
+  linux/arch/wezterm-mux/**, and macos/launchd/com.fredrir.wezterm-mux.plist. Use when editing
+  mux-startup, the sentinel, the runtime descriptor, the unix domain declaration, snapshot or
+  restore logic, the systemd unit or launchd plist, or when a managed GUI will not start, the
+  server was replaced, panes vanished after a restart, or recovery restored the wrong thing.
+  Also fires on "the mux service won't start", "why is there a DMUX-CANARY pane", "restore my
+  workspaces on boot", or "make wezterm reconnect after reboot". For the GUI-side signed bridge
+  use dmux-bridge-actions; for general Lua style and tests use wezterm-lua-config.
+compatibility: Needs a Lua 5.4-compatible interpreter for the test suite, plus systemctl (Linux)
+  or launchctl (macOS) to manage the mux service. Restarting that service kills live panes.
 metadata:
   version: "1"
 ---

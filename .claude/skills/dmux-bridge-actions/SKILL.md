@@ -1,19 +1,17 @@
 ---
 name: dmux-bridge-actions
-description: >
-  Extending and maintaining the dmux GUI bridge in shared/wezterm/wez/dmux_bridge/** — the signed
-  request protocol, its action allowlists, origin kinds and token verification, pane-marker
-  correlation, acknowledgement construction, and the keybinding verbs that call the dmux CLI. Use
-  when adding or changing a bridge action, a protocol field, a target schema, a keybinding that
-  drives dmux, or GUI-local tab/pane focusing, and when debugging why a request is refused with
-  unknown_action, malformed_request, unauthorized, invalid_origin, ambiguous_group, or a latched
-  bridge. Also fires on "add a bridge action", "why is the bridge rejecting this", "the HMAC
-  doesn't match", "make Command+W do X", or "focus the right pane after attach". For general Lua
-  style, tests, and static checks use wezterm-lua-config; for the owner mux server, sentinel, and
-  cold recovery use dmux-mux-lifecycle.
-compatibility: >
-  Needs a Lua 5.4-compatible interpreter on PATH to run the bridge test suite. Protocol changes
-  must be matched on the Rust signing side before they take effect.
+description: Extending and maintaining the dmux GUI bridge in shared/wezterm/wez/dmux_bridge/**
+  — the signed request protocol, its action allowlists, origin kinds and token verification,
+  pane-marker correlation, acknowledgement construction, and the keybinding verbs that call the
+  dmux CLI. Use when adding or changing a bridge action, a protocol field, a target schema, a
+  keybinding that drives dmux, or GUI-local tab/pane focusing, and when debugging why a request
+  is refused with unknown_action, malformed_request, unauthorized, invalid_origin,
+  ambiguous_group, or a latched bridge. Also fires on "add a bridge action", "why is the bridge
+  rejecting this", "the HMAC doesn't match", "make Command+W do X", or "focus the right pane
+  after attach". For general Lua style, tests, and static checks use wezterm-lua-config; for the
+  owner mux server, sentinel, and cold recovery use dmux-mux-lifecycle.
+compatibility: Needs a Lua 5.4-compatible interpreter on PATH to run the bridge test suite.
+  Protocol changes must be matched on the Rust signing side before they take effect.
 metadata:
   version: "1"
 ---
@@ -82,6 +80,29 @@ Then validate:
 ```bash
 sh shared/wezterm/wez/dmux_bridge/tests/suite.sh
 ```
+
+## Changing an outbound keybinding
+
+Bindings live in `actions.lua`'s `M.keys()` and `M.mac_keys()`. The common case is one line, because
+`callback(verb, args)` already wraps `controller.run` in a `wezterm.action_callback`:
+
+```lua
+{ key = 'z', mods = 'LEADER', action = callback 'split-zoom' },
+```
+
+A destructive verb needs more. Confirmation is an `act.InputSelector`, and the answer alone is not
+enough to mutate on — between the prompt opening and the user answering, the active pane may have
+moved to a different Space. So each confirmed branch re-reads `context --cache` through
+`prompt_context_is_current` and compares both the marker and the display fields (`logical_ref`,
+`space_name`, `group_name`, `group_count`, `split_count`) before calling `controller.run`.
+
+`close_group` shows the full shape: confirm the named Group, re-verify, then — when
+`display.group_count == 1` — escalate to a *second* selector naming the Space and pass
+`{ '--confirmed', '--escalate-space' }` instead of `{ '--confirmed' }`. Removing the last Group is
+never an implicit Space removal.
+
+When that re-verification fails, nothing was removed and the guard did its job, so it toasts and
+does not log. Keep that distinction — see the last gotcha.
 
 ## Refusing correctly
 
