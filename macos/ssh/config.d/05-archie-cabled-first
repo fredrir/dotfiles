@@ -3,5 +3,9 @@ Match originalhost archie exec "/usr/bin/nc -4 -z -G 1 -b en3 10.77.77.2 22 >/de
     User fredrir
     HostKeyAlias archie
     BindInterface en3
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 10m
+
 
 Match all
