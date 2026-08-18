@@ -19,7 +19,7 @@ fi
 # newer than the cache (same pattern as pnpm above, but after compinit since
 # the generated script registers itself with compdef). The explicit paths
 # avoid the system's Mach-O `size` and anything else of the same name.
-for _tool in count gdd gpp path size; do
+for _tool in count flatten gdd gpp path size; do
   # GNU dd by fzf-tab on macOS.
   if [[ "$_tool" == gdd ]]; then
     _tool_bin="$HOME/.local/bin/git-discard"

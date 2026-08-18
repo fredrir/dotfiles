@@ -159,7 +159,7 @@ else
   stamp python "$PYTHON_HASH"
 fi
 
-RUST_BINARIES="bench-workloads count dmux git-discard gpp path size sysinfo-collect"
+RUST_BINARIES="bench-workloads count dmux flatten git-discard gpp path size sysinfo-collect"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" -type f -not -path '*/target/*' -print0 2>/dev/null |
     sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1

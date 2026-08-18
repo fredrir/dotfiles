@@ -137,6 +137,37 @@ pub fn confirm(question: &str) -> Option<bool> {
     }
 }
 
+/// One of the three answers to a question asked once per thing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Answer {
+    Yes,
+    No,
+    /// Yes to this one and to everything still to be asked about.
+    All,
+}
+
+/// Ask `question` about one of several things: empty or `y` is yes, `n` is
+/// no, `a` is yes to this and the rest, and anything else asks again. `None`
+/// when the answers ran out before there was one, which is a cancellation
+/// rather than a yes.
+pub fn confirm_each(question: &str) -> Option<Answer> {
+    let mut answer = String::new();
+    loop {
+        print!("{question}");
+        io::stdout().flush().ok()?;
+        answer.clear();
+        if io::stdin().read_line(&mut answer).ok()? == 0 {
+            return None;
+        }
+        match answer.trim().to_ascii_lowercase().as_str() {
+            "" | "y" | "yes" => return Some(Answer::Yes),
+            "n" | "no" => return Some(Answer::No),
+            "a" | "all" => return Some(Answer::All),
+            _ => eprintln!("Please answer y, n or a."),
+        }
+    }
+}
+
 /// How wide the terminal is, when there is one to ask.
 ///
 /// `COLUMNS` wins where it is set, which is both what a shell exports for its

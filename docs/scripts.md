@@ -133,6 +133,7 @@ scripts/rust/
     bench-workloads/         dependency-free native workloads for sysinfo bench
     count/                   count items inside a directory
     dmux/                    wezterm-mux + tmux session manager
+    flatten/                 undo nesting, or bring a whole subtree up
     git/
       gdd/                   discard every change in the working tree
       gitkit/                shared repository access, survey, plan and discard
@@ -1074,6 +1075,50 @@ spawn was the whole cost. The two answers agree except inside `.git` itself,
 where git declines to answer and this prints `/.git/...`. Targets need not
 exist: the part that does is resolved through symlinks and the rest is
 appended, so a file that is about to be written still describes itself.
+
+---
+
+## flatten
+
+`flatten <dir>` undoes redundant nesting and nothing else: while the directory
+holds exactly one entry and that entry is a directory, the wrapper is emptied
+into the target and removed, over and over until the target holds something
+other than a lone directory. The archive that unpacked one folder too deep is
+the right shape afterwards. Two entries can never land on one name that way,
+so it does not ask, and it prints nothing — running it twice is running it
+once.
+
+`-d` means the whole subtree instead: every entry that is not a directory
+comes up to the top, and every directory underneath goes away. That can put
+two entries on one name and it removes directories, so it follows the `gdd`
+shape — print the plan, ask, then act. Each contested name is asked about on
+its own with `[Y/n/a]`, where `a` answers the rest of the run; the shallowest
+entry holds a name by default, and an entry already in the target holds its
+name without going anywhere. There is no `--force` and no automatic renaming,
+because both of those decide on somebody's behalf what only they can decide.
+A deep flatten refuses `/` and the home directory outright.
+
+The two conflicts nobody is asked about are settled by the plan. A name that
+is both an entry coming up and a directory in the target is fine when the
+directory is on its way out — it is moved aside first, under a hidden name,
+and removed at the end. It is not fine when something inside that directory is
+staying, and then the move is the thing given up, said out loud on stderr.
+
+Everything is settled before the first rename, which is what makes `-n` a true
+account of the run it stands in for rather than a guess at it. The survey
+reads each directory's subdirectories in parallel, the way `count` does, and
+uses the directory entry's own type so a symlink is never mistaken for the
+directory on the other end — a link comes up as itself, and a loop is not a
+hang.
+
+The moves are `renameat` between two open descriptors rather than renames of
+two paths. A name is resolved once, against a directory the kernel already
+holds, instead of once per path component per file, which on a deep tree is
+the difference between one lookup per file and one per level per file. Each
+step down is opened with `O_NOFOLLOW`, so a symlink swapped in underneath a
+running flatten cannot redirect it out of the tree. And a descriptor goes on
+naming its directory after the directory is renamed, which is what lets a
+collapse move a wrapper out of the way and still lift entries up through it.
 
 ---
 
