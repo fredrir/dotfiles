@@ -14,6 +14,8 @@ All Python commands accept `--help`.
 | `gpp <MESSAGE...>` | Stage everything from the repository root (`git add :/`), commit with the joined message, then push. |
 | `path [TARGET=.]` | Print a repo-relative, home-relative, or absolute path. `-f`, `--full`: always print the absolute path. |
 | `size [TARGET]` | Measure bytes; with no target, list the current directory. `-r`: list direct children; `-R`: list recursively; `-l`, `--lines`: count lines; `-L`, `--limit <DEPTH>`: limit `-R`; `-a`, `--all`: show hidden rows. |
+| `hwire` | Measure the link to the other machine: round-trip latency, then a transfer each way. `-r`, `--route <cable\|tailscale>`: measure that route rather than the cable when it is up; `-b`, `--both`: measure every route that is up, one after the other; `-t`, `--time <SECONDS>`: transfer time per direction (default `1`); `-P`, `--streams <N>`: connections per direction (default `1`); `-n`, `--samples <N>`: round trips to time, at most (default `200`, and sampling also stops after half a second); `-l`, `--latency`: skip the transfers; `-u`, `--up` / `-d`, `--down`: one direction only; `--json`: machine-readable; `--at <ADDRESS:PORT>`: measure a `hwire serve` that is already listening instead of starting one over ssh, with `--token <HEX>` when it was given one. |
+| `hwire serve` | The half `hwire` starts on the peer over ssh; usable by hand for any two machines that have the binary. `--bind <ADDRESS>` (default `0.0.0.0`); `--port <PORT>` (default `0`, which picks a free one and prints it); `--token <HEX>`: answer only the client presenting it, instead of anyone; `--idle <SECONDS>`: exit after this long with nothing connecting (default `15`, `0` waits forever). |
 | `tardirs <ARCHIVE> [MAX_DEPTH]` | Print a tar archive's directory tree and direct-entry counts. |
 | `clean-copy [--stdin]` | Normalize selected text and replace the clipboard; `--stdin` reads the text from stdin. |
 | `cpa [-s\|--sensitive]` | Copy the local text clipboard to Archie; sensitive mode avoids clipboard history. |
@@ -23,7 +25,7 @@ All Python commands accept `--help`.
 | `confirm-exit` | Confirm, then exit Hyprland. |
 | `update-readme-fastfetch` | Refresh the Fastfetch block in `README.md`. |
 
-`count`, `flatten`, `gdd`, `gpp`, `path`, and `size` also accept `-h`/`--help`,
+`count`, `flatten`, `gdd`, `gpp`, `hwire`, `path`, and `size` also accept `-h`/`--help`,
 `-V`/`--version`, and `--completions <bash|elvish|fish|powershell|zsh>`.
 
 ## `dmux`

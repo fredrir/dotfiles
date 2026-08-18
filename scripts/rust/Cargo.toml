@@ -10,6 +10,7 @@ members = [
   "crates/git/gdd",
   "crates/git/gitkit",
   "crates/git/gpp",
+  "crates/hwire",
   "crates/path",
   "crates/size",
   "crates/sysinfo-collect",

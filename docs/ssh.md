@@ -96,3 +96,17 @@ macos
     └── conf.d
         └── 21-paths.arch.zsh
 ```
+
+## Measuring the two routes
+
+`hwire` reports what either route is worth right now: round-trip latency and a
+transfer each way, `--both` for the two side by side. It starts its own half
+on the peer over ssh and binds this side's address for the route it is
+measuring, so the numbers describe the cable or the tailnet rather than
+whichever one the routing table preferred.
+
+```
+hwire            the cable when it is up, Tailscale when it is not
+hwire --both     both, one after the other
+hwire -l         round trips only
+```

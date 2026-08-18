@@ -138,6 +138,7 @@ scripts/rust/
       gdd/                   discard every change in the working tree
       gitkit/                shared repository access, survey, plan and discard
       gpp/                   git add + commit + push
+    hwire/                   latency and throughput between macie and archie
     path/                    repo-relative or home-relative path of a target
     size/                    sizes and line counts for files and directories
     sysinfo-collect/         native system probing, fastfetch-shaped JSON
@@ -1240,6 +1241,67 @@ observed from a test: `DMUX_DRY_RUN=1` prints the command that would have
 been exec'd instead of running it, and that is how the integration tests —
 and a doubtful user — inspect transport selection without losing the
 terminal.
+
+---
+
+## hwire
+
+`hwire` answers what the cable is worth. It measures the link between macie and
+archie — round-trip latency, then a transfer in each direction — and it
+measures the link rather than a program that happens to use it: no ssh cipher
+in the middle, nothing on the connection but zeros, and the count taken by
+whichever side received.
+
+Both halves are the same binary. `hwire` starts `hwire serve` on the peer over
+ssh, reads the address and port it printed, and then talks to it directly on
+the route being measured; ssh is the control channel and carries none of the
+data. Nothing has to be started by hand and no port has to be remembered. The
+peer's half is told to exit when the run ends and holds an idle timeout for
+the runs that end some other way — a client killed mid-transfer, or a terminal
+closed on top of one, would otherwise leave a listener behind.
+
+Both routes are usually up at once, so naming a destination does not say which
+one was measured: the routing table decides. Each side binds its own address
+for the route under test, the way the ssh configs use `BindInterface`, which
+forces the packets onto it — an answer from 10.77.77.2 is the cable and
+nothing else. With no argument `hwire` measures the cable when it answers and
+Tailscale when it does not, the order `ssh archie` resolves in; `--both`
+measures each in turn, which is the only way to see the difference in one
+place.
+
+The transfer numbers are the receiver's. A sender can only report the rate it
+filled a socket buffer at, which on a stalling link is fiction, so the side
+that receives counts the bytes and the seconds, and sends the pair back when
+that side is the peer. Both discard the first 150 ms after the first byte: TCP
+opens a connection with a small congestion window and doubles it once per
+round trip, so the beginning of a transfer measures the ramp rather than the
+link. That is what `iperf3 -O` does by hand, and it is why `-t 1` spends about
+1.15 s per direction.
+
+Latency is a round trip on an established connection with Nagle off, not a
+connect: eight bytes out, the same eight back, `-n` times. `-n` is a ceiling
+and half a second is the other one, whichever arrives first — on the cable
+that is the full 200 samples in a third of a second, and on Tailscale it is
+however many fit, so the quickest phase never becomes the longest. Five round
+trips before the timed ones are thrown away with the connection's own warm-up.
+
+The answers were checked against `iperf3` on the same cable: 4.51 Gbit/s out
+and 3.05 Gbit/s back for iperf3, 4.56 and 3.04 for `hwire`. The asymmetry
+belongs to the link, not to either tool.
+
+`--at <address>:<port>` skips the ssh and measures a `hwire serve` that is
+already listening, which is how the integration tests measure a real
+connection over the loopback and how any third machine with the binary can be
+measured at all. A server started by hand answers anyone; one started for a
+measurement is handed a fresh token over ssh and answers only the client that
+repeats it, so two overlapping runs cannot be counted as one.
+
+Rates print in decimal bits per second beside binary bytes per second — the
+unit the interface is sold in, and the unit a file copy is felt in. The four
+addresses are a copy of the ones in `dmux::hosts`, kept rather than shared
+because that crate's bundled SQLite is a long build to depend on for two pairs
+of numbers; a unit test reads this repository's ssh configs and fails if the
+cable's pair drifts.
 
 ---
 
