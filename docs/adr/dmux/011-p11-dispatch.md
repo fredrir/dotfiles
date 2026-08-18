@@ -111,3 +111,33 @@ alone, lets the rest run in parallel without any of them reopening that file.
 | W2-C | `--format json` envelope for the remaining verbs (rest of case 43) | yes, after W1 |
 | W2-D | `dmux adopt` (case 13) | yes, after W1 |
 | W3 | migration driver (case 45) | after W2-A and W2-D |
+
+## Decisions escalated by the design pass and settled here
+
+### D5 — remote `--all-hosts` rows carry null child counts
+
+`protocol::methods::SPACES` returns durable `SpaceInfo` plus a `ScanSummary` and nothing per-row:
+no group/split counts, no unmanaged rows. So `ls --all-hosts` renders remote counts as `-` (human)
+and `null` (JSON), and omits remote unmanaged resources behind a visible per-host note.
+
+Filling them means a new remote capability and a frozen-contract change. That is not P11 work, and
+case 24 does not need it — case 24 is about the four scopes being *distinct and documented*, and
+case 23's counts are explicitly local ("Two Wez tabs/four panes report two Groups/four Splits").
+Recorded rather than silently rendered as zero, because a zero would be a lie and a `null` is a
+statement that the owner was not asked.
+
+### D6 — the `RM`/`RENAME` client wrapper is pulled forward from P7
+
+`resolve_live` already resolves remote owners over `call_over_routes`, but the mutation half of
+`methods::{RM,RENAME}` has an agent handler and no client caller. Cases 41 and 42 need it, so it
+lands in P11 rather than waiting. It is kept local to `rm_cli.rs`: `remote/client.rs` is
+remote-agent-owned and `new_cli.rs` is being edited in the same window, and neither needs to change
+for this.
+
+### D7 — remote `adopt` is refused, not implemented
+
+There is no `ADOPT` method in the protocol, and adoption is owner-local by §2.6 — the owner host is
+the sole authority for adoption, mutation journals, and tombstones. `dmux adopt --host b` therefore
+returns a typed `ProtocolMismatch` naming the limitation, the same shape `space_cli.rs:513` already
+uses for cross-host refs. Case 13 does not require remote adoption; it requires that adoption be
+explicit, fenced, and once-only, which the owner-local path delivers.
