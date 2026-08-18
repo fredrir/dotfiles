@@ -1,0 +1,19 @@
+# cdc_ncm defaults to a 16 KiB NTB whatever the device advertises, and this Mac
+# advertises 32764 both ways. At MTU 8178 a 16 KiB block holds two frames, so
+# transmit spent an interrupt per two packets: 19,242 bytes per xhci IRQ, 28k
+# IRQ/s, one core. The advertised size is safe to transmit into -- it takes
+# archie -> macie from 3.0 to 6.5 Gbit/s and failed in no run.
+#
+# rx_max only invites the Mac to send a block that large, and above 24 KiB the
+# receive direction intermittently falls to 0.32 Gbit/s: 10 of 29 runs at 31744
+# and 32764, none in 30 at 24576 and below. It clears on its own and comes back
+# just as arbitrarily. Every rx_* error counter stays at zero, the blocks that
+# do arrive are packed as fully as ever, and transmit is untouched while it
+# happens, so the link is idling rather than failing; the cause is unidentified.
+# Stopping short of what the Mac offers costs 7.5 rather than 8.0 Gbit/s,
+# against 4.4 at the default, and the cable behaves the same way every time.
+#
+# Matched on the same properties as 10-macie-usb.link so what the device is has
+# one definition, and numbered after 75-net-description.rules, which sets them.
+ACTION=="add", SUBSYSTEM=="net", ENV{ID_VENDOR_ID}=="05ac", ENV{ID_MODEL}=="Mac", ENV{ID_USB_INTERFACE_NUM}=="00", \
+  ATTR{cdc_ncm/tx_max}="32764", ATTR{cdc_ncm/rx_max}="24576"
