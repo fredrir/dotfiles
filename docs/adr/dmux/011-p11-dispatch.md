@@ -141,3 +141,38 @@ the sole authority for adoption, mutation journals, and tombstones. `dmux adopt 
 returns a typed `ProtocolMismatch` naming the limitation, the same shape `space_cli.rs:513` already
 uses for cross-host refs. Case 13 does not require remote adoption; it requires that adoption be
 explicit, fenced, and once-only, which the owner-local path delivers.
+
+## D8 — `repair reconcile` is added to the frozen §7.1 grammar
+
+`registry::reconcile` shipped with zero production callers: `resume_duty`, `decide_rename` and
+`decide_create` were exercised only by `tests/registry/journal.rs`. The damage was reachable — a
+crash between `reserve_space_kind` and `abort_create` left a `reserved` row and a `prepared`
+operation that no verb could reap, burning the logical name permanently. Case 13 says "adoption
+crash states reconcile"; they did not.
+
+Adding a verb to a frozen contract needs recording. §7.1 gains
+`dmux repair reconcile [SPACE_REF...]` and §7.4 gains its behavioural rule. It sits beside
+`normalize` and `rebind` because all three are explicit, confirmed, owner-local repairs of managed
+state — §10.3's category, not a new one.
+
+Two properties are load-bearing and are written into §7.4 so they cannot be traded away later:
+
+1. **`resume_duty` decides.** The verb gathers evidence and applies an outcome; it does not form
+   its own opinion about what a crashed operation means. A second judgement would be a second
+   contract.
+2. **It never binds an orphan to a reserved key.** `resume_duty` permits `RebindAndFinalize` for
+   the one-conforming-match case, but binding requires the bootstrap acknowledgement `create_space`
+   performs and `repair` cannot, and on tmux the key is a mutable name a stranger could hold. The
+   verb takes only the weaker half of that permission — release, never bind — and refuses the rest
+   naming `repair rebind`.
+
+`repair rebind` remains unimplemented. It is now load-bearing as the named remedy for the orphan
+case, so it is no longer optional polish.
+
+### Known limitation, recorded rather than hidden
+
+§10.3 says the adoption journal covers the source token, but `reserve_space_kind` records only
+`{name, backend_instance}`. So when reconcile compensates a crashed Wez adopt by reversing the CAS
+rename, it renames to the reservation's **logical name** — byte-identical to the source unless
+`dmux adopt --name` was used. Making it exact requires a registry payload change carrying the
+source token, which also unblocks a real source/destination/epoch reconciliation. Not done here.

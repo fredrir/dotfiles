@@ -269,6 +269,7 @@ dmux disconnect [--domain]
 dmux adopt NATIVE_REF [--name NAME] [--host H]
 dmux repair normalize (SPACE_REF | NATIVE_REF) [--host H] [-y|--yes]
 dmux repair rebind SPACE_REF NATIVE_REF [--host H] [-y|--yes]
+dmux repair reconcile [SPACE_REF...] [--host H] [-y|--yes]
 dmux context stamp SPACE_REF
 
 dmux inspect SPACE_REF [--format human|json]
@@ -327,6 +328,7 @@ dmux ssh HOST_OR_ADDRESS
 - Connecting a Wez Space without a live trusted GUI bridge exits 6 unless `--launch-gui` was explicitly requested. Automatic policy never launches a GUI implicitly.
 - When connection is requested, Wez presentation capability is preflighted before identity reservation or native creation. `--launch-gui` conflicts with `--no-connect` and is invalid for tmux. If verified creation succeeds but a later presentation step fails, report `created=true, connected=false` with the stable ref and partial exit 7; never abort/tombstone the live Space or fall back to tmux.
 - Managed create/rename rejects a cross-backend logical-name collision by default. `--allow-name-collision` is an explicit expert acknowledgement and never changes a Space's backend.
+- `repair reconcile` resolves a mutation whose process died mid-flight, routing each stranded row through the §10.2 journal's own resume decision rather than a second judgement. It distinguishes crashed from running by trying the locks a live mutation would hold: nothing durable separates them, and elapsed time is not evidence. A scope still held is reported and left alone. It never binds an orphan to a reserved key — that needs the bootstrap acknowledgement `new` performs and `repair` cannot — so that case refuses and names `repair rebind`.
 - `NATIVE_REF` is an opaque provider-qualified token emitted for an unmanaged row, of the form `native:<backend>:<base64url-no-padding>`. It is never accepted as a backend command string. `adopt` re-resolves the token in a complete owner scan before acquiring its operation lease.
 
 ## 8. Resolution and creation policy
