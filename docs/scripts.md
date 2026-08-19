@@ -34,6 +34,17 @@ project environment's Python or dependency commands. The Ubuntu VPS bootstrap
 uses `./setup.sh --commands-only` to install the same entry points without a
 development environment.
 
+`shared/zsh/.zshenv` puts `~/.local/bin` on PATH a second time, because the
+`conf.d` fragments above it only run for interactive shells and a remote command
+never gets one. `ssh <host> <cmd>` — which is how `dmux ssh` reaches its agent —
+reads `.zshenv` and nothing else, so without that entry every repo command is
+missing on the far side. It is one shared file rather than a per-profile pair
+because the requirement is identical on both machines; anything platform-shaped,
+anything that forks, and anything that prints belongs in `conf.d` instead, since
+`.zshenv` is also read by every script. `typeset -U path PATH` is set there and
+the attribute survives into `.zshrc`, so the fragments prepending the same entry
+collapse rather than duplicate.
+
 ## Layout
 
 ```

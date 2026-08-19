@@ -53,3 +53,44 @@ test_other_dotfile_commands_do_not_reload_zsh() {
 
   assert_file_is "$TRACE" 'status'
 }
+
+setup_zshenv() {
+  command -v zsh >/dev/null 2>&1 || fail "zsh is required"
+
+  ZSH_BIN="$(command -v zsh)"
+  ZDOTDIR="$SANDBOX/zdotdir"
+  mkdir -p "$ZDOTDIR"
+  # A copy, not a link: the point is what a real zsh picks up on its own, and
+  # `zsh -f` would skip .zshenv along with everything else.
+  cp "$SOURCE_ROOT/shared/zsh/.zshenv" "$ZDOTDIR/.zshenv"
+  export ZDOTDIR
+}
+
+count_local_bin() {
+  "$ZSH_BIN" -c "$1" | grep -c -x "$HOME/.local/bin"
+}
+
+test_zshenv_puts_local_bin_on_the_non_interactive_path() {
+  setup_zshenv
+
+  local count
+  count="$(count_local_bin 'print -rl -- $path')"
+  [ "$count" = "1" ] || fail "expected one ~/.local/bin in \$path, got $count"
+}
+
+test_zshenv_does_not_duplicate_when_conf_d_prepends_again() {
+  setup_zshenv
+
+  local count
+  count="$(count_local_bin 'path=("$HOME/.local/bin" $path); print -rl -- $path')"
+  [ "$count" = "1" ] || fail "conf.d prepend duplicated ~/.local/bin ($count entries)"
+}
+
+test_zshenv_is_silent() {
+  setup_zshenv
+
+  local output
+  output="$("$ZSH_BIN" -c true 2>&1)"
+  [ -z "$output" ] || fail "zshenv wrote output:
+$output"
+}

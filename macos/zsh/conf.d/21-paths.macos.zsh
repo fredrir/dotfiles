@@ -3,6 +3,7 @@ path=("${(@)path:#$HOME/dotfiles/scripts/.venv/bin}")
 
 path=(
   "$HOME/.local/bin"
+  "$HOME/.cargo/bin"
   $path
 )
 
