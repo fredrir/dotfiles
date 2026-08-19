@@ -110,6 +110,13 @@ local function domain(name, state, spawnable)
     if not self.delay_detach then
       self.panes = false
     end
+    -- Mux::domain_was_detached kills every pane in the domain and prunes the
+    -- windows that leaves empty, so a detached route stops contributing an
+    -- imported workspace. A fake that kept the window would hide exactly the
+    -- sentinel ambiguity two attached routes to one server produce.
+    if self.on_detach then
+      self.on_detach(self)
+    end
   end
   function value:state()
     return self.current
@@ -316,9 +323,17 @@ active_workspace = nil
 result, failure = dispatch('activate', target)
 assert(not result and failure.code == 'not_found' and active_workspace == nil)
 
--- A stale selector cannot attach USB while the same backend instance is
--- already visible through Tailscale. It fails without detaching either.
-windows = { sentinel_window }
+-- §12.3 keeps at most one route to a backend instance attached, so selecting
+-- USB while the same backend instance is still imported through Tailscale
+-- detaches the stale alternate first. This is acceptance case 20's path: the
+-- host, backend instance, epoch and Space are unchanged and only the transport
+-- differs, so refusing here would strand the Space on a dead route. Both routes
+-- import the one server's sentinel workspace, so the alternate's window must be
+-- gone before the selected route's sentinel can be unambiguous.
+windows = { sentinel_window, sentinel_window_for 'dmux-b-ts' }
+alternate.on_detach = function()
+  windows = { sentinel_window }
+end
 local attach_target = {
   domain = 'dmux-b-usb',
   backend_instance_uid = backend_instance,
@@ -326,25 +341,46 @@ local attach_target = {
   alternate_domains = { 'dmux-b-ts' },
 }
 result, failure = dispatch('attach_domain', attach_target)
-assert(not result and failure.code == 'alternate_route_attached')
+assert(result and not failure and result.domain == 'dmux-b-usb' and result.domain_state == 'Attached')
+assert(alternate.detaches == 1 and alternate.current == 'Detached' and alternate.panes == false)
+assert(selected.attaches == 1 and selected.current == 'Attached')
+
+-- §8.4: a route change never moves the server epoch. An alternate whose system
+-- sentinel reports a new epoch invalidates the whole plan instead of being
+-- detached as though it were still the signed backend.
+selected.current = 'Detached'
+selected.panes = false
+selected.attaches = 0
+alternate.current = 'Attached'
+alternate.panes = true
+alternate.detaches = 0
+windows = { sentinel_window, sentinel_window_for('dmux-b-ts', '66666666-6666-4666-8666-666666666666') }
+result, failure = dispatch('attach_domain', attach_target)
+assert(not result and failure.code == 'backend_epoch_changed')
 assert(alternate.detaches == 0 and alternate.current == 'Attached')
 assert(selected.attaches == 0 and selected.current == 'Detached')
+alternate.on_detach = nil
 
--- Correct route selection reuses the already-attached compatible domain.
+-- Correct route selection reuses the already-attached compatible domain and
+-- never touches an alternate that is already detached.
 local ts_target = {
   domain = 'dmux-b-ts',
   backend_instance_uid = backend_instance,
   server_epoch = epoch,
   alternate_domains = { 'dmux-b-usb' },
 }
+selected.current = 'Detached'
+selected.panes = false
 windows = { sentinel_window_for 'dmux-b-ts' }
 result, failure = dispatch('attach_domain', ts_target)
 assert(result and not failure and result.domain == 'dmux-b-ts')
-assert(alternate.attaches == 0 and selected.attaches == 0)
+assert(alternate.attaches == 0 and selected.attaches == 0 and selected.detaches == 0)
 
--- With no attached route, the verified selected route attaches normally.
+-- With no attached route, the verified selected route attaches normally and
+-- the already-detached alternate is left alone.
 alternate.current = 'Detached'
 alternate.panes = false
+alternate.detaches = 0
 windows = { sentinel_window }
 result, failure = dispatch('attach_domain', attach_target)
 assert(result and not failure and result.domain_state == 'Attached')
@@ -387,6 +423,34 @@ assert(not pending_result and not pending_error and #scheduled == 1)
 windows = { sentinel_window }
 table.remove(scheduled, 1)()
 assert(pending_result and pending_result.domain_state == 'Attached')
+
+-- Detaching the alternate again after the selected route is up could race an
+-- external re-attach without a bound, so an alternate that came back during the
+-- attach fails closed instead of being detached a second time.
+selected.current = 'Detached'
+selected.panes = false
+alternate.current = 'Detached'
+alternate.panes = false
+alternate.detaches = 0
+windows = {}
+scheduled = {}
+pending_result, pending_error = nil, nil
+presentation.dispatch(
+  { action = 'attach_domain', target = attach_target, expiry = os.time() + 10 },
+  { safe_quit = {} },
+  function(ok, err)
+    pending_result, pending_error = ok, err
+  end
+)
+assert(not pending_result and not pending_error and #scheduled == 1)
+alternate.current = 'Attached'
+alternate.panes = true
+windows = { sentinel_window }
+table.remove(scheduled, 1)()
+assert(not pending_result and pending_error.code == 'alternate_route_attached')
+assert(alternate.detaches == 0 and alternate.current == 'Attached')
+alternate.current = 'Detached'
+alternate.panes = false
 
 -- A detached state is not sufficient for safe lifecycle completion: the GUI
 -- must also report that no imported panes remain for the domain.

@@ -76,6 +76,53 @@ When it does break, `udevadm test-builtin net_setup_link
 /sys/class/net/<device>` says which `.link` file won on archie, and `hpath`
 says which route the next ssh will take from either end.
 
+## Addressing the two routes
+
+`ssh archie` is an answer to "get me to archie", and it is deliberately
+evasive about which wire it used. That is right for a person and wrong for
+anything that has to record what it did. So both routes now have a spelling
+that cannot change its mind:
+
+```
+ssh archie                 whichever route the probe in 05- likes
+ssh 10.77.77.2             the cable, or nothing
+ssh 100.126.231.24         tailscale, or nothing
+```
+
+and the same three from archie, pointing the other way: `macie`,
+`10.77.77.1`, `100.75.71.79`.
+
+Two things wanted this. dmux enrolls one route per address and labels each
+one, and a route it has labelled `usb` must not answer over tailscale when
+the cable is out — that label is what licenses remote Wez, and there is no
+rule for automatic Wez over the tailnet. Under the alias the label is a
+guess: `05-`'s probe decides after dmux has already written the row down.
+The other is wezterm, whose built-in ssh client gets the route's address
+verbatim and does not implement `Match exec` at all; `wez/remote/mux.lua`
+has named these addresses outright for exactly that reason since before dmux.
+
+The alias is untouched. `05-` still probes and still wins when the cable
+answers, so interactive `ssh archie` behaves as the table above describes.
+The addresses are additions, and they inherit the discipline of the routes
+they name: the cable's entry binds `10.77.77.1`, so it fails to bind rather
+than falling through when the cable is out, and keeps the tight keepalives —
+ten seconds of silence on a 1.7 ms link means the cable is gone. The
+tailscale entry keeps the slack ones, because that is the route in use while
+the laptop roams.
+
+Every one of these carries `HostKeyAlias archie` (or `macie`). Without it,
+each new spelling would mint its own `known_hosts` entry, and archie would be
+four hosts in that file instead of one — which is the thing the unification
+went to some trouble to stop. With it, `ssh 10.77.77.2` on an empty
+`known_hosts` writes `archie`; with `-F /dev/null` the same connection writes
+`10.77.77.2`. That is the whole difference, and it is worth checking after
+any change here:
+
+```
+ssh -G 10.77.77.2 | grep -i hostkeyalias
+ssh -o BatchMode=yes -o ConnectTimeout=6 fredrir@10.77.77.2 true; echo $?
+```
+
 ## Relevant files
 
 ```

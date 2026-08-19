@@ -1240,7 +1240,9 @@ fn the_legacy_policy_flag_beats_a_wez_first_opt_in() {
         .expect("dmux runs");
     assert!(!stderr(&canary).contains(gated), "{}", stderr(&canary));
 
-    // And a `0` is not an opt-out: only `1` reverses the policy.
+    // And a `0` is not an opt-out for *this* switch: only `1` reverses the
+    // policy. `DMUX_WEZ_FIRST=0` is an opt-out, which is a different switch
+    // with different semantics; see the test below.
     let not_an_opt_out = sandbox
         .command(&["ls", "--tree"])
         .env("DMUX_WEZ_FIRST", "1")
@@ -1252,4 +1254,25 @@ fn the_legacy_policy_flag_beats_a_wez_first_opt_in() {
         "{}",
         stderr(&not_an_opt_out)
     );
+}
+
+/// `DMUX_WEZ_FIRST=0` at the surface, stated so the flip cannot quietly
+/// invert it. This assertion is a no-op today — the default is legacy, so an
+/// explicit `0` and an unset variable are indistinguishable from outside —
+/// and becomes load-bearing at §21 step 9, when a host that wrote `0` into
+/// its shell profile must keep the legacy surface it asked for rather than
+/// having `0` read as "no preference" and inherited as Wez-first.
+#[test]
+fn an_explicit_zero_keeps_the_legacy_surface() {
+    let sandbox = Sandbox::with_tmux();
+    let gated = "--all-hosts/--backend/--tree/--format require DMUX_WEZ_FIRST=1";
+
+    let output = sandbox
+        .command(&["ls", "--tree"])
+        .env("DMUX_WEZ_FIRST", "0")
+        .env_remove("DMUX_LEGACY_POLICY")
+        .output()
+        .expect("dmux runs");
+    assert!(stderr(&output).contains(gated), "{}", stderr(&output));
+    assert_eq!(output.status.code(), Some(2));
 }

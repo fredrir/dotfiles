@@ -1,4 +1,4 @@
-# ADR 010: P11 gate amendments — case 17 split, canary enablement, reader test, wrapper verbs
+# ADR 010: P11 gate amendments — case 17 split, canary enablement, reader test, wrapper verbs, flip halves
 
 Status: accepted (P11; amendments made before the canary starts)
 Date: 2026-08-18
@@ -9,7 +9,9 @@ Three items in the P11 gate were underspecified or self-contradictory in a way
 that would have surfaced as a *failing* gate rather than as a spec question, and
 a fourth — §17's rule for the legacy wrappers — is followable to the letter and
 wrong in the hand. Each is corrected here, before the canary begins, with the
-reasoning recorded.
+reasoning recorded. §5 adds a fifth item of a different kind: not a correction,
+but the record of what the §21 step 9 flip actually consists of, established by
+reading the code before anyone throws the switch.
 
 ## 1. Acceptance case 17 is split into 17a and 17b
 
@@ -194,6 +196,115 @@ one named "ls". §7.4's `con --name` escape is not the answer today — it is
 connect-only, so it cannot make the Space, and it is gated on `DMUX_WEZ_FIRST`
 until the cutover, so in a default shell it exits 2 (`main.rs:605`).
 
+## 5. The §21 step 9 flip has two halves, and the constant is only one
+
+§2 above resolved the canary/flip circularity by naming `DMUX_WEZ_FIRST=1` as
+the host-scoped opt-in, and defined step 9's "flip globally" as changing the
+default that applies when the variable is unset. That definition is correct and
+incomplete in a way worth writing down before anyone throws the switch:
+**changing the default alone is very nearly a no-op.**
+
+### What flipping the constant alone does
+
+`WEZ_FIRST_BY_DEFAULT` (`scripts/rust/crates/dmux/src/main.rs`) is read only
+through `resolve_wez_first`, which gates the Wez-first *CLI surface* — the
+flags and subcommands that today answer "require DMUX_WEZ_FIRST=1". Flipping it
+stops those from erroring. It does not make automatic creation choose Wez,
+because nothing in that path consults the constant. The chain, verified:
+
+1. The GUI evaluates its managed config only when the variable is `1` in the
+   GUI process's own environment: `shared/wezterm/wezterm.lua:9` guards the
+   `wez.dmux_bridge` require and preflight, and the module itself re-checks at
+   `shared/wezterm/wez/dmux_bridge/init.lua:17-24` (`M.enabled()`, and
+   `M.preflight` returning early when it is false).
+2. With the variable unset the GUI therefore stays legacy:
+   `shared/wezterm/wez/domains/init.lua:215-221` takes its `wez_first == false`
+   path, so the managed `dmux` unix client domain at the service's descriptor
+   socket is never declared and the GUI is not an attach-only client of the
+   managed mux. The mux wrapper agrees independently —
+   `shared/wezterm/mux/dmux-mux-start.sh:55` defaults the variable to `0` and
+   the managed branches at `:88` and `:98` require `= 1`.
+3. A legacy GUI publishes no ambient bridge marker, so
+   `ProductionGuiAuthority::creation_bridge`
+   (`scripts/rust/crates/dmux/src/gui_cli.rs:1260-1271`) takes its
+   stale-or-absent arm and returns `Ok(None)`.
+4. `new_creation_context` (`scripts/rust/crates/dmux/src/gui_cli.rs:2301-2305`)
+   computes `trusted_gui_bridge = bridge.is_some()` — false — and
+   short-circuits `wez_service_compatible` to false without probing.
+5. `decide_backend`'s `(None, None)` arm
+   (`scripts/rust/crates/dmux/src/policy.rs:99-108`) then takes "local
+   plain/headless/untrusted or stale Wez environment" and returns
+   `Create(Backend::Tmux)`.
+
+So a host that flipped only the constant gets the Wez-first flags and tmux
+Spaces. That is not a bug in either half — §8.3 is being obeyed, and a GUI
+that is not a managed client genuinely cannot host a Wez Space — but it is not
+the cutover either, and a canary report of "we flipped it and nothing changed"
+would be evidence of nothing.
+
+### The two halves, stated
+
+- **The Rust default.** `WEZ_FIRST_BY_DEFAULT` governs `dmux` invocations in
+  shells that never inherited the variable: which surface they get, and which
+  arm of §8.3 they are even allowed to reach.
+- **The service units.** `launchctl setenv DMUX_WEZ_FIRST 1` before
+  bootstrapping `macos/launchd/com.fredrir.wezterm-mux.plist`, and
+  `systemctl --user import-environment DMUX_WEZ_FIRST` for
+  `linux/arch/wezterm-mux/wezterm-mux.service:9-12`, are what make the mux and
+  the GUI run managed — which is what makes steps 3-5 above produce a trusted
+  bridge, and therefore what makes automatic policy select Wez at all.
+
+Step 9 ships both, in that order or neither. Shipping only the second is the
+canary and is already specified; shipping only the first changes the surface
+without changing a single creation decision.
+
+### `DMUX_LEGACY_POLICY=1` composes with both halves
+
+It reverses creation policy only, and it does so at the CLI, ahead of both
+switches: `resolve_wez_first` returns false before it looks at `DMUX_WEZ_FIRST`
+or the default. It does not stop the mux job, unset the service environment, or
+touch a live pane — the unit and plist both say so in their own comments, and
+both pass the variable through so anything they spawn reaches the same verdict.
+That is precisely §21's rollback rule ("switch creation policy back to legacy
+tmux", leave a live mux server alone): existing Wez Spaces stay attachable
+through the still-running managed server while every *new* Space is tmux.
+Shells started before the setenv keep their old environment and must be
+restarted; that is a property of environment inheritance, not of the opt-out.
+
+### `DMUX_WEZ_FIRST=0` is an explicit opt-out, from now on
+
+`resolve_wez_first` recognised only `"1"` and deferred every other value,
+`"0"` included, to the default. Pre-flip that reads as legacy — but only
+because legacy *is* the default. After the flip the same `0` would have
+resolved to Wez-first, while the 28 read sites counted in §2 all test
+`== '1'` — as do the two direct Rust environment checks outside the resolver,
+`tmux_hook_cli::run` and `gui_cli`'s correlated-exec guard — and would have
+gone on treating it as off: one variable, two answers, on the same host,
+discovered mid-canary.
+
+`DMUX_WEZ_FIRST` is therefore three-valued: `1` states Wez-first, `0` states
+legacy, anything else states no preference. Precedence is unchanged —
+`DMUX_LEGACY_POLICY=1`, then an explicit `DMUX_WEZ_FIRST`, then the default —
+and the rows the flip moves are now exactly the ones where nobody stated a
+preference. This matches `shared/wezterm/mux/dmux-mux-start.sh:55`
+(`${DMUX_WEZ_FIRST:-0}`) and `shared/zsh/conf.d/94-dmux-context.zsh:16`
+(`!= 1` returns early) rather than contradicting them.
+
+`the_policy_resolver_answers_every_switch_combination` and
+`an_explicit_zero_survives_the_flip_as_an_opt_out`
+(`scripts/rust/crates/dmux/src/main.rs`) hold the table. The second evaluates
+it against both settings of the default, because with the default still legacy
+an explicit `0` and an unset variable are indistinguishable and a resolver that
+ignores `0` passes every other assertion.
+
+### What this deliberately does not do
+
+It does not flip anything, export anything, or change which host is managed.
+Nor does it make the Rust half detect the GUI half: a `dmux` that noticed it was
+running in a legacy GUI and downgraded its own surface would be the silent
+backend substitution §1 and §22 forbid, in a new place. The two halves stay
+independently observable, and step 9's checklist is what keeps them in step.
+
 ## Consequences
 
 - Plan §20.2 case 17 and §21 steps 7 and 9 are amended in the same change as
@@ -204,3 +315,12 @@ until the cutover, so in a default shell it exits 2 (`main.rs:605`).
   from undefined to testable.
 - Plan §17's wrapper sentence is amended in the same change as this ADR, and
   the wrapper's allowlist gains the first enforcement it has ever had.
+- §5 records what step 9 consists of rather than amending §21's text: the Rust
+  default and the service export ship together, with the evidence chain written
+  down so "we flipped it and nothing changed" can be read correctly. Whether
+  §21 step 9 wants that second half spelled out in its own words is the root
+  integrator's call at the flip, not a gate item.
+- `DMUX_WEZ_FIRST=0` now means legacy on both sides of the flip. Nothing
+  observable changes today — an explicit `0` and an unset variable resolve
+  alike while the default is legacy — so this is a pre-flip correction with no
+  behavioral cost, which is the only time it can be made safely.

@@ -1712,9 +1712,15 @@ fn other(
 /// nothing else.** Do not flip it before the step 7 canary and the full P11
 /// gate pass (ADR 010 §2); flipping it early makes every host that never
 /// opted in start creating Wez Spaces. Hosts already canarying under
-/// `DMUX_WEZ_FIRST=1` see no change when it flips, and `DMUX_LEGACY_POLICY=1`
-/// is the emergency opt-out that reverses it for the one release the legacy
-/// path is still shipped.
+/// `DMUX_WEZ_FIRST=1` see no change when it flips, hosts that stated
+/// `DMUX_WEZ_FIRST=0` stay legacy across it, and `DMUX_LEGACY_POLICY=1` is
+/// the emergency opt-out that reverses it for the one release the legacy path
+/// is still shipped.
+///
+/// It is also only half of the cutover. This constant governs CLI invocations
+/// in shells that never inherited the variable; the service units exporting
+/// `DMUX_WEZ_FIRST=1` are what make the GUI and mux run managed, and without
+/// that half `decide_backend` still picks tmux (ADR 010 §5).
 const WEZ_FIRST_BY_DEFAULT: bool = false;
 
 /// Whether this invocation gets the Wez-first surface and automatic policy.
@@ -1736,19 +1742,37 @@ fn wez_first_enabled() -> bool {
 /// first. `DMUX_LEGACY_POLICY=1` alone returns the host to legacy tmux
 /// creation (§21 rollback, "switch creation policy back to legacy tmux").
 ///
-/// Both are opt-in switches whose only recognised value is `"1"`; every other
-/// value, `"0"` included, means "I did not set this" and defers to the next
-/// rule. `DMUX_WEZ_FIRST=0` has never been an opt-out — pre-flip it reads as
-/// legacy only because legacy is the default — and it does not silently
-/// become one at the flip. The opt-out is `DMUX_LEGACY_POLICY=1`.
+/// `DMUX_LEGACY_POLICY` is an opt-in switch whose only recognised value is
+/// `"1"`. `DMUX_WEZ_FIRST` is three-valued: `"1"` states Wez-first, `"0"`
+/// states legacy, and anything else — unset, empty, `"yes"` — states no
+/// preference and defers to the default. The `"0"` arm is not decoration
+/// today, when it agrees with the default: it is what stops the flip from
+/// re-reading an existing `DMUX_WEZ_FIRST=0` as an opt-*in*. Every other read
+/// site tests `== '1'`, so `0` is already off everywhere else
+/// (`shared/wezterm/mux/dmux-mux-start.sh:55` defaults it to `0`;
+/// `shared/zsh/conf.d/94-dmux-context.zsh:16` treats `!= 1` as off), and the
+/// resolver would have been the one place it meant the opposite (ADR 010 §5).
 fn resolve_wez_first(legacy_policy: Option<&str>, wez_first: Option<&str>) -> bool {
+    resolve_wez_first_with_default(legacy_policy, wez_first, WEZ_FIRST_BY_DEFAULT)
+}
+
+/// The resolver with the §21 step 9 default injected rather than read, so the
+/// post-flip half of the truth table is testable before the flip. Production
+/// has exactly one caller, above; the tests are the reason it takes an
+/// argument at all.
+fn resolve_wez_first_with_default(
+    legacy_policy: Option<&str>,
+    wez_first: Option<&str>,
+    wez_first_by_default: bool,
+) -> bool {
     if legacy_policy == Some("1") {
         return false;
     }
-    if wez_first == Some("1") {
-        return true;
+    match wez_first {
+        Some("1") => true,
+        Some("0") => false,
+        _ => wez_first_by_default,
     }
-    WEZ_FIRST_BY_DEFAULT
 }
 
 fn legacy_host(raw: &str) -> Option<Host> {
@@ -2215,16 +2239,61 @@ mod tests {
                 "DMUX_LEGACY_POLICY=1 must force legacy with DMUX_WEZ_FIRST={wez_first:?}"
             );
         }
-        // Without the opt-out, `DMUX_WEZ_FIRST=1` still decides and every
-        // other spelling defers to the default.
+        // Without the opt-out, `DMUX_WEZ_FIRST` decides whenever it states
+        // something: `1` on, `0` off. Only the spellings that state nothing
+        // defer to the default, and those are the only rows the flip moves.
         for legacy in [None, Some("0"), Some(""), Some("yes")] {
             assert!(
                 resolve_wez_first(legacy, Some("1")),
                 "the canary opt-in must survive DMUX_LEGACY_POLICY={legacy:?}"
             );
+            assert!(
+                !resolve_wez_first(legacy, Some("0")),
+                "DMUX_WEZ_FIRST=0 is an opt-out with DMUX_LEGACY_POLICY={legacy:?}"
+            );
             assert_eq!(resolve_wez_first(legacy, None), WEZ_FIRST_BY_DEFAULT);
-            assert_eq!(resolve_wez_first(legacy, Some("0")), WEZ_FIRST_BY_DEFAULT);
+            assert_eq!(resolve_wez_first(legacy, Some("")), WEZ_FIRST_BY_DEFAULT);
+            assert_eq!(resolve_wez_first(legacy, Some("yes")), WEZ_FIRST_BY_DEFAULT);
         }
+    }
+
+    /// The same table evaluated against both settings of the §21 step 9
+    /// default, which is the only way to prove the `0` arm before the flip:
+    /// with the default still legacy, `DMUX_WEZ_FIRST=0` and "unset" agree by
+    /// accident, and a resolver that ignores `0` passes every assertion
+    /// above. Flip the injected default and they part company — `0` stays
+    /// legacy, unset becomes Wez-first — which is exactly the mid-canary
+    /// surprise this exists to prevent, since all 28 Lua/zsh/shell read sites
+    /// test `== '1'` and would go on treating `0` as off.
+    #[test]
+    fn an_explicit_zero_survives_the_flip_as_an_opt_out() {
+        for wez_first_by_default in [false, true] {
+            let resolve = |legacy, wez_first| {
+                resolve_wez_first_with_default(legacy, wez_first, wez_first_by_default)
+            };
+            for legacy in [None, Some("0"), Some(""), Some("yes")] {
+                assert!(
+                    !resolve(legacy, Some("0")),
+                    "DMUX_WEZ_FIRST=0 must be legacy with default \
+                     {wez_first_by_default} and DMUX_LEGACY_POLICY={legacy:?}"
+                );
+                assert!(resolve(legacy, Some("1")));
+                // Stating nothing is what the flip moves, and all of it.
+                assert_eq!(resolve(legacy, None), wez_first_by_default);
+                assert_eq!(resolve(legacy, Some("")), wez_first_by_default);
+            }
+            // The emergency opt-out keeps beating both spellings after the
+            // flip; it is the §21 rollback, not a tie-break.
+            for wez_first in [None, Some("1"), Some("0"), Some(""), Some("yes")] {
+                assert!(!resolve(Some("1"), wez_first));
+            }
+        }
+        // And the shipped resolver is the `WEZ_FIRST_BY_DEFAULT` row of that
+        // table, so the two tests cannot drift apart.
+        assert_eq!(
+            resolve_wez_first(None, None),
+            resolve_wez_first_with_default(None, None, WEZ_FIRST_BY_DEFAULT)
+        );
     }
 
     /// The property the opt-out exists for: a host that canaried under

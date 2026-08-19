@@ -631,6 +631,26 @@ local function persistent_snapshot(state)
   return active
 end
 
+-- Every alternate route is proved with the same incarnation check as any other
+-- mutation, so a route change can move neither host, backend instance nor
+-- server epoch (§8.4). An alternate whose system sentinel reports a different
+-- epoch therefore fails closed with backend_epoch_changed and invalidates this
+-- plan; it is never detached as if it were still the signed backend.
+local function alternate_incarnations(target)
+  local records = {}
+  for _, name in ipairs(target.alternate_domains or {}) do
+    table.insert(records, {
+      name = name,
+      backend_instance_uid = target.backend_instance_uid,
+      server_epoch = target.server_epoch,
+    })
+  end
+  return records
+end
+
+-- Non-mutating proof, used only after the selected route is attached. Detaching
+-- again there would race an external re-attach without a bound, so an alternate
+-- that came back during the attach fails closed instead.
 local function alternate_routes_clear(target, bridge_state)
   for _, name in ipairs(target.alternate_domains or {}) do
     if
@@ -653,7 +673,7 @@ local function alternate_routes_clear(target, bridge_state)
       return nil,
         {
           code = 'alternate_route_attached',
-          message = 'refusing to attach a second route while a compatible alternate is still active: ' .. name,
+          message = 'an alternate route to the signed backend became active during the attach: ' .. name,
         }
     end
   end
@@ -673,23 +693,31 @@ local function attach_domain(target, bridge_state, deadline, authorize, done)
     fail(done, 'no_such_domain', 'configured domain is absent: ' .. target.domain)
     return
   end
-  local clear, clear_err = alternate_routes_clear(target, bridge_state)
-  if not clear then
-    done(nil, clear_err)
-    return
-  end
-  local selected_state = domain_state(selected)
-  local selected_has_panes = domain_has_any_panes(selected)
-  if
-    selected_state == nil
-    or selected_has_panes == nil
-    or (selected_state ~= 'Attached' and selected_state ~= 'Detached')
-    or (selected_state == 'Detached' and selected_has_panes)
-  then
-    fail(done, 'domain_inventory_unstable', 'selected domain state cannot be proved safe: ' .. target.domain)
-    return
-  end
-  local function attach_selected()
+  -- §12.3 allows the GUI at most one attached route per backend instance, so a
+  -- stale alternate is detached before the selected route attaches instead of
+  -- refusing the request: after USB removal that alternate is exactly what
+  -- acceptance case 20 must abandon, and its imported sentinel workspace would
+  -- otherwise make the selected route's own sentinel ambiguous. A partial
+  -- failure leaves the already-detached alternates detached, which is the state
+  -- §12.3 wants; only the attach is abandoned.
+  detach_domains(alternate_incarnations(target), bridge_state, deadline, authorize, function(_, detach_err)
+    if detach_err then
+      done(nil, detach_err)
+      return
+    end
+    -- Re-read after the detaches: they prune the alternate's imported windows,
+    -- so no state observed before them can decide the selected route.
+    local selected_state = domain_state(selected)
+    local selected_has_panes = domain_has_any_panes(selected)
+    if
+      selected_state == nil
+      or selected_has_panes == nil
+      or (selected_state ~= 'Attached' and selected_state ~= 'Detached')
+      or (selected_state == 'Detached' and selected_has_panes)
+    then
+      fail(done, 'domain_inventory_unstable', 'selected domain state cannot be proved safe: ' .. target.domain)
+      return
+    end
     if selected_state ~= 'Attached' then
       local authorized, origin_err = authorize()
       if not authorized then
@@ -730,8 +758,7 @@ local function attach_domain(target, bridge_state, deadline, authorize, done)
       end
       done(result)
     end, 'attach_timeout', 'domain/sentinel did not appear before the deadline')
-  end
-  attach_selected()
+  end)
 end
 
 local function activation_result(result)

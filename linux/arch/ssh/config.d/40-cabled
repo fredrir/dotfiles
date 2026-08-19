@@ -1,4 +1,11 @@
-Host cabled-macie
+# The cable, spelled two ways, as on macie: `cabled-macie` for a person, and
+# 10.77.77.1 for anything that has to name the route it took. The reverse
+# enrollment needs the addressable spelling for the same reason macie's does
+# -- `macie` picks its route by probe and never says which. BindAddress keeps
+# it honest: 10.77.77.2 is here only while the cable is. Tight keepalives, as
+# in 05-, because ten seconds of silence on a 1.7 ms link means it is gone.
+
+Host cabled-macie 10.77.77.1
     HostName 10.77.77.1
     User fredrir
     HostKeyAlias macie

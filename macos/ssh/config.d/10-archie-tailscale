@@ -11,3 +11,21 @@ Host archie
     HostKeyAlias archie
     ServerAliveInterval 15
     ServerAliveCountMax 4
+
+# The same route by address, for callers that have to name it. `archie` will
+# not do: 05-'s probe silently prefers the cable whenever it answers, so a
+# route enrolled as tailscale under that name is only tailscale while the
+# cable is out. dmux and wezterm's built-in ssh client both need the spelling
+# that cannot change its mind. Keepalives stay as slack as the alias above,
+# and for the same reason -- this is the roaming route.
+#
+# HostKeyAlias is not decoration here: without it this address would mint a
+# known_hosts entry of its own and undo the unification the alias above
+# exists to keep.
+
+Host 100.126.231.24
+    HostName 100.126.231.24
+    User fredrir
+    HostKeyAlias archie
+    ServerAliveInterval 15
+    ServerAliveCountMax 4

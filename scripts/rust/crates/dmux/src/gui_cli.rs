@@ -953,37 +953,62 @@ fn heartbeat_proves_domains_detached(
     detached && full_set_detached && !unknown_active_persistent
 }
 
+/// §8.4 tries verified routes in one fixed order: USB, then Tailscale, then
+/// any other explicitly enrolled route.
+fn route_class_rank(network_class: &str) -> u8 {
+    match network_class {
+        "usb" => 0,
+        "tailscale" => 1,
+        _ => 2,
+    }
+}
+
+/// Pick the one route this operation plan will present through.
+///
+/// Two enrolled routes reaching one `backend_instance_uid` is §8.4's design,
+/// not a conflict: the manifest validators already prove one HostUid maps to
+/// one backend instance, so a second row is another way to reach the same
+/// server, never a second identity. Only rows that disagree about the owner or
+/// the backend instance are an `IdentityConflict`.
+///
+/// The freshly proven route wins because `fresh_route` is the route the owner
+/// handshake just completed over after §8.4's own priority walk, so it is the
+/// only candidate with live transport evidence; an already-`Attached` domain is
+/// deliberately not preferred, since after USB removal that is exactly the dead
+/// route acceptance case 20 must abandon. Remaining candidates fall back to the
+/// same USB/Tailscale/other order, then the manifest's stable `(priority,
+/// route_id)` sequence. The bridge detaches whichever alternate is stale before
+/// attaching the winner (§12.3), so selecting away from an attached route is
+/// safe.
 fn choose_compatible_presentation_row<'a>(
-    configured_domains: Option<&BTreeMap<String, BridgeDomainState>>,
     fresh_route: &str,
     candidates: &[&'a GuiDomainManifestRow],
 ) -> Result<&'a GuiDomainManifestRow, TypedError> {
-    if candidates.is_empty() {
+    let Some(first) = candidates.first() else {
         return Err(unavailable(
             "no exact-build compatible GUI route exists for this remote Wez instance",
         ));
-    }
-    let attached: Vec<_> = candidates
-        .iter()
-        .filter(|row| {
-            configured_domains
-                .and_then(|domains| domains.get(&row.name))
-                .is_some_and(|state| state.state == "Attached")
-        })
-        .copied()
-        .collect();
-    match attached.as_slice() {
-        [attached] => Ok(*attached),
-        [] => Ok(candidates
-            .iter()
-            .find(|row| row.name == fresh_route)
-            .copied()
-            .unwrap_or(candidates[0])),
-        _ => Err(TypedError::new(
+    };
+    if candidates.iter().any(|row| {
+        row.host_uid != first.host_uid || row.backend_instance_uid != first.backend_instance_uid
+    }) {
+        return Err(TypedError::new(
             ErrorCode::IdentityConflict,
-            "more than one compatible route is already attached for the target backend instance",
-        )),
+            "compatible presentation routes disagree about the owner or backend instance",
+        ));
     }
+    candidates
+        .iter()
+        .copied()
+        .min_by_key(|row| {
+            (
+                row.name != fresh_route,
+                route_class_rank(&row.network_class),
+                row.priority,
+                row.route_id,
+            )
+        })
+        .ok_or_else(|| unavailable("no exact-build compatible GUI route remains after ordering"))
 }
 
 fn preflight_domain_state(state: &BridgeDomainState) -> bool {
@@ -2071,11 +2096,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         .is_some_and(preflight_domain_state)
             })
             .collect();
-        let selected = choose_compatible_presentation_row(
-            Some(heartbeat_domains),
-            &authority.fresh_route,
-            &candidates,
-        )?;
+        let selected = choose_compatible_presentation_row(&authority.fresh_route, &candidates)?;
         let alternate_domains = selected
             .alternate_domains
             .iter()
@@ -2104,8 +2125,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     && row.backend_instance_uid == authority.backend_instance
             })
             .collect();
-        let selected =
-            choose_compatible_presentation_row(None, &authority.fresh_route, &candidates)?;
+        let selected = choose_compatible_presentation_row(&authority.fresh_route, &candidates)?;
         Ok((selected.name.clone(), selected.alternate_domains.clone()))
     }
 
@@ -3153,16 +3173,10 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 "no exact-build compatible GUI route exists for this remote Wez instance",
             ));
         }
-        // Reuse an already-attached compatible route first. Attaching the
-        // same backend instance through a second route would transiently
-        // duplicate it and the Lua bridge correctly refuses that state. If
-        // none is attached, prefer the fresh owner-validated marker route,
-        // then the manifest's deterministic compatible order.
-        let selected = choose_compatible_presentation_row(
-            Some(&heartbeat.domains),
-            &target.route,
-            &candidates,
-        )?;
+        // The marker's route is the one the owner handshake just proved, so it
+        // leads §8.4's order here; the bridge detaches any stale alternate to
+        // the same backend instance before attaching it.
+        let selected = choose_compatible_presentation_row(&target.route, &candidates)?;
         let alternates = selected
             .alternate_domains
             .iter()
@@ -3212,11 +3226,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 if candidates.is_empty() {
                     return Ok(None);
                 }
-                let selected = choose_compatible_presentation_row(
-                    configured_domains,
-                    &authority.route,
-                    &candidates,
-                )?;
+                let selected = choose_compatible_presentation_row(&authority.route, &candidates)?;
                 let alternate_domains = selected
                     .alternate_domains
                     .iter()
@@ -7699,12 +7709,11 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn attached_compatible_route_wins_then_fresh_verified_route_wins() {
-        let host_uid = marker().host_uid;
-        let backend_instance_uid =
-            BackendInstanceUid(Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap());
-        let rows = gui::build_domain_manifest(vec![
+    fn two_route_manifest(
+        host_uid: HostUid,
+        backend_instance_uid: BackendInstanceUid,
+    ) -> Vec<GuiDomainManifestRow> {
+        gui::build_domain_manifest(vec![
             RemoteDomainSource {
                 name: "dmux-b-usb".into(),
                 remote_address: "10.77.77.2".into(),
@@ -7736,58 +7745,66 @@ mod tests {
                 unavailable_reason: None,
             },
         ])
-        .unwrap();
+        .unwrap()
+    }
+
+    #[test]
+    fn freshly_proven_route_wins_over_a_stale_attached_route() {
+        let host_uid = marker().host_uid;
+        let backend_instance_uid =
+            BackendInstanceUid(Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap());
+        let rows = two_route_manifest(host_uid, backend_instance_uid);
         let candidates: Vec<_> = rows.iter().collect();
-        let detached = BridgeDomainState {
-            state: "Detached".into(),
-            has_any_panes: false,
-            backend_instance_uid: Some(backend_instance_uid),
-            pane_count: 0,
-            valid_marker_pane_count: 0,
-            system_pane_count: 0,
-            system_workspace: None,
-            system_epoch: None,
-        };
-        let attached = BridgeDomainState {
-            state: "Attached".into(),
-            has_any_panes: true,
-            backend_instance_uid: Some(backend_instance_uid),
-            pane_count: 1,
-            valid_marker_pane_count: 0,
-            system_pane_count: 1,
-            system_workspace: Some(format!("dmux:system:{}", marker().server_epoch.0)),
-            system_epoch: Some(marker().server_epoch),
-        };
-        let heartbeat = |domains| BridgeHeartbeat {
-            protocol_version: 1,
-            gui_instance: "gui-test-1".into(),
-            pid: std::process::id(),
-            process_start_token: "test-token".into(),
-            updated_at: 1,
-            panes: Vec::new(),
-            domains,
-        };
 
-        let mixed = heartbeat(BTreeMap::from([
-            ("dmux-b-usb".into(), detached.clone()),
-            ("dmux-b-ts".into(), attached),
-        ]));
-        let selected =
-            choose_compatible_presentation_row(Some(&mixed.domains), "dmux-b-usb", &candidates)
-                .unwrap();
+        // Acceptance case 20: the cable is gone, the owner handshake completed
+        // over Tailscale, and the GUI has not yet noticed that its USB client
+        // transport is dead. Presenting through the still-`Attached` USB row
+        // would dial a corpse; the freshly proven route is the only one with
+        // live evidence.
+        let selected = choose_compatible_presentation_row("dmux-b-ts", &candidates).unwrap();
         assert_eq!(selected.name, "dmux-b-ts");
 
-        let none_attached = heartbeat(BTreeMap::from([
-            ("dmux-b-usb".into(), detached.clone()),
-            ("dmux-b-ts".into(), detached),
-        ]));
-        let selected = choose_compatible_presentation_row(
-            Some(&none_attached.domains),
-            "dmux-b-ts",
-            &candidates,
-        )
-        .unwrap();
-        assert_eq!(selected.name, "dmux-b-ts");
+        // Two routes to one backend instance is §8.4's design, so both being
+        // attached selects the fresh route instead of raising a conflict; the
+        // bridge detaches the stale alternate before attaching it.
+        let selected = choose_compatible_presentation_row("dmux-b-usb", &candidates).unwrap();
+        assert_eq!(selected.name, "dmux-b-usb");
+
+        // With no fresh route among the candidates the §8.4 class order
+        // decides: USB, then Tailscale, then anything else enrolled.
+        let selected = choose_compatible_presentation_row("dmux-b-gone", &candidates).unwrap();
+        assert_eq!(selected.name, "dmux-b-usb");
+        let tailscale_first: Vec<_> = vec![&rows[1], &rows[0]];
+        let selected = choose_compatible_presentation_row("dmux-b-gone", &tailscale_first).unwrap();
+        assert_eq!(selected.name, "dmux-b-usb");
+    }
+
+    #[test]
+    fn presentation_routes_conflict_only_on_a_different_identity() {
+        let host_uid = marker().host_uid;
+        let backend_instance_uid =
+            BackendInstanceUid(Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap());
+        let rows = two_route_manifest(host_uid, backend_instance_uid);
+        let mut other_instance = rows[1].clone();
+        other_instance.backend_instance_uid =
+            BackendInstanceUid(Uuid::parse_str("66666666-6666-4666-8666-666666666666").unwrap());
+        let error = choose_compatible_presentation_row("dmux-b-usb", &[&rows[0], &other_instance])
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::IdentityConflict);
+
+        let mut other_host = rows[1].clone();
+        other_host.host_uid =
+            HostUid(Uuid::parse_str("77777777-7777-4777-8777-777777777777").unwrap());
+        let error =
+            choose_compatible_presentation_row("dmux-b-usb", &[&rows[0], &other_host]).unwrap_err();
+        assert_eq!(error.code, ErrorCode::IdentityConflict);
+
+        assert_eq!(
+            choose_compatible_presentation_row("dmux-b-usb", &[])
+                .unwrap_err()
+                .code,
+            ErrorCode::ProviderUnavailable,
+        );
     }
 
     #[test]
