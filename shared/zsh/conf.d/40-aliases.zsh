@@ -1,13 +1,12 @@
 alias -g NV='| nvim -R -' # open stdin in nvim read-only
 
-alias cp="cp -i"
-alias mv="mv -i"
-alias rm="rm -i"
 alias mkdir="mkdir -p"
 
 alias grep="grep --color=auto"
 alias fgrep="fgrep --color=auto"
 alias f='find . -type f -name'
+
+alias port="portview"
 
 alias disk="ncdu"
 
@@ -17,12 +16,12 @@ alias v="nvim"
 alias vv="nvim ."
 
 alias la="ls -a"
+alias l="ls"
 alias ll="ls -l"
 
 alias untar="tar -xzf"
 
 (( $+commands[bat] )) && alias cat='bat -pp'
-
 
 # Navigation
 alias ..='cd ..'
@@ -47,10 +46,16 @@ alias cdb="cd ../backend"
 
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
 
+# Other
+
 alias u="uname -mrs"
+
+# Git
 
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
 alias gdd='git-discard'
+
+# Projects
 
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"

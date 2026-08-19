@@ -15,9 +15,6 @@ command -v fzf >/dev/null || return 0
 
 export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"
 
-bindkey -M emacs -r '^T'
-bindkey -M vicmd -r '^T'
-bindkey -M viins -r '^T'
 
 if ! command -v nvim >/dev/null; then
   bindkey -M emacs '^F' fzf-file-widget

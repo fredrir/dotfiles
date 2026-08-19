@@ -36,6 +36,8 @@ plugins=(
 (( $+commands[zoxide] ))  && plugins+=(zoxide)
 (( $+commands[eza] ))     && plugins+=(eza)
 
+
+
 if (( $+commands[fzf] )) && [[ -d "$ZSH/custom/plugins/fzf-tab" ]]; then
   plugins+=(fzf-tab)
 elif (( $+commands[fzf] )) && [[ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/share/fzf-tab/fzf-tab.zsh" ]]; then

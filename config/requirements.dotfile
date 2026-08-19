@@ -36,6 +36,7 @@ shared {
   ?hyperfine
   ?stress-ng
   ?7z = 7zip
+  ?portview
   ?openssl
   font Hack Nerd Font Mono
   font JetBrains Mono
