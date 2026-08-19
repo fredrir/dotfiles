@@ -134,23 +134,6 @@ else
   QuakeHotkey = hs.hotkey.bind({ 'cmd' }, 10, summonWezTerm)
 end
 
----------------------------------------------------------------------------
--- clean-copy: CMD+ALT+C from any app (migrated from skhd)
----------------------------------------------------------------------------
--- Cleans whatever is on the clipboard, then captures it to the transcript.
--- The && chain needs a shell; both binaries are addressed absolutely.
-
-CleanCopyHotkey = hs.hotkey.bind({ 'cmd', 'alt' }, 'c', function()
-  run('/bin/sh', {
-    '-c',
-    HOME .. '/.local/bin/clean-copy && ' .. HOME .. '/.local/bin/transcript capture --quiet',
-  }, function(exitCode, _, stderr)
-    if exitCode ~= 0 then
-      hs.alert.show 'clean-copy failed'
-      print('clean-copy: ' .. tostring(stderr))
-    end
-  end)
-end)
 
 ---------------------------------------------------------------------------
 -- Attention bridge: marker files -> Notification Center (+ caffeinate)
