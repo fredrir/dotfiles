@@ -380,6 +380,14 @@ def emit_panel_presets(theme, out):
         out.edit(target, lambda text: _remap_hex(theme, text, mapping))
 
 
+# The target is symlinked over the live desktop, and KConfig treats it as the
+# whole config rather than an overlay, so a key we drop is a key plasma boots
+# without. Only state that satisfies all three tests is left out when recapturing
+# it: the desktop writes it with no user action, its value is unstable, and
+# plasma re-derives a working one from nothing. Today that is DialogHeight and
+# DialogWidth, popupHeight and popupWidth, LastVideo and LastVideoPosition, and
+# the ItemGeometries* family. Everything else stays, including empty values -
+# `launchers=` means no pinned launchers, while an absent one means the defaults.
 def emit_desktop_appletsrc(theme, out):
     mapping = _hex_to_name(theme)
     rgb_map = {}
