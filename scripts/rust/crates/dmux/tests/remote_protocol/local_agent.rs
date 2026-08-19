@@ -194,3 +194,79 @@ fn spaces_on_a_fresh_owner_is_empty_with_no_scans() {
     assert!(info.spaces.is_empty());
     assert!(info.scans.is_empty(), "no managed instances yet: {info:?}");
 }
+
+// ---------------------------------------------------------------------------
+// The replies the agent sends BEFORE it can echo a request id.
+
+/// Feed one real `_agent` invocation's stdout back through the client's
+/// reply interpreter as the answer to `sent`, and return the failure the
+/// caller would see.
+fn as_caller_sees(out: &std::process::Output, sent: Uuid) -> dmux::remote::client::AttemptFailure {
+    let reply = dmux::remote::client::RawReply {
+        status: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        stdout_truncated: false,
+        transport_diagnostics: None,
+    };
+    dmux::remote::client::interpret_reply(&reply, sent)
+        .map(|e| panic!("a degraded reply must not be accepted: {e:?}"))
+        .unwrap_err()
+}
+
+/// The agent answers a request that is not one JSON envelope with
+/// `Uuid::nil()`, because there is no id to echo. The caller must see the
+/// `usage` refusal, not a complaint about the nil echo.
+#[test]
+fn an_unparseable_request_is_answered_with_a_nil_echo_and_still_surfaces_usage() {
+    let scratch = Scratch::new("nilparse");
+    let sent = Uuid::new_v4();
+    let out = scratch.agent_raw(protocol::PROTOCOL_VERSION, protocol::methods::HELLO, "{");
+    let response: dmux::remote::protocol::Envelope =
+        serde_json::from_str(String::from_utf8_lossy(&out.stdout).trim()).unwrap();
+    assert_eq!(response.request_uid, Uuid::nil(), "no id to echo");
+    assert_eq!(error_code(&response), "usage");
+
+    match as_caller_sees(&out, sent) {
+        dmux::remote::client::AttemptFailure::Agent(error) => {
+            assert_eq!(error.code, dmux::error::ErrorCode::Usage);
+            assert_eq!(
+                error,
+                response.error.unwrap(),
+                "the agent's error, verbatim"
+            );
+        }
+        other => panic!("expected the agent's typed error, got {other:?}"),
+    }
+}
+
+/// The registry-open path answers with `Uuid::nil()` too: the request has
+/// not been parsed yet. Its typed code must reach the caller.
+#[test]
+fn an_unopenable_registry_is_answered_with_a_nil_echo_and_still_surfaces_its_code() {
+    let scratch = Scratch::new("nilregistry");
+    // A DIRECTORY where the database file belongs: `Registry::open` fails,
+    // `resolve_env` does not.
+    std::fs::create_dir(scratch.data.path().join("registry.sqlite3")).unwrap();
+    let sent = Uuid::new_v4();
+    let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
+    let out = scratch.agent_raw(
+        protocol::PROTOCOL_VERSION,
+        protocol::methods::HELLO,
+        &serde_json::to_string(&request).unwrap(),
+    );
+    let response: dmux::remote::protocol::Envelope =
+        serde_json::from_str(String::from_utf8_lossy(&out.stdout).trim()).unwrap();
+    assert_eq!(response.request_uid, Uuid::nil(), "no id read yet");
+    let reported = response.error.clone().unwrap();
+    assert!(
+        reported.message.starts_with("registry:"),
+        "{reported:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    match as_caller_sees(&out, sent) {
+        dmux::remote::client::AttemptFailure::Agent(error) => assert_eq!(error, reported),
+        other => panic!("expected the agent's typed error, got {other:?}"),
+    }
+}

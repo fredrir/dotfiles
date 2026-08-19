@@ -311,3 +311,185 @@ fn disabled_routes_are_never_attempted() {
     assert_eq!(invoker.capture("auth"), None, "disabled route untouched");
     assert!(invoker.capture("ok").is_some());
 }
+
+// ---------------------------------------------------------------------------
+// Degraded replies: the agent answered, but before it could echo the uid.
+
+/// A transport that answers with one literal envelope document.
+fn canned(invoker: &ScriptInvoker, endpoint: &str, document: &str) {
+    invoker.write(
+        endpoint,
+        &format!("#!/bin/sh\ncat >> \"$0.capture\"\nprintf '%s\\n' '{document}'\n"),
+    );
+}
+
+/// The environment-resolution path (`remote/agent.rs`, `resolve_env`) run
+/// through the REAL binary with an EMPTY environment, so it fails exactly
+/// as it did on Archie under Tailscale SSH — before it can read the request
+/// id, answering `Uuid::nil()` plus its typed error.
+///
+/// The caller must see that reason. It must ALSO stay terminal: an
+/// environment failure is not one of the enumerated pre-authentication
+/// transport failures, so the healthy next route is never tried (§8.3).
+#[test]
+fn a_degraded_agent_reply_surfaces_its_reason_and_never_tries_the_next_route() {
+    let (_owner, client, invoker, owner_uid) = rig("degraded", &["noenv", "ok"]);
+    // `env -i` guarantees no HOME/XDG_DATA_HOME/XDG_RUNTIME_DIR at all, and
+    // no --data-dir/--lock-dir seam, so `resolve_env` fails before anything
+    // is opened or created — this must never reach a real registry.
+    invoker.write(
+        "noenv",
+        &format!(
+            "#!/bin/sh\ncat >> \"$0.capture\"\nexec /usr/bin/env -i {DMUX_BIN} \
+             _agent --protocol 1 hello\n"
+        ),
+    );
+    let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
+    let mut registry = client.registry();
+    let error = call_over_routes(
+        &mut registry,
+        &PeerExpectation {
+            host_uid: owner_uid,
+            need_capability: None,
+            claimed_current: false,
+        },
+        &request,
+        &invoker,
+        &AgentInvocation::new(protocol::methods::HELLO),
+        DEFAULT_DEADLINE,
+    )
+    .expect_err("an unusable environment must refuse the call");
+    drop(registry);
+
+    assert_eq!(error.code, dmux::error::ErrorCode::OperationFailed);
+    assert!(
+        error.message.contains("environment"),
+        "the caller must see the agent's reason, not a uid complaint: {}",
+        error.message
+    );
+    assert!(
+        !error.message.contains("echoes request"),
+        "the uid check must not shadow the reason: {}",
+        error.message
+    );
+    // §8.3: terminal. The healthy route is untouched.
+    assert!(invoker.capture("noenv").is_some());
+    assert_eq!(invoker.capture("ok"), None, "no failover on an agent error");
+    assert_eq!(
+        outcome_by_endpoint(&client, owner_uid),
+        vec![
+            ("noenv".to_string(), Some(outcome::AGENT_ERROR.to_string())),
+            ("ok".to_string(), None),
+        ]
+    );
+}
+
+/// §12.1's correlation guarantee, unweakened: a NON-nil echo that does not
+/// match is a replay or a crossed reply. An error inside it buys it
+/// nothing — the reply is refused for the mismatch, its error is not this
+/// request's answer, and the route records `malformed_response`.
+#[test]
+fn a_wrong_non_nil_echo_stays_malformed_even_carrying_an_error() {
+    let (_owner, client, invoker, owner_uid) = rig("crossed", &["crossed", "ok"]);
+    canned(
+        &invoker,
+        "crossed",
+        &format!(
+            r#"{{"protocol_version":1,"request_uid":"{}","method":"hello",{}"#,
+            Uuid::from_u128(0x5151),
+            r#""payload_sha256":"00","host_uid":"00000000-0000-0000-0000-000000000000",
+"registry_uid":"00000000-0000-0000-0000-000000000000","authority_revision":0,
+"authority_head_hash":"","capabilities":[],
+"error":{"code":"operation_failed","message":"environment: replayed reason"}}"#
+                .replace('\n', "")
+        ),
+    );
+    let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
+    let mut registry = client.registry();
+    let error = call_over_routes(
+        &mut registry,
+        &PeerExpectation {
+            host_uid: owner_uid,
+            need_capability: None,
+            claimed_current: false,
+        },
+        &request,
+        &invoker,
+        &AgentInvocation::new(protocol::methods::HELLO),
+        DEFAULT_DEADLINE,
+    )
+    .expect_err("an uncorrelated reply must refuse the call");
+    drop(registry);
+
+    assert!(
+        error.message.contains("echoes request"),
+        "a crossed reply is a protocol violation: {}",
+        error.message
+    );
+    assert!(
+        !error.message.contains("replayed reason"),
+        "an uncorrelated reply's error must not answer this request: {}",
+        error.message
+    );
+    assert_eq!(invoker.capture("ok"), None, "terminal, so no failover");
+    assert_eq!(
+        outcome_by_endpoint(&client, owner_uid),
+        vec![
+            (
+                "crossed".to_string(),
+                Some(outcome::MALFORMED_RESPONSE.to_string())
+            ),
+            ("ok".to_string(), None),
+        ]
+    );
+}
+
+/// A nil echo with NO error answers no request at all, and is still
+/// malformed — only the error carries the reason that earns the exception.
+#[test]
+fn a_nil_echo_without_an_error_is_still_malformed_over_a_route() {
+    let (_owner, client, invoker, owner_uid) = rig("nilpayload", &["nilpayload", "ok"]);
+    canned(
+        &invoker,
+        "nilpayload",
+        &r#"{"protocol_version":1,
+"request_uid":"00000000-0000-0000-0000-000000000000","method":"hello",
+"payload_sha256":"00","host_uid":"00000000-0000-0000-0000-000000000000",
+"registry_uid":"00000000-0000-0000-0000-000000000000","authority_revision":0,
+"authority_head_hash":"","capabilities":[],"payload":{}}"#
+            .replace('\n', ""),
+    );
+    let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
+    let mut registry = client.registry();
+    let error = call_over_routes(
+        &mut registry,
+        &PeerExpectation {
+            host_uid: owner_uid,
+            need_capability: None,
+            claimed_current: false,
+        },
+        &request,
+        &invoker,
+        &AgentInvocation::new(protocol::methods::HELLO),
+        DEFAULT_DEADLINE,
+    )
+    .expect_err("a nil echo answers no request");
+    drop(registry);
+
+    assert!(
+        error.message.contains("echoes request"),
+        "a nil echo with a payload is malformed: {}",
+        error.message
+    );
+    assert_eq!(invoker.capture("ok"), None);
+    assert_eq!(
+        outcome_by_endpoint(&client, owner_uid),
+        vec![
+            (
+                "nilpayload".to_string(),
+                Some(outcome::MALFORMED_RESPONSE.to_string())
+            ),
+            ("ok".to_string(), None),
+        ]
+    );
+}

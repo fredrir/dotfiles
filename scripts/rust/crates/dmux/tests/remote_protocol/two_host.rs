@@ -5,6 +5,7 @@
 //! production path. Skips gracefully (with a reason) when
 //! `ssh -o BatchMode=yes archie true` fails; when Archie answers, it runs.
 
+use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
@@ -21,7 +22,7 @@ use dmux::remote::routes::outcome;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::util::{Scratch, wait_for};
+use crate::util::{Scratch, envelope, wait_for};
 
 /// Remote dmux spelling relative to the ssh login dir ($HOME).
 const REMOTE_BIN: &str = ".cache/dmux-w5/rust/target/debug/dmux";
@@ -93,35 +94,60 @@ struct RemoteScratch {
     ns: String,
 }
 
+/// Sync the CURRENT sources into the scratch workspace and rebuild there
+/// (deps are cached from the W5 warm-up build). Never `~/dotfiles`.
+fn sync_and_build() {
+    let rust_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("resolve the current Rust workspace");
+    let rust_source = format!("{}/", rust_root.display());
+    let rsync = Command::new("rsync")
+        .args(["-a", "--delete", "--exclude", "target/"])
+        .arg(rust_source)
+        .arg("archie:.cache/dmux-w5/rust/")
+        .output()
+        .unwrap();
+    assert!(
+        rsync.status.success(),
+        "rsync: {}",
+        String::from_utf8_lossy(&rsync.stderr)
+    );
+    let build = ssh_raw(
+        "cd ~/.cache/dmux-w5/rust && PATH=$HOME/.cargo/bin:$PATH \
+         cargo build -p dmux --bins 2>&1 | tail -3",
+    );
+    assert!(
+        build.status.success(),
+        "remote build: {}",
+        String::from_utf8_lossy(&build.stdout)
+    );
+}
+
+/// A remote scratch directory, removed on drop even when an assert fails.
+struct RemoteTempDir(String);
+
+impl RemoteTempDir {
+    fn make() -> RemoteTempDir {
+        let base = ssh_ok("mktemp -d /tmp/dmux-w5-p7.XXXXXX");
+        assert!(base.starts_with("/tmp/dmux-w5-p7."), "{base}");
+        RemoteTempDir(base)
+    }
+
+    fn path(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for RemoteTempDir {
+    fn drop(&mut self) {
+        let _ = ssh_raw(&format!("rm -rf {}", self.0));
+    }
+}
+
 impl RemoteScratch {
     fn provision() -> RemoteScratch {
-        // Sync the CURRENT sources and rebuild in the scratch workspace
-        // (deps are cached there from the W5 warm-up build).
-        let rust_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .canonicalize()
-            .expect("resolve the current Rust workspace");
-        let rust_source = format!("{}/", rust_root.display());
-        let rsync = Command::new("rsync")
-            .args(["-a", "--delete", "--exclude", "target/"])
-            .arg(rust_source)
-            .arg("archie:.cache/dmux-w5/rust/")
-            .output()
-            .unwrap();
-        assert!(
-            rsync.status.success(),
-            "rsync: {}",
-            String::from_utf8_lossy(&rsync.stderr)
-        );
-        let build = ssh_raw(
-            "cd ~/.cache/dmux-w5/rust && PATH=$HOME/.cargo/bin:$PATH \
-             cargo build -p dmux --bins 2>&1 | tail -3",
-        );
-        assert!(
-            build.status.success(),
-            "remote build: {}",
-            String::from_utf8_lossy(&build.stdout)
-        );
+        sync_and_build();
 
         let base = ssh_ok("mktemp -d /tmp/dmux-w5-p7.XXXXXX");
         assert!(base.starts_with("/tmp/dmux-w5-p7."), "{base}");
@@ -209,6 +235,129 @@ fn call(
         Duration::from_secs(60),
     )?;
     Ok(outcome.envelope)
+}
+
+/// Run the REAL remote `_agent` under an explicit remote environment,
+/// writing one request document to its stdin. `env_prefix` is spliced ahead
+/// of the binary so the test controls the session variables the login path
+/// would otherwise have decided.
+fn agent_over_ssh(env_prefix: &str, document: &str) -> (i32, String) {
+    let mut child = Command::new("ssh")
+        .args(CONTROL)
+        .args([
+            "-oBatchMode=yes",
+            "-oConnectTimeout=10",
+            HOST,
+            &format!("{env_prefix} {REMOTE_BIN} _agent --protocol 1 hello"),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(document.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).trim().to_string(),
+    )
+}
+
+/// The runtime directory is DERIVED when the login path exported no session
+/// environment (plan §10.1).
+///
+/// This is not hypothetical: Tailscale SSH terminates the connection inside
+/// `tailscaled` rather than `sshd`, no `pam_systemd` runs, and the session
+/// arrives with `XDG_RUNTIME_DIR`/`XDG_SESSION_ID` empty — while
+/// `/run/user/<uid>/dmux` is sitting there, owned by the same uid, holding
+/// the socket the agent needs. Before the derivation the agent refused every
+/// such request with `environment: XDG_RUNTIME_DIR is not set`, which is why
+/// the Tailscale route to this host could not reach the backend at all.
+///
+/// The legs are driven against the REAL Linux binary over real ssh with the
+/// variables set explicitly, so the test asserts the resolver's behaviour
+/// rather than whichever login path this machine happens to use today.
+/// Nothing production is touched: `XDG_DATA_HOME` points the resolved
+/// registry at a scratch dir. The runtime dir is deliberately the real one —
+/// that is the fact under test.
+#[test]
+fn archie_agent_derives_a_runtime_dir_without_a_pam_session() {
+    if !archie_reachable() {
+        eprintln!(
+            "SKIP two_host::archie_agent_derives_a_runtime_dir_without_a_pam_session: \
+             `ssh -o BatchMode=yes archie true` failed (host unreachable)"
+        );
+        return;
+    }
+    sync_and_build();
+    let scratch = RemoteTempDir::make();
+    let base = scratch.path();
+    let uid = ssh_ok("id -u");
+    let request = envelope(protocol::methods::HELLO, Uuid::new_v4(), json!({}));
+    let document = serde_json::to_string(&request).unwrap();
+
+    // Leg 1: no XDG_RUNTIME_DIR at all — the Tailscale/`su`/cron shape.
+    let (code, stdout) = agent_over_ssh(
+        &format!("env -u XDG_RUNTIME_DIR -u XDG_SESSION_ID XDG_DATA_HOME={base}/xdg"),
+        &document,
+    );
+    let response: Envelope = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("one response envelope: {e}\nstdout: {stdout}"));
+    assert!(
+        !stdout.contains("XDG_RUNTIME_DIR"),
+        "the agent must not refuse for a missing session variable: {stdout}"
+    );
+    assert!(response.error.is_none(), "{response:?}");
+    assert_eq!(code, 0, "{stdout}");
+    assert_eq!(response.request_uid, request.request_uid);
+    // Resolution ran all the way through production `OperationEnv`: the
+    // registry landed under the scratch XDG data home, and the lock dir it
+    // used is the derived one.
+    assert_eq!(
+        ssh_ok(&format!(
+            "test -f {base}/xdg/dmux/registry.sqlite3 && echo ok"
+        )),
+        "ok"
+    );
+    assert_eq!(
+        ssh_ok(&format!("test -d /run/user/{uid}/dmux && echo ok")),
+        "ok",
+        "the derived runtime dir is /run/user/<uid>"
+    );
+
+    // Leg 2: exported but EMPTY is the same "no session" case.
+    let (code, stdout) = agent_over_ssh(
+        &format!("env XDG_RUNTIME_DIR= XDG_DATA_HOME={base}/xdg"),
+        &document,
+    );
+    let response: Envelope = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("one response envelope: {e}\nstdout: {stdout}"));
+    assert!(response.error.is_none(), "{response:?}");
+    assert_eq!(code, 0, "{stdout}");
+
+    // Leg 3: an exported value WINS and fails closed. A world-writable base
+    // is refused by name rather than silently replaced by the derivation —
+    // the derivation must never rescue a value the caller chose.
+    ssh_ok(&format!("mkdir -m 0777 -p {base}/wide"));
+    let (code, stdout) = agent_over_ssh(
+        &format!("env XDG_RUNTIME_DIR={base}/wide XDG_DATA_HOME={base}/xdg"),
+        &document,
+    );
+    let response: Envelope = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("one response envelope: {e}\nstdout: {stdout}"));
+    let error = response
+        .error
+        .expect("a set-but-unusable base fails closed");
+    assert!(
+        error.message.contains(&format!("{base}/wide")),
+        "the refusal names the caller's own value: {error:?}"
+    );
+    assert_ne!(code, 0, "{stdout}");
 }
 
 /// The whole two-host matrix in one ordered flow: enrollment identity,

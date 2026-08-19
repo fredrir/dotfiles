@@ -971,17 +971,42 @@ pub fn interpret_reply(reply: &RawReply, request_uid: Uuid) -> Result<Envelope, 
                 ),
             });
         }
-        if envelope.request_uid != request_uid {
+        if !(envelope.payload.is_some() ^ envelope.error.is_some()) {
+            return Err(AttemptFailure::Malformed {
+                detail: "response carries neither/both of payload and error".into(),
+            });
+        }
+        // §12.1 correlation: the response must echo the uid it answers, and
+        // a NON-NIL uid that does not is a replay or a crossed reply and
+        // stays terminal here.
+        //
+        // The single exception is the reply the agent sends when it failed
+        // BEFORE it could learn the request id at all: a stdin read
+        // failure, environment resolution, registry open, or a request that
+        // is not one JSON envelope (`remote/agent.rs`). Each answers
+        // `degraded(Uuid::nil(), ..)` carrying its typed error, and
+        // checking the echo first replaced every one of them with a
+        // protocol complaint naming a uid instead of the reason — an
+        // XDG_RUNTIME_DIR that was not set surfaced as "response echoes
+        // request 00000000-…".
+        //
+        // Such a reply is admitted only far enough to surface that error:
+        // it is required to CARRY one, and every arm below it returns
+        // `Err`, so a nil echo can never be accepted as a response, never
+        // satisfies a request's result, and never reaches the identity and
+        // lineage checks with the nil host_uid/registry_uid the degraded
+        // envelope also carries. A nil echo with a payload is still
+        // malformed. The class is terminal either way — `Agent` and
+        // `Malformed` both refuse the next route — so nothing here lets an
+        // environment failure on one route try another (§8.3).
+        let answered_before_reading_the_uid =
+            envelope.request_uid.is_nil() && envelope.error.is_some();
+        if envelope.request_uid != request_uid && !answered_before_reading_the_uid {
             return Err(AttemptFailure::Malformed {
                 detail: format!(
                     "response echoes request {} but {} was sent",
                     envelope.request_uid, request_uid
                 ),
-            });
-        }
-        if !(envelope.payload.is_some() ^ envelope.error.is_some()) {
-            return Err(AttemptFailure::Malformed {
-                detail: "response carries neither/both of payload and error".into(),
             });
         }
         // A protocol_mismatch typed error is a protocol failure even
@@ -1622,6 +1647,151 @@ mod tests {
         };
         let failure = interpret_reply(&reply, sent).unwrap_err();
         assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+    }
+
+    /// One degraded reply as `remote/agent.rs` writes it: nil echo, no
+    /// payload, no identity, one typed error.
+    fn degraded_reply(code: &str, message: &str) -> RawReply {
+        let envelope = serde_json::json!({
+            "protocol_version": 1,
+            "request_uid": uuid::Uuid::nil().to_string(),
+            "method": "hello",
+            "payload_sha256": "00",
+            "host_uid": uuid::Uuid::nil().to_string(),
+            "registry_uid": uuid::Uuid::nil().to_string(),
+            "authority_revision": 0,
+            "authority_head_hash": "",
+            "capabilities": [],
+            "error": {"code": code, "message": message}
+        });
+        RawReply {
+            // The agent exits with the typed error's status.
+            status: 1,
+            stdout: envelope.to_string(),
+            ..RawReply::default()
+        }
+    }
+
+    /// The three agent paths that fail before they can echo a request id —
+    /// environment resolution, registry open, and request parse — answer
+    /// with `Uuid::nil()`. Checking the echo first turned every one of them
+    /// into "response echoes request 00000000-…", discarding the reason.
+    #[test]
+    fn a_nil_echo_carrying_an_error_surfaces_that_error_not_the_uid_mismatch() {
+        let sent = uuid::Uuid::from_u128(0xE117);
+        for (code, message, expected) in [
+            (
+                "operation_failed",
+                "environment: XDG_RUNTIME_DIR is not set",
+                ErrorCode::OperationFailed,
+            ),
+            (
+                "registry_busy",
+                "registry: database is locked",
+                ErrorCode::RegistryBusy,
+            ),
+            (
+                "usage",
+                "request is not one JSON envelope: expected value at line 1 column 1",
+                ErrorCode::Usage,
+            ),
+        ] {
+            let failure = interpret_reply(&degraded_reply(code, message), sent).unwrap_err();
+            match &failure {
+                AttemptFailure::Agent(error) => {
+                    assert_eq!(error.code, expected, "{code}");
+                    assert_eq!(error.message, message, "{code}");
+                }
+                other => panic!("expected the agent's typed error for {code}, got {other:?}"),
+            }
+            let typed = failure.typed_error();
+            assert_eq!(typed.code, expected, "{code}");
+            assert!(
+                !typed.message.contains("malformed agent response"),
+                "the reason must not be replaced by a protocol complaint: {}",
+                typed.message
+            );
+            assert_eq!(failure.outcome_token(), outcome::AGENT_ERROR, "{code}");
+            // Unchanged class-wise: the uid check already refused this
+            // terminally, and surfacing the reason must not promote it to
+            // the one class §8.3 lets try another route.
+            assert!(!failure.retries_next_route(), "{code}");
+        }
+    }
+
+    #[test]
+    fn a_nil_echo_carrying_a_protocol_mismatch_stays_the_protocol_class() {
+        let sent = uuid::Uuid::from_u128(0xE118);
+        let reply = degraded_reply("protocol_mismatch", "agent speaks protocol 2");
+        let failure = interpret_reply(&reply, sent).unwrap_err();
+        assert_eq!(failure.outcome_token(), outcome::PROTOCOL_MISMATCH);
+        assert_eq!(failure.typed_error().code, ErrorCode::ProtocolMismatch);
+        assert!(!failure.retries_next_route());
+    }
+
+    #[test]
+    fn a_nil_echo_without_an_error_is_still_malformed() {
+        let sent = uuid::Uuid::from_u128(0xE119);
+        let envelope = serde_json::json!({
+            "protocol_version": 1,
+            "request_uid": uuid::Uuid::nil().to_string(),
+            "method": "hello",
+            "payload_sha256": "00",
+            "host_uid": uuid::Uuid::from_u128(2).to_string(),
+            "registry_uid": uuid::Uuid::from_u128(3).to_string(),
+            "authority_revision": 1,
+            "authority_head_hash": "sha256:x",
+            "capabilities": [],
+            "payload": {}
+        });
+        let reply = RawReply {
+            status: 0,
+            stdout: envelope.to_string(),
+            ..RawReply::default()
+        };
+        let failure = interpret_reply(&reply, sent).unwrap_err();
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+        assert!(!failure.retries_next_route());
+        assert!(
+            failure.typed_error().message.contains("echoes request"),
+            "a nil echo with a payload answers no request: {}",
+            failure.typed_error().message
+        );
+    }
+
+    /// The §12.1 guarantee this must not loosen: a NON-nil echo that does
+    /// not match is a replay or a crossed reply, and an error inside it
+    /// buys it nothing — the reply is refused for the mismatch, and the
+    /// error it carries is NOT surfaced as this request's outcome.
+    #[test]
+    fn a_wrong_non_nil_echo_is_malformed_even_when_it_carries_an_error() {
+        let sent = uuid::Uuid::from_u128(20);
+        let envelope = serde_json::json!({
+            "protocol_version": 1,
+            "request_uid": uuid::Uuid::from_u128(21).to_string(),
+            "method": "hello",
+            "payload_sha256": "00",
+            "host_uid": uuid::Uuid::from_u128(2).to_string(),
+            "registry_uid": uuid::Uuid::from_u128(3).to_string(),
+            "authority_revision": 1,
+            "authority_head_hash": "sha256:x",
+            "capabilities": [],
+            "error": {"code": "operation_failed", "message": "environment: nope"}
+        });
+        let reply = RawReply {
+            status: 1,
+            stdout: envelope.to_string(),
+            ..RawReply::default()
+        };
+        let failure = interpret_reply(&reply, sent).unwrap_err();
+        assert_eq!(failure.outcome_token(), outcome::MALFORMED_RESPONSE);
+        assert!(!failure.retries_next_route());
+        let message = failure.typed_error().message;
+        assert!(message.contains("echoes request"), "{message}");
+        assert!(
+            !message.contains("environment: nope"),
+            "an uncorrelated reply's error must not answer this request: {message}"
+        );
     }
 
     fn archie_route() -> RouteRow {

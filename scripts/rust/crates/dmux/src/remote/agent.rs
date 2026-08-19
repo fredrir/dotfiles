@@ -255,6 +255,16 @@ pub fn run(args: &AgentArgs) -> i32 {
 }
 
 /// Resolve the storage/lock seams exactly like `_tmux-bootstrap` does.
+///
+/// The production arm resolves the lock directory through
+/// `runtime::dmux_runtime_dir()`, which on Linux no longer requires the login
+/// path to have run `pam_systemd`: with no `XDG_RUNTIME_DIR` exported it
+/// derives `/run/user/<geteuid()>` in-process and verifies it (owner, mode
+/// 0700, real directory) before trusting it. That is what makes this endpoint
+/// reachable over a Tailscale SSH session, where `tailscaled` terminates the
+/// connection itself and exports no session environment at all. The derived
+/// path is a function of the euid — never of anything the peer sent, and
+/// never of the command line the peer chose.
 pub fn resolve_env(args: &AgentArgs) -> std::io::Result<OperationEnv> {
     match (&args.data_dir, &args.lock_dir) {
         (Some(data), Some(lock)) => Ok(OperationEnv {

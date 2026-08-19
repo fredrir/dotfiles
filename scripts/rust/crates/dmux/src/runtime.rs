@@ -2,9 +2,13 @@
 //!
 //! All sockets, action tokens, descriptors, and kernel-lock files live under
 //! one verified per-user runtime directory. On Linux that is
-//! `$XDG_RUNTIME_DIR/dmux`; on macOS `<_CS_DARWIN_USER_TEMP_DIR>/dmux` via
-//! `confstr(3)` — never a launchd-exported `XDG_RUNTIME_DIR` and never a
-//! blindly trusted `$TMPDIR`. Persistent registry/snapshots never live here.
+//! `<base>/dmux` where `<base>` is `$XDG_RUNTIME_DIR` when the login path
+//! exported one and the DERIVED `/run/user/<geteuid()>` when it did not (see
+//! `linux_base_dir` for the precedence table and why the derivation is not a
+//! guess); on macOS `<_CS_DARWIN_USER_TEMP_DIR>/dmux` via `confstr(3)` —
+//! never a launchd-exported `XDG_RUNTIME_DIR`, never a blindly trusted
+//! `$TMPDIR`, and never a `/run/user` fallback (macOS has no such tree).
+//! Persistent registry/snapshots never live here.
 //!
 //! This resolver performs the metadata-level checks (ownership, mode,
 //! symlink rejection). Descriptor-relative no-follow opens for individual
@@ -58,14 +62,93 @@ fn platform_base_dir() -> io::Result<PathBuf> {
 
 #[cfg(target_os = "linux")]
 fn platform_base_dir() -> io::Result<PathBuf> {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "XDG_RUNTIME_DIR is not set"))?;
-    let dir = PathBuf::from(dir);
-    if !dir.is_absolute() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "XDG_RUNTIME_DIR must be an absolute path",
-        ));
+    let xdg = std::env::var_os("XDG_RUNTIME_DIR");
+    linux_base_dir(xdg.as_deref(), Path::new(LINUX_RUNTIME_ROOT), unsafe {
+        libc::geteuid()
+    })
+}
+
+/// Where `pam_systemd`/`systemd-logind` places per-user runtime directories.
+/// A literal, never assembled from the environment.
+#[cfg(any(target_os = "linux", test))]
+const LINUX_RUNTIME_ROOT: &str = "/run/user";
+
+/// Linux base-directory precedence, in order (plan §10.1):
+///
+/// 1. `DMUX_RUNTIME_DIR` — the explicit owner-side TEST seam. It wins over
+///    everything, and it is consulted exactly where it always was, one level
+///    ABOVE this resolver (`_pane-bootstrap`'s `resolve_runtime_dir`), used
+///    verbatim because the test owns the directory. It is deliberately NOT
+///    read here: `dmux _agent` runs as `ssh <route> dmux _agent …`, so the
+///    peer chooses that whole command line; teaching the production resolver
+///    to obey a name a caller can set would hand a remote peer the directory
+///    every socket, token and kernel lock lives in.
+/// 2. `$XDG_RUNTIME_DIR`, when the login path exported a non-empty value.
+///    Used as given (and then held to the same checks as every other base by
+///    `secured_runtime_subdir`). An explicitly set value is never *replaced*
+///    by the derivation below — a set-but-unusable value fails closed, so a
+///    caller cannot steer resolution by pointing it somewhere that fails.
+/// 3. The derived `/run/user/<geteuid()>`, when `$XDG_RUNTIME_DIR` is absent
+///    or empty. This is the case Tailscale SSH creates: `tailscaled`
+///    terminates the session itself, so no `pam_systemd` runs, no
+///    `XDG_SESSION_ID`/`XDG_RUNTIME_DIR` is exported — while logind's
+///    directory for this very uid is sitting there, holding the socket the
+///    agent needs. Requiring one PAM stack to have run is the wrong
+///    contract; the path is a function of the euid, which is not
+///    caller-controllable, and it is verified before it is trusted.
+///
+/// `xdg` is passed in (rather than read here) so the whole table above,
+/// including its rejections, is unit-testable off a Linux host.
+#[cfg(any(target_os = "linux", test))]
+fn linux_base_dir(
+    xdg: Option<&std::ffi::OsStr>,
+    runtime_root: &Path,
+    euid: u32,
+) -> io::Result<PathBuf> {
+    match xdg.filter(|value| !value.is_empty()) {
+        Some(dir) => {
+            let dir = PathBuf::from(dir);
+            if !dir.is_absolute() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "XDG_RUNTIME_DIR must be an absolute path",
+                ));
+            }
+            Ok(dir)
+        }
+        None => derived_linux_base_dir(runtime_root, euid),
+    }
+}
+
+/// `/run/user/<euid>`, verified to the crate's private-directory standard
+/// (`recovery::validate_private_directory`): it must exist, be a real
+/// directory rather than a symlink, be owned by this euid, and be exactly
+/// mode 0700. Any failure is the typed error — there is no further fallback,
+/// because the only thing left to fall back to would be a guess.
+#[cfg(any(target_os = "linux", test))]
+fn derived_linux_base_dir(runtime_root: &Path, euid: u32) -> io::Result<PathBuf> {
+    let dir = runtime_root.join(euid.to_string());
+    let meta = fs::symlink_metadata(&dir).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "XDG_RUNTIME_DIR is not set and the derived runtime dir {} does not exist",
+                    dir.display()
+                ),
+            )
+        } else {
+            e
+        }
+    })?;
+    if !meta.is_dir() {
+        return Err(reject(&dir, "is not a directory (or is a symlink)"));
+    }
+    if meta.uid() != euid {
+        return Err(reject(&dir, "is not owned by the current user"));
+    }
+    if meta.mode() & 0o7777 != 0o700 {
+        return Err(reject(&dir, "must be mode 0700"));
     }
     Ok(dir)
 }
@@ -1303,6 +1386,198 @@ mod tests {
         starting_with_sentinel
             .require_recovery_authority_fields()
             .unwrap();
+    }
+
+    // ---------------------------------------------------------------------
+    // Linux base-dir precedence table (`linux_base_dir`). Every input the
+    // resolver has — the `XDG_RUNTIME_DIR` value, the runtime root and the
+    // euid — is injected, so the whole table including its rejections is
+    // provable on any host; only the two facts that are genuinely about the
+    // running system (the root literal, and the real `/run/user/<euid>`) are
+    // asserted separately, the second of them Linux-only.
+
+    fn current_euid() -> u32 {
+        unsafe { libc::geteuid() }
+    }
+
+    /// A scratch stand-in for `/run/user` holding a well-formed `<euid>`.
+    fn scratch_runtime_root(euid: u32) -> tempfile::TempDir {
+        let root = scratch_base();
+        let dir = root.path().join(euid.to_string());
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        root
+    }
+
+    #[test]
+    fn derivation_targets_run_user_euid() {
+        assert_eq!(Path::new(LINUX_RUNTIME_ROOT), Path::new("/run/user"));
+        let euid = current_euid();
+        let root = scratch_runtime_root(euid);
+        assert_eq!(
+            derived_linux_base_dir(root.path(), euid).unwrap(),
+            root.path().join(euid.to_string()),
+            "the derived dir is <root>/<euid>, never a caller-supplied name"
+        );
+    }
+
+    #[test]
+    fn an_exported_xdg_runtime_dir_wins_over_the_derivation() {
+        let euid = current_euid();
+        let root = scratch_runtime_root(euid);
+        let exported = scratch_base();
+        assert_eq!(
+            linux_base_dir(Some(exported.path().as_os_str()), root.path(), euid).unwrap(),
+            exported.path(),
+        );
+    }
+
+    #[test]
+    fn a_set_but_unusable_xdg_runtime_dir_fails_closed() {
+        let euid = current_euid();
+        let root = scratch_runtime_root(euid);
+        // Relative: refused outright, never quietly replaced by the
+        // derivation (that would let a caller *choose* the derived dir).
+        let error = linux_base_dir(
+            Some(std::ffi::OsStr::new("relative/dir")),
+            root.path(),
+            euid,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{error}");
+        // Absolute but absent: returned as given, so the caller's value is
+        // what fails the checks downstream rather than being swapped out.
+        let absent = root.path().join("absent");
+        assert_eq!(
+            linux_base_dir(Some(absent.as_os_str()), root.path(), euid).unwrap(),
+            absent,
+        );
+        assert!(secured_runtime_subdir(&absent).is_err());
+    }
+
+    #[test]
+    fn an_absent_or_empty_xdg_runtime_dir_derives() {
+        let euid = current_euid();
+        let root = scratch_runtime_root(euid);
+        let derived = root.path().join(euid.to_string());
+        assert_eq!(linux_base_dir(None, root.path(), euid).unwrap(), derived);
+        assert_eq!(
+            linux_base_dir(Some(std::ffi::OsStr::new("")), root.path(), euid).unwrap(),
+            derived,
+            "an exported-but-empty value is the same 'no session' case",
+        );
+        // And the derived base is usable as a base: `<derived>/dmux` 0700.
+        assert_eq!(
+            secured_runtime_subdir(&derived).unwrap(),
+            derived.join("dmux")
+        );
+    }
+
+    #[test]
+    fn the_derived_dir_must_exist() {
+        let euid = current_euid();
+        let root = scratch_base(); // no `<euid>` entry at all
+        let error = derived_linux_base_dir(root.path(), euid).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound, "{error}");
+        assert!(
+            error.to_string().contains(&euid.to_string()),
+            "the message names the derived path: {error}"
+        );
+    }
+
+    #[test]
+    fn the_derived_dir_must_be_owned_by_this_euid() {
+        // The check is `metadata.uid() != euid`; a scratch dir this test owns
+        // is by construction NOT owned by any other uid, so the foreign-owner
+        // case is driven from the other side — ask for the runtime dir of a
+        // uid that is not us.
+        let other = current_euid() + 1;
+        let root = scratch_runtime_root(other);
+        let error = derived_linux_base_dir(root.path(), other).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+        assert!(
+            error.to_string().contains("not owned by the current user"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_derived_dir_must_be_mode_0700() {
+        let euid = current_euid();
+        for mode in [0o755, 0o750, 0o701, 0o600, 0o1700] {
+            let root = scratch_runtime_root(euid);
+            let dir = root.path().join(euid.to_string());
+            fs::set_permissions(&dir, fs::Permissions::from_mode(mode)).unwrap();
+            let error = derived_linux_base_dir(root.path(), euid).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                io::ErrorKind::PermissionDenied,
+                "mode {mode:o}: {error}"
+            );
+            // Restore so the TempDir can clean itself up.
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_derived_dir_must_not_be_a_symlink_or_a_file() {
+        let euid = current_euid();
+
+        let root = scratch_base();
+        let real = scratch_base();
+        std::os::unix::fs::symlink(real.path(), root.path().join(euid.to_string())).unwrap();
+        let error = derived_linux_base_dir(root.path(), euid).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
+        assert!(
+            error.to_string().contains("is not a directory"),
+            "a symlink to a perfectly good 0700 dir is still refused: {error}"
+        );
+
+        let root = scratch_base();
+        fs::write(root.path().join(euid.to_string()), b"nope").unwrap();
+        assert_eq!(
+            derived_linux_base_dir(root.path(), euid)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+    }
+
+    /// The Linux half of `platform_resolver_yields_usable_dir`: on a host
+    /// that has `/run/user/<euid>`, the derivation resolves it; on one that
+    /// does not, it fails closed with the typed error naming it. Nothing in
+    /// between — never a guess, never a different tree.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn production_derivation_resolves_or_fails_closed() {
+        let euid = current_euid();
+        let expected = Path::new(LINUX_RUNTIME_ROOT).join(euid.to_string());
+        match derived_linux_base_dir(Path::new(LINUX_RUNTIME_ROOT), euid) {
+            Ok(dir) => assert_eq!(dir, expected),
+            Err(error) => assert!(
+                error.to_string().contains(&expected.display().to_string()),
+                "{error}"
+            ),
+        }
+    }
+
+    /// A session with no `XDG_RUNTIME_DIR` (Tailscale SSH, `su`, a cron-like
+    /// context) still resolves the same directory a pam_systemd login would
+    /// have exported.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn platform_resolver_yields_usable_dir_without_a_pam_session() {
+        let euid = current_euid();
+        let expected = Path::new(LINUX_RUNTIME_ROOT).join(euid.to_string());
+        if !expected.is_dir() {
+            eprintln!("SKIP: this host has no {}", expected.display());
+            return;
+        }
+        let dir = linux_base_dir(None, Path::new(LINUX_RUNTIME_ROOT), euid).unwrap();
+        assert_eq!(dir, expected);
+        let dmux = secured_runtime_subdir(&dir).unwrap();
+        assert!(dmux.is_dir());
+        assert!(dmux.ends_with("dmux"));
     }
 
     #[cfg(target_os = "macos")]
