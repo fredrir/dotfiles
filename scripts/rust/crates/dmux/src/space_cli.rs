@@ -420,7 +420,10 @@ fn reconcile_cmd(
             &reconcile_target_list(&targets),
             authority_revision(&env),
         );
-        document["result"] = json!({ "targets": targets });
+        // The same shape every other branch of this verb emits — `targets`
+        // beside `results` — so one consumer field works on all of them; a
+        // declined run simply resolved nothing.
+        document["result"] = json!({ "targets": targets, "results": [] });
         println!("{document}");
         return Ok(ExitCode::from(exit.code()));
     }
@@ -457,12 +460,8 @@ fn reconcile_cmd(
     let results: Vec<operations::ReconcileResult> = targets
         .iter()
         .map(|target| {
-            let provider = reconcile_provider(&env, target);
-            operations::reconcile_apply(
-                &env,
-                target,
-                provider.as_ref().map(|(p, scope)| (p.as_ref(), scope)),
-            )
+            let backend = reconcile_provider(&env, target);
+            operations::reconcile_apply(&env, target, backend.as_ref().map(ReconcileNative::lend))
         })
         .collect();
     let all_ok = results.iter().all(|result| result.ok);
@@ -577,14 +576,42 @@ fn reconcile_ref_matches(shape: &SpaceRefShape, target: &operations::ReconcileTa
     }
 }
 
+/// The concrete backend behind a stranded row. Kept concrete rather than
+/// boxed as `dyn Provider` because a crashed Wez adoption also needs that
+/// provider's CAS rename — the compensation `adopt_wez` performs itself — and
+/// a `dyn Provider` cannot offer it.
+enum ReconcileNative {
+    Tmux(
+        dmux::backend::tmux::TmuxProvider<dmux::backend::tmux::SystemRunner>,
+        InventoryScope,
+    ),
+    Wez(
+        dmux::backend::wez::WezProvider<dmux::backend::wez::SystemRunner>,
+        InventoryScope,
+    ),
+}
+
+impl ReconcileNative {
+    fn lend(&self) -> operations::ReconcileBackend<'_> {
+        match self {
+            ReconcileNative::Tmux(provider, scope) => {
+                operations::ReconcileBackend::scan_only(provider, scope)
+            }
+            ReconcileNative::Wez(provider, scope) => {
+                operations::ReconcileBackend::restorable(provider, scope, provider)
+            }
+        }
+    }
+}
+
 /// The provider/scope for a stranded Space's backend instance, or `None` when
-/// it cannot be reached. An adoption reservation is decidable from the
-/// registry alone; every duty that needs a native scan fails closed without
-/// one, which is the point.
+/// it cannot be reached. A tmux adoption reservation is decidable from the
+/// registry alone; every other duty — and every Wez adoption, whose rename may
+/// already have landed — fails closed without one, which is the point.
 fn reconcile_provider(
     env: &OperationEnv,
     target: &operations::ReconcileTarget,
-) -> Option<(Box<dyn Provider>, InventoryScope)> {
+) -> Option<ReconcileNative> {
     let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).ok()?;
     let info = registry
         .backend_instance_info(target.backend_instance)
@@ -592,20 +619,27 @@ fn reconcile_provider(
     match info.backend {
         Backend::Tmux => {
             let namespace = info.socket_path?;
-            Some((
-                Box::new(dmux::backend::tmux::TmuxProvider::new(namespace.clone())),
+            Some(ReconcileNative::Tmux(
+                dmux::backend::tmux::TmuxProvider::new(namespace.clone()),
                 InventoryScope {
                     backend: Backend::Tmux,
                     endpoint: namespace,
-                    expected_epoch: None,
+                    // Every managed tmux mutation — `remove` included — is
+                    // refused without the current epoch, so a scope built
+                    // without it makes `remove_verify_absence` structurally
+                    // unreachable. Same source `adopt_cli::owner_scope` uses.
+                    expected_epoch: registry
+                        .backend_server(target.backend_instance)
+                        .ok()
+                        .and_then(|server| server.server_epoch),
                 },
             ))
         }
         Backend::Wez => {
             let (socket, epoch) = verified_wez_target(env, Some(target.backend_instance)).ok()?;
             let (bin, config) = production_wez_paths();
-            Some((
-                Box::new(dmux::backend::wez::WezProvider::new(&bin, config)),
+            Some(ReconcileNative::Wez(
+                dmux::backend::wez::WezProvider::new(&bin, config),
                 InventoryScope {
                     backend: Backend::Wez,
                     endpoint: socket,
@@ -1721,6 +1755,51 @@ fn split_cmd(cmd: SplitCmd, format: Option<OutputFormat>) -> Result<ExitCode, Ty
                 presented.into_iter().collect(),
                 || {},
             ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dmux::model::ServerEpoch;
+    use uuid::Uuid;
+
+    use super::*;
+
+    /// Every managed tmux mutation refuses without the current epoch —
+    /// `remove_space_inner` answers `remove requires the current epoch` — so a
+    /// reconcile scope built with `expected_epoch: None` made
+    /// `remove_verify_absence` structurally unreachable: a crashed `dmux rm`
+    /// could only ever fail closed, whatever the backend said.
+    #[test]
+    fn a_reconcile_scope_carries_the_epoch_every_tmux_mutation_requires() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = OperationEnv {
+            db_path: dir.path().join("registry.sqlite3"),
+            lock_dir: dir.path().join("locks"),
+        };
+        std::fs::create_dir_all(&env.lock_dir).unwrap();
+        let epoch = ServerEpoch(Uuid::from_u128(0x5eed));
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("dmux-scratch"), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, epoch, Some(4242), Some("start"), None, None)
+            .unwrap();
+        registry
+            .reserve_space("stranded", instance, Uuid::new_v4())
+            .unwrap();
+        drop(registry);
+
+        let targets = operations::reconcile_scan(&env).unwrap();
+        match reconcile_provider(&env, &targets[0]).expect("a registered tmux instance is usable") {
+            ReconcileNative::Tmux(_, scope) => {
+                assert_eq!(scope.expected_epoch, Some(epoch), "{scope:?}");
+                assert_eq!(scope.endpoint, "dmux-scratch");
+            }
+            ReconcileNative::Wez(..) => panic!("tmux instance resolved as wez"),
         }
     }
 }

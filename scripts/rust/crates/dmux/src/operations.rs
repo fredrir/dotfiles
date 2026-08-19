@@ -413,7 +413,7 @@ where
         .reserve_space(&req.name, instance, req.request_uid)
         .map_err(reg_err)?;
     let native_token = match backend {
-        Backend::Wez => format!("dmux:{}:{}", owner.0, reservation.space_uid.0),
+        Backend::Wez => adoption_key(owner, reservation.space_uid),
         Backend::Tmux => req.name.clone(),
     };
 
@@ -1786,7 +1786,9 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
             crate::model::OperationKind::Adopt,
         )
         .map_err(reg_err)?;
-    let opaque_key = format!("dmux:{}:{}", identity.host_uid.0, reservation.space_uid.0);
+    // The exact key `reconcile_apply` will look for if this holder dies
+    // between the CAS below and `finalize_adopt`.
+    let opaque_key = adoption_key(identity.host_uid, reservation.space_uid);
 
     match provider.cas_rename_workspace(scope, window_id, source_workspace, &opaque_key, true) {
         Ok(CasRenameOutcome::Renamed) => {}
@@ -3589,6 +3591,8 @@ pub fn repair_normalize_batch(
 // table. This module only gathers the evidence that table asks for and
 // performs the registry half of its answer; it never forms a second opinion.
 
+use crate::backend::ProviderResult;
+use crate::backend::wez::CasRenameOutcome;
 use crate::model::{Lifecycle, OperationKind, OperationState};
 use crate::registry::reconcile::{self, CreateDecision, CreateScan, RenameDecision, ResumeDuty};
 
@@ -3677,6 +3681,85 @@ pub struct ReconcileResult {
     pub ok: bool,
 }
 
+/// The compensating half of a crashed Wez adoption: the same fork CAS rename
+/// [`adopt_wez`]'s own failure path uses to put a workspace's name back, plus
+/// the sole-window lookup that verb needs. Taken as a trait object so
+/// [`reconcile_apply`] keeps one signature for both backends — tmux has no
+/// such verb and needs none, because its adoption mutation is an option stamp,
+/// never a rename.
+pub trait WorkspaceRestore {
+    fn sole_window_id(&self, scope: &InventoryScope, native_token: &str) -> ProviderResult<u64>;
+
+    fn cas_rename_workspace(
+        &self,
+        scope: &InventoryScope,
+        window_id: u64,
+        expected_workspace: &str,
+        new_workspace: &str,
+        expect_sole_window: bool,
+    ) -> ProviderResult<crate::backend::wez::CasRenameOutcome>;
+}
+
+impl<R: crate::backend::wez::WezRunner> WorkspaceRestore for crate::backend::wez::WezProvider<R> {
+    fn sole_window_id(&self, scope: &InventoryScope, native_token: &str) -> ProviderResult<u64> {
+        crate::backend::wez::WezProvider::sole_window_id(self, scope, native_token)
+    }
+
+    fn cas_rename_workspace(
+        &self,
+        scope: &InventoryScope,
+        window_id: u64,
+        expected_workspace: &str,
+        new_workspace: &str,
+        expect_sole_window: bool,
+    ) -> ProviderResult<crate::backend::wez::CasRenameOutcome> {
+        crate::backend::wez::WezProvider::cas_rename_workspace(
+            self,
+            scope,
+            window_id,
+            expected_workspace,
+            new_workspace,
+            expect_sole_window,
+        )
+    }
+}
+
+/// The Space's backend as reconciliation may use it: the scan every duty
+/// reasons from, and — on a backend that has one — the CAS rename a landed
+/// adoption has to be compensated with.
+pub struct ReconcileBackend<'a> {
+    pub provider: &'a dyn Provider,
+    pub scope: &'a InventoryScope,
+    /// `None` on tmux, and on any Wez endpoint whose CAS verb could not be
+    /// obtained: a landed adoption rename then has no compensation and fails
+    /// closed rather than being released behind an opaque key.
+    pub restore: Option<&'a dyn WorkspaceRestore>,
+}
+
+impl<'a> ReconcileBackend<'a> {
+    /// A backend that can be scanned but not CAS-renamed (tmux).
+    pub fn scan_only(provider: &'a dyn Provider, scope: &'a InventoryScope) -> Self {
+        Self {
+            provider,
+            scope,
+            restore: None,
+        }
+    }
+
+    /// A backend whose adoption rename can be undone (Wez, fork CAS).
+    pub fn restorable(
+        provider: &'a dyn Provider,
+        scope: &'a InventoryScope,
+        restore: &'a dyn WorkspaceRestore,
+    ) -> Self {
+        Self {
+            provider,
+            scope,
+            restore: Some(restore),
+        }
+    }
+}
+
 /// Preview: every unfinished journal row with its duty and whether a live
 /// process still owns it. Read-only — nothing is mutated and no lock outlives
 /// the probe, so this is safe to run before the operator answers the prompt.
@@ -3702,7 +3785,12 @@ pub fn reconcile_scan(env: &OperationEnv) -> Result<Vec<ReconcileTarget>, OpErro
             state: row.state,
             lifecycle: space.lifecycle,
             duty: reconcile::resume_duty(row.kind, row.state).as_str(),
-            in_flight: probe_in_flight(env, identity.host_uid, &space.logical_name)?,
+            in_flight: probe_in_flight(
+                env,
+                identity.host_uid,
+                &space.logical_name,
+                space.backend_instance,
+            )?,
             started_at: row.started_at,
         });
     }
@@ -3711,29 +3799,52 @@ pub fn reconcile_scan(env: &OperationEnv) -> Result<Vec<ReconcileTarget>, OpErro
 
 /// Crashed, or still running? Nothing durable tells them apart — a `prepared`
 /// row looks identical either way, and wall-clock age is not evidence (a slow
-/// bootstrap is not a crash). So ask the kernel: every §10.1 mutation holds
-/// its Space's decision lock exclusively for the whole call, and the kernel
-/// drops it the instant the holder dies. "We can take it" is exactly "nobody
-/// is running".
-fn probe_in_flight(env: &OperationEnv, owner: HostUid, name: &str) -> Result<bool, OpError> {
+/// bootstrap is not a crash). So ask the kernel: a §10.1 mutation holds its
+/// scopes exclusively for the whole call, and the kernel drops them the
+/// instant the holder dies. "We can take them" is exactly "nobody is running".
+///
+/// The probe must test *every* scope [`reconcile_apply`] will need, not just
+/// the decision lock: `remove_space_inner` takes the authority gate, the
+/// backend-instance lock and the Space lock and never a decision lock, so a
+/// live `dmux rm` is invisible to a decision-only probe. The preview would
+/// then call a running remove `crashed` while the apply — which does try the
+/// instance lock — skips it, and the operator would be confirming a row whose
+/// stated condition is false. A busy instance therefore reads as in flight
+/// even when the busy holder is some *other* Space on that instance: that is
+/// exactly what the apply will do with it, and preview and apply agreeing is
+/// the whole contract of a confirmed verb.
+fn probe_in_flight(
+    env: &OperationEnv,
+    owner: HostUid,
+    name: &str,
+    instance: BackendInstanceUid,
+) -> Result<bool, OpError> {
     let mut locks = OrderedLocks::new(&env.lock_dir);
+    // Shared, so this waits only on an exclusive authority writer (backup or
+    // restore), never on another operation.
     locks
         .acquire(LockScope::AuthorityGate, LockMode::Shared)
         .map_err(|e| OpError::Lock(e.to_string()))?;
-    let free = locks
+    if !locks
         .try_acquire(LockScope::decision(owner, name), LockMode::Exclusive)
+        .map_err(|e| OpError::Lock(e.to_string()))?
+    {
+        return Ok(true);
+    }
+    let free = locks
+        .try_acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
     Ok(!free)
 }
 
-/// Resolve one stranded row. `provider` is the Space's backend when one could
-/// be reached; `None` is not fatal — an adoption reservation is decidable from
-/// the registry alone — but it makes any duty that needs a native scan fail
-/// closed rather than guess.
+/// Resolve one stranded row. `backend` is the Space's provider/scope when one
+/// could be reached; `None` is not fatal for a tmux adoption reservation —
+/// which mutates nothing a scan could observe — but every duty that needs
+/// native evidence fails closed without it rather than guess.
 pub fn reconcile_apply(
     env: &OperationEnv,
     target: &ReconcileTarget,
-    provider: Option<(&dyn Provider, &InventoryScope)>,
+    backend: Option<ReconcileBackend<'_>>,
 ) -> ReconcileResult {
     let report = |outcome: ReconcileOutcome, detail: String| ReconcileResult {
         operation_uid: target.operation_uid,
@@ -3756,8 +3867,11 @@ pub fn reconcile_apply(
         Err(e) => return failed(format!("registry: {e}")),
     };
 
-    // The fence, in §10.1 order. Both acquisitions are non-blocking on
-    // purpose: a busy scope is a live holder, and repair waits for nobody.
+    // The fence, in §10.1 order. The authority gate is taken *shared*, so it
+    // blocks only against an exclusive authority writer (backup/restore),
+    // which by §10.1 overlaps nothing anyway. Every operation-owned scope
+    // below it is acquired non-blocking on purpose: a busy scope is a live
+    // holder, and repair waits for nobody.
     let mut locks = OrderedLocks::new(&env.lock_dir);
     if let Err(e) = locks.acquire(LockScope::AuthorityGate, LockMode::Shared) {
         return failed(format!("kernel lock: {e}"));
@@ -3814,14 +3928,15 @@ pub fn reconcile_apply(
     };
 
     match reconcile::resume_duty(row.kind, row.state) {
-        // §10.3's four outcomes over source token, destination key and
-        // epoch. A reservation that never reached `finalize_adopt` has no
-        // binding at all, so by the registry's own record the source is
-        // still UNMANAGED — no scan can make it more unmanaged than that,
-        // and adoption spawns nothing, so releasing the reservation orphans
-        // no native resource. Markers the dead holder had already written
-        // name an `aborted` Space, which `Lifecycle::occupies_name` excludes,
-        // so a re-run of `dmux adopt` overwrites them.
+        // §10.3 reconciles an adoption by source token, destination key and
+        // epoch — so the destination key has to be *looked for*, per backend.
+        // A reservation that never reached `finalize_adopt` has no binding,
+        // but "no binding" does not mean "no mutation": `adopt_wez` lands its
+        // CAS rename to the opaque key BEFORE it binds, and its own failure
+        // path compensates with a reverse CAS precisely because an abort
+        // alone would leave the workspace wearing an opaque key for a Space
+        // that never existed — neither managed nor recoverably unmanaged.
+        // Reconciliation owes the crashed holder that same compensation.
         ResumeDuty::AdoptionReconcile => {
             if space.lifecycle != Lifecycle::Reserved || binding.is_some() {
                 return failed(format!(
@@ -3831,16 +3946,129 @@ pub fn reconcile_apply(
                     if binding.is_some() { "a current" } else { "no" },
                 ));
             }
-            match registry.abort_create(space.space_uid, row.operation_uid) {
+            let release = |registry: &mut Registry, evidence: String| match registry
+                .abort_create(space.space_uid, row.operation_uid)
+            {
                 Ok(()) => report(
                     ReconcileOutcome::ReservationReleased,
-                    format!(
-                        "unmanaged: the {} never bound a native resource; name {:?} is free again",
-                        row.kind.as_str(),
-                        space.logical_name
-                    ),
+                    format!("{evidence}; name {:?} is free again", space.logical_name),
                 ),
                 Err(e) => failed(format!("registry: {e}")),
+            };
+            match target.backend {
+                // tmux adoption renames nothing: it stamps `@dmux_*` options
+                // on the source session and then binds. A crash leaves those
+                // options behind naming an `aborted` Space, which
+                // `Lifecycle::occupies_name` excludes and `dmux adopt`
+                // deliberately overwrites — the session keeps its own name
+                // throughout, so it is unmanaged and stays addressable.
+                Backend::Tmux => release(
+                    &mut registry,
+                    format!(
+                        "unmanaged: a tmux {} renames nothing, so the source session still \
+                         answers to its own name; any @dmux_* stamp the crashed holder wrote \
+                         names this aborted Space and a re-run of `dmux adopt` overwrites it",
+                        row.kind.as_str()
+                    ),
+                ),
+                Backend::Wez => {
+                    let opaque_key = adoption_key(owner, space.space_uid);
+                    let Some(backend) = backend else {
+                        return failed(format!(
+                            "the wez server could not be reached, so whether the {} renamed \
+                             workspace → {opaque_key:?} is unknown; releasing now could strand \
+                             a workspace under an opaque key for a Space that never existed. \
+                             Start the managed server and re-run, or rename that workspace \
+                             back by hand first",
+                            row.kind.as_str()
+                        ));
+                    };
+                    let rows = match backend.provider.inventory(backend.scope) {
+                        InventoryOutcome::Complete(inv) => inv.rows,
+                        other => {
+                            return failed(format!(
+                                "wez scan: {other:?} — cannot tell whether the {} renamed a \
+                                 workspace to {opaque_key:?}",
+                                row.kind.as_str()
+                            ));
+                        }
+                    };
+                    if !rows.iter().any(|r| r.native_token == opaque_key) {
+                        return release(
+                            &mut registry,
+                            format!(
+                                "unmanaged: a complete wez scan shows no workspace under the \
+                                 reservation's key {opaque_key:?}, so the atomic rename never \
+                                 landed and nothing was left renamed"
+                            ),
+                        );
+                    }
+                    // The rename landed. Undo it before the row closes, under
+                    // the same `--if-workspace`/`--if-sole-window` guard the
+                    // adopt used, so a racer's workspace is never touched.
+                    let Some(restore) = backend.restore else {
+                        return failed(format!(
+                            "workspace {opaque_key:?} still wears this reservation's opaque key \
+                             and this endpoint offers no CAS rename to put it back; rename it \
+                             yourself, then re-run `dmux repair reconcile`"
+                        ));
+                    };
+                    // The source token the reverse CAS should aim at is not
+                    // journaled (§10.3 asks for it; `reserve_space_kind`
+                    // records only name/instance), so the reservation's own
+                    // logical name is the closest recorded truth: identical to
+                    // the source workspace unless the operator passed
+                    // `--name`. Merging into a live workspace of that name
+                    // would be a mutation nobody asked for, so a collision
+                    // fails closed instead.
+                    let restored_to = space.logical_name.clone();
+                    if rows.iter().any(|r| r.native_token == restored_to) {
+                        return failed(format!(
+                            "workspace {opaque_key:?} still wears this reservation's opaque key, \
+                             but a live workspace is already named {restored_to:?}, so putting \
+                             the name back would merge two workspaces; rename one of them and \
+                             re-run `dmux repair reconcile`"
+                        ));
+                    }
+                    let window_id = match restore.sole_window_id(backend.scope, &opaque_key) {
+                        Ok(window_id) => window_id,
+                        Err(e) => {
+                            return failed(format!(
+                                "workspace {opaque_key:?} still wears this reservation's opaque \
+                                 key and its sole window could not be resolved ({e:?}); the \
+                                 rename cannot be undone, so the row stays open"
+                            ));
+                        }
+                    };
+                    match restore.cas_rename_workspace(
+                        backend.scope,
+                        window_id,
+                        &opaque_key,
+                        &restored_to,
+                        true,
+                    ) {
+                        Ok(CasRenameOutcome::Renamed) => release(
+                            &mut registry,
+                            format!(
+                                "unmanaged: the {} had renamed a workspace to {opaque_key:?}, \
+                                 and the compensating atomic rename put it back to \
+                                 {restored_to:?} (the reservation's logical name — the source \
+                                 token itself is not journaled)",
+                                row.kind.as_str()
+                            ),
+                        ),
+                        Ok(other) => failed(format!(
+                            "workspace {opaque_key:?} still wears this reservation's opaque key: \
+                             the compensating rename to {restored_to:?} was refused ({other:?}, \
+                             zero mutation); the row stays open rather than strand it"
+                        )),
+                        Err(e) => failed(format!(
+                            "workspace {opaque_key:?} still wears this reservation's opaque key: \
+                             the compensating rename to {restored_to:?} failed ({e:?}); the row \
+                             stays open rather than strand it"
+                        )),
+                    }
+                }
             }
         }
 
@@ -3851,9 +4079,9 @@ pub fn reconcile_apply(
                     space.lifecycle
                 ));
             }
-            let (scan, evidence) = match provider {
-                Some((provider, scope)) => {
-                    create_keyed_scan(&registry, owner, &space, provider, scope)
+            let (scan, evidence) = match &backend {
+                Some(backend) => {
+                    create_keyed_scan(&registry, owner, &space, backend.provider, backend.scope)
                 }
                 None => (
                     CreateScan::Indeterminate,
@@ -3876,10 +4104,31 @@ pub fn reconcile_apply(
                     }
                 }
                 // Binding an orphan needs the bootstrap acknowledgement that
-                // proves dmux created it, which `create_space_locked` has and
-                // a repair pass does not. Reporting beats guessing.
+                // proves dmux created it *and* that no user program is
+                // running in it unwitnessed, which `create_space_locked` has
+                // and a repair pass does not. That refusal stands — but
+                // "fails closed" must not mean "burned forever": without a
+                // named way out the name stays unusable by `new`, `rm`,
+                // `rename` and `adopt` alike, which is the damage this verb
+                // exists to end. §10.3's own remedy for asserting identity
+                // over an unmanaged resource is `repair rebind`, which is not
+                // implemented yet, so the refusal also names the route that
+                // works today and preserves the orphan: move it off the
+                // reserved key, which turns this row into the zero-match case
+                // above, then re-adopt it deliberately.
                 CreateDecision::RebindAndFinalize => failed(format!(
-                    "{evidence}; repair will not bind a native resource it cannot prove dmux created"
+                    "{evidence}; repair will not bind a native resource it cannot prove dmux \
+                     created — that assertion is `dmux repair rebind` (plan §10.3), which is \
+                     not implemented yet. Until it is, free the name {name:?} without losing \
+                     the resource: rename it off the reserved key ({hint}), re-run \
+                     `dmux repair reconcile` (the keyed lookup then finds nothing and releases \
+                     the reservation), then `dmux adopt` it back under your own confirmation",
+                    name = space.logical_name,
+                    hint = orphan_rename_hint(
+                        target.backend,
+                        backend.as_ref().map(|b| b.scope),
+                        &create_key(owner, &space, target.backend)
+                    ),
                 )),
                 CreateDecision::FailClosed => failed(evidence),
             }
@@ -3904,13 +4153,13 @@ pub fn reconcile_apply(
                     "wez renames touch no native name".to_string(),
                 ),
                 Backend::Tmux => {
-                    let Some((provider, scope)) = provider else {
+                    let Some(backend) = &backend else {
                         return failed(
                             "the Space's backend could not be reached to observe the old/new names"
                                 .into(),
                         );
                     };
-                    let rows = match provider.inventory(scope) {
+                    let rows = match backend.provider.inventory(backend.scope) {
                         InventoryOutcome::Complete(inv) => inv.rows,
                         other => {
                             return failed(format!("tmux scan: {other:?}"));
@@ -3956,7 +4205,7 @@ pub fn reconcile_apply(
         }
 
         ResumeDuty::RemoveVerifyAbsence => {
-            let Some((provider, scope)) = provider else {
+            let Some(backend) = &backend else {
                 return failed(
                     "the Space's backend could not be reached to prove the resource is gone".into(),
                 );
@@ -3969,8 +4218,8 @@ pub fn reconcile_apply(
             locks.release_all();
             match resume_remove_space(
                 env,
-                provider,
-                scope,
+                backend.provider,
+                backend.scope,
                 target.backend,
                 space.space_uid,
                 row.request_uid,
@@ -3991,6 +4240,40 @@ pub fn reconcile_apply(
     }
 }
 
+/// The opaque destination key a Wez adoption renames its source workspace to
+/// (`adopt_wez`), and the key a Wez create reserves for its spawn. One
+/// formula, spelled once: reconciliation looks for exactly what those two
+/// wrote.
+fn adoption_key(owner: HostUid, space_uid: SpaceUid) -> String {
+    format!("dmux:{}:{}", owner.0, space_uid.0)
+}
+
+/// The key a crashed create's keyed lookup must search for.
+fn create_key(owner: HostUid, space: &crate::registry::SpaceRow, backend: Backend) -> String {
+    match backend {
+        Backend::Wez => adoption_key(owner, space.space_uid),
+        Backend::Tmux => space.logical_name.clone(),
+    }
+}
+
+/// The exact native command that moves an orphan off the reserved key, so a
+/// refusal can name a remedy the operator can paste rather than a principle.
+fn orphan_rename_hint(backend: Backend, scope: Option<&InventoryScope>, key: &str) -> String {
+    match backend {
+        Backend::Tmux => match scope {
+            Some(scope) => format!(
+                "tmux -L {} rename-session -t {key} {key}.orphan",
+                scope.endpoint
+            ),
+            None => format!("tmux rename-session -t {key} {key}.orphan"),
+        },
+        Backend::Wez => format!(
+            "rename the workspace {key:?} in the GUI, or with the fork's \
+             `wezterm cli rename-workspace`"
+        ),
+    }
+}
+
 /// The complete keyed lookup §10.2 create step 3 demands, by the key the
 /// reservation fixed: Wez's opaque `dmux:<owner>:<space_uid>` (unique to this
 /// reservation) or, on tmux, the session name the spawn was asked for.
@@ -4001,10 +4284,7 @@ fn create_keyed_scan(
     provider: &dyn Provider,
     scope: &InventoryScope,
 ) -> (CreateScan, String) {
-    let key = match scope.backend {
-        Backend::Wez => format!("dmux:{}:{}", owner.0, space.space_uid.0),
-        Backend::Tmux => space.logical_name.clone(),
-    };
+    let key = create_key(owner, space, scope.backend);
     let rows = match provider.inventory(scope) {
         InventoryOutcome::Complete(inv) => inv.rows,
         other => {
@@ -4782,6 +5062,299 @@ mod tests {
             .unwrap();
         assert_ne!(replacement.space_uid, reservation.space_uid);
         assert_ne!(replacement.space_no, reservation.space_no);
+        // The detail is evidence, not a slogan: a tmux adopt stamps options
+        // and renames nothing, and the release says exactly that. "Never
+        // bound a native resource" would be false the moment the stamp
+        // landed — and it is the same sentence that, on Wez, would be
+        // covering for a workspace left under an opaque key.
+        assert!(result.detail.contains("renames nothing"), "{result:?}");
+        assert!(result.detail.contains("@dmux_"), "{result:?}");
+    }
+
+    /// A crashed Wez adopt, in the shape `adopt_wez` can leave: identity
+    /// reserved, and — depending on where the SIGKILL fell — the source
+    /// workspace already CAS-renamed to the reservation's opaque key.
+    fn stranded_wez_adoption(
+        env: &OperationEnv,
+    ) -> (
+        BackendInstanceUid,
+        crate::registry::SpaceReservation,
+        String,
+    ) {
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let owner = registry.identity().unwrap().host_uid;
+        let instance = registry
+            .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
+            .unwrap();
+        let key = adoption_key(owner, reservation.space_uid);
+        (instance, reservation, key)
+    }
+
+    fn wez_scope(epoch: ServerEpoch) -> InventoryScope {
+        InventoryScope {
+            backend: Backend::Wez,
+            endpoint: "/run/dmux/wez.sock".into(),
+            expected_epoch: Some(epoch),
+        }
+    }
+
+    fn wez_inventory(epoch: ServerEpoch, keys: &[&str]) -> InventoryOutcome {
+        InventoryOutcome::Complete(NativeInventory {
+            server_epoch: Some(epoch),
+            rows: keys
+                .iter()
+                .map(|key| NativeSpaceRow {
+                    native_token: (*key).to_string(),
+                    native_name: (*key).to_string(),
+                    groups: Vec::new(),
+                    multi_window: false,
+                })
+                .collect(),
+        })
+    }
+
+    /// The fork CAS verb, scripted. Records every compensation attempt so a
+    /// test can prove the reverse rename was issued with the same
+    /// `--if-workspace`/`--if-sole-window` guard `adopt_wez` uses.
+    struct RestoreSpy {
+        window: Option<u64>,
+        outcome: ProviderResult<CasRenameOutcome>,
+        calls: std::cell::RefCell<Vec<(u64, String, String, bool)>>,
+    }
+
+    impl RestoreSpy {
+        fn renaming(window: u64) -> Self {
+            Self {
+                window: Some(window),
+                outcome: Ok(CasRenameOutcome::Renamed),
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn refusing(window: u64, outcome: CasRenameOutcome) -> Self {
+            Self {
+                window: Some(window),
+                outcome: Ok(outcome),
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl WorkspaceRestore for RestoreSpy {
+        fn sole_window_id(
+            &self,
+            _scope: &InventoryScope,
+            native_token: &str,
+        ) -> ProviderResult<u64> {
+            self.window.ok_or_else(|| ProviderError::NotFound {
+                native_ref: native_token.to_string(),
+            })
+        }
+
+        fn cas_rename_workspace(
+            &self,
+            _scope: &InventoryScope,
+            window_id: u64,
+            expected_workspace: &str,
+            new_workspace: &str,
+            expect_sole_window: bool,
+        ) -> ProviderResult<CasRenameOutcome> {
+            self.calls.borrow_mut().push((
+                window_id,
+                expected_workspace.to_string(),
+                new_workspace.to_string(),
+                expect_sole_window,
+            ));
+            self.outcome.clone()
+        }
+    }
+
+    /// The damage `adopt_wez`'s own failure path compensates for: a workspace
+    /// wearing an opaque key for a Space that never existed. Reconciliation
+    /// owes it the same reverse CAS before it closes the row.
+    #[test]
+    fn a_crashed_wez_adoption_puts_the_workspace_back_before_freeing_the_name() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(96));
+        let (_instance, reservation, key) = stranded_wez_adoption(&env);
+
+        // The CAS had landed: the workspace is listed under the opaque key.
+        let provider = CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &[&key]));
+        let scope = wez_scope(epoch);
+        let restore = RestoreSpy::renaming(11);
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::restorable(&provider, &scope, &restore)),
+        );
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::ReservationReleased,
+            "{result:?}"
+        );
+        assert!(result.detail.contains("put it back"), "{result:?}");
+        assert_eq!(
+            restore.calls.borrow().as_slice(),
+            [(11, key.clone(), "legacy".to_string(), true)],
+            "the compensation must be the same guarded reverse CAS adopt_wez performs"
+        );
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Aborted
+        );
+    }
+
+    /// If the compensation cannot land, the workspace is still wearing the
+    /// opaque key — releasing anyway would be the fabricated success §10.2
+    /// forbids, so the row stays open and the pass is not `ok`.
+    #[test]
+    fn a_wez_adoption_whose_workspace_cannot_be_restored_is_never_reported_ok() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(97));
+        let (_instance, reservation, key) = stranded_wez_adoption(&env);
+
+        let provider = CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &[&key]));
+        let scope = wez_scope(epoch);
+        let restore = RestoreSpy::refusing(
+            11,
+            CasRenameOutcome::WorkspaceMismatch {
+                actual: "somebody-else".into(),
+            },
+        );
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::restorable(&provider, &scope, &restore)),
+        );
+        assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
+        assert!(!result.ok);
+        assert!(result.detail.contains(&key), "{result:?}");
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+        assert_eq!(
+            registry.operation(reservation.operation_uid).unwrap().state,
+            OperationState::Prepared
+        );
+    }
+
+    /// Without the server there is no evidence either way, and "no binding"
+    /// is not evidence: the rename lands before the binding does.
+    #[test]
+    fn a_wez_adoption_is_never_released_on_registry_evidence_alone() {
+        let (_data, _locks, env) = gate_test_env();
+        let (_instance, reservation, key) = stranded_wez_adoption(&env);
+
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(&env, &targets[0], None);
+        assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
+        assert!(result.detail.contains(&key), "{result:?}");
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+    }
+
+    /// The other half of the same evidence: a complete scan that shows no
+    /// workspace under the key proves the rename never landed, and the
+    /// reservation is released with nothing left renamed.
+    #[test]
+    fn a_wez_adoption_that_never_renamed_is_released_on_a_complete_scan() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(98));
+        let (_instance, reservation, _key) = stranded_wez_adoption(&env);
+
+        let provider = CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &["unrelated"]));
+        let scope = wez_scope(epoch);
+        let restore = RestoreSpy::renaming(11);
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::restorable(&provider, &scope, &restore)),
+        );
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::ReservationReleased,
+            "{result:?}"
+        );
+        assert!(restore.calls.borrow().is_empty(), "nothing to compensate");
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Aborted
+        );
+    }
+
+    /// Putting the name back must never merge the orphan into somebody
+    /// else's live workspace of that name.
+    #[test]
+    fn a_wez_compensation_refuses_to_merge_into_a_live_workspace_of_that_name() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(99));
+        let (_instance, reservation, key) = stranded_wez_adoption(&env);
+
+        let provider =
+            CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &[&key, "legacy"]));
+        let scope = wez_scope(epoch);
+        let restore = RestoreSpy::renaming(11);
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::restorable(&provider, &scope, &restore)),
+        );
+        assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
+        assert!(restore.calls.borrow().is_empty(), "{result:?}");
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+    }
+
+    /// `remove_space_inner` holds the authority gate, the backend-instance
+    /// lock and the Space lock — and never a decision lock. A preview that
+    /// only asks about decision locks calls that live remove `crashed`, then
+    /// the apply skips it: preview and apply disagreeing about the one field
+    /// the operator confirms against.
+    #[test]
+    fn a_live_remove_is_previewed_as_in_flight_not_as_crashed() {
+        let (_data, _locks, env) = gate_test_env();
+        let (instance, _reservation) = stranded_adoption(&env);
+
+        let mut holder = OrderedLocks::new(&env.lock_dir);
+        holder
+            .acquire(LockScope::AuthorityGate, LockMode::Shared)
+            .unwrap();
+        holder
+            .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
+            .unwrap();
+
+        let targets = reconcile_scan(&env).unwrap();
+        assert!(targets[0].in_flight, "{targets:?}");
+        let result = reconcile_apply(&env, &targets[0], None);
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::SkippedInFlight,
+            "{result:?}"
+        );
+        drop(holder);
     }
 
     #[test]
@@ -4884,7 +5457,11 @@ mod tests {
 
         let provider = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
         let scope = tmux_scope(epoch);
-        let freed = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        let freed = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(&provider, &scope)),
+        );
         assert_eq!(
             freed.outcome,
             ReconcileOutcome::ReservationReleased,
@@ -4912,15 +5489,96 @@ mod tests {
             CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost", "other"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
-        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(&provider, &scope)),
+        );
         assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
         assert!(result.detail.contains("reserved key"), "{result:?}");
+        // Failing closed is right; dead-ending is not. Before this, the name
+        // was refused by `new`, `rm`, `rename` and `adopt` alike with no verb
+        // able to free it and no remedy named — the refusal has to point at
+        // §10.3's own answer and at the route that works before it exists.
+        assert!(result.detail.contains("repair rebind"), "{result:?}");
+        assert!(
+            result
+                .detail
+                .contains("tmux -L tmux-recon rename-session -t ghost ghost.orphan"),
+            "{result:?}"
+        );
+        assert!(result.detail.contains("repair reconcile"), "{result:?}");
+        assert!(result.detail.contains("dmux adopt"), "{result:?}");
 
         let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
         assert_eq!(
             registry.space(reservation.space_uid).unwrap().lifecycle,
             Lifecycle::Reserved
         );
+    }
+
+    /// The route the refusal above names has to actually work: move the
+    /// orphan off the reserved key and the very same row becomes the
+    /// zero-match case, which releases the name. "Fails closed" must mean
+    /// "not yet", never "burned forever".
+    #[test]
+    fn the_remedy_the_create_refusal_names_actually_frees_the_name() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(90));
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-recon"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("ghost", instance, Uuid::new_v4())
+            .unwrap();
+        drop(registry);
+
+        let scope = tmux_scope(epoch);
+        let targets = reconcile_scan(&env).unwrap();
+        let refused = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(
+                &CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost"])),
+                &scope,
+            )),
+        );
+        assert_eq!(
+            refused.outcome,
+            ReconcileOutcome::FailedClosed,
+            "{refused:?}"
+        );
+
+        // The operator renames the orphan out of the way, exactly as the
+        // refusal spelled it, and re-runs the verb.
+        let renamed =
+            CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost.orphan"]));
+        let targets = reconcile_scan(&env).unwrap();
+        let freed = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(&renamed, &scope)),
+        );
+        assert_eq!(
+            freed.outcome,
+            ReconcileOutcome::ReservationReleased,
+            "{freed:?}"
+        );
+        assert_eq!(renamed.creates.load(Ordering::SeqCst), 0);
+
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Aborted
+        );
+        // The name is usable again — by `new`, and (the orphan being
+        // unmanaged and intact) by `dmux adopt`.
+        registry
+            .reserve_space("ghost", instance, Uuid::new_v4())
+            .unwrap();
     }
 
     /// An active tmux Space with a current binding, plus a `prepared` rename
@@ -4962,7 +5620,11 @@ mod tests {
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
         assert_eq!(targets[0].duty, "rename_observe_states");
-        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(&provider, &scope)),
+        );
         assert_eq!(
             result.outcome,
             ReconcileOutcome::RenameRolledBack,
@@ -4986,7 +5648,11 @@ mod tests {
         let provider = CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["after"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
-        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(&provider, &scope)),
+        );
         assert_eq!(
             result.outcome,
             ReconcileOutcome::RenameCommitted,
@@ -5013,7 +5679,11 @@ mod tests {
             CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["before", "after"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
-        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        let result = reconcile_apply(
+            &env,
+            &targets[0],
+            Some(ReconcileBackend::scan_only(&provider, &scope)),
+        );
         assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
 
         let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();

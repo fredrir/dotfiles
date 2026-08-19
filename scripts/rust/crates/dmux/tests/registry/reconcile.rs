@@ -12,7 +12,7 @@
 
 use std::process::{Command, Output, Stdio};
 
-use dmux::model::{Lifecycle, OperationKind, OperationState};
+use dmux::model::{Backend, Lifecycle, OperationKind, OperationState};
 use dmux::registry::SpaceReservation;
 use serde_json::Value;
 use uuid::Uuid;
@@ -25,6 +25,21 @@ use super::util::{self, Scratch};
 fn stranded_adoption(scratch: &Scratch) -> SpaceReservation {
     let mut registry = util::open(&scratch.config);
     let instance = util::tmux_instance(&mut registry);
+    registry
+        .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
+        .unwrap()
+}
+
+/// The same crash on the Wez side. It looks identical in the registry — a
+/// `reserved` Space and a `prepared` adopt row — but `adopt_wez` renames the
+/// source workspace to the reservation's opaque key *before* it binds, so
+/// closing this row without checking the workspace can leave it wearing a key
+/// for a Space that never existed.
+fn stranded_wez_adoption(scratch: &Scratch) -> SpaceReservation {
+    let mut registry = util::open(&scratch.config);
+    let instance = registry
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/absent.sock"), None)
+        .unwrap();
     registry
         .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
         .unwrap()
@@ -95,6 +110,47 @@ fn json_without_yes_previews_the_stranded_row_and_changes_nothing() {
     assert_eq!(target["lifecycle"], "reserved");
     assert_eq!(target["duty"], "adoption_reconcile");
     assert_eq!(target["in_flight"], false);
+    // Every other branch of this verb reports `targets` beside `results`; the
+    // confirmation is not entitled to a shape of its own.
+    assert_eq!(document["result"]["results"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        state_of(&scratch, &reservation),
+        (Lifecycle::Reserved, OperationState::Prepared)
+    );
+}
+
+/// A Wez adoption is not decidable from the registry alone: the CAS rename
+/// lands before the binding does, so "no binding" is not evidence that
+/// nothing was renamed. Without a reachable server there is no evidence
+/// either way, and releasing would be the fabricated success §10.2 forbids.
+#[test]
+fn a_wez_adoption_is_not_released_without_the_evidence_only_its_server_has() {
+    let scratch = util::scratch();
+    let reservation = stranded_wez_adoption(&scratch);
+
+    let output = dmux(
+        &scratch,
+        &["--format", "json", "repair", "reconcile", "--yes"],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let document = one_document(&output);
+    assert_eq!(document["ok"], false);
+    assert_eq!(document["result"]["results"][0]["outcome"], "failed_closed");
+    assert_eq!(document["errors"][0]["code"], "repair_required");
+    let detail = document["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        detail.contains("wez server could not be reached"),
+        "{detail}"
+    );
+    assert!(
+        detail.contains(&reservation.space_uid.0.to_string()),
+        "{detail}"
+    );
     assert_eq!(
         state_of(&scratch, &reservation),
         (Lifecycle::Reserved, OperationState::Prepared)

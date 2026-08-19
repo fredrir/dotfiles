@@ -142,9 +142,14 @@ fn run_remove(json: bool, args: RmArgs) -> Result<ExitStatus, TypedError> {
     // The name is taken literally on exactly this owner: no `parse_ref`, no
     // prefix or fuzzy fallback, no second host consulted. That is the only
     // removal spelling a ref-shaped legacy name has (plan §7.4, §17.10).
+    //
+    // The spelling keeps the flag, exactly as `--row` does, because it is
+    // what every failure and the confirmation subject echo back: `--name 3`
+    // and the ref `3` reach different Spaces, so a bare `3` would give two
+    // different removals one byte-identical document.
     if let Some(name) = &args.name {
         selectors.push(Selector {
-            spelling: name.clone(),
+            spelling: format!("--name {name}"),
             owner,
             locator: OwnerLocator::Name(name.clone()),
         });
@@ -270,12 +275,11 @@ fn rm_subject(args: &RmArgs) -> String {
             None => "--all on this host".to_string(),
         };
     }
-    // `--name 3` and the ref `3` name different Spaces; the subject echoes
-    // the flag so the operator confirms the one they actually typed.
-    if let Some(name) = &args.name {
-        return format!("--name {name}");
-    }
+    // `--name 3` and the ref `3` name different Spaces, so the flag is part
+    // of the spelling everywhere: what the operator confirms here is the
+    // same string the failure documents carry as `target`.
     let mut parts: Vec<String> = args.targets.clone();
+    parts.extend(args.name.iter().map(|name| format!("--name {name}")));
     parts.extend(args.rows.iter().map(|row| format!("--row {row}")));
     parts.join(", ")
 }
@@ -433,7 +437,9 @@ fn reject_opposite_backend_name(
 // Target selection
 
 /// One user-named target after grammar parsing and host reconciliation,
-/// still carrying the exact spelling for messages and JSON `target` fields.
+/// still carrying what the caller typed for messages and JSON `target`
+/// fields — the flag included, so `--name 3` and the ref `3` never produce
+/// the same document for the two different Spaces they select.
 struct Selector {
     spelling: String,
     owner: HostUid,

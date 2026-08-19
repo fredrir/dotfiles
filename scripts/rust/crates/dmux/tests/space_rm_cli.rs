@@ -940,7 +940,7 @@ fn rm_name_never_fuzzy_matches() {
     let doc = document(&output);
     assert_eq!(code(&output), 3, "{doc}");
     assert_eq!(doc["errors"][0]["code"], "not_found", "{doc}");
-    assert_eq!(doc["errors"][0]["target"], "ordinar", "{doc}");
+    assert_eq!(doc["errors"][0]["target"], "--name ordinar", "{doc}");
     assert_eq!(
         owner.lifecycles(),
         vec![(1, "ordinary".to_string(), Lifecycle::Active)]
@@ -969,7 +969,7 @@ fn rm_name_with_a_contradicting_backend_is_a_mismatch_not_a_miss() {
     let doc = document(&output);
     assert_eq!(code(&output), 4, "{doc}");
     assert_eq!(doc["errors"][0]["code"], "backend_mismatch", "{doc}");
-    assert_eq!(doc["errors"][0]["target"], "b1", "{doc}");
+    assert_eq!(doc["errors"][0]["target"], "--name b1", "{doc}");
 
     // The same name under the backend it actually has still removes.
     let ok = owner.dmux(&[
@@ -986,5 +986,76 @@ fn rm_name_with_a_contradicting_backend_is_a_mismatch_not_a_miss() {
     assert_eq!(
         owner.lifecycles(),
         vec![(1, "b1".to_string(), Lifecycle::Deleted)]
+    );
+}
+
+/// A failure document has to say which Space was asked for. `--name 3` and
+/// the ref `3` are two different Spaces on one owner, and both refuse a
+/// contradicting `--backend` with the same code — so unless the `target`
+/// carries the flag, as `--row 1` does, the two runs emit byte-identical
+/// documents for two different victims and no consumer can tell them apart.
+/// The same spelling also has to correlate the confirmation envelope with
+/// the outcome one, which is the only key a JSON caller has to pair them.
+#[test]
+fn a_name_failure_is_told_apart_from_the_ref_failure_it_shadows() {
+    let owner = Owner::start("nametarget");
+    owner.create("3");
+    owner.create("keep");
+    owner.create("decoy");
+
+    // Same verb, same flags, same owner, different Spaces: the name `3` is
+    // SpaceNo 1, while the ref `3` is SpaceNo 3 — `decoy`.
+    let named = owner.dmux(&[
+        "--format",
+        "json",
+        "rm",
+        "--yes",
+        "--name",
+        "3",
+        "--backend",
+        "wez",
+    ]);
+    let by_ref = owner.dmux(&["--format", "json", "rm", "--yes", "3", "--backend", "wez"]);
+    let named_doc = document(&named);
+    let ref_doc = document(&by_ref);
+    assert_eq!(code(&named), 4, "{named_doc}");
+    assert_eq!(code(&by_ref), 4, "{ref_doc}");
+    assert_eq!(
+        named_doc["errors"][0]["code"], "backend_mismatch",
+        "{named_doc}"
+    );
+    assert_eq!(
+        ref_doc["errors"][0]["code"], "backend_mismatch",
+        "{ref_doc}"
+    );
+    assert_eq!(named_doc["errors"][0]["target"], "--name 3", "{named_doc}");
+    assert_eq!(ref_doc["errors"][0]["target"], "3", "{ref_doc}");
+    assert_ne!(
+        named_doc["errors"][0], ref_doc["errors"][0],
+        "two Spaces, one document: {named_doc}"
+    );
+
+    // The confirmation the same selector prompts for names it identically,
+    // so a caller can pair the exit-5 document with the outcome it caused.
+    let confirm = owner.dmux(&["--format", "json", "rm", "--name", "3"]);
+    let confirm_doc = document(&confirm);
+    assert_eq!(code(&confirm), 5, "{confirm_doc}");
+    assert_eq!(
+        confirm_doc["errors"][0]["code"], "confirmation_required",
+        "{confirm_doc}"
+    );
+    assert_eq!(
+        confirm_doc["errors"][0]["target"], named_doc["errors"][0]["target"],
+        "{confirm_doc}"
+    );
+
+    // Three refusals removed nothing.
+    assert_eq!(
+        owner.lifecycles(),
+        vec![
+            (1, "3".to_string(), Lifecycle::Active),
+            (2, "keep".to_string(), Lifecycle::Active),
+            (3, "decoy".to_string(), Lifecycle::Active),
+        ]
     );
 }
