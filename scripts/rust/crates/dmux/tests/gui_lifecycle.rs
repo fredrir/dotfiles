@@ -726,8 +726,14 @@ fn registry_socket_inode_must_match_the_native_verified_descriptor() {
     assert!(inventory.calls.borrow().is_empty());
 }
 
+/// A descriptor that is already `ready` and disagrees with the registry is
+/// settled, not pending: the validator holds `&Registry` and nothing on this
+/// path republishes, so every later poll compares the same two values and
+/// reaches the same verdict. It must never retarget onto the descriptor's
+/// epoch — and it must not spend the whole deadline proving that, which is
+/// what a `BackendEpochChanged` classified as retryable used to do.
 #[test]
-fn stale_descriptor_epoch_never_retargets_and_times_out_typed() {
+fn stale_descriptor_epoch_never_retargets_and_fails_fast() {
     let fixture = registry_fixture(FixedServicePlatform::Linux);
     let commands = FakeCommands::successful(99);
     let mut stale = descriptor(&fixture);
@@ -744,7 +750,26 @@ fn stale_descriptor_epoch_never_retargets_and_times_out_typed() {
     )
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::BackendEpochChanged);
-    assert!(error.message.contains("timed out"), "{}", error.message);
+    assert!(
+        !error.message.contains("timed out"),
+        "waiting cannot change this answer, so no deadline is spent on it: {}",
+        error.message
+    );
+    assert!(
+        error.message.contains("registry records") && error.message.contains("Restart"),
+        "the operator is told which side is stale and what fixes it: {}",
+        error.message
+    );
+    assert_eq!(
+        descriptors.verified_reads.get(),
+        1,
+        "the settled descriptor is read once, not polled"
+    );
+    assert_eq!(
+        clock.0.get(),
+        Duration::ZERO,
+        "and no part of the readiness deadline is burned on it"
+    );
     assert!(inventory.calls.borrow().is_empty());
 }
 

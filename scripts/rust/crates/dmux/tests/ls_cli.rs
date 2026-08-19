@@ -1018,6 +1018,109 @@ fn a_rejected_scan_is_a_partial_listing_not_a_clean_one() {
     );
 }
 
+/// Case 25's wrong-server half, through the gap a NULL epoch opens: the
+/// instance is registered and addressable, but its server incarnation was
+/// never published, so there is no epoch to pin the scan to. An unpinned
+/// scope makes the adapter skip verification entirely, and the server that
+/// answers — here a replacement publishing another sentinel — is then
+/// believed *complete*, which demotes the live Space to `absent` and exits
+/// 0. The registered instance must refuse before it is probed instead.
+#[test]
+fn a_managed_instance_without_a_published_epoch_refuses_to_scan() {
+    let scratch = Scratch::new("unpublished");
+    let socket = scratch.path("wez.sock");
+    let _listener = UnixListener::bind(&socket).unwrap();
+    let mut registry = scratch.registry();
+    // Exactly what `dmux-mux-start.sh` leaves behind when it registers the
+    // instance and coordination never publishes an incarnation.
+    let instance = registry
+        .register_backend_instance(Backend::Wez, Some(&socket), None)
+        .unwrap();
+    let reservation = registry
+        .reserve_space("dotfiles", instance, Uuid::new_v4())
+        .unwrap();
+    registry
+        .finalize_create(
+            reservation.space_uid,
+            reservation.operation_uid,
+            &NativeBindingSpec {
+                native_token: "dmux:ws:dotfiles".into(),
+                native_kind: NativeKind::WezWorkspaceKey,
+                server_epoch: None,
+            },
+        )
+        .unwrap();
+    assert!(
+        registry
+            .backend_server(instance)
+            .unwrap()
+            .server_epoch
+            .is_none(),
+        "the fixture is only meaningful with server_epoch NULL"
+    );
+    drop(registry);
+
+    let stub = scratch.stub_wezterm(&format!(
+        "[{},{}]",
+        wez_pane(0, 0, 0, "dmux:system:0f0f0f0f-1111-4222-8333-444444444444"),
+        wez_pane(1, 1, 1, "dmux:ws:someone-elses")
+    ));
+    let source = scratch.source(stub);
+
+    let out = ls_cli::render(&source, Some(OutputFormat::Json), &LsArgs::default());
+    assert_eq!(out.status, ExitStatus::Partial, "{}", out.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["errors"][0]["code"], "backend_epoch_changed");
+    let message = doc["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("published no server epoch"),
+        "the operator is told what is missing: {message}"
+    );
+    assert!(
+        message.contains("republishes"),
+        "and what to do about it: {message}"
+    );
+    let dotfiles = doc["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "dotfiles")
+        .unwrap_or_else(|| panic!("no dotfiles row in {}", out.stdout));
+    assert_eq!(
+        dotfiles["observation"], "unreachable",
+        "an unverified server proves nothing about this Space"
+    );
+    assert!(
+        !out.stdout.contains("someone-elses"),
+        "no unverified server's rows are published: {}",
+        out.stdout
+    );
+    assert!(
+        !scratch.ran_wezterm(),
+        "a managed endpoint with nothing to verify against is refused before it is probed"
+    );
+
+    // The human surface makes the same call: exit 7 and the typed detail,
+    // never a clean table that quietly says `absent`.
+    let human = ls_cli::render(&source, None, &LsArgs::default());
+    assert_eq!(human.status, ExitStatus::Partial);
+    assert!(
+        human
+            .stderr
+            .iter()
+            .any(|line| line.contains("published no server epoch")),
+        "{:?}",
+        human.stderr
+    );
+    let row = human
+        .stdout
+        .lines()
+        .find(|line| line.contains("dotfiles"))
+        .unwrap_or_else(|| panic!("no dotfiles row in {}", human.stdout));
+    assert!(row.contains("unreachable"), "{row:?}");
+}
+
 /// "No instance is registered" is not a failed scan — nothing was probed.
 /// A machine that runs no mux is a normal state, so it costs no error, no
 /// remark, and no exit 7 (legacy `list.rs` takes the same position).

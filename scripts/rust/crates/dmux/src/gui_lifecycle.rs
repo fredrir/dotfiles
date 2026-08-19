@@ -846,8 +846,8 @@ pub fn ensure_ready_wez_service_with(
                     };
                     match validate_ready_descriptor(registry, platform, deps.inventory, &verified) {
                         Ok(ready) => return Ok(ready),
-                        Err(error) if retryable_ready_error(error.code) => error,
-                        Err(error) => return Err(error),
+                        Err(ReadyRejection::Retry(error)) => error,
+                        Err(ReadyRejection::Fatal(error)) => return Err(error),
                     }
                 }
                 other => {
@@ -874,6 +874,34 @@ pub fn ensure_ready_wez_service_with(
     }
 }
 
+/// Why one poll of a published descriptor did not produce a ready service.
+///
+/// The distinction is whether *waiting* can change the answer. A service that
+/// is still coming up will publish a better descriptor, and the next read
+/// picks it up. A descriptor that is already `ready` and disagrees with the
+/// registry cannot: [`validate_ready_descriptor`] takes `&Registry`, so
+/// nothing on this path republishes, and no later read of the same two values
+/// can differ. Polling that to the deadline burns the whole timeout to reach
+/// the same verdict, so it is reported at once instead.
+enum ReadyRejection {
+    /// Not ready *yet*: poll again until the deadline.
+    Retry(TypedError),
+    /// Ready and wrong: nothing this call path does will change it.
+    Fatal(TypedError),
+}
+
+impl ReadyRejection {
+    /// Classify by code, for the rejections whose convergence depends on the
+    /// backend rather than on the registry.
+    fn classify(error: TypedError) -> ReadyRejection {
+        if retryable_ready_error(error.code) {
+            ReadyRejection::Retry(error)
+        } else {
+            ReadyRejection::Fatal(error)
+        }
+    }
+}
+
 fn retryable_ready_error(code: ErrorCode) -> bool {
     matches!(
         code,
@@ -886,61 +914,75 @@ fn validate_ready_descriptor(
     platform: FixedServicePlatform,
     inventory: &dyn WezServiceInventory,
     descriptor: &WezMuxDescriptor,
-) -> Result<ReadyWezService, TypedError> {
-    let (descriptor_instance, descriptor_epoch) = ready_descriptor_uuids(descriptor)?;
+) -> Result<ReadyWezService, ReadyRejection> {
+    // Every registry comparison in this function is fatal by construction:
+    // it reads a ready descriptor against a `&Registry` nothing on this path
+    // writes, so re-reading the same two settled values cannot answer
+    // differently.  Only the backend comparisons at the end can converge.
+    let fatal = ReadyRejection::Fatal;
+    let (descriptor_instance, descriptor_epoch) =
+        ready_descriptor_uuids(descriptor).map_err(fatal)?;
     let descriptor_instance = BackendInstanceUid(descriptor_instance);
     let descriptor_epoch = ServerEpoch(descriptor_epoch);
 
     let registry_instance = registry
         .backend_instance_for_backend(Backend::Wez)
-        .map_err(registry_error)?
+        .map_err(|error| fatal(registry_error(error)))?
         .ok_or_else(|| {
-            TypedError::new(
+            fatal(TypedError::new(
                 ErrorCode::WrongBackendInstance,
                 "registry has no managed Wez backend instance",
-            )
+            ))
         })?;
     if registry_instance != descriptor_instance {
-        return Err(TypedError::new(
+        return Err(fatal(TypedError::new(
             ErrorCode::WrongBackendInstance,
             format!(
                 "descriptor backend instance {} differs from registry {}",
                 descriptor_instance.0, registry_instance.0
             ),
-        ));
+        )));
     }
 
     let info = registry
         .backend_instance_info(registry_instance)
-        .map_err(registry_error)?;
+        .map_err(|error| fatal(registry_error(error)))?;
     if info.backend != Backend::Wez
         || info.socket_path.as_deref() != Some(descriptor.socket.as_str())
         || info.service_label.as_deref() != Some(platform.service_label())
     {
-        return Err(TypedError::new(
+        return Err(fatal(TypedError::new(
             ErrorCode::WrongBackendInstance,
             format!(
                 "descriptor socket/service does not match registered Wez instance {}",
                 registry_instance.0
             ),
-        ));
+        )));
     }
 
     let server = registry
         .backend_server(registry_instance)
-        .map_err(registry_error)?;
+        .map_err(|error| fatal(registry_error(error)))?;
+    // The descriptor is `ready`, so its epoch is final; the registry's is
+    // whatever the last republication left.  Waiting cannot reconcile them:
+    // the only republisher is the mux's own recovery coordinator, which no
+    // read path — least of all this one — may stand in for.  Say so now and
+    // name the remedy, rather than spending the deadline re-reading two
+    // values that are already settled.
     if server.server_epoch != Some(descriptor_epoch) {
-        return Err(TypedError::new(
+        return Err(fatal(TypedError::new(
             ErrorCode::BackendEpochChanged,
             format!(
-                "descriptor epoch {} differs from registry epoch {}",
+                "managed Wez service is ready at epoch {} but the registry records {}; \
+                 the registry's server incarnation is stale and waiting cannot refresh it. \
+                 Restart the managed Wez service so it republishes, then re-run `dmux doctor`",
                 descriptor_epoch.0,
                 server
                     .server_epoch
                     .map(|epoch| epoch.0.to_string())
                     .unwrap_or_else(|| "<unpublished>".to_string())
             ),
-        ));
+        )));
     }
     if server.server_pid != Some(i64::from(descriptor.pid))
         || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
@@ -953,10 +995,10 @@ fn validate_ready_descriptor(
                 .socket_ino
                 .and_then(|value| i64::try_from(value).ok())
     {
-        return Err(TypedError::new(
+        return Err(fatal(TypedError::new(
             ErrorCode::WrongBackendInstance,
             "descriptor process/socket witness differs from the registry-published server incarnation",
-        ));
+        )));
     }
 
     let scope = InventoryScope {
@@ -966,17 +1008,20 @@ fn validate_ready_descriptor(
     };
     match inventory.inventory(&scope, descriptor) {
         InventoryOutcome::Complete(complete) => {
+            // Retryable, unlike the registry comparison above: this one is
+            // against the live server, which can still replace itself and
+            // publish a descriptor the next read agrees with.
             if complete.server_epoch != Some(descriptor_epoch) {
-                return Err(TypedError::new(
+                return Err(ReadyRejection::Retry(TypedError::new(
                     ErrorCode::BackendEpochChanged,
                     "sentinel-verified inventory epoch differs from descriptor epoch",
-                ));
+                )));
             }
             // Nonempty user rows are valid here.  The provider has already
             // excluded exactly one sentinel and this lifecycle seam must not
             // mistake existing Spaces for a failed readiness check.
         }
-        other => return Err(inventory_error(other)),
+        other => return Err(ReadyRejection::classify(inventory_error(other))),
     }
 
     Ok(ReadyWezService {

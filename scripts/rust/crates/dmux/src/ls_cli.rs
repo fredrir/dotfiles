@@ -21,7 +21,9 @@ use crate::backend::{InventoryOutcome, InventoryScope, Provider};
 use crate::error::{ErrorCode, ExitStatus, TypedError};
 use crate::inventory::{self, ManagedRow, ReconRow};
 use crate::locks::{LockMode, LockScope, OrderedLocks};
-use crate::model::{Backend, BackendInstanceUid, HostUid, Observation, SpaceNo, SpaceUid};
+use crate::model::{
+    Backend, BackendInstanceUid, HostUid, Observation, ServerEpoch, SpaceNo, SpaceUid,
+};
 use crate::operations::{OperationEnv, SpaceHierarchy};
 use crate::output::{self, OutputFormat, OwnerContext};
 use crate::registry::{HostLifecycle, Registry, RegistryConfig, SpaceRow};
@@ -724,10 +726,43 @@ pub struct Authority {
     invoker: SshInvoker,
 }
 
+/// A managed endpoint that carries the epoch its scan is verified against.
+///
+/// The epoch is deliberately **not** an `Option`. `InventoryScope`'s is, and
+/// both adapters skip verification entirely when it is `None`
+/// (`backend/wez.rs`'s `if let Some(expected)`), which is correct only for an
+/// endpoint that was never managed. Laundering a registry `NULL` through it
+/// would accept a *complete* inventory from a server nothing verified — the
+/// wrong-server half of case 25 — so a managed scope can only be built from a
+/// published epoch, and the case with no epoch is [`ScanTarget::Unpublished`].
+struct ManagedScope {
+    backend: Backend,
+    endpoint: String,
+    epoch: ServerEpoch,
+}
+
+impl ManagedScope {
+    fn scope(&self) -> InventoryScope {
+        InventoryScope {
+            backend: self.backend,
+            endpoint: self.endpoint.clone(),
+            expected_epoch: Some(self.epoch),
+        }
+    }
+}
+
 /// What the registry says about one backend before anything is probed.
 enum ScanTarget {
-    /// A managed instance with a recorded endpoint: probe exactly it.
-    Managed(BackendInstanceUid, InventoryScope),
+    /// A managed instance with a recorded endpoint and a published server
+    /// epoch: probe exactly it, pinned to exactly that epoch.
+    Managed(BackendInstanceUid, ManagedScope),
+    /// A registered instance whose server incarnation was never published
+    /// (`server_epoch` is NULL): addressable, but there is nothing to verify
+    /// a scan against, so nothing is probed and the backend is indeterminate.
+    /// The row exists before the mux coordinates (`dmux-mux-start.sh`
+    /// registers first, publishes later) and stays this way if coordination
+    /// never completes.
+    Unpublished(BackendInstanceUid),
     /// No instance registered, but the backend has a well-known endpoint
     /// natives can be discovered on. Not fenced — there is no managed
     /// instance to fence — and it can only ever yield unmanaged rows.
@@ -740,6 +775,8 @@ enum ScanTarget {
 }
 
 impl ScanTarget {
+    /// The instance whose shared fence a scan must hold. Only a probed
+    /// target has one; `Unpublished` is never probed.
     fn instance(&self) -> Option<BackendInstanceUid> {
         match self {
             ScanTarget::Managed(instance, _) => Some(*instance),
@@ -817,16 +854,19 @@ impl Authority {
         let Some(endpoint) = info.socket_path else {
             return Ok(ScanTarget::Unaddressable);
         };
-        let expected_epoch = registry
+        let Some(epoch) = registry
             .backend_server(instance)
             .map_err(typed_registry)?
-            .server_epoch;
+            .server_epoch
+        else {
+            return Ok(ScanTarget::Unpublished(instance));
+        };
         Ok(ScanTarget::Managed(
             instance,
-            InventoryScope {
+            ManagedScope {
                 backend,
                 endpoint,
-                expected_epoch,
+                epoch,
             },
         ))
     }
@@ -887,9 +927,18 @@ impl Authority {
 
         let scan = |target: &ScanTarget, probe: &dyn Fn(&InventoryScope) -> InventoryOutcome| {
             match target {
-                ScanTarget::Managed(instance, scope) if fenced.contains(instance) => probe(scope),
+                ScanTarget::Managed(instance, scope) if fenced.contains(instance) => {
+                    probe(&scope.scope())
+                }
                 ScanTarget::Managed(..) => InventoryOutcome::Unreachable {
                     detail: "backend instance is recovering or mutating".into(),
+                },
+                // A managed instance with no published epoch is refused, not
+                // scanned: an unpinned scan of a managed endpoint would
+                // accept whatever server answers, and a `Complete` answer
+                // from the wrong one demotes every live Space to `absent`.
+                ScanTarget::Unpublished(instance) => InventoryOutcome::Unreachable {
+                    detail: unpublished_detail(*instance),
                 },
                 ScanTarget::Unregistered(scope) => probe(scope),
                 ScanTarget::Unaddressable => InventoryOutcome::Unreachable {
@@ -927,7 +976,7 @@ impl Authority {
                 errors.push(ScanFailure {
                     backend,
                     error: TypedError::new(
-                        scan_error_code(scans.get(backend)),
+                        target_error_code(target, scans.get(backend)),
                         format!("{backend} inventory is indeterminate: {detail}"),
                     ),
                 });
@@ -1033,11 +1082,12 @@ impl LsSource for Authority {
             return None;
         }
         let registry = self.registry().ok()?;
-        let ScanTarget::Managed(_, scope) =
+        let ScanTarget::Managed(_, managed) =
             Authority::scan_target(&registry, row.backend, None).ok()?
         else {
             return None;
         };
+        let scope = managed.scope();
         let provider: Box<dyn Provider> = match row.backend {
             Backend::Wez => Box::new(WezProvider::new(&self.wez_bin, &self.wez_config)),
             Backend::Tmux => Box::new(TmuxProvider::new(scope.endpoint.clone())),
@@ -1137,6 +1187,30 @@ pub fn peer_listing(owner: HostUid, info: SpacesInfo, route: Option<String>) -> 
 /// The typed code for an indeterminate owner-local scan. Same mapping as
 /// `gui_lifecycle::inventory_error`, plus the epoch-mismatch case a listing
 /// can reach and a readiness probe cannot.
+/// The detail a refused unpublished-epoch scan reports, remedy included: the
+/// operator's move is to make the mux republish its incarnation, and nothing
+/// `ls` does can substitute for it.
+fn unpublished_detail(instance: BackendInstanceUid) -> String {
+    format!(
+        "the registered backend instance {} has published no server epoch, so no scan of it can \
+         be verified; restart the managed mux service so it republishes its server incarnation, \
+         then re-run `dmux doctor`",
+        instance.0
+    )
+}
+
+/// The code for a failed scan. Normally the outcome decides, but a target
+/// that was refused before any probe knows better than the generic
+/// `Unreachable` it had to report: an unpublished epoch is an epoch fault,
+/// not an unreachable endpoint, and the same distinction the sibling readers
+/// make (`gui_lifecycle.rs`, `gui_cli.rs`) has to survive into `errors[]`.
+fn target_error_code(target: &ScanTarget, outcome: &InventoryOutcome) -> ErrorCode {
+    match target {
+        ScanTarget::Unpublished(_) => ErrorCode::BackendEpochChanged,
+        _ => scan_error_code(outcome),
+    }
+}
+
 fn scan_error_code(outcome: &InventoryOutcome) -> ErrorCode {
     match outcome {
         _ if inventory::epoch_changed_detail(outcome).is_some() => ErrorCode::BackendEpochChanged,
