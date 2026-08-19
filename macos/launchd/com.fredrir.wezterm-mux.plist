@@ -10,6 +10,13 @@
     Restart: launchctl kickstart -k gui/$UID/com.fredrir.wezterm-mux.
     W6 canary: launchctl setenv DMUX_WEZ_FIRST 1 before bootstrapping the
     job. With no value, the wrapper defaults to the inert flag-off path.
+    Emergency opt-out (plan §21 step 9, ADR 010 §2): launchctl setenv
+    DMUX_LEGACY_POLICY 1 forces dmux back to legacy tmux creation even while
+    DMUX_WEZ_FIRST=1 is still set, so a canary host escapes without first
+    unsetting what it exported. It reverses creation policy only -- this job
+    keeps running and its panes keep living, because §21's rollback says to
+    leave a live mux server alone. Shells started before the setenv keep the
+    old environment; restart them.
   -->
   <key>Label</key>
   <string>com.fredrir.wezterm-mux</string>

@@ -30,27 +30,90 @@ All Python commands accept `--help`.
 
 ## `dmux`
 
-Bare `dmux` opens a session picker (or creates `main` when nothing runs);
-with `--host` it attaches the peer the way the old ssa/ssm did.
-`dmux <NAME>` attaches an existing session (a trailing `-w <WINDOW>` picks a
-window) and `dmux -` toggles back to the previous one. `-H`, `--host
-<macie|archie>` points any command at the peer.
+Bare `dmux` opens a picker (or creates `main` when nothing runs); with
+`--host` it attaches the peer the way the old ssa/ssm did. `dmux <REF>`
+attaches an existing Space (a trailing `-w <WINDOW>` picks a window) and
+`dmux -` toggles back to the previous one. `-H`, `--host <HOST>` points any
+command at another host: `macie`/`archie` always, and any enrolled alias,
+label, or HostUid once `DMUX_WEZ_FIRST=1` is on. Global `--format
+<human|json>` chooses the shape of any command that has a bounded result; a
+verb that has none — `con`, `new`, `keys`, `ssh`, `disconnect`, and the bare
+picker — refuses `--format json` rather than ignoring it.
+
+A target is a reference, not a listing position. A bare digit is the Space's
+permanent `SpaceNo` (`2`, or `b2`/`b:2` for the peer, or the full
+`dmux://<host-uid>/spaces/<space-uid>` URI), never row 2 of the last listing.
+`--row <N>` is the one-release compatibility escape that still means "the Nth
+line of `dmux ls`": it resolves to a stable ref and reports that ref first.
+`--name <VALUE>` is the exact-name escape for a Space whose name is shaped
+like a ref or spelled like a verb.
+
+Four listing scopes, deliberately distinct — `--all-hosts` sets host breadth,
+`--tree` sets hierarchy depth, and the two are independent:
+
+| Scope | Shows |
+| --- | --- |
+| `dmux ls` | Spaces on one host (`--host`, default this machine), one line each, no children. |
+| `dmux ls --tree` | the same host set, with each Space's live Groups and Splits indented beneath it. |
+| `dmux ls --all-hosts` | every enrolled host, queried concurrently under bounded timeouts; an unavailable host is reported, not dropped. Conflicts with `--host`. |
+| `dmux host ls` | the enrolled hosts and their routes only, never Spaces. |
 
 | Command | Purpose and options |
 | --- | --- |
-| `dmux ls` | List wezterm workspaces and tmux sessions as one indexed list. `--tmux` / `--wez`: filter while keeping merged-set indices; `--json`: machine-readable rows including a `host` field. Alias `list`. |
-| `dmux con <NAME\|INDEX>` | Attach an existing session. `-w`, `--window <WINDOW>`: select a window; `-A`, `--create`: create like `dmux new` when it does not exist. Aliases `attach`, `a`. |
-| `dmux new <NAME>` | Create a session if needed, then attach. `--dir <PATH>`: working directory; a command may follow `--`. |
-| `dmux detach` | Detach the current client from its tmux session. |
-| `dmux rm <TARGET...>` | Kill sessions after a `[y/N]` prompt. `--all`: every tmux session except the current one; `-w`, `--window <WINDOW>`: kill one window instead; `-y`, `--yes`: do not ask (required without a terminal). Aliases `kill`, `delete`. |
-| `dmux rename <OLD> <NEW>` | Rename a tmux session. |
+| `dmux ls` | List Spaces as `REF NAME BACKEND HOST GROUPS SPLITS SERVER CLIENT ROUTE STATE`; unmanaged native resources appear too, with `-` for a ref. `--backend <wez\|tmux>`: one backend only; `--tree`, `--all-hosts`: as above; `--format json`: the versioned envelope. Deprecated: `--tmux` / `--wez` (say `--backend`, and contradicting the two is an error) and `--json` (the bare legacy row array, whose `index` numbers the rows actually printed). Alias `list`. |
+| `dmux con <REF>` | Attach ("continue") an existing Space; it never invents one, so a typo leaves nothing behind. `--name <VALUE>`: exact logical name instead of a ref; `--backend <wez\|tmux>`: require that backend and never fall back; `--group <GROUP_REF>` / `--split <SPLIT_REF>`: focus that epoch-qualified child after connecting; `--launch-gui`: start a managed GUI and attach only to an existing Wez Space; `-w`, `--window <WINDOW>`: select a window; `-A`, `--create`: create like `dmux new` when it does not exist. Aliases `attach`, `a`. |
+| `dmux new <NAME>` | Create a Space if needed, then attach it. `--backend <auto\|wez\|tmux>`: creation policy (automatic when omitted); `--dir <PATH>`: working directory; `--no-connect`: create or select without presenting; `--allow-name-collision`: permit creation beside one selectable opposite-backend match; `--launch-gui`: as for `con`; a command may follow `--`. |
+| `dmux disconnect` | Hand the invoking client back without removing owner panes; the Space keeps running. `--domain`: detach the whole current imported Wez domain. Rejects `--host` — it acts on the local client only. Alias `detach`. |
+| `dmux rm <REF...>` | Remove Spaces after a `[y/N]` prompt on stderr. `--all`: every Space on exactly one host, `--backend`-filtered if asked — it sweeps Wez Spaces as well as tmux sessions, and only the pre-gate tmux path spares the session this client is in; `--name <VALUE>`; `--row <N>`, repeatable; `--backend <wez\|tmux>`; `-w`, `--window <WINDOW>`: remove one window instead; `-y`, `--yes`: do not ask, required without a terminal and required outright under `--format json`, which otherwise answers one exit-5 document and changes nothing. Aliases `kill`, `delete`. |
+| `dmux rename <OLD> <NEW>` | Rename a Space — a tmux session while the Wez-first flag is off. With `--name <VALUE>` or `--row <N>` naming the target, the single positional is the new name instead. `--backend <wez\|tmux>`; `--allow-name-collision`: permit a name one opposite-backend Space already holds. |
+| `dmux adopt <NATIVE_REF>` | Bring one unmanaged resource that `dmux ls` listed under management. `NATIVE_REF` is that row's opaque `native:<backend>:<token>`, re-resolved in a fresh scan and never handed to a backend as a command. `--name <NAME>`: logical name for the adopted Space (default: its native name). |
+| `dmux group <SUB>` | Groups — wezterm tabs, tmux windows — of a managed Space. `ls [SPACE]` (defaults to this pane's Space; deprecated `--json`); `new <SPACE> [--dir <PATH>] [--no-connect] [-- <CMD>...]`; `rename <GROUP> <NEW_NAME>`, a title and nothing else; `rm <GROUP...>` with `-y`, never the last Group — that is `dmux rm`; `con <GROUP>` presents one. |
+| `dmux split <SUB>` | Splits — panes — of a Group. `ls [GROUP]` (defaults to this pane's Group; deprecated `--json`); `new <GROUP> [--direction <left\|right\|up\|down>] [--percent <1-99>] [--dir <PATH>] [--no-connect] [-- <CMD>...]`; `rm <SPLIT...>` with `-y`, never the last Split — that is `dmux group rm`; `con <SPLIT>` presents one. |
+| `dmux context stamp <SPACE>` | Acknowledge this pane's marker for an adopted Space: derive the epoch-qualified refs from the pane environment, record the stamp, and report how many panes are still pending. |
+| `dmux repair normalize [TOKEN...]` | Preview, then merge multi-window Wez resources to one window each: deterministic pane-preserving plans, confirmed before any mutation, and a failure stays quarantined per target. Tokens restrict the scope; default is every detected multi-window resource. `-y`, `--yes`; deprecated `--json`. |
+| `dmux repair reconcile [SPACE...]` | Preview, then resolve the journal rows a crashed holder stranded, each through the frozen decision table; a row a live process still owns is listed and left alone. Spaces restrict the scope; default is every stranded row. `-y`, `--yes`. |
+| `dmux recovery <SUB>` | Guarded Wez mux recovery, always executed at the backend owner and qualified with the exact backend-instance/epoch pair, so a restart between inspection and mutation is a stale-target refusal. `status`; `resume`; `abort` with `-y`, `--yes`. |
+| `dmux ssh <TARGET>` | Enroll a host over SSH and open an interactive session on it. |
+| `dmux host <SUB>` | `ls`: enrolled hosts and their routes (deprecated `--json`); `label <HOST> <NEW_LABEL>`: set a friendly label; `forget <HOST>` with `-y`: disable a host's routes and tombstone its refs, never the local host, and re-enrolling reactivates it. `<HOST>` is an alias, a current label, or a HostUid. |
 | `dmux keys` | Show the live wezterm and tmux key bindings. `--man`: render as a man page; `--tmux` / `--wez`: only one table. |
-| `dmux doctor` | Probe the environment transport selection depends on. `--json`: machine-readable report. |
+| `dmux doctor` | Probe the environment transport selection depends on. `--format json` for the envelope; deprecated `--json` for the bare probe object. |
+| `dmux migrate` | The one-time cutover that brings existing sessions and workspaces under management. `--commit`: apply the printed plan, which is otherwise only previewed; `-y`, `--yes`. Not implemented — it refuses instead of acting. |
+
+`DMUX_WEZ_FIRST=1` gates the Wez-first behaviour, and it is unset by default.
+While it is off, `ls` refuses `--all-hosts`/`--backend`/`--tree`/`--format`
+and falls back to the legacy merged wezterm+tmux listing, whose row numbers
+are assigned over the merged set before `--tmux`/`--wez` filter; `con` refuses
+`--name`/`--backend`/`--group`/`--split`/`--launch-gui`; `new` refuses
+`--backend`/`--no-connect`/`--allow-name-collision`/`--launch-gui`; `rm` and
+`rename` refuse `--name`/`--row`/`--backend`/`--format` (and
+`--allow-name-collision`); and `adopt` and `migrate` refuse outright.
+`group`, `split`, `context`, `repair`, `recovery`, `ssh`, and `host` are not
+gated. Two things the errors name do not exist yet: `migrate` answers
+"migrate is not implemented yet" even under the flag, and `dmux repair
+rebind` — the remedy for asserting dmux identity over an unmanaged resource —
+is unimplemented, so `repair reconcile` refuses that case and names the route
+that works today (rename the resource off the reserved name, reconcile again,
+then `adopt` it back).
+
+Bounded commands share one exit table: `0` success, `1` operation failure,
+`2` usage, `3` not found, `4` conflict, `5` confirmation required, `6`
+unavailable, `7` partial. Under `--format json` each of them prints exactly
+one envelope on stdout and nothing else: `schema_version`, `ok`, `action`,
+`result`, `errors`, `authority_revision`. A command's own older `--json` is
+deprecated for one release and keeps emitting its bare legacy payload, with
+the migration hint on stderr.
 
 `dmux` also accepts `-h`/`--help`, `-v`/`--version`, and
-`--completions <bash|elvish|fish|powershell|zsh>`. The `ssa`, `ssm`, and
-`dmx` shell wrappers forward to it; for `ssa`/`ssm` a bare session name is
-create-or-attach (`con -A`).
+`--completions <bash|elvish|fish|powershell|zsh>`. `dmx` is a shell alias for
+it. `ssa` and `ssm` forward to `dmux --host archie` and `dmux --host macie`
+under one narrow rule: a lone bare word that is not a dmux verb becomes
+`new <word>` — create-or-connect — while everything else forwards verbatim,
+so `ssa ls` lists rather than creating a Space called `ls`, and a Space whose
+name collides with a verb is reached by spelling the verb (`ssa new ls`). The
+verb allowlist lives in `shared/zsh/conf.d/91-tmux-attach.zsh` and is
+re-derived from the built binary by
+`the_wrapper_verb_allowlist_matches_the_cli` in
+`scripts/rust/crates/dmux/tests/cli.rs`, so it cannot drift unnoticed.
 
 ## `dmux-rollout`
 

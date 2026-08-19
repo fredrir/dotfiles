@@ -1195,38 +1195,139 @@ with `-`. `gff` is a shell alias for `gpp .`.
 
 ## dmux
 
-One CLI for every session on either machine: wezterm-mux workspaces and tmux
-sessions, local or on the peer, from `scripts/rust/crates/dmux`. It replaces
-the internals of the old ssa/ssm shell functions —
-`shared/zsh/conf.d/91-tmux-attach.zsh` now only wraps it: `ssa` forwards to
-`dmux --host archie` and `ssm` to `dmux --host macie`, a bare session name
-becomes `con -A` (the old create-or-attach default), and the remaining old
-flags (`--tmux`, `-l`) intentionally error rather than silently change
-meaning. `dmx` is
-the shell alias, and all three borrow dmux's completion.
-`-H/--host <macie|archie>` points any invocation at the peer.
+One CLI for every session on either machine: wezterm-mux Spaces and tmux
+sessions, local or on an enrolled peer, from `scripts/rust/crates/dmux`. It
+replaces the internals of the old ssa/ssm shell functions —
+`shared/zsh/conf.d/91-tmux-attach.zsh` now only wraps it. `ssa` forwards to
+`dmux --host archie` and `ssm` to `dmux --host macie`, and the wrapper's rule
+is deliberately narrow: a lone bare word that is not a dmux verb becomes
+`new <word>`, and everything else — flags, several words, any verb — forwards
+verbatim. So `ssa dev` is create-or-connect and `ssa ls` lists rather than
+creating a Space called `ls`. It is `new` rather than the old `con -A` because
+`new` is already idempotent create-or-connect and `con` never creates;
+`con -A` survives one compatibility release and `con --name` is connect-only
+and gated, so neither is the create path today. A Space whose name collides
+with a verb is reached by spelling the verb: `ssa new ls`. The allowlist had
+already drifted once — 14 verbs named against 22 on the CLI — so it is checked
+rather than trusted: `the_wrapper_verb_allowlist_matches_the_cli` in
+`scripts/rust/crates/dmux/tests/cli.rs` re-derives it from the built binary's
+hidden `_verbs` output and from the array itself, evaluated by zsh rather than
+text-parsed, and fails naming whichever verb moved. `dmx` is the shell alias,
+and all three borrow dmux's completion. `-H/--host <HOST>` points any
+invocation at another host — `macie`/`archie` always, and any enrolled alias,
+label, or HostUid once the Wez-first flag is on.
 
-The verbs: `ls` (alias `list`) merges wezterm workspaces and tmux sessions
-into one indexed list, `--json` for machines — rows carry a `host` field,
-and indices are assigned over the merged set before `--tmux`/`--wez` filter,
-so a filtered listing has gaps but its numbers still name what `con` and
-`rm` resolve. `con <name|index>` attaches an existing session and refuses to
-invent one, so a typo cannot leave a stray session behind; `-A/--create`
-falls back to what `new` does. `new <name>` creates then attaches (tmux `-A`
-semantics), with `--dir <path>` for the working directory and a command
-after `--`. `rm` (aliases `kill`, `delete`) kills after asking — the [y/N]
-goes to stderr, and a non-TTY without `--yes` is refused rather than
-answered silently; `rm --all` sweeps every tmux session but keeps the one
-the client is sitting in, with a note saying how to kill it explicitly.
-`detach` hands the client back and leaves the session running; `rename`
-renames; `dmux -` toggles back to the previously attached session, tracked
-per host, so `ssa -` toggles on the peer; `keys` prints the live wezterm and
-tmux key tables instead of a hand-maintained copy (`--man` renders them as a
-man page, via a randomly named temp file); `doctor` reports what the
-transport probes see, `--json` included. Bare `dmux` on a TTY is a picker,
-and a bare name is treated as `con` — `dmux myproj -w 2` works, the one flag
-the fallthrough shares with `con`. Inside wezterm the picker and `con` can
+A target is a reference, not a position in the last listing. A bare digit is
+the Space's permanent `SpaceNo` — `2` locally, `b2` or `b:2` owner-qualified,
+or the whole `dmux://<host-uid>/spaces/<space-uid>` URI — and it names that
+Space for its life, which is the entire difference from the row numbers it
+replaced: a listing printed a minute ago can no longer make `dmux rm 2` mean
+something else. `0` and leading-zero forms are invalid refs rather than names,
+and an ID-shaped token is never reinterpreted as a name, so the two grammars
+cannot quietly swap. `--row <N>` is the one-release escape for fingers that
+still count lines: it means the Nth row of `dmux ls`, resolves to a stable
+ref, and reports that ref before acting. `--name <VALUE>` is the escape in the
+other direction — the exact logical name of a Space whose name is shaped like
+a ref or spelled like a verb, which no ref grammar could otherwise address.
+
+Four listing scopes answer four different questions, which is why none of them
+is a mode of another. `dmux ls` is the Spaces of one host — `--host`, this
+machine by default — one line each, no children. `dmux ls --tree` is the same
+host set with each Space's live Groups and Splits indented beneath it.
+`dmux ls --all-hosts` is every enrolled host, queried concurrently under
+bounded timeouts, an unavailable host reported rather than silently missing;
+it conflicts with `--host`, since breadth and a single selection contradict
+each other. `dmux host ls` is the hosts and their routes and never Spaces at
+all. `--all-hosts` sets breadth, `--tree` sets depth, and the two compose.
+
+The verbs. `ls` (alias `list`) prints `REF NAME BACKEND HOST GROUPS SPLITS
+SERVER CLIENT ROUTE STATE`, unmanaged native resources included with `-` where
+a ref would be, so what needs adopting is visible before it is adopted. `con`
+(aliases `attach`, `a`) attaches an existing Space and refuses to invent one,
+so a typo cannot leave a stray session behind; `--backend` demands one backend
+and never falls back to the other, and `--group`/`--split` focus an
+epoch-qualified child after connecting — epoch-qualified because a stale
+handle must fail rather than retarget whatever now sits in that position.
+`new` creates then attaches, with `--dir`, a command after `--`,
+`--no-connect` for creation without presentation, and `--allow-name-collision`
+for the deliberate case of a name one opposite-backend Space already holds.
+`disconnect` (alias `detach`) hands the invoking client back and leaves the
+Space running, `--domain` detaching the whole imported Wez domain; it rejects
+`--host`, because the client it acts on is local by definition. `rm` (aliases
+`kill`, `delete`) removes after asking — the [y/N] goes to stderr, a non-TTY
+without `--yes` is refused rather than answered silently, and under
+`--format json` it never prompts at all but answers one exit-5 confirmation
+document and changes nothing. `rm --all` is every Space on exactly one host,
+backend-filtered if asked: it sweeps Wez Spaces as well as tmux sessions and
+spares nothing, and only the pre-gate tmux path keeps the session the client
+is sitting in. `rename` renames a Space, a tmux session while the flag is off.
+`adopt` takes one unmanaged row's opaque `native:<backend>:<token>` and brings
+it under management; that token is re-resolved in a fresh complete scan and is
+never handed to a backend as a command.
+
+Beneath a Space are Groups (wezterm tabs, tmux windows) and Splits (panes),
+each with its own `ls`, `new`, `rm` and `con`, and each refusing to remove the
+last child: deleting the last Split is `group rm`, deleting the last Group is
+`dmux rm`, and saying so is better than a verb that sometimes deletes its own
+parent. `context stamp` finishes an adoption without dmux guessing — it
+derives one pane's epoch-qualified refs from that pane's own environment,
+records the stamp, and reports how many panes are still pending. `repair
+normalize` previews and then merges multi-window Wez resources to one window
+each, pane-preserving, confirmed before any mutation, failures quarantined per
+target. `repair reconcile` previews and then resolves the journal rows a
+crashed holder stranded, routing each through the frozen `registry::reconcile`
+decision table and leaving alone any row a live process still owns. There is
+no `repair rebind`: binding an orphan needs the bootstrap acknowledgement that
+proves dmux created it, which a repair pass does not have, so `reconcile`
+refuses that row and names the route that does work — rename the resource off
+the reserved name, reconcile again so the reservation is released, then
+`adopt` it back under your own confirmation. `ssh <target>` enrolls a host
+over SSH and opens a session on it; `host ls`, `host label` and `host forget`
+manage the result, `forget` disabling routes and tombstoning refs rather than
+deleting anything, never targeting the local host, and undone by re-enrolling.
+`recovery status`, `resume` and `abort` inspect and control guarded Wez mux
+recovery, always at the backend owner and always qualified with the exact
+backend-instance and epoch pair that was inspected, so a restart between the
+two calls is a stale-target refusal instead of an action against the
+replacement.
+
+`keys` prints the live wezterm and tmux key tables instead of a
+hand-maintained copy (`--man` renders them as a man page, via a randomly named
+temp file); `doctor` reports what the transport probes see. Bare `dmux` on a
+TTY is a picker, on a pipe it is `ls`, and a bare name is treated as `con` —
+`dmux myproj -w 2` works, `-w` being the one flag the fallthrough shares with
+`con`. `dmux -` toggles back to the previously attached session, tracked per
+host, so `ssa -` toggles on the peer. Inside wezterm the picker and `con` can
 also switch to a wezterm workspace, by activating one of its panes.
+
+`--format <human|json>` is global, and `json` is always the same versioned
+envelope — `schema_version`, `ok`, `action`, `result`, `errors`,
+`authority_revision` — exactly one document on stdout and nothing else, over
+one exit table: 0 success, 1 operation failure, 2 usage, 3 not found, 4
+conflict, 5 confirmation required, 6 unavailable, 7 partial. A verb with no
+bounded result refuses `--format json` inside that same envelope rather than
+printing its human report under a flag it never reads; `con`, `new`, `keys`,
+`ssh`, `disconnect` and the picker are those verbs. The older per-command
+`--json` is a different thing and survives one release: it keeps emitting its
+exact bare legacy payload, byte for byte, because scripts compare it that way,
+which leaves the deprecation notice nowhere to go but stderr. `ls --tmux` and
+`ls --wez` are deprecated the same way in favour of `--backend`, and naming
+both a filter and a contradicting `--backend` is an error rather than a
+silent winner.
+
+`DMUX_WEZ_FIRST=1` gates the Wez-first behaviour and is unset by default, so
+the shipped surface is narrower than `--help` looks. Flag-off, `ls` refuses
+`--all-hosts`, `--backend`, `--tree` and `--format` and falls back to the
+legacy merged listing, whose row numbers are assigned over the whole merged
+wezterm+tmux set before `--tmux`/`--wez` filter — precisely the behaviour
+stable refs exist to end; `con`, `new`, `rm` and `rename` refuse their new
+flags with a usage error naming the variable; and `adopt` and `migrate` refuse
+outright. `group`, `split`, `context`, `repair`, `recovery`, `ssh` and `host`
+are not gated. `migrate` — the one-time cutover that would scan, print a
+deterministic mapping, and batch-adopt — is not implemented at all, and its
+module says so in a constant rather than in a comment, so that a machine with
+the canary flag already exported keeps the legacy behaviour instead of
+panicking in the user's shell.
 
 Attaching a remote host walks the chain the shell version had, now in one
 place. Inside wezterm a bare attach is a native mux tab on the peer's ssh
@@ -1239,10 +1340,13 @@ peer's zsh — a session named `={a,b}` or `$(reboot)` reaches tmux as text —
 and `wezterm cli` probes run with `--no-auto-start`, because a listing is a
 question, not a request to boot a mux server. Attach replaces the process with
 `exec` so the TTY is handed over cleanly, which is also why it cannot be
-observed from a test: `DMUX_DRY_RUN=1` prints the command that would have
-been exec'd instead of running it, and that is how the integration tests —
-and a doubtful user — inspect transport selection without losing the
-terminal.
+observed from a test: `DMUX_DRY_RUN=1` prints the legacy command plan that
+would have been exec'd instead of running it, and that is how the integration
+tests — and a doubtful user — inspect transport selection without losing the
+terminal. It stays a legacy-only preview on purpose: Wez-first presentation
+refuses to print a plan before it has resolved a target, because planning may
+itself authenticate a GUI or mint a single-use remote attach credential, and a
+dry run that does either is not one.
 
 ---
 

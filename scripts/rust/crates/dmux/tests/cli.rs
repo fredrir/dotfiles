@@ -65,6 +65,12 @@ impl Sandbox {
             .env("XDG_STATE_HOME", self.state.path())
             .env("XDG_RUNTIME_DIR", self.state.path())
             .env("DMUX_DRY_RUN", "1")
+            // The legacy path, stated rather than assumed. Today this is a
+            // no-op — the default is legacy and `DMUX_WEZ_FIRST` is removed
+            // right below — but at the §21 step 9 flip it is what keeps all
+            // 74 frozen cases exercising the legacy surface they assert
+            // (ADR 011 D1: a planned harness migration, not retirements).
+            .env("DMUX_LEGACY_POLICY", "1")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
             .env_remove("DMUX_WEZ_FIRST")
@@ -1202,4 +1208,48 @@ fn a_dash_after_a_verb_is_not_the_toggle() {
         assert!(text.contains("no session '-'"), "{args:?}: {text}");
         assert!(!text.contains("@prev"), "{args:?}: {text}");
     }
+}
+
+/// §21 step 9's emergency opt-out, at the surface: `DMUX_LEGACY_POLICY=1`
+/// returns a host to the legacy path even though `DMUX_WEZ_FIRST=1` is still
+/// exported, which is exactly the escape a canary host needs (ADR 010 §2).
+/// `ls --tree` is the cheapest observable: the flag-off path refuses the
+/// Wez-first-only flags rather than routing to `ls_cli`.
+#[test]
+fn the_legacy_policy_flag_beats_a_wez_first_opt_in() {
+    let sandbox = Sandbox::with_tmux();
+    let gated = "--all-hosts/--backend/--tree/--format require DMUX_WEZ_FIRST=1";
+
+    let escaped = sandbox
+        .command(&["ls", "--tree"])
+        .env("DMUX_WEZ_FIRST", "1")
+        .env("DMUX_LEGACY_POLICY", "1")
+        .output()
+        .expect("dmux runs");
+    let text = stderr(&escaped);
+    assert!(text.contains(gated), "{text}");
+    assert_eq!(escaped.status.code(), Some(2));
+
+    // The control, and the reason the harness line above is a no-op today:
+    // without the opt-out the same invocation is not refused.
+    let canary = sandbox
+        .command(&["ls", "--tree"])
+        .env("DMUX_WEZ_FIRST", "1")
+        .env_remove("DMUX_LEGACY_POLICY")
+        .output()
+        .expect("dmux runs");
+    assert!(!stderr(&canary).contains(gated), "{}", stderr(&canary));
+
+    // And a `0` is not an opt-out: only `1` reverses the policy.
+    let not_an_opt_out = sandbox
+        .command(&["ls", "--tree"])
+        .env("DMUX_WEZ_FIRST", "1")
+        .env("DMUX_LEGACY_POLICY", "0")
+        .output()
+        .expect("dmux runs");
+    assert!(
+        !stderr(&not_an_opt_out).contains(gated),
+        "{}",
+        stderr(&not_an_opt_out)
+    );
 }

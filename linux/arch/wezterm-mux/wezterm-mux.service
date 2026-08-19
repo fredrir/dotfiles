@@ -10,6 +10,14 @@ Description=dmux-managed WezTerm multiplexer server
 # canary service into the guarded W6 path.  With no imported value the wrapper
 # defaults to 0, preserving the pre-cutover sentinel-only behavior.
 PassEnvironment=DMUX_WEZ_FIRST
+# Emergency opt-out (plan §21 step 9, ADR 010 §2), imported the same way:
+# DMUX_LEGACY_POLICY=1 forces dmux back to legacy tmux creation even while
+# DMUX_WEZ_FIRST=1 is still imported, so a canary host escapes without first
+# unsetting what it set.  It reverses creation policy only -- this unit keeps
+# running and its panes keep living, because §21's rollback says to leave a
+# live mux server alone.  Passed through so anything this service spawns sees
+# the same verdict as the user's shells.
+PassEnvironment=DMUX_LEGACY_POLICY
 # The wrapper resolves $XDG_RUNTIME_DIR/dmux, mints a fresh server epoch,
 # and boot nonce, then execs wezterm-mux-server FOREGROUND with its early
 # managed-service prebind and dmux mux config; native mux-startup code publishes

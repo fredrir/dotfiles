@@ -1705,8 +1705,50 @@ fn other(
     }
 }
 
+/// The automatic policy that applies when neither switch is set — what an
+/// ordinary shell on an ordinary host gets.
+///
+/// **The plan §21 step 9 cutover is this constant becoming `true`, and
+/// nothing else.** Do not flip it before the step 7 canary and the full P11
+/// gate pass (ADR 010 §2); flipping it early makes every host that never
+/// opted in start creating Wez Spaces. Hosts already canarying under
+/// `DMUX_WEZ_FIRST=1` see no change when it flips, and `DMUX_LEGACY_POLICY=1`
+/// is the emergency opt-out that reverses it for the one release the legacy
+/// path is still shipped.
+const WEZ_FIRST_BY_DEFAULT: bool = false;
+
+/// Whether this invocation gets the Wez-first surface and automatic policy.
+///
+/// Every gated arm calls this instead of reading the environment itself, so
+/// the cutover stays the one constant above.
 fn wez_first_enabled() -> bool {
-    std::env::var("DMUX_WEZ_FIRST").as_deref() == Ok("1")
+    resolve_wez_first(
+        std::env::var("DMUX_LEGACY_POLICY").ok().as_deref(),
+        std::env::var("DMUX_WEZ_FIRST").ok().as_deref(),
+    )
+}
+
+/// `DMUX_LEGACY_POLICY` beats `DMUX_WEZ_FIRST` beats the default.
+///
+/// That precedence is what makes the emergency opt-out usable at all: the
+/// canary host exported `DMUX_WEZ_FIRST=1` into launchd/systemd months
+/// earlier, and the escape hatch must not require finding and unsetting that
+/// first. `DMUX_LEGACY_POLICY=1` alone returns the host to legacy tmux
+/// creation (§21 rollback, "switch creation policy back to legacy tmux").
+///
+/// Both are opt-in switches whose only recognised value is `"1"`; every other
+/// value, `"0"` included, means "I did not set this" and defers to the next
+/// rule. `DMUX_WEZ_FIRST=0` has never been an opt-out — pre-flip it reads as
+/// legacy only because legacy is the default — and it does not silently
+/// become one at the flip. The opt-out is `DMUX_LEGACY_POLICY=1`.
+fn resolve_wez_first(legacy_policy: Option<&str>, wez_first: Option<&str>) -> bool {
+    if legacy_policy == Some("1") {
+        return false;
+    }
+    if wez_first == Some("1") {
+        return true;
+    }
+    WEZ_FIRST_BY_DEFAULT
 }
 
 fn legacy_host(raw: &str) -> Option<Host> {
@@ -2156,6 +2198,53 @@ mod tests {
 
     fn args(words: &[&str]) -> Vec<OsString> {
         words.iter().map(OsString::from).collect()
+    }
+
+    /// The §21 step 9 resolver across every value either switch can hold.
+    /// Written against `WEZ_FIRST_BY_DEFAULT` rather than against `true`/
+    /// `false`, so the table stays correct after the flip: the rows that
+    /// change meaning are exactly the ones where nobody stated a preference.
+    #[test]
+    fn the_policy_resolver_answers_every_switch_combination() {
+        // `DMUX_LEGACY_POLICY=1` is the emergency opt-out: legacy wins over
+        // an opt-in, over a stale `0`, and over the default whichever way it
+        // is set.
+        for wez_first in [None, Some("1"), Some("0"), Some(""), Some("yes")] {
+            assert!(
+                !resolve_wez_first(Some("1"), wez_first),
+                "DMUX_LEGACY_POLICY=1 must force legacy with DMUX_WEZ_FIRST={wez_first:?}"
+            );
+        }
+        // Without the opt-out, `DMUX_WEZ_FIRST=1` still decides and every
+        // other spelling defers to the default.
+        for legacy in [None, Some("0"), Some(""), Some("yes")] {
+            assert!(
+                resolve_wez_first(legacy, Some("1")),
+                "the canary opt-in must survive DMUX_LEGACY_POLICY={legacy:?}"
+            );
+            assert_eq!(resolve_wez_first(legacy, None), WEZ_FIRST_BY_DEFAULT);
+            assert_eq!(resolve_wez_first(legacy, Some("0")), WEZ_FIRST_BY_DEFAULT);
+        }
+    }
+
+    /// The property the opt-out exists for: a host that canaried under
+    /// `DMUX_WEZ_FIRST=1` escapes by setting one variable, without first
+    /// hunting down the `launchctl setenv` it did in W6 (ADR 010 §2).
+    #[test]
+    fn the_legacy_opt_out_beats_an_opt_in_that_is_still_exported() {
+        assert!(resolve_wez_first(None, Some("1")));
+        assert!(!resolve_wez_first(Some("1"), Some("1")));
+    }
+
+    /// Guards the flip itself. §21 step 9 is gated on the step 7 canary and
+    /// the full P11 gate, so a host that stated no preference still gets
+    /// legacy. This one assertion is the second and last line the cutover
+    /// edits (`assert!(resolve_wez_first(None, None))`), which is also why it
+    /// goes through the resolver rather than reading the constant: an
+    /// `assert!` on a `const` is a clippy warning and folds away.
+    #[test]
+    fn the_shipped_default_is_still_legacy_until_step_9() {
+        assert!(!resolve_wez_first(None, None));
     }
 
     #[test]
