@@ -16,5 +16,6 @@ macos/hammerspoon = ~/.hammerspoon
 macos/ssh = ~/.ssh
 linux/arch/ssh = ~/.ssh
 linux/arch/wezterm-mux = ~/.config/systemd/user
+macos/launchd = ~/Library/LaunchAgents
 shared/ssh = ~/.ssh
 shared/obsidian/plugins/agent-transcripts = ~/Documents/main/.obsidian/plugins/agent-transcripts
