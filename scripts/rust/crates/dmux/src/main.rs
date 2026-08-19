@@ -210,7 +210,8 @@ enum Cmd {
         )]
         targets: Vec<String>,
 
-        /// Kill every tmux session listed (keeps the one this client is in)
+        /// Remove every Space on exactly one host, optionally backend-filtered;
+        /// pre-gate this is tmux only and keeps the session this client is in
         #[arg(long, conflicts_with = "window")]
         all: bool,
 
@@ -2341,6 +2342,30 @@ mod tests {
         assert!(
             !help.contains("names or indices"),
             "`dmux rm --help` still calls a bare digit an index:\n{help}"
+        );
+    }
+
+    /// §7.4: `rm --all` is "every Space on exactly one selected host",
+    /// and under the gate `all_spaces` sweeps both backends with no
+    /// exclusion for the caller's own session — the pre-gate tmux path is
+    /// the only one that keeps it, so the help may not promise it outright.
+    #[test]
+    fn rm_all_help_does_not_promise_an_unconditional_current_session_escape() {
+        let mut root = Cli::command();
+        root.build();
+        let mut rm = root
+            .get_subcommands()
+            .find(|command| command.get_name() == "rm")
+            .expect("rm is a subcommand")
+            .clone();
+        let help = rm.render_long_help().to_string();
+        assert!(
+            help.contains("exactly one host"),
+            "`dmux rm --help` must state the single-host scope of --all:\n{help}"
+        );
+        assert!(
+            !help.contains("(keeps the one this client is in)"),
+            "`dmux rm --help` still promises --all spares this client's session:\n{help}"
         );
     }
 

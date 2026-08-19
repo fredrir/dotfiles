@@ -1440,6 +1440,134 @@ pub struct AdoptedSpace {
     pub native_token: String,
 }
 
+// The adoption refusals §10.3 gives their own remedies travel as a leading
+// token in the detail, exactly as `cas_capability_missing` already does:
+// `OpError` carries no identity/invalid-name variant, and six verbs match it
+// exhaustively, so widening it is not this layer's call. `adopt_cli::typed`
+// lifts these back into the plan's codes (§16.2).
+pub const ADOPT_IDENTITY_CONFLICT: &str = "native_identity_conflict";
+pub const ADOPT_MARKER_CONFLICT: &str = "marker_conflict";
+pub const ADOPT_UNRENDERABLE_NAME: &str = "unrenderable_native_name";
+
+/// Case 13's pre-mutation guard: a native token that already carries a
+/// current binding is an explicit conflict. `bindings_current_native_uq`
+/// states the same rule, but enforces it only at finalization — by then the
+/// markers (tmux) or the CAS rename (Wez) have already rewritten a live
+/// resource that belongs to another Space, and no verb reaps the wreckage.
+fn require_unbound_native(
+    registry: &Registry,
+    instance: crate::model::BackendInstanceUid,
+    native_token: &str,
+) -> Result<(), OpError> {
+    let Some(bound) = registry
+        .current_binding_by_native(instance, native_token)
+        .map_err(reg_err)?
+    else {
+        return Ok(());
+    };
+    let held = registry.space(bound.space_uid).map_err(reg_err)?;
+    Err(OpError::NameConflict(format!(
+        "{ADOPT_IDENTITY_CONFLICT}: {native_token} is already bound to Space {} ({}, {:?})",
+        held.space_no, bound.space_uid.0, held.logical_name
+    )))
+}
+
+/// §2.12 and case 6: the name has to be free on *both* providers, which is
+/// what `new` checks and adopt did not. `new` offers `--allow-name-collision`
+/// to take the collision deliberately; `dmux adopt` has no such flag yet
+/// (adding one is a `main.rs` change), so the remedy here is `--name`.
+fn require_no_cross_backend_name(
+    registry: &Registry,
+    backend: Backend,
+    name: &str,
+) -> Result<(), OpError> {
+    let opposite = match backend {
+        Backend::Wez => Backend::Tmux,
+        Backend::Tmux => Backend::Wez,
+    };
+    let Some(instance) = registry
+        .backend_instance_for_backend(opposite)
+        .map_err(reg_err)?
+    else {
+        return Ok(());
+    };
+    match registry
+        .live_space_by_name(instance, name)
+        .map_err(reg_err)?
+    {
+        None => Ok(()),
+        Some(existing) => Err(OpError::NameConflict(format!(
+            "name {:?} is held on {opposite} by Space {} ({}); adopt it under an explicit \
+             --name (adopt carries no --allow-name-collision acknowledgement)",
+            name, existing.space_no, existing.space_uid.0
+        ))),
+    }
+}
+
+/// An inherited native name keeps its legacy spelling (§10.3), so the
+/// `new`-name grammar cannot apply to it — but it still has to survive the
+/// line-oriented renderers `ls`/receipts use. Operator-chosen `--name` is
+/// held to the full grammar one layer up, where `invalid_name` is spellable.
+fn require_renderable_name(name: &str) -> Result<(), OpError> {
+    if name.trim().is_empty() || name.chars().any(char::is_control) {
+        return Err(OpError::NameConflict(format!(
+            "{ADOPT_UNRENDERABLE_NAME}: native name {name:?} is blank or holds control \
+             characters; adopt it with an explicit --name"
+        )));
+    }
+    Ok(())
+}
+
+/// Case 13 again, from the resource's side: a session already advertising
+/// `@dmux_*` identity belongs to some authority, and overwriting its markers
+/// is precisely the silent rebind §10.3 forbids. The one exception is this
+/// registry's own abandoned stamp — the Space it names is no longer live
+/// here — because that is what a torn adoption leaves behind and re-adopting
+/// is the documented repair for it.
+fn require_no_foreign_stamp(
+    registry: &Registry,
+    identity: &crate::registry::RegistryIdentity,
+    session: &str,
+    markers: &crate::backend::tmux::SpaceMarkerReadback,
+) -> Result<(), OpError> {
+    let conflict = |detail: String| {
+        Err(OpError::NameConflict(format!(
+            "{ADOPT_MARKER_CONFLICT}: session {session} {detail}; resolve the collision before \
+             adopting (plan §10.3)"
+        )))
+    };
+    let Some(space_uid) = markers.space_uid.as_deref() else {
+        // No identity claimed. A partial stamp without a Space UID names
+        // nothing adoptable and is overwritten with the rest.
+        return Ok(());
+    };
+    let ours = markers.host_uid.as_deref() == Some(identity.host_uid.0.to_string().as_str())
+        && markers.registry_uid.as_deref() == Some(identity.registry_uid.0.to_string().as_str());
+    if !ours {
+        return conflict(format!(
+            "already carries foreign dmux markers (host {:?}, registry {:?}, space {space_uid})",
+            markers.host_uid, markers.registry_uid
+        ));
+    }
+    let live = space_uid
+        .parse()
+        .ok()
+        .map(|uid| registry.space(SpaceUid(uid)))
+        .transpose()
+        .or_else(|e| match e {
+            crate::registry::RegistryError::NotFound { .. } => Ok(None),
+            other => Err(reg_err(other)),
+        })?
+        .filter(|row| row.lifecycle.occupies_name());
+    match live {
+        None => Ok(()),
+        Some(row) => conflict(format!(
+            "still carries this registry's markers for live Space {} ({})",
+            row.space_no, row.space_uid.0
+        )),
+    }
+}
+
 /// Adopt an external tmux session by exact session id (`$N`): reserve
 /// identity under the decision+instance fences, stamp the `@dmux_*` session
 /// options, verify the stamp readback, then bind. Markers + immutable
@@ -1476,6 +1604,7 @@ pub fn adopt_tmux<R: crate::backend::tmux::TmuxRunner>(
         other => return Err(OpError::Indeterminate(format!("tmux scan: {other:?}"))),
     };
     let name = name_override.unwrap_or(&native_name).to_string();
+    require_renderable_name(&name)?;
 
     let mut locks = OrderedLocks::new(&env.lock_dir);
     locks
@@ -1489,6 +1618,11 @@ pub fn adopt_tmux<R: crate::backend::tmux::TmuxRunner>(
         .map_err(|e| OpError::Lock(e.to_string()))?;
     require_no_unfinished_recovery(&registry, instance)?;
 
+    // Everything that can refuse this adoption is decided here, under the
+    // lease and before a single byte of the live session changes: identity
+    // first (the session may already be some Space's), then both name
+    // occupancies, then the session's own claim to identity.
+    require_unbound_native(&registry, instance, session_id)?;
     if let Some(existing) = registry
         .live_space_by_name(instance, &name)
         .map_err(reg_err)?
@@ -1498,6 +1632,12 @@ pub fn adopt_tmux<R: crate::backend::tmux::TmuxRunner>(
             name, existing.space_uid.0
         )));
     }
+    require_no_cross_backend_name(&registry, Backend::Tmux, &name)?;
+    let existing_markers = provider
+        .read_markers(scope, session_id)
+        .map_err(|e| OpError::Provider(format!("{e:?}")))?;
+    require_no_foreign_stamp(&registry, &identity, session_id, &existing_markers)?;
+
     let reservation = registry
         .reserve_space_kind(
             &name,
@@ -1525,17 +1665,28 @@ pub fn adopt_tmux<R: crate::backend::tmux::TmuxRunner>(
             )));
         }
     }
-    registry
-        .finalize_adopt(
-            reservation.space_uid,
-            reservation.operation_uid,
-            &NativeBindingSpec {
-                native_token: session_id.to_string(),
-                native_kind: NativeKind::TmuxSessionId,
-                server_epoch: Some(epoch),
-            },
-        )
-        .map_err(reg_err)?;
+    if let Err(e) = registry.finalize_adopt(
+        reservation.space_uid,
+        reservation.operation_uid,
+        &NativeBindingSpec {
+            native_token: session_id.to_string(),
+            native_kind: NativeKind::TmuxSessionId,
+            server_epoch: Some(epoch),
+        },
+    ) {
+        // Without this the reservation stays `reserved` forever — it holds
+        // the name against every later attempt and no verb reaps it. The
+        // markers are already on the session and tmux options cannot be
+        // unset through this provider; aborting is what makes them this
+        // registry's *abandoned* stamp, which `require_no_foreign_stamp`
+        // deliberately lets a retry overwrite.
+        let _ = registry.abort_create(reservation.space_uid, reservation.operation_uid);
+        return Err(OpError::Registry(format!(
+            "{e}; Space {} aborted and session {session_id} still carries its stamp — re-run \
+             `dmux adopt` to reclaim it",
+            reservation.space_uid.0
+        )));
+    }
     Ok(AdoptedSpace {
         space_uid: reservation.space_uid,
         space_no: reservation.space_no,
@@ -1598,6 +1749,7 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
         other => return Err(OpError::Indeterminate(format!("wez scan: {other:?}"))),
     };
     let name = name_override.unwrap_or(source_workspace).to_string();
+    require_renderable_name(&name)?;
 
     let mut locks = OrderedLocks::new(&env.lock_dir);
     locks
@@ -1611,6 +1763,11 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
         .map_err(|e| OpError::Lock(e.to_string()))?;
     require_no_unfinished_recovery(&registry, instance)?;
 
+    // Same ordering rule as tmux: the CAS rename below is a real mutation,
+    // so identity is settled first. A workspace already carrying an opaque
+    // key is some Space's binding — renaming it to a *new* key would strand
+    // that Space on a token nothing answers to.
+    require_unbound_native(&registry, instance, source_workspace)?;
     if let Some(existing) = registry
         .live_space_by_name(instance, &name)
         .map_err(reg_err)?
@@ -1620,6 +1777,7 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
             name, existing.space_uid.0
         )));
     }
+    require_no_cross_backend_name(&registry, Backend::Wez, &name)?;
     let reservation = registry
         .reserve_space_kind(
             &name,
@@ -1632,6 +1790,15 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
 
     match provider.cas_rename_workspace(scope, window_id, source_workspace, &opaque_key, true) {
         Ok(CasRenameOutcome::Renamed) => {}
+        // A window that vanished under the CAS is gone, not contested; the
+        // tmux path answers the same disappearance with `not_found`.
+        Ok(CasRenameOutcome::NoSuchWindow) => {
+            let _ = registry.abort_create(reservation.space_uid, reservation.operation_uid);
+            return Err(OpError::NotFound(format!(
+                "workspace {source_workspace:?} vanished before the atomic rename \
+                 (zero mutation)"
+            )));
+        }
         Ok(other) => {
             let _ = registry.abort_create(reservation.space_uid, reservation.operation_uid);
             return Err(OpError::NameConflict(format!(
@@ -1643,17 +1810,38 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
             return Err(OpError::Provider(format!("{e:?}")));
         }
     }
-    registry
-        .finalize_adopt(
-            reservation.space_uid,
-            reservation.operation_uid,
-            &NativeBindingSpec {
-                native_token: opaque_key.clone(),
-                native_kind: NativeKind::WezWorkspaceKey,
-                server_epoch: Some(epoch),
-            },
-        )
-        .map_err(reg_err)?;
+    if let Err(e) = registry.finalize_adopt(
+        reservation.space_uid,
+        reservation.operation_uid,
+        &NativeBindingSpec {
+            native_token: opaque_key.clone(),
+            native_kind: NativeKind::WezWorkspaceKey,
+            server_epoch: Some(epoch),
+        },
+    ) {
+        // The rename already landed, so an abort alone would leave the
+        // workspace wearing an opaque key for a Space that never existed —
+        // neither managed nor recoverably unmanaged. Put the name back
+        // first, under the same CAS guard so a racer's workspace is never
+        // touched, and say so when that compensation itself fails.
+        let restored = matches!(
+            provider.cas_rename_workspace(scope, window_id, &opaque_key, source_workspace, true),
+            Ok(CasRenameOutcome::Renamed)
+        );
+        let _ = registry.abort_create(reservation.space_uid, reservation.operation_uid);
+        return Err(OpError::Registry(format!(
+            "{e}; Space {} aborted and workspace {}",
+            reservation.space_uid.0,
+            if restored {
+                format!("restored to {source_workspace:?}")
+            } else {
+                format!(
+                    "still named {opaque_key:?} — rename it back to {source_workspace:?} before \
+                     retrying"
+                )
+            }
+        )));
+    }
     Ok(AdoptedSpace {
         space_uid: reservation.space_uid,
         space_no: reservation.space_no,

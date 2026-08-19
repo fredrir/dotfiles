@@ -19,7 +19,10 @@ use crate::backend::tmux::TmuxProvider;
 use crate::backend::wez::{SystemRunner, WezProvider, WezRunner};
 use crate::error::{ErrorCode, ExitStatus, TypedError};
 use crate::model::Backend;
-use crate::operations::{AdoptedSpace, OpError, OperationEnv, adopt_tmux, adopt_wez};
+use crate::operations::{
+    ADOPT_IDENTITY_CONFLICT, ADOPT_MARKER_CONFLICT, ADOPT_UNRENDERABLE_NAME, AdoptedSpace, OpError,
+    OperationEnv, adopt_tmux, adopt_wez,
+};
 use crate::output::{self, OutputFormat};
 use crate::registry::{Registry, RegistryConfig, SpaceRow};
 
@@ -141,6 +144,20 @@ fn run<R: WezRunner>(
     // must reach neither the registry nor a provider (plan §7.4).
     let (backend, native_token) = output::parse_native_ref(&args.native_ref)?;
 
+    // An operator-chosen name is a *new* managed name and answers to the
+    // grammar `new` enforces — otherwise `--name 7` mints a Space the
+    // numeric-ref grammar (§7.3) permanently shadows. The inherited native
+    // name is deliberately exempt: §10.3 keeps legacy spellings, and the
+    // operation only holds it to renderability.
+    if let Some(name) = &args.name {
+        crate::refs::validate_new_name(name).map_err(|error| {
+            TypedError::new(
+                ErrorCode::InvalidName,
+                format!("invalid new name {name:?}: {error:?}"),
+            )
+        })?;
+    }
+
     let registry = open(env)?;
     if let Some(host) = &args.host {
         let row = crate::remote::hosts::resolve_host(&registry, host)?;
@@ -237,10 +254,12 @@ fn revision(env: &OperationEnv) -> u64 {
         .map_or(0, |head| head.revision)
 }
 
-/// The operation's stringly errors as the plan's typed codes. Only the two
-/// Wez refusals §10.3 gives distinct remedies are lifted out of the generic
-/// backend failure: a server without the fork CAS verb is a build
-/// incompatibility, and a multi-window resource is repairable.
+/// The operation's stringly errors as the plan's typed codes. The generic
+/// tail matches `new_cli`/`rm_cli` exactly — adoption is not entitled to its
+/// own weaker partition — and the refusals §10.3 gives distinct remedies are
+/// lifted out of it: a server without the fork CAS verb is a build
+/// incompatibility, a multi-window resource is repairable, and a resource
+/// that already belongs to someone is an identity conflict, not a name one.
 fn typed(err: &OpError, native_ref: &str) -> TypedError {
     let (code, message) = match err {
         OpError::Provider(detail) if detail.contains("cas_capability_missing") => (
@@ -254,9 +273,23 @@ fn typed(err: &OpError, native_ref: &str) -> TypedError {
             ErrorCode::RepairRequired,
             format!("run `dmux repair normalize {native_ref}` first: {detail}"),
         ),
+        OpError::NameConflict(detail)
+            if detail.starts_with(ADOPT_IDENTITY_CONFLICT)
+                || detail.starts_with(ADOPT_MARKER_CONFLICT) =>
+        {
+            (ErrorCode::IdentityConflict, detail.clone())
+        }
+        OpError::NameConflict(detail) if detail.starts_with(ADOPT_UNRENDERABLE_NAME) => {
+            (ErrorCode::InvalidName, detail.clone())
+        }
         OpError::NotFound(detail) => (ErrorCode::NotFound, detail.clone()),
         OpError::NameConflict(detail) => (ErrorCode::NameConflict, detail.clone()),
         OpError::Indeterminate(detail) => (ErrorCode::ProviderUnavailable, detail.clone()),
+        OpError::Refused(detail) => (ErrorCode::OperationInProgress, detail.clone()),
+        OpError::StaleRef(detail) => (ErrorCode::BackendEpochChanged, detail.clone()),
+        OpError::Registry(detail) if detail.contains("registry busy") => {
+            (ErrorCode::RegistryBusy, detail.clone())
+        }
         other => (ErrorCode::OperationFailed, other.to_string()),
     };
     let mut error = TypedError::new(code, message);

@@ -159,6 +159,85 @@ fn tmux_adoption_stamps_binds_and_survives_external_rename() {
     assert!(matches!(err, OpError::NotFound(_)), "{err}");
 }
 
+/// The replay §10.3 has to survive: an operator still holds the NATIVE_REF
+/// `ls` printed before the session was adopted (or renamed), and re-runs it.
+/// The name guard cannot catch that one — the name moved — so identity must,
+/// *before* the stamp, or the live session ends up advertising a Space that
+/// was never finalized and the reservation holding the name is unreapable.
+#[test]
+fn a_replayed_native_ref_is_refused_before_the_session_is_restamped() {
+    let data = tempfile::tempdir().unwrap();
+    let locks = tempfile::tempdir().unwrap();
+    let env = env_of(&data, &locks);
+    let s = TmuxScratch {
+        ns: format!("dmux-p6replay-{}", std::process::id()),
+    };
+    s.tmux(&["new-session", "-d", "-s", "legacy"]);
+
+    let epoch = match tmux_bootstrap(&env, &s.ns).unwrap() {
+        dmux::operations::TmuxBootstrapOutcome::Bootstrapped { epoch } => epoch,
+        other => panic!("fresh server must bootstrap: {other:?}"),
+    };
+    let scope = InventoryScope {
+        backend: Backend::Tmux,
+        endpoint: s.ns.clone(),
+        expected_epoch: Some(epoch),
+    };
+    let provider = TmuxProvider::new(s.ns.clone());
+    let session_id = s
+        .tmux(&["list-sessions", "-F", "#{session_id}"])
+        .trim()
+        .to_string();
+
+    let adopted = adopt_tmux(&env, &provider, &scope, &session_id, None, Uuid::new_v4()).unwrap();
+    s.tmux(&["rename-session", "-t", &session_id, "prod"]);
+    let revision = registry_of(&env).authority_head().unwrap().revision;
+
+    // Same ref, and the inherited name is now "prod" — a name nothing holds.
+    let err = adopt_tmux(&env, &provider, &scope, &session_id, None, Uuid::new_v4()).unwrap_err();
+    let OpError::NameConflict(detail) = &err else {
+        panic!("{err}");
+    };
+    assert!(
+        detail.starts_with(dmux::operations::ADOPT_IDENTITY_CONFLICT),
+        "{detail}"
+    );
+
+    // Nothing durable moved: one Space, no `reserved` gravestone holding
+    // "prod", no unfinished journal row, and the session still points at the
+    // Space that really owns it.
+    let registry = registry_of(&env);
+    let spaces = registry.spaces().unwrap();
+    assert_eq!(spaces.len(), 1, "{spaces:?}");
+    assert_eq!(spaces[0].space_uid, adopted.space_uid);
+    assert_eq!(spaces[0].lifecycle, Lifecycle::Active);
+    assert!(
+        registry
+            .unfinished_operation(adopted.space_uid)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(registry.authority_head().unwrap().revision, revision);
+    let markers = provider.read_markers(&scope, &session_id).unwrap();
+    assert_eq!(
+        markers.space_uid.as_deref(),
+        Some(adopted.space_uid.0.to_string().as_str())
+    );
+
+    // And the explicit-name variant, which needs no external rename at all.
+    let err = adopt_tmux(
+        &env,
+        &provider,
+        &scope,
+        &session_id,
+        Some("other"),
+        Uuid::new_v4(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::NameConflict(_)), "{err}");
+    assert_eq!(registry_of(&env).spaces().unwrap().len(), 1);
+}
+
 // ---------------------------------------------------------------------------
 // Wez adoption (fork build)
 

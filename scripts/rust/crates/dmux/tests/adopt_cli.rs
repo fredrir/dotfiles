@@ -23,7 +23,7 @@ use dmux::error::ExitStatus;
 use dmux::model::{Backend, Health, Lifecycle, ServerEpoch};
 use dmux::operations::{OperationEnv, tmux_bootstrap};
 use dmux::output::{OutputFormat, native_ref};
-use dmux::registry::{Registry, RegistryConfig};
+use dmux::registry::{NativeBindingSpec, NativeKind, Registry, RegistryConfig};
 use uuid::Uuid;
 
 struct Scratch {
@@ -89,6 +89,13 @@ fn args(native_ref: String) -> AdoptArgs {
     }
 }
 
+fn named(native_ref: String, name: &str) -> AdoptArgs {
+    AdoptArgs {
+        name: Some(name.to_string()),
+        ..args(native_ref)
+    }
+}
+
 fn document(out: &AdoptOutput) -> serde_json::Value {
     serde_json::from_str(&out.stdout).unwrap_or_else(|e| panic!("{e}: {:?}", out.stdout))
 }
@@ -114,6 +121,12 @@ impl TmuxScratch {
             .output()
             .unwrap();
         String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn marker(&self, session: &str, option: &str) -> Option<String> {
+        let value = self.tmux(&["show-options", "-t", session, "-qv", option]);
+        let value = value.trim_end_matches('\n');
+        (!value.is_empty()).then(|| value.to_string())
     }
 
     /// The exact `$N` an unmanaged `ls` row would carry as its native token.
@@ -201,19 +214,177 @@ fn a_second_adopt_of_the_same_native_ref_is_refused() {
     let first = adopt_in(&scratch.env(), never_wez(), None, args(reference.clone()));
     assert_eq!(first.status, ExitStatus::Success, "{}", first.stderr);
 
+    // `--name` steers the replay past the name guard, which is the only
+    // thing that used to stand between a re-used NATIVE_REF and the live
+    // session's markers: uniqueness on the native token fires at
+    // finalization, i.e. after the stamp (case 13, §10.3).
+    let space = scratch.registry().spaces().unwrap().pop().unwrap();
+    let session = tmux.session_id("legacy");
+    let before = scratch.revision();
     let again = adopt_in(
         &scratch.env(),
         never_wez(),
         Some(OutputFormat::Json),
-        args(reference.clone()),
+        named(reference.clone(), "other"),
     );
     assert_eq!(again.status, ExitStatus::Conflict);
     let doc = document(&again);
     assert_eq!(doc["ok"], false);
     assert_eq!(doc["action"], "adopt");
-    assert_eq!(doc["errors"][0]["code"], "name_conflict");
+    assert_eq!(doc["errors"][0]["code"], "identity_conflict");
     assert_eq!(doc["errors"][0]["target"], reference);
     assert_eq!(scratch.space_count(), 1, "adoption must not duplicate");
+
+    // Nothing moved: no reservation was burned, the chain did not advance,
+    // and the session still advertises the Space it actually belongs to.
+    assert_eq!(scratch.revision(), before);
+    assert_eq!(
+        tmux.marker(&session, "@dmux_space_uid").as_deref(),
+        Some(space.space_uid.0.to_string().as_str())
+    );
+    assert_eq!(
+        tmux.marker(&session, "@dmux_space_no").as_deref(),
+        Some(space.space_no.to_string().as_str())
+    );
+
+    // The same replay under the original name is still the name guard.
+    let same = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        Some(OutputFormat::Json),
+        args(reference.clone()),
+    );
+    assert_eq!(same.status, ExitStatus::Conflict);
+    assert_eq!(document(&same)["errors"][0]["code"], "identity_conflict");
+    assert_eq!(scratch.space_count(), 1);
+}
+
+#[test]
+fn a_session_carrying_foreign_dmux_markers_is_a_conflict_not_a_rebind() {
+    let scratch = Scratch::new();
+    let tmux = TmuxScratch::start("foreign");
+    tmux.tmux(&["new-session", "-d", "-s", "legacy"]);
+    bootstrapped(&scratch, &tmux);
+    let session = tmux.session_id("legacy");
+
+    // Exactly what a restored registry or a re-enrolled machine leaves
+    // behind: `inventory` calls this row unmanaged because no binding in
+    // *this* registry claims it, so `ls` invites the operator to adopt it.
+    let foreign = [
+        ("@dmux_host_uid", "11111111-1111-4111-8111-111111111111"),
+        ("@dmux_registry_uid", "22222222-2222-4222-8222-222222222222"),
+        ("@dmux_space_uid", "33333333-3333-4333-8333-333333333333"),
+        ("@dmux_space_no", "99"),
+    ];
+    for (option, value) in foreign {
+        tmux.tmux(&["set-option", "-t", &session, option, value]);
+    }
+    let before = scratch.revision();
+
+    let out = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        Some(OutputFormat::Json),
+        args(native_ref(Backend::Tmux, &session)),
+    );
+    assert_eq!(out.status, ExitStatus::Conflict, "{}", out.stdout);
+    assert_eq!(document(&out)["errors"][0]["code"], "identity_conflict");
+    assert_eq!(scratch.space_count(), 0);
+    assert_eq!(scratch.revision(), before);
+    for (option, value) in foreign {
+        assert_eq!(
+            tmux.marker(&session, option).as_deref(),
+            Some(value),
+            "{option} was overwritten"
+        );
+    }
+}
+
+#[test]
+fn an_operator_name_answers_to_the_new_name_grammar() {
+    let scratch = Scratch::new();
+    let before = scratch.revision();
+
+    // `dmux new 7` is `invalid_name`; adopting under the same name has to
+    // be too, or the numeric-ref grammar (§7.3) permanently shadows it.
+    for name in ["7", "", "a:b", "-x"] {
+        let out = adopt_in(
+            &scratch.env(),
+            never_wez(),
+            Some(OutputFormat::Json),
+            named(native_ref(Backend::Tmux, "$0"), name),
+        );
+        assert_eq!(out.status, ExitStatus::Usage, "{name:?}");
+        assert_eq!(
+            document(&out)["errors"][0]["code"],
+            "invalid_name",
+            "{name:?}"
+        );
+    }
+    assert_eq!(scratch.space_count(), 0);
+    assert_eq!(scratch.revision(), before);
+}
+
+#[test]
+fn a_name_live_on_the_opposite_backend_is_a_collision() {
+    let scratch = Scratch::new();
+    let tmux = TmuxScratch::start("cross");
+    tmux.tmux(&["new-session", "-d", "-s", "shared"]);
+    bootstrapped(&scratch, &tmux);
+    let session = tmux.session_id("shared");
+
+    // One active Wez Space already owns the name. `dmux new shared` refuses
+    // this with a `--allow-name-collision` remedy (§2.12, case 6); adopt
+    // must not walk into it silently.
+    {
+        let mut registry = scratch.registry();
+        let instance = registry
+            .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("shared", instance, Uuid::new_v4())
+            .unwrap();
+        registry
+            .finalize_create(
+                reservation.space_uid,
+                reservation.operation_uid,
+                &NativeBindingSpec {
+                    native_token: "dmux:ws:shared".into(),
+                    native_kind: NativeKind::WezWorkspaceKey,
+                    server_epoch: None,
+                },
+            )
+            .unwrap();
+    }
+
+    let out = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        Some(OutputFormat::Json),
+        args(native_ref(Backend::Tmux, &session)),
+    );
+    assert_eq!(out.status, ExitStatus::Conflict, "{}", out.stdout);
+    let doc = document(&out);
+    assert_eq!(doc["errors"][0]["code"], "name_conflict");
+    assert!(
+        doc["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("--name"),
+        "{doc}"
+    );
+    assert_eq!(scratch.space_count(), 1, "only the pre-existing Wez Space");
+    assert_eq!(tmux.marker(&session, "@dmux_space_uid"), None);
+
+    // The acknowledgement is an explicit different name, and it works.
+    let ok = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        None,
+        named(native_ref(Backend::Tmux, &session), "sharedtmux"),
+    );
+    assert_eq!(ok.status, ExitStatus::Success, "{}", ok.stderr);
+    assert_eq!(scratch.space_count(), 2);
 }
 
 #[test]

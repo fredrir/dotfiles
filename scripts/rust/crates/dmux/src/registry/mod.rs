@@ -2395,33 +2395,43 @@ impl Registry {
     pub fn current_binding(&self, space_uid: SpaceUid) -> Result<Option<BindingRow>> {
         self.conn
             .query_row(
-                "SELECT binding_id, space_uid, native_token, native_kind, binding_state, observation \
-                 FROM native_bindings WHERE space_uid = ?1 AND binding_state = 'current'",
+                &format!(
+                    "SELECT {BINDING_COLUMNS} FROM native_bindings \
+                     WHERE space_uid = ?1 AND binding_state = 'current'"
+                ),
                 [space_uid.0.to_string()],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                    ))
-                },
+                map_binding_row,
             )
             .optional()?
-            .map(|(id, space, token, kind, state, observation)| {
-                Ok(BindingRow {
-                    binding_id: id,
-                    space_uid: SpaceUid(parse_uuid(&space)?),
-                    native_token: token,
-                    native_kind: NativeKind::parse(&kind)
-                        .ok_or_else(|| RegistryError::Corrupt(format!("native_kind {kind:?}")))?,
-                    binding_state: BindingState::parse(&state)
-                        .ok_or_else(|| RegistryError::Corrupt(format!("binding_state {state:?}")))?,
-                    observation: token_enum(&observation)?,
-                })
-            })
+            .map(finish_binding_row)
+            .transpose()
+    }
+
+    /// The one `current` binding holding `native_token` on this backend
+    /// instance if any — the reverse direction of [`Self::current_binding`],
+    /// and exactly what `bindings_current_native_uq` guards.
+    ///
+    /// Adoption and rebind need this *before* they touch the live resource:
+    /// the index alone fires at finalization, by which point the markers (or
+    /// the CAS rename) have already rewritten a session that belongs to
+    /// another Space (plan §10.3, case 13).
+    pub fn current_binding_by_native(
+        &self,
+        backend_instance: BackendInstanceUid,
+        native_token: &str,
+    ) -> Result<Option<BindingRow>> {
+        self.conn
+            .query_row(
+                &format!(
+                    "SELECT {BINDING_COLUMNS} FROM native_bindings \
+                     WHERE backend_instance_id = ?1 AND native_token = ?2 \
+                       AND binding_state = 'current'"
+                ),
+                params![backend_instance.0.to_string(), native_token],
+                map_binding_row,
+            )
+            .optional()?
+            .map(finish_binding_row)
             .transpose()
     }
 
@@ -2782,6 +2792,8 @@ const SPACE_COLUMNS: &str = "space_uid, owner_host_uid, space_no, backend_instan
                              logical_name, lifecycle, health, created_at, updated_at, deleted_at";
 const LEASE_COLUMNS: &str = "lease_id, scope, holder_request_uid, fencing_token, holder_pid, \
                              holder_start_token, expires_at, state";
+const BINDING_COLUMNS: &str = "binding_id, space_uid, native_token, native_kind, binding_state, \
+                               observation";
 
 type RawOperationRow = (
     String,
@@ -2873,6 +2885,33 @@ fn finish_space_row(raw: RawSpaceRow) -> Result<SpaceRow> {
         created_at: created,
         updated_at: updated,
         deleted_at: deleted,
+    })
+}
+
+type RawBindingRow = (i64, String, String, String, String, String);
+
+fn map_binding_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawBindingRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+    ))
+}
+
+fn finish_binding_row(raw: RawBindingRow) -> Result<BindingRow> {
+    let (binding_id, space, token, kind, state, observation) = raw;
+    Ok(BindingRow {
+        binding_id,
+        space_uid: SpaceUid(parse_uuid(&space)?),
+        native_token: token,
+        native_kind: NativeKind::parse(&kind)
+            .ok_or_else(|| RegistryError::Corrupt(format!("native_kind {kind:?}")))?,
+        binding_state: BindingState::parse(&state)
+            .ok_or_else(|| RegistryError::Corrupt(format!("binding_state {state:?}")))?,
+        observation: token_enum(&observation)?,
     })
 }
 
@@ -3206,6 +3245,67 @@ mod tests {
                 retry_base: Duration::from_millis(2),
             },
         }
+    }
+
+    /// The reverse lookup adoption checks before it mutates: scoped to one
+    /// backend instance and to `current` bindings, exactly like the
+    /// `bindings_current_native_uq` index it front-runs.
+    #[test]
+    fn a_native_token_resolves_to_its_current_binding_on_that_instance_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut registry = Registry::open(scratch_config(&dir)).unwrap();
+        let tmux = registry
+            .register_backend_instance(Backend::Tmux, Some("scratch"), None)
+            .unwrap();
+        let wez = registry
+            .register_backend_instance(Backend::Wez, Some("/run/wez.sock"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("legacy", tmux, Uuid::new_v4())
+            .unwrap();
+        registry
+            .finalize_create(
+                reservation.space_uid,
+                reservation.operation_uid,
+                &NativeBindingSpec {
+                    native_token: "$0".into(),
+                    native_kind: NativeKind::TmuxSessionId,
+                    server_epoch: None,
+                },
+            )
+            .unwrap();
+
+        let bound = registry
+            .current_binding_by_native(tmux, "$0")
+            .unwrap()
+            .expect("the token is bound");
+        assert_eq!(bound.space_uid, reservation.space_uid);
+        assert_eq!(bound.binding_state, BindingState::Current);
+        // A different instance may legitimately hand out the same spelling.
+        assert!(
+            registry
+                .current_binding_by_native(wez, "$0")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            registry
+                .current_binding_by_native(tmux, "$1")
+                .unwrap()
+                .is_none()
+        );
+
+        // Removal severs the binding: the token is adoptable again.
+        let op = registry
+            .begin_remove(reservation.space_uid, Uuid::new_v4())
+            .unwrap();
+        registry.complete_remove(reservation.space_uid, op).unwrap();
+        assert!(
+            registry
+                .current_binding_by_native(tmux, "$0")
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// Run `job` on a worker thread and fail the test if it does not finish
