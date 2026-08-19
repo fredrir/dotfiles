@@ -43,6 +43,11 @@ use hosts::{Context, Host};
 
 const PROGRAM: &str = "dmux";
 
+/// One release of overlap for the `--json` flags (plan §16.2): their exact
+/// legacy payload stays on stdout because scripts compare it byte for byte,
+/// so the migration hint has nowhere to go but stderr.
+const JSON_FLAG_HINT: &str = "dmux: --json is deprecated; use --format json";
+
 #[derive(Parser)]
 #[command(
     name = "dmux",
@@ -79,7 +84,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// List wezterm workspaces and tmux sessions
-    #[command(visible_alias = "list")]
+    #[command(visible_alias = "list", long_about = dmux::ls_cli::SCOPES_HELP)]
     Ls {
         /// Every enrolled host instead of one
         #[arg(long, conflicts_with = "host")]
@@ -196,7 +201,8 @@ enum Cmd {
     /// Kill sessions, or one window of a session with -w
     #[command(visible_aliases = ["kill", "delete"])]
     Rm {
-        /// Session names or indices from `dmux ls`
+        /// Stable Space refs (or legacy exact names when the Wez-first
+        /// flag is off); a bare digit is a permanent SpaceNo, never a row
         #[arg(
             required_unless_present_any = ["all", "row"],
             conflicts_with = "all",
@@ -208,7 +214,8 @@ enum Cmd {
         #[arg(long, conflicts_with = "window")]
         all: bool,
 
-        /// Row number from `dmux ls`, repeatable
+        /// Deprecated one-release escape: 1-based position in the `dmux ls`
+        /// listing, repeatable. Resolved to a stable ref and reported first
         #[arg(long, value_name = "N", conflicts_with = "all")]
         row: Vec<u64>,
 
@@ -241,7 +248,8 @@ enum Cmd {
         #[arg(long, value_name = "VALUE", conflicts_with = "row")]
         name: Option<String>,
 
-        /// Row number from `dmux ls`
+        /// Deprecated one-release escape: 1-based position in the `dmux ls`
+        /// listing. Resolved to a stable ref and reported first
         #[arg(long, value_name = "N")]
         row: Option<u64>,
 
@@ -281,7 +289,7 @@ enum Cmd {
 
     /// Probe the environment transport selection depends on
     Doctor {
-        /// Machine-readable report
+        /// Deprecated: bare probe object (use --format json)
         #[arg(long)]
         json: bool,
     },
@@ -602,6 +610,25 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let host_given = cli.host.is_some();
+    // Case 43: `--format json` is an output shape, not a Wez-first
+    // behaviour, so nothing below gates the flag itself — but a verb with no
+    // bounded JSON result refuses it here as one document rather than
+    // printing its human report under a flag it never reads.
+    if cli.format == Some(dmux::output::OutputFormat::Json)
+        && let Some(verb) = unbounded_json_verb(cli.command.as_ref(), host_given)
+    {
+        return refuse(
+            verb,
+            cli.format,
+            dmux::error::TypedError::new(
+                dmux::error::ErrorCode::Usage,
+                format!(
+                    "{verb} emits no bounded JSON document (plan §16.2); \
+                     --format json is refused, never ignored"
+                ),
+            ),
+        );
+    }
     let dynamic_host_command = wez_first_enabled()
         && matches!(
             &cli.command,
@@ -755,10 +782,14 @@ fn main() -> ExitCode {
                     },
                 )))
             } else if !row.is_empty() || backend.is_some() || cli.format.is_some() {
-                Ok(render_connect_error(dmux::error::TypedError::new(
-                    dmux::error::ErrorCode::Usage,
-                    "--row/--backend/--format require DMUX_WEZ_FIRST=1",
-                )))
+                Ok(refuse(
+                    "rm",
+                    cli.format,
+                    dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "--row/--backend/--format require DMUX_WEZ_FIRST=1",
+                    ),
+                ))
             } else {
                 attach::remove(&context, &targets, all, window.as_deref(), yes)
             }
@@ -790,10 +821,14 @@ fn main() -> ExitCode {
                 || allow_name_collision
                 || cli.format.is_some()
             {
-                Ok(render_connect_error(dmux::error::TypedError::new(
-                    dmux::error::ErrorCode::Usage,
-                    "--name/--row/--backend/--allow-name-collision/--format require DMUX_WEZ_FIRST=1",
-                )))
+                Ok(refuse(
+                    "rename",
+                    cli.format,
+                    dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "--name/--row/--backend/--allow-name-collision/--format require DMUX_WEZ_FIRST=1",
+                    ),
+                ))
             } else {
                 // Both positionals are optional so `--name OLD NEW` can parse;
                 // the legacy two-word spelling has to be checked here instead.
@@ -817,15 +852,23 @@ fn main() -> ExitCode {
                     },
                 )))
             } else if wez_first_enabled() {
-                Ok(render_connect_error(dmux::error::TypedError::new(
-                    dmux::error::ErrorCode::Usage,
-                    "adopt is not implemented yet",
-                )))
+                Ok(refuse(
+                    "adopt",
+                    cli.format,
+                    dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "adopt is not implemented yet",
+                    ),
+                ))
             } else {
-                Ok(render_connect_error(dmux::error::TypedError::new(
-                    dmux::error::ErrorCode::Usage,
-                    "adopt requires DMUX_WEZ_FIRST=1",
-                )))
+                Ok(refuse(
+                    "adopt",
+                    cli.format,
+                    dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "adopt requires DMUX_WEZ_FIRST=1",
+                    ),
+                ))
             }
         }
         Some(Cmd::Migrate { commit, yes }) => {
@@ -839,15 +882,23 @@ fn main() -> ExitCode {
                     },
                 )))
             } else if wez_first_enabled() {
-                Ok(render_connect_error(dmux::error::TypedError::new(
-                    dmux::error::ErrorCode::Usage,
-                    "migrate is not implemented yet",
-                )))
+                Ok(refuse(
+                    "migrate",
+                    cli.format,
+                    dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "migrate is not implemented yet",
+                    ),
+                ))
             } else {
-                Ok(render_connect_error(dmux::error::TypedError::new(
-                    dmux::error::ErrorCode::Usage,
-                    "migrate requires DMUX_WEZ_FIRST=1",
-                )))
+                Ok(refuse(
+                    "migrate",
+                    cli.format,
+                    dmux::error::TypedError::new(
+                        dmux::error::ErrorCode::Usage,
+                        "migrate requires DMUX_WEZ_FIRST=1",
+                    ),
+                ))
             }
         }
         Some(Cmd::Verbs) => {
@@ -867,7 +918,7 @@ fn main() -> ExitCode {
             Ok(ExitCode::SUCCESS)
         }
         Some(Cmd::Keys { man, tmux, wez }) => keys::run(man, tmux, wez),
-        Some(Cmd::Doctor { json }) => Ok(doctor::run(&context, json)),
+        Some(Cmd::Doctor { json }) => Ok(doctor::run(&context, json, cli.format)),
         Some(Cmd::MuxIdle) => loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         },
@@ -889,15 +940,15 @@ fn main() -> ExitCode {
         Some(Cmd::TmuxContextRefresh { args }) => {
             Ok(ExitCode::from(dmux::tmux_hook_cli::run(&args)))
         }
-        Some(Cmd::Group { cmd }) => space_cli::group(cmd),
-        Some(Cmd::Split { cmd }) => space_cli::split(cmd),
-        Some(Cmd::Context { cmd }) => space_cli::context(cmd),
-        Some(Cmd::Repair { cmd }) => space_cli::repair(cmd),
+        Some(Cmd::Group { cmd }) => Ok(space_cli::group(cmd, cli.format)),
+        Some(Cmd::Split { cmd }) => Ok(space_cli::split(cmd, cli.format)),
+        Some(Cmd::Context { cmd }) => Ok(space_cli::context(cmd, cli.format)),
+        Some(Cmd::Repair { cmd }) => Ok(space_cli::repair(cmd, cli.format)),
         Some(Cmd::Ssh { target }) => {
             let code = dmux::remote::enroll::run(&target);
             Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))
         }
-        Some(Cmd::HostAdmin { cmd }) => space_cli::host(cmd),
+        Some(Cmd::HostAdmin { cmd }) => Ok(space_cli::host(cmd, cli.format)),
         Some(Cmd::ContextInternal { data_dir, lock_dir }) => context_cmd(data_dir, lock_dir),
         Some(Cmd::Agent {
             protocol,
@@ -1034,21 +1085,32 @@ fn recovery_cmd(
 ) -> ExitCode {
     use dmux::error::{ErrorCode, TypedError};
 
+    let action = match &cmd {
+        RecoveryCmd::Status => "recovery_status",
+        RecoveryCmd::Resume => "recovery_resume",
+        RecoveryCmd::Abort { .. } => "recovery_abort",
+    };
     let json = format == Some(dmux::output::OutputFormat::Json);
+    let host = explicit_host.unwrap_or_else(|| context.host.name());
     if let RecoveryCmd::Abort { yes } = &cmd
         && !*yes
     {
+        // §7.4: a JSON destructive command never prompts. It answers with
+        // the one confirmation document and changes nothing.
+        if json {
+            let (document, exit) =
+                dmux::output::confirmation_required(action, host, production_authority_revision());
+            println!("{document}");
+            return ExitCode::from(exit.code());
+        }
         if !io::stdin().is_terminal() {
             let error = TypedError::new(
                 ErrorCode::ConfirmationRequired,
                 "recovery abort requires confirmation (re-run with --yes)",
             );
-            return render_recovery_error(error, false);
+            return refuse(action, format, error);
         }
-        eprint!(
-            "Abort the failed recovery generation on {}? [y/N] ",
-            explicit_host.unwrap_or_else(|| context.host.name())
-        );
+        eprint!("Abort the failed recovery generation on {host}? [y/N] ");
         let _ = io::stderr().flush();
         let mut answer = String::new();
         if io::stdin().read_line(&mut answer).is_err() || !answer.trim().eq_ignore_ascii_case("y") {
@@ -1056,7 +1118,7 @@ fn recovery_cmd(
                 ErrorCode::ConfirmationDeclined,
                 "recovery abort declined; nothing changed",
             );
-            return render_recovery_error(error, false);
+            return refuse(action, format, error);
         }
     }
 
@@ -1064,51 +1126,74 @@ fn recovery_cmd(
         RecoveryCmd::Status => match recovery_inspection(explicit_host) {
             Ok(inspection) => {
                 if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "schema_version": 1,
-                            "ok": true,
-                            "result": inspection,
-                        })
-                    );
+                    // The whole inspection, inside the same envelope every
+                    // other bounded verb emits (§16.2): its own pre-P11
+                    // three-field shape was the only one left.
+                    emit_recovery_document(action, serde_json::json!(inspection));
                 } else {
                     render_recovery_status(&inspection);
                 }
                 ExitCode::SUCCESS
             }
-            Err(error) => render_recovery_error(error, json),
+            Err(error) => refuse(action, format, error),
         },
-        RecoveryCmd::Resume => {
-            match recovery_control(
+        RecoveryCmd::Resume => recovery_receipt(
+            action,
+            format,
+            "resume",
+            recovery_control(
                 explicit_host,
                 dmux::remote::client::RecoveryOwnerCommand::Resume,
-            ) {
-                Ok(receipt) => {
-                    println!(
-                        "resume requested for recovery {} at epoch {}",
-                        receipt.request_uid, receipt.server_epoch.0
-                    );
-                    ExitCode::SUCCESS
-                }
-                Err(error) => render_recovery_error(error, false),
-            }
-        }
-        RecoveryCmd::Abort { .. } => {
-            match recovery_control(
+            ),
+        ),
+        RecoveryCmd::Abort { .. } => recovery_receipt(
+            action,
+            format,
+            "abort",
+            recovery_control(
                 explicit_host,
                 dmux::remote::client::RecoveryOwnerCommand::Abort,
-            ) {
-                Ok(receipt) => {
-                    println!(
-                        "abort requested for recovery {} at epoch {}",
-                        receipt.request_uid, receipt.server_epoch.0
-                    );
-                    ExitCode::SUCCESS
-                }
-                Err(error) => render_recovery_error(error, false),
+            ),
+        ),
+    }
+}
+
+fn emit_recovery_document(action: &str, result: serde_json::Value) {
+    let revision = production_authority_revision();
+    println!(
+        "{}",
+        dmux::output::document(action, true, result, &[], revision)
+    );
+}
+
+/// Resume and abort answer with the request they filed, in whichever shape
+/// was asked for. Before P11 wired the global flag they printed the human
+/// sentence under `--format json` too.
+fn recovery_receipt(
+    action: &str,
+    format: Option<dmux::output::OutputFormat>,
+    verb: &str,
+    outcome: Result<dmux::recovery::RecoveryControlRequest, dmux::error::TypedError>,
+) -> ExitCode {
+    match outcome {
+        Ok(receipt) => {
+            if format == Some(dmux::output::OutputFormat::Json) {
+                emit_recovery_document(
+                    action,
+                    serde_json::json!({
+                        "request_uid": receipt.request_uid.to_string(),
+                        "server_epoch": receipt.server_epoch.0.to_string(),
+                    }),
+                );
+            } else {
+                println!(
+                    "{verb} requested for recovery {} at epoch {}",
+                    receipt.request_uid, receipt.server_epoch.0
+                );
             }
+            ExitCode::SUCCESS
         }
+        Err(error) => refuse(action, format, error),
     }
 }
 
@@ -1274,23 +1359,6 @@ fn recovery_typed_error(error: dmux::recovery::RecoveryError) -> dmux::error::Ty
     TypedError::new(code, error.to_string())
 }
 
-fn render_recovery_error(error: dmux::error::TypedError, json: bool) -> ExitCode {
-    let exit = error.code.exit_status().code();
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "schema_version": 1,
-                "ok": false,
-                "errors": [error],
-            })
-        );
-    } else {
-        eprintln!("dmux: {}", error.message);
-    }
-    ExitCode::from(exit)
-}
-
 fn render_recovery_status(inspection: &dmux::recovery::RecoveryInspection) {
     let epoch = inspection
         .server_epoch
@@ -1378,7 +1446,7 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
         };
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else if let Ok(pane) = std::env::var("WEZTERM_PANE") {
-        let (socket, epoch) = space_cli::verified_wez_target(&env, None)?;
+        let (socket, epoch) = space_cli::verified_wez_target(&env, None).map_err(|e| e.message)?;
         let (bin, config) = space_cli::production_wez_paths();
         let provider = dmux::backend::wez::WezProvider::new(&bin, config);
         let scope = InventoryScope {
@@ -1831,6 +1899,67 @@ fn render_connect_error(error: dmux::error::TypedError) -> ExitCode {
     ExitCode::from(error.code.exit_status().code())
 }
 
+/// Case 43: exactly one §16.2 document per `--format json` invocation,
+/// refusals included, so stdout is either one document or empty. Human mode
+/// keeps the one-line diagnostic on stderr.
+fn refuse(
+    action: &str,
+    format: Option<dmux::output::OutputFormat>,
+    error: dmux::error::TypedError,
+) -> ExitCode {
+    if format != Some(dmux::output::OutputFormat::Json) {
+        return render_connect_error(error);
+    }
+    println!(
+        "{}",
+        dmux::output::document(
+            action,
+            false,
+            serde_json::Value::Null,
+            std::slice::from_ref(&error),
+            production_authority_revision(),
+        )
+    );
+    ExitCode::from(error.code.exit_status().code())
+}
+
+/// The verbs that have no bounded JSON document. §16.2 makes interactive
+/// attach the rule: `con`, `new`, the bare picker and the `dmux <name>`
+/// fallthrough all end in a terminal handoff, and `keys`/`ssh`/`disconnect`
+/// report on this process rather than on authority state. The hidden `_`
+/// service surfaces are deliberately absent — each answers its own frozen
+/// protocol envelope and never reads `--format`.
+fn unbounded_json_verb(command: Option<&Cmd>, host_given: bool) -> Option<&'static str> {
+    match command {
+        // Bare `dmux` is `ls` only on a pipe; otherwise it is the picker or
+        // a plain attach of the named host.
+        None => (host_given || io::stdout().is_terminal()).then_some("connect"),
+        Some(Cmd::Con { .. } | Cmd::Other(_)) => Some("connect"),
+        Some(Cmd::New { .. }) => Some("new"),
+        Some(Cmd::Keys { .. }) => Some("keys"),
+        Some(Cmd::Ssh { .. }) => Some("ssh"),
+        Some(Cmd::Disconnect { .. }) => Some("disconnect"),
+        _ => None,
+    }
+}
+
+/// The `authority_revision` a document carries when the command holds no
+/// registry handle of its own (plan §16.2). It reads the head of a registry
+/// that is already there and answers 0 for one that is absent or unreadable,
+/// rather than creating an authority store to fill an output field.
+pub(crate) fn production_authority_revision() -> u64 {
+    use dmux::registry::{Registry, RegistryConfig};
+
+    let Some(db_path) = dmux::registry::production_db_path().filter(|path| path.exists()) else {
+        return 0;
+    };
+    dmux::runtime::dmux_runtime_dir()
+        .ok()
+        .and_then(|lock_dir| Registry::open(RegistryConfig::new(&db_path, lock_dir)).ok())
+        .and_then(|registry| registry.authority_head().ok())
+        .map_or(0, |head| head.revision)
+}
+
 /// Wez-first library commands answer with the plan's typed exit table
 /// (§16.3); the process carries only the number.
 fn exit_code(status: dmux::error::ExitStatus) -> ExitCode {
@@ -1848,10 +1977,14 @@ fn ls(
         return Ok(exit_code(dmux::ls_cli::run(format, args)));
     }
     if args.all_hosts || args.backend.is_some() || args.tree || format.is_some() {
-        return Ok(render_connect_error(dmux::error::TypedError::new(
-            dmux::error::ErrorCode::Usage,
-            "--all-hosts/--backend/--tree/--format require DMUX_WEZ_FIRST=1",
-        )));
+        return Ok(refuse(
+            "list",
+            format,
+            dmux::error::TypedError::new(
+                dmux::error::ErrorCode::Usage,
+                "--all-hosts/--backend/--tree/--format require DMUX_WEZ_FIRST=1",
+            ),
+        ));
     }
     list::run(
         context,
@@ -2159,6 +2292,56 @@ mod tests {
                 cmd: RecoveryCmd::Abort { yes: true }
             })
         ));
+    }
+
+    /// Case 24 asks for four *documented* listing scopes. A constant nobody
+    /// renders documents nothing, so the assertion is on the help clap
+    /// actually prints for `dmux ls`.
+    #[test]
+    fn ls_long_help_renders_every_documented_scope() {
+        let mut root = Cli::command();
+        root.build();
+        let mut ls = root
+            .get_subcommands()
+            .find(|command| command.get_name() == "ls")
+            .expect("ls is a subcommand")
+            .clone();
+        let help = ls.render_long_help().to_string();
+        for phrase in [
+            "dmux ls --tree",
+            "dmux ls --all-hosts",
+            "dmux host ls",
+            "hosts and their routes only, never Spaces",
+            "--all-hosts controls host breadth",
+        ] {
+            assert!(
+                help.contains(phrase),
+                "`dmux ls --help` is missing {phrase:?}:\n{help}"
+            );
+        }
+    }
+
+    /// §17.13: under the canary a bare digit is a permanent SpaceNo, so
+    /// `rm`'s help must not keep calling one an index — that is the exact
+    /// confusion case 44 exists to prevent, printed by `dmux rm --help`.
+    #[test]
+    fn rm_help_calls_a_bare_digit_a_ref_not_a_row_index() {
+        let mut root = Cli::command();
+        root.build();
+        let mut rm = root
+            .get_subcommands()
+            .find(|command| command.get_name() == "rm")
+            .expect("rm is a subcommand")
+            .clone();
+        let help = rm.render_long_help().to_string();
+        assert!(
+            help.contains("permanent SpaceNo"),
+            "`dmux rm --help` must say what a bare digit is:\n{help}"
+        );
+        assert!(
+            !help.contains("names or indices"),
+            "`dmux rm --help` still calls a bare digit an index:\n{help}"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 //! Root-owned (plan §19, W3).
 
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 
 use crate::error::{ErrorCode, ExitStatus, TypedError};
 use crate::inventory::{ManagedRow, ReconRow, UnmanagedRow};
@@ -218,16 +219,62 @@ pub fn compact_ref(alias: &str, space_no: u64) -> String {
 // ---------------------------------------------------------------------------
 // Human ls table (plan §16.1)
 
+pub const LS_HEADERS: [&str; 10] = [
+    "REF", "NAME", "BACKEND", "HOST", "GROUPS", "SPLITS", "SERVER", "CLIENT", "ROUTE", "STATE",
+];
+
+/// A table cell occupies exactly one line. Names reach here straight from
+/// the registry — `adopt` takes the native workspace name and §17 step 8
+/// batch-adopts legacy ones, so `validate_new_name` never saw them — and a
+/// raw newline would spill a row's remaining columns onto the next line,
+/// which under `--tree` files the following Space's children under the wrong
+/// parent.
+pub fn one_line(text: &str) -> String {
+    if !text.contains(char::is_control) {
+        return text.to_string();
+    }
+    text.chars()
+        .map(|c| match c {
+            '\n' => "\\n".to_string(),
+            '\r' => "\\r".to_string(),
+            '\t' => "\\t".to_string(),
+            c if c.is_control() => format!("\\u{{{:04x}}}", c as u32),
+            c => c.to_string(),
+        })
+        .collect()
+}
+
+/// Pad to a column width measured in terminal columns. `{:<w$}` counts
+/// `char`s, so a CJK or combining name would shift every column to its
+/// right; legacy `list::render` measured the same way.
+pub fn pad_display(cell: &str, width: usize) -> String {
+    let mut out = String::with_capacity(cell.len() + width);
+    out.push_str(cell);
+    out.push_str(&" ".repeat(width.saturating_sub(cell.width())));
+    out
+}
+
 pub fn render_ls(rows: &[ReconRow], owner: &OwnerContext) -> String {
-    const HEADERS: [&str; 10] = [
-        "REF", "NAME", "BACKEND", "HOST", "GROUPS", "SPLITS", "SERVER", "CLIENT", "ROUTE", "STATE",
-    ];
+    let (header, lines) = ls_lines(rows, owner);
+    let mut out = header;
+    out.push('\n');
+    for line in lines {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+/// The header plus exactly one rendered line per row, in row order. `--tree`
+/// interleaves children between them, so the row a child belongs under is
+/// carried by this pairing and never recovered by counting output lines.
+fn ls_lines(rows: &[ReconRow], owner: &OwnerContext) -> (String, Vec<String>) {
     let mut table: Vec<[String; 10]> = Vec::with_capacity(rows.len());
     for row in rows {
         table.push(match row {
             ReconRow::Managed(m) => [
                 compact_ref(&owner.alias, m.space.space_no.get()),
-                m.space.logical_name.clone(),
+                one_line(&m.space.logical_name),
                 m.backend.as_str().into(),
                 owner.label.clone().unwrap_or_else(|| owner.alias.clone()),
                 m.groups.to_string(),
@@ -239,7 +286,7 @@ pub fn render_ls(rows: &[ReconRow], owner: &OwnerContext) -> String {
             ],
             ReconRow::Unmanaged(u) => [
                 "-".into(),
-                u.native_name.clone(),
+                one_line(&u.native_name),
                 u.backend.as_str().into(),
                 owner.label.clone().unwrap_or_else(|| owner.alias.clone()),
                 u.groups.to_string(),
@@ -255,27 +302,24 @@ pub fn render_ls(rows: &[ReconRow], owner: &OwnerContext) -> String {
             ],
         });
     }
-    let mut widths: Vec<usize> = HEADERS.iter().map(|h| h.len()).collect();
+    let mut widths: Vec<usize> = LS_HEADERS.iter().map(|h| h.width()).collect();
     for row in &table {
         for (i, cell) in row.iter().enumerate() {
-            widths[i] = widths[i].max(cell.len());
+            widths[i] = widths[i].max(cell.width());
         }
     }
-    let mut out = String::new();
-    let emit = |out: &mut String, cells: &[String]| {
-        let line: Vec<String> = cells
+    let line = |cells: &[String]| -> String {
+        let padded: Vec<String> = cells
             .iter()
             .enumerate()
-            .map(|(i, c)| format!("{c:<w$}", w = widths[i]))
+            .map(|(i, c)| pad_display(c, widths[i]))
             .collect();
-        out.push_str(line.join("  ").trim_end());
-        out.push('\n');
+        padded.join("  ").trim_end().to_string()
     };
-    emit(&mut out, &HEADERS.map(String::from));
-    for row in &table {
-        emit(&mut out, row);
-    }
-    out
+    (
+        line(&LS_HEADERS.map(String::from)),
+        table.iter().map(|row| line(row)).collect(),
+    )
 }
 
 fn server_column(observation: Observation) -> &'static str {
@@ -317,16 +361,12 @@ pub fn render_tree<'a>(
     owner: &OwnerContext,
     hierarchy_of: impl Fn(&ManagedRow) -> Option<&'a SpaceHierarchy>,
 ) -> String {
-    let table = render_ls(rows, owner);
-    let mut lines = table.lines();
-    let mut out = String::new();
-    if let Some(header) = lines.next() {
-        out.push_str(header);
-        out.push('\n');
-    }
-    // render_ls emits exactly one line per row, in order.
+    let (header, lines) = ls_lines(rows, owner);
+    let mut out = header;
+    out.push('\n');
+    // One line per row by construction, so no name can shift the pairing.
     for (row, line) in rows.iter().zip(lines) {
-        out.push_str(line);
+        out.push_str(&line);
         out.push('\n');
         let ReconRow::Managed(managed) = row else {
             continue;
@@ -344,9 +384,10 @@ pub fn render_tree<'a>(
     out
 }
 
-fn child_line(indent: usize, child_ref: &str, title: Option<&str>) -> String {
+pub fn child_line(indent: usize, child_ref: &str, title: Option<&str>) -> String {
     match title {
-        Some(title) => format!("{:indent$}{child_ref}  {title}\n", ""),
+        // Native window/pane titles are as unconstrained as names are.
+        Some(title) => format!("{:indent$}{child_ref}  {}\n", "", one_line(title)),
         None => format!("{:indent$}{child_ref}\n", ""),
     }
 }
@@ -559,6 +600,22 @@ mod tests {
         assert_eq!(lines[3], "    p0192aaaa-bbbb-4ccc-8ddd-eeeeffff2222.wz3");
         assert!(lines[4].contains("unmanaged:unepoched"));
         assert_eq!(lines.len(), 5);
+    }
+
+    /// A name the registry can hold must not add or remove a line: `--tree`
+    /// pairs children with rows positionally, and one extra line would file
+    /// the next Space's children under this one.
+    #[test]
+    fn a_control_character_in_a_name_stays_one_cell() {
+        assert_eq!(one_line("plain"), "plain");
+        assert_eq!(one_line("evil\nROW"), "evil\\nROW");
+        assert_eq!(one_line("bell\u{7}"), "bell\\u{0007}");
+
+        let mut row = managed();
+        row.space.logical_name = "evil\nROW  injected".into();
+        let rows = vec![ReconRow::Managed(row)];
+        let text = render_ls(&rows, &owner());
+        assert_eq!(text.lines().count(), 2, "header plus one row: {text:?}");
     }
 
     #[test]

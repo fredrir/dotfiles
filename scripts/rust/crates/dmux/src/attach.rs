@@ -168,6 +168,7 @@ pub fn remove(
     }
     for target in targets {
         let row = list::resolve(&rows, target)?;
+        note_index_target(&rows, target, row);
         if row.kind == Kind::Wez {
             return Err(format!(
                 "'{}' is a wezterm workspace; close it inside wezterm",
@@ -221,6 +222,32 @@ fn chosen_for_all(context: &Context, rows: &[Row]) -> Vec<Row> {
     chosen
 }
 
+/// A bare number is a transient row index here and a permanent Space number
+/// once the Wez-first gate is on, so a target that was consumed as an index
+/// says so on stderr before the two spellings swap meaning (plan §17.13,
+/// case 44). It lives in the callers rather than in `list::resolve`, whose
+/// resolution rule — and the unit tests pinning it — must not move.
+///
+/// The replacement it offers is the NAME, never `--row N`: this listing is
+/// wez rows then tmux rows (`list::gather`), while the gated one is managed
+/// rows by permanent SpaceNo then unmanaged (`inventory::reconcile`), so the
+/// same N routinely names a different resource on the other side of the
+/// gate. Handing an operator that substitution on a destructive verb is the
+/// silent retarget case 44 exists to prevent.
+fn note_index_target(rows: &[Row], target: &str, chosen: &Row) {
+    if target.is_empty()
+        || !target.bytes().all(|byte| byte.is_ascii_digit())
+        || rows.iter().any(|row| row.name == target)
+    {
+        return;
+    }
+    eprintln!(
+        "{PROGRAM}: '{target}' matched listing row {target} ('{}'), not a name; row indices go \
+         away next release — use the name '{}'",
+        chosen.name, chosen.name
+    );
+}
+
 /// The old target resolves like con/rm's — index or exact name, exact name
 /// winning — so a session another tool created with a nonconforming name
 /// (spaces and all) can still be renamed. Only the new name must conform.
@@ -228,6 +255,7 @@ pub fn rename(context: &Context, old: &str, new: &str) -> Result<ExitCode, Strin
     list::require_valid(new)?;
     let rows = list::gather(context, true, true)?;
     let row = list::resolve(&rows, old)?;
+    note_index_target(&rows, old, row);
     if row.kind == Kind::Wez {
         return Err(format!(
             "'{}' is a wezterm workspace; rename it inside wezterm",

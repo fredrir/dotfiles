@@ -3,16 +3,24 @@
 //! backend provider/scope, and drive the fenced operations in
 //! `dmux::operations`. Backend is always inherited from the Space —
 //! `--backend` is rejected by construction (the flags do not exist here).
+//!
+//! Every verb here answers `--format json` with exactly one §16.2 document
+//! (case 43) — refusals, not-founds, and confirmations included. That is why
+//! nothing below fails with a bare `String`: a caller reading stdout must
+//! never have to fall back to parsing stderr to learn what happened.
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use clap::Subcommand;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use dmux::backend::{InventoryScope, Provider, SplitDirection};
+use dmux::error::{ErrorCode, TypedError};
 use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
 use dmux::operations::{self, GroupNewRequest, OpError, OperationEnv, SplitNewRequest};
+use dmux::output::{self, OutputFormat};
 use dmux::refs::{ChildRefShape, ParsedRef, SpaceRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
 
@@ -23,7 +31,7 @@ pub enum GroupCmd {
         /// Space ref; defaults to the Space this pane belongs to
         space: Option<String>,
 
-        /// Machine-readable listing
+        /// Deprecated: bare hierarchy (use --format json)
         #[arg(long)]
         json: bool,
     },
@@ -68,7 +76,7 @@ pub enum SplitCmd {
         /// Group ref; defaults to the Group this pane belongs to
         group: Option<String>,
 
-        /// Machine-readable listing
+        /// Deprecated: bare group object (use --format json)
         #[arg(long)]
         json: bool,
     },
@@ -125,7 +133,7 @@ pub enum RepairCmd {
         #[arg(short, long)]
         yes: bool,
 
-        /// Machine-readable preview/results
+        /// Deprecated: bare preview/results (use --format json)
         #[arg(long)]
         json: bool,
 
@@ -143,7 +151,15 @@ pub enum RepairCmd {
     },
 }
 
-pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
+pub fn repair(cmd: RepairCmd, format: Option<OutputFormat>) -> ExitCode {
+    match repair_cmd(cmd, format) {
+        Ok(code) => code,
+        Err(error) => refuse("repair_normalize", format, &error, None),
+    }
+}
+
+fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
+    const ACTION: &str = "repair_normalize";
     match cmd {
         RepairCmd::Normalize {
             tokens,
@@ -153,19 +169,26 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
             lock_dir,
             socket,
         } => {
+            let envelope = format == Some(OutputFormat::Json);
+            if json {
+                eprintln!("{}", crate::JSON_FLAG_HINT);
+            }
             let env = match (data_dir, lock_dir) {
                 (Some(data), Some(lock)) => OperationEnv {
                     db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
                     lock_dir: std::path::PathBuf::from(lock),
                 },
-                _ => OperationEnv::production().map_err(|e| e.to_string())?,
+                _ => OperationEnv::production().map_err(runtime_error)?,
             };
+            // Past this point the env is known, so every refusal can stamp
+            // the head of the registry the command was actually pointed at.
+            let refused = |error: TypedError| refuse(ACTION, format, &error, Some(&env));
             let (socket, expected_epoch) = match socket {
                 Some(socket) => (socket, None),
-                None => {
-                    let (socket, epoch) = verified_wez_target(&env, None)?;
-                    (socket, Some(epoch))
-                }
+                None => match verified_wez_target(&env, None) {
+                    Ok((socket, epoch)) => (socket, Some(epoch)),
+                    Err(error) => return Ok(refused(error)),
+                },
             };
             let (bin, config) = production_wez_paths();
             let provider = dmux::backend::wez::WezProvider::new(&bin, config);
@@ -177,19 +200,25 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
 
             let mut targets = match operations::repair_scan_wez(&env, &provider, &scope) {
                 Ok(targets) => targets,
-                Err(e) => return fail(e),
+                Err(e) => return Ok(refused(typed_op(&e))),
             };
             if !tokens.is_empty() {
                 for wanted in &tokens {
                     if !targets.iter().any(|t| t.native_token == *wanted) {
-                        eprintln!("dmux: {wanted:?} is not a multi-window wez resource");
-                        return Ok(ExitCode::from(3));
+                        let mut error = TypedError::new(
+                            ErrorCode::NotFound,
+                            format!("{wanted:?} is not a multi-window wez resource"),
+                        );
+                        error.target = Some(wanted.clone());
+                        return Ok(refused(error));
                     }
                 }
                 targets.retain(|t| tokens.contains(&t.native_token));
             }
             if targets.is_empty() {
-                if json {
+                if envelope {
+                    emit_document(ACTION, json!({ "targets": [] }), authority_revision(&env));
+                } else if json {
                     println!("{{\"targets\":[]}}");
                 } else {
                     println!("nothing to normalize");
@@ -198,15 +227,29 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
             }
 
             // §7.4/§16.2: JSON destructive commands never prompt and emit
-            // exactly ONE document — the preview travels inside it.
+            // exactly ONE document — the preview travels inside it, which is
+            // why this confirmation carries a result the ADR 008 example
+            // leaves null.
+            if envelope && !yes {
+                let (mut document, exit) = output::confirmation_required(
+                    ACTION,
+                    &target_list(&targets),
+                    authority_revision(&env),
+                );
+                document["result"] = json!({ "targets": targets });
+                println!("{document}");
+                return Ok(ExitCode::from(exit.code()));
+            }
+            // The deprecated flag keeps its own pre-§16.2 refusal payload for
+            // the same release its listing payloads keep theirs.
             if json && !yes {
                 println!(
                     "{}",
-                    serde_json::json!({ "confirmation_required": true, "targets": targets })
+                    json!({ "confirmation_required": true, "targets": targets })
                 );
                 return Ok(ExitCode::from(5));
             }
-            if !json {
+            if !envelope && !json {
                 // Preview before any mutation (plan §10.3).
                 for t in &targets {
                     println!(
@@ -220,19 +263,49 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
                         t.plan.target_window,
                     );
                 }
-                match confirm(&format!("Normalize {} resource(s)?", targets.len()), yes) {
-                    Ok(_) => {}
-                    Err(code) => return Ok(code),
+                if let Err(code) = confirm(
+                    ACTION,
+                    format,
+                    &target_list(&targets),
+                    &format!("Normalize {} resource(s)?", targets.len()),
+                    yes,
+                    Some(&env),
+                ) {
+                    return Ok(code);
                 }
             }
 
             let results = operations::repair_normalize_batch(&env, &provider, &scope, &targets);
             let all_ok = results.iter().all(|r| r.ok);
-            if json {
+            if envelope {
+                // A quarantined target is a typed error beside a real result,
+                // which is what makes the mixed batch the §16.3 partial (7).
+                let errors: Vec<TypedError> = results
+                    .iter()
+                    .filter(|r| !r.ok)
+                    .map(|r| {
+                        let mut error =
+                            TypedError::new(ErrorCode::OperationFailed, r.outcome.clone());
+                        error.target = Some(r.native_token.clone());
+                        error
+                    })
+                    .collect();
                 println!(
                     "{}",
-                    serde_json::json!({ "targets": targets, "results": results })
+                    output::document(
+                        ACTION,
+                        all_ok,
+                        json!({ "targets": targets, "results": results }),
+                        &errors,
+                        authority_revision(&env),
+                    )
                 );
+                return Ok(ExitCode::from(
+                    output::document_exit(all_ok, true, &errors).code(),
+                ));
+            }
+            if json {
+                println!("{}", json!({ "targets": targets, "results": results }));
             } else {
                 for r in &results {
                     println!(
@@ -259,18 +332,29 @@ pub fn repair(cmd: RepairCmd) -> Result<ExitCode, String> {
 pub enum HostCmd {
     /// List enrolled hosts and their routes
     Ls {
-        /// Machine-readable listing
+        /// Deprecated: bare row array (use --format json)
         #[arg(long)]
         json: bool,
     },
 
     /// Set a host's friendly label
-    Label { host: String, new_label: String },
+    Label {
+        /// Alias, current label, or HostUid. Deliberately not named `host`:
+        /// that clap id belongs to the global `-H/--host`, and sharing it
+        /// bound every value here to the legacy-host gate as well, which
+        /// refused any spelling but `macie`/`archie` before this verb ran.
+        #[arg(value_name = "HOST")]
+        target: String,
+
+        new_label: String,
+    },
 
     /// Disable a host's routes and tombstone its refs (plan §12.2).
     /// Cannot target the local host; re-enrollment reactivates it.
     Forget {
-        host: String,
+        /// Alias, current label, or HostUid (see `Label` on the name).
+        #[arg(value_name = "HOST")]
+        target: String,
 
         /// Forget without asking
         #[arg(short, long)]
@@ -278,30 +362,38 @@ pub enum HostCmd {
     },
 }
 
-fn typed_fail(err: dmux::error::TypedError) -> Result<ExitCode, String> {
-    eprintln!("dmux: {}", err.message);
-    Ok(ExitCode::from(err.code.exit_status().code()))
+pub fn host(cmd: HostCmd, format: Option<OutputFormat>) -> ExitCode {
+    let action = match &cmd {
+        HostCmd::Ls { .. } => "host_list",
+        HostCmd::Label { .. } => "host_label",
+        HostCmd::Forget { .. } => "host_forget",
+    };
+    match host_cmd(cmd, format) {
+        Ok(code) => code,
+        Err(error) => refuse(action, format, &error, None),
+    }
 }
 
-pub fn host(cmd: HostCmd) -> Result<ExitCode, String> {
-    let env = OperationEnv::production().map_err(|e| e.to_string())?;
+fn host_cmd(cmd: HostCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
+    let env = OperationEnv::production().map_err(runtime_error)?;
     match cmd {
         HostCmd::Ls { json } => {
-            let listings = match dmux::remote::hosts::list(&env) {
-                Ok(listings) => listings,
-                Err(err) => return typed_fail(err),
-            };
+            let envelope = format == Some(OutputFormat::Json);
             if json {
+                eprintln!("{}", crate::JSON_FLAG_HINT);
+            }
+            let listings = dmux::remote::hosts::list(&env)?;
+            if envelope || json {
                 let doc: Vec<_> = listings
                     .iter()
                     .map(|l| {
-                        serde_json::json!({
+                        json!({
                             "host_uid": l.host.host_uid.0.to_string(),
                             "alias": l.host.alias,
                             "label": l.host.label,
                             "lifecycle": l.host.lifecycle.as_str(),
                             "enrolled_at": l.host.enrolled_at,
-                            "routes": l.routes.iter().map(|r| serde_json::json!({
+                            "routes": l.routes.iter().map(|r| json!({
                                 "route_id": r.route_id,
                                 "transport": r.transport.as_str(),
                                 "endpoint": r.endpoint,
@@ -318,10 +410,11 @@ pub fn host(cmd: HostCmd) -> Result<ExitCode, String> {
                         })
                     })
                     .collect();
-                println!(
-                    "{}",
-                    serde_json::to_string(&doc).map_err(|e| e.to_string())?
-                );
+                if envelope {
+                    emit_document("host_list", Value::Array(doc), authority_revision(&env));
+                } else {
+                    println!("{}", serde_json::to_string(&doc).map_err(encoding_error)?);
+                }
             } else {
                 for l in &listings {
                     println!(
@@ -348,30 +441,54 @@ pub fn host(cmd: HostCmd) -> Result<ExitCode, String> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        HostCmd::Label { host, new_label } => {
-            match dmux::remote::hosts::label(&env, &host, &new_label) {
-                Ok(_) => Ok(ExitCode::SUCCESS),
-                Err(err) => typed_fail(err),
-            }
+        HostCmd::Label { target, new_label } => {
+            let row = dmux::remote::hosts::label(&env, &target, &new_label)?;
+            Ok(report(
+                "host_label",
+                format,
+                &env,
+                host_json(&row),
+                Vec::new(),
+                || {},
+            ))
         }
-        HostCmd::Forget { host, yes } => {
-            match confirm(&format!("Forget host {host:?} (disables its routes)?"), yes) {
-                Ok(_) => {}
-                Err(code) => return Ok(code),
+        HostCmd::Forget { target, yes } => {
+            if let Err(code) = confirm(
+                "host_forget",
+                format,
+                &target,
+                &format!("Forget host {target:?} (disables its routes)?"),
+                yes,
+                Some(&env),
+            ) {
+                return Ok(code);
             }
-            match dmux::remote::hosts::forget(&env, &host, true) {
-                Ok(row) => {
+            let row = dmux::remote::hosts::forget(&env, &target, true)?;
+            Ok(report(
+                "host_forget",
+                format,
+                &env,
+                host_json(&row),
+                Vec::new(),
+                || {
                     println!(
                         "forgot {} ({})",
                         row.alias.as_deref().unwrap_or("?"),
                         row.host_uid.0
-                    );
-                    Ok(ExitCode::SUCCESS)
-                }
-                Err(err) => typed_fail(err),
-            }
+                    )
+                },
+            ))
         }
     }
+}
+
+fn host_json(row: &dmux::registry::HostRow) -> Value {
+    json!({
+        "host_uid": row.host_uid.0.to_string(),
+        "alias": row.alias,
+        "label": row.label,
+        "lifecycle": row.lifecycle.as_str(),
+    })
 }
 
 #[derive(Subcommand)]
@@ -382,28 +499,43 @@ pub enum ContextCmd {
     Stamp { space: String },
 }
 
-pub fn context(cmd: ContextCmd) -> Result<ExitCode, String> {
+pub fn context(cmd: ContextCmd, format: Option<OutputFormat>) -> ExitCode {
+    match context_cmd(cmd, format) {
+        Ok(code) => code,
+        Err(error) => refuse("context_stamp", format, &error, None),
+    }
+}
+
+fn context_cmd(cmd: ContextCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
     match cmd {
         ContextCmd::Stamp { space } => {
             let (target, _) = resolve(&space)?;
             let pane = std::env::var("TMUX_PANE")
                 .or_else(|_| std::env::var("WEZTERM_PANE"))
-                .map_err(|_| "neither TMUX_PANE nor WEZTERM_PANE is set")?;
-            let outcome = match operations::context_stamp(
+                .map_err(|_| {
+                    TypedError::new(
+                        ErrorCode::Usage,
+                        "neither TMUX_PANE nor WEZTERM_PANE is set",
+                    )
+                })?;
+            let outcome = operations::context_stamp(
                 &target.env,
                 target.provider.as_ref(),
                 &target.scope,
                 target.space_uid,
                 &pane,
-            ) {
-                Ok(outcome) => outcome,
-                Err(e) => return fail(e),
-            };
-            println!(
-                "{}",
-                serde_json::to_string(&outcome).map_err(|e| e.to_string())?
-            );
-            Ok(ExitCode::SUCCESS)
+            )
+            .map_err(|e| typed_op(&e))?;
+            let result = serde_json::to_value(&outcome).map_err(encoding_error)?;
+            let line = serde_json::to_string(&outcome).map_err(encoding_error)?;
+            Ok(report(
+                "context_stamp",
+                format,
+                &target.env,
+                result,
+                Vec::new(),
+                || println!("{line}"),
+            ))
         }
     }
 }
@@ -418,18 +550,131 @@ struct Target {
     logical_name: String,
 }
 
-fn op_exit(err: &OpError) -> ExitCode {
-    ExitCode::from(match err {
-        OpError::NotFound(_) => 3,
-        OpError::NameConflict(_) | OpError::Refused(_) | OpError::StaleRef(_) => 4,
-        OpError::Indeterminate(_) => 6,
-        _ => 1,
-    })
+/// The envelope's `authority_revision` (plan §16.2): the head of the very
+/// registry the command just read. Every caller here is already committed to
+/// emitting a document, so an unreadable head stamps 0 rather than replacing
+/// the report with a bare error line — and a registry that is not on disk is
+/// never created merely to fill the field.
+fn authority_revision(env: &OperationEnv) -> u64 {
+    if !env.db_path.exists() {
+        return 0;
+    }
+    Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+        .ok()
+        .and_then(|registry| registry.authority_head().ok())
+        .map_or(0, |head| head.revision)
 }
 
-fn fail(err: OpError) -> Result<ExitCode, String> {
-    eprintln!("dmux: {err}");
-    Ok(op_exit(&err))
+/// The head a refusal carries when the failure happened before this command
+/// resolved an env of its own: the production registry it would have read.
+fn refusal_revision(env: Option<&OperationEnv>) -> u64 {
+    match env {
+        Some(env) => authority_revision(env),
+        None => crate::production_authority_revision(),
+    }
+}
+
+/// One §16.2 document on stdout and nothing else — the whole of what a
+/// `--format json` command prints when it succeeded.
+fn emit_document(action: &str, result: Value, revision: u64) {
+    println!("{}", output::document(action, true, result, &[], revision));
+}
+
+/// Case 43: a refusal under `--format json` is a document too, so a caller
+/// never has to read stderr to find out why stdout was empty. Human mode
+/// keeps the one-line diagnostic and prints nothing on stdout.
+fn refuse(
+    action: &str,
+    format: Option<OutputFormat>,
+    error: &TypedError,
+    env: Option<&OperationEnv>,
+) -> ExitCode {
+    if format == Some(OutputFormat::Json) {
+        println!(
+            "{}",
+            output::document(
+                action,
+                false,
+                Value::Null,
+                std::slice::from_ref(error),
+                refusal_revision(env),
+            )
+        );
+    } else {
+        eprintln!("dmux: {}", error.message);
+    }
+    ExitCode::from(error.code.exit_status().code())
+}
+
+/// Report work that already happened. A result that coexists with a typed
+/// error — created but not presented — is the §16.2 partial (7), never a
+/// resultless failure, and in JSON it is still exactly one document.
+fn report(
+    action: &str,
+    format: Option<OutputFormat>,
+    env: &OperationEnv,
+    result: Value,
+    errors: Vec<TypedError>,
+    human: impl FnOnce(),
+) -> ExitCode {
+    if format == Some(OutputFormat::Json) {
+        println!(
+            "{}",
+            output::document(action, true, result, &errors, authority_revision(env))
+        );
+    } else {
+        human();
+        for error in &errors {
+            eprintln!("dmux: {}", error.message);
+        }
+    }
+    ExitCode::from(output::document_exit(true, true, &errors).code())
+}
+
+/// The `target` of a batch refusal: every token the refused batch covers,
+/// since the confirmation is about the batch and not about one of them.
+fn target_list(targets: &[operations::RepairTarget]) -> String {
+    targets
+        .iter()
+        .map(|target| target.native_token.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The typed error an `operations` failure becomes. Same codes the GUI
+/// surface answers with (`gui_cli::typed_operation`), so one condition does
+/// not get two names depending on which door it came through.
+fn typed_op(error: &OpError) -> TypedError {
+    let code = match error {
+        OpError::NameConflict(_) => ErrorCode::NameConflict,
+        OpError::Indeterminate(_) => ErrorCode::ProviderUnavailable,
+        OpError::NotFound(_) => ErrorCode::NotFound,
+        OpError::Refused(_) => ErrorCode::RepairRequired,
+        OpError::StaleRef(_) => ErrorCode::BackendEpochChanged,
+        OpError::Registry(detail) if detail.contains("registry busy") => ErrorCode::RegistryBusy,
+        OpError::Registry(detail) if detail.contains("unfinished operation") => {
+            ErrorCode::OperationInProgress
+        }
+        OpError::Bootstrap(_) | OpError::Lock(_) | OpError::Provider(_) | OpError::Registry(_) => {
+            ErrorCode::OperationFailed
+        }
+    };
+    TypedError::new(code, error.to_string())
+}
+
+fn registry_error(error: impl std::fmt::Display) -> TypedError {
+    TypedError::new(ErrorCode::OperationFailed, format!("registry: {error}"))
+}
+
+fn runtime_error(error: impl std::fmt::Display) -> TypedError {
+    TypedError::new(
+        ErrorCode::OperationFailed,
+        format!("runtime paths: {error}"),
+    )
+}
+
+fn encoding_error(error: impl std::fmt::Display) -> TypedError {
+    TypedError::new(ErrorCode::OperationFailed, format!("encoding: {error}"))
 }
 
 /// Re-export kept for the binary's other callers; the resolution itself
@@ -439,35 +684,39 @@ pub use dmux::runtime::production_wez_paths;
 pub(crate) fn verified_wez_target(
     env: &OperationEnv,
     expected_instance: Option<BackendInstanceUid>,
-) -> Result<(String, ServerEpoch), String> {
-    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
-        .map_err(|error| error.to_string())?;
+) -> Result<(String, ServerEpoch), TypedError> {
+    // A descriptor that does not match, or is not published at all, is the
+    // provider being unavailable (§16.3 exit 6), never an internal failure.
+    let unavailable = |detail: &str| TypedError::new(ErrorCode::ProviderUnavailable, detail);
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(registry_error)?;
     let instance = match expected_instance {
         Some(instance) => instance,
         None => registry
             .backend_instance_for_backend(Backend::Wez)
-            .map_err(|error| error.to_string())?
-            .ok_or("registry has no managed Wez backend instance")?,
+            .map_err(registry_error)?
+            .ok_or_else(|| unavailable("registry has no managed Wez backend instance"))?,
     };
     let info = registry
         .backend_instance_info(instance)
-        .map_err(|error| error.to_string())?;
+        .map_err(registry_error)?;
     if info.backend != Backend::Wez {
-        return Err("registered backend instance is not Wez".into());
+        return Err(TypedError::new(
+            ErrorCode::BackendMismatch,
+            "registered backend instance is not Wez",
+        ));
     }
-    let server = registry
-        .backend_server(instance)
-        .map_err(|error| error.to_string())?;
+    let server = registry.backend_server(instance).map_err(registry_error)?;
     let epoch = server
         .server_epoch
-        .ok_or("managed Wez backend has no published server epoch")?;
+        .ok_or_else(|| unavailable("managed Wez backend has no published server epoch"))?;
     let descriptor = dmux::runtime::read_verified_ready_wez_descriptor_in(
         &env.lock_dir,
         Some(instance.0),
         Some(epoch.0),
     )
-    .map_err(|error| error.to_string())?
-    .ok_or("managed mux descriptor absent (service not running)")?;
+    .map_err(runtime_error)?
+    .ok_or_else(|| unavailable("managed mux descriptor absent (service not running)"))?;
     if info.socket_path.as_deref() != Some(descriptor.socket.as_str())
         || server.server_pid != Some(i64::from(descriptor.pid))
         || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())
@@ -480,16 +729,17 @@ pub(crate) fn verified_wez_target(
                 .socket_ino
                 .and_then(|value| i64::try_from(value).ok())
     {
-        return Err(
-            "managed Wez descriptor differs from registry socket/process incarnation".into(),
-        );
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            "managed Wez descriptor differs from registry socket/process incarnation",
+        ));
     }
     Ok((descriptor.socket, epoch))
 }
 
 /// The pane-bootstrap helper is installed beside dmux.
-fn helper_bin() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+fn helper_bin() -> Result<String, TypedError> {
+    let exe = std::env::current_exe().map_err(runtime_error)?;
     let sibling = exe.with_file_name("pane-bootstrap");
     if sibling.exists() {
         return Ok(sibling.display().to_string());
@@ -499,35 +749,49 @@ fn helper_bin() -> Result<String, String> {
 
 /// Resolve a local Space ref (name, number, or canonical URI) and build its
 /// provider/scope. Remote-host tokens arrive with P8b.
-fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), String> {
-    let env = OperationEnv::production().map_err(|e| e.to_string())?;
-    let parsed: ParsedRef =
-        parse_ref(space_ref).map_err(|e| format!("invalid ref {space_ref:?}: {e:?}"))?;
-    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
-        .map_err(|e| e.to_string())?;
-    let identity = registry.identity().map_err(|e| e.to_string())?;
+fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedError> {
+    // §16.3 distinguishes what went wrong: a misspelled ref is validation
+    // (2), a ref that names nothing is target-not-found (3), and only the
+    // registry/provider itself failing is an operation failure (1).
+    let not_found = |detail: String| TypedError::new(ErrorCode::NotFound, detail);
+    let unsupported = || {
+        TypedError::new(
+            ErrorCode::Usage,
+            "refs for other hosts arrive with P8b".to_string(),
+        )
+    };
+    let env = OperationEnv::production().map_err(runtime_error)?;
+    let parsed: ParsedRef = parse_ref(space_ref).map_err(|e| {
+        TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("invalid ref {space_ref:?}: {e:?}"),
+        )
+    })?;
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(registry_error)?;
+    let identity = registry.identity().map_err(registry_error)?;
 
-    let rows = registry.spaces().map_err(|e| e.to_string())?;
+    let rows = registry.spaces().map_err(registry_error)?;
     let row = match &parsed.space {
         SpaceRefShape::Canonical { host, space } => {
             if *host != identity.host_uid {
-                return Err("refs for other hosts arrive with P8b".into());
+                return Err(unsupported());
             }
             rows.iter()
                 .find(|r| r.space_uid == *space)
-                .ok_or_else(|| format!("no Space {}", space.0))?
+                .ok_or_else(|| not_found(format!("no Space {}", space.0)))?
         }
         SpaceRefShape::Numbered { host, no } => {
             if host.is_some() {
-                return Err("refs for other hosts arrive with P8b".into());
+                return Err(unsupported());
             }
             rows.iter()
                 .find(|r| r.space_no == *no && r.lifecycle.occupies_name())
-                .ok_or_else(|| format!("no Space number {no}"))?
+                .ok_or_else(|| not_found(format!("no Space number {no}")))?
         }
         SpaceRefShape::Named { host, name } => {
             if host.is_some() {
-                return Err("refs for other hosts arrive with P8b".into());
+                return Err(unsupported());
             }
             let matches: Vec<_> = rows
                 .iter()
@@ -535,30 +799,39 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), String> {
                 .collect();
             match matches.as_slice() {
                 [one] => *one,
-                [] => return Err(format!("no Space named {name:?}")),
+                [] => return Err(not_found(format!("no Space named {name:?}"))),
                 _ => {
-                    return Err(format!(
-                        "name {name:?} is ambiguous across backends; use the Space number"
+                    return Err(TypedError::new(
+                        ErrorCode::AmbiguousTarget,
+                        format!("name {name:?} is ambiguous across backends; use the Space number"),
                     ));
                 }
             }
         }
     };
     if row.lifecycle != dmux::model::Lifecycle::Active {
-        return Err(format!(
-            "Space {:?} is {:?}, not active",
-            row.logical_name, row.lifecycle
-        ));
+        let mut error = TypedError::new(
+            ErrorCode::SpaceAbsent,
+            format!(
+                "Space {:?} is {:?}, not active",
+                row.logical_name, row.lifecycle
+            ),
+        );
+        error.target = Some(space_ref.to_string());
+        return Err(error);
     }
 
     let info = registry
         .backend_instance_info(row.backend_instance)
-        .map_err(|e| e.to_string())?;
+        .map_err(registry_error)?;
     let (provider, scope): (Box<dyn Provider>, InventoryScope) = match info.backend {
         Backend::Tmux => {
-            let namespace = info
-                .socket_path
-                .ok_or("tmux instance has no namespace recorded")?;
+            let namespace = info.socket_path.ok_or_else(|| {
+                TypedError::new(
+                    ErrorCode::ProviderUnavailable,
+                    "tmux instance has no namespace recorded",
+                )
+            })?;
             (
                 Box::new(dmux::backend::tmux::TmuxProvider::new(namespace.clone())),
                 InventoryScope {
@@ -595,13 +868,16 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), String> {
 }
 
 /// The Space this pane belongs to, from its bootstrap marker environment.
-fn ambient_space_ref() -> Result<String, String> {
+fn ambient_space_ref() -> Result<String, TypedError> {
     match (
         std::env::var("DMUX_HOST_UID"),
         std::env::var("DMUX_SPACE_UID"),
     ) {
         (Ok(host), Ok(space)) => Ok(format!("dmux://{host}/spaces/{space}")),
-        _ => Err("no Space ref given and this pane carries no dmux markers".into()),
+        _ => Err(TypedError::new(
+            ErrorCode::Usage,
+            "no Space ref given and this pane carries no dmux markers",
+        )),
     }
 }
 
@@ -610,11 +886,15 @@ fn ambient_space_ref() -> Result<String, String> {
 fn requested_cwd(
     dir: Option<String>,
     target_space: dmux::model::SpaceUid,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, TypedError> {
     if let Some(dir) = dir {
-        let canonical = std::fs::canonicalize(&dir).map_err(|e| format!("--dir {dir:?}: {e}"))?;
+        let canonical = std::fs::canonicalize(&dir)
+            .map_err(|e| TypedError::new(ErrorCode::Usage, format!("--dir {dir:?}: {e}")))?;
         if !canonical.is_dir() {
-            return Err(format!("--dir {dir:?} is not a directory"));
+            return Err(TypedError::new(
+                ErrorCode::Usage,
+                format!("--dir {dir:?} is not a directory"),
+            ));
         }
         return Ok(Some(canonical.display().to_string()));
     }
@@ -641,23 +921,40 @@ fn require_child(
     child: Option<ChildRefShape>,
     kind: dmux::model::ChildKind,
     what: &str,
-) -> Result<ChildRefShape, String> {
-    let child =
-        child.ok_or_else(|| format!("{what} requires a child ref (see `dmux group ls`)"))?;
+) -> Result<ChildRefShape, TypedError> {
+    let child = child.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("{what} requires a child ref (see `dmux group ls`)"),
+        )
+    })?;
     if child.kind != kind {
-        return Err(format!(
-            "{what} requires a {kind:?} ref, got {:?}",
-            child.kind
+        return Err(TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("{what} requires a {kind:?} ref, got {:?}", child.kind),
         ));
     }
     Ok(child)
 }
 
 /// Confirmation per §7.4: without --yes, prompt on a TTY; decline and
-/// non-TTY both change nothing and exit 5.
-fn confirm(prompt: &str, yes: bool) -> Result<bool, ExitCode> {
+/// non-TTY both change nothing and exit 5. A JSON command never prompts —
+/// it answers with the one `confirmation_required` document instead.
+fn confirm(
+    action: &str,
+    format: Option<OutputFormat>,
+    target: &str,
+    prompt: &str,
+    yes: bool,
+    env: Option<&OperationEnv>,
+) -> Result<(), ExitCode> {
     if yes {
-        return Ok(true);
+        return Ok(());
+    }
+    if format == Some(OutputFormat::Json) {
+        let (document, exit) = output::confirmation_required(action, target, refusal_revision(env));
+        println!("{document}");
+        return Err(ExitCode::from(exit.code()));
     }
     if !std::io::stdin().is_terminal() {
         eprintln!("dmux: confirmation required (re-run with --yes)");
@@ -668,19 +965,21 @@ fn confirm(prompt: &str, yes: bool) -> Result<bool, ExitCode> {
     if std::io::stdin().read_line(&mut line).is_err() || !line.trim().eq_ignore_ascii_case("y") {
         return Err(ExitCode::from(5));
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Presentation after a mutation: tmux activates in place; Wez has no
-/// trusted GUI bridge before P9, which is the §7.4 partial (exit 7).
+/// trusted GUI bridge before P9. Either way the child exists, so a failure
+/// to present is a typed error beside a real result — the §7.4 partial (7),
+/// never a resultless failure.
 fn present(
     target: &Target,
     handle: &dmux::model::ProviderHandle,
     kind: dmux::model::ChildKind,
     no_connect: bool,
-) -> ExitCode {
+) -> Option<TypedError> {
     if no_connect {
-        return ExitCode::SUCCESS;
+        return None;
     }
     match target.scope.backend {
         Backend::Tmux => {
@@ -692,63 +991,91 @@ fn present(
                     target.provider.split_activate(&target.scope, handle)
                 }
             };
-            match result {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("dmux: created, but activation failed: {e:?}");
-                    ExitCode::from(7)
-                }
-            }
+            result.err().map(|e| {
+                TypedError::new(
+                    ErrorCode::BridgeUnavailable,
+                    format!("created, but activation failed: {e:?}"),
+                )
+            })
         }
-        Backend::Wez => {
-            eprintln!("dmux: created, not presented (no trusted GUI bridge before P9)");
-            ExitCode::from(7)
-        }
+        Backend::Wez => Some(TypedError::new(
+            ErrorCode::BridgeUnavailable,
+            "created, not presented (no trusted GUI bridge before P9)",
+        )),
     }
 }
 
 fn parse_child_of(
     target_ref: &str,
-) -> Result<(Target, ChildRefShape, dmux::model::ChildKind), String> {
+) -> Result<(Target, ChildRefShape, dmux::model::ChildKind), TypedError> {
     let (target, child) = resolve(target_ref)?;
-    let child = child.ok_or_else(|| format!("{target_ref:?} has no child component"))?;
+    let child = child.ok_or_else(|| {
+        TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("{target_ref:?} has no child component"),
+        )
+    })?;
     Ok((target, child.clone(), child.kind))
 }
 
-pub fn group(cmd: GroupCmd) -> Result<ExitCode, String> {
+pub fn group(cmd: GroupCmd, format: Option<OutputFormat>) -> ExitCode {
+    let action = match &cmd {
+        GroupCmd::Ls { .. } => "group_list",
+        GroupCmd::New { .. } => "group_new",
+        GroupCmd::Rename { .. } => "group_rename",
+        GroupCmd::Rm { .. } => "group_rm",
+        GroupCmd::Con { .. } => "group_con",
+    };
+    match group_cmd(cmd, format) {
+        Ok(code) => code,
+        Err(error) => refuse(action, format, &error, None),
+    }
+}
+
+fn group_cmd(cmd: GroupCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
     match cmd {
         GroupCmd::Ls { space, json } => {
+            if json {
+                eprintln!("{}", crate::JSON_FLAG_HINT);
+            }
             let space_ref = match space {
                 Some(space) => space,
                 None => ambient_space_ref()?,
             };
             let (target, _) = resolve(&space_ref)?;
-            let tree = match operations::hierarchy(
+            let tree = operations::hierarchy(
                 &target.env,
                 target.provider.as_ref(),
                 &target.scope,
                 target.space_uid,
-            ) {
-                Ok(tree) => tree,
-                Err(e) => return fail(e),
-            };
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&tree).map_err(|e| e.to_string())?
-                );
-            } else {
-                for group in &tree.groups {
-                    println!(
-                        "{}\t{}\t{} split{}",
-                        group.group_ref,
-                        group.title.as_deref().unwrap_or("-"),
-                        group.splits.len(),
-                        if group.splits.len() == 1 { "" } else { "s" },
-                    );
-                }
-            }
-            Ok(ExitCode::SUCCESS)
+            )
+            .map_err(|e| typed_op(&e))?;
+            let result = serde_json::to_value(&tree).map_err(encoding_error)?;
+            // The deprecated flag prints the serialized tree itself, not a
+            // re-encoded `Value`: scripts compare it byte for byte.
+            let legacy = serde_json::to_string(&tree).map_err(encoding_error)?;
+            Ok(report(
+                "group_list",
+                format,
+                &target.env,
+                result,
+                Vec::new(),
+                || {
+                    if json {
+                        println!("{legacy}");
+                        return;
+                    }
+                    for group in &tree.groups {
+                        println!(
+                            "{}\t{}\t{} split{}",
+                            group.group_ref,
+                            group.title.as_deref().unwrap_or("-"),
+                            group.splits.len(),
+                            if group.splits.len() == 1 { "" } else { "s" },
+                        );
+                    }
+                },
+            ))
         }
         GroupCmd::New {
             space,
@@ -758,7 +1085,7 @@ pub fn group(cmd: GroupCmd) -> Result<ExitCode, String> {
         } => {
             let (target, _) = resolve(&space)?;
             let cwd = requested_cwd(dir, target.space_uid)?;
-            let created = match operations::group_new(
+            let created = operations::group_new(
                 &target.env,
                 target.provider.as_ref(),
                 &target.scope,
@@ -769,25 +1096,41 @@ pub fn group(cmd: GroupCmd) -> Result<ExitCode, String> {
                     program: command,
                     helper_bin: helper_bin()?,
                 },
-            ) {
-                Ok(created) => created,
-                Err(e) => return fail(e),
-            };
-            println!("{}/{}", target.logical_name, created.group_ref);
+            )
+            .map_err(|e| typed_op(&e))?;
             let shape = parse_ref(&format!("x/{}", created.group_ref))
                 .ok()
                 .and_then(|p| p.child)
-                .ok_or("internal: unparseable created ref")?;
-            Ok(present(
+                .ok_or_else(|| {
+                    TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        "internal: unparseable created ref",
+                    )
+                })?;
+            let presented = present(
                 &target,
                 &shape.handle,
                 dmux::model::ChildKind::Group,
                 no_connect,
+            );
+            let line = format!("{}/{}", target.logical_name, created.group_ref);
+            Ok(report(
+                "group_new",
+                format,
+                &target.env,
+                json!({
+                    "space": target.logical_name,
+                    "space_uid": target.space_uid.0.to_string(),
+                    "group_ref": created.group_ref,
+                    "presented": !no_connect && presented.is_none(),
+                }),
+                presented.into_iter().collect(),
+                || println!("{line}"),
             ))
         }
         GroupCmd::Rename { group, new_name } => {
             let (target, child, _) = parse_child_of(&group)?;
-            match operations::group_rename(
+            operations::group_rename(
                 &target.env,
                 target.provider.as_ref(),
                 &target.scope,
@@ -795,94 +1138,206 @@ pub fn group(cmd: GroupCmd) -> Result<ExitCode, String> {
                 &child,
                 &new_name,
                 Uuid::new_v4(),
-            ) {
-                Ok(()) => Ok(ExitCode::SUCCESS),
-                Err(e) => fail(e),
-            }
+            )
+            .map_err(|e| typed_op(&e))?;
+            Ok(report(
+                "group_rename",
+                format,
+                &target.env,
+                json!({
+                    "space_uid": target.space_uid.0.to_string(),
+                    "group_ref": dmux::refs::child_suffix(&child),
+                    "title": new_name,
+                }),
+                Vec::new(),
+                || {},
+            ))
         }
         GroupCmd::Rm { groups, yes } => {
             if groups.is_empty() {
-                return Err("no group refs given".into());
+                return Err(TypedError::new(ErrorCode::Usage, "no group refs given"));
             }
-            match confirm(&format!("Remove {} group(s)?", groups.len()), yes) {
-                Ok(_) => {}
-                Err(code) => return Ok(code),
+            if let Err(code) = confirm(
+                "group_rm",
+                format,
+                &groups.join(","),
+                &format!("Remove {} group(s)?", groups.len()),
+                yes,
+                None,
+            ) {
+                return Ok(code);
             }
-            for group_ref in &groups {
-                let (target, child, _) = parse_child_of(group_ref)?;
-                if let Err(e) = operations::group_remove(
+            Ok(remove_children(
+                "group_rm",
+                format,
+                &groups,
+                dmux::model::ChildKind::Group,
+            ))
+        }
+        GroupCmd::Con { group } => {
+            let (target, child, _) = parse_child_of(&group)?;
+            let child = require_child(Some(child), dmux::model::ChildKind::Group, "group con")?;
+            let presented = present(&target, &child.handle, dmux::model::ChildKind::Group, false);
+            Ok(report(
+                "group_con",
+                format,
+                &target.env,
+                json!({
+                    "space_uid": target.space_uid.0.to_string(),
+                    "group_ref": dmux::refs::child_suffix(&child),
+                    "presented": presented.is_none(),
+                }),
+                presented.into_iter().collect(),
+                || {},
+            ))
+        }
+    }
+}
+
+/// One removal pass over a batch of child refs. Every ref is attempted and
+/// reported: a batch that removed something and failed something else is the
+/// §16.3 partial (7), not the first error's status, and the refs that did go
+/// are named whichever way it ended.
+fn remove_children(
+    action: &str,
+    format: Option<OutputFormat>,
+    refs: &[String],
+    kind: dmux::model::ChildKind,
+) -> ExitCode {
+    let mut removed: Vec<Value> = Vec::new();
+    let mut errors: Vec<TypedError> = Vec::new();
+    let mut env: Option<OperationEnv> = None;
+    for child_ref in refs {
+        let attempt = parse_child_of(child_ref).and_then(|(target, child, _)| {
+            let child = require_child(Some(child), kind, action)?;
+            let outcome = match kind {
+                dmux::model::ChildKind::Group => operations::group_remove(
                     &target.env,
                     target.provider.as_ref(),
                     &target.scope,
                     target.space_uid,
                     &child,
                     Uuid::new_v4(),
-                ) {
-                    return fail(e);
-                }
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        GroupCmd::Con { group } => {
-            let (target, child, _) = parse_child_of(&group)?;
-            let child = match require_child(Some(child), dmux::model::ChildKind::Group, "group con")
-            {
-                Ok(child) => child,
-                Err(e) => return Err(e),
+                ),
+                dmux::model::ChildKind::Split => operations::split_remove(
+                    &target.env,
+                    target.provider.as_ref(),
+                    &target.scope,
+                    target.space_uid,
+                    &child,
+                    Uuid::new_v4(),
+                ),
             };
-            Ok(present(
-                &target,
-                &child.handle,
-                dmux::model::ChildKind::Group,
-                false,
-            ))
+            outcome.map_err(|e| typed_op(&e))?;
+            Ok(target)
+        });
+        match attempt {
+            Ok(target) => {
+                removed.push(json!({
+                    "space_uid": target.space_uid.0.to_string(),
+                    "ref": child_ref,
+                }));
+                env = Some(target.env);
+            }
+            Err(mut error) => {
+                error.target = Some(child_ref.clone());
+                errors.push(error);
+            }
         }
+    }
+    let ok = !removed.is_empty();
+    let status = output::document_exit(ok, ok, &errors);
+    if format == Some(OutputFormat::Json) {
+        println!(
+            "{}",
+            output::document(
+                action,
+                ok,
+                Value::Array(removed),
+                &errors,
+                refusal_revision(env.as_ref()),
+            )
+        );
+    } else {
+        for error in &errors {
+            eprintln!("dmux: {}", error.message);
+        }
+    }
+    ExitCode::from(status.code())
+}
+
+pub fn split(cmd: SplitCmd, format: Option<OutputFormat>) -> ExitCode {
+    let action = match &cmd {
+        SplitCmd::Ls { .. } => "split_list",
+        SplitCmd::New { .. } => "split_new",
+        SplitCmd::Rm { .. } => "split_rm",
+        SplitCmd::Con { .. } => "split_con",
+    };
+    match split_cmd(cmd, format) {
+        Ok(code) => code,
+        Err(error) => refuse(action, format, &error, None),
     }
 }
 
-pub fn split(cmd: SplitCmd) -> Result<ExitCode, String> {
+fn split_cmd(cmd: SplitCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
     match cmd {
         SplitCmd::Ls { group, json } => {
+            if json {
+                eprintln!("{}", crate::JSON_FLAG_HINT);
+            }
             let group_ref = match group {
                 Some(group) => group,
                 None => {
                     let space = ambient_space_ref()?;
-                    let suffix = std::env::var("DMUX_GROUP_REF")
-                        .map_err(|_| "no Group ref given and no DMUX_GROUP_REF marker")?;
+                    let suffix = std::env::var("DMUX_GROUP_REF").map_err(|_| {
+                        TypedError::new(
+                            ErrorCode::Usage,
+                            "no Group ref given and no DMUX_GROUP_REF marker",
+                        )
+                    })?;
                     format!("{space}/{suffix}")
                 }
             };
             let (target, child, _) = parse_child_of(&group_ref)?;
-            let tree = match operations::hierarchy(
+            let tree = operations::hierarchy(
                 &target.env,
                 target.provider.as_ref(),
                 &target.scope,
                 target.space_uid,
-            ) {
-                Ok(tree) => tree,
-                Err(e) => return fail(e),
-            };
+            )
+            .map_err(|e| typed_op(&e))?;
             let group_ref = dmux::refs::child_suffix(&child);
             let Some(listed) = tree.groups.iter().find(|g| g.group_ref == group_ref) else {
-                eprintln!("dmux: group {group_ref} not in the live tree");
-                return Ok(ExitCode::from(3));
-            };
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&listed).map_err(|e| e.to_string())?
+                let mut error = TypedError::new(
+                    ErrorCode::NotFound,
+                    format!("group {group_ref} not in the live tree"),
                 );
-            } else {
-                for split in &listed.splits {
-                    println!(
-                        "{}\t{}\t{}",
-                        split.split_ref,
-                        split.title.as_deref().unwrap_or("-"),
-                        split.cwd.as_deref().unwrap_or("-"),
-                    );
-                }
-            }
-            Ok(ExitCode::SUCCESS)
+                error.target = Some(group_ref);
+                return Err(error);
+            };
+            let result = serde_json::to_value(listed).map_err(encoding_error)?;
+            let legacy = serde_json::to_string(listed).map_err(encoding_error)?;
+            Ok(report(
+                "split_list",
+                format,
+                &target.env,
+                result,
+                Vec::new(),
+                || {
+                    if json {
+                        println!("{legacy}");
+                        return;
+                    }
+                    for split in &listed.splits {
+                        println!(
+                            "{}\t{}\t{}",
+                            split.split_ref,
+                            split.title.as_deref().unwrap_or("-"),
+                            split.cwd.as_deref().unwrap_or("-"),
+                        );
+                    }
+                },
+            ))
         }
         SplitCmd::New {
             group,
@@ -895,7 +1350,7 @@ pub fn split(cmd: SplitCmd) -> Result<ExitCode, String> {
             let (target, child, _) = parse_child_of(&group)?;
             let child = require_child(Some(child), dmux::model::ChildKind::Group, "split new")?;
             let cwd = requested_cwd(dir, target.space_uid)?;
-            let created = match operations::split_new(
+            let created = operations::split_new(
                 &target.env,
                 target.provider.as_ref(),
                 &target.scope,
@@ -909,54 +1364,74 @@ pub fn split(cmd: SplitCmd) -> Result<ExitCode, String> {
                     program: command,
                     helper_bin: helper_bin()?,
                 },
-            ) {
-                Ok(created) => created,
-                Err(e) => return fail(e),
-            };
-            println!("{}/{}", target.logical_name, created.split_ref);
+            )
+            .map_err(|e| typed_op(&e))?;
             let shape = parse_ref(&format!("x/{}", created.split_ref))
                 .ok()
                 .and_then(|p| p.child)
-                .ok_or("internal: unparseable created ref")?;
-            Ok(present(
+                .ok_or_else(|| {
+                    TypedError::new(
+                        ErrorCode::PostconditionFailed,
+                        "internal: unparseable created ref",
+                    )
+                })?;
+            let presented = present(
                 &target,
                 &shape.handle,
                 dmux::model::ChildKind::Split,
                 no_connect,
+            );
+            let line = format!("{}/{}", target.logical_name, created.split_ref);
+            Ok(report(
+                "split_new",
+                format,
+                &target.env,
+                json!({
+                    "space": target.logical_name,
+                    "space_uid": target.space_uid.0.to_string(),
+                    "split_ref": created.split_ref,
+                    "presented": !no_connect && presented.is_none(),
+                }),
+                presented.into_iter().collect(),
+                || println!("{line}"),
             ))
         }
         SplitCmd::Rm { splits, yes } => {
             if splits.is_empty() {
-                return Err("no split refs given".into());
+                return Err(TypedError::new(ErrorCode::Usage, "no split refs given"));
             }
-            match confirm(&format!("Remove {} split(s)?", splits.len()), yes) {
-                Ok(_) => {}
-                Err(code) => return Ok(code),
+            if let Err(code) = confirm(
+                "split_rm",
+                format,
+                &splits.join(","),
+                &format!("Remove {} split(s)?", splits.len()),
+                yes,
+                None,
+            ) {
+                return Ok(code);
             }
-            for split_ref in &splits {
-                let (target, child, _) = parse_child_of(split_ref)?;
-                let child = require_child(Some(child), dmux::model::ChildKind::Split, "split rm")?;
-                if let Err(e) = operations::split_remove(
-                    &target.env,
-                    target.provider.as_ref(),
-                    &target.scope,
-                    target.space_uid,
-                    &child,
-                    Uuid::new_v4(),
-                ) {
-                    return fail(e);
-                }
-            }
-            Ok(ExitCode::SUCCESS)
+            Ok(remove_children(
+                "split_rm",
+                format,
+                &splits,
+                dmux::model::ChildKind::Split,
+            ))
         }
         SplitCmd::Con { split } => {
             let (target, child, _) = parse_child_of(&split)?;
             let child = require_child(Some(child), dmux::model::ChildKind::Split, "split con")?;
-            Ok(present(
-                &target,
-                &child.handle,
-                dmux::model::ChildKind::Split,
-                false,
+            let presented = present(&target, &child.handle, dmux::model::ChildKind::Split, false);
+            Ok(report(
+                "split_con",
+                format,
+                &target.env,
+                json!({
+                    "space_uid": target.space_uid.0.to_string(),
+                    "split_ref": dmux::refs::child_suffix(&child),
+                    "presented": presented.is_none(),
+                }),
+                presented.into_iter().collect(),
+                || {},
             ))
         }
     }

@@ -4,14 +4,16 @@
 //! this is, whether wezterm and tmux are within reach, whether the cable
 //! answers, what `dmux -` would attach, and who besides this user can reach
 //! the registry directory. The slow probes run on their own threads so the
-//! whole report costs one ssh timeout, not the sum. `--json` emits the same
-//! probes as an object of `name: {ok, detail}` for scripts; the human report
-//! is unchanged.
+//! whole report costs one ssh timeout, not the sum. `--format json` emits the
+//! probes inside the one versioned document every bounded command emits
+//! (plan §16.2); the deprecated `--json` emits the same probes as a bare
+//! `name: {ok, detail}` object for scripts; the human report is unchanged.
 
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use dmux::output::{self, OutputFormat};
 use dmux::registry::{self, DirExposure};
 use workstation::Style;
 
@@ -27,7 +29,7 @@ struct Report {
     ssh: bool,
 }
 
-pub fn run(context: &Context, json: bool) -> ExitCode {
+pub fn run(context: &Context, json: bool, format: Option<OutputFormat>) -> ExitCode {
     let Ok(this) = Host::this() else {
         return ExitCode::FAILURE;
     };
@@ -45,7 +47,12 @@ pub fn run(context: &Context, json: bool) -> ExitCode {
         usb: usb.join().unwrap_or(None),
         ssh: ssh.join().unwrap_or(false),
     };
-    if json {
+    // The envelope wins over the deprecated flag: it is the shape that
+    // survives the release, and asking for both cannot mean two documents.
+    if format == Some(OutputFormat::Json) {
+        envelope(context, &report)
+    } else if json {
+        eprintln!("{}", crate::JSON_FLAG_HINT);
         machine(context, &report)
     } else {
         human(context, &report)
@@ -117,10 +124,32 @@ fn human(context: &Context, report: &Report) -> ExitCode {
 }
 
 fn machine(context: &Context, report: &Report) -> ExitCode {
+    println!("{}", probes(context, report));
+    ExitCode::SUCCESS
+}
+
+/// The §16.2 document: the same probes, versioned. A red probe is a finding,
+/// not a failed command — doctor reports and exits 0 either way, so `ok`
+/// stays true and `errors` empty.
+fn envelope(context: &Context, report: &Report) -> ExitCode {
+    println!(
+        "{}",
+        output::document(
+            "doctor",
+            true,
+            probes(context, report),
+            &[],
+            crate::production_authority_revision(),
+        )
+    );
+    ExitCode::SUCCESS
+}
+
+fn probes(context: &Context, report: &Report) -> serde_json::Value {
     let probe = |ok: bool, detail: String| serde_json::json!({ "ok": ok, "detail": detail });
     let (state_ok, state_text) = state_detail(context);
     let (registry_ok, registry_text) = registry_detail();
-    let probes = serde_json::json!({
+    serde_json::json!({
         "host": probe(
             true,
             format!("{} ({})", report.this.name(), std::env::consts::OS)
@@ -134,9 +163,7 @@ fn machine(context: &Context, report: &Report) -> ExitCode {
         "ssh_peer": probe(report.ssh, reachable(report.ssh).to_string()),
         "state": probe(state_ok, state_text),
         "registry_dir": probe(registry_ok, registry_text),
-    });
-    println!("{probes}");
-    ExitCode::SUCCESS
+    })
 }
 
 fn yes_no(answer: bool) -> &'static str {
