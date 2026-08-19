@@ -39,6 +39,9 @@ pub struct RmArgs {
     /// `-H/--host`: alias, label, or HostUid; `None` is the local authority.
     pub host: Option<String>,
     pub targets: Vec<String>,
+    /// `--name`: the exact-name escape an adopted legacy name needs when it
+    /// is shaped like a ref or a subcommand, e.g. `3` or `b1` (plan §7.4).
+    pub name: Option<String>,
     /// One-release compatibility escape for the old listing indices; bare
     /// digits are permanent local SpaceNo values instead (plan §17.13).
     pub rows: Vec<u64>,
@@ -88,8 +91,18 @@ fn run_remove(json: bool, args: RmArgs) -> Result<ExitStatus, TypedError> {
             "-w/--window removes one native window, which is a Split: use `dmux split rm`",
         ));
     }
-    if !args.all && args.targets.is_empty() && args.rows.is_empty() {
+    if !args.all && args.targets.is_empty() && args.rows.is_empty() && args.name.is_none() {
         return Err(TypedError::new(ErrorCode::Usage, "rm needs a target"));
+    }
+    // §7.4: `--name` exists to escape ref parsing, so it cannot ride along
+    // with a spelling that would be parsed or enumerated instead. clap
+    // refuses the mix at the command line; a library caller gets the same
+    // answer here rather than a silently merged batch.
+    if args.name.is_some() && (!args.targets.is_empty() || !args.rows.is_empty() || args.all) {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "--name already selects the Space: drop the ref, --row and --all",
+        ));
     }
 
     // §7.4: a JSON destructive verb never prompts, and a run with no
@@ -126,6 +139,16 @@ fn run_remove(json: bool, args: RmArgs) -> Result<ExitStatus, TypedError> {
         }
     }
     let owner = reconcile_owner(explicit, None, local)?;
+    // The name is taken literally on exactly this owner: no `parse_ref`, no
+    // prefix or fuzzy fallback, no second host consulted. That is the only
+    // removal spelling a ref-shaped legacy name has (plan §7.4, §17.10).
+    if let Some(name) = &args.name {
+        selectors.push(Selector {
+            spelling: name.clone(),
+            owner,
+            locator: OwnerLocator::Name(name.clone()),
+        });
+    }
     for row in &args.rows {
         match resolve_row(owner, *row) {
             Ok(selector) => selectors.push(selector),
@@ -246,6 +269,11 @@ fn rm_subject(args: &RmArgs) -> String {
             Some(host) => format!("--all on {host}"),
             None => "--all on this host".to_string(),
         };
+    }
+    // `--name 3` and the ref `3` name different Spaces; the subject echoes
+    // the flag so the operator confirms the one they actually typed.
+    if let Some(name) = &args.name {
+        return format!("--name {name}");
     }
     let mut parts: Vec<String> = args.targets.clone();
     parts.extend(args.rows.iter().map(|row| format!("--row {row}")));
@@ -1493,6 +1521,7 @@ mod tests {
         let args = |targets: &[&str], rows: Vec<u64>, all: bool| RmArgs {
             host: None,
             targets: targets.iter().map(|t| t.to_string()).collect(),
+            name: None,
             rows,
             all,
             backend: None,
@@ -1505,6 +1534,13 @@ mod tests {
             rm_subject(&args(&[], Vec::new(), true)),
             "--all on this host"
         );
+        // The Space named `3` is not the Space numbered 3: the subject the
+        // operator confirms has to say which one was asked for.
+        let named = RmArgs {
+            name: Some("3".to_string()),
+            ..args(&[], Vec::new(), false)
+        };
+        assert_eq!(rm_subject(&named), "--name 3");
     }
 
     /// A bare number means the local authority, so an owner whose alias is

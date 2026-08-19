@@ -2059,6 +2059,23 @@ impl Registry {
             .transpose()
     }
 
+    /// Every unfinished journal row on this registry, oldest first.
+    /// [`Registry::unfinished_operation`] answers the same question for a
+    /// Space the caller can already name; a crash leaves nobody holding that
+    /// name — the stranded row IS what the operator has to be shown — so
+    /// `dmux repair reconcile` enumerates instead.
+    pub fn unfinished_operations(&self) -> Result<Vec<OperationRow>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {OP_COLUMNS} FROM operations \
+             WHERE operation_state IN ('prepared','running','unknown') \
+             ORDER BY started_at, operation_uid"
+        ))?;
+        let rows = stmt
+            .query_map([], map_operation_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(finish_operation_row).collect()
+    }
+
     pub fn operation(&self, operation_uid: Uuid) -> Result<OperationRow> {
         self.conn
             .query_row(

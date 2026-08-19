@@ -34,6 +34,21 @@ pub enum ResumeDuty {
     Nothing,
 }
 
+impl ResumeDuty {
+    /// The token `dmux repair reconcile` prints and puts in its §16.2
+    /// document, so an operator sees the duty the table assigned and not a
+    /// paraphrase of it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResumeDuty::CreateKeyedLookup => "create_keyed_lookup",
+            ResumeDuty::RenameObserveStates => "rename_observe_states",
+            ResumeDuty::RemoveVerifyAbsence => "remove_verify_absence",
+            ResumeDuty::AdoptionReconcile => "adoption_reconcile",
+            ResumeDuty::Nothing => "nothing",
+        }
+    }
+}
+
 /// The duty for a journal row of `kind` found in `state`.
 pub fn resume_duty(kind: OperationKind, state: OperationState) -> ResumeDuty {
     if state.is_terminal() {

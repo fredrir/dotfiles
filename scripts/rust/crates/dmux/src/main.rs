@@ -204,11 +204,15 @@ enum Cmd {
         /// Stable Space refs (or legacy exact names when the Wez-first
         /// flag is off); a bare digit is a permanent SpaceNo, never a row
         #[arg(
-            required_unless_present_any = ["all", "row"],
+            required_unless_present_any = ["all", "row", "name"],
             conflicts_with = "all",
             add = ArgValueCompleter::new(complete_sessions)
         )]
         targets: Vec<String>,
+
+        /// Treat VALUE as the exact logical name of the Space to remove
+        #[arg(long, value_name = "VALUE", conflicts_with_all = ["all", "row", "targets"])]
+        name: Option<String>,
 
         /// Remove every Space on exactly one host, optionally backend-filtered;
         /// pre-gate this is tmux only and keeps the session this client is in
@@ -763,6 +767,7 @@ fn main() -> ExitCode {
         }
         Some(Cmd::Rm {
             targets,
+            name,
             all,
             row,
             backend,
@@ -775,6 +780,7 @@ fn main() -> ExitCode {
                     dmux::rm_cli::RmArgs {
                         host: cli.host.clone(),
                         targets,
+                        name,
                         rows: row,
                         all,
                         backend: backend.map(dmux::model::Backend::from),
@@ -782,13 +788,14 @@ fn main() -> ExitCode {
                         yes,
                     },
                 )))
-            } else if !row.is_empty() || backend.is_some() || cli.format.is_some() {
+            } else if !row.is_empty() || name.is_some() || backend.is_some() || cli.format.is_some()
+            {
                 Ok(refuse(
                     "rm",
                     cli.format,
                     dmux::error::TypedError::new(
                         dmux::error::ErrorCode::Usage,
-                        "--row/--backend/--format require DMUX_WEZ_FIRST=1",
+                        "--name/--row/--backend/--format require DMUX_WEZ_FIRST=1",
                     ),
                 ))
             } else {

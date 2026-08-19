@@ -423,6 +423,23 @@ fn rename_rejects_a_new_name_outside_the_managed_grammar() {
     assert!(stderr(&output).contains("invalid new name"));
 }
 
+/// Pre-gate `rm` has no exact-name selector, and the legacy path takes its
+/// targets positionally: an ignored `--name` would leave `dmux rm --name x`
+/// selecting nothing and reporting success. It joins the other Wez-first
+/// flags in refusing instead.
+#[test]
+fn pre_gate_rm_refuses_the_exact_name_escape_instead_of_ignoring_it() {
+    let sandbox = Sandbox::legacy_listing();
+    let output = sandbox.dmux(&["rm", "--yes", "--name", "alpha"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("--name/--row/--backend/--format require DMUX_WEZ_FIRST=1"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(stdout(&output).is_empty(), "{}", stdout(&output));
+}
+
 // ---------------------------------------------------------------------------
 // Wez-first `rm` against a real scratch owner (plan §7.4, §14; cases 41, 42, 44)
 //
@@ -845,5 +862,129 @@ fn the_prompt_names_the_space_before_it_asks() {
     assert_eq!(
         owner.sessions(),
         vec!["seed".to_string(), "victim".to_string()]
+    );
+}
+
+/// §7.4/§17.10, case 45: `--name` is the exact-name escape for an adopted
+/// legacy name that is shaped like a ref. Without it a Space called `3` has
+/// no removal spelling at all — the positional `3` is a permanent SpaceNo
+/// (§17.13) and reaches a different Space entirely. The name is matched
+/// literally on one owner: no ref parsing, no fuzzy fallback.
+#[test]
+fn rm_name_removes_the_legacy_name_the_positional_ref_cannot_reach() {
+    let owner = Owner::start("exactname");
+    owner.create("3");
+    owner.create("keep");
+    owner.create("decoy");
+
+    let output = owner.dmux(&["--format", "json", "rm", "--yes", "--name", "3"]);
+    let doc = document(&output);
+    assert_eq!(code(&output), 0, "{doc}: {}", stderr(&output));
+    assert_eq!(doc["result"].as_array().unwrap().len(), 1, "{doc}");
+    assert_eq!(doc["result"][0]["name"], "3", "{doc}");
+    // The Space named `3` is SpaceNo 1; `decoy` is the one the ref `3` names.
+    assert_eq!(doc["result"][0]["space_no"], 1, "{doc}");
+    assert_eq!(
+        owner.lifecycles(),
+        vec![
+            (1, "3".to_string(), Lifecycle::Deleted),
+            (2, "keep".to_string(), Lifecycle::Active),
+            (3, "decoy".to_string(), Lifecycle::Active),
+        ]
+    );
+    assert_eq!(
+        owner.sessions(),
+        vec!["decoy".to_string(), "keep".to_string(), "seed".to_string()]
+    );
+}
+
+/// §7.4: `--name` "is mutually exclusive with a positional Space ref". Two
+/// selectors in one destructive invocation is a typo, not a batch: the run
+/// must end before anything is resolved, let alone killed.
+#[test]
+fn rm_name_refuses_to_share_an_invocation_with_a_ref() {
+    let owner = Owner::start("exclusive");
+    owner.create("3");
+    owner.create("keep");
+
+    for extra in [
+        vec!["--name", "3", "keep"],
+        vec!["--name", "3", "--row", "1"],
+        vec!["--name", "3", "--all"],
+    ] {
+        let mut args = vec!["rm", "--yes"];
+        args.extend(extra.iter());
+        let output = owner.dmux(&args);
+        assert_eq!(code(&output), 2, "{args:?}: {}", stderr(&output));
+    }
+    assert!(
+        owner
+            .lifecycles()
+            .iter()
+            .all(|(_, _, lifecycle)| *lifecycle == Lifecycle::Active),
+        "{:?}",
+        owner.lifecycles()
+    );
+}
+
+/// §7.4: `--name` "never performs fuzzy or cross-host search". A prefix of a
+/// live name is a miss, not a match — the flag exists so an operator can say
+/// exactly which Space to destroy, and a destructive verb that guesses is
+/// worse than one that refuses.
+#[test]
+fn rm_name_never_fuzzy_matches() {
+    let owner = Owner::start("exact");
+    owner.create("ordinary");
+
+    let output = owner.dmux(&["--format", "json", "rm", "--yes", "--name", "ordinar"]);
+    let doc = document(&output);
+    assert_eq!(code(&output), 3, "{doc}");
+    assert_eq!(doc["errors"][0]["code"], "not_found", "{doc}");
+    assert_eq!(doc["errors"][0]["target"], "ordinar", "{doc}");
+    assert_eq!(
+        owner.lifecycles(),
+        vec![(1, "ordinary".to_string(), Lifecycle::Active)]
+    );
+}
+
+/// §7.4: "a backend constraint contradicting a stable ID is an error, never
+/// reinterpretation". `--name` is a lookup, so `--backend` filters it — but
+/// the filter emptying the result is a contradiction to report, not a
+/// not_found that would read as "that name never existed".
+#[test]
+fn rm_name_with_a_contradicting_backend_is_a_mismatch_not_a_miss() {
+    let owner = Owner::start("namebackend");
+    owner.create("b1");
+
+    let output = owner.dmux(&[
+        "--format",
+        "json",
+        "rm",
+        "--yes",
+        "--name",
+        "b1",
+        "--backend",
+        "wez",
+    ]);
+    let doc = document(&output);
+    assert_eq!(code(&output), 4, "{doc}");
+    assert_eq!(doc["errors"][0]["code"], "backend_mismatch", "{doc}");
+    assert_eq!(doc["errors"][0]["target"], "b1", "{doc}");
+
+    // The same name under the backend it actually has still removes.
+    let ok = owner.dmux(&[
+        "--format",
+        "json",
+        "rm",
+        "--yes",
+        "--name",
+        "b1",
+        "--backend",
+        "tmux",
+    ]);
+    assert_eq!(code(&ok), 0, "{}: {}", stdout(&ok), stderr(&ok));
+    assert_eq!(
+        owner.lifecycles(),
+        vec![(1, "b1".to_string(), Lifecycle::Deleted)]
     );
 }

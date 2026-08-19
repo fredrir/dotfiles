@@ -3576,6 +3576,483 @@ pub fn repair_normalize_batch(
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Crash reconciliation (plan §10.2/§10.3, cases 11/13/39)
+//
+// A holder killed between `reserve_space_kind` and `abort_create` leaves a
+// `reserved` Space beside a `prepared` journal row, and nothing reaped it:
+// `rm` answered `operation_in_progress`, `rename` answered `repair_required`,
+// and a replayed `adopt` answered `name_conflict` forever — the logical name
+// was burned with no operator remedy. `dmux repair reconcile` is that remedy.
+//
+// Every decision below belongs to `registry::reconcile`, the frozen decision
+// table. This module only gathers the evidence that table asks for and
+// performs the registry half of its answer; it never forms a second opinion.
+
+use crate::model::{Lifecycle, OperationKind, OperationState};
+use crate::registry::reconcile::{self, CreateDecision, CreateScan, RenameDecision, ResumeDuty};
+
+/// One unfinished journal row, the Space it strands, and the duty
+/// [`reconcile::resume_duty`] assigns it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReconcileTarget {
+    pub operation_uid: Uuid,
+    pub request_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub space_no: SpaceNo,
+    pub logical_name: String,
+    pub backend: Backend,
+    pub backend_instance: BackendInstanceUid,
+    pub kind: OperationKind,
+    pub state: OperationState,
+    pub lifecycle: Lifecycle,
+    /// [`ResumeDuty::as_str`] — the frozen table's answer, shown so an
+    /// operator sees which rule is about to run.
+    pub duty: &'static str,
+    /// A live process still holds this Space's §10.1 decision lock: the
+    /// operation is running, not crashed, and must not be touched.
+    pub in_flight: bool,
+    pub started_at: String,
+}
+
+/// What reconciliation did to one row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReconcileOutcome {
+    /// The reservation was released: Space `aborted`, journal row `aborted`,
+    /// logical name free again. The SpaceUid/SpaceNo stay spent (§8.2 gaps).
+    ReservationReleased,
+    /// The native rename had not run, so closing the row restores exactly
+    /// the pre-rename state — the Space keeps the name it still has.
+    RenameRolledBack,
+    /// The native rename had landed; only the registry side was missing.
+    RenameCommitted,
+    /// The remove was resumed to a verified tombstone.
+    RemoveCompleted,
+    /// The row finished between the preview and the apply — a concurrent
+    /// reconcile, or a second run of this one. This is what makes running
+    /// twice a no-op instead of a double abort.
+    AlreadyResolved,
+    /// A live holder owns the §10.1 locks. Listed, never touched.
+    SkippedInFlight,
+    /// The evidence the table demands was unobtainable, or the table said
+    /// conflict. Nothing changed (§10.2: never a fabricated success).
+    FailedClosed,
+}
+
+impl ReconcileOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReconcileOutcome::ReservationReleased => "reservation_released",
+            ReconcileOutcome::RenameRolledBack => "rename_rolled_back",
+            ReconcileOutcome::RenameCommitted => "rename_committed",
+            ReconcileOutcome::RemoveCompleted => "remove_completed",
+            ReconcileOutcome::AlreadyResolved => "already_resolved",
+            ReconcileOutcome::SkippedInFlight => "skipped_in_flight",
+            ReconcileOutcome::FailedClosed => "failed_closed",
+        }
+    }
+
+    /// Whether the row is off the operator's plate. A skip and a fail-closed
+    /// are not failures of the pass, but they are not resolutions either, so
+    /// the caller reports them as §16.3 partial rather than success.
+    pub fn resolved(self) -> bool {
+        !matches!(
+            self,
+            ReconcileOutcome::SkippedInFlight | ReconcileOutcome::FailedClosed
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReconcileResult {
+    pub operation_uid: Uuid,
+    pub space_uid: SpaceUid,
+    pub logical_name: String,
+    pub kind: OperationKind,
+    pub duty: &'static str,
+    pub outcome: ReconcileOutcome,
+    /// The evidence behind `outcome`, in the operator's words.
+    pub detail: String,
+    pub ok: bool,
+}
+
+/// Preview: every unfinished journal row with its duty and whether a live
+/// process still owns it. Read-only — nothing is mutated and no lock outlives
+/// the probe, so this is safe to run before the operator answers the prompt.
+pub fn reconcile_scan(env: &OperationEnv) -> Result<Vec<ReconcileTarget>, OpError> {
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let identity = registry.identity().map_err(reg_err)?;
+    let mut targets = Vec::new();
+    for row in registry.unfinished_operations().map_err(reg_err)? {
+        let space = registry.space(row.space_uid).map_err(reg_err)?;
+        let info = registry
+            .backend_instance_info(space.backend_instance)
+            .map_err(reg_err)?;
+        targets.push(ReconcileTarget {
+            operation_uid: row.operation_uid,
+            request_uid: row.request_uid,
+            space_uid: space.space_uid,
+            space_no: space.space_no,
+            logical_name: space.logical_name.clone(),
+            backend: info.backend,
+            backend_instance: space.backend_instance,
+            kind: row.kind,
+            state: row.state,
+            lifecycle: space.lifecycle,
+            duty: reconcile::resume_duty(row.kind, row.state).as_str(),
+            in_flight: probe_in_flight(env, identity.host_uid, &space.logical_name)?,
+            started_at: row.started_at,
+        });
+    }
+    Ok(targets)
+}
+
+/// Crashed, or still running? Nothing durable tells them apart — a `prepared`
+/// row looks identical either way, and wall-clock age is not evidence (a slow
+/// bootstrap is not a crash). So ask the kernel: every §10.1 mutation holds
+/// its Space's decision lock exclusively for the whole call, and the kernel
+/// drops it the instant the holder dies. "We can take it" is exactly "nobody
+/// is running".
+fn probe_in_flight(env: &OperationEnv, owner: HostUid, name: &str) -> Result<bool, OpError> {
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    let free = locks
+        .try_acquire(LockScope::decision(owner, name), LockMode::Exclusive)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    Ok(!free)
+}
+
+/// Resolve one stranded row. `provider` is the Space's backend when one could
+/// be reached; `None` is not fatal — an adoption reservation is decidable from
+/// the registry alone — but it makes any duty that needs a native scan fail
+/// closed rather than guess.
+pub fn reconcile_apply(
+    env: &OperationEnv,
+    target: &ReconcileTarget,
+    provider: Option<(&dyn Provider, &InventoryScope)>,
+) -> ReconcileResult {
+    let report = |outcome: ReconcileOutcome, detail: String| ReconcileResult {
+        operation_uid: target.operation_uid,
+        space_uid: target.space_uid,
+        logical_name: target.logical_name.clone(),
+        kind: target.kind,
+        duty: target.duty,
+        outcome,
+        detail,
+        ok: outcome.resolved(),
+    };
+    let failed = |detail: String| report(ReconcileOutcome::FailedClosed, detail);
+
+    let mut registry = match Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)) {
+        Ok(registry) => registry,
+        Err(e) => return failed(format!("registry: {e}")),
+    };
+    let owner = match registry.identity() {
+        Ok(identity) => identity.host_uid,
+        Err(e) => return failed(format!("registry: {e}")),
+    };
+
+    // The fence, in §10.1 order. Both acquisitions are non-blocking on
+    // purpose: a busy scope is a live holder, and repair waits for nobody.
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    if let Err(e) = locks.acquire(LockScope::AuthorityGate, LockMode::Shared) {
+        return failed(format!("kernel lock: {e}"));
+    }
+    match locks.try_acquire(
+        LockScope::decision(owner, &target.logical_name),
+        LockMode::Exclusive,
+    ) {
+        Ok(true) => {}
+        Ok(false) => {
+            return report(
+                ReconcileOutcome::SkippedInFlight,
+                format!(
+                    "a live holder owns the decision lock for {:?}",
+                    target.logical_name
+                ),
+            );
+        }
+        Err(e) => return failed(format!("kernel lock: {e}")),
+    }
+    match locks.try_acquire(
+        LockScope::BackendInstance(target.backend_instance),
+        LockMode::Exclusive,
+    ) {
+        Ok(true) => {}
+        Ok(false) => {
+            return report(
+                ReconcileOutcome::SkippedInFlight,
+                format!("backend instance {} is busy", target.backend_instance.0),
+            );
+        }
+        Err(e) => return failed(format!("kernel lock: {e}")),
+    }
+
+    // Re-read under the fence: the preview is advisory, and a row that
+    // finished in between must not be reconciled a second time.
+    let row = match registry.operation(target.operation_uid) {
+        Ok(row) => row,
+        Err(e) => return failed(format!("registry: {e}")),
+    };
+    if row.state.is_terminal() {
+        return report(
+            ReconcileOutcome::AlreadyResolved,
+            format!("journal row is already {}", row.state.as_str()),
+        );
+    }
+    let space = match registry.space(target.space_uid) {
+        Ok(space) => space,
+        Err(e) => return failed(format!("registry: {e}")),
+    };
+    let binding = match registry.current_binding(space.space_uid) {
+        Ok(binding) => binding,
+        Err(e) => return failed(format!("registry: {e}")),
+    };
+
+    match reconcile::resume_duty(row.kind, row.state) {
+        // §10.3's four outcomes over source token, destination key and
+        // epoch. A reservation that never reached `finalize_adopt` has no
+        // binding at all, so by the registry's own record the source is
+        // still UNMANAGED — no scan can make it more unmanaged than that,
+        // and adoption spawns nothing, so releasing the reservation orphans
+        // no native resource. Markers the dead holder had already written
+        // name an `aborted` Space, which `Lifecycle::occupies_name` excludes,
+        // so a re-run of `dmux adopt` overwrites them.
+        ResumeDuty::AdoptionReconcile => {
+            if space.lifecycle != Lifecycle::Reserved || binding.is_some() {
+                return failed(format!(
+                    "{} journal row on a {:?} Space with {} binding — conflict, not a stranded reservation",
+                    row.kind.as_str(),
+                    space.lifecycle,
+                    if binding.is_some() { "a current" } else { "no" },
+                ));
+            }
+            match registry.abort_create(space.space_uid, row.operation_uid) {
+                Ok(()) => report(
+                    ReconcileOutcome::ReservationReleased,
+                    format!(
+                        "unmanaged: the {} never bound a native resource; name {:?} is free again",
+                        row.kind.as_str(),
+                        space.logical_name
+                    ),
+                ),
+                Err(e) => failed(format!("registry: {e}")),
+            }
+        }
+
+        ResumeDuty::CreateKeyedLookup => {
+            if space.lifecycle != Lifecycle::Reserved {
+                return failed(format!(
+                    "create journal row on a {:?} Space, not a reservation",
+                    space.lifecycle
+                ));
+            }
+            let (scan, evidence) = match provider {
+                Some((provider, scope)) => {
+                    create_keyed_scan(&registry, owner, &space, provider, scope)
+                }
+                None => (
+                    CreateScan::Indeterminate,
+                    "the Space's backend could not be reached for the keyed lookup".to_string(),
+                ),
+            };
+            match reconcile::decide_create(scan) {
+                // Zero matches PERMITS one re-create under the same fence.
+                // Repair deliberately takes only the weaker half of that
+                // permission: it spawns nothing and releases the reservation,
+                // leaving the operator to decide whether the Space is still
+                // wanted. `dmux new` is not a repair action.
+                CreateDecision::RetryCreate => {
+                    match registry.abort_create(space.space_uid, row.operation_uid) {
+                        Ok(()) => report(
+                            ReconcileOutcome::ReservationReleased,
+                            format!("{evidence}; name {:?} is free again", space.logical_name),
+                        ),
+                        Err(e) => failed(format!("registry: {e}")),
+                    }
+                }
+                // Binding an orphan needs the bootstrap acknowledgement that
+                // proves dmux created it, which `create_space_locked` has and
+                // a repair pass does not. Reporting beats guessing.
+                CreateDecision::RebindAndFinalize => failed(format!(
+                    "{evidence}; repair will not bind a native resource it cannot prove dmux created"
+                )),
+                CreateDecision::FailClosed => failed(evidence),
+            }
+        }
+
+        ResumeDuty::RenameObserveStates => {
+            let payload: serde_json::Value = match serde_json::from_str(&row.payload_json) {
+                Ok(payload) => payload,
+                Err(e) => return failed(format!("rename payload: {e}")),
+            };
+            let (old, new) = match (payload["old"].as_str(), payload["new"].as_str()) {
+                (Some(old), Some(new)) => (old.to_string(), new.to_string()),
+                _ => return failed("rename payload missing old/new".into()),
+            };
+            let (decision, evidence) = match target.backend {
+                // A Wez rename never touches the native side — the opaque
+                // workspace key is not the logical name — so the old native
+                // state is intact by construction and the new one cannot
+                // exist. The table reads that as old-only.
+                Backend::Wez => (
+                    reconcile::decide_rename(true, false),
+                    "wez renames touch no native name".to_string(),
+                ),
+                Backend::Tmux => {
+                    let Some((provider, scope)) = provider else {
+                        return failed(
+                            "the Space's backend could not be reached to observe the old/new names"
+                                .into(),
+                        );
+                    };
+                    let rows = match provider.inventory(scope) {
+                        InventoryOutcome::Complete(inv) => inv.rows,
+                        other => {
+                            return failed(format!("tmux scan: {other:?}"));
+                        }
+                    };
+                    let old_exists = rows.iter().any(|r| r.native_name == old);
+                    let new_exists = rows.iter().any(|r| r.native_name == new);
+                    (
+                        reconcile::decide_rename(old_exists, new_exists),
+                        format!("tmux shows old={old_exists} new={new_exists}"),
+                    )
+                }
+            };
+            match decision {
+                // The native step never ran, so the Space still carries the
+                // old name and closing the row IS the rollback.
+                RenameDecision::RetryNativeRename => {
+                    match registry.transition_operation(row.operation_uid, OperationState::Aborted)
+                    {
+                        Ok(()) => report(
+                            ReconcileOutcome::RenameRolledBack,
+                            format!("{evidence}; {old:?} → {new:?} never landed"),
+                        ),
+                        Err(e) => failed(format!("registry: {e}")),
+                    }
+                }
+                RenameDecision::CommitRegistryRename => {
+                    match registry.commit_rename(space.space_uid, row.operation_uid) {
+                        Ok(()) => report(
+                            ReconcileOutcome::RenameCommitted,
+                            format!("{evidence}; registry caught up to {new:?}"),
+                        ),
+                        Err(e) => failed(format!("registry: {e}")),
+                    }
+                }
+                RenameDecision::ConflictBothExist => failed(format!(
+                    "{evidence}; both {old:?} and {new:?} exist — picking one could destroy an external resource"
+                )),
+                RenameDecision::ConflictNeitherExists => {
+                    failed(format!("{evidence}; neither {old:?} nor {new:?} exists"))
+                }
+            }
+        }
+
+        ResumeDuty::RemoveVerifyAbsence => {
+            let Some((provider, scope)) = provider else {
+                return failed(
+                    "the Space's backend could not be reached to prove the resource is gone".into(),
+                );
+            };
+            // `resume_remove_space` takes the very locks this fence holds,
+            // and OFD locks do not nest across open descriptions even inside
+            // one process — a blocking re-acquisition would wait on us
+            // forever. Hand the fence over instead; the resume re-validates
+            // the exact unfinished row under its own.
+            locks.release_all();
+            match resume_remove_space(
+                env,
+                provider,
+                scope,
+                target.backend,
+                space.space_uid,
+                row.request_uid,
+                row.operation_uid,
+            ) {
+                Ok(()) => report(
+                    ReconcileOutcome::RemoveCompleted,
+                    format!("verified absence; {:?} is tombstoned", space.logical_name),
+                ),
+                Err(e) => failed(e.to_string()),
+            }
+        }
+
+        ResumeDuty::Nothing => report(
+            ReconcileOutcome::AlreadyResolved,
+            format!("journal row is already {}", row.state.as_str()),
+        ),
+    }
+}
+
+/// The complete keyed lookup §10.2 create step 3 demands, by the key the
+/// reservation fixed: Wez's opaque `dmux:<owner>:<space_uid>` (unique to this
+/// reservation) or, on tmux, the session name the spawn was asked for.
+fn create_keyed_scan(
+    registry: &Registry,
+    owner: HostUid,
+    space: &crate::registry::SpaceRow,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+) -> (CreateScan, String) {
+    let key = match scope.backend {
+        Backend::Wez => format!("dmux:{}:{}", owner.0, space.space_uid.0),
+        Backend::Tmux => space.logical_name.clone(),
+    };
+    let rows = match provider.inventory(scope) {
+        InventoryOutcome::Complete(inv) => inv.rows,
+        other => {
+            return (
+                CreateScan::Indeterminate,
+                format!("{} scan: {other:?}", scope.backend),
+            );
+        }
+    };
+    let matched: Vec<&NativeSpaceRow> = rows
+        .iter()
+        .filter(|row| match scope.backend {
+            Backend::Wez => row.native_token == key,
+            Backend::Tmux => row.native_name == key,
+        })
+        .collect();
+    match matched.as_slice() {
+        [] => (
+            CreateScan::ZeroMatches,
+            format!(
+                "a complete {} scan shows no resource under the reserved key {key:?}",
+                scope.backend
+            ),
+        ),
+        [one] => {
+            let bound = registry
+                .current_binding_by_native(space.backend_instance, &one.native_token)
+                .ok()
+                .flatten();
+            if one.multi_window || bound.is_some() {
+                (
+                    CreateScan::MultipleOrConflicting,
+                    format!("{key:?} exists but is multi-window or already bound"),
+                )
+            } else {
+                (
+                    CreateScan::OneConforming,
+                    format!("one conforming resource still carries the reserved key {key:?}"),
+                )
+            }
+        }
+        many => (
+            CreateScan::MultipleOrConflicting,
+            format!("{} resources carry the reserved key {key:?}", many.len()),
+        ),
+    }
+}
+
 /// Derive the `-L` namespace from a tmux socket path when the hook runs
 /// inside the server (`$TMUX` is `<socket-path>,<pid>,<session>`): sockets
 /// under the standard `tmux-<uid>` directory map to their basename; any
@@ -4217,6 +4694,333 @@ mod tests {
                 .spaces()
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    // -- crash reconciliation (plan §10.2/§10.3, cases 11/13/39) ------------
+    //
+    // Every setup below is the shape a SIGKILL leaves behind: a journal row
+    // opened, the process gone before it could be finished. Before
+    // `reconcile_scan`/`reconcile_apply` existed nothing in production ever
+    // called `registry::reconcile`, so none of these rows had a reaper.
+
+    fn tmux_scope(epoch: ServerEpoch) -> InventoryScope {
+        InventoryScope {
+            backend: Backend::Tmux,
+            endpoint: "tmux-recon".into(),
+            expected_epoch: Some(epoch),
+        }
+    }
+
+    fn tmux_inventory(epoch: ServerEpoch, names: &[&str]) -> InventoryOutcome {
+        InventoryOutcome::Complete(NativeInventory {
+            server_epoch: Some(epoch),
+            rows: names
+                .iter()
+                .map(|name| NativeSpaceRow {
+                    native_token: format!("${name}"),
+                    native_name: (*name).to_string(),
+                    groups: Vec::new(),
+                    multi_window: false,
+                })
+                .collect(),
+        })
+    }
+
+    /// The exact state the adversarial pass produced by killing `dmux adopt`
+    /// between `reserve_space_kind` and `abort_create`.
+    fn stranded_adoption(
+        env: &OperationEnv,
+    ) -> (BackendInstanceUid, crate::registry::SpaceReservation) {
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-recon"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
+            .unwrap();
+        (instance, reservation)
+    }
+
+    #[test]
+    fn a_crashed_adoption_reservation_is_released_and_gives_its_name_back() {
+        let (_data, _locks, env) = gate_test_env();
+        let (instance, reservation) = stranded_adoption(&env);
+
+        let targets = reconcile_scan(&env).unwrap();
+        assert_eq!(targets.len(), 1, "{targets:?}");
+        assert_eq!(targets[0].kind, OperationKind::Adopt);
+        assert_eq!(targets[0].state, OperationState::Prepared);
+        assert_eq!(targets[0].lifecycle, Lifecycle::Reserved);
+        assert_eq!(targets[0].duty, "adoption_reconcile");
+        assert!(!targets[0].in_flight);
+
+        let result = reconcile_apply(&env, &targets[0], None);
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::ReservationReleased,
+            "{result:?}"
+        );
+        assert!(result.ok);
+
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Aborted
+        );
+        assert_eq!(
+            registry.operation(reservation.operation_uid).unwrap().state,
+            OperationState::Aborted
+        );
+        assert!(registry.unfinished_operations().unwrap().is_empty());
+        // The damage that had no remedy: `name_conflict` forever. The
+        // SpaceUid/SpaceNo stay spent — a §8.2 gap, not reuse.
+        let replacement = registry
+            .reserve_space("legacy", instance, Uuid::new_v4())
+            .unwrap();
+        assert_ne!(replacement.space_uid, reservation.space_uid);
+        assert_ne!(replacement.space_no, reservation.space_no);
+    }
+
+    #[test]
+    fn reconciling_twice_neither_double_aborts_nor_resurrects() {
+        let (_data, _locks, env) = gate_test_env();
+        let (_instance, reservation) = stranded_adoption(&env);
+        let targets = reconcile_scan(&env).unwrap();
+        assert!(reconcile_apply(&env, &targets[0], None).ok);
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let settled = registry.authority_head().unwrap().revision;
+        drop(registry);
+
+        // A second pass sees nothing at all; replaying the stale preview row
+        // reports the row as already resolved rather than aborting it again.
+        assert!(reconcile_scan(&env).unwrap().is_empty());
+        let again = reconcile_apply(&env, &targets[0], None);
+        assert_eq!(
+            again.outcome,
+            ReconcileOutcome::AlreadyResolved,
+            "{again:?}"
+        );
+        assert!(again.ok);
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(registry.authority_head().unwrap().revision, settled);
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Aborted
+        );
+    }
+
+    #[test]
+    fn a_row_a_live_holder_still_owns_is_listed_and_left_alone() {
+        let (_data, _locks, env) = gate_test_env();
+        let (_instance, reservation) = stranded_adoption(&env);
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let owner = registry.identity().unwrap().host_uid;
+        drop(registry);
+
+        // Stand in for the still-running holder: hold exactly the §10.1
+        // locks a live adopt holds for the whole of its call.
+        let mut holder = OrderedLocks::new(&env.lock_dir);
+        holder
+            .acquire(LockScope::AuthorityGate, LockMode::Shared)
+            .unwrap();
+        holder
+            .acquire_decisions(owner, &["legacy"], LockMode::Exclusive)
+            .unwrap();
+
+        let targets = reconcile_scan(&env).unwrap();
+        assert!(targets[0].in_flight, "{targets:?}");
+        let result = reconcile_apply(&env, &targets[0], None);
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::SkippedInFlight,
+            "{result:?}"
+        );
+        assert!(!result.ok);
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+        assert_eq!(
+            registry.operation(reservation.operation_uid).unwrap().state,
+            OperationState::Prepared
+        );
+        drop(holder);
+    }
+
+    #[test]
+    fn a_crashed_create_reservation_is_freed_only_by_a_complete_zero_match_scan() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(91));
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-recon"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("ghost", instance, Uuid::new_v4())
+            .unwrap();
+        drop(registry);
+
+        let targets = reconcile_scan(&env).unwrap();
+        assert_eq!(targets[0].duty, "create_keyed_lookup");
+
+        // No provider: the keyed lookup §10.2 demands is unobtainable, so
+        // the table's Indeterminate arm fails closed and the row survives.
+        let blind = reconcile_apply(&env, &targets[0], None);
+        assert_eq!(blind.outcome, ReconcileOutcome::FailedClosed, "{blind:?}");
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+        drop(registry);
+
+        let provider = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let scope = tmux_scope(epoch);
+        let freed = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        assert_eq!(
+            freed.outcome,
+            ReconcileOutcome::ReservationReleased,
+            "{freed:?}"
+        );
+        // Repair releases; it never spawns a replacement.
+        assert_eq!(provider.creates.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_crashed_create_whose_orphan_still_exists_is_never_silently_released() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(92));
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-recon"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("ghost", instance, Uuid::new_v4())
+            .unwrap();
+        drop(registry);
+
+        let provider =
+            CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost", "other"]));
+        let scope = tmux_scope(epoch);
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
+        assert!(result.detail.contains("reserved key"), "{result:?}");
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+    }
+
+    /// An active tmux Space with a current binding, plus a `prepared` rename
+    /// row: the shape a crash between `begin_rename` and `commit_rename`
+    /// leaves.
+    fn stranded_rename(env: &OperationEnv, epoch: ServerEpoch) -> (SpaceUid, Uuid) {
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-recon"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("before", instance, Uuid::new_v4())
+            .unwrap();
+        registry
+            .finalize_create(
+                reservation.space_uid,
+                reservation.operation_uid,
+                &NativeBindingSpec {
+                    native_token: "$before".into(),
+                    native_kind: NativeKind::TmuxSessionId,
+                    server_epoch: Some(epoch),
+                },
+            )
+            .unwrap();
+        let operation_uid = registry
+            .begin_rename(reservation.space_uid, "after", Uuid::new_v4())
+            .unwrap();
+        (reservation.space_uid, operation_uid)
+    }
+
+    #[test]
+    fn a_crashed_rename_rolls_back_when_the_native_step_never_ran() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(93));
+        let (space_uid, operation_uid) = stranded_rename(&env, epoch);
+
+        let provider = CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["before"]));
+        let scope = tmux_scope(epoch);
+        let targets = reconcile_scan(&env).unwrap();
+        assert_eq!(targets[0].duty, "rename_observe_states");
+        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::RenameRolledBack,
+            "{result:?}"
+        );
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(registry.space(space_uid).unwrap().logical_name, "before");
+        assert_eq!(
+            registry.operation(operation_uid).unwrap().state,
+            OperationState::Aborted
+        );
+    }
+
+    #[test]
+    fn a_crashed_rename_commits_when_the_native_step_had_landed() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(94));
+        let (space_uid, operation_uid) = stranded_rename(&env, epoch);
+
+        let provider = CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["after"]));
+        let scope = tmux_scope(epoch);
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::RenameCommitted,
+            "{result:?}"
+        );
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(registry.space(space_uid).unwrap().logical_name, "after");
+        assert_eq!(
+            registry.operation(operation_uid).unwrap().state,
+            OperationState::Completed
+        );
+    }
+
+    #[test]
+    fn a_crashed_rename_with_both_names_live_refuses_to_choose() {
+        let (_data, _locks, env) = gate_test_env();
+        let epoch = ServerEpoch(Uuid::from_u128(95));
+        let (space_uid, operation_uid) = stranded_rename(&env, epoch);
+
+        // Somebody else created `after` while we were dead: committing would
+        // silently claim their session (plan §10.2).
+        let provider =
+            CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["before", "after"]));
+        let scope = tmux_scope(epoch);
+        let targets = reconcile_scan(&env).unwrap();
+        let result = reconcile_apply(&env, &targets[0], Some((&provider, &scope)));
+        assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
+
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(registry.space(space_uid).unwrap().logical_name, "before");
+        assert_eq!(
+            registry.operation(operation_uid).unwrap().state,
+            OperationState::Prepared
         );
     }
 

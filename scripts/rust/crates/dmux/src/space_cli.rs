@@ -149,18 +149,53 @@ pub enum RepairCmd {
         #[arg(long, hide = true)]
         socket: Option<String>,
     },
+
+    /// Preview and resolve the journal rows a crashed holder stranded
+    /// (plan §10.2/§10.3, cases 11/13/39). Each row is routed through the
+    /// frozen `registry::reconcile` decision table; a row a live process
+    /// still owns is listed and left alone.
+    Reconcile {
+        /// Restrict to these Space refs (default: every stranded row)
+        spaces: Vec<String>,
+
+        /// Apply without asking
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+    },
 }
 
 pub fn repair(cmd: RepairCmd, format: Option<OutputFormat>) -> ExitCode {
+    let action = repair_action(&cmd);
     match repair_cmd(cmd, format) {
         Ok(code) => code,
-        Err(error) => refuse("repair_normalize", format, &error, None),
+        Err(error) => refuse(action, format, &error, None),
+    }
+}
+
+fn repair_action(cmd: &RepairCmd) -> &'static str {
+    match cmd {
+        RepairCmd::Normalize { .. } => "repair_normalize",
+        RepairCmd::Reconcile { .. } => "repair_reconcile",
     }
 }
 
 fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
     const ACTION: &str = "repair_normalize";
     match cmd {
+        RepairCmd::Reconcile {
+            spaces,
+            yes,
+            data_dir,
+            lock_dir,
+        } => reconcile_cmd(spaces, yes, data_dir, lock_dir, format),
         RepairCmd::Normalize {
             tokens,
             yes,
@@ -324,6 +359,259 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             } else {
                 ExitCode::from(7)
             })
+        }
+    }
+}
+
+/// `dmux repair reconcile`: the operator verb for the journal rows a crashed
+/// holder stranded. Before this existed a process killed between
+/// `reserve_space_kind` and `abort_create` burned its logical name forever —
+/// `rm` said `operation_in_progress`, `rename` said `repair_required`, and a
+/// replayed `adopt` said `name_conflict`, with no verb able to reap the row
+/// (plan cases 11, 13, 39).
+///
+/// Preview first, always; then one §16.2 document on every branch — nothing
+/// to do, refused, declined, applied, or partially applied.
+fn reconcile_cmd(
+    spaces: Vec<String>,
+    yes: bool,
+    data_dir: Option<String>,
+    lock_dir: Option<String>,
+    format: Option<OutputFormat>,
+) -> Result<ExitCode, TypedError> {
+    const ACTION: &str = "repair_reconcile";
+    let envelope = format == Some(OutputFormat::Json);
+    let env = match (data_dir, lock_dir) {
+        (Some(data), Some(lock)) => OperationEnv {
+            db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
+            lock_dir: std::path::PathBuf::from(lock),
+        },
+        _ => OperationEnv::production().map_err(runtime_error)?,
+    };
+    let refused = |error: TypedError| refuse(ACTION, format, &error, Some(&env));
+
+    let mut targets = match operations::reconcile_scan(&env) {
+        Ok(targets) => targets,
+        Err(e) => return Ok(refused(typed_op(&e))),
+    };
+    if !spaces.is_empty()
+        && let Err(error) = reconcile_filter(&mut targets, &spaces)
+    {
+        return Ok(refused(error));
+    }
+    if targets.is_empty() {
+        if envelope {
+            emit_document(
+                ACTION,
+                json!({ "targets": [], "results": [] }),
+                authority_revision(&env),
+            );
+        } else {
+            println!("nothing to reconcile");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    // §7.4/§16.2: a JSON destructive command never prompts and emits exactly
+    // ONE document, so the preview has to travel inside the confirmation.
+    if envelope && !yes {
+        let (mut document, exit) = output::confirmation_required(
+            ACTION,
+            &reconcile_target_list(&targets),
+            authority_revision(&env),
+        );
+        document["result"] = json!({ "targets": targets });
+        println!("{document}");
+        return Ok(ExitCode::from(exit.code()));
+    }
+    if !envelope {
+        // Preview before any mutation, including under --yes: the operator
+        // sees which rule ran on which row.
+        for target in &targets {
+            println!(
+                "{}\t{}\t{}/{}\t{}\t{}",
+                target.space_no,
+                target.logical_name,
+                target.kind,
+                target.state,
+                target.duty,
+                if target.in_flight {
+                    "in flight"
+                } else {
+                    "crashed"
+                },
+            );
+        }
+        if let Err(code) = confirm(
+            ACTION,
+            format,
+            &reconcile_target_list(&targets),
+            &format!("Reconcile {} stranded operation(s)?", targets.len()),
+            yes,
+            Some(&env),
+        ) {
+            return Ok(code);
+        }
+    }
+
+    let results: Vec<operations::ReconcileResult> = targets
+        .iter()
+        .map(|target| {
+            let provider = reconcile_provider(&env, target);
+            operations::reconcile_apply(
+                &env,
+                target,
+                provider.as_ref().map(|(p, scope)| (p.as_ref(), scope)),
+            )
+        })
+        .collect();
+    let all_ok = results.iter().all(|result| result.ok);
+    if envelope {
+        // An unresolved row is a typed error beside the rows that did
+        // resolve — the §16.3 partial (7), never a resultless failure.
+        let errors: Vec<TypedError> = results
+            .iter()
+            .filter(|result| !result.ok)
+            .map(|result| {
+                let mut error = TypedError::new(
+                    reconcile_error_code(result.outcome),
+                    format!("{}: {}", result.logical_name, result.detail),
+                );
+                error.target = Some(result.space_uid.0.to_string());
+                error
+            })
+            .collect();
+        println!(
+            "{}",
+            output::document(
+                ACTION,
+                all_ok,
+                json!({ "targets": targets, "results": results }),
+                &errors,
+                authority_revision(&env),
+            )
+        );
+        return Ok(ExitCode::from(
+            output::document_exit(all_ok, true, &errors).code(),
+        ));
+    }
+    for result in &results {
+        println!(
+            "{}\t{}\t{}",
+            result.logical_name,
+            result.outcome.as_str(),
+            result.detail
+        );
+    }
+    Ok(if all_ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(7)
+    })
+}
+
+/// Neither a skip nor a fail-closed is an internal failure: one says a live
+/// process owns the row, the other says the decision table refused to guess.
+/// Both are §16.3 conflicts (exit 4) inside a partial document.
+fn reconcile_error_code(outcome: operations::ReconcileOutcome) -> ErrorCode {
+    match outcome {
+        operations::ReconcileOutcome::SkippedInFlight => ErrorCode::OperationInProgress,
+        _ => ErrorCode::RepairRequired,
+    }
+}
+
+fn reconcile_target_list(targets: &[operations::ReconcileTarget]) -> String {
+    targets
+        .iter()
+        .map(|target| target.logical_name.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Restrict the pass to the named Spaces. A ref that matches no stranded row
+/// is not-found (3), never a silent empty run — the operator asked about a
+/// specific Space and deserves to be told it is not stranded.
+fn reconcile_filter(
+    targets: &mut Vec<operations::ReconcileTarget>,
+    refs: &[String],
+) -> Result<(), TypedError> {
+    let mut wanted = Vec::new();
+    for spelling in refs {
+        let parsed = parse_ref(spelling).map_err(|e| {
+            TypedError::new(
+                ErrorCode::InvalidRef,
+                format!("invalid ref {spelling:?}: {e:?}"),
+            )
+        })?;
+        if !targets
+            .iter()
+            .any(|target| reconcile_ref_matches(&parsed.space, target))
+        {
+            let mut error = TypedError::new(
+                ErrorCode::NotFound,
+                format!("{spelling:?} has no unfinished operation to reconcile"),
+            );
+            error.target = Some(spelling.clone());
+            return Err(error);
+        }
+        wanted.push(parsed.space);
+    }
+    targets.retain(|target| {
+        wanted
+            .iter()
+            .any(|shape| reconcile_ref_matches(shape, target))
+    });
+    Ok(())
+}
+
+/// A stranded row is not resolvable yet, so it cannot be matched through
+/// `resolve` (which requires an ACTIVE Space) — the ref is compared against
+/// the journal's own identity instead. Refs for other hosts match nothing:
+/// reconciliation is an owner-local act.
+fn reconcile_ref_matches(shape: &SpaceRefShape, target: &operations::ReconcileTarget) -> bool {
+    match shape {
+        SpaceRefShape::Canonical { space, .. } => target.space_uid == *space,
+        SpaceRefShape::Numbered { host: None, no } => target.space_no.get() == no.get(),
+        SpaceRefShape::Named { host: None, name } => target.logical_name == *name,
+        _ => false,
+    }
+}
+
+/// The provider/scope for a stranded Space's backend instance, or `None` when
+/// it cannot be reached. An adoption reservation is decidable from the
+/// registry alone; every duty that needs a native scan fails closed without
+/// one, which is the point.
+fn reconcile_provider(
+    env: &OperationEnv,
+    target: &operations::ReconcileTarget,
+) -> Option<(Box<dyn Provider>, InventoryScope)> {
+    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).ok()?;
+    let info = registry
+        .backend_instance_info(target.backend_instance)
+        .ok()?;
+    match info.backend {
+        Backend::Tmux => {
+            let namespace = info.socket_path?;
+            Some((
+                Box::new(dmux::backend::tmux::TmuxProvider::new(namespace.clone())),
+                InventoryScope {
+                    backend: Backend::Tmux,
+                    endpoint: namespace,
+                    expected_epoch: None,
+                },
+            ))
+        }
+        Backend::Wez => {
+            let (socket, epoch) = verified_wez_target(env, Some(target.backend_instance)).ok()?;
+            let (bin, config) = production_wez_paths();
+            Some((
+                Box::new(dmux::backend::wez::WezProvider::new(&bin, config)),
+                InventoryScope {
+                    backend: Backend::Wez,
+                    endpoint: socket,
+                    expected_epoch: Some(epoch),
+                },
+            ))
         }
     }
 }
