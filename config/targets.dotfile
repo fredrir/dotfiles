@@ -20,3 +20,6 @@ linux/arch/wezterm-mux = ~/.config/systemd/user
 macos/launchd = ~/Library/LaunchAgents
 shared/ssh = ~/.ssh
 shared/obsidian/plugins/agent-transcripts = ~/Documents/main/.obsidian/plugins/agent-transcripts
+shared/vscode/settings.json = ~/Library/Application Support/Code/User/settings.json
+shared/vscode/keybindings.json = ~/Library/Application Support/Code/User/keybindings.json
+shared/vscode/snippets = ~/Library/Application Support/Code/User/snippets
