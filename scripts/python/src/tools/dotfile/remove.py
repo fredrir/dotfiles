@@ -19,7 +19,7 @@ from tools.dotfile.state import (
     sorted_entries,
     trim,
 )
-from tools.dotfile.targets import has_target_under, load_targets, map_dst, never_fold
+from tools.dotfile.targets import has_target_under, load_targets, map_dst, never_fold, unscope
 
 
 def locate_remove_source(ctx, source_input):
@@ -179,7 +179,7 @@ def remove_target_entries(ctx, prefix):
     for raw in lines:
         if "=" in raw:
             key = trim(raw.split("=", 1)[0])
-            if key == prefix or key.startswith(prefix + "/"):
+            if unscope(key) == prefix or unscope(key).startswith(prefix + "/"):
                 changed = True
                 log(f"unmapped {key}")
                 continue

@@ -550,13 +550,49 @@ Groups are linked in manifest order, and a later group may hold a package of the
 same name as an earlier one. The shared copy is linked first, then unfolded file
 by file, and each file the later group also carries replaces its link. So a
 platform group overrides individual files of a shared package while inheriting
-the rest — how `shared/fastfetch` is specialised per platform.
+the rest — how `shared/fastfetch` is specialised per platform. A platform group
+can also *merge into* a shared file instead of replacing it; see
+`Merged overlays` below.
 
 ### targets.dotfile
 
 `config/targets.dotfile` maps a repo path to a destination. Without an entry, a package lands
 at `~/.config/<package>`. Matching is longest-prefix, so a specific file entry
 beats the package entry containing it.
+
+A key may carry a `macos:` or `linux:` scope prefix. Scoped keys apply only when
+the linking machine belongs to that platform family, and a scoped key replaces an
+unscoped key for the same path. This is how one shared package reaches
+platform-specific destinations, e.g. VS Code's user directory:
+
+```
+macos:shared/vscode/settings.json = ~/Library/Application Support/Code/User/settings.json
+linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
+```
+
+An entry whose key points inside the package keeps it unfolded (per-entry links), which is
+what a destination VS Code also writes into needs — never fold `Code/User` into one symlink.
+
+### Merged overlays
+
+A platform package can merge into the shared package instead of replacing it: a file named
+`settings.macos.json` inside `macos/vscode` is an overlay for `settings.json` in an earlier
+package of the same name (`shared/vscode`). The suffix must be the package's group directory
+basename (`macos`, `arch`, `common`, an override name, ...), and the base file must exist in
+an earlier group; carrying both `settings.json` and `settings.macos.json` in the same package
+is an error, as is an overlay whose base is missing.
+
+At link time the base and its overlays (chained across groups in manifest order) are parsed
+as JSONC — `//` and `/* */` comments and trailing commas are allowed — and deep-merged:
+objects merge recursively with the overlay winning scalars, anything else (arrays included)
+is replaced by the overlay. The merged result is materialised at the base file's destination
+instead of a symlink; the repo sources keep their comments, the generated file is plain JSON.
+
+The live file is repo-owned: when it differs from the merged result (VS Code rewrites
+`settings.json` whenever a setting is toggled in the UI) `link` reports `drifted` and exits
+non-zero. Fold the change back into the shared file or an overlay, or discard the local edits
+with `dotfile merge --force`. `dotfile merge` re-runs the merge on its own; `status` reports
+each merged file as linked, missing, or differing by content.
 
 ### .nolink
 

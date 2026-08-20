@@ -1,5 +1,6 @@
 import os
 
+from tools.dotfile import merge as merge_state
 from tools.dotfile.secret.apply import run_apply
 from tools.dotfile.secret.vault import vault_owned
 from tools.dotfile.state import (
@@ -85,7 +86,7 @@ def link_dir(ctx, src, dst, full, pkg, rel):
             return
     if not os.path.exists(dst):
         if has_target_under(ctx, full) or never_fold(ctx, dst):
-            make_dirs(ctx, dst)
+            pass  # per-entry deployment below; each entry makes its own parent dirs
         else:
             make_dirs(ctx, os.path.dirname(dst))
             make_link(ctx, src, dst)
@@ -103,6 +104,8 @@ def walk_node(ctx, pkg, rel, src, full):
     if os.path.basename(src) in (".nolink", ".secret", ".system"):
         return
     if vault_owned(src):
+        return
+    if src in ctx.merge_paths:
         return
     dst = map_dst(ctx, full, pkg, rel)
     if os.path.isdir(src) and not os.path.islink(src):
@@ -195,6 +198,7 @@ def cmd_link(ctx, profile, dry_run, override_specs):
 
     log(f"linking profile '{profile}'")
     collect_groups(ctx, manifest)
+    merge_state.load(ctx)
     prune(ctx)
 
     for state, pkgdir, name in each_package(ctx):
@@ -205,7 +209,9 @@ def cmd_link(ctx, profile, dry_run, override_specs):
         elif state == "no-group":
             log(f"  skip missing group: {name}")
 
-    blocked = run_apply(ctx, dry_run, False, True)
+    blocked = run_apply(ctx, dry_run, False, True) or merge_state.apply_entries(
+        ctx, dry_run, False
+    )
 
     save_profile(ctx, profile)
     save_overrides(ctx)
@@ -247,6 +253,8 @@ def claimed_destinations(ctx):
         for file in status_files(pkgdir):
             if os.path.basename(file) in (".nolink", ".secret", ".system") or vault_owned(file):
                 continue
+            if file in ctx.merge_paths:
+                continue
             rel = file[len(pkgdir) + 1 :]
             claims[map_dst(ctx, f"{name}/{rel}", pkg, rel)] = file
     return claims
@@ -261,6 +269,10 @@ def scan_links(ctx):
             found.append(("ok", dst, ""))
         else:
             found.append(("differs", dst, link_detail(ctx, dst)))
+    for entry in ctx.merge_entries:
+        state, detail = merge_state.inspect(ctx, entry)
+        label = "ok" if state == "ok" else state
+        found.append((label, entry.dst, detail))
     return found
 
 
@@ -270,6 +282,7 @@ def cmd_status(ctx, profile):
     load_targets(ctx)
     load_overrides(ctx)
     collect_groups(ctx, manifest)
+    merge_state.load(ctx)
 
     ok = missing = differing = 0
     for state, dst, _detail in scan_links(ctx):

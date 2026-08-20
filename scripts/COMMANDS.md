@@ -183,6 +183,7 @@ Bare `dotfile` prints help.
 | `dotfile link [PROFILE]` | Link a profile into `$HOME`. `-n`, `--dry-run`; repeatable `--override <GROUP>=<NAME\|none>`. |
 | `dotfile add <PATH>` | Adopt and link a live config. Placement: `--shared`, `--linux`, `--arch`, `--ubuntu`, `--kde`, `--hyprland`, `--server`, or `--macos`; `--pkg <NAME>`; `--description <TEXT>`/`--desc <TEXT>`. |
 | `dotfile remove <PATH>` | Stop tracking a path while keeping it live. |
+| `dotfile merge [PROFILE]` | Re-materialise overlay-merged files (e.g. shared `settings.json` plus a platform overlay). `-n`, `--dry-run`; `--force` discards local edits. |
 | `dotfile packages` | Regenerate `config/packages.dotfile` and `PACKAGES.md`. |
 | `dotfile format [PATH...]` | Format tracked or selected `.conf` files. `--stdin <NAME>`: format stdin as that filename. |
 | `dotfile sync` | Run setup non-interactively and skip unchanged steps. |

@@ -26,6 +26,8 @@ class Context:
         self.active_override_dirs = []
         self.conflicts = []
         self.package_descriptions = {}
+        self.merge_entries = []
+        self.merge_paths = set()
 
 
 def log(message):

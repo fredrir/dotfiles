@@ -11,7 +11,7 @@
 - `starship` — Cross-shell prompt configuration
 - `tmux`
 - `transcript`
-- `vscode`
+- `vscode` — VS Code user settings: shared base with platform overlays merged on link
 - `wezterm` — Terminal emulator with a modular Lua configuration
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
@@ -33,7 +33,7 @@
 - `git` — Arch-specific Git configuration
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
 - `ssh` — Cabled-first routing to macie with Tailscale fallback
-- `vscode`
+- `vscode` — Arch-specific settings overlay merged into the shared VS Code settings
 - `wezterm-mux` — Persistent wezterm-mux-server user service; panes survive disconnects and path changes
 - `zsh`
 
@@ -75,5 +75,5 @@
 - `launchd`
 - `ssh`
 - `sunshine`
-- `vscode`
+- `vscode` — macOS-specific settings overlay merged into the shared VS Code settings
 - `zsh` — macOS-specific Z shell configuration

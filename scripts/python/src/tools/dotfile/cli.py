@@ -7,6 +7,7 @@ from tools.dotfile import add as add_command
 from tools.dotfile import check as check_command
 from tools.dotfile import format as format_command
 from tools.dotfile import link as link_command
+from tools.dotfile import merge as merge_command
 from tools.dotfile import packages as packages_command
 from tools.dotfile import profiles as profiles_command
 from tools.dotfile import remove as remove_command
@@ -55,6 +56,19 @@ def link(
     ),
 ):
     link_command.cmd_link(Context(), profile, dry_run, override)
+
+
+@app.command(help="Materialise overlay-merged files, e.g. shared settings.json plus a platform overlay.")
+def merge(
+    profile: str | None = typer.Argument(None),
+    dry_run: bool = typer.Option(
+        False, "-n", "--dry-run", help="print actions without changing anything"
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="overwrite local edits with the merged result"
+    ),
+):
+    merge_command.cmd_merge(Context(), profile, dry_run, force)
 
 
 @app.command(help="Move a live config into the repo and symlink it back.")
