@@ -10,3 +10,4 @@ for file in "$ZCONF"/*.zsh; do
 done
 
 [[ -f "$HOME/.local/bin/env" ]] && source "$HOME/.local/bin/env"
+
