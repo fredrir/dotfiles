@@ -39,6 +39,7 @@ shared {
   ?portview
   ?kondo
   ?openssl
+  ?shfmt
   font Hack Nerd Font Mono
   font JetBrains Mono
   font Noto Sans

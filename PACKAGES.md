@@ -33,6 +33,7 @@
 - `git` — Arch-specific Git configuration
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
 - `ssh` — Cabled-first routing to macie with Tailscale fallback
+- `vscode`
 - `wezterm-mux` — Persistent wezterm-mux-server user service; panes survive disconnects and path changes
 - `zsh`
 
@@ -74,4 +75,5 @@
 - `launchd`
 - `ssh`
 - `sunshine`
+- `vscode`
 - `zsh` — macOS-specific Z shell configuration
