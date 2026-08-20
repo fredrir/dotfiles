@@ -1,6 +1,7 @@
 
 ## `shared`
 
+- `atuin`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
 - `git` — Git configuration and global ignore rules
 - `nvim` — Neovim editor configuration

@@ -50,12 +50,17 @@ alias cdj='cd "$OLDPWD"' # cd jump to last directory
 
 alias u="uname -mrs"
 
+alias cleanup="kondo" # Cleanup build output
+
+
 # Git
 
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
 alias gdd='git-discard'
 
 # Projects
+
+
 
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"
