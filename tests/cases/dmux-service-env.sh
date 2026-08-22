@@ -3,8 +3,9 @@
 # ~/.config/dmux/service.env is a privileged write into the GUI session
 # environment (ADR 012 WS-F.1), so its parser must accept exactly the grammar
 # shared/wezterm/mux/dmux-service-env.sh documents and nothing hostile. These
-# cases drive the shared parser under /bin/sh and the com.fredrir.dmux-env
-# loader against a recording `launchctl`, all inside the sandbox HOME. Nothing here
+# cases drive the shared parser under /bin/sh, the com.fredrir.dmux-env loader
+# against a recording `launchctl`, and the mux wrapper's precedence against a
+# recording `wezterm-mux-server`, all inside the sandbox HOME. Nothing here
 # touches launchd, systemd, or the live runtime directory.
 
 MUX_DIR="$SOURCE_ROOT/shared/wezterm/mux"
@@ -53,6 +54,22 @@ setup_shims() {
     > "$SHIMS/launchctl"
   printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >> "$SANDBOX/logger.trace"' \
     > "$SHIMS/logger"
+  # A dmux that answers the three probes the wrapper makes on the managed
+  # path, a pane-bootstrap beside it, and a mux server that reports what it
+  # was handed instead of serving.
+  printf '%s\n' '#!/bin/sh' \
+    'case "$1" in' \
+    '  _mux-idle) exit 0 ;;' \
+    '  _bridge-key) exit 0 ;;' \
+    '  _recovery) echo 0badcafe-0000-4000-8000-00000000f1f1 ;;' \
+    '  *) exit 2 ;;' \
+    'esac' > "$SHIMS/dmux"
+  printf '%s\n' '#!/bin/sh' 'exit 0' > "$SHIMS/pane-bootstrap"
+  printf '%s\n' '#!/bin/sh' \
+    'printf "wez_first=%s\n" "${DMUX_WEZ_FIRST-unset}"' \
+    'printf "legacy_policy=%s\n" "${DMUX_LEGACY_POLICY-unset}"' \
+    'printf "backend_instance=%s\n" "${DMUX_BACKEND_INSTANCE-unset}"' \
+    'printf "args=%s\n" "$*"' > "$SHIMS/wezterm-mux-server"
   chmod +x "$SHIMS"/*
   export SANDBOX
 }
@@ -66,6 +83,26 @@ run_loader() {
 launchctl_trace() {
   [ -f "$SANDBOX/launchctl.trace" ] && cat "$SANDBOX/launchctl.trace"
   return 0
+}
+
+# run_wrapper [VAR=VALUE ...]: run dmux-mux-start.sh with the shims, the flag
+# and opt-out scrubbed from the inherited environment, and only the given
+# assignments set on the child. Never exports anything into this shell.
+run_wrapper() {
+  mkdir -p "$SANDBOX/run"
+  OUTPUT="$(env -u DMUX_WEZ_FIRST -u DMUX_LEGACY_POLICY -u DMUX_BACKEND_INSTANCE \
+    PATH="$SHIMS:$PATH" \
+    XDG_RUNTIME_DIR="$SANDBOX/run" \
+    DMUX_WEZTERM_MUX_SERVER="$SHIMS/wezterm-mux-server" \
+    "$@" sh "$MUX_DIR/dmux-mux-start.sh" 2>&1)"
+  STATUS=$?
+  return 0
+}
+
+# The wrapper consults service.env on macOS only; Linux's one knob is
+# environment.d and the file must be ignored there.
+file_is_read_by_wrapper() {
+  [ "$(uname -s)" = Darwin ]
 }
 
 test_parser_keeps_assignments_and_drops_blanks_and_comments() {
@@ -196,4 +233,66 @@ test_loader_is_a_no_op_without_a_file() {
   assert_ok
   assert_absent "$SANDBOX/launchctl.trace"
   assert_output_has "nothing to apply"
+}
+
+test_wrapper_process_environment_wins_over_the_file() {
+  setup_shims
+  write_env 'DMUX_WEZ_FIRST=1' 'DMUX_LEGACY_POLICY=1'
+  run_wrapper DMUX_WEZ_FIRST=0 DMUX_LEGACY_POLICY=0
+  assert_ok
+  assert_output_has "wez_first=0"
+  assert_output_has "legacy_policy=0"
+  assert_output_has "backend_instance="
+  assert_output_lacks "backend_instance=0badcafe"
+}
+
+test_wrapper_file_wins_over_the_tracked_default() {
+  setup_shims
+  write_env 'DMUX_WEZ_FIRST=1' 'DMUX_LEGACY_POLICY=1'
+  run_wrapper
+  assert_ok
+  if file_is_read_by_wrapper; then
+    assert_output_has "wez_first=1"
+    assert_output_has "legacy_policy=1"
+    assert_output_has "backend_instance=0badcafe-0000-4000-8000-00000000f1f1"
+  else
+    assert_output_has "wez_first=0"
+    assert_output_has "legacy_policy=unset"
+  fi
+  assert_output_has "args=--dmux-managed-service --config-file $MUX_DIR/dmux-mux.lua"
+}
+
+test_wrapper_empty_process_value_states_nothing_so_the_file_applies() {
+  setup_shims
+  write_env 'DMUX_WEZ_FIRST=1'
+  run_wrapper DMUX_WEZ_FIRST=
+  assert_ok
+  if file_is_read_by_wrapper; then
+    assert_output_has "wez_first=1"
+  else
+    assert_output_has "wez_first=0"
+  fi
+}
+
+test_wrapper_defaults_to_legacy_without_a_file() {
+  setup_shims
+  run_wrapper
+  assert_ok
+  assert_output_has "wez_first=0"
+  assert_output_has "legacy_policy=unset"
+  assert_output_has "backend_instance="
+  assert_output_lacks "backend_instance=0badcafe"
+}
+
+test_wrapper_ignores_a_malformed_file_with_a_warning() {
+  setup_shims
+  write_env 'DMUX_WEZ_FIRST=1' 'DMUX_LEGACY_POLICY=`touch '"$SANDBOX"'/pwned`'
+  run_wrapper
+  assert_ok
+  assert_output_has "wez_first=0"
+  assert_output_has "legacy_policy=unset"
+  assert_absent "$SANDBOX/pwned"
+  if file_is_read_by_wrapper; then
+    assert_output_has "WARN ignoring malformed $(env_file); tracked defaults apply"
+  fi
 }

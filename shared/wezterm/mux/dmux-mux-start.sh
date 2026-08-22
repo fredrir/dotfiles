@@ -52,6 +52,44 @@ esac
 # symlink/swap window before native authority exists.
 
 sock="$runtime/wez-dmux.sock"
+
+# Durable per-host policy (ADR 012 WS-F.1; three-valued flag, ADR 010 §5:
+# 1 states Wez-first, 0 states legacy, unset/empty states no preference).
+# Precedence for DMUX_WEZ_FIRST and DMUX_LEGACY_POLICY, highest first:
+#   1. a NON-EMPTY value already in this process's environment. A service
+#      manager that deliberately passes DMUX_WEZ_FIRST=0 is stating legacy
+#      and must not be overridden by a file; an empty value states nothing.
+#   2. on macOS, the untracked ~/.config/dmux/service.env -- the same file
+#      the com.fredrir.dmux-env LaunchAgent copies into the launchd session
+#      for the GUI. Reading it here too means the mux never depends on
+#      LaunchAgent ordering. Because rule 1 wins, after editing the file run
+#      `launchctl kickstart gui/$UID/com.fredrir.dmux-env` BEFORE restarting
+#      this job, or launchd's stale copy is what arrives here; `dmux doctor`
+#      shows every layer. A malformed file applies nothing (warned below;
+#      the loader refused the same file), so the host stays consistently on
+#      the tracked default rather than half-on.
+#   3. the tracked default below: 0 until the §21 step 9 flip, when it and
+#      WEZ_FIRST_BY_DEFAULT in main.rs move to Wez-first together.
+# On Linux ~/.config/environment.d/50-dmux.conf is the ONE knob: the systemd
+# user manager passes it to this unit and to the graphical session it
+# starts, so service.env is deliberately not read there -- two sources would
+# be two knobs. The shared parser never evals or sources the file.
+. "$here/dmux-service-env.sh"
+if [ "$(uname -s)" = Darwin ] && service_env=$(dmux_service_env_path); then
+  if service_env_lines=$(dmux_service_env_lines "$service_env"); then
+    if [ -z "${DMUX_WEZ_FIRST:-}" ] &&
+      value=$(dmux_service_env_lookup DMUX_WEZ_FIRST "$service_env_lines"); then
+      DMUX_WEZ_FIRST=$value
+    fi
+    if [ -z "${DMUX_LEGACY_POLICY:-}" ] &&
+      value=$(dmux_service_env_lookup DMUX_LEGACY_POLICY "$service_env_lines"); then
+      DMUX_LEGACY_POLICY=$value
+      export DMUX_LEGACY_POLICY
+    fi
+  else
+    echo "dmux-mux-start: WARN ignoring malformed $service_env; tracked defaults apply" >&2
+  fi
+fi
 DMUX_WEZ_FIRST="${DMUX_WEZ_FIRST:-0}"
 export DMUX_WEZ_FIRST
 
