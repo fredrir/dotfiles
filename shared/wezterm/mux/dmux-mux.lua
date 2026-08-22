@@ -139,11 +139,92 @@ local DESCRIPTOR_OPTIONAL_FIELDS = {
   'error',
 }
 
+local MAX_DESCRIPTOR_ERROR_BYTES = 1024
+
+-- The native publisher bounds `error` to 1024 bytes of UTF-8 without control
+-- bytes, while a refusal that arrives through pcall carries mlua's multi-line
+-- traceback. A `failed` publication refused for its own formatting would
+-- strand the descriptor in the very state it was meant to replace.
+local function descriptor_error_text(message)
+  local text = (tostring(message):gsub('[\0-\31\127]+', ' '))
+  if #text > MAX_DESCRIPTOR_ERROR_BYTES then
+    text = text:sub(1, MAX_DESCRIPTOR_ERROR_BYTES)
+    -- never end inside a multi-byte sequence: the native side requires UTF-8
+    while #text > 0 and text:byte(-1) >= 0x80 and text:byte(-1) < 0xC0 do
+      text = text:sub(1, -2)
+    end
+    if #text > 0 and text:byte(-1) >= 0xC0 then
+      text = text:sub(1, -2)
+    end
+  end
+  if text:match '^%s*$' then
+    return 'unspecified failure'
+  end
+  return text
+end
+
+-- mlua hands a Rust `None` to Lua as its JSON-null light userdata, never as
+-- nil (mlua 0.9 `serialize_none_to_null`), so a flag-off request that omits
+-- backend_instance_uid gets a non-nil `userdata` back, and a bare `~=`
+-- against nil refused every flag-off start. A light userdata is the only
+-- value that reports `userdata` with no metatable, nothing in Lua can forge
+-- one, and `wezterm.json_parse` maps JSON null to nil, so the sentinel cannot
+-- be captured for an identity comparison.
+local function native_absent(value)
+  return value == nil or (type(value) == 'userdata' and getmetatable(value) == nil)
+end
+
 -- Descriptor identity is a native service witness, not a Lua/environment
 -- claim. The maintained fork resolves the fixed runtime path, obtains the
 -- current OS boot/process/socket identities, checks the socket peer, and
 -- durably publishes the closed version-1 document. It never accepts a path,
--- PID, process token, boot ID, or socket identity from this config.
+-- PID, process token, boot ID, or socket identity from this config. The
+-- returned witness must repeat the request and carry those identities; this
+-- names the first field that disagrees, or nil when it is accepted.
+local function service_witness_mismatch(state, request, descriptor, raw, pid, socket)
+  if type(descriptor) ~= 'table' then
+    return 'descriptor'
+  end
+  if type(raw) ~= 'string' then
+    return 'raw'
+  end
+  if descriptor.descriptor_version ~= 1 then
+    return 'descriptor_version'
+  end
+  if descriptor.state ~= state then
+    return 'state'
+  end
+  if descriptor.epoch ~= request.epoch then
+    return 'epoch'
+  end
+  if request.backend_instance_uid ~= nil then
+    if descriptor.backend_instance_uid ~= request.backend_instance_uid then
+      return 'backend_instance_uid'
+    end
+  elseif not native_absent(descriptor.backend_instance_uid) then
+    return 'backend_instance_uid'
+  end
+  if descriptor.boot_nonce ~= request.boot_nonce then
+    return 'boot_nonce'
+  end
+  if descriptor.pid ~= pid then
+    return 'pid'
+  end
+  if descriptor.socket ~= socket then
+    return 'socket'
+  end
+  if descriptor.written_by ~= 'mux-startup' then
+    return 'written_by'
+  end
+  if type(descriptor.start_token) ~= 'string' or descriptor.start_token == '' then
+    return 'start_token'
+  end
+  if type(descriptor.boot_id) ~= 'string' or descriptor.boot_id == '' then
+    return 'boot_id'
+  end
+  return nil
+end
+
 local function publish_descriptor(state, fields)
   if type(wezterm.mux.dmux_publish_service_descriptor) ~= 'function' then
     return nil, 'native managed-service descriptor publisher is unavailable'
@@ -162,28 +243,17 @@ local function publish_descriptor(state, fields)
       request[key] = fields[key]
     end
   end
+  if request.error ~= nil then
+    request.error = descriptor_error_text(request.error)
+  end
   local ok, descriptor, raw = pcall(wezterm.mux.dmux_publish_service_descriptor, request)
   if not ok then
     return nil, tostring(descriptor)
   end
   local pid = proc_pid()
-  if
-    type(descriptor) ~= 'table'
-    or type(raw) ~= 'string'
-    or descriptor.descriptor_version ~= 1
-    or descriptor.state ~= state
-    or descriptor.epoch ~= request.epoch
-    or descriptor.backend_instance_uid ~= request.backend_instance_uid
-    or descriptor.boot_nonce ~= request.boot_nonce
-    or descriptor.pid ~= pid
-    or descriptor.socket ~= SOCK
-    or descriptor.written_by ~= 'mux-startup'
-    or type(descriptor.start_token) ~= 'string'
-    or descriptor.start_token == ''
-    or type(descriptor.boot_id) ~= 'string'
-    or descriptor.boot_id == ''
-  then
-    return nil, 'native descriptor publisher returned a mismatched service witness'
+  local mismatch = service_witness_mismatch(state, request, descriptor, raw, pid, SOCK)
+  if mismatch then
+    return nil, 'native descriptor publisher returned a mismatched service witness (' .. mismatch .. ')'
   end
   if descriptor.peer_pid ~= nil and descriptor.peer_pid ~= pid then
     return nil, 'native descriptor publisher returned a foreign socket peer'
@@ -1141,6 +1211,18 @@ wezterm.on('mux-startup', function()
     starting_descriptor, starting_error = publish_descriptor 'starting'
     if not starting_descriptor then
       log('starting descriptor retry FAILED: ' .. tostring(starting_error))
+      -- Readers treat `starting` as "wait" and nothing later on this path
+      -- publishes again, so leave a terminal state behind or say why not.
+      local failed, failed_error = publish_descriptor(
+        'failed',
+        recovery_fields({ error = 'starting descriptor refused: ' .. tostring(starting_error) }, sentinel)
+      )
+      if failed then
+        log 'failed descriptor published after starting refusal'
+      else
+        log('failed descriptor after starting refusal FAILED: ' .. tostring(failed_error))
+      end
+      log 'mux-startup unavailable: starting descriptor refused'
       return
     end
   end
