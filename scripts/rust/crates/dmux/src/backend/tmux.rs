@@ -2135,6 +2135,7 @@ mod tests {
     fn scope(expected: Option<ServerEpoch>) -> InventoryScope {
         match expected {
             Some(epoch) => InventoryScope::managed(Backend::Tmux, NS, epoch),
+            // audit(unmanaged_endpoint): test-only scope(Option) helper
             None => InventoryScope::unmanaged_endpoint(Backend::Tmux, NS),
         }
     }

@@ -739,6 +739,7 @@ fn scan_target(registry: &Registry, backend: Backend) -> Result<Target, TypedErr
         instance,
         match registry.backend_server(instance).map_err(reg)?.server_epoch {
             Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+            // audit(unmanaged_endpoint): WS-A.5 burn-down: scan_target launders a NULL epoch (finding #3)
             None => InventoryScope::unmanaged_endpoint(backend, endpoint),
         },
     ))

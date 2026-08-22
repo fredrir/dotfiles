@@ -1437,6 +1437,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             provider,
             scope: match expected_epoch {
                 Some(epoch) => InventoryScope::managed(opposite, endpoint, epoch),
+                // audit(unmanaged_endpoint): WS-A.5 burn-down: opposite-backend create target launders a NULL epoch (finding #15)
                 None => InventoryScope::unmanaged_endpoint(opposite, endpoint),
             },
         }))

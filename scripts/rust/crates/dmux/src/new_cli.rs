@@ -376,6 +376,7 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
             provider,
             scope: match expected_epoch {
                 Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+                // audit(unmanaged_endpoint): WS-A.5 burn-down: local_target launders a NULL epoch (finding #12)
                 None => InventoryScope::unmanaged_endpoint(backend, endpoint),
             },
         }))

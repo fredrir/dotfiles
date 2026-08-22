@@ -1267,6 +1267,7 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
                 match namespace {
                     Some(namespace) => {
                         let provider = TmuxProvider::new(namespace.clone());
+                        // audit(unmanaged_endpoint): WS-A.5 burn-down: spaces RPC tmux arm hardcodes no epoch (finding #13)
                         let scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace);
                         scans.push(scan_summary(Backend::Tmux, &provider.inventory(&scope)));
                     }
@@ -1397,6 +1398,7 @@ fn owner_lookup_target(
     };
     let scope = match epoch {
         Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+        // audit(unmanaged_endpoint): WS-A.5 burn-down: owner_lookup_target launders a NULL epoch (finding #17)
         None => InventoryScope::unmanaged_endpoint(backend, endpoint),
     };
     Ok(Some(OwnerLookupTarget {

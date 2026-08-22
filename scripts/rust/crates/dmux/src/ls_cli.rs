@@ -836,6 +836,7 @@ impl Authority {
             .map_err(typed_registry)?
         else {
             return Ok(match discoverable {
+                // audit(unmanaged_endpoint): first-contact tmux namespace; nothing is registered for this backend
                 Some(endpoint) => ScanTarget::Unregistered(InventoryScope::unmanaged_endpoint(
                     backend,
                     endpoint.to_string(),

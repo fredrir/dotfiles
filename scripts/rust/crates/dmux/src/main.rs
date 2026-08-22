@@ -1447,6 +1447,7 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
         let namespace = operations::namespace_from_tmux_env(&tmux)
             .ok_or("not a managed -L tmux server (pass --namespace paths explicitly)")?;
         let provider = dmux::backend::tmux::TmuxProvider::new(namespace.clone());
+        // audit(unmanaged_endpoint): WS-A.7 burn-down: _context marker minted from ambient $TMUX (finding #8)
         let scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace);
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else if let Ok(pane) = std::env::var("WEZTERM_PANE") {

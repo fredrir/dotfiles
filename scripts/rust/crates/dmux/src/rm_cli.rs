@@ -1141,6 +1141,7 @@ fn local_scope(
         .server_epoch;
     Ok(Some(match expected_epoch {
         Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+        // audit(unmanaged_endpoint): WS-A.5 burn-down: local_scope launders a NULL epoch (finding #16)
         None => InventoryScope::unmanaged_endpoint(backend, endpoint),
     }))
 }

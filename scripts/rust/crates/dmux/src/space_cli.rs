@@ -229,6 +229,7 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             let provider = dmux::backend::wez::WezProvider::new(&bin, config);
             let scope = match expected_epoch {
                 Some(epoch) => InventoryScope::managed(Backend::Wez, socket, epoch),
+                // audit(unmanaged_endpoint): hidden --socket test seam (repair normalize)
                 None => InventoryScope::unmanaged_endpoint(Backend::Wez, socket),
             };
 
@@ -630,6 +631,7 @@ fn reconcile_provider(
                     .and_then(|server| server.server_epoch)
                 {
                     Some(epoch) => InventoryScope::managed(Backend::Tmux, namespace, epoch),
+                    // audit(unmanaged_endpoint): WS-A.5 burn-down: reconcile tmux arm launders a NULL epoch (finding #7)
                     None => InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace),
                 },
             ))
@@ -1151,6 +1153,7 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedErro
             })?;
             (
                 Box::new(dmux::backend::tmux::TmuxProvider::new(namespace.clone())),
+                // audit(unmanaged_endpoint): WS-A.5 burn-down: group new tmux arm hardcodes no epoch (finding #4)
                 InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace),
             )
         }

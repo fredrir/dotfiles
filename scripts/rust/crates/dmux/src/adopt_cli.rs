@@ -235,6 +235,7 @@ fn owner_scope(registry: &Registry, backend: Backend) -> Result<InventoryScope, 
     Ok(
         match registry.backend_server(instance).map_err(reg)?.server_epoch {
             Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+            // audit(unmanaged_endpoint): WS-A.5 burn-down: owner_scope launders a NULL epoch (finding #2)
             None => InventoryScope::unmanaged_endpoint(backend, endpoint),
         },
     )
