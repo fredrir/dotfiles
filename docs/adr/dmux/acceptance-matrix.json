@@ -341,18 +341,24 @@
     "unit::backend::wez::tests::create_on_unpinned_scope_is_a_typed_error",
     "unit::backend::wez::tests::cas_rename_on_a_replacement_server_refuses_epoch_changed_without_renaming",
     "unit::backend::wez::tests::sole_window_id_on_a_replacement_server_refuses_epoch_changed",
-    "provider_wez::replacement_server_refuses_cas_rename_and_sole_window_id_typed"
+    "provider_wez::replacement_server_refuses_cas_rename_and_sole_window_id_typed",
+    "legacy_sentinel::flag_off_ls_json_against_a_sentinel_only_server_lists_zero_wez_rows",
+    "legacy_sentinel::a_sentinel_cannot_be_attached_and_nothing_is_activated",
+    "legacy_sentinel::a_workspace_attach_execs_activate_pane_on_the_service_socket",
+    "legacy_sentinel::a_wedged_wezterm_is_abandoned_at_the_deadline",
+    "unit::attach::tests::the_sentinel_is_refused_before_context_pane_or_exec",
+    "unit::list::tests::sentinel_workspaces_never_become_rows"
    ],
    "implemented_at": [
     "src/ls_cli.rs:736 scope",
     "src/ls_cli.rs:829 scan_target",
-    "src/backend/wez.rs required_action_epoch / verified_scan (non-Option since WS-A.6)"
+    "src/backend/wez.rs required_action_epoch / verified_scan (non-Option since WS-A.6)",
+    "src/list.rs managed_wez_socket / src/attach.rs plan_attach_wez (legacy flag-off path: pinned socket, bounded probe, sentinel never a row or a target)"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [
-    "ADR 012 WS-B.1 stale incarnation (a dead pid is never detected today)",
-    "WS-C legacy list.rs/attach.rs pin the socket and filter the sentinel"
+    "ADR 012 WS-B.1 stale incarnation (a dead pid is never detected today)"
    ],
    "status": "blocked"
   },

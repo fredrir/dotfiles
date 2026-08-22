@@ -664,4 +664,18 @@ compare-and-set on the published epoch, journaled as a revision; refuses a live 
 `--allow-live-pid`, a mismatching epoch, and any unfinished recovery generation. It is the operator's
 move for instance state F when the managed service will not come back managed (plan §5.2 as
 amended). `dmux recovery abort` keeps its existing meaning.
+- **WS-C — closed 2026-08-23** (`39333c9` → `9199a78`, plus the root's seam collapse). The legacy
+  flag-off `ls`/`con` path pins `WEZTERM_UNIX_SOCKET` to the descriptor's socket for the `list` probe
+  and the `activate-pane` exec (keeping `--no-auto-start`; a `starting`/`failed` descriptor still
+  names the only socket this path may talk to; no descriptor → today's discovery, no new fallback, no
+  registry), bounds the probe with the crate's `childio` idiom at `DEFAULT_DEADLINE`, and drops every
+  `dmux:system:*` workspace before rows are numbered and before any attach plan exists; `bare()`'s
+  `wezterm cli spawn` is deliberately not pinned (no pane id; spawning on the managed server would
+  create an unmanaged pane). 7 binary-driven tests (`tests/legacy_sentinel.rs`) + 4 unit tests;
+  baseline `cli::` 76/76 untouched. Report 09 item 8 is closed. **Rollback-rehearsal check recorded
+  for wave 4:** inside a GUI attached to the managed domain, flag-off `dmux con <workspace>` now sends
+  a server-side `activate-pane` to the service socket rather than GUI-local ids to the ambient socket;
+  whether that switches the GUI's workspace needs a live check once a user Space exists — if not, the
+  legacy `con <wez>` degrades to a no-op (never the wrong-server hazard), and the decision (route the
+  legacy activate through the ADR 003 bridge, or document it as listing-only) is the root's.
 
