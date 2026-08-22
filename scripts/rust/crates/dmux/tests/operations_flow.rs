@@ -14,9 +14,9 @@ use dmux::bootstrap::MarkerContext;
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
     CreateRequest, GroupNewRequest, OpError, OperationEnv, OwnerCreateTarget, SplitNewRequest,
-    create_space, create_space_owner_fenced, group_activate_exact, group_new, remove_space,
-    rename_space, resume_remove_space, split_direction, split_new, split_resize, split_zoom,
-    tmux_bootstrap, validate_marker_context,
+    context_read, create_space, create_space_owner_fenced, group_activate_exact, group_new,
+    hierarchy, remove_space, rename_space, resume_remove_space, split_direction, split_new,
+    split_resize, split_zoom, tmux_bootstrap, validate_marker_context,
 };
 use dmux::refs::{ChildRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
@@ -1321,4 +1321,169 @@ fn a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_sca
         )
         .unwrap();
     assert_eq!(severed.as_deref(), Some(recorded.0.to_string().as_str()));
+}
+
+// ---------------------------------------------------------------------------
+// The tmux socket witness (ADR 012 WS-A.9; review finding #11, the
+// executable form of report 08 §7's `operations.rs:133`), on a real scratch
+// server.
+
+/// What `tmux -L <ns>` itself reports for the running server: pid and the
+/// resolved socket path.
+fn live_tmux_identity(s: &Scratch) -> (i64, String) {
+    let line = s.tmux(&["list-sessions", "-F", "#{pid}\t#{socket_path}"]);
+    let (pid, socket) = line
+        .lines()
+        .next()
+        .and_then(|line| line.split_once('\t'))
+        .expect("pid and socket_path");
+    (pid.parse().unwrap(), socket.to_string())
+}
+
+/// `tmux_bootstrap` used to publish `socket_dev`/`socket_ino` as literal
+/// `None`, so the stat-based replacement witness was structurally
+/// unreachable for tmux. It now records the dev/ino of the socket the
+/// server reports, beside the pid — exactly what a fresh `stat` returns.
+#[test]
+fn tmux_bootstrap_publishes_the_sockets_device_and_inode() {
+    use std::os::unix::fs::MetadataExt;
+    let s = Scratch::new("witness");
+    let epoch = s.epoch();
+    let registry = s.registry();
+    let instance = registry
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("bootstrap registered the instance");
+    let published = registry.backend_server(instance).unwrap();
+    let (pid, socket) = live_tmux_identity(&s);
+    let meta = std::fs::metadata(&socket).unwrap();
+    assert_eq!(published.server_epoch, Some(epoch));
+    assert_eq!(published.server_pid, Some(pid));
+    assert_eq!(published.socket_dev, Some(meta.dev() as i64));
+    assert_eq!(published.socket_ino, Some(meta.ino() as i64));
+
+    // Idempotent: the same incarnation is already bound, witnesses included.
+    assert!(matches!(
+        tmux_bootstrap(&s.env(), &s.ns).unwrap(),
+        dmux::operations::TmuxBootstrapOutcome::AlreadyBound { epoch: again } if again == epoch
+    ));
+}
+
+/// A replaced server on the same namespace — same socket path, new inode,
+/// new pid — that presents the OLD `@dmux_server_epoch` is exactly what the
+/// epoch option alone cannot tell apart (ADR 002: tmux is the easiest backend
+/// to spoof). Every operations-layer verification now compares the
+/// registry's witnesses against a fresh probe and refuses it as a stale
+/// incarnation: reads, the marker revalidation, and a child mutation, which
+/// creates nothing on the impostor and journals nothing.
+#[test]
+fn a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_everywhere() {
+    let s = Scratch::new("replaced");
+    let epoch = s.epoch();
+    let scope = s.scope(epoch);
+    let provider = TmuxProvider::new(s.ns.clone());
+    let created = create_space(
+        &s.env(),
+        &provider,
+        &scope,
+        Backend::Tmux,
+        &request(&s, "proj", &s.data.path().join("replaced-marker")),
+    )
+    .unwrap();
+    let identity = s.registry().identity().unwrap();
+    let marker = MarkerContext {
+        host_uid: identity.host_uid,
+        space_uid: created.space_uid,
+        space_no: created.space_no,
+        backend: Backend::Tmux,
+        domain: None,
+        server_epoch: epoch,
+        group_ref: created.group_ref.clone(),
+        split_ref: created.split_ref.clone(),
+    };
+    assert!(validate_marker_context(&s.env(), &provider, &scope, &marker).is_ok());
+    let (old_pid, socket) = live_tmux_identity(&s);
+
+    // Replace the server: kill it, start another on the same namespace with
+    // the managed Space's session name and id recycled, then copy the old
+    // epoch onto it. Nothing the registry recorded survives but the epoch.
+    s.tmux(&["kill-server"]);
+    let out = Command::new("tmux")
+        .args([
+            "-L",
+            &s.ns,
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            "seed",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    s.tmux(&["new-session", "-d", "-s", "proj"]);
+    s.tmux(&[
+        "set-option",
+        "-g",
+        "@dmux_server_epoch",
+        &epoch.0.to_string(),
+    ]);
+    let (new_pid, new_socket) = live_tmux_identity(&s);
+    assert_eq!(socket, new_socket, "same path");
+    assert_ne!(old_pid, new_pid, "different process");
+    assert!(
+        s.session_names().contains(&"proj".to_string()),
+        "the impostor carries the session name"
+    );
+    let windows_before = s.tmux(&["list-windows", "-a", "-F", "#{window_id}"]);
+
+    let err = hierarchy(&s.env(), &provider, &scope, created.space_uid).unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "hierarchy: {err}");
+    assert!(
+        err.to_string()
+            .contains("not the registry-published incarnation"),
+        "{err}"
+    );
+    let pane = s
+        .tmux(&["list-panes", "-t", "proj", "-F", "#{pane_id}"])
+        .trim()
+        .to_string();
+    let err = context_read(&s.env(), &provider, &scope, created.space_uid, &pane).unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "context_read: {err}");
+    let err = validate_marker_context(&s.env(), &provider, &scope, &marker).unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "marker: {err}");
+    let err = group_new(
+        &s.env(),
+        &provider,
+        &scope,
+        &GroupNewRequest {
+            request_uid: Uuid::new_v4(),
+            space_uid: created.space_uid,
+            cwd: None,
+            program: vec!["sh".into(), "-c".into(), "exec sleep 300".into()],
+            helper_bin: env!("CARGO_BIN_EXE_pane-bootstrap").into(),
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "group_new: {err}");
+    assert_eq!(
+        s.tmux(&["list-windows", "-a", "-F", "#{window_id}"]),
+        windows_before,
+        "nothing was created on the impostor"
+    );
+    assert_eq!(
+        bootstrap_rows(&s.env()),
+        1,
+        "only the original create's row"
+    );
+
+    // The hook re-running on the impostor republishes its witnesses; the
+    // same verbs then verify again.
+    s.epoch();
+    assert!(hierarchy(&s.env(), &provider, &scope, created.space_uid).is_ok());
 }

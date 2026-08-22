@@ -98,9 +98,15 @@ pub fn tmux_bootstrap(
 
     let provider: TmuxProvider<SystemRunner> = TmuxProvider::new(namespace);
     // Identity under the lock, so identity and epoch bind to one incarnation.
-    let identity = provider
-        .server_identity(namespace)
+    // The socket witness is taken in the same probe (ADR 012 WS-A.9): it is
+    // published beside pid/start token and is what later readers `stat`
+    // against, the way the wez descriptor's dev/ino are.
+    let incarnation = provider
+        .server_incarnation(namespace)
         .map_err(|e| BootstrapError::ServerStopped(format!("{e:?}")))?;
+    let identity = incarnation.identity.clone();
+    let socket_dev = i64::try_from(incarnation.socket_dev).ok();
+    let socket_ino = i64::try_from(incarnation.socket_ino).ok();
 
     let minted = ServerEpoch(Uuid::new_v4());
     let outcome = provider
@@ -113,7 +119,9 @@ pub fn tmux_bootstrap(
                 .backend_server(instance)
                 .map_err(|e| BootstrapError::Registry(e.to_string()))?;
             let same_incarnation = record.server_pid == Some(identity.pid as i64)
-                && record.server_start_token.as_deref() == Some(identity.start_token.as_str());
+                && record.server_start_token.as_deref() == Some(identity.start_token.as_str())
+                && record.socket_dev == socket_dev
+                && record.socket_ino == socket_ino;
             if same_incarnation && record.server_epoch == Some(existing) {
                 // Fully bound already: adopt/no-op.
                 provider
@@ -131,8 +139,8 @@ pub fn tmux_bootstrap(
             observed_epoch,
             Some(identity.pid as i64),
             Some(&identity.start_token),
-            None,
-            None,
+            socket_dev,
+            socket_ino,
         )
         .map_err(|e| BootstrapError::Registry(e.to_string()))?;
     provider
@@ -1086,6 +1094,16 @@ pub fn create_space_owner_fenced(
         require_no_unfinished_recovery(&registry, target.instance)?;
     }
 
+    // The registry-published incarnations are verified against the live
+    // servers before either is listed (WS-A.9), and the epochs the scans
+    // answer under must be the published ones: a create decides a name and
+    // journals a bootstrap row from these scans.
+    let selected_published =
+        verify_published_incarnation(&registry, selected.instance, selected.scope)?;
+    let opposite_published = opposite
+        .map(|target| verify_published_incarnation(&registry, target.instance, target.scope))
+        .transpose()?;
+
     // Read both providers before classifying either result.  A determinate
     // stopped opposite server is empty; the selected server must be a
     // complete, epoched inventory because it is about to mutate.
@@ -1093,8 +1111,14 @@ pub fn create_space_owner_fenced(
     let opposite_scan = opposite.map(|target| target.provider.inventory(target.scope));
     let selected_epoch = scan_epoch_for_create(selected, &selected_scan, true)?
         .expect("a selected complete scan has an epoch");
-    if let (Some(target), Some(scan)) = (opposite, opposite_scan.as_ref()) {
-        scan_epoch_for_create(target, scan, false)?;
+    require_published_epoch(&selected_published, selected_epoch)?;
+    if let (Some(target), Some(scan)) = (opposite, opposite_scan.as_ref())
+        && let Some(opposite_epoch) = scan_epoch_for_create(target, scan, false)?
+    {
+        let published = opposite_published
+            .as_ref()
+            .expect("verified with the target");
+        require_published_epoch(published, opposite_epoch)?;
     }
 
     // Join the determinate native scans with durable authority state before
@@ -2146,6 +2170,106 @@ fn scan_space_row(
     }
 }
 
+/// The registry-published incarnation of `instance`, verified against the
+/// live server before it is trusted (ADR 001/002; ADR 012 WS-A.9, review
+/// finding #11). For tmux the witnesses `tmux_bootstrap` recorded — pid,
+/// start token, socket dev/ino — are compared against a fresh probe of the
+/// namespace and a fresh `stat` of its socket, the way the wez sites compare
+/// the ready descriptor: a replaced server that merely presents the old
+/// `@dmux_server_epoch` is refused here, before it is even listed. The probe
+/// runs only when the registry holds socket witnesses for the instance; a
+/// row published before WS-A.9 carries none and is verified by epoch alone
+/// ([`require_published_epoch`]).
+fn verify_published_incarnation(
+    registry: &Registry,
+    instance: BackendInstanceUid,
+    scope: &InventoryScope,
+) -> Result<crate::registry::BackendServerRecord, OpError> {
+    let published = registry.backend_server(instance).map_err(reg_err)?;
+    if scope.backend == Backend::Tmux
+        && (published.socket_dev.is_some() || published.socket_ino.is_some())
+    {
+        let probe: TmuxProvider<SystemRunner> = TmuxProvider::new(scope.endpoint.as_str());
+        let live = probe.server_incarnation(&scope.endpoint).map_err(|e| {
+            OpError::Indeterminate(format!(
+                "tmux incarnation probe on namespace {:?}: {e:?}",
+                scope.endpoint
+            ))
+        })?;
+        let recorded = (
+            published.server_pid,
+            published.server_start_token.clone(),
+            published.socket_dev,
+            published.socket_ino,
+        );
+        let observed = (
+            Some(i64::from(live.identity.pid)),
+            Some(live.identity.start_token.clone()),
+            i64::try_from(live.socket_dev).ok(),
+            i64::try_from(live.socket_ino).ok(),
+        );
+        if recorded != observed {
+            return Err(OpError::StaleRef(format!(
+                "tmux server on namespace {:?} is not the registry-published incarnation: \
+                 registry pid {:?} start {:?} socket dev/ino {:?}/{:?}; live pid {} start {:?} \
+                 socket {:?} dev/ino {}/{} — the published incarnation is stale (ADR 012 §3.1 \
+                 state F); re-run `dmux _tmux-bootstrap` on the live server",
+                scope.endpoint,
+                published.server_pid,
+                published.server_start_token,
+                published.socket_dev,
+                published.socket_ino,
+                live.identity.pid,
+                live.identity.start_token,
+                live.socket_path,
+                live.socket_dev,
+                live.socket_ino
+            )));
+        }
+    }
+    Ok(published)
+}
+
+/// The live epoch a scan answered under must be the one the registry
+/// publishes for the instance; anything else is an incarnation nothing
+/// verified (finding #8's "stale live epoch" and "registry NULL" cases).
+fn require_published_epoch(
+    published: &crate::registry::BackendServerRecord,
+    live: ServerEpoch,
+) -> Result<(), OpError> {
+    if published.server_epoch != Some(live) {
+        return Err(OpError::Indeterminate(format!(
+            "live epoch {} is not the registry-published backend incarnation ({})",
+            live.0,
+            published
+                .server_epoch
+                .map(|epoch| epoch.0.to_string())
+                .unwrap_or_else(|| "unpublished".to_string())
+        )));
+    }
+    Ok(())
+}
+
+/// The complete scan every child verb mutates from, fenced the three ways
+/// plan §11.2 names ("rechecks socket, PID/start token, and epoch
+/// immediately before mutation"): the published incarnation is verified
+/// against the live server first, so a replaced server is never listed;
+/// the scan must answer under the scope's pin; and that pin must be the
+/// epoch the registry publishes.
+fn fenced_space_scan(
+    registry: &Registry,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    instance: BackendInstanceUid,
+    native_token: &str,
+) -> Result<(ServerEpoch, NativeSpaceRow), OpError> {
+    let published = verify_published_incarnation(registry, instance, scope)?;
+    let (observed, native_row) = scan_space_row(provider, scope, native_token)?;
+    let epoch = require_pinned_epoch(scope, observed)?;
+    require_published_epoch(&published, epoch)?;
+    Ok((epoch, native_row))
+}
+
 /// Stale-epoch rejection (plan §6.3): an epoch-qualified child ref from a
 /// previous incarnation fails, never retargets.
 fn require_live_epoch(child: &ChildRefShape, live: ServerEpoch) -> Result<(), OpError> {
@@ -2341,7 +2465,6 @@ pub fn group_new(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
-    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
     // Check-first (ADR 012 §3.4, WS-A.11). Everything the post-mutation
     // `split_list` below can refuse — an unpinned scope and an epoch the
     // live server does not serve — is decided here, before the bootstrap
@@ -2349,7 +2472,8 @@ pub fn group_new(
     // order that refusal landed after `provider.group_new`, so every
     // `dmux group new` under an unpinned scope created a window, aborted,
     // and left an orphan window plus a live `pane-bootstrap`.
-    let epoch = require_pinned_epoch(scope, observed)?;
+    let (epoch, native_row) =
+        fenced_space_scan(&registry, provider, scope, instance, &binding.native_token)?;
     // The scan above proved the binding's token live under the pin; the
     // registry's recorded binding epoch decides whether that token is this
     // Space at all (WS-A.8). Refused before the journal row below exists.
@@ -2549,8 +2673,13 @@ pub fn split_new(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
-    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
-    let epoch = require_pinned_epoch(scope, observed)?;
+    let (epoch, native_row) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(&req.group, epoch)?;
     let parent = native_row
         .groups
@@ -2711,8 +2840,13 @@ pub fn group_rename(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
-    let epoch = require_pinned_epoch(scope, observed)?;
+    let (epoch, native_row) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(group, epoch)?;
     if !native_row.groups.iter().any(|g| g.handle == group.handle) {
         return Err(OpError::NotFound(format!(
@@ -2753,8 +2887,13 @@ pub fn group_remove(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
-    let epoch = require_pinned_epoch(scope, observed)?;
+    let (epoch, native_row) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(group, epoch)?;
     if !native_row.groups.iter().any(|g| g.handle == group.handle) {
         return Err(OpError::NotFound(format!(
@@ -2812,8 +2951,13 @@ pub fn split_remove(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
-    let epoch = require_pinned_epoch(scope, observed)?;
+    let (epoch, native_row) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(split, epoch)?;
     let parent = native_row
         .groups
@@ -2965,8 +3109,13 @@ pub fn group_activate_exact(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_pinned_epoch(scope, epoch)?;
+    let (epoch, native) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(group, epoch)?;
     if !native.groups.iter().any(|row| row.handle == group.handle) {
         return Err(OpError::NotFound(format!(
@@ -3034,8 +3183,13 @@ pub fn split_direction(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_pinned_epoch(scope, epoch)?;
+    let (epoch, native) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(origin, epoch)?;
     let parent = split_parent(&native, &origin.handle).ok_or_else(|| {
         OpError::NotFound(format!(
@@ -3115,8 +3269,13 @@ pub fn split_resize(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_pinned_epoch(scope, epoch)?;
+    let (epoch, native) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(split, epoch)?;
     split_parent(&native, &split.handle).ok_or_else(|| {
         OpError::NotFound(format!(
@@ -3175,8 +3334,13 @@ pub fn split_zoom(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_pinned_epoch(scope, epoch)?;
+    let (epoch, native) = fenced_space_scan(
+        &registry,
+        provider,
+        scope,
+        row.backend_instance,
+        &binding.native_token,
+    )?;
     require_live_epoch(split, epoch)?;
     split_parent(&native, &split.handle).ok_or_else(|| {
         OpError::NotFound(format!(
@@ -3236,7 +3400,9 @@ pub fn hierarchy(
         )));
     }
     let (_row, binding) = load_bound_space(&mut registry, space_uid)?;
+    let published = verify_published_incarnation(&registry, instance, scope)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_published_epoch(&published, epoch)?;
     Ok(SpaceHierarchy {
         space_uid,
         server_epoch: epoch,
@@ -3315,6 +3481,7 @@ pub fn validate_marker_context(
         ));
     }
 
+    let published = verify_published_incarnation(&registry, instance, scope)?;
     let (live_epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
     if live_epoch != marker.server_epoch {
         return Err(OpError::StaleRef(format!(
@@ -3322,13 +3489,7 @@ pub fn validate_marker_context(
             marker.server_epoch.0, live_epoch.0
         )));
     }
-    let published = registry.backend_server(instance).map_err(reg_err)?;
-    if published.server_epoch != Some(live_epoch) {
-        return Err(OpError::Indeterminate(format!(
-            "live epoch {} is not the registry-published backend incarnation",
-            live_epoch.0
-        )));
-    }
+    require_published_epoch(&published, live_epoch)?;
 
     let group_count = native.groups.len();
     let split_count = native.groups.iter().map(|group| group.splits.len()).sum();
@@ -3407,7 +3568,9 @@ pub fn context_read(
         )));
     }
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
+    let published = verify_published_incarnation(&registry, instance, scope)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_published_epoch(&published, epoch)?;
     let (group, split) = native_row
         .groups
         .iter()
@@ -3461,7 +3624,9 @@ pub fn context_stamp(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, instance, space_uid)?;
     let (row, binding) = load_bound_space(&mut registry, space_uid)?;
+    let published = verify_published_incarnation(&registry, instance, scope)?;
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    require_published_epoch(&published, epoch)?;
     let (group, split) = native_row
         .groups
         .iter()
@@ -4750,6 +4915,12 @@ mod tests {
         let wez_instance = registry
             .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
             .unwrap();
+        registry
+            .publish_backend_server(tmux_instance, epoch, Some(4242), Some("start"), None, None)
+            .unwrap();
+        registry
+            .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
+            .unwrap();
         let held = registry
             .reserve_space("collision", wez_instance, Uuid::new_v4())
             .unwrap();
@@ -4800,6 +4971,12 @@ mod tests {
             .unwrap();
         let wez_instance = registry
             .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        registry
+            .publish_backend_server(tmux_instance, epoch, Some(4242), Some("start"), None, None)
+            .unwrap();
+        registry
+            .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
             .unwrap();
         let reservation = registry
             .reserve_space("collision", wez_instance, Uuid::new_v4())
@@ -4907,6 +5084,12 @@ mod tests {
             .unwrap();
         let wez_instance = registry
             .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        registry
+            .publish_backend_server(tmux_instance, epoch, Some(4242), Some("start"), None, None)
+            .unwrap();
+        registry
+            .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
             .unwrap();
         let reservation = registry
             .reserve_space("collision", wez_instance, Uuid::new_v4())
@@ -5038,6 +5221,12 @@ mod tests {
             let wez_instance = registry
                 .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
                 .unwrap();
+            registry
+                .publish_backend_server(tmux_instance, epoch, Some(4242), Some("start"), None, None)
+                .unwrap();
+            registry
+                .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
+                .unwrap();
             drop(registry);
             let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
             let wez = CreateGateProvider::new(Backend::Wez, opposite_outcome);
@@ -5088,8 +5277,14 @@ mod tests {
         let tmux_instance = registry
             .register_backend_instance(Backend::Tmux, Some("tmux-gate"), None)
             .unwrap();
-        registry
+        let wez_instance = registry
             .register_backend_instance(Backend::Wez, Some("/tmp/wez-gate.sock"), None)
+            .unwrap();
+        registry
+            .publish_backend_server(tmux_instance, epoch, Some(4242), Some("start"), None, None)
+            .unwrap();
+        registry
+            .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
             .unwrap();
         drop(registry);
         let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));

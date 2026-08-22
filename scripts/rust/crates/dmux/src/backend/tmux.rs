@@ -369,6 +369,46 @@ impl<R: TmuxRunner> TmuxProvider<R> {
     /// is `ino:<dev>:<inode>` of the resolved `#{socket_path}` — a new
     /// server unlinks and re-binds the socket, allocating a fresh inode.
     pub fn server_identity(&self, endpoint: &str) -> ProviderResult<TmuxServerIdentity> {
+        let (pid, start_time, socket_path) = self.probe_identity_row(endpoint)?;
+        let start_token = if start_time.is_empty() {
+            // Pre-#{start_time} fallback: the socket inode is allocated when
+            // this incarnation bound the (freshly re-created) socket file.
+            let (dev, ino) = stat_socket(&socket_path)?;
+            format!("ino:{dev}:{ino}")
+        } else {
+            start_time
+        };
+        Ok(TmuxServerIdentity { pid, start_token })
+    }
+
+    /// [`Self::server_identity`] plus the socket witness the registry
+    /// records beside it (ADR 001/002 replacement detection; ADR 012
+    /// WS-A.9): the server's resolved `#{socket_path}` and a fresh `stat`
+    /// of it. A restarted server unlinks and re-binds its socket, so the
+    /// inode changes even when the path — and, if an external writer
+    /// copies it across, the `@dmux_server_epoch` option — does not. This is
+    /// what `tmux_bootstrap` publishes as `socket_dev`/`socket_ino` and
+    /// what every later tmux verification compares a fresh probe against.
+    pub fn server_incarnation(&self, endpoint: &str) -> ProviderResult<TmuxServerIncarnation> {
+        let (pid, start_time, socket_path) = self.probe_identity_row(endpoint)?;
+        let (socket_dev, socket_ino) = stat_socket(&socket_path)?;
+        let start_token = if start_time.is_empty() {
+            format!("ino:{socket_dev}:{socket_ino}")
+        } else {
+            start_time
+        };
+        Ok(TmuxServerIncarnation {
+            identity: TmuxServerIdentity { pid, start_token },
+            socket_path,
+            socket_dev,
+            socket_ino,
+        })
+    }
+
+    /// One `list-sessions -F IDENTITY_FORMAT` probe: `(pid, start_time,
+    /// socket_path)` as the server reports them, `start_time` possibly empty
+    /// on a pre-2.2 tmux.
+    fn probe_identity_row(&self, endpoint: &str) -> ProviderResult<(u32, String, String)> {
         let out = self
             .run(endpoint, &["list-sessions", "-F", IDENTITY_FORMAT])
             .map_err(map_run_error)?;
@@ -384,21 +424,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
             });
         }
         let text = utf8(&out.stdout).map_err(|detail| ProviderError::NativeFailure { detail })?;
-        let (pid, start_time, socket_path) =
-            parse_identity(&text).map_err(|detail| ProviderError::NativeFailure { detail })?;
-        let start_token = if start_time.is_empty() {
-            // Pre-#{start_time} fallback: the socket inode is allocated when
-            // this incarnation bound the (freshly re-created) socket file.
-            use std::os::unix::fs::MetadataExt;
-            let meta =
-                std::fs::metadata(&socket_path).map_err(|e| ProviderError::NativeFailure {
-                    detail: format!("stat tmux socket {socket_path:?}: {e}"),
-                })?;
-            format!("ino:{}:{}", meta.dev(), meta.ino())
-        } else {
-            start_time
-        };
-        Ok(TmuxServerIdentity { pid, start_token })
+        parse_identity(&text).map_err(|detail| ProviderError::NativeFailure { detail })
     }
 
     /// Atomically bring a previously unepoched server incarnation under
@@ -936,6 +962,29 @@ impl<R: TmuxRunner> TmuxProvider<R> {
 pub struct TmuxServerIdentity {
     pub pid: u32,
     pub start_token: String,
+}
+
+/// [`TmuxServerIdentity`] together with the socket the incarnation answers
+/// on and that socket's device/inode at probe time (see
+/// [`TmuxProvider::server_incarnation`]). The registry records all four
+/// witnesses at bootstrap; a later reader compares a fresh probe against
+/// them before trusting the server's self-reported epoch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TmuxServerIncarnation {
+    pub identity: TmuxServerIdentity,
+    /// The server's resolved `#{socket_path}`.
+    pub socket_path: String,
+    pub socket_dev: u64,
+    pub socket_ino: u64,
+}
+
+/// `stat` of a tmux server's socket as `(dev, ino)`.
+fn stat_socket(socket_path: &str) -> ProviderResult<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(socket_path).map_err(|e| ProviderError::NativeFailure {
+        detail: format!("stat tmux socket {socket_path:?}: {e}"),
+    })?;
+    Ok((meta.dev(), meta.ino()))
 }
 
 /// Outcome of [`TmuxProvider::set_epoch_if_absent`].
