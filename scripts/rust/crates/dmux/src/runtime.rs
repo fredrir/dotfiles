@@ -553,12 +553,15 @@ fn validate_written_at(value: Option<&str>) -> io::Result<()> {
     }
 }
 
-/// Read the managed-mux descriptor from the verified runtime dir. `Ok(None)`
-/// when the service has never written one (stopped/uninstalled).
-pub fn read_wez_descriptor() -> io::Result<Option<WezMuxDescriptor>> {
-    read_wez_descriptor_in(&dmux_runtime_dir()?)
-}
-
+/// Read the managed-mux descriptor from an explicitly resolved runtime
+/// directory. `Ok(None)` when the service has never written one
+/// (stopped/uninstalled). `runtime_dir` is re-verified here (owner, mode,
+/// no symlink) before the descriptor is opened, so callers pass the
+/// directory they resolved — [`dmux_runtime_dir`] for the local service, the
+/// peer's seam for a remote agent, a scratch directory in tests — and never
+/// a path an environment variable was allowed to choose behind their back.
+/// There is deliberately no fixed-runtime wrapper: the directory a caller
+/// read from is part of what it later compares against (ADR 012 WS-E.3 row 14).
 pub fn read_wez_descriptor_in(runtime_dir: &Path) -> io::Result<Option<WezMuxDescriptor>> {
     let directory = open_descriptor_runtime(runtime_dir)?;
     read_wez_descriptor_from_directory(runtime_dir, &directory)
@@ -705,20 +708,19 @@ fn descriptor_fingerprint(
     )
 }
 
-/// Read and prove the fixed ready service descriptor against the current OS
-/// boot, process incarnation, socket inode/device, current-UID socket peer,
-/// and (when supplied) registry backend instance and epoch. Callers receive
-/// descriptor bytes only after every identity check succeeds.
-pub fn read_verified_ready_wez_descriptor(
-    expected_instance: Option<uuid::Uuid>,
-    expected_epoch: Option<uuid::Uuid>,
-) -> io::Result<Option<WezMuxDescriptor>> {
-    read_verified_ready_wez_descriptor_in(&dmux_runtime_dir()?, expected_instance, expected_epoch)
-}
-
-/// Explicit-runtime form for remote/test owners that already resolved and
-/// secured their runtime directory. Production local callers should prefer
-/// [`read_verified_ready_wez_descriptor`].
+/// Read and prove the ready service descriptor in an explicitly resolved
+/// runtime directory against the current OS boot, process incarnation,
+/// socket inode/device, current-UID socket peer, and (when supplied) the
+/// registry backend instance and epoch. Callers receive descriptor bytes only
+/// after every identity check succeeds.
+///
+/// Every caller resolves `runtime_dir` itself — [`dmux_runtime_dir`] for the
+/// local service, the peer's seam for a remote agent, a scratch directory in
+/// tests — and passes the instance and epoch it already holds from the
+/// registry: a `None` skips that comparison and is only meaningful where no
+/// registry value exists to compare against. Production callers pin both
+/// (each sources them from an `ok_or_else` on the registry row). There is
+/// deliberately no fixed-runtime wrapper (ADR 012 WS-E.3 row 14).
 pub fn read_verified_ready_wez_descriptor_in(
     runtime_dir: &Path,
     expected_instance: Option<uuid::Uuid>,
