@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "created": "2026-08-22",
- "revision": "c65a653",
+ "revision": "HEAD",
  "source": "ADR 012 WS-G.1; plan §20.1 (amended) and §20.2",
  "rule": "A case is passed only when every test listed under it is green at the named revision AND every live-evidence artifact it requires exists and is named here. A green suite alone proves nothing; an empty tests list is a gap, not a pass.",
  "test_id_format": "unit::<module>::tests::<fn> for lib tests; <integration binary>::<module path>::<fn> for tests/ (binary = file stem, or the directory name for tests/<dir>/main.rs trees).",
@@ -364,7 +364,8 @@
    "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
    "tests": [
     "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered",
-    "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window"
+    "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window",
+    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -378,12 +379,16 @@
   "28": {
    "title": "Every logical key follows the active marker; invalid markers change nothing",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one"
+   ],
+   "implemented_at": [
+    "src/main.rs context_cmd (tmux arm resolves the Space's instance from the registry and pins to its published epoch)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped"
   },
   "29": {
    "title": "Command+Shift+T in an Archie Wez pane creates on Archie with Wez even over Tailscale",
@@ -410,12 +415,16 @@
   "31": {
    "title": "Status shows active logical owner/backend and warns MIXED",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one"
+   ],
+   "implemented_at": [
+    "src/main.rs context_cmd (tmux arm resolves the Space's instance from the registry and pins to its published epoch)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped"
   },
   "32": {
    "title": "Closing/reopening the GUI leaves owner pane/process IDs unchanged and restores no snapshots",

@@ -53,10 +53,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
         "src/remote/agent.rs",
         "WS-A.5 burn-down: owner_lookup_target launders a NULL epoch (finding #17)",
     ),
-    (
-        "src/main.rs",
-        "WS-A.7 burn-down: _context marker minted from ambient $TMUX (finding #8)",
-    ),
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

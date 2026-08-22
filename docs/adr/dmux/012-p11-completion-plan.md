@@ -579,4 +579,15 @@ allowlist entry; each lands a regression test that is the review's reproduction 
   local config for the rest of P11 and every allowlist conflict is resolved as "HEAD's list minus the
   picked commit's finding". Allowlist after A5-a/b/d: the four legitimate sites plus findings #15,
   #13, #17 and #8 — exactly the sites not yet returned.
+- **WS-A.7 — closed 2026-08-22** (root). `dmux _context`'s tmux arm no longer builds a scope from
+  the ambient `$TMUX`: the Space named by `DMUX_SPACE_UID` is resolved through
+  `resolve_managed_instance`, the ambient namespace must equal the instance's recorded endpoint, and
+  the scope is pinned to the published epoch, so `context_read`'s scan refuses a server that is not
+  the published incarnation and `load_bound_space` turns a rebound Space into a typed not-found. The
+  last `unmanaged_endpoint` burn-down entry for `main.rs` is gone; the allowlist now holds the four
+  legitimate sites plus findings #15, #13 and #17 (gui_cli, agent.rs — both in flight). The
+  live-epoch-vs-published comparison the ADR names is satisfied by pinning to the published epoch
+  rather than by editing `context_read` (operations.rs is the O agent's this wave); the four-way
+  regression in `tests/context_cli.rs` (registry NULL, stranger endpoint, rebind/tamper, replaced
+  server, plus the positive control) fails on the pre-change `main.rs` and passes now.
 

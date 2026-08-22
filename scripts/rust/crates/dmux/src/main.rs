@@ -1446,9 +1446,52 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
     {
         let namespace = operations::namespace_from_tmux_env(&tmux)
             .ok_or("not a managed -L tmux server (pass --namespace paths explicitly)")?;
-        let provider = dmux::backend::tmux::TmuxProvider::new(namespace.clone());
-        // audit(unmanaged_endpoint): WS-A.7 burn-down: _context marker minted from ambient $TMUX (finding #8)
-        let scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace);
+        // The subject is a registry Space, so the instance, its endpoint and
+        // its epoch come from the registry — never from the ambient `$TMUX`,
+        // which any process can set (ADR 012 WS-A.7, review finding #8). The
+        // ambient namespace is only checked against the recorded endpoint;
+        // the pinned scope then makes `context_read`'s scan refuse a server
+        // that is not the published incarnation, and the bound token makes
+        // a rebound Space a typed not-found rather than a minted marker.
+        let scope = {
+            use dmux::backend::scope::{self, ManagedTarget};
+            use dmux::registry::{Registry, RegistryConfig};
+            let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
+                .map_err(|e| e.to_string())?;
+            let instance = registry
+                .space(space_uid)
+                .map_err(|e| e.to_string())?
+                .backend_instance;
+            match scope::resolve_managed_instance(&registry, instance).map_err(|e| e.to_string())? {
+                ManagedTarget::Managed { scope, .. } if scope.backend != Backend::Tmux => {
+                    return Err(format!(
+                        "pane environment is tmux but Space {} lives on {}; no marker is minted",
+                        space_uid.0, scope.backend
+                    ));
+                }
+                ManagedTarget::Managed { scope, .. } if scope.endpoint != namespace => {
+                    return Err(format!(
+                        "ambient tmux namespace {namespace} is not the managed instance's recorded \
+                         endpoint {}; no marker is minted from a stranger's server",
+                        scope.endpoint
+                    ));
+                }
+                ManagedTarget::Managed { scope, .. } => scope,
+                ManagedTarget::Unpublished(uid) => {
+                    return Err(ManagedTarget::unpublished_detail(Backend::Tmux, uid));
+                }
+                ManagedTarget::Unaddressable(uid) => {
+                    return Err(ManagedTarget::unaddressable_detail(Backend::Tmux, uid));
+                }
+                ManagedTarget::Unregistered => {
+                    return Err(format!(
+                        "Space {} names a backend instance the registry does not know",
+                        space_uid.0
+                    ));
+                }
+            }
+        };
+        let provider = dmux::backend::tmux::TmuxProvider::new(scope.endpoint.clone());
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else if let Ok(pane) = std::env::var("WEZTERM_PANE") {
         let (socket, epoch) = space_cli::verified_wez_target(&env, None).map_err(|e| e.message)?;
