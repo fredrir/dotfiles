@@ -509,11 +509,7 @@ impl Owner {
     }
 
     fn create(&self, name: &str) -> CreatedSpace {
-        let scope = InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: self.ns.clone(),
-            expected_epoch: Some(self.epoch()),
-        };
+        let scope = InventoryScope::managed(Backend::Tmux, self.ns.clone(), self.epoch());
         create_space(
             &self.env(),
             &TmuxProvider::new(self.ns.clone()),

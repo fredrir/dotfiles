@@ -72,11 +72,7 @@ impl Scratch {
     }
 
     fn scope(&self, epoch: ServerEpoch) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: self.ns.clone(),
-            expected_epoch: Some(epoch),
-        }
+        InventoryScope::managed(Backend::Tmux, self.ns.clone(), epoch)
     }
 
     fn tmux(&self, args: &[&str]) -> String {
@@ -510,11 +506,7 @@ fn wez_hierarchy_full_cycle_at_the_operations_layer() {
     let helper_shim = shim.display().to_string();
     let provider =
         dmux::backend::wez::WezProvider::new("/opt/homebrew/bin/wezterm", s.config.clone());
-    let scope = InventoryScope {
-        backend: Backend::Wez,
-        endpoint: s.socket.clone(),
-        expected_epoch: None,
-    };
+    let scope = InventoryScope::unmanaged_endpoint(Backend::Wez, s.socket.clone());
     // Wait for the sentinel to establish a complete epoched scan.
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {

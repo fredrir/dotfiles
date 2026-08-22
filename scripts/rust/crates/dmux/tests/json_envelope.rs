@@ -396,11 +396,11 @@ fn group_and_split_ls_format_json_are_one_document_each() {
         | dmux::operations::TmuxBootstrapOutcome::Rebound { epoch, .. } => epoch,
     };
     let provider = dmux::backend::tmux::TmuxProvider::new(scratch.ns.clone());
-    let scope = dmux::backend::InventoryScope {
-        backend: dmux::model::Backend::Tmux,
-        endpoint: scratch.ns.clone(),
-        expected_epoch: Some(epoch),
-    };
+    let scope = dmux::backend::InventoryScope::managed(
+        dmux::model::Backend::Tmux,
+        scratch.ns.clone(),
+        epoch,
+    );
     let created = create_space(
         &env,
         &provider,

@@ -153,11 +153,7 @@ fn wez_remote_hierarchy_full_cycle_through_the_agent() {
 
     // Wait for the sentinel-epoched server to answer a complete scan.
     let provider = dmux::backend::wez::WezProvider::new(WEZ_BIN, wez.config.clone());
-    let scope = InventoryScope {
-        backend: Backend::Wez,
-        endpoint: wez.socket.clone(),
-        expected_epoch: None,
-    };
+    let scope = InventoryScope::unmanaged_endpoint(Backend::Wez, wez.socket.clone());
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if let InventoryOutcome::Complete(inv) = provider.inventory(&scope)

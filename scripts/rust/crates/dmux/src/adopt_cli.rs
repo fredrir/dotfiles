@@ -232,11 +232,12 @@ fn owner_scope(registry: &Registry, backend: Backend) -> Result<InventoryScope, 
         .map_err(reg)?
         .socket_path
         .ok_or_else(|| unavailable(format!("the managed {backend} instance has no endpoint")))?;
-    Ok(InventoryScope {
-        backend,
-        endpoint,
-        expected_epoch: registry.backend_server(instance).map_err(reg)?.server_epoch,
-    })
+    Ok(
+        match registry.backend_server(instance).map_err(reg)?.server_epoch {
+            Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+            None => InventoryScope::unmanaged_endpoint(backend, endpoint),
+        },
+    )
 }
 
 fn open(env: &OperationEnv) -> Result<Registry, TypedError> {

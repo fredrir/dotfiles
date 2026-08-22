@@ -1001,11 +1001,7 @@ fn validate_ready_descriptor(
         )));
     }
 
-    let scope = InventoryScope {
-        backend: Backend::Wez,
-        endpoint: descriptor.socket.clone(),
-        expected_epoch: Some(descriptor_epoch),
-    };
+    let scope = InventoryScope::managed(Backend::Wez, descriptor.socket.clone(), descriptor_epoch);
     match inventory.inventory(&scope, descriptor) {
         InventoryOutcome::Complete(complete) => {
             // Retryable, unlike the registry comparison above: this one is

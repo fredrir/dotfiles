@@ -1161,11 +1161,7 @@ pub fn production_connect_client_context() -> Result<ConnectClientContext, Typed
         ));
     }
 
-    let scope = crate::backend::InventoryScope {
-        backend: Backend::Tmux,
-        endpoint: namespace.clone(),
-        expected_epoch: Some(epoch),
-    };
+    let scope = crate::backend::InventoryScope::managed(Backend::Tmux, namespace.clone(), epoch);
     let authoritative = crate::operations::context_read(
         &env,
         &provider,

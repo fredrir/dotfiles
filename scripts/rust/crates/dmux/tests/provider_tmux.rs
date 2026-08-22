@@ -120,10 +120,9 @@ impl ScratchServer {
     }
 
     fn scope(&self, expected: Option<ServerEpoch>) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: self.ns.clone(),
-            expected_epoch: expected,
+        match expected {
+            Some(epoch) => InventoryScope::managed(Backend::Tmux, self.ns.clone(), epoch),
+            None => InventoryScope::unmanaged_endpoint(Backend::Tmux, self.ns.clone()),
         }
     }
 

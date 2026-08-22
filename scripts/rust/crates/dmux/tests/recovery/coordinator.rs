@@ -251,11 +251,7 @@ impl FinalWezRunner {
     }
 
     fn scope(&self) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: self.endpoint.clone(),
-            expected_epoch: Some(self.epoch),
-        }
+        InventoryScope::managed(Backend::Wez, self.endpoint.clone(), self.epoch)
     }
 }
 

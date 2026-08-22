@@ -1447,21 +1447,13 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
         let namespace = operations::namespace_from_tmux_env(&tmux)
             .ok_or("not a managed -L tmux server (pass --namespace paths explicitly)")?;
         let provider = dmux::backend::tmux::TmuxProvider::new(namespace.clone());
-        let scope = InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: namespace,
-            expected_epoch: None,
-        };
+        let scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace);
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else if let Ok(pane) = std::env::var("WEZTERM_PANE") {
         let (socket, epoch) = space_cli::verified_wez_target(&env, None).map_err(|e| e.message)?;
         let (bin, config) = space_cli::production_wez_paths();
         let provider = dmux::backend::wez::WezProvider::new(&bin, config);
-        let scope = InventoryScope {
-            backend: Backend::Wez,
-            endpoint: socket,
-            expected_epoch: Some(epoch),
-        };
+        let scope = InventoryScope::managed(Backend::Wez, socket, epoch);
         operations::context_read(&env, &provider, &scope, space_uid, &pane)
     } else {
         return Err("neither TMUX_PANE nor WEZTERM_PANE is set".into());

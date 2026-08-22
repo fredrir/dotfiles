@@ -714,11 +714,7 @@ struct Target {
 }
 
 fn scope_for(target: &Target) -> InventoryScope {
-    InventoryScope {
-        backend: target.backend,
-        endpoint: target.endpoint.clone(),
-        expected_epoch: Some(target.epoch),
-    }
+    InventoryScope::managed(target.backend, target.endpoint.clone(), target.epoch)
 }
 
 /// Wez binary/config resolution. `DMUX_WEZ_BIN`/`DMUX_WEZ_CONFIG` are
@@ -878,11 +874,7 @@ fn verified_wez_target(
     .map_err(WezIdentityError::into_typed)?;
     let (bin, config) = wez_paths();
     let provider = WezProvider::new(bin, config);
-    let probe = InventoryScope {
-        backend: Backend::Wez,
-        endpoint: endpoint.clone(),
-        expected_epoch: Some(epoch),
-    };
+    let probe = InventoryScope::managed(Backend::Wez, endpoint.clone(), epoch);
     let observed_epoch = match provider.inventory(&probe) {
         InventoryOutcome::Complete(inv) => inv.server_epoch.ok_or_else(|| {
             TypedError::new(
@@ -1275,11 +1267,7 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
                 match namespace {
                     Some(namespace) => {
                         let provider = TmuxProvider::new(namespace.clone());
-                        let scope = InventoryScope {
-                            backend: Backend::Tmux,
-                            endpoint: namespace,
-                            expected_epoch: None,
-                        };
+                        let scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace);
                         scans.push(scan_summary(Backend::Tmux, &provider.inventory(&scope)));
                     }
                     None => scans.push(ScanSummary {
@@ -1311,11 +1299,7 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
                         populate_native_tokens(&cx.registry, &mut spaces, instance)?;
                         let (bin, config) = wez_paths();
                         let provider = WezProvider::new(bin, config);
-                        let scope = InventoryScope {
-                            backend: Backend::Wez,
-                            endpoint,
-                            expected_epoch: Some(epoch),
-                        };
+                        let scope = InventoryScope::managed(Backend::Wez, endpoint, epoch);
                         scans.push(scan_summary(Backend::Wez, &provider.inventory(&scope)));
                     }
                     Err(WezIdentityError::Recovering(_)) => {
@@ -1411,10 +1395,9 @@ fn owner_lookup_target(
             Box::new(WezProvider::new(bin, config))
         }
     };
-    let scope = InventoryScope {
-        backend,
-        endpoint,
-        expected_epoch: epoch,
+    let scope = match epoch {
+        Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+        None => InventoryScope::unmanaged_endpoint(backend, endpoint),
     };
     Ok(Some(OwnerLookupTarget {
         target,

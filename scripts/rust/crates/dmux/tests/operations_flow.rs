@@ -74,11 +74,7 @@ impl Scratch {
     }
 
     fn scope(&self, epoch: ServerEpoch) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: self.ns.clone(),
-            expected_epoch: Some(epoch),
-        }
+        InventoryScope::managed(Backend::Tmux, self.ns.clone(), epoch)
     }
 
     fn tmux(&self, args: &[&str]) -> String {

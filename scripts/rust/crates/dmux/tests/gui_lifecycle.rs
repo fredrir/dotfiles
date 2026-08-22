@@ -599,11 +599,7 @@ fn starting_descriptor_polls_then_accepts_nonempty_sentinel_verified_inventory()
     assert_eq!(
         calls[0],
         (
-            InventoryScope {
-                backend: Backend::Wez,
-                endpoint: SOCKET.into(),
-                expected_epoch: Some(fixture.epoch),
-            },
+            InventoryScope::managed(Backend::Wez, SOCKET, fixture.epoch),
             4242,
             SERVER_START_TOKEN.into(),
         )

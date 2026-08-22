@@ -737,10 +737,9 @@ fn scan_target(registry: &Registry, backend: Backend) -> Result<Target, TypedErr
     };
     Ok(Target::Managed(
         instance,
-        InventoryScope {
-            backend,
-            endpoint,
-            expected_epoch: registry.backend_server(instance).map_err(reg)?.server_epoch,
+        match registry.backend_server(instance).map_err(reg)?.server_epoch {
+            Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+            None => InventoryScope::unmanaged_endpoint(backend, endpoint),
         },
     ))
 }

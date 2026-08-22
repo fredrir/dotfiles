@@ -1109,11 +1109,11 @@ fn local_backend(target: &FrozenConnectTarget) -> (Box<dyn Provider>, InventoryS
     };
     (
         provider,
-        InventoryScope {
-            backend: target.backend,
-            endpoint: target.binding.endpoint.clone(),
-            expected_epoch: Some(target.server_epoch),
-        },
+        InventoryScope::managed(
+            target.backend,
+            target.binding.endpoint.clone(),
+            target.server_epoch,
+        ),
     )
 }
 
@@ -1139,10 +1139,9 @@ fn local_scope(
         .backend_server(instance)
         .map_err(typed_registry)?
         .server_epoch;
-    Ok(Some(InventoryScope {
-        backend,
-        endpoint,
-        expected_epoch,
+    Ok(Some(match expected_epoch {
+        Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+        None => InventoryScope::unmanaged_endpoint(backend, endpoint),
     }))
 }
 

@@ -94,11 +94,7 @@ return config
     }
 
     fn scope(&self) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: self.socket.clone(),
-            expected_epoch: None,
-        }
+        InventoryScope::unmanaged_endpoint(Backend::Wez, self.socket.clone())
     }
 
     fn wait_ready(&self, provider: &WezProvider<dmux::backend::wez::SystemRunner>) {

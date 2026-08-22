@@ -62,11 +62,7 @@ struct FakeProvider {
 
 impl FakeProvider {
     fn scope(&self) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: "/tmp/fake/sock".into(),
-            expected_epoch: Some(self.epoch),
-        }
+        InventoryScope::managed(Backend::Wez, "/tmp/fake/sock", self.epoch)
     }
 }
 
@@ -80,7 +76,7 @@ impl Provider for FakeProvider {
     }
 
     fn inventory(&self, scope: &InventoryScope) -> InventoryOutcome {
-        if scope.expected_epoch.is_some() && scope.expected_epoch != Some(self.epoch) {
+        if scope.expected_epoch().is_some() && scope.expected_epoch() != Some(self.epoch) {
             return InventoryOutcome::Malformed {
                 detail: "epoch mismatch".into(),
             };

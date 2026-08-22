@@ -1110,7 +1110,7 @@ impl<R: WezRunner> WezProvider<R> {
         let epoch = ServerEpoch(Uuid::parse_str(epoch_text).map_err(|e| {
             ScanFail::Malformed(format!("unparseable sentinel epoch {epoch_text:?}: {e}"))
         })?);
-        if let Some(expected) = scope.expected_epoch
+        if let Some(expected) = scope.expected_epoch()
             && expected != epoch
         {
             return Err(ScanFail::EpochChanged {
@@ -1181,7 +1181,7 @@ impl<R: WezRunner> WezProvider<R> {
         scope: &InventoryScope,
         binding: &NativeBinding,
     ) -> ProviderResult<ServerEpoch> {
-        if let Some(expected) = scope.expected_epoch
+        if let Some(expected) = scope.expected_epoch()
             && expected != binding.server_epoch
         {
             return Err(ProviderError::EpochChanged {
@@ -1268,8 +1268,8 @@ impl<R: WezRunner> WezProvider<R> {
                 detail: format!("wez provider handed a {} scope", scope.backend),
             });
         }
-        scope.expected_epoch.ok_or(ProviderError::WrongInstance {
-            detail: "managed wez child action requires scope.expected_epoch; native child IDs \
+        scope.expected_epoch().ok_or(ProviderError::WrongInstance {
+            detail: "managed wez child action requires a managed scope carrying the published server epoch; native child IDs \
                      are unaddressable without a sentinel-proven incarnation"
                 .into(),
         })
@@ -2934,10 +2934,9 @@ mod tests {
     }
 
     fn scope(expected: Option<ServerEpoch>) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: SOCK.into(),
-            expected_epoch: expected,
+        match expected {
+            Some(epoch) => InventoryScope::managed(Backend::Wez, SOCK, epoch),
+            None => InventoryScope::unmanaged_endpoint(Backend::Wez, SOCK),
         }
     }
 
@@ -3797,7 +3796,7 @@ mod tests {
             3,
         ) {
             Err(ProviderError::WrongInstance { detail }) => {
-                assert!(detail.contains("expected_epoch"), "{detail}");
+                assert!(detail.contains("managed scope"), "{detail}");
             }
             other => panic!("unpinned child action must fail closed, got {other:?}"),
         }

@@ -97,11 +97,7 @@ fn tmux_adoption_stamps_binds_and_survives_external_rename() {
         dmux::operations::TmuxBootstrapOutcome::Bootstrapped { epoch } => epoch,
         other => panic!("fresh server must bootstrap: {other:?}"),
     };
-    let scope = InventoryScope {
-        backend: Backend::Tmux,
-        endpoint: s.ns.clone(),
-        expected_epoch: Some(epoch),
-    };
+    let scope = InventoryScope::managed(Backend::Tmux, s.ns.clone(), epoch);
     let provider = TmuxProvider::new(s.ns.clone());
 
     let session_id = s
@@ -178,11 +174,7 @@ fn a_replayed_native_ref_is_refused_before_the_session_is_restamped() {
         dmux::operations::TmuxBootstrapOutcome::Bootstrapped { epoch } => epoch,
         other => panic!("fresh server must bootstrap: {other:?}"),
     };
-    let scope = InventoryScope {
-        backend: Backend::Tmux,
-        endpoint: s.ns.clone(),
-        expected_epoch: Some(epoch),
-    };
+    let scope = InventoryScope::managed(Backend::Tmux, s.ns.clone(), epoch);
     let provider = TmuxProvider::new(s.ns.clone());
     let session_id = s
         .tmux(&["list-sessions", "-F", "#{session_id}"])
@@ -304,11 +296,7 @@ return config
     }
 
     fn scope(&self) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: self.socket.clone(),
-            expected_epoch: None,
-        }
+        InventoryScope::unmanaged_endpoint(Backend::Wez, self.socket.clone())
     }
 
     fn wait_ready(&self, provider: &WezProvider<dmux::backend::wez::SystemRunner>) {

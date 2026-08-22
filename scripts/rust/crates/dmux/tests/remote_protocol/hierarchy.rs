@@ -342,11 +342,7 @@ fn unstamped_adopted_space_refuses_child_mutations() {
         .server_epoch
         .unwrap();
     drop(registry);
-    let scope = InventoryScope {
-        backend: Backend::Tmux,
-        endpoint: ns,
-        expected_epoch: Some(epoch),
-    };
+    let scope = InventoryScope::managed(Backend::Tmux, ns, epoch);
     let adopted = dmux::operations::adopt_tmux(
         &scratch.env(),
         &provider,

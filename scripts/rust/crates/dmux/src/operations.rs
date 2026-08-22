@@ -637,7 +637,7 @@ fn scan_epoch_for_create(
                     target.backend
                 ))
             })?;
-            if let Some(expected) = target.scope.expected_epoch
+            if let Some(expected) = target.scope.expected_epoch()
                 && expected != epoch
             {
                 return Err(OpError::Indeterminate(format!(
@@ -1230,7 +1230,7 @@ pub fn rename_space(
             .ok_or_else(|| OpError::NotFound("no current native binding".into()))?;
         let native = crate::backend::NativeBinding {
             native_token: binding.native_token,
-            server_epoch: scope.expected_epoch.ok_or_else(|| {
+            server_epoch: scope.expected_epoch().ok_or_else(|| {
                 OpError::Indeterminate("rename requires the current epoch".into())
             })?,
             root_group: ProviderHandle::Tx(0),
@@ -1345,7 +1345,7 @@ fn remove_space_inner(
     if let Some(binding) = binding {
         let native = crate::backend::NativeBinding {
             native_token: binding.native_token,
-            server_epoch: scope.expected_epoch.ok_or_else(|| {
+            server_epoch: scope.expected_epoch().ok_or_else(|| {
                 OpError::Indeterminate("remove requires the current epoch".into())
             })?,
             root_group: ProviderHandle::Tx(0),
@@ -1376,7 +1376,7 @@ fn remove_space_inner(
                 && row.lifecycle == crate::model::Lifecycle::Active
         });
         if final_durable_space {
-            classify_final_wez_empty_scan(scope.expected_epoch, provider.inventory(scope))?
+            classify_final_wez_empty_scan(scope.expected_epoch(), provider.inventory(scope))?
         } else {
             None
         }
@@ -2220,7 +2220,7 @@ pub fn group_new(
     ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
     let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
-    if let Some(expected) = scope.expected_epoch
+    if let Some(expected) = scope.expected_epoch()
         && expected != epoch
     {
         return Err(OpError::StaleRef(format!(
@@ -2763,7 +2763,7 @@ fn require_exact_action_epoch(
     scope: &InventoryScope,
     live_epoch: ServerEpoch,
 ) -> Result<(), OpError> {
-    match scope.expected_epoch {
+    match scope.expected_epoch() {
         Some(expected) if expected == live_epoch => Ok(()),
         Some(expected) => Err(OpError::StaleRef(format!(
             "action expected server epoch {} but the live server is {}",
@@ -4580,16 +4580,8 @@ mod tests {
 
         let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
         let wez = CreateGateProvider::new(Backend::Wez, empty_inventory(epoch));
-        let tmux_scope = InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: "tmux-gate".into(),
-            expected_epoch: Some(epoch),
-        };
-        let wez_scope = InventoryScope {
-            backend: Backend::Wez,
-            endpoint: "/tmp/wez-gate.sock".into(),
-            expected_epoch: Some(epoch),
-        };
+        let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
+        let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let error = create_space_owner_fenced(
             &env,
             OwnerCreateTarget {
@@ -4661,16 +4653,8 @@ mod tests {
                 }],
             }),
         );
-        let tmux_scope = InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: "tmux-gate".into(),
-            expected_epoch: Some(epoch),
-        };
-        let wez_scope = InventoryScope {
-            backend: Backend::Wez,
-            endpoint: "/tmp/wez-gate.sock".into(),
-            expected_epoch: Some(epoch),
-        };
+        let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
+        let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let lookup = lookup_new_owner_fenced(
             &env,
             Some(OwnerCreateTarget {
@@ -4775,16 +4759,8 @@ mod tests {
                 }],
             }),
         );
-        let tmux_scope = InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: "tmux-gate".into(),
-            expected_epoch: Some(epoch),
-        };
-        let wez_scope = InventoryScope {
-            backend: Backend::Wez,
-            endpoint: "/tmp/wez-gate.sock".into(),
-            expected_epoch: Some(epoch),
-        };
+        let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
+        let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let refused_request = gate_request("collision");
         let refused = create_space_owner_fenced(
             &env,
@@ -4888,16 +4864,8 @@ mod tests {
             drop(registry);
             let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
             let wez = CreateGateProvider::new(Backend::Wez, opposite_outcome);
-            let tmux_scope = InventoryScope {
-                backend: Backend::Tmux,
-                endpoint: "tmux-gate".into(),
-                expected_epoch: Some(epoch),
-            };
-            let wez_scope = InventoryScope {
-                backend: Backend::Wez,
-                endpoint: "/tmp/wez-gate.sock".into(),
-                expected_epoch: Some(epoch),
-            };
+            let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
+            let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
             let error = create_space_owner_fenced(
                 &env,
                 OwnerCreateTarget {
@@ -4948,11 +4916,7 @@ mod tests {
             .unwrap();
         drop(registry);
         let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
-        let scope = InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: "tmux-gate".into(),
-            expected_epoch: Some(epoch),
-        };
+        let scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
         let error = create_space_owner_fenced(
             &env,
             OwnerCreateTarget {
@@ -4985,11 +4949,7 @@ mod tests {
     // called `registry::reconcile`, so none of these rows had a reaper.
 
     fn tmux_scope(epoch: ServerEpoch) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: "tmux-recon".into(),
-            expected_epoch: Some(epoch),
-        }
+        InventoryScope::managed(Backend::Tmux, "tmux-recon", epoch)
     }
 
     fn tmux_inventory(epoch: ServerEpoch, names: &[&str]) -> InventoryOutcome {
@@ -5095,11 +5055,7 @@ mod tests {
     }
 
     fn wez_scope(epoch: ServerEpoch) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: "/run/dmux/wez.sock".into(),
-            expected_epoch: Some(epoch),
-        }
+        InventoryScope::managed(Backend::Wez, "/run/dmux/wez.sock", epoch)
     }
 
     fn wez_inventory(epoch: ServerEpoch, keys: &[&str]) -> InventoryOutcome {

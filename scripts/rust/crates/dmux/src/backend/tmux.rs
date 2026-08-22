@@ -19,7 +19,7 @@
 //! Inventory **never** sets the option — `ls` never brings a server under
 //! management; the P5 bootstrap hook owns epoch installation. Every mutation
 //! re-reads the option immediately before acting and fails typed
-//! (`EpochChanged`) on mismatch. `create` requires `scope.expected_epoch`;
+//! (`EpochChanged`) on mismatch. `create` requires a managed scope (`InventoryScope::managed`);
 //! it never boots the server itself.
 //!
 //! P5 epoch-bootstrap primitives (plan §11.2): [`TmuxProvider::server_identity`],
@@ -463,8 +463,8 @@ impl<R: TmuxRunner> TmuxProvider<R> {
     /// Managed handle/child operations require the caller-held epoch: an
     /// unepoched server is listable but its children are unaddressable.
     fn required_epoch(scope: &InventoryScope) -> ProviderResult<ServerEpoch> {
-        scope.expected_epoch.ok_or(ProviderError::WrongInstance {
-            detail: "managed tmux mutation requires scope.expected_epoch; \
+        scope.expected_epoch().ok_or(ProviderError::WrongInstance {
+            detail: "managed tmux mutation requires a managed scope carrying the published server epoch; \
                      an unepoched server has no addressable children (plan §11.2)"
                 .into(),
         })
@@ -475,7 +475,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         scope: &InventoryScope,
         binding: &NativeBinding,
     ) -> ProviderResult<ServerEpoch> {
-        if let Some(expected) = scope.expected_epoch
+        if let Some(expected) = scope.expected_epoch()
             && expected != binding.server_epoch
         {
             return Err(ProviderError::EpochChanged {
@@ -595,7 +595,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
     ) -> ProviderResult<SpaceMarkerReadback> {
         Self::scope_check(scope)?;
         validate_session_token(session)?;
-        if let Some(expected) = scope.expected_epoch {
+        if let Some(expected) = scope.expected_epoch() {
             self.check_epoch(&scope.endpoint, expected)?;
         }
         let mut values = [const { None }; 4];
@@ -1518,7 +1518,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
             Err(EpochFailure::Timeout(detail)) => return InventoryOutcome::Timeout { detail },
             Err(EpochFailure::Malformed(detail)) => return InventoryOutcome::Malformed { detail },
         };
-        if let Some(expected) = scope.expected_epoch
+        if let Some(expected) = scope.expected_epoch()
             && epoch != Some(expected)
         {
             return InventoryOutcome::Malformed {
@@ -1606,7 +1606,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
     }
 
     /// `new-session -d -P -F '$N|@N|%N' -s <name> [-c cwd] -- <bootstrap...>`
-    /// on the exact namespace. Requires `scope.expected_epoch` (a managed
+    /// on the exact namespace. Requires a managed scope (`InventoryScope::managed`; a managed
     /// create on an unepoched server is a typed error; P5 owns server
     /// bootstrap). Note the token asymmetry documented at module level:
     /// `spec.native_token` is the requested session NAME, the returned
@@ -2133,10 +2133,9 @@ mod tests {
     }
 
     fn scope(expected: Option<ServerEpoch>) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Tmux,
-            endpoint: NS.into(),
-            expected_epoch: expected,
+        match expected {
+            Some(epoch) => InventoryScope::managed(Backend::Tmux, NS, epoch),
+            None => InventoryScope::unmanaged_endpoint(Backend::Tmux, NS),
         }
     }
 
@@ -2495,7 +2494,7 @@ mod tests {
         };
         match provider(&runner).create(&scope(None), &spec) {
             Err(ProviderError::WrongInstance { detail }) => {
-                assert!(detail.contains("expected_epoch"), "{detail}");
+                assert!(detail.contains("managed scope"), "{detail}");
             }
             other => panic!("expected wrong_instance, got {other:?}"),
         }

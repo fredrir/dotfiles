@@ -374,10 +374,9 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
             backend,
             instance,
             provider,
-            scope: InventoryScope {
-                backend,
-                endpoint,
-                expected_epoch,
+            scope: match expected_epoch {
+                Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
+                None => InventoryScope::unmanaged_endpoint(backend, endpoint),
             },
         }))
     }
@@ -660,7 +659,7 @@ impl<I: RouteInvoker + Clone> NewAuthority for ProductionNewRuntime<I> {
                 && (request.backend != Backend::Wez
                     || witness.owner != request.owner
                     || witness.backend_instance_uid != selected.instance
-                    || Some(witness.server_epoch) != selected.scope.expected_epoch)
+                    || Some(witness.server_epoch) != selected.scope.expected_epoch())
             {
                 return Err(TypedError::new(
                     ErrorCode::BackendEpochChanged,

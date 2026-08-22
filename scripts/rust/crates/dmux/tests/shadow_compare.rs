@@ -141,11 +141,7 @@ fn legacy_and_shadow_agree_on_the_native_row_set() {
     tmux(&["new-session", "-d", "-s", "beta"]);
 
     let tmux_provider = TmuxProvider::new(NS);
-    let tmux_scope = InventoryScope {
-        backend: Backend::Tmux,
-        endpoint: NS.into(),
-        expected_epoch: None,
-    };
+    let tmux_scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, NS);
     let tmux_outcome = tmux_provider.inventory(&tmux_scope);
 
     let sentinel = wez_row(0, 0, 0, &format!("dmux:system:{EPOCH}"));
@@ -157,11 +153,7 @@ fn legacy_and_shadow_agree_on_the_native_row_set() {
             json: format!("[{sentinel},{work}]"),
         },
     );
-    let wez_scope = InventoryScope {
-        backend: Backend::Wez,
-        endpoint: "/tmp/dmux-p4-fake.sock".into(),
-        expected_epoch: None,
-    };
+    let wez_scope = InventoryScope::unmanaged_endpoint(Backend::Wez, "/tmp/dmux-p4-fake.sock");
     let wez_outcome = wez_provider.inventory(&wez_scope);
 
     let scans = BackendScans {

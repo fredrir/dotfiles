@@ -227,10 +227,9 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             };
             let (bin, config) = production_wez_paths();
             let provider = dmux::backend::wez::WezProvider::new(&bin, config);
-            let scope = InventoryScope {
-                backend: Backend::Wez,
-                endpoint: socket,
-                expected_epoch,
+            let scope = match expected_epoch {
+                Some(epoch) => InventoryScope::managed(Backend::Wez, socket, epoch),
+                None => InventoryScope::unmanaged_endpoint(Backend::Wez, socket),
             };
 
             let mut targets = match operations::repair_scan_wez(&env, &provider, &scope) {
@@ -621,17 +620,17 @@ fn reconcile_provider(
             let namespace = info.socket_path?;
             Some(ReconcileNative::Tmux(
                 dmux::backend::tmux::TmuxProvider::new(namespace.clone()),
-                InventoryScope {
-                    backend: Backend::Tmux,
-                    endpoint: namespace,
-                    // Every managed tmux mutation — `remove` included — is
-                    // refused without the current epoch, so a scope built
-                    // without it makes `remove_verify_absence` structurally
-                    // unreachable. Same source `adopt_cli::owner_scope` uses.
-                    expected_epoch: registry
-                        .backend_server(target.backend_instance)
-                        .ok()
-                        .and_then(|server| server.server_epoch),
+                // Every managed tmux mutation — `remove` included — is
+                // refused without the current epoch, so a scope built
+                // without it makes `remove_verify_absence` structurally
+                // unreachable. Same source `adopt_cli::owner_scope` uses.
+                match registry
+                    .backend_server(target.backend_instance)
+                    .ok()
+                    .and_then(|server| server.server_epoch)
+                {
+                    Some(epoch) => InventoryScope::managed(Backend::Tmux, namespace, epoch),
+                    None => InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace),
                 },
             ))
         }
@@ -640,11 +639,7 @@ fn reconcile_provider(
             let (bin, config) = production_wez_paths();
             Some(ReconcileNative::Wez(
                 dmux::backend::wez::WezProvider::new(&bin, config),
-                InventoryScope {
-                    backend: Backend::Wez,
-                    endpoint: socket,
-                    expected_epoch: Some(epoch),
-                },
+                InventoryScope::managed(Backend::Wez, socket, epoch),
             ))
         }
     }
@@ -1156,11 +1151,7 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedErro
             })?;
             (
                 Box::new(dmux::backend::tmux::TmuxProvider::new(namespace.clone())),
-                InventoryScope {
-                    backend: Backend::Tmux,
-                    endpoint: namespace,
-                    expected_epoch: None,
-                },
+                InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace),
             )
         }
         Backend::Wez => {
@@ -1168,11 +1159,7 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedErro
             let (bin, config) = production_wez_paths();
             (
                 Box::new(dmux::backend::wez::WezProvider::new(&bin, config)),
-                InventoryScope {
-                    backend: Backend::Wez,
-                    endpoint: socket,
-                    expected_epoch: Some(epoch),
-                },
+                InventoryScope::managed(Backend::Wez, socket, epoch),
             )
         }
     };
@@ -1796,7 +1783,7 @@ mod tests {
         let targets = operations::reconcile_scan(&env).unwrap();
         match reconcile_provider(&env, &targets[0]).expect("a registered tmux instance is usable") {
             ReconcileNative::Tmux(_, scope) => {
-                assert_eq!(scope.expected_epoch, Some(epoch), "{scope:?}");
+                assert_eq!(scope.expected_epoch(), Some(epoch), "{scope:?}");
                 assert_eq!(scope.endpoint, "dmux-scratch");
             }
             ReconcileNative::Wez(..) => panic!("tmux instance resolved as wez"),

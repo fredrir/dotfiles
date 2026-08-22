@@ -743,11 +743,7 @@ struct ManagedScope {
 
 impl ManagedScope {
     fn scope(&self) -> InventoryScope {
-        InventoryScope {
-            backend: self.backend,
-            endpoint: self.endpoint.clone(),
-            expected_epoch: Some(self.epoch),
-        }
+        InventoryScope::managed(self.backend, self.endpoint.clone(), self.epoch)
     }
 }
 
@@ -840,11 +836,10 @@ impl Authority {
             .map_err(typed_registry)?
         else {
             return Ok(match discoverable {
-                Some(endpoint) => ScanTarget::Unregistered(InventoryScope {
+                Some(endpoint) => ScanTarget::Unregistered(InventoryScope::unmanaged_endpoint(
                     backend,
-                    endpoint: endpoint.to_string(),
-                    expected_epoch: None,
-                }),
+                    endpoint.to_string(),
+                )),
                 None => ScanTarget::Nothing,
             });
         };

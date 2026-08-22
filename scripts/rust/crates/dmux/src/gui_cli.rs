@@ -1384,14 +1384,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 self.wezterm_config.clone(),
             )),
         };
-        Ok((
-            provider,
-            InventoryScope {
-                backend,
-                endpoint,
-                expected_epoch: Some(epoch),
-            },
-        ))
+        Ok((provider, InventoryScope::managed(backend, endpoint, epoch)))
     }
 
     /// Resolve the registered opposite backend without allocating an
@@ -1442,10 +1435,9 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             backend: opposite,
             instance,
             provider,
-            scope: InventoryScope {
-                backend: opposite,
-                endpoint,
-                expected_epoch,
+            scope: match expected_epoch {
+                Some(epoch) => InventoryScope::managed(opposite, endpoint, epoch),
+                None => InventoryScope::unmanaged_endpoint(opposite, endpoint),
             },
         }))
     }

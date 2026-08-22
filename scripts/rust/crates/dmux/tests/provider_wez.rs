@@ -224,10 +224,16 @@ return config
     }
 
     fn scope_at(&self, endpoint: &Path, expected: Option<ServerEpoch>) -> InventoryScope {
-        InventoryScope {
-            backend: Backend::Wez,
-            endpoint: endpoint.to_str().expect("utf8 socket path").to_string(),
-            expected_epoch: expected,
+        match expected {
+            Some(epoch) => InventoryScope::managed(
+                Backend::Wez,
+                endpoint.to_str().expect("utf8 socket path").to_string(),
+                epoch,
+            ),
+            None => InventoryScope::unmanaged_endpoint(
+                Backend::Wez,
+                endpoint.to_str().expect("utf8 socket path").to_string(),
+            ),
         }
     }
 
