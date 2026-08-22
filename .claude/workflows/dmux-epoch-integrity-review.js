@@ -832,7 +832,95 @@ for (const d of defects) {
     evidence: `${d.verdict.evidence} || chain: ${d.reach.evidence} || confidence: ${d.reach.confidence}`,
   })
 }
-log(`${candidates.length} candidate findings go to 3-lens adversarial verification`)
+
+// --- Dedup. Agents cite the same defect with absolute vs repo-relative paths, with the
+// construction line vs the laundering line a few lines above, and from several sweeps at once.
+// Without this the fan-out multiplies duplicates by the lens count.
+const normSite = (raw) => {
+  const s = String(raw || '')
+  const m = s.match(/([A-Za-z0-9_.\/-]+\.(?:rs|zsh|lua|sh|toml|json|md))\s*:\s*(\d+)/)
+  if (!m) return { file: `unparsed:${s.slice(0, 48)}`, line: 0 }
+  let file = m[1]
+  file = file.replace(/^\/Users\/fredrir\/dotfiles\//, '')
+  file = file.replace(/^.*?scripts\/rust\/crates\/dmux\//, '')
+  file = file.replace(/^\.\//, '')
+  if (!file.startsWith('src/') && !file.includes('/') && file.endsWith('.rs')) file = `src/${file}`
+  return { file, line: parseInt(m[2], 10) }
+}
+
+const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
+const RW_RANK = {
+  'writes-native-server': 0,
+  'writes-multiple': 1,
+  'writes-pane-markers': 2,
+  'writes-registry': 3,
+  read: 4,
+  none: 5,
+}
+const bestBy = (vals, rank, dflt) =>
+  vals.filter((v) => v in rank).sort((a, b) => rank[a] - rank[b])[0] || dflt
+
+const byFile = new Map()
+for (const c of candidates) {
+  const n = normSite(c.site)
+  if (!byFile.has(n.file)) byFile.set(n.file, [])
+  byFile.get(n.file).push({ ...c, _line: n.line })
+}
+const merged = []
+for (const [file, list] of byFile) {
+  list.sort((a, b) => a._line - b._line)
+  let cur = null
+  for (const c of list) {
+    // Same file within 20 lines of the group anchor == one construction site / one defect.
+    if (cur && c._line - cur._anchor <= 20) {
+      cur._members.push(c)
+      if (!cur._lines.includes(c._line)) cur._lines.push(c._line)
+    } else {
+      cur = { _file: file, _anchor: c._line, _lines: [c._line], _members: [c] }
+      merged.push(cur)
+    }
+  }
+}
+
+const pooled = merged.map((g) => {
+  const m = g._members
+  const sev = bestBy(m.map((x) => x.severity), SEV_RANK, 'medium')
+  const rw = bestBy(m.map((x) => x.rw), RW_RANK, 'read')
+  const sources = Array.from(new Set(m.map((x) => x.source)))
+  return {
+    site: `${g._file}:${g._lines.join('/')}`,
+    severity: sev,
+    rw,
+    source: sources.join(', '),
+    dup_count: m.length,
+    title: m[0].title,
+    all_titles: Array.from(new Set(m.map((x) => x.title))).join(' ;; '),
+    reach: Array.from(new Set(m.map((x) => `[${x.source}] ${x.reach}`))).join('\n'),
+    evidence: Array.from(new Set(m.map((x) => `[${x.source}] ${x.evidence}`))).join('\n'),
+  }
+})
+pooled.sort((a, b) => (SEV_RANK[a.severity] - SEV_RANK[b.severity]) || (RW_RANK[a.rw] - RW_RANK[b.rw]))
+
+log(`${candidates.length} raw candidates -> ${pooled.length} distinct sites after dedup`)
+
+// --- Tier the verification effort. Three independent lens agents where a wrong answer is
+// expensive (critical/high); one combined-lens agent for medium/low; info passes through
+// unverified and clearly labelled. This is what keeps the phase ~75 agents instead of ~300.
+const HIGH = pooled.filter((c) => c.severity === 'critical' || c.severity === 'high')
+const MID = pooled.filter((c) => c.severity === 'medium' || c.severity === 'low')
+const INFO = pooled.filter((c) => c.severity === 'info')
+
+// No candidate is dropped — capping coverage is the silent-truncation failure mode this very
+// review exists to find. Instead, scale the LENS DEPTH on critical/high to hit an agent budget,
+// so every finding still gets at least one adversarial verifier.
+const TARGET_AGENTS = 90
+let highLenses = 3
+if (HIGH.length * 3 + MID.length > TARGET_AGENTS) highLenses = 2
+if (HIGH.length * 2 + MID.length > TARGET_AGENTS) highLenses = 1
+const highRun = HIGH
+const midRun = MID
+const dropped = []
+log(`Verify budget: ${HIGH.length} critical/high x${highLenses} ${highLenses === 3 ? 'independent lenses' : highLenses === 2 ? 'lenses (severity lens folded into correctness)' : 'combined-lens pass (high load)'} + ${MID.length} medium/low x1 combined = ${HIGH.length * highLenses + MID.length} agents; ${INFO.length} info passed through unverified; 0 dropped`)
 
 const LENSES = [
   { key: 'reachability', ask: 'Attack the REACHABILITY claim. Walk the call chain yourself from the claimed entry point. Is there an earlier guard, refusal, or required-epoch call that makes this unreachable? Is the entry point actually wired in main.rs dispatch? Does the precondition state actually occur in practice, or only if someone hand-edits the DB?' },
@@ -840,49 +928,101 @@ const LENSES = [
   { key: 'severity', ask: 'Attack the SEVERITY and the write claim. Does this path actually WRITE anything, or was a write inferred? Is a claimed native mutation actually guarded by the mutation-side required_epoch (wez.rs:1271 / tmux.rs:466), which would downgrade it to a read-misreport? Refute if the severity is inflated even when the finding is real — say so in `correction`.' },
 ]
 
-const verified = await pipeline(
-  candidates,
-  (c) =>
-    parallel(
-      LENSES.map((l) => () =>
-        agent(
-          `${PREAMBLE}
+const COMBINED_ASK = `Attack this finding on ALL THREE fronts, in order, and say what you found on each:
+ (a) REACHABILITY — walk the call chain yourself from the claimed entry point. Is there an
+     earlier guard, refusal, or required-epoch call that makes it unreachable? Is the entry
+     point actually wired in main.rs dispatch? Does the precondition state occur in practice,
+     or only if someone hand-edits the DB?
+ (b) CODE-READING — read the cited file:line yourself. Did the finder misread control flow,
+     confuse a managed with an unmanaged instance, cite a line that has moved, or describe
+     behaviour a different branch handles?
+ (c) SEVERITY — does this path actually WRITE, or was the write inferred? Is a claimed native
+     mutation already guarded by the mutation-side required_epoch (wez.rs:1271 / tmux.rs:466),
+     which would downgrade it to a read-misreport?
+Refute if ANY of the three collapses the finding. If the finding is real but misstated on one
+front, set refuted:false and put the corrected claim in \`correction\`.`
+
+const claimBlock = (c) => `CLAIM: ${c.title}
+Site: ${c.site}${c.dup_count > 1 ? `   (independently reported ${c.dup_count}x — corroboration, not confirmation; the reporters may share a mistake)` : ''}
+Severity claimed: ${c.severity}   Read/write claimed: ${c.rw}
+${c.dup_count > 1 ? `All phrasings of this finding:\n${c.all_titles}\n` : ''}Reachability claimed:
+${c.reach}
+Evidence offered:
+${c.evidence}
+Reported by: ${c.source}`
+
+const shortLabel = (c) => `${c.site.split('/').pop()}`
+
+const verifiedHigh = pipeline(highRun, (c) =>
+  parallel(
+    LENSES.slice(0, highLenses).map((l) => () =>
+      agent(
+        `${PREAMBLE}
 
 ## Your task: REFUTE this finding through the ${l.key} lens
 You are an adversarial verifier. Your default is REFUTED. Only let the finding stand if you
 personally re-derived it from the source. Do not be agreeable.
 
-CLAIM: ${c.title}
-Site: ${c.site}
-Severity claimed: ${c.severity}   Read/write claimed: ${c.rw}
-Reachability claimed: ${c.reach}
-Evidence offered: ${c.evidence}
-Reported by: ${c.source}
+${claimBlock(c)}
 
-${l.ask}
+${highLenses === 1 ? COMBINED_ASK : l.ask}
 
 Set \`refuted: true\` if the claim is wrong, unreachable, or unsupported by the code you read.
 Set \`refuted: false\` ONLY if you verified it yourself and cite the file:line you read.
 If the claim is real but MISSTATED (wrong severity, wrong mechanism, wrong line), set
 refuted:false and put the corrected version in \`correction\`.`,
-          { label: `verify:${l.key}:${(c.site || 'x').split('/').pop()}`, phase: 'Verify', schema: VERDICT_SCHEMA },
-        ),
+        { label: `verify:${l.key}:${shortLabel(c)}`, phase: 'Verify', schema: VERDICT_SCHEMA },
       ),
-    ).then((votes) => {
-      const v = (votes || []).filter(Boolean)
-      const stands = v.filter((x) => !x.refuted).length
-      return {
-        ...c,
-        votes: v.map((x, i) => `${LENSES[i] ? LENSES[i].key : 'lens'}: ${x.refuted ? 'REFUTED' : 'STANDS'} — ${x.reason}${x.correction ? ` | correction: ${x.correction}` : ''}`),
-        survives: stands >= 2,
-        vote_count: `${stands}/${v.length} stand`,
-      }
-    }),
+    ),
+  ).then((votes) => {
+    const v = (votes || []).filter(Boolean)
+    const stands = v.filter((x) => !x.refuted).length
+    return {
+      ...c,
+      votes: v.map((x, i) => `${LENSES[i] ? LENSES[i].key : 'lens'}: ${x.refuted ? 'REFUTED' : 'STANDS'} — ${x.reason}${x.correction ? ` | correction: ${x.correction}` : ''}`),
+      survives: stands >= Math.ceil(v.length / 2),
+      vote_count: `${stands}/${v.length} lenses stand`,
+    }
+  }),
 )
 
+const verifiedMid = pipeline(midRun, (c) =>
+  agent(
+    `${PREAMBLE}
+
+## Your task: REFUTE this finding (combined three-lens pass)
+You are an adversarial verifier. Your default is REFUTED. Only let the finding stand if you
+personally re-derived it from the source. Do not be agreeable. You are the ONLY verifier this
+finding gets, so do all three checks properly rather than skimming.
+
+${claimBlock(c)}
+
+${COMBINED_ASK}
+
+Set \`refuted: true\` if the claim is wrong, unreachable, or unsupported by the code you read.
+Set \`refuted: false\` ONLY if you verified it yourself and cite the file:line you read.
+In \`reason\`, state your finding on each of (a), (b), (c) separately.`,
+    { label: `verify:combined:${shortLabel(c)}`, phase: 'Verify', schema: VERDICT_SCHEMA },
+  ).then((v) => ({
+    ...c,
+    votes: v ? [`combined(a,b,c): ${v.refuted ? 'REFUTED' : 'STANDS'} — ${v.reason}${v.correction ? ` | correction: ${v.correction}` : ''}`] : ['combined: NO VERDICT (agent failed)'],
+    survives: v ? !v.refuted : false,
+    vote_count: v ? '1/1 combined-lens stands' : 'no verdict',
+  })),
+)
+
+const [vHigh, vMid] = await parallel([() => verifiedHigh, () => verifiedMid])
+const verified = [
+  ...(vHigh || []).filter(Boolean),
+  ...(vMid || []).filter(Boolean),
+  ...INFO.map((c) => ({ ...c, votes: ['not verified: info severity, passed through'], survives: false, vote_count: 'unverified (info)' })),
+  ...dropped.map((c) => ({ ...c, votes: ['NOT VERIFIED: capped out of the verification budget'], survives: false, vote_count: 'unverified (capped)' })),
+]
+
 const confirmed = (verified || []).filter(Boolean).filter((c) => c.survives)
-const killed = (verified || []).filter(Boolean).filter((c) => !c.survives)
-log(`${confirmed.length} findings survived adversarial verification; ${killed.length} refuted`)
+const killed = (verified || []).filter(Boolean).filter((c) => !c.survives && !/unverified/.test(c.vote_count))
+const unverifiedPassthrough = (verified || []).filter(Boolean).filter((c) => /unverified/.test(c.vote_count))
+log(`${confirmed.length} findings survived adversarial verification; ${killed.length} refuted; ${unverifiedPassthrough.length} passed through unverified (info/capped)`)
 
 // ---------------------------------------------------------------------------
 phase('Critic')
@@ -902,6 +1042,10 @@ ${confirmed.map((c) => `- [${c.severity}/${c.rw}] ${c.title} @ ${c.site} (${c.vo
 
 REFUTED (${killed.length}):
 ${killed.map((c) => `- ${c.title} @ ${c.site} — ${c.votes.join(' ;; ')}`).join('\n') || '(none)'}
+
+NOT ADVERSARIALLY VERIFIED (${unverifiedPassthrough.length}) — info-severity or capped out of the
+verification budget. These are NEITHER confirmed NOR refuted; treat them as open questions:
+${unverifiedPassthrough.map((c) => `- [${c.severity}/${c.rw}] ${c.title} @ ${c.site}`).join('\n') || '(none)'}
 
 SPECIALIST SUMMARIES:
 ${specialists.map((s, i) => `### ${SPECIALISTS[i].label}\n${s.summary}\nUNTESTED: ${(s.untested || []).join('; ')}\nREFUTED: ${(s.refuted || []).join('; ')}`).join('\n\n')}
@@ -1023,6 +1167,11 @@ ${JSON.stringify(confirmed).slice(0, 60000)}
 
 ### REFUTED FINDINGS (${killed.length}) — report these in section 8, do not resurrect them
 ${JSON.stringify(killed).slice(0, 40000)}
+
+### NOT ADVERSARIALLY VERIFIED (${unverifiedPassthrough.length}) — info-severity or capped out of
+the verification budget. Neither confirmed nor refuted. They MUST appear in section 9 ("what
+remains untested") with the reason, never in the ranked findings table as if they were verified.
+${JSON.stringify(unverifiedPassthrough).slice(0, 20000)}
 
 ### COMPLETENESS CRITIC
 ${String(critique).slice(0, 20000)}
