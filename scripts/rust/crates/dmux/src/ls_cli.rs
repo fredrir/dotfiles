@@ -15,15 +15,14 @@ use serde_json::{Value, json};
 use unicode_width::UnicodeWidthStr;
 use uuid::Uuid;
 
+use crate::backend::scope::{self, ManagedTarget};
 use crate::backend::tmux::TmuxProvider;
 use crate::backend::wez::WezProvider;
 use crate::backend::{InventoryOutcome, InventoryScope, Provider};
 use crate::error::{ErrorCode, ExitStatus, TypedError};
 use crate::inventory::{self, ManagedRow, ReconRow};
 use crate::locks::{LockMode, LockScope, OrderedLocks};
-use crate::model::{
-    Backend, BackendInstanceUid, HostUid, Observation, ServerEpoch, SpaceNo, SpaceUid,
-};
+use crate::model::{Backend, BackendInstanceUid, HostUid, Observation, SpaceNo, SpaceUid};
 use crate::operations::{OperationEnv, SpaceHierarchy};
 use crate::output::{self, OutputFormat, OwnerContext};
 use crate::registry::{HostLifecycle, Registry, RegistryConfig, SpaceRow};
@@ -726,32 +725,13 @@ pub struct Authority {
     invoker: SshInvoker,
 }
 
-/// A managed endpoint that carries the epoch its scan is verified against.
-///
-/// The epoch is deliberately **not** an `Option`. `InventoryScope`'s is, and
-/// both adapters skip verification entirely when it is `None`
-/// (`backend/wez.rs`'s `if let Some(expected)`), which is correct only for an
-/// endpoint that was never managed. Laundering a registry `NULL` through it
-/// would accept a *complete* inventory from a server nothing verified — the
-/// wrong-server half of case 25 — so a managed scope can only be built from a
-/// published epoch, and the case with no epoch is [`ScanTarget::Unpublished`].
-struct ManagedScope {
-    backend: Backend,
-    endpoint: String,
-    epoch: ServerEpoch,
-}
-
-impl ManagedScope {
-    fn scope(&self) -> InventoryScope {
-        InventoryScope::managed(self.backend, self.endpoint.clone(), self.epoch)
-    }
-}
-
 /// What the registry says about one backend before anything is probed.
 enum ScanTarget {
     /// A managed instance with a recorded endpoint and a published server
-    /// epoch: probe exactly it, pinned to exactly that epoch.
-    Managed(BackendInstanceUid, ManagedScope),
+    /// epoch: probe exactly it, pinned to exactly that epoch. The scope is
+    /// the resolver's (`backend::scope::resolve_managed`), so it is managed
+    /// by construction — the case with no epoch is [`ScanTarget::Unpublished`].
+    Managed(BackendInstanceUid, InventoryScope),
     /// A registered instance whose server incarnation was never published
     /// (`server_epoch` is NULL): addressable, but there is nothing to verify
     /// a scan against, so nothing is probed and the backend is indeterminate.
@@ -831,40 +811,21 @@ impl Authority {
         backend: Backend,
         discoverable: Option<&str>,
     ) -> Result<ScanTarget, TypedError> {
-        let Some(instance) = registry
-            .backend_instance_for_backend(backend)
-            .map_err(typed_registry)?
-        else {
-            return Ok(match discoverable {
-                // audit(unmanaged_endpoint): first-contact tmux namespace; nothing is registered for this backend
-                Some(endpoint) => ScanTarget::Unregistered(InventoryScope::unmanaged_endpoint(
-                    backend,
-                    endpoint.to_string(),
-                )),
-                None => ScanTarget::Nothing,
-            });
-        };
-        let info = registry
-            .backend_instance_info(instance)
-            .map_err(typed_registry)?;
-        let Some(endpoint) = info.socket_path else {
-            return Ok(ScanTarget::Unaddressable);
-        };
-        let Some(epoch) = registry
-            .backend_server(instance)
-            .map_err(typed_registry)?
-            .server_epoch
-        else {
-            return Ok(ScanTarget::Unpublished(instance));
-        };
-        Ok(ScanTarget::Managed(
-            instance,
-            ManagedScope {
-                backend,
-                endpoint,
-                epoch,
+        Ok(
+            match scope::resolve_managed(registry, backend).map_err(typed_registry)? {
+                ManagedTarget::Managed { instance, scope } => ScanTarget::Managed(instance, scope),
+                ManagedTarget::Unpublished(instance) => ScanTarget::Unpublished(instance),
+                ManagedTarget::Unaddressable(_) => ScanTarget::Unaddressable,
+                ManagedTarget::Unregistered => match discoverable {
+                    // audit(unmanaged_endpoint): first-contact tmux namespace; nothing is registered for this backend
+                    Some(endpoint) => ScanTarget::Unregistered(InventoryScope::unmanaged_endpoint(
+                        backend,
+                        endpoint.to_string(),
+                    )),
+                    None => ScanTarget::Nothing,
+                },
             },
-        ))
+        )
     }
 
     fn local_listing(&self) -> Result<HostListing, TypedError> {
@@ -923,9 +884,7 @@ impl Authority {
 
         let scan = |target: &ScanTarget, probe: &dyn Fn(&InventoryScope) -> InventoryOutcome| {
             match target {
-                ScanTarget::Managed(instance, scope) if fenced.contains(instance) => {
-                    probe(&scope.scope())
-                }
+                ScanTarget::Managed(instance, scope) if fenced.contains(instance) => probe(scope),
                 ScanTarget::Managed(..) => InventoryOutcome::Unreachable {
                     detail: "backend instance is recovering or mutating".into(),
                 },
@@ -1083,7 +1042,7 @@ impl LsSource for Authority {
         else {
             return None;
         };
-        let scope = managed.scope();
+        let scope = managed;
         let provider: Box<dyn Provider> = match row.backend {
             Backend::Wez => Box::new(WezProvider::new(&self.wez_bin, &self.wez_config)),
             Backend::Tmux => Box::new(TmuxProvider::new(scope.endpoint.clone())),
