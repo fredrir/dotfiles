@@ -609,3 +609,59 @@ allowlist entry; each lands a regression test that is the review's reproduction 
   half of A.8 lands, binding-bearing verbs refuse `EpochChanged` on a state-F host until WS-F
   repairs it — intended.
 
+### Wave 3 — dispatched 2026-08-22, base `d3eeb37` (after A5-a/b/d); A5-c and A5-e still in flight
+
+| agent | items | worktree / branch | owned paths |
+| --- | --- | --- | --- |
+| W | WS-A.6, A.8 (wez half), A.12 (`normalize_apply`), E.2 (wez repros) | `~/packages/dmux-p11/w`, `p11/w` | `src/backend/wez.rs`, `tests/provider_wez.rs`; line-scoped: the `--socket` seam in `src/space_cli.rs` and its cases in `tests/normalize_flow.rs` |
+| O | WS-A.8 (registry half), A.9, A.10, A.11, A.12 (`repair_scan_wez`), B.3, E.3 rows 7–8, E.2 (operations/registry repros) | `o`, `p11/o` | `src/operations.rs`, `src/registry/**`, `tests/operations_flow.rs`, `tests/registry/**`; call-site grants on four test files; line-scoped: `tmux.rs` bootstrap stat, `recovery.rs` publish site |
+| Dead | WS-E.3 rows 10, 13, 14 (deletions + doc), A.13 | `dead`, `p11/dead` | `src/recovery.rs` (rows 10/13), `src/runtime.rs` (row 14), `tests/recovery/manifest.rs`, `tests/provider_contract.rs` |
+| root | WS-A.7 (`f26e096`), the `repair retire-incarnation` clap arm, integration | `dmux` | `main.rs`, docs |
+
+Deferred from this wave, recorded: E.3 row 9 (trait method removals need both adapter impls — after W and T); the
+non-`Option` `read_verified_ready_wez_descriptor_in` signature (six call sites incl. `gui_cli.rs`);
+B, D3, T, QA wait for A5-c/A5-e (they need `gui_cli.rs`/`agent.rs`, or add a `ManagedTarget` arm
+those files must match).
+
+- **O — closed 2026-08-22** (`10ba97c`…`79eaad1` → `c4d43d5`…`3710485`; wrapper 1022/0/1 in its
+  worktree). Landed: check-first `group_new` (A.11); `bootstrap_issue` journals only the pinned
+  epoch (A.10); `register_backend_instance` refuses a second endpoint for the same backend and
+  `repair_scan_wez` refuses an endpoint other than the recorded socket (A.12);
+  `native_bindings.server_epoch` is readable (`Registry::current_binding_epoch`) and adapters are
+  handed the registry's recorded binding epoch (A.8 registry half); `tmux_bootstrap` publishes the
+  socket's dev/ino and every operations-layer tmux verification compares pid/start token/dev/ino
+  against a fresh probe and `stat`, and published == live (A.9; `fenced_space_scan` /
+  `verify_published_incarnation`); `Registry::retire_backend_server` CAS + `operations::retire_incarnation`
+  and retire-before-publish in `publish_incarnation_if_needed` (B.3); `create_space` deleted (E.3 row
+  7); the four recovery-journal APIs retired with the decision documented in `registry/recovery.rs`
+  (E.3 row 8). Ratified deviations: (1) the **wez** binding epoch is observation metadata refreshed
+  by a complete pinned scan (`observe_binding_epoch`), not a strict "recorded ≠ pin → refuse" —
+  because §15.3 step 8 cold recovery restores wez Spaces by key and never re-stamps
+  `native_bindings.server_epoch`, a strict rule would refuse every restored wez Space after the first
+  restart; a key the pinned scan does not list is `AbsentUnderPin` and no mutation reaches it; tmux
+  bindings are strict. (2) `BindingRow` keeps its shape for now (two struct literals outside O's paths);
+  the field migration is a root follow-up. No schema change (`SCHEMA_VERSION` 4). Policy decision
+  recorded for T: `tmux_bootstrap`'s `AlreadySet` arm, when the registry already publishes a row
+  whose pid/start token/dev/ino all differ from the live server but the server presents the same
+  epoch, **refuses** (`backend_epoch_changed`; remedy `repair retire-incarnation` then re-bootstrap)
+  — §11.2 "restarted state invalidates prior child refs"; `set_epoch_if_absent` never overwrites.
+  Root follow-ups owed: the `repair retire-incarnation` clap arm (contract in O's return: `--backend`,
+  `--epoch`, `--allow-live-pid`, `-y`; refusals not_found/3, backend_epoch_changed/1,
+  repair_required/4, confirmation_required/5; JSON action `repair_retire_incarnation`), the
+  coordinator-path retire→publish test, dev/ino comparison at the five readers outside O's paths
+  (`connect_cli.rs:1121`, `remote/agent.rs:813`, `remote/attach.rs` ×3 — to D3/A5-c follow-ups), and
+  routing the remote `rename`/`inspect`/`attach_plan` binding epochs through
+  `binding_epoch_for_adapter`. Manifest: six `baseline-tests.json` retirement entries recorded.
+  Integration resolved two conflicts against W's test-builder pins in `hierarchy_flow.rs` and
+  `normalize_flow.rs` by keeping O's register-and-publish setup (O's new published-incarnation checks
+  require it) and dropping W's duplicate read-back.
+
+#### §7.1 grammar addition (recorded per ADR 011 D8's precedent)
+
+`dmux repair retire-incarnation --backend <wez|tmux> --epoch <UUID> [--allow-live-pid] [-y]` —
+expert, confirmed, owner-local: clears a published incarnation whose process is gone by
+compare-and-set on the published epoch, journaled as a revision; refuses a live pid without
+`--allow-live-pid`, a mismatching epoch, and any unfinished recovery generation. It is the operator's
+move for instance state F when the managed service will not come back managed (plan §5.2 as
+amended). `dmux recovery abort` keeps its existing meaning.
+

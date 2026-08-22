@@ -129,7 +129,9 @@
     "registry::reconcile::a_stranded_row_on_an_unaddressable_tmux_instance_is_refused",
     "unit::space_cli::tests::a_stranded_row_on_an_unpublished_tmux_instance_is_refused_before_any_provider",
     "unit::space_cli::tests::a_registry_error_resolving_the_instance_is_that_error_never_no_provider",
-    "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation"
+    "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation",
+    "operations_flow::owner_fenced_create_refuses_an_unpinned_selected_scope_before_reserving",
+    "registry::bootstrap::registering_the_same_backend_at_another_endpoint_is_a_typed_refusal"
    ],
    "implemented_at": [
     "src/space_cli.rs:154",
@@ -162,7 +164,9 @@
     "adopt_cli::a_wez_instance_with_no_published_epoch_is_refused_before_any_rename",
     "adopt_cli::a_tmux_instance_with_no_published_epoch_is_refused_before_any_scan",
     "registry::reconcile::a_stranded_create_on_an_unpublished_tmux_instance_is_refused_not_released",
-    "registry::reconcile::a_stranded_row_on_an_unaddressable_tmux_instance_is_refused"
+    "registry::reconcile::a_stranded_row_on_an_unaddressable_tmux_instance_is_refused",
+    "operations_flow::repair_scan_refuses_an_endpoint_other_than_the_instances_recorded_socket",
+    "operations_flow::a_tmux_binding_recorded_under_another_incarnation_is_refused_before_any_native_command"
    ],
    "implemented_at": [
     "src/operations.rs:1452 require_unbound_native",
@@ -356,7 +360,9 @@
    "title": "New Group/Split inherits exact owner/backend/cwd; backend override rejected",
    "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
    "tests": [
-    "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window"
+    "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window",
+    "operations_flow::group_new_under_an_unpinned_scope_creates_nothing",
+    "operations_flow::bootstrap_issue_journals_only_the_pinned_epoch"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -374,14 +380,20 @@
     "unit::backend::wez::tests::every_fenced_verb_refuses_an_unpinned_scope_before_any_command",
     "unit::backend::wez::tests::binding_epoch_refuses_an_unpinned_scope_and_a_binding_off_the_pin",
     "unit::backend::wez::tests::normalize_apply_pins_to_the_scope_not_the_plan",
-    "provider_wez::epoch_mismatch_rejects_every_mutation_without_mutating"
+    "provider_wez::epoch_mismatch_rejects_every_mutation_without_mutating",
+    "operations_flow::tmux_bootstrap_publishes_the_sockets_device_and_inode",
+    "operations_flow::a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_everywhere",
+    "operations_flow::a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_scan",
+    "registry::bindings::the_recorded_binding_epoch_is_readable_and_refreshed_only_on_the_current_row",
+    "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain",
+    "operations_flow::retire_incarnation_clears_exactly_the_named_epoch_and_guards_a_live_pid"
    ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [
-    "ADR 012 WS-A.8 tmux half + registry half, WS-A.9 tmux dev/ino witness (wez fence and wez binding_epoch are closed)",
-    "WS-B.1 stale incarnation"
+    "ADR 012 WS-A.8 tmux adapter half (binding_epoch refuses an unpinned scope) — T agent",
+    "WS-B.1 stale incarnation (liveness in the resolver)"
    ],
    "status": "blocked"
   },
@@ -474,14 +486,18 @@
   "35": {
    "title": "Every service start produces one verified sentinel and no unmanaged default shell; eligible manifest restores exactly once",
    "earliest_owning_phase": "P10 recovery",
-   "tests": [],
+   "tests": [
+    "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain"
+   ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
-   "open_items": [],
-   "status": "unmapped"
+   "open_items": [
+    "coordinator-path test for retire→publish in src/recovery.rs (O handoff; owed)"
+   ],
+   "status": "blocked"
   },
   "36": {
    "title": "A nonempty server never restores",
@@ -522,14 +538,20 @@
   "39": {
    "title": "Partial/crashed recovery is observable; orphan reconciliation and journal resume are idempotent; snapshot publication cannot overlap",
    "earliest_owning_phase": "P10 recovery",
-   "tests": [],
+   "tests": [
+    "registry::recovery::the_empty_floor_is_raised_only_under_the_exact_exclusive_lock_and_published_epoch",
+    "registry::recovery::atomic_generation_abort_with_floor_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation",
+    "registry::recovery::atomic_generation_abort_with_floor_accepts_each_nonterminal_root_state_only",
+    "registry::recovery::unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered",
+    "registry::migrate_v3::failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted"
+   ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped"
   },
   "40": {
    "title": "Remote owner recovery never restores imported remote panes as local shells",
