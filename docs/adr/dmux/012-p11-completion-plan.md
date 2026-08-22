@@ -678,4 +678,13 @@ amended). `dmux recovery abort` keeps its existing meaning.
   whether that switches the GUI's workspace needs a live check once a user Space exists — if not, the
   legacy `con <wez>` degrades to a no-op (never the wrong-server hazard), and the decision (route the
   legacy activate through the ADR 003 bridge, or document it as listing-only) is the root's.
+- **Stale-lock sweep on Macie — 2026-08-23** (WS-E.1's last step). With no suite running anywhere
+  and `lsof +D` showing only the mux server's lease held open, the root deleted 1,538 zero-byte,
+  unheld, uuid-named test locks older than five minutes that matched no live-registry identity
+  (1,342 `backend_`/`space_` + 196 `decision_`), keeping the live instance's `backend_6ef8d4c9…`,
+  the two live Spaces' locks, the nine `decision_9d1950c7…` witnesses of the live HostUid,
+  `authority-gate.lock`, the socket, descriptor, lease, `.replace-*` and `bootstrap/` (24 per-pane
+  markers, left for the recovery path to judge). Live dir 1,572 → 34 entries; `wez-dmux.json`,
+  the lease and the socket keep their 2026-08-19 12:42 mtimes. Archie's runtime dir held 3 entries
+  and needs no sweep.
 
