@@ -333,11 +333,16 @@
    "tests": [
     "ls_cli::a_stopped_wez_service_lists_as_stopped_and_starts_nothing",
     "ls_cli::a_rejected_scan_is_a_partial_listing_not_a_clean_one",
-    "ls_cli::a_managed_instance_without_a_published_epoch_refuses_to_scan"
+    "ls_cli::a_managed_instance_without_a_published_epoch_refuses_to_scan",
+    "unit::backend::wez::tests::create_on_unpinned_scope_is_a_typed_error",
+    "unit::backend::wez::tests::cas_rename_on_a_replacement_server_refuses_epoch_changed_without_renaming",
+    "unit::backend::wez::tests::sole_window_id_on_a_replacement_server_refuses_epoch_changed",
+    "provider_wez::replacement_server_refuses_cas_rename_and_sole_window_id_typed"
    ],
    "implemented_at": [
     "src/ls_cli.rs:736 scope",
-    "src/ls_cli.rs:829 scan_target"
+    "src/ls_cli.rs:829 scan_target",
+    "src/backend/wez.rs required_action_epoch / verified_scan (non-Option since WS-A.6)"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
@@ -365,13 +370,17 @@
    "tests": [
     "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered",
     "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window",
-    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one"
+    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one",
+    "unit::backend::wez::tests::every_fenced_verb_refuses_an_unpinned_scope_before_any_command",
+    "unit::backend::wez::tests::binding_epoch_refuses_an_unpinned_scope_and_a_binding_off_the_pin",
+    "unit::backend::wez::tests::normalize_apply_pins_to_the_scope_not_the_plan",
+    "provider_wez::epoch_mismatch_rejects_every_mutation_without_mutating"
    ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [
-    "ADR 012 WS-A.6/A.8/A.9 (wez fence; binding_epoch tautology; tmux dev/ino witness) — the A.5 sites are closed",
+    "ADR 012 WS-A.8 tmux half + registry half, WS-A.9 tmux dev/ino witness (wez fence and wez binding_epoch are closed)",
     "WS-B.1 stale incarnation"
    ],
    "status": "blocked"
@@ -617,7 +626,9 @@
    "tests": [
     "migrate_cli::a_second_commit_is_a_clean_no_op_not_a_second_migration",
     "space_rm_cli::rm_name_removes_the_legacy_name_the_positional_ref_cannot_reach",
-    "migrate_cli::a_null_epoch_wez_instance_refuses_preview_and_commit_and_leaves_no_stamp"
+    "migrate_cli::a_null_epoch_wez_instance_refuses_preview_and_commit_and_leaves_no_stamp",
+    "unit::backend::wez::tests::cas_rename_failure_shapes_are_typed_outcomes_under_a_pinned_scope",
+    "normalize_flow::repair_batch_detects_and_heals_managed_multi_window"
    ],
    "implemented_at": [
     "src/migrate_cli.rs:30",

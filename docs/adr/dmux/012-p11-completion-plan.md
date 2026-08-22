@@ -590,4 +590,22 @@ allowlist entry; each lands a regression test that is the review's reproduction 
   rather than by editing `context_read` (operations.rs is the O agent's this wave); the four-way
   regression in `tests/context_cli.rs` (registry NULL, stranger endpoint, rebind/tamper, replaced
   server, plus the positive control) fails on the pre-change `main.rs` and passes now.
+- **WS-A.6 / A.8 (wez) / A.12 (wez) / E.2 (wez) — closed 2026-08-22** (W: `2e64878`, `b110d12`,
+  `4aff9a4`, `722aa63`). `verified_scan` lost its `Option<ServerEpoch>`: the adapter's type can no
+  longer express an unpinned read. The nine verbs take `required_action_epoch(scope)` before their
+  first command (`grep -c "verified_scan(scope, None)"` → 0; `required_action_epoch(scope)` → 15);
+  `binding_epoch` returns the pin and holds the binding to it instead of answering the binding's
+  self-report; `normalize_apply` refuses a plan made under another incarnation. 28 sentinel-bearing
+  unit tests moved to a pinned scope (every changed assertion is listed in `2e64878`'s message);
+  thirteen `inventory`-only tests, the unpinned-child-action test and the CAS probe test keep
+  `scope(None)` by design. The hidden `--socket` seam now requires `--epoch` (clap `requires` both
+  ways) and builds a managed scope, so the seam's allowlist entry is gone: the allowlist holds one
+  production site (`ls_cli` first-contact tmux), the two test helpers, and findings #15/#13/#17.
+  Replacement-server reproductions for `cas_rename_workspace`/`sole_window_id` landed against two
+  stock scratch servers behind a symlinked socket (no fork build in this environment: the fork CAS
+  stderr shapes were exercised through captured stderr). Root folded seven one-line pins for
+  out-of-grant test builders into the first pick so every commit is green. Ratified: the
+  `--socket`/`--epoch` pairing is a grammar error when unpaired (exit 2). Noted: once the registry
+  half of A.8 lands, binding-bearing verbs refuse `EpochChanged` on a state-F host until WS-F
+  repairs it — intended.
 
