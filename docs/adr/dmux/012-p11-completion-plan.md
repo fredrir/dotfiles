@@ -711,4 +711,18 @@ amended). `dmux recovery abort` keeps its existing meaning.
   pre-change code. The seven near-duplicate resolvers are deleted. Dead's four commits
   (`88edd34`…`6c50bc3` → `3eaf15f`…`a00201f`: rows 10, 13, 14 and A.13) are integrated; its
   manifest entries follow with its return.
+- **Dead (WS-E.3 rows 10, 13, 14; WS-A.13) — closed 2026-08-23** (`88edd34`…`6c50bc3` →
+  `3eaf15f`…`a00201f`). `NativeSnapshot::recovery_titles` and `recovery::atomic_publish_manifest`
+  deleted with their callers proven absent; the fixed-runtime descriptor readers deleted and the
+  `_in` forms documented as the only readers; the provider contract double now models a published
+  versus a first-contact server and refuses a managed read (and `create`) without a pin, with three
+  new harness cases — `None` no longer means skip anywhere the contract is taught. One manifest
+  retirement recorded (the publication half of the symlink test, vouched for by the two coordinator
+  tests on the production publish path). Root follow-ups: the non-`Option`
+  `read_verified_ready_wez_descriptor_in(dir, instance: Uuid, epoch: Uuid)` signature across its
+  seven call sites (all pass `Some(..)` after a fail-closed source; 07-refuted confirmed), a doc on
+  `Provider::inventory` stating the contract at the trait, and the two `ls` tests Dead wrote for the
+  B agent (a registered tmux instance scans under its published epoch; an unpublished one refuses
+  and discovers nothing). The six WS-E.3 row 8 manifest entries are normalised to the file's
+  `{id, rationale, replacement_tests}` shape.
 

@@ -495,55 +495,65 @@
    ]
   },
   {
-   "retired": "registry::recovery::intentional_empty_requires_exact_lock_epoch_and_head_without_advancing_revision",
-   "replacement": [
+   "id": "registry::recovery::intentional_empty_requires_exact_lock_epoch_and_head_without_advancing_revision",
+   "rationale": "The two public intentional-empty floor wrappers had no production caller and ran their own transaction, so production could never call them; the floor is now one private primitive inside the production transactions and its guards are asserted on the production abort (ADR 012 WS-E.3 row 8, commit 79eaad1).",
+   "replacement_tests": [
     "registry::recovery::the_empty_floor_is_raised_only_under_the_exact_exclusive_lock_and_published_epoch",
     "registry::recovery::intentional_empty_floor_and_generation_abort_commit_or_roll_back_together",
     "registry::recovery::final_wez_tombstone_and_empty_floor_are_one_rollback_safe_transition"
    ],
-   "rationale": "The two public intentional-empty floor wrappers had no production caller and ran their own transaction, so production could never call them; the floor is now one private primitive inside the production transactions and its guards are asserted on the production abort (ADR 012 WS-E.3 row 8, commit 79eaad1).",
    "recorded": "2026-08-22"
   },
   {
-   "retired": "registry::recovery::atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation",
-   "replacement": [
+   "id": "registry::recovery::atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation",
+   "rationale": "Same assertions plus the intentional-empty floor, through abort_recovery_generation_and_record_current_empty; the deleted floor-less abort would let the next cold start restore the aborted manifest (WS-E.3 row 8).",
+   "replacement_tests": [
     "registry::recovery::atomic_generation_abort_with_floor_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation"
    ],
-   "rationale": "Same assertions plus the intentional-empty floor, through abort_recovery_generation_and_record_current_empty; the deleted floor-less abort would let the next cold start restore the aborted manifest (WS-E.3 row 8).",
    "recorded": "2026-08-22"
   },
   {
-   "retired": "registry::recovery::atomic_generation_abort_accepts_each_nonterminal_root_state_only",
-   "replacement": [
+   "id": "registry::recovery::atomic_generation_abort_accepts_each_nonterminal_root_state_only",
+   "rationale": "As above (WS-E.3 row 8).",
+   "replacement_tests": [
     "registry::recovery::atomic_generation_abort_with_floor_accepts_each_nonterminal_root_state_only"
    ],
-   "rationale": "As above (WS-E.3 row 8).",
    "recorded": "2026-08-22"
   },
   {
-   "retired": "registry::recovery::unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered (assertion: a lookup pinned to a random epoch finds nothing)",
-   "replacement": [
+   "id": "registry::recovery::unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered (assertion: a lookup pinned to a random epoch finds nothing)",
+   "rationale": "The epoch-pinned unfinished_recovery was retired; the agnostic lookup is the production one for takeover discovery (WS-E.3 row 8).",
+   "replacement_tests": [
     "registry::recovery::unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered (found.server_epoch == epoch)",
     "unit::operations::tests::a_durable_old_epoch_recovery_blocks_after_restart_and_process_lock_drop"
    ],
-   "rationale": "The epoch-pinned unfinished_recovery was retired; the agnostic lookup is the production one for takeover discovery (WS-E.3 row 8).",
    "recorded": "2026-08-22"
   },
   {
-   "retired": "registry::recovery::stale_epoch_generation_is_visible_and_can_be_retired_under_the_current_fence (assertion: the exact-epoch abort refuses)",
-   "replacement": [
+   "id": "registry::recovery::stale_epoch_generation_is_visible_and_can_be_retired_under_the_current_fence (assertion: the exact-epoch abort refuses)",
+   "rationale": "The exact-epoch abort was one of the four retired APIs (WS-E.3 row 8).",
+   "replacement_tests": [
     "registry::recovery::stale_epoch_generation_is_visible_and_can_be_retired_under_the_current_fence (abort_stale_recovery_generation assertions; floor untouched)"
    ],
-   "rationale": "The exact-epoch abort was one of the four retired APIs (WS-E.3 row 8).",
    "recorded": "2026-08-22"
   },
   {
-   "retired": "registry::migrate_v3::failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted (assertion: abort via the retired API)",
-   "replacement": [
+   "id": "registry::migrate_v3::failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted (assertion: abort via the retired API)",
+   "rationale": "WS-E.3 row 8.",
+   "replacement_tests": [
     "registry::migrate_v3::failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted (aborts through the production API and asserts the floor)"
    ],
-   "rationale": "WS-E.3 row 8.",
    "recorded": "2026-08-22"
+  },
+  {
+   "id": "recovery::manifest::manifest_directory_and_publication_never_follow_symlinks",
+   "rationale": "ADR 012 WS-E.3 row 13: recovery::atomic_publish_manifest had no production caller (git grep: definition, tests/recovery/manifest.rs:10,291, and the review/ADR rows only), so the publication half of this case vouched for a writer nothing used. The only production manifest writer is publish_snapshot_manifest -> publish_snapshot_manifest_inner -> PrivateDir::publish_immutable (4d14486), whose symlink refusal and link-free atomic publication are asserted on that path by the two coordinator tests named; the directory half (newest_eligible_manifest refuses a symlinked manifest dir) is retained under the renamed test.",
+   "replacement_tests": [
+    "recovery::manifest::manifest_directory_is_never_opened_through_a_symlink",
+    "recovery::coordinator::snapshot_candidate_ids_and_preplanted_plan_links_fail_before_the_fence",
+    "recovery::coordinator::snapshot_capture_publishes_the_exact_fenced_plan_atomically"
+   ],
+   "recorded": "2026-08-23"
   }
  ]
 }
