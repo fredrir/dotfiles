@@ -99,7 +99,7 @@ run_hammerspoon() {
 # fixture   not a standalone test
 mode_for() {
   case $1 in
-  actions | consumer | controller | instance | presentation | run) echo unit ;;
+  actions | consumer | controller | instance | mux_startup_witness | presentation | run) echo unit ;;
   config | config_linux | domains | picker | remote | resident_ingress | status) echo managed ;;
   top_level | top_level_missing_descriptor | top_level_missing_key) echo managed ;;
   config_off | top_level_off) echo flag-off ;;
