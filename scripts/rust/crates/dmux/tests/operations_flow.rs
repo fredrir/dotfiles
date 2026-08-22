@@ -13,9 +13,10 @@ use dmux::backend::{InventoryScope, SplitDirection};
 use dmux::bootstrap::MarkerContext;
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
-    CreateRequest, GroupNewRequest, OpError, OperationEnv, SplitNewRequest, create_space,
-    group_activate_exact, group_new, remove_space, rename_space, resume_remove_space,
-    split_direction, split_new, split_resize, split_zoom, tmux_bootstrap, validate_marker_context,
+    CreateRequest, GroupNewRequest, OpError, OperationEnv, OwnerCreateTarget, SplitNewRequest,
+    create_space, create_space_owner_fenced, group_activate_exact, group_new, remove_space,
+    rename_space, resume_remove_space, split_direction, split_new, split_resize, split_zoom,
+    tmux_bootstrap, validate_marker_context,
 };
 use dmux::refs::{ChildRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
@@ -913,4 +914,149 @@ fn group_new_under_an_unpinned_scope_creates_nothing() {
         vec!["inventory", "inventory", "group_new"]
     );
     assert_eq!(bootstrap_rows(env), 1);
+}
+fn split_request(space_uid: dmux::model::SpaceUid, group: ChildRefShape) -> SplitNewRequest {
+    SplitNewRequest {
+        request_uid: Uuid::new_v4(),
+        space_uid,
+        group,
+        direction: SplitDirection::Right,
+        percent: None,
+        cwd: None,
+        program: Vec::new(),
+        helper_bin: "/unused/pane-bootstrap".into(),
+    }
+}
+
+fn journaled_epochs(env: &OperationEnv) -> Vec<String> {
+    let registry = scripted_registry::registry(env);
+    let mut stmt = registry
+        .raw_connection()
+        .prepare("SELECT server_epoch FROM bootstrap_requests ORDER BY created_at")
+        .unwrap();
+    stmt.query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
+/// WS-A.10 (finding #10; the executable form of report 08 §7's
+/// `operations.rs:2243`): `bootstrap_requests.server_epoch` is a non-Option
+/// column with 25 readers, so the only value allowed into it is the epoch
+/// the scope was pinned to and the scan confirmed. An unpinned scope — an
+/// epoch nothing in the registry vouches for — journals nothing at all; the
+/// pinned control journals exactly the pin, and the provider is reached only
+/// after that row exists.
+#[test]
+fn bootstrap_issue_journals_only_the_pinned_epoch() {
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let epoch = ServerEpoch(Uuid::new_v4());
+    let (_instance, space_uid) =
+        seed_bound_space(env, Backend::Tmux, "tmux-script", epoch, "$1", Some(epoch));
+    let provider = Script::new(
+        Backend::Tmux,
+        epoch,
+        vec![one_window("$1", dmux::model::ProviderHandle::Tx)],
+    );
+    let group = child_shape(&format!("g{}.tx-1", epoch.0));
+
+    let unpinned = InventoryScope::unmanaged_endpoint(Backend::Tmux, "tmux-script");
+    let err = split_new(
+        env,
+        &provider,
+        &unpinned,
+        &split_request(space_uid, group.clone()),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::Indeterminate(_)), "{err}");
+    assert_eq!(provider.calls(), vec!["inventory"]);
+    assert!(
+        journaled_epochs(env).is_empty(),
+        "an unverified epoch reached the journal"
+    );
+
+    let pinned = InventoryScope::managed(Backend::Tmux, "tmux-script", epoch);
+    let err = split_new(env, &provider, &pinned, &split_request(space_uid, group)).unwrap_err();
+    assert!(matches!(err, OpError::Provider(_)), "{err}");
+    assert_eq!(
+        provider.calls(),
+        vec!["inventory", "inventory", "split_new"]
+    );
+    assert_eq!(journaled_epochs(env), vec![epoch.0.to_string()]);
+}
+
+/// The create path's journal row comes from `scan_epoch_for_create`: a
+/// selected target whose scope is unpinned is refused before a SpaceNo is
+/// consumed or a bootstrap row exists, even though its scan is complete and
+/// epoched. Pinned, the same request reserves, journals the pin, and reaches
+/// the provider.
+#[test]
+fn owner_fenced_create_refuses_an_unpinned_selected_scope_before_reserving() {
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let epoch = ServerEpoch(Uuid::new_v4());
+    let instance = {
+        let mut registry = scripted_registry::registry(env);
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-script"), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, epoch, Some(4242), Some("start"), None, None)
+            .unwrap();
+        instance
+    };
+    let provider = Script::new(Backend::Tmux, epoch, Vec::new());
+    let request = |name: &str| CreateRequest {
+        request_uid: Uuid::new_v4(),
+        name: name.into(),
+        cwd: None,
+        program: Vec::new(),
+        helper_bin: "/unused/pane-bootstrap".into(),
+    };
+
+    let unpinned = InventoryScope::unmanaged_endpoint(Backend::Tmux, "tmux-script");
+    let err = create_space_owner_fenced(
+        env,
+        OwnerCreateTarget {
+            backend: Backend::Tmux,
+            instance,
+            provider: &provider,
+            scope: &unpinned,
+        },
+        None,
+        false,
+        &request("proj"),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::Indeterminate(_)), "{err}");
+    assert_eq!(provider.calls(), vec!["inventory"]);
+    assert!(
+        scripted_registry::registry(env)
+            .spaces()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(journaled_epochs(env).is_empty());
+
+    let pinned = InventoryScope::managed(Backend::Tmux, "tmux-script", epoch);
+    let err = create_space_owner_fenced(
+        env,
+        OwnerCreateTarget {
+            backend: Backend::Tmux,
+            instance,
+            provider: &provider,
+            scope: &pinned,
+        },
+        None,
+        false,
+        &request("proj"),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::Provider(_)), "{err}");
+    assert_eq!(provider.calls(), vec!["inventory", "inventory", "create"]);
+    assert_eq!(journaled_epochs(env), vec![epoch.0.to_string()]);
+    let spaces = scripted_registry::registry(env).spaces().unwrap();
+    assert_eq!(spaces.len(), 1);
+    assert_eq!(spaces[0].lifecycle, dmux::model::Lifecycle::Aborted);
 }

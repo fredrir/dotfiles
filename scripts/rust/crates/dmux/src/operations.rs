@@ -367,9 +367,10 @@ pub fn create_space(
                     req.name
                 )));
             }
-            inv.server_epoch.ok_or_else(|| {
+            let epoch = inv.server_epoch.ok_or_else(|| {
                 OpError::Indeterminate("managed create requires an epoched server".into())
-            })?
+            })?;
+            require_pinned_epoch(scope, epoch)?
         }
         other => return Err(OpError::Indeterminate(format!("{backend} scan: {other:?}"))),
     };
@@ -637,15 +638,11 @@ fn scan_epoch_for_create(
                     target.backend
                 ))
             })?;
-            if let Some(expected) = target.scope.expected_epoch()
-                && expected != epoch
-            {
-                return Err(OpError::Indeterminate(format!(
-                    "{} scan changed epoch: expected {} observed {}",
-                    target.backend, expected.0, epoch.0
-                )));
-            }
-            Ok(Some(epoch))
+            // WS-A.10: the epoch returned here is what the create journals
+            // into `bootstrap_requests.server_epoch` and decides the name
+            // collision on, so it must be the one the scope was pinned to —
+            // never whatever an unvouched endpoint answered.
+            Ok(Some(require_pinned_epoch(target.scope, epoch)?))
         }
         InventoryOutcome::ServerStopped { .. } if !selected => Ok(None),
         other => Err(OpError::Indeterminate(format!(

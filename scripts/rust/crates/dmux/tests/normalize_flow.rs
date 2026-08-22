@@ -202,14 +202,6 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
     let s = WezScratch::start("c");
     let provider = s.provider();
     s.wait_ready(&provider);
-    // The pin every native verb needs (ADR 012 WS-A.6): the sentinel epoch
-    // this scratch server was started with, read back from its own list
-    // through the discovery read, which is the one unpinned scan allowed.
-    let InventoryOutcome::Complete(inv) = provider.inventory(&s.scope()) else {
-        panic!("scan must stay complete");
-    };
-    let epoch = inv.server_epoch.expect("sentinel-epoched scratch server");
-    let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), epoch);
 
     // Managed Space through the full broker (env shim per ADR 009 §4a).
     let shim = data.path().join("helper-shim.sh");
@@ -226,6 +218,38 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
+    // First contact on the bare endpoint yields the sentinel epoch; the
+    // create itself runs under a registered, published, pinned instance —
+    // mutations refuse an unpinned scope (ADR 012 WS-A.10/A.11).
+    let epoch = {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            if let InventoryOutcome::Complete(inv) = provider.inventory(&s.scope())
+                && let Some(epoch) = inv.server_epoch
+            {
+                break epoch;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "sentinel never published an epoch"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    {
+        let mut registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
+            &env.db_path,
+            &env.lock_dir,
+        ))
+        .unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Wez, Some(&s.socket), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, epoch, None, None, None, None)
+            .unwrap();
+    }
+    let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), epoch);
     let created = create_space(
         &env,
         &provider,
