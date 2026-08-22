@@ -14,9 +14,9 @@ use dmux::bootstrap;
 use dmux::locks::{LockMode, LockScope, OrderedLocks};
 use dmux::model::{Backend, ChildKind, ServerEpoch};
 use dmux::operations::{
-    CreateRequest, GroupNewRequest, OpError, OperationEnv, SplitNewRequest, adopt_tmux,
-    context_read, create_space, group_new, group_remove, group_rename, hierarchy, split_new,
-    split_remove, tmux_bootstrap,
+    CreateRequest, GroupNewRequest, OpError, OperationEnv, OwnerCreateTarget, SplitNewRequest,
+    adopt_tmux, context_read, create_space_owner_fenced, group_new, group_remove, group_rename,
+    hierarchy, split_new, split_remove, tmux_bootstrap,
 };
 use dmux::refs::{ChildRefShape, parse_ref};
 use uuid::Uuid;
@@ -132,11 +132,24 @@ fn child_shape(child_ref: &str) -> ChildRefShape {
 /// Create one managed Space named `name` and return it.
 fn seed_space(s: &Scratch, epoch: ServerEpoch, name: &str) -> dmux::operations::CreatedSpace {
     let provider = TmuxProvider::new(s.ns.clone());
-    create_space(
+    let instance = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
+        &s.env().db_path,
+        &s.env().lock_dir,
+    ))
+    .unwrap()
+    .backend_instance_for_backend(Backend::Tmux)
+    .unwrap()
+    .expect("tmux_bootstrap registered the instance");
+    create_space_owner_fenced(
         &s.env(),
-        &provider,
-        &s.scope(epoch),
-        Backend::Tmux,
+        OwnerCreateTarget {
+            backend: Backend::Tmux,
+            instance,
+            provider: &provider,
+            scope: &s.scope(epoch),
+        },
+        None,
+        false,
         &CreateRequest {
             request_uid: Uuid::new_v4(),
             name: name.into(),
@@ -522,7 +535,7 @@ fn wez_hierarchy_full_cycle_at_the_operations_layer() {
         assert!(Instant::now() < deadline, "mux server never became ready");
         std::thread::sleep(Duration::from_millis(100));
     };
-    {
+    let instance = {
         let mut registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
             &env.db_path,
             &env.lock_dir,
@@ -534,16 +547,22 @@ fn wez_hierarchy_full_cycle_at_the_operations_layer() {
         registry
             .publish_backend_server(instance, epoch, None, None, None, None)
             .unwrap();
-    }
+        instance
+    };
     let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), epoch);
 
     // Space create through the full broker protocol on a wez pane.
     let mark = data.path().join("wm");
-    let created = create_space(
+    let created = create_space_owner_fenced(
         &env,
-        &provider,
-        &scope,
-        Backend::Wez,
+        OwnerCreateTarget {
+            backend: Backend::Wez,
+            instance,
+            provider: &provider,
+            scope: &scope,
+        },
+        None,
+        false,
         &CreateRequest {
             request_uid: Uuid::new_v4(),
             name: "proj".into(),

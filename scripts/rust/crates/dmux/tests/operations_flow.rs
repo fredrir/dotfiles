@@ -9,14 +9,14 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use dmux::backend::tmux::TmuxProvider;
-use dmux::backend::{InventoryScope, SplitDirection};
+use dmux::backend::{InventoryScope, Provider, SplitDirection};
 use dmux::bootstrap::MarkerContext;
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
     CreateRequest, GroupNewRequest, OpError, OperationEnv, OwnerCreateTarget, SplitNewRequest,
-    context_read, create_space, create_space_owner_fenced, group_activate_exact, group_new,
-    hierarchy, remove_space, rename_space, resume_remove_space, split_direction, split_new,
-    split_resize, split_zoom, tmux_bootstrap, validate_marker_context,
+    context_read, create_space_owner_fenced, group_activate_exact, group_new, hierarchy,
+    remove_space, rename_space, resume_remove_space, split_direction, split_new, split_resize,
+    split_zoom, tmux_bootstrap, validate_marker_context,
 };
 use dmux::refs::{ChildRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
@@ -128,6 +128,35 @@ fn request(_s: &Scratch, name: &str, marker: &std::path::Path) -> CreateRequest 
     }
 }
 
+/// The production create seam for a scratch tmux owner: the selected target
+/// is the registry's tmux instance on the scratch namespace (registered and
+/// published by `tmux_bootstrap`), pinned by the caller's scope; these
+/// fixtures register no opposite instance.
+fn create(
+    s: &Scratch,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    req: &CreateRequest,
+) -> Result<dmux::operations::CreatedSpace, OpError> {
+    let instance = s
+        .registry()
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("tmux_bootstrap registered the instance");
+    create_space_owner_fenced(
+        &s.env(),
+        OwnerCreateTarget {
+            backend: Backend::Tmux,
+            instance,
+            provider,
+            scope,
+        },
+        None,
+        false,
+        req,
+    )
+}
+
 fn child_shape(child_ref: &str) -> ChildRefShape {
     parse_ref(&format!("x/{child_ref}"))
         .expect("child ref parses")
@@ -145,7 +174,7 @@ fn create_replay_rename_remove_full_cycle() {
 
     // --- Create: one-window scratch Space with the real helper. ---
     let req = request(&s, "proj", &marker);
-    let created = create_space(&s.env(), &provider, &scope, Backend::Tmux, &req).unwrap();
+    let created = create(&s, &provider, &scope, &req).unwrap();
     assert!(!created.replayed);
     assert!(
         created.native_token.starts_with('$'),
@@ -202,7 +231,7 @@ fn create_replay_rename_remove_full_cycle() {
     drop(registry);
 
     // --- Acknowledgement-loss replay: same request UID, no second spawn. ---
-    let replayed = create_space(&s.env(), &provider, &scope, Backend::Tmux, &req).unwrap();
+    let replayed = create(&s, &provider, &scope, &req).unwrap();
     assert!(replayed.replayed);
     assert_eq!(replayed.space_uid, created.space_uid);
     assert_eq!(
@@ -247,14 +276,7 @@ fn create_replay_rename_remove_full_cycle() {
 
     // Recreate under the old original name: fresh identity, larger number.
     let marker2 = s.data.path().join("marker2");
-    let again = create_space(
-        &s.env(),
-        &provider,
-        &scope,
-        Backend::Tmux,
-        &request(&s, "proj", &marker2),
-    )
-    .unwrap();
+    let again = create(&s, &provider, &scope, &request(&s, "proj", &marker2)).unwrap();
     assert_ne!(again.space_uid, created.space_uid);
     assert!(again.space_no > created.space_no);
 }
@@ -267,11 +289,10 @@ fn failure_injection_conflict_and_wrong_epoch() {
     let marker = s.data.path().join("m");
 
     // Unmanaged same-name session blocks creation (the seed session).
-    let err = create_space(
-        &s.env(),
+    let err = create(
+        &s,
         &provider,
         &s.scope(epoch),
-        Backend::Tmux,
         &request(&s, "seed", &marker),
     )
     .unwrap_err();
@@ -281,14 +302,7 @@ fn failure_injection_conflict_and_wrong_epoch() {
     // BEFORE any reservation: creation fails closed (plan §2.10) and no
     // identity is consumed.
     let wrong = s.scope(ServerEpoch(Uuid::from_u128(42)));
-    let err = create_space(
-        &s.env(),
-        &provider,
-        &wrong,
-        Backend::Tmux,
-        &request(&s, "epochy", &marker),
-    )
-    .unwrap_err();
+    let err = create(&s, &provider, &wrong, &request(&s, "epochy", &marker)).unwrap_err();
     assert!(matches!(err, OpError::Indeterminate(_)), "{err}");
     assert!(!s.session_names().contains(&"epochy".to_string()));
 
@@ -296,14 +310,7 @@ fn failure_injection_conflict_and_wrong_epoch() {
     // the handshake) aborts the create and consumes its SpaceNo.
     let mut dead_helper = request(&s, "aborty", &marker);
     dead_helper.helper_bin = "/usr/bin/true".into();
-    let err = create_space(
-        &s.env(),
-        &provider,
-        &s.scope(epoch),
-        Backend::Tmux,
-        &dead_helper,
-    )
-    .unwrap_err();
+    let err = create(&s, &provider, &s.scope(epoch), &dead_helper).unwrap_err();
     assert!(
         matches!(err, OpError::Provider(_) | OpError::Bootstrap(_)),
         "post-reservation failure must be typed: {err}"
@@ -311,11 +318,10 @@ fn failure_injection_conflict_and_wrong_epoch() {
     assert!(!s.session_names().contains(&"aborty".to_string()));
 
     // The aborted reservation consumed its SpaceNo: the next create skips it.
-    let ok = create_space(
-        &s.env(),
+    let ok = create(
+        &s,
         &provider,
         &s.scope(epoch),
-        Backend::Tmux,
         &request(&s, "after-abort", &s.data.path().join("m2")),
     )
     .unwrap();
@@ -324,11 +330,10 @@ fn failure_injection_conflict_and_wrong_epoch() {
         "aborted reservation must consume a number"
     );
     // Durable conflict: the live name guard also blocks managed duplicates.
-    let err = create_space(
-        &s.env(),
+    let err = create(
+        &s,
         &provider,
         &s.scope(epoch),
-        Backend::Tmux,
         &request(&s, "after-abort", &s.data.path().join("m3")),
     )
     .unwrap_err();
@@ -341,11 +346,10 @@ fn remove_resume_requires_the_exact_journal_owner_and_uses_the_fenced_path() {
     let epoch = s.epoch();
     let scope = s.scope(epoch);
     let provider = TmuxProvider::new(s.ns.clone());
-    let created = create_space(
-        &s.env(),
+    let created = create(
+        &s,
         &provider,
         &scope,
-        Backend::Tmux,
         &request(&s, "resume-me", &s.data.path().join("resume-marker")),
     )
     .unwrap();
@@ -393,11 +397,10 @@ fn exact_child_actions_are_fenced_and_ack_replay_does_not_toggle_twice() {
     let epoch = s.epoch();
     let scope = s.scope(epoch);
     let provider = TmuxProvider::new(s.ns.clone());
-    let created = create_space(
-        &s.env(),
+    let created = create(
+        &s,
         &provider,
         &scope,
-        Backend::Tmux,
         &request(&s, "actions", &s.data.path().join("action-marker")),
     )
     .unwrap();
@@ -1382,11 +1385,10 @@ fn a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_everywhere() {
     let epoch = s.epoch();
     let scope = s.scope(epoch);
     let provider = TmuxProvider::new(s.ns.clone());
-    let created = create_space(
-        &s.env(),
+    let created = create(
+        &s,
         &provider,
         &scope,
-        Backend::Tmux,
         &request(&s, "proj", &s.data.path().join("replaced-marker")),
     )
     .unwrap();

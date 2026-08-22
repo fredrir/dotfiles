@@ -13,7 +13,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Output};
 
 use dmux::model::HostUid;
-use dmux::operations::{CreateRequest, OperationEnv, create_space, tmux_bootstrap};
+use dmux::operations::{
+    CreateRequest, OperationEnv, OwnerCreateTarget, create_space_owner_fenced, tmux_bootstrap,
+};
 use dmux::registry::{Registry, RegistryConfig};
 use serde_json::Value;
 use uuid::Uuid;
@@ -423,11 +425,21 @@ fn group_and_split_ls_format_json_are_one_document_each() {
         scratch.ns.clone(),
         epoch,
     );
-    let created = create_space(
+    let instance = sandbox
+        .registry()
+        .backend_instance_for_backend(dmux::model::Backend::Tmux)
+        .unwrap()
+        .expect("tmux_bootstrap registered the instance");
+    let created = create_space_owner_fenced(
         &env,
-        &provider,
-        &scope,
-        dmux::model::Backend::Tmux,
+        OwnerCreateTarget {
+            backend: dmux::model::Backend::Tmux,
+            instance,
+            provider: &provider,
+            scope: &scope,
+        },
+        None,
+        false,
         &CreateRequest {
             request_uid: Uuid::new_v4(),
             name: "proj".into(),

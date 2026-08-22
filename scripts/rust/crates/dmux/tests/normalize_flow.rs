@@ -10,8 +10,8 @@ use dmux::backend::wez::WezProvider;
 use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
-    CreateRequest, OpError, OperationEnv, create_space, normalize_apply, normalize_preview,
-    repair_normalize_batch, repair_scan_wez,
+    CreateRequest, OpError, OperationEnv, OwnerCreateTarget, create_space_owner_fenced,
+    normalize_apply, normalize_preview, repair_normalize_batch, repair_scan_wez,
 };
 use uuid::Uuid;
 
@@ -236,7 +236,7 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
             std::thread::sleep(Duration::from_millis(100));
         }
     };
-    {
+    let instance = {
         let mut registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
             &env.db_path,
             &env.lock_dir,
@@ -248,13 +248,19 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
         registry
             .publish_backend_server(instance, epoch, None, None, None, None)
             .unwrap();
-    }
+        instance
+    };
     let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), epoch);
-    let created = create_space(
+    let created = create_space_owner_fenced(
         &env,
-        &provider,
-        &scope,
-        Backend::Wez,
+        OwnerCreateTarget {
+            backend: Backend::Wez,
+            instance,
+            provider: &provider,
+            scope: &scope,
+        },
+        None,
+        false,
         &CreateRequest {
             request_uid: Uuid::new_v4(),
             name: "proj".into(),

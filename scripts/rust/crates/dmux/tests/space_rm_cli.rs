@@ -32,7 +32,8 @@ use dmux::backend::InventoryScope;
 use dmux::backend::tmux::TmuxProvider;
 use dmux::model::{Backend, Lifecycle, ServerEpoch, SpaceUid};
 use dmux::operations::{
-    CreateRequest, CreatedSpace, OperationEnv, TmuxBootstrapOutcome, create_space, tmux_bootstrap,
+    CreateRequest, CreatedSpace, OperationEnv, OwnerCreateTarget, TmuxBootstrapOutcome,
+    create_space_owner_fenced, tmux_bootstrap,
 };
 use dmux::registry::{Registry, RegistryConfig};
 use serde_json::Value;
@@ -603,11 +604,22 @@ impl Owner {
 
     fn create(&self, name: &str) -> CreatedSpace {
         let scope = InventoryScope::managed(Backend::Tmux, self.ns.clone(), self.epoch());
-        create_space(
+        let instance = Registry::open(RegistryConfig::new(self.env().db_path, self.env().lock_dir))
+            .unwrap()
+            .backend_instance_for_backend(Backend::Tmux)
+            .unwrap()
+            .expect("tmux_bootstrap registered the instance");
+        let provider = TmuxProvider::new(self.ns.clone());
+        create_space_owner_fenced(
             &self.env(),
-            &TmuxProvider::new(self.ns.clone()),
-            &scope,
-            Backend::Tmux,
+            OwnerCreateTarget {
+                backend: Backend::Tmux,
+                instance,
+                provider: &provider,
+                scope: &scope,
+            },
+            None,
+            false,
             &CreateRequest {
                 request_uid: Uuid::new_v4(),
                 name: name.to_string(),
