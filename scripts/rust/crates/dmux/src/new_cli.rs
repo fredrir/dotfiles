@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::backend::scope::{self, ManagedTarget};
 use crate::backend::{InventoryScope, Provider};
 use crate::connect_cli::{
     ConnectAuthority, ConnectClientContext, ConnectHistory, ConnectOutcome, ConnectPresenter,
@@ -342,29 +343,48 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
             == owner)
     }
 
+    /// The owner's managed instance of one backend as a lookup/create
+    /// target, or `None` when this owner has never registered that backend
+    /// — the only case `lookup_new_owner_fenced` accepts a missing target
+    /// for. Everything the registry says about the instance comes from
+    /// `backend::scope::resolve_managed`, so the scope is pinned to the
+    /// published epoch by construction.
+    ///
+    /// An instance with no published epoch refuses here, before any lookup
+    /// or reservation. `new` decides `Connect`/`Blocked`/`Create` from the
+    /// inventories and then reserves a SpaceNo and a bootstrap row on the
+    /// strength of that decision; an unverified scan can answer with a
+    /// stranger's sessions or a recycled `$1` on a replaced server, so
+    /// nothing derived from it may reach the registry (plan §2.10, §8.2;
+    /// review finding #12). For auto selection that makes the inventory
+    /// indeterminate (case 7: creates/attaches nothing); for an explicit
+    /// `--backend` it is the same refusal, because §8.2's "may return its
+    /// known live match" presumes a *complete* inventory on that backend,
+    /// and an unpublished one cannot return a known live match either.
     fn local_target(&self, backend: Backend) -> Result<Option<OwnedOwnerTarget>, TypedError> {
         let registry = self.registry()?;
-        let Some(instance) = registry
-            .backend_instance_for_backend(backend)
+        let (instance, scope) = match scope::resolve_managed(&registry, backend)
             .map_err(|error| TypedError::new(error.error_code(), error.to_string()))?
-        else {
-            return Ok(None);
+        {
+            ManagedTarget::Managed { instance, scope } => (instance, scope),
+            ManagedTarget::Unpublished(instance) => {
+                return Err(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    ManagedTarget::unpublished_detail(backend, instance),
+                ));
+            }
+            ManagedTarget::Unaddressable(instance) => {
+                return Err(TypedError::new(
+                    ErrorCode::ProviderUnavailable,
+                    ManagedTarget::unaddressable_detail(backend, instance),
+                ));
+            }
+            ManagedTarget::Unregistered => return Ok(None),
         };
-        let info = registry
-            .backend_instance_info(instance)
-            .map_err(|error| TypedError::new(error.error_code(), error.to_string()))?;
-        let endpoint = info.socket_path.ok_or_else(|| {
-            TypedError::new(
-                ErrorCode::ProviderUnavailable,
-                format!("managed {backend} instance has no recorded endpoint"),
-            )
-        })?;
-        let expected_epoch = registry
-            .backend_server(instance)
-            .map_err(|error| TypedError::new(error.error_code(), error.to_string()))?
-            .server_epoch;
         let provider: Box<dyn Provider> = match backend {
-            Backend::Tmux => Box::new(crate::backend::tmux::TmuxProvider::new(endpoint.clone())),
+            Backend::Tmux => Box::new(crate::backend::tmux::TmuxProvider::new(
+                scope.endpoint.clone(),
+            )),
             Backend::Wez => Box::new(crate::backend::wez::WezProvider::new(
                 &self.wezterm_bin,
                 self.wezterm_config.clone(),
@@ -374,11 +394,7 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
             backend,
             instance,
             provider,
-            scope: match expected_epoch {
-                Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
-                // audit(unmanaged_endpoint): WS-A.5 burn-down: local_target launders a NULL epoch (finding #12)
-                None => InventoryScope::unmanaged_endpoint(backend, endpoint),
-            },
+            scope,
         }))
     }
 

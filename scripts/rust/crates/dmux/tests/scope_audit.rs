@@ -42,10 +42,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
     ("src/backend/tmux.rs", "test-only scope(Option) helper"),
     ("src/backend/wez.rs", "test-only scope(Option) helper"),
     (
-        "src/new_cli.rs",
-        "WS-A.5 burn-down: local_target launders a NULL epoch (finding #12)",
-    ),
-    (
         "src/rm_cli.rs",
         "WS-A.5 burn-down: local_scope launders a NULL epoch (finding #16)",
     ),

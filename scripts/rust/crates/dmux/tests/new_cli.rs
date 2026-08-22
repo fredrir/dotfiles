@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::num::NonZeroU64;
+use std::process::{Command, Output};
 
 use dmux::connect_cli::{
     ConnectAuthority, ConnectClientContext, ConnectHistory, ConnectPresenter, FrozenBinding,
@@ -14,10 +15,12 @@ use dmux::error::{ErrorCode, TypedError};
 use dmux::model::{Backend, BackendInstanceUid, HostUid, ServerEpoch, SpaceNo, SpaceUid};
 use dmux::new_cli::{
     NewAuthority, NewLookupSnapshot, NewOutcome, NewPresentationMode, NewRequest, OwnerNewRequest,
-    WezPresentationPreflight, create_or_connect,
+    ProductionNewRuntime, WezPresentationPreflight, create_or_connect,
 };
-use dmux::operations::CreatedSpace;
+use dmux::operations::{CreatedSpace, OperationEnv, TmuxBootstrapOutcome, tmux_bootstrap};
 use dmux::policy::{CreationContext, LocalEnv};
+use dmux::registry::{Registry, RegistryConfig};
+use dmux::remote::client::SshInvoker;
 use dmux::resolve::{BlockReason, ClassSummary};
 use uuid::Uuid;
 
@@ -829,4 +832,256 @@ fn remote_owner_and_exact_backend_are_frozen_with_no_fallback() {
     assert_eq!(runtime.create_requests[0].owner, remote);
     assert_eq!(runtime.create_requests[0].backend, Backend::Tmux);
     assert_eq!(runtime.events, ["lookup", "policy", "create"]);
+}
+
+// ---------------------------------------------------------------------------
+// The production runtime against a scratch owner (review finding #12, inverted)
+//
+// Everything above injects the lookup. These drive `ProductionNewRuntime`'s
+// own resolver, which is where the registry's word about a managed instance
+// first becomes a scope: an instance whose epoch was never published must
+// refuse there, before the lookup decides anything and before a SpaceNo or a
+// bootstrap row is minted on the strength of an unverified scan.
+
+/// A scratch owner for the production runtime: its own registry and lock
+/// directory, and a private tmux `-L` namespace that only this test may
+/// start — so nothing here can reach the developer's sessions, and a
+/// server appearing on the namespace is proof that something spawned one.
+struct ScratchOwner {
+    dir: tempfile::TempDir,
+    namespace: String,
+}
+
+impl ScratchOwner {
+    fn new(tag: &str) -> ScratchOwner {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("locks")).unwrap();
+        ScratchOwner {
+            dir,
+            namespace: format!("dmux-newcli-{tag}-{}", std::process::id()),
+        }
+    }
+
+    fn env(&self) -> OperationEnv {
+        OperationEnv {
+            db_path: self.dir.path().join("registry.sqlite3"),
+            lock_dir: self.dir.path().join("locks"),
+        }
+    }
+
+    fn registry(&self) -> Registry {
+        let env = self.env();
+        Registry::open(RegistryConfig::new(env.db_path, env.lock_dir)).unwrap()
+    }
+
+    /// The production runtime with every endpoint pointed at this scratch.
+    /// The wezterm path is deliberately unrunnable: no Wez instance is ever
+    /// registered here, so a Wez provider must never be built.
+    fn runtime(&self) -> ProductionNewRuntime {
+        ProductionNewRuntime::with_dependencies(
+            self.env(),
+            self.dir.path().join("runtime"),
+            SshInvoker::default(),
+            "dmux",
+            env!("CARGO_BIN_EXE_pane-bootstrap"),
+            self.dir
+                .path()
+                .join("wezterm-never-run")
+                .display()
+                .to_string(),
+            "/dev/null",
+        )
+    }
+
+    fn tmux(&self, args: &[&str]) -> Output {
+        Command::new("tmux")
+            .args(["-L", &self.namespace])
+            .args(args)
+            .output()
+            .expect("tmux runs")
+    }
+
+    /// A stranger's server on the namespace: one session nothing in the
+    /// registry knows about.
+    fn start_server_with(&self, session: &str) {
+        let out = self.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", session]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn sessions(&self) -> Vec<String> {
+        let out = self.tmux(&["list-sessions", "-F", "#{session_name}"]);
+        if !out.status.success() {
+            return Vec::new();
+        }
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn meta_counter(&self, column: &str) -> i64 {
+        rusqlite::Connection::open_with_flags(
+            self.env().db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .query_row(
+            &format!("SELECT {column} FROM meta WHERE id = 1"),
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn bootstrap_request_rows(&self) -> i64 {
+        rusqlite::Connection::open_with_flags(
+            self.env().db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM bootstrap_requests", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+}
+
+impl Drop for ScratchOwner {
+    fn drop(&mut self) {
+        let _ = self.tmux(&["kill-server"]);
+    }
+}
+
+/// Exactly the row `dmux-mux-start.sh` leaves behind when it registers the
+/// instance and coordination never publishes an incarnation (ADR 012 §4):
+/// registered, addressable, `server_epoch` NULL. `new` must refuse it as an
+/// epoch fault before the lookup — for auto selection (case 7: an
+/// indeterminate inventory creates/attaches nothing) and for an explicit
+/// backend alike — and the refusal must leave the registry exactly as the
+/// registration left it: no Space row, the SpaceNo counter untouched, no
+/// bootstrap request, no native call.
+#[test]
+fn an_unpublished_instance_refuses_new_before_any_lookup_or_reservation() {
+    let owner = ScratchOwner::new("unpublished");
+    let mut registry = owner.registry();
+    let instance = registry
+        .register_backend_instance(Backend::Tmux, Some(&owner.namespace), None)
+        .unwrap();
+    assert!(
+        registry
+            .backend_server(instance)
+            .unwrap()
+            .server_epoch
+            .is_none(),
+        "the fixture is only meaningful with server_epoch NULL"
+    );
+    let local = registry.identity().unwrap().host_uid;
+    let head = registry.authority_head().unwrap();
+    let counter = owner.meta_counter("space_no_counter");
+    drop(registry);
+
+    let mut runtime = owner.runtime();
+    for constraint in [None, Some(Backend::Tmux), Some(Backend::Wez)] {
+        let mut req = request("project");
+        req.backend_constraint = constraint;
+        req.no_connect = true;
+        let failure = create_or_connect(
+            &req,
+            &ConnectClientContext::default(),
+            &NoHistory,
+            &mut runtime,
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.error.code,
+            ErrorCode::BackendEpochChanged,
+            "{constraint:?}: {}",
+            failure.error.message
+        );
+        assert!(
+            failure.error.message.contains("published no server epoch"),
+            "{constraint:?}: {}",
+            failure.error.message
+        );
+        assert!(
+            failure.result.is_none(),
+            "{constraint:?}: nothing was created"
+        );
+    }
+
+    // The write half refuses the same way: an explicit owner create on the
+    // unpublished backend never reaches `create_space_owner_fenced`, which
+    // is what used to reserve a SpaceNo and a bootstrap row before the
+    // provider refused.
+    let failure = runtime
+        .create_owner(&OwnerNewRequest {
+            request_uid: Uuid::new_v4(),
+            owner: local,
+            backend: Backend::Tmux,
+            name: "project".into(),
+            cwd: None,
+            program: Vec::new(),
+            allow_name_collision: false,
+            presentation: None,
+        })
+        .unwrap_err();
+    assert_eq!(
+        failure.code,
+        ErrorCode::BackendEpochChanged,
+        "{}",
+        failure.message
+    );
+
+    let registry = owner.registry();
+    assert!(
+        registry.spaces().unwrap().is_empty(),
+        "a Space row was minted"
+    );
+    assert_eq!(
+        registry.authority_head().unwrap(),
+        head,
+        "the revision chain moved: something wrote to the registry"
+    );
+    assert_eq!(owner.meta_counter("space_no_counter"), counter);
+    assert_eq!(owner.bootstrap_request_rows(), 0);
+    assert!(
+        owner.sessions().is_empty(),
+        "a tmux server appeared on a namespace nothing verified: {:?}",
+        owner.sessions()
+    );
+}
+
+/// The control: the same owner once a real scratch server has published its
+/// epoch through the production bootstrap. The identical lookup now runs a
+/// pinned scan and answers — `project` is free, and the stranger's `seed`
+/// session is reported as an unmanaged same-name blocker, which is exactly
+/// the verdict the unverified scan was reaching before and may not.
+#[test]
+fn a_published_epoch_lets_the_same_lookup_proceed_to_a_verified_answer() {
+    let owner = ScratchOwner::new("published");
+    owner.start_server_with("seed");
+    match tmux_bootstrap(&owner.env(), &owner.namespace).unwrap() {
+        TmuxBootstrapOutcome::Bootstrapped { .. }
+        | TmuxBootstrapOutcome::AlreadyBound { .. }
+        | TmuxBootstrapOutcome::Rebound { .. } => {}
+    }
+    let local = owner.registry().identity().unwrap().host_uid;
+
+    let mut runtime = owner.runtime();
+    assert_eq!(runtime.lookup_exact(local, "project").unwrap(), empty());
+    assert_eq!(
+        runtime.lookup_exact(local, "seed").unwrap(),
+        NewLookupSnapshot {
+            wez: ClassSummary::NoMatch,
+            tmux: ClassSummary::Blocking {
+                reason: BlockReason::UnmanagedSameName,
+                space: None,
+            },
+        }
+    );
+    assert!(owner.registry().spaces().unwrap().is_empty());
 }
