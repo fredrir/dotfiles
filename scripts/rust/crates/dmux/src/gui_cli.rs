@@ -965,11 +965,21 @@ fn route_class_rank(network_class: &str) -> u8 {
 
 /// Pick the one route this operation plan will present through.
 ///
-/// Two enrolled routes reaching one `backend_instance_uid` is §8.4's design,
-/// not a conflict: the manifest validators already prove one HostUid maps to
-/// one backend instance, so a second row is another way to reach the same
-/// server, never a second identity. Only rows that disagree about the owner or
-/// the backend instance are an `IdentityConflict`.
+/// Every candidate must name the owner and backend instance the caller has
+/// already validated (`host_uid`, `backend_instance`). A row for any other
+/// identity is an `IdentityConflict` even when every candidate agrees with
+/// every other: the rows are presentation config derived from the registry,
+/// and only the caller's revalidated authority says which instance the Space
+/// lives on (plan §13.2; ADR 012 §3.5). Checking candidates merely against
+/// each other would let a manifest that names one wrong instance throughout
+/// present a Space on a server nothing verified. An incompatible row is
+/// refused with its recorded reason before ordering, so a caller that forgot
+/// to filter cannot present through a build-mismatched route.
+///
+/// Two enrolled routes reaching that one `backend_instance_uid` is §8.4's
+/// design, not a conflict: the manifest validators already prove one HostUid
+/// maps to one backend instance, so a second row is another way to reach the
+/// same server, never a second identity.
 ///
 /// The freshly proven route wins because `fresh_route` is the route the owner
 /// handshake just completed over after §8.4's own priority walk, so it is the
@@ -982,20 +992,29 @@ fn route_class_rank(network_class: &str) -> u8 {
 /// safe.
 fn choose_compatible_presentation_row<'a>(
     fresh_route: &str,
+    host_uid: HostUid,
+    backend_instance: BackendInstanceUid,
     candidates: &[&'a GuiDomainManifestRow],
 ) -> Result<&'a GuiDomainManifestRow, TypedError> {
-    let Some(first) = candidates.first() else {
+    if candidates.is_empty() {
         return Err(unavailable(
             "no exact-build compatible GUI route exists for this remote Wez instance",
         ));
-    };
-    if candidates.iter().any(|row| {
-        row.host_uid != first.host_uid || row.backend_instance_uid != first.backend_instance_uid
-    }) {
-        return Err(TypedError::new(
-            ErrorCode::IdentityConflict,
-            "compatible presentation routes disagree about the owner or backend instance",
-        ));
+    }
+    for row in candidates {
+        if row.host_uid != host_uid || row.backend_instance_uid != backend_instance {
+            return Err(TypedError::new(
+                ErrorCode::IdentityConflict,
+                "presentation route names another owner or backend instance than the validated authority",
+            ));
+        }
+        if !row.compatible {
+            return Err(unavailable(
+                row.unavailable_reason
+                    .as_deref()
+                    .unwrap_or("remote Wez route is incompatible"),
+            ));
+        }
     }
     candidates
         .iter()
@@ -2099,7 +2118,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         .is_some_and(preflight_domain_state)
             })
             .collect();
-        let selected = choose_compatible_presentation_row(&authority.fresh_route, &candidates)?;
+        let selected = choose_compatible_presentation_row(
+            &authority.fresh_route,
+            owner,
+            authority.backend_instance,
+            &candidates,
+        )?;
         let alternate_domains = selected
             .alternate_domains
             .iter()
@@ -2128,7 +2152,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                     && row.backend_instance_uid == authority.backend_instance
             })
             .collect();
-        let selected = choose_compatible_presentation_row(&authority.fresh_route, &candidates)?;
+        let selected = choose_compatible_presentation_row(
+            &authority.fresh_route,
+            owner,
+            authority.backend_instance,
+            &candidates,
+        )?;
         Ok((selected.name.clone(), selected.alternate_domains.clone()))
     }
 
@@ -3179,7 +3208,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         // The marker's route is the one the owner handshake just proved, so it
         // leads §8.4's order here; the bridge detaches any stale alternate to
         // the same backend instance before attaching it.
-        let selected = choose_compatible_presentation_row(&target.route, &candidates)?;
+        let selected = choose_compatible_presentation_row(
+            &target.route,
+            target.marker.host_uid,
+            target.backend_instance,
+            &candidates,
+        )?;
         let alternates = selected
             .alternate_domains
             .iter()
@@ -3229,7 +3263,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 if candidates.is_empty() {
                     return Ok(None);
                 }
-                let selected = choose_compatible_presentation_row(&authority.route, &candidates)?;
+                let selected = choose_compatible_presentation_row(
+                    &authority.route,
+                    authority.marker.host_uid,
+                    authority.backend_instance,
+                    &candidates,
+                )?;
                 let alternate_domains = selected
                     .alternate_domains
                     .iter()
@@ -7764,46 +7803,121 @@ mod tests {
         // transport is dead. Presenting through the still-`Attached` USB row
         // would dial a corpse; the freshly proven route is the only one with
         // live evidence.
-        let selected = choose_compatible_presentation_row("dmux-b-ts", &candidates).unwrap();
+        let selected = choose_compatible_presentation_row(
+            "dmux-b-ts",
+            host_uid,
+            backend_instance_uid,
+            &candidates,
+        )
+        .unwrap();
         assert_eq!(selected.name, "dmux-b-ts");
 
         // Two routes to one backend instance is §8.4's design, so both being
         // attached selects the fresh route instead of raising a conflict; the
         // bridge detaches the stale alternate before attaching it.
-        let selected = choose_compatible_presentation_row("dmux-b-usb", &candidates).unwrap();
+        let selected = choose_compatible_presentation_row(
+            "dmux-b-usb",
+            host_uid,
+            backend_instance_uid,
+            &candidates,
+        )
+        .unwrap();
         assert_eq!(selected.name, "dmux-b-usb");
 
         // With no fresh route among the candidates the §8.4 class order
         // decides: USB, then Tailscale, then anything else enrolled.
-        let selected = choose_compatible_presentation_row("dmux-b-gone", &candidates).unwrap();
+        let selected = choose_compatible_presentation_row(
+            "dmux-b-gone",
+            host_uid,
+            backend_instance_uid,
+            &candidates,
+        )
+        .unwrap();
         assert_eq!(selected.name, "dmux-b-usb");
         let tailscale_first: Vec<_> = vec![&rows[1], &rows[0]];
-        let selected = choose_compatible_presentation_row("dmux-b-gone", &tailscale_first).unwrap();
+        let selected = choose_compatible_presentation_row(
+            "dmux-b-gone",
+            host_uid,
+            backend_instance_uid,
+            &tailscale_first,
+        )
+        .unwrap();
         assert_eq!(selected.name, "dmux-b-usb");
     }
 
+    /// Every candidate is checked against the caller's validated identity,
+    /// not only against the other candidates (report 06 row 15; ADR 012
+    /// §3.5): a manifest whose rows all agree with each other about the
+    /// wrong instance is still refused.
     #[test]
-    fn presentation_routes_conflict_only_on_a_different_identity() {
+    fn presentation_routes_must_name_the_validated_authority() {
         let host_uid = marker().host_uid;
         let backend_instance_uid =
             BackendInstanceUid(Uuid::parse_str("44444444-4444-4444-8444-444444444444").unwrap());
         let rows = two_route_manifest(host_uid, backend_instance_uid);
-        let mut other_instance = rows[1].clone();
-        other_instance.backend_instance_uid =
+        let candidates: Vec<_> = rows.iter().collect();
+
+        // Both rows agree with each other; neither names the validated
+        // backend instance. The old candidates-only check accepted this.
+        let other_instance =
             BackendInstanceUid(Uuid::parse_str("66666666-6666-4666-8666-666666666666").unwrap());
-        let error = choose_compatible_presentation_row("dmux-b-usb", &[&rows[0], &other_instance])
-            .unwrap_err();
+        let error =
+            choose_compatible_presentation_row("dmux-b-usb", host_uid, other_instance, &candidates)
+                .unwrap_err();
         assert_eq!(error.code, ErrorCode::IdentityConflict);
 
-        let mut other_host = rows[1].clone();
-        other_host.host_uid =
-            HostUid(Uuid::parse_str("77777777-7777-4777-8777-777777777777").unwrap());
-        let error =
-            choose_compatible_presentation_row("dmux-b-usb", &[&rows[0], &other_host]).unwrap_err();
+        let other_host = HostUid(Uuid::parse_str("77777777-7777-4777-8777-777777777777").unwrap());
+        let error = choose_compatible_presentation_row(
+            "dmux-b-usb",
+            other_host,
+            backend_instance_uid,
+            &candidates,
+        )
+        .unwrap_err();
         assert_eq!(error.code, ErrorCode::IdentityConflict);
+
+        // One stray row for another identity among otherwise correct rows is
+        // refused the same way, whichever position it occupies.
+        let mut stray = rows[1].clone();
+        stray.backend_instance_uid = other_instance;
+        for ordered in [vec![&rows[0], &stray], vec![&stray, &rows[0]]] {
+            let error = choose_compatible_presentation_row(
+                "dmux-b-usb",
+                host_uid,
+                backend_instance_uid,
+                &ordered,
+            )
+            .unwrap_err();
+            assert_eq!(error.code, ErrorCode::IdentityConflict);
+        }
+        let mut stray_host = rows[1].clone();
+        stray_host.host_uid = other_host;
+        let error = choose_compatible_presentation_row(
+            "dmux-b-usb",
+            host_uid,
+            backend_instance_uid,
+            &[&rows[0], &stray_host],
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::IdentityConflict);
+
+        // An incompatible row is refused with its recorded reason even when
+        // it names the right identity and would otherwise win the ordering.
+        let mut incompatible = rows[1].clone();
+        incompatible.compatible = false;
+        incompatible.unavailable_reason = Some("wez_build_mismatch".into());
+        let error = choose_compatible_presentation_row(
+            "dmux-b-ts",
+            host_uid,
+            backend_instance_uid,
+            &[&rows[0], &incompatible],
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::ProviderUnavailable);
+        assert_eq!(error.message, "wez_build_mismatch");
 
         assert_eq!(
-            choose_compatible_presentation_row("dmux-b-usb", &[])
+            choose_compatible_presentation_row("dmux-b-usb", host_uid, backend_instance_uid, &[])
                 .unwrap_err()
                 .code,
             ErrorCode::ProviderUnavailable,

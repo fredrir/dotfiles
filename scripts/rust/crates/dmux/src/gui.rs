@@ -1241,36 +1241,6 @@ pub fn validate_domain_manifest(rows: &[GuiDomainManifestRow]) -> Result<(), Gui
     Ok(())
 }
 
-/// Select a compatible domain only when its authority identity is exactly
-/// the caller's already-validated HostUid/backend instance.
-pub fn select_compatible_domain<'a>(
-    rows: &'a [GuiDomainManifestRow],
-    name: &str,
-    host_uid: HostUid,
-    backend_instance_uid: BackendInstanceUid,
-) -> Result<&'a GuiDomainManifestRow, GuiError> {
-    validate_domain_manifest(rows)?;
-    let matches: Vec<&GuiDomainManifestRow> = rows.iter().filter(|row| row.name == name).collect();
-    let [row] = matches.as_slice() else {
-        return Err(GuiError::BridgeUnavailable(format!(
-            "GUI domain {name:?} is absent or ambiguous"
-        )));
-    };
-    if row.host_uid != host_uid || row.backend_instance_uid != backend_instance_uid {
-        return Err(GuiError::InvalidInstance(
-            "GUI domain authority/backend identity changed".into(),
-        ));
-    }
-    if !row.compatible {
-        return Err(GuiError::BridgeUnavailable(
-            row.unavailable_reason
-                .clone()
-                .unwrap_or_else(|| "remote Wez route is incompatible".into()),
-        ));
-    }
-    Ok(row)
-}
-
 pub fn validate_space_rows(rows: &[GuiSpaceRow]) -> Result<(), GuiError> {
     let mut refs = BTreeSet::new();
     for row in rows {
@@ -3989,8 +3959,12 @@ mod tests {
         }
     }
 
+    /// Selection among these rows is the production chooser's job
+    /// (`gui_cli::choose_compatible_presentation_row`), whose tests prove
+    /// the identity and compatibility refusals; this case vouches for the
+    /// manifest the chooser consumes.
     #[test]
-    fn domain_manifest_derives_alternates_and_refuses_incompatible_selection() {
+    fn domain_manifest_derives_alternates_and_refuses_unsafe_sources() {
         let rows = build_domain_manifest(vec![
             domain_source("dmux-b-ts", 2, Transport::WezSsh, false),
             domain_source("dmux-b-usb", 1, Transport::Openssh, true),
@@ -4004,14 +3978,6 @@ mod tests {
         assert!(serialized[0].get("unavailable_reason").is_none());
         assert_eq!(serialized[1]["unavailable_reason"], "wez_build_mismatch");
         assert!(serialized[1].get("remote_wezterm_path").is_none());
-
-        let host = rows[0].host_uid;
-        let backend = rows[0].backend_instance_uid;
-        assert!(select_compatible_domain(&rows, "dmux-b-usb", host, backend).is_ok());
-        assert!(matches!(
-            select_compatible_domain(&rows, "dmux-b-ts", host, backend),
-            Err(GuiError::BridgeUnavailable(_))
-        ));
 
         let mut control = domain_source("dmux-control", 3, Transport::Openssh, true);
         control.remote_address = "host\nProxyCommand=bad".into();
