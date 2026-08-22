@@ -4542,7 +4542,7 @@ mod tests {
 
         // The plan's epoch is the pin (made under this scope) and the live
         // sentinel has moved on: the scope's pin is what the scan names.
-        let other = Uuid::from_u128(0x0ddb_a11);
+        let other = Uuid::from_u128(0x00dd_ba11);
         let runner = ScriptedRunner::new(
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned_epoch(
