@@ -10,6 +10,17 @@
 //! `$TMPDIR`, and never a `/run/user` fallback (macOS has no such tree).
 //! Persistent registry/snapshots never live here.
 //!
+//! One thing sits above the platform resolution: the owner-side test seam
+//! `DMUX_RUNTIME_DIR` (ADR 009 §6). [`dmux_runtime_dir`] returns it verbatim
+//! when it is exported, so a test suite can point every socket, token,
+//! descriptor and kernel lock of every process it spawns — the CLI, the
+//! `_agent`/`_attach` endpoints, the bootstrap helper, scratch mux servers —
+//! at a scratch directory through one variable, and never takes a kernel
+//! lock in the directory the live service is using (ADR 012 §3.2).
+//! [`platform_runtime_dir`] is the seam-blind resolution, exposed only so
+//! the isolation guard can name the directory the seam must keep the suite
+//! out of.
+//!
 //! This resolver performs the metadata-level checks (ownership, mode,
 //! symlink rejection). Descriptor-relative no-follow opens for individual
 //! endpoints arrive with the P5 runtime broker; callers must still create
@@ -27,9 +38,75 @@ use std::path::{Path, PathBuf};
 
 const SUBDIR: &str = "dmux";
 
-/// The verified dmux runtime directory, created 0700 if missing.
+/// The owner-side test seam: when exported non-empty, its value IS the
+/// runtime directory (see [`runtime_dir_seam`] for the exact rule).
+pub const RUNTIME_DIR_SEAM_ENV: &str = "DMUX_RUNTIME_DIR";
+
+/// The dmux runtime directory: the [`RUNTIME_DIR_SEAM_ENV`] seam when the
+/// owner exported one, otherwise the verified platform directory
+/// ([`platform_runtime_dir`]), created 0700 if missing.
+///
+/// Every production path that needs the runtime directory — kernel-lock
+/// directories (`OperationEnv::production`, `RegistryConfig::production`),
+/// the managed-mux socket and descriptor, the bridge key, the bootstrap
+/// FIFO directory — resolves through this one function, so honouring the
+/// seam here is what makes `DMUX_RUNTIME_DIR` mean the same thing to every
+/// process a test spawns. The bootstrap helper binary applies the identical
+/// rule in its own resolver (`_pane-bootstrap`'s `resolve_runtime_dir`).
 pub fn dmux_runtime_dir() -> io::Result<PathBuf> {
+    match runtime_dir_seam()? {
+        Some(dir) => Ok(dir),
+        None => platform_runtime_dir(),
+    }
+}
+
+/// The verified platform runtime directory, ignoring the seam: the
+/// `confstr`/`XDG_RUNTIME_DIR`/derived `/run/user/<euid>` resolution the
+/// module doc describes, created 0700 if missing.
+///
+/// This is the directory the live service is using. Production code must
+/// not call it — it would re-create the very bypass `dmux_runtime_dir`
+/// exists to close — it is public so the isolation guard
+/// (`tests/runtime_dir_seam.rs`, `tests/run-isolated.sh`) can snapshot the
+/// directory a seam-exporting suite run must leave unchanged.
+pub fn platform_runtime_dir() -> io::Result<PathBuf> {
     secured_runtime_subdir(&platform_base_dir()?)
+}
+
+/// What the [`RUNTIME_DIR_SEAM_ENV`] seam says: `Ok(None)` when it is unset
+/// or empty (production — nothing ever sets it except a test, the GUI
+/// launcher and the mux start script, which export the verified platform
+/// value itself so their descendants agree with them), `Ok(Some(dir))` when
+/// it names an absolute path, and an error when it is set to a relative one.
+///
+/// The value is used verbatim — not created, not canonicalised, not held to
+/// the ownership/mode checks the platform path gets — because the owner of
+/// the process owns the directory; this is exactly the trust the hidden
+/// `--data-dir`/`--lock-dir` flags already extend, and `_agent`/`_attach`
+/// take those from the same command line a remote peer writes. A peer who
+/// can export this variable has a shell as this user and needs no seam; an
+/// sshd forced command drops client environment altogether. Keep the path
+/// SHORT: scratch mux servers bind `<dir>/wez-dmux.sock`, and `sun_path` is
+/// 104 bytes on macOS (108 on Linux) — a deep scratch path fails every
+/// socket-binding test with "File name too long".
+pub fn runtime_dir_seam() -> io::Result<Option<PathBuf>> {
+    runtime_dir_seam_from(std::env::var_os(RUNTIME_DIR_SEAM_ENV).as_deref())
+}
+
+/// `value` is passed in (rather than read here) so the rule is unit-testable
+/// without touching the process environment.
+fn runtime_dir_seam_from(value: Option<&std::ffi::OsStr>) -> io::Result<Option<PathBuf>> {
+    let Some(value) = value.filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let dir = PathBuf::from(value);
+    if !dir.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{RUNTIME_DIR_SEAM_ENV} must be an absolute path"),
+        ));
+    }
+    Ok(Some(dir))
 }
 
 #[cfg(target_os = "macos")]
@@ -76,13 +153,16 @@ const LINUX_RUNTIME_ROOT: &str = "/run/user";
 /// Linux base-directory precedence, in order (plan §10.1):
 ///
 /// 1. `DMUX_RUNTIME_DIR` — the explicit owner-side TEST seam. It wins over
-///    everything, and it is consulted exactly where it always was, one level
-///    ABOVE this resolver (`_pane-bootstrap`'s `resolve_runtime_dir`), used
-///    verbatim because the test owns the directory. It is deliberately NOT
-///    read here: `dmux _agent` runs as `ssh <route> dmux _agent …`, so the
-///    peer chooses that whole command line; teaching the production resolver
-///    to obey a name a caller can set would hand a remote peer the directory
-///    every socket, token and kernel lock lives in.
+///    everything, and it is consulted one level ABOVE this resolver, in
+///    [`dmux_runtime_dir`] (and identically in `_pane-bootstrap`'s
+///    `resolve_runtime_dir`), used verbatim because the test owns the
+///    directory. It used to be read only by the helper, on the argument that
+///    `dmux _agent` runs as `ssh <route> dmux _agent …` and the peer chooses
+///    that command line; but that same command line already carries the
+///    hidden `--data-dir`/`--lock-dir` seams `_agent` honours verbatim, so
+///    the variable adds nothing a peer did not have — while every owner-side
+///    process that ignored it took its kernel locks in the live service's
+///    directory (ADR 012 §3.2). See [`runtime_dir_seam`].
 /// 2. `$XDG_RUNTIME_DIR`, when the login path exported a non-empty value.
 ///    Used as given (and then held to the same checks as every other base by
 ///    `secured_runtime_subdir`). An explicitly set value is never *replaced*
@@ -1583,8 +1663,41 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn platform_resolver_yields_usable_dir() {
-        let dir = dmux_runtime_dir().unwrap();
+        let dir = platform_runtime_dir().unwrap();
         assert!(dir.is_dir());
         assert!(dir.ends_with("dmux"));
+        // The public resolver is the platform dir exactly when no seam is
+        // exported, and the seam verbatim when one is (the isolated suite
+        // runner exports one; bare `cargo test` does not).
+        let resolved = dmux_runtime_dir().unwrap();
+        match runtime_dir_seam().unwrap() {
+            Some(seam) => assert_eq!(resolved, seam),
+            None => assert_eq!(resolved, dir),
+        }
+    }
+
+    #[test]
+    fn runtime_dir_seam_is_verbatim_when_absolute_and_absent_when_empty() {
+        use std::ffi::OsStr;
+
+        assert_eq!(runtime_dir_seam_from(None).unwrap(), None);
+        assert_eq!(runtime_dir_seam_from(Some(OsStr::new(""))).unwrap(), None);
+        // Verbatim: not created, not canonicalised — a path that does not
+        // exist comes back as given, and so does a trailing slash.
+        let missing = "/nonexistent/dmux-seam-e1/never-created";
+        assert_eq!(
+            runtime_dir_seam_from(Some(OsStr::new(missing))).unwrap(),
+            Some(PathBuf::from(missing))
+        );
+        assert_eq!(
+            runtime_dir_seam_from(Some(OsStr::new("/tmp/dmux-seam/"))).unwrap(),
+            Some(PathBuf::from("/tmp/dmux-seam/"))
+        );
+        // A relative value fails closed instead of resolving against the
+        // working directory: a test that set it would otherwise scatter
+        // lock files through whatever directory it ran from.
+        let err = runtime_dir_seam_from(Some(OsStr::new("relative/dir"))).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("DMUX_RUNTIME_DIR"), "{err}");
     }
 }

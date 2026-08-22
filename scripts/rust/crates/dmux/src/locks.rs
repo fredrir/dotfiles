@@ -9,7 +9,12 @@
 //! tokens; clock expiry alone never authorizes takeover.
 //!
 //! Lock files live under a caller-supplied directory: production callers
-//! pass `crate::runtime::dmux_runtime_dir()`, tests pass a scratch dir.
+//! pass `crate::runtime::dmux_runtime_dir()` — which is the owner-side
+//! `DMUX_RUNTIME_DIR` seam when one is exported, so a spawned process under
+//! test locks in the test's scratch directory and never in the live
+//! service's — and in-process tests pass a scratch dir directly. Nothing in
+//! this module resolves a directory of its own; every lock path is
+//! `dir.join(scope.file_name())`.
 //! Locks are open-file-description (OFD) locks, so two lock handles conflict
 //! even inside one process (each `HeldLock` owns its own open description),
 //! and the lock dies with the last descriptor of that description — a paused
