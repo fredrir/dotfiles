@@ -14,7 +14,7 @@
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::backend::InventoryScope;
+use crate::backend::scope::{self, ManagedTarget};
 use crate::backend::tmux::TmuxProvider;
 use crate::backend::wez::{SystemRunner, WezProvider, WezRunner};
 use crate::error::{ErrorCode, ExitStatus, TypedError};
@@ -172,7 +172,36 @@ fn run<R: WezRunner>(
             ));
         }
     }
-    let scope = owner_scope(&registry, backend)?;
+    // The registry says what this backend's instance is before anything is
+    // probed (`backend::scope::resolve_managed`). Adoption is a native
+    // mutation plus a registry binding (§10.3), and both are fenced on the
+    // instance's *published* epoch; an instance that has published none is
+    // refused here — before the re-resolving scan, before the reservation,
+    // before the CAS — so nothing is mutated and nothing is reserved. It is
+    // not an unmanaged endpoint to adopt from on whatever answers: that is
+    // review finding #2. Unregistered and unaddressable keep their meaning,
+    // a provider this process cannot reach.
+    let scope = match scope::resolve_managed(&registry, backend).map_err(reg)? {
+        ManagedTarget::Managed { scope, .. } => scope,
+        ManagedTarget::Unpublished(instance) => {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::unpublished_detail(backend, instance),
+            ));
+        }
+        ManagedTarget::Unaddressable(instance) => {
+            return Err(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                ManagedTarget::unaddressable_detail(backend, instance),
+            ));
+        }
+        ManagedTarget::Unregistered => {
+            return Err(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                format!("no managed {backend} backend instance is registered"),
+            ));
+        }
+    };
     drop(registry);
 
     let request_uid = Uuid::new_v4();
@@ -213,32 +242,6 @@ fn receipt(
         native_ref: args.native_ref.clone(),
         native_token: adopted.native_token,
     })
-}
-
-/// Endpoint and published epoch for one local backend, built from the
-/// registry exactly as `ls` builds its scan target.
-fn owner_scope(registry: &Registry, backend: Backend) -> Result<InventoryScope, TypedError> {
-    let unavailable = |detail: String| TypedError::new(ErrorCode::ProviderUnavailable, detail);
-    let instance = registry
-        .backend_instance_for_backend(backend)
-        .map_err(reg)?
-        .ok_or_else(|| {
-            unavailable(format!(
-                "no managed {backend} backend instance is registered"
-            ))
-        })?;
-    let endpoint = registry
-        .backend_instance_info(instance)
-        .map_err(reg)?
-        .socket_path
-        .ok_or_else(|| unavailable(format!("the managed {backend} instance has no endpoint")))?;
-    Ok(
-        match registry.backend_server(instance).map_err(reg)?.server_epoch {
-            Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
-            // audit(unmanaged_endpoint): WS-A.5 burn-down: owner_scope launders a NULL epoch (finding #2)
-            None => InventoryScope::unmanaged_endpoint(backend, endpoint),
-        },
-    )
 }
 
 fn open(env: &OperationEnv) -> Result<Registry, TypedError> {

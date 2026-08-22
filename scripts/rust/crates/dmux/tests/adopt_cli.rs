@@ -20,7 +20,7 @@ use dmux::backend::wez::{
     WezRunner,
 };
 use dmux::error::ExitStatus;
-use dmux::model::{Backend, Health, Lifecycle, ServerEpoch};
+use dmux::model::{Backend, BackendInstanceUid, Health, Lifecycle, ServerEpoch};
 use dmux::operations::{OperationEnv, tmux_bootstrap};
 use dmux::output::{OutputFormat, native_ref};
 use dmux::registry::{NativeBindingSpec, NativeKind, Registry, RegistryConfig};
@@ -57,6 +57,17 @@ impl Scratch {
 
     fn revision(&self) -> u64 {
         self.registry().authority_head().unwrap().revision
+    }
+
+    /// Every row of one registry table, whatever its state: a reservation
+    /// that was aborted still counts, because it was written.
+    fn table_rows(&self, table: &str) -> i64 {
+        self.registry()
+            .raw_connection()
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap()
     }
 }
 
@@ -491,6 +502,9 @@ struct FakeMux {
     cas: Cas,
     /// `(window_id, tab_id, pane_id, workspace)`.
     panes: RefCell<Vec<(u64, u64, u64, String)>>,
+    /// Everything this mux was asked, in order: a socket probe as
+    /// `["probe", socket]`, otherwise the `wezterm cli` argv.
+    commands: RefCell<Vec<Vec<String>>>,
 }
 
 impl FakeMux {
@@ -504,7 +518,12 @@ impl FakeMux {
                     .map(|(w, t, p, ws)| (*w, *t, *p, ws.to_string()))
                     .collect(),
             ),
+            commands: RefCell::new(Vec::new()),
         }
+    }
+
+    fn commands(&self) -> Vec<Vec<String>> {
+        self.commands.borrow().clone()
     }
 
     fn workspaces(&self) -> Vec<String> {
@@ -568,12 +587,16 @@ impl FakeMux {
 }
 
 impl WezRunner for &FakeMux {
-    fn probe(&self, _socket: &str, _pid: Option<u32>) -> ProbeOutcome {
+    fn probe(&self, socket: &str, _pid: Option<u32>) -> ProbeOutcome {
+        self.commands
+            .borrow_mut()
+            .push(vec!["probe".to_string(), socket.to_string()]);
         ProbeOutcome::Connectable
     }
 
     fn run(&self, invocation: &WezInvocation, _: Duration) -> Result<RunOutput, RunError> {
         let argv = &invocation.argv;
+        self.commands.borrow_mut().push(argv.clone());
         if argv.iter().any(|a| a == "list") {
             return Ok(RunOutput {
                 status: 0,
@@ -618,6 +641,136 @@ fn wez_registered<'a>(scratch: &Scratch, mux: &'a FakeMux) -> WezCli<&'a FakeMux
         config: "/etc/dmux/wez.lua".into(),
         runner: mux,
     }
+}
+
+/// Register the managed Wez instance the way `dmux-mux-start.sh` leaves it
+/// before the mux coordinates — addressable, but with no published epoch —
+/// which is also what a service that never finished coordinating leaves
+/// behind for good.
+fn wez_registered_unpublished<'a>(
+    scratch: &Scratch,
+    mux: &'a FakeMux,
+) -> (BackendInstanceUid, WezCli<&'a FakeMux>) {
+    let instance = scratch
+        .registry()
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), None)
+        .unwrap();
+    (
+        instance,
+        WezCli {
+            bin: "/opt/homebrew/bin/wezterm".into(),
+            config: "/etc/dmux/wez.lua".into(),
+            runner: mux,
+        },
+    )
+}
+
+/// Review finding #2, inverted (ADR 012 WS-A.5). A registered, addressable
+/// Wez instance whose `server_epoch` is NULL used to be adopted *from*: the
+/// CAS rename landed on whatever server answered at the endpoint, the verb
+/// exited 0, and the binding carried that stranger's epoch. Nothing in the
+/// registry vouches for that server, so there is nothing to fence the
+/// mutation against: `adopt` refuses before the re-resolving scan, before
+/// the reservation, and before the rename.
+#[test]
+fn a_wez_instance_with_no_published_epoch_is_refused_before_any_rename() {
+    let scratch = Scratch::new();
+    let mux = FakeMux::new(Cas::Fork, &[(1, 10, 100, "alpha")]);
+    let (instance, wez) = wez_registered_unpublished(&scratch, &mux);
+    let reference = native_ref(Backend::Wez, "alpha");
+    let before = scratch.revision();
+
+    let out = adopt_in(
+        &scratch.env(),
+        wez,
+        Some(OutputFormat::Json),
+        args(reference.clone()),
+    );
+    assert_eq!(out.status, ExitStatus::OperationFailure, "{}", out.stdout);
+    let doc = document(&out);
+    assert_eq!(doc["ok"], false);
+    assert_eq!(doc["action"], "adopt");
+    assert_eq!(doc["errors"][0]["code"], "backend_epoch_changed");
+    assert!(
+        doc["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has published no server epoch"),
+        "{doc}"
+    );
+    assert_eq!(doc["authority_revision"], before);
+
+    // Nothing reached the mux: no socket probe, not the re-resolving
+    // `list`, not the CAS rename. The workspace is exactly where it was.
+    assert!(mux.commands().is_empty(), "{:?}", mux.commands());
+    assert_eq!(mux.workspaces(), vec!["alpha".to_string()]);
+
+    // Nothing durable: no Space row in any lifecycle (so no reservation to
+    // abort), no binding, no journal row, no epoch minted from the
+    // stranger, and the authority chain did not move.
+    assert_eq!(scratch.table_rows("spaces"), 0);
+    assert_eq!(scratch.table_rows("native_bindings"), 0);
+    assert_eq!(scratch.table_rows("operations"), 0);
+    assert_eq!(
+        scratch
+            .registry()
+            .backend_server(instance)
+            .unwrap()
+            .server_epoch,
+        None
+    );
+    assert_eq!(scratch.revision(), before);
+
+    // The human renderer is the same refusal, on stderr only.
+    let human = adopt_in(
+        &scratch.env(),
+        wez_registered_unpublished(&scratch, &mux).1,
+        None,
+        args(reference),
+    );
+    assert_eq!(human.status, ExitStatus::OperationFailure);
+    assert_eq!(human.stdout, "");
+    assert!(
+        human.stderr.contains("has published no server epoch"),
+        "{:?}",
+        human.stderr
+    );
+    assert!(mux.commands().is_empty());
+    assert_eq!(scratch.revision(), before);
+}
+
+/// The tmux arm of the same refusal. `tmux_bootstrap` registers the instance
+/// before it publishes the epoch; a bootstrap that died in between leaves
+/// exactly this row, and a live session on that namespace is not adoptable
+/// until something publishes what the server is.
+#[test]
+fn a_tmux_instance_with_no_published_epoch_is_refused_before_any_scan() {
+    let scratch = Scratch::new();
+    let tmux = TmuxScratch::start("unpublished");
+    tmux.tmux(&["new-session", "-d", "-s", "legacy"]);
+    scratch
+        .registry()
+        .register_backend_instance(Backend::Tmux, Some(&tmux.ns), None)
+        .unwrap();
+    let session = tmux.session_id("legacy");
+    let before = scratch.revision();
+
+    let out = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        Some(OutputFormat::Json),
+        args(native_ref(Backend::Tmux, &session)),
+    );
+    assert_eq!(out.status, ExitStatus::OperationFailure, "{}", out.stdout);
+    assert_eq!(document(&out)["errors"][0]["code"], "backend_epoch_changed");
+
+    // The session was neither stamped nor bootstrapped behind the
+    // operator's back, and the registry holds nothing new.
+    assert_eq!(tmux.marker(&session, "@dmux_space_uid"), None);
+    assert_eq!(tmux.marker(&session, "@dmux_space_no"), None);
+    assert_eq!(scratch.table_rows("spaces"), 0);
+    assert_eq!(scratch.table_rows("operations"), 0);
+    assert_eq!(scratch.revision(), before);
 }
 
 #[test]
