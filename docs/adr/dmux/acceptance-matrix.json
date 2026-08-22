@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "created": "2026-08-22",
- "revision": "5b00e13",
+ "revision": "c65a653",
  "source": "ADR 012 WS-G.1; plan §20.1 (amended) and §20.2",
  "rule": "A case is passed only when every test listed under it is green at the named revision AND every live-evidence artifact it requires exists and is named here. A green suite alone proves nothing; an empty tests list is a gap, not a pass.",
  "test_id_format": "unit::<module>::tests::<fn> for lib tests; <integration binary>::<module path>::<fn> for tests/ (binary = file stem, or the directory name for tests/<dir>/main.rs trees).",
@@ -80,12 +80,15 @@
   "7": {
    "title": "Indeterminate inventory creates/attaches nothing; stopped-service recovery repeated before space_absent",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
+   "tests": [
+    "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation",
+    "new_cli_dispatch::an_unpublished_tmux_instance_refuses_the_gated_new_before_any_reservation_or_tmux_call"
+   ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped"
   },
   "8": {
    "title": "con and dmux - never create",
@@ -121,7 +124,12 @@
    "title": "Concurrent create/rename/adopt/rebind serializes owner-wide; no collision; gaps not reused",
    "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
    "tests": [
-    "registry::reconcile::stranded_adoption"
+    "registry::reconcile::stranded_adoption",
+    "registry::reconcile::a_stranded_create_on_an_unpublished_tmux_instance_is_refused_not_released",
+    "registry::reconcile::a_stranded_row_on_an_unaddressable_tmux_instance_is_refused",
+    "unit::space_cli::tests::a_stranded_row_on_an_unpublished_tmux_instance_is_refused_before_any_provider",
+    "unit::space_cli::tests::a_registry_error_resolving_the_instance_is_that_error_never_no_provider",
+    "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation"
    ],
    "implemented_at": [
     "src/space_cli.rs:154",
@@ -152,7 +160,9 @@
     "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered",
     "registry::reconcile::stranded_adoption",
     "adopt_cli::a_wez_instance_with_no_published_epoch_is_refused_before_any_rename",
-    "adopt_cli::a_tmux_instance_with_no_published_epoch_is_refused_before_any_scan"
+    "adopt_cli::a_tmux_instance_with_no_published_epoch_is_refused_before_any_scan",
+    "registry::reconcile::a_stranded_create_on_an_unpublished_tmux_instance_is_refused_not_released",
+    "registry::reconcile::a_stranded_row_on_an_unaddressable_tmux_instance_is_refused"
    ],
    "implemented_at": [
     "src/operations.rs:1452 require_unbound_native",
@@ -266,7 +276,7 @@
     "WS-G.5 USB removal -> Tailscale reconnect"
    ],
    "open_items": [],
-   "status": "mapped"
+   "status": "live_pending"
   },
   "21": {
    "title": "Only enumerated pre-auth transport failures retry another verified route; nothing falls back to another backend",
@@ -340,24 +350,27 @@
   "26": {
    "title": "New Group/Split inherits exact owner/backend/cwd; backend override rejected",
    "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
-   "tests": [],
+   "tests": [
+    "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window"
+   ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped"
   },
   "27": {
    "title": "Group/Split refs correlate within an epoch; new incarnations publish new epochs; unepoched tmux stays unmanaged with no native write; first contact serializes",
    "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
    "tests": [
-    "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered"
+    "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered",
+    "space_cli_epoch::group_new_on_an_unpublished_tmux_space_refuses_and_creates_no_window"
    ],
    "implemented_at": [],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [
-    "ADR 012 WS-A.5/A.6/A.8/A.9 (mutation on an unverified server; binding_epoch tautology; tmux dev/ino witness)",
+    "ADR 012 WS-A.6/A.8/A.9 (wez fence; binding_epoch tautology; tmux dev/ino witness) — the A.5 sites are closed",
     "WS-B.1 stale incarnation"
    ],
    "status": "blocked"
@@ -574,7 +587,8 @@
     "space_rm_cli::wez_first_row_refuses_to_index_an_incomplete_listing",
     "space_rm_cli::a_legacy_index_removal_keeps_its_plan_and_gains_a_hint",
     "space_rm_cli::row_indexes_the_managed_prefix_even_with_one_registered_backend",
-    "space_rm_cli::the_prompt_names_the_space_before_it_asks"
+    "space_rm_cli::the_prompt_names_the_space_before_it_asks",
+    "space_rm_cli::row_refuses_an_unpublished_instance_instead_of_advertising_its_sessions_as_adoptable"
    ],
    "implemented_at": [
     "src/rm_cli.rs:816 resolve_row",

@@ -37,6 +37,10 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.data.path())
             .env("XDG_STATE_HOME", self.state.path())
             .env("XDG_RUNTIME_DIR", self.runtime.path())
+            // The gated binary fences on the scratch dir, never on the live
+            // runtime dir; XDG_RUNTIME_DIR alone is ignored on macOS
+            // (ADR 012 WS-E.1 handoff).
+            .env("DMUX_RUNTIME_DIR", self.runtime.path())
             .env("DMUX_DRY_RUN", "1")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")

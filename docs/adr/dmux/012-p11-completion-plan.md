@@ -552,4 +552,31 @@ allowlist entry; each lands a regression test that is the review's reproduction 
   (each failed on the pre-change code, proving it is the review's reproduction inverted). Ledger:
   case 13 and case 45 rows updated; both still blocked on WS-D.1/D.2 and WS-F.4 respectively.
   E1 gate on `dmux` before this pick: 998/0/1 under `run-isolated.sh`, live dir 1385 → 1385.
+- **WS-A.5 space_cli (A5-b) — closed 2026-08-22** (`5f63e56`, `7484fcc` → `45f3698`, `9469922`).
+  `reconcile_provider` is fallible and resolves its tmux arm through `resolve_managed_instance`; the
+  `.ok()` that turned a `RegistryError` into "no native provider" is gone, so a registry error is
+  reported as itself and an unpublished instance fails closed — no `abort_create`, no release, the
+  row stays as it was; `resume_duty` remains the sole decider. The Group/Split `resolve` tmux arm
+  pins through the same helper, so every `group`/`split` verb on a tmux Space refuses before any
+  mutation under a NULL epoch (the §3.4 window leak is latent-only from these verbs; WS-A.11 still
+  fixes the ordering). The Wez arm's `.ok()?` was examined and left: its `None` is consumed
+  fail-closed by `reconcile_apply`, the opposite of finding #7. Negative control recorded (the
+  reconcile regression fails on the pre-change code with `reservation_released`).
+- **WS-A.5 new + rm (A5-d) — closed 2026-08-22** (`ba50cf4`, `437424e` → `8dec4ec`, `c65a653`).
+  `new_cli::local_target` resolves through `resolve_managed`: Unpublished refuses
+  `backend_epoch_changed` before `lookup_new_owner_fenced`, so no lock, reservation, SpaceNo or
+  bootstrap row — for auto selection (case 7's indeterminate inventory) and for an explicit backend
+  alike, because §8.2's "known live match" presumes a complete inventory an unpinnable instance cannot
+  give. `rm_cli::local_scope` is replaced by `listing_scan`: an unpublished instance is never probed,
+  the listing is incomplete, `--row` refuses its tail with `backend_epoch_changed` and names nothing
+  adoptable; a live epoch mismatch maps to the same code as `classify_reach`. Both proven through the
+  gated binary with `DMUX_WEZ_FIRST=1` on the child (report 08 §2's gap) with positive controls that
+  publish the scratch server's epoch via `tmux_bootstrap`. The E1 harness line is now on
+  `tests/new_cli_dispatch.rs` too. Noted for later: `rm_cli::frozen_local_target` (verified site 17)
+  still refuses a NULL epoch as `ProviderUnavailable` with its own text — unify at WS-B.1.
+- Integration note: `git rerere` (enabled by the tracked `shared/git/.gitconfig`) silently re-applied
+  a wrong resolution of the shared `tests/scope_audit.rs` conflict; it is disabled in this clone's
+  local config for the rest of P11 and every allowlist conflict is resolved as "HEAD's list minus the
+  picked commit's finding". Allowlist after A5-a/b/d: the four legitimate sites plus findings #15,
+  #13, #17 and #8 — exactly the sites not yet returned.
 
