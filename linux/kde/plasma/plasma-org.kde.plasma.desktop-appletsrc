@@ -5,6 +5,8 @@ RightButton;NoModifier=org.kde.contextmenu
 RightButton;NoModifier=org.kde.contextmenu
 
 [Containments][1]
+ItemGeometries-2560x1440=
+ItemGeometriesHorizontal=
 activityId=d79809f9-a71f-4ed9-84d7-a30aec30bec7
 formfactor=0
 immutability=1
@@ -41,6 +43,10 @@ wallpaperplugin=org.kde.image
 immutability=1
 plugin=org.kde.plasma.kickoff
 
+[Containments][27][Applets][28][Configuration]
+popupHeight=509
+popupWidth=647
+
 [Containments][27][Applets][28][Configuration][General]
 favoritesPortedToKAstats=true
 icon=distributor-logo-archlinux
@@ -49,6 +55,10 @@ systemFavorites=suspend\\,hibernate\\,reboot\\,shutdown
 [Containments][27][Applets][32]
 immutability=1
 plugin=org.kde.plasma.digitalclock
+
+[Containments][27][Applets][32][Configuration]
+popupHeight=400
+popupWidth=560
 
 [Containments][27][Applets][32][Configuration][Appearance]
 dateDisplayFormat=BelowTime
@@ -69,6 +79,10 @@ launchers=
 immutability=1
 plugin=org.kde.plasma.volume
 
+[Containments][27][Applets][35][Configuration]
+popupHeight=400
+popupWidth=560
+
 [Containments][27][Applets][35][Configuration][General]
 migrated=true
 
@@ -80,9 +94,20 @@ plugin=org.kde.plasma.bluetooth
 immutability=1
 plugin=org.kde.plasma.networkmanagement
 
+[Containments][27][Applets][39][Configuration]
+popupHeight=361
+popupWidth=463
+
+[Containments][27][Applets][39][Configuration][General]
+currentDetailsTab=details
+
 [Containments][27][Applets][40]
 immutability=1
 plugin=org.kde.plasma.weather
+
+[Containments][27][Applets][40][Configuration]
+popupHeight=322
+popupWidth=337
 
 [Containments][27][Applets][40][Configuration][Appearance]
 showHumidityInTooltip=false
@@ -112,7 +137,7 @@ hideWidget=true
 islandSeparatorWidget=org.kde.plasma.marginsseparator
 islandsEnabled=true
 lastPreset=/home/fredrir/.config/panel-colorizer/presets/Mocha Islands
-panelWidgets=[{"id":43,"name":"luisbocanegra.panel.colorizer","title":"Panel colorizer","icon":"desktop","inTray":false},{"id":45,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":28,"name":"org.kde.plasma.kickoff","title":"Application Launcher","icon":"distributor-logo-archlinux","inTray":false},{"id":44,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":34,"name":"org.kde.plasma.icontasks","title":"Icons-Only Task Manager","icon":"preferences-system-windows","inTray":false},{"id":33,"name":"org.kde.plasma.panelspacer","title":"Panel Spacer","icon":"distribute-horizontal-x","inTray":false},{"id":50,"name":"com.fredrir.claudeusage","title":"Claude Usage","icon":"office-chart-pie","inTray":false},{"id":40,"name":"org.kde.plasma.weather","title":"Weather Report","icon":"weather-clouds-symbolic","inTray":false},{"id":39,"name":"org.kde.plasma.networkmanagement","title":"Networks","icon":"network-wireless-60-symbolic","inTray":false},{"id":63,"name":"org.kde.plasma.clipboard","title":"Clipboard","icon":"klipper-symbolic","inTray":false},{"id":36,"name":"org.kde.plasma.bluetooth","title":"Bluetooth","icon":"network-bluetooth-symbolic","inTray":false},{"id":35,"name":"org.kde.plasma.volume","title":"Audio Volume","icon":"audio-volume-medium-symbolic","inTray":false},{"id":32,"name":"org.kde.plasma.digitalclock","title":"Digital Clock","icon":"preferences-system-time","inTray":false}]
+panelWidgets=[{"id":43,"name":"luisbocanegra.panel.colorizer","title":"Panel colorizer","icon":"desktop","inTray":false},{"id":45,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":28,"name":"org.kde.plasma.kickoff","title":"Application Launcher","icon":"distributor-logo-archlinux","inTray":false},{"id":44,"name":"org.kde.plasma.marginsseparator","title":"Margins Separator","icon":"filename-divider","inTray":false},{"id":34,"name":"org.kde.plasma.icontasks","title":"Icons-Only Task Manager","icon":"preferences-system-windows","inTray":false},{"id":33,"name":"org.kde.plasma.panelspacer","title":"Panel Spacer","icon":"distribute-horizontal-x","inTray":false},{"id":50,"name":"com.fredrir.claudeusage","title":"Claude Usage","icon":"office-chart-pie","inTray":false},{"id":40,"name":"org.kde.plasma.weather","title":"Weather Report","icon":"weather-none-available-symbolic","inTray":false},{"id":39,"name":"org.kde.plasma.networkmanagement","title":"Networks","icon":"network-wireless-60-symbolic","inTray":false},{"id":63,"name":"org.kde.plasma.clipboard","title":"Clipboard","icon":"klipper-symbolic","inTray":false},{"id":36,"name":"org.kde.plasma.bluetooth","title":"Bluetooth","icon":"network-bluetooth-inactive-symbolic","inTray":false},{"id":35,"name":"org.kde.plasma.volume","title":"Audio Volume","icon":"audio-volume-muted-symbolic","inTray":false},{"id":32,"name":"org.kde.plasma.digitalclock","title":"Digital Clock","icon":"preferences-system-time","inTray":false}]
 pluginFound=true
 
 [Containments][27][Applets][44]
@@ -126,6 +151,10 @@ plugin=org.kde.plasma.marginsseparator
 [Containments][27][Applets][50]
 immutability=1
 plugin=com.fredrir.claudeusage
+
+[Containments][27][Applets][50][Configuration]
+popupHeight=101
+popupWidth=342
 
 [Containments][27][Applets][63]
 immutability=1
