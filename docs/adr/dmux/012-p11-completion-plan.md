@@ -544,4 +544,12 @@ allowlist entry; each lands a regression test that is the review's reproduction 
   stale-lock deletion uses E1's catalogue (1327 uuid-named zero-byte locks matching no live identity;
   keep `backend_6ef8d4c9…`, the nine `decision_9d1950c7…`, `authority-gate.lock`, the socket,
   descriptor, lease, `.replace-*`, `bootstrap/`) and runs only when no suite is running anywhere.
+- **WS-A.5 adopt + migrate (A5-a) — closed 2026-08-22** (`f78c391`, `6dfeada` → `9360d3f`, `5b00e13`).
+  `adopt_cli::owner_scope` and `migrate_cli::{Target, scan_target}` deleted; both consume
+  `resolve_managed`. Unpublished means refuse: `dmux adopt` refuses `backend_epoch_changed` before
+  verify/reservation/CAS; `dmux migrate` surfaces a typed `backend_epoch_changed` blocker in preview
+  and returns `blocked` from `--commit` before backup, adopt, or the cutover stamp. Three regressions
+  (each failed on the pre-change code, proving it is the review's reproduction inverted). Ledger:
+  case 13 and case 45 rows updated; both still blocked on WS-D.1/D.2 and WS-F.4 respectively.
+  E1 gate on `dmux` before this pick: 998/0/1 under `run-isolated.sh`, live dir 1385 → 1385.
 

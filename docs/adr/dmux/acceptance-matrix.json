@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "created": "2026-08-22",
- "revision": "58da730",
+ "revision": "5b00e13",
  "source": "ADR 012 WS-G.1; plan §20.1 (amended) and §20.2",
  "rule": "A case is passed only when every test listed under it is green at the named revision AND every live-evidence artifact it requires exists and is named here. A green suite alone proves nothing; an empty tests list is a gap, not a pass.",
  "test_id_format": "unit::<module>::tests::<fn> for lib tests; <integration binary>::<module path>::<fn> for tests/ (binary = file stem, or the directory name for tests/<dir>/main.rs trees).",
@@ -150,7 +150,9 @@
     "adopt_cli::a_second_adopt_of_the_same_native_ref_is_refused",
     "ls_cli::an_external_workspace_stays_unmanaged",
     "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered",
-    "registry::reconcile::stranded_adoption"
+    "registry::reconcile::stranded_adoption",
+    "adopt_cli::a_wez_instance_with_no_published_epoch_is_refused_before_any_rename",
+    "adopt_cli::a_tmux_instance_with_no_published_epoch_is_refused_before_any_scan"
    ],
    "implemented_at": [
     "src/operations.rs:1452 require_unbound_native",
@@ -160,7 +162,6 @@
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [
-    "ADR 012 WS-A.5 adopt_cli.rs:238 (adopt on an unverified server)",
     "WS-D.1 repair rebind (tamper -> absent -> rebind -> unstamped -> stamp -> healthy)",
     "WS-D.2 adoption journal source token"
    ],
@@ -592,7 +593,8 @@
    "earliest_owning_phase": "P11 migration/regression",
    "tests": [
     "migrate_cli::a_second_commit_is_a_clean_no_op_not_a_second_migration",
-    "space_rm_cli::rm_name_removes_the_legacy_name_the_positional_ref_cannot_reach"
+    "space_rm_cli::rm_name_removes_the_legacy_name_the_positional_ref_cannot_reach",
+    "migrate_cli::a_null_epoch_wez_instance_refuses_preview_and_commit_and_leaves_no_stamp"
    ],
    "implemented_at": [
     "src/migrate_cli.rs:30",
@@ -602,10 +604,8 @@
    "live_evidence_required": [
     "WS-F.4 migrate preview + --commit on Macie and Archie; migrated-v1.json; second run no-op"
    ],
-   "open_items": [
-    "ADR 012 WS-A.5 migrate_cli.rs:743 (commit on an unverified server)"
-   ],
-   "status": "blocked"
+   "open_items": [],
+   "status": "live_pending"
   },
   "46": {
    "title": "Every still-valid baseline test stays green; obsolete assertions have approved manifest entries",
