@@ -43,10 +43,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
     ),
     (
         "src/remote/agent.rs",
-        "WS-A.5 burn-down: spaces RPC tmux arm hardcodes no epoch (finding #13)",
-    ),
-    (
-        "src/remote/agent.rs",
         "WS-A.5 burn-down: owner_lookup_target launders a NULL epoch (finding #17)",
     ),
 ];

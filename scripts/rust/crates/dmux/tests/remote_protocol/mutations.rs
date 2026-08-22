@@ -4,16 +4,22 @@
 //! backend-instance/epoch verification matrix (stale claims refused,
 //! nothing created), rename/rm with cross-invocation replay.
 
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
+use dmux::inventory::ReconRow;
 use dmux::locks::{LockMode, LockScope, OrderedLocks};
-use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
+use dmux::model::{
+    Backend, BackendInstanceUid, Health, Lifecycle, Observation, ServerEpoch, SpaceUid,
+};
 use dmux::operations::CreatedSpace;
-use dmux::remote::protocol::{self, RenameResult, RmResult};
+use dmux::remote::protocol::{self, RenameResult, RmResult, ScanSummary, SpaceInfo, SpacesInfo};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::util::{Scratch, envelope, error_code};
+use crate::util::{Scratch, envelope, error_code, wait_for};
 
 fn new_payload(name: &str) -> serde_json::Value {
     json!({
@@ -352,6 +358,211 @@ fn spaces_reports_recovering_without_native_ids_or_waiting_on_backend_exclusive(
     assert_eq!(scan.rows, None);
     assert_eq!(scan.server_epoch, None);
     assert!(scan.detail.as_deref().unwrap_or("").contains("recovering"));
+}
+
+/// A `tmux` stand-in first on the agent's PATH that records every
+/// invocation and answers nothing, so "no tmux command ran" is proven by
+/// the absence of the witness rather than by trusting the code path.
+fn stub_tmux(scratch: &Scratch) -> (String, PathBuf) {
+    let dir = scratch.data.path().join("stub-bin");
+    std::fs::create_dir_all(&dir).unwrap();
+    let witness = scratch.data.path().join("tmux-ran");
+    let stub = dir.join("tmux");
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\nexit 1\n",
+            witness.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    (path, witness)
+}
+
+fn spaces(scratch: &Scratch, envs: &[(&str, String)]) -> SpacesInfo {
+    let request = envelope(protocol::methods::SPACES, Uuid::new_v4(), json!({}));
+    let (code, response) = scratch.agent_env(&request, envs);
+    assert_eq!(code, 0, "{response:?}");
+    serde_json::from_value(response.payload.unwrap()).unwrap()
+}
+
+fn tmux_scan(info: &SpacesInfo) -> &ScanSummary {
+    info.scans
+        .iter()
+        .find(|scan| scan.backend == Backend::Tmux)
+        .expect("tmux scan summary present")
+}
+
+/// Review finding #13 inverted (ADR 012 WS-A.5, `remote/agent.rs` spaces
+/// tmux arm). A registered, addressable tmux instance whose server epoch
+/// was never published is the row `_tmux-bootstrap` leaves between
+/// registering and publishing, and leaves for good if it dies in between.
+/// The agent used to scan it unpinned and answer `complete` off whatever
+/// server held the namespace; now nothing about that server can be
+/// verified, so the backend is `unreachable`, no tmux command runs, and a
+/// peer's `ls` renders the instance's Spaces `unreachable`, never `live`.
+#[test]
+fn spaces_reports_an_unpublished_tmux_instance_unreachable_without_running_tmux() {
+    let scratch = Scratch::new("spaces-unpublished");
+    let instance = scratch
+        .registry()
+        .register_backend_instance(Backend::Tmux, Some("dmux-p7-unpublished-ns"), None)
+        .unwrap();
+    assert_eq!(
+        scratch
+            .registry()
+            .backend_server(instance)
+            .unwrap()
+            .server_epoch,
+        None,
+        "the instance is registered and addressable, never published"
+    );
+    let (path, witness) = stub_tmux(&scratch);
+
+    let info = spaces(&scratch, &[("PATH", path)]);
+    let scan = tmux_scan(&info);
+    assert_eq!(scan.outcome, "unreachable", "{scan:?}");
+    let detail = scan.detail.as_deref().unwrap_or("");
+    assert!(detail.contains("has published no server epoch"), "{scan:?}");
+    assert!(detail.contains(&instance.0.to_string()), "{scan:?}");
+    assert_eq!(scan.rows, None, "{scan:?}");
+    assert_eq!(scan.server_epoch, None, "{scan:?}");
+    assert!(
+        !witness.exists(),
+        "no tmux command may run against an unpublished instance: {}",
+        std::fs::read_to_string(&witness).unwrap_or_default()
+    );
+
+    // The peer half (`ls_cli::peer_listing`, `ls --all-hosts`): exactly
+    // this reply, plus an active bound Space on the instance, renders the
+    // Space `unreachable`. The `complete` the agent used to send would
+    // have rendered it `live` off a stranger's sessions.
+    let owner = scratch.registry().identity().unwrap().host_uid;
+    let listing = dmux::ls_cli::peer_listing(
+        owner,
+        SpacesInfo {
+            spaces: vec![SpaceInfo {
+                space_uid: SpaceUid(Uuid::from_u128(0x5ACE)),
+                space_no: 1,
+                name: "peer-space".into(),
+                backend: Backend::Tmux,
+                backend_instance_uid: instance,
+                lifecycle: Lifecycle::Active,
+                health: Health::Healthy,
+                native_token: Some("$1".into()),
+            }],
+            scans: info.scans.clone(),
+        },
+        None,
+    );
+    let [ReconRow::Managed(row)] = listing.rows.as_slice() else {
+        panic!("one managed row expected, got {:?}", listing.rows);
+    };
+    assert_eq!(row.observation, Observation::Unreachable, "{row:?}");
+    assert!(
+        listing
+            .errors
+            .iter()
+            .any(|failure| failure.backend == Backend::Tmux),
+        "an unverified backend makes the peer listing partial: {:?}",
+        listing.errors
+    );
+}
+
+/// The same arm with a published epoch: the scan is pinned to it, so the
+/// live server is reported `complete` only while it is the published
+/// incarnation, and a replacement on the same namespace reports the epoch
+/// fault instead — the outcome the review saw `new` give while `spaces`
+/// said `complete` on the identical rig.
+#[test]
+fn spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_complete() {
+    let scratch = Scratch::with_tmux("spaces-replaced");
+    let ns = scratch.ns.clone().unwrap();
+    let registry = scratch.registry();
+    let instance = registry
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("bootstrapped tmux instance");
+    let published = registry
+        .backend_server(instance)
+        .unwrap()
+        .server_epoch
+        .expect("bootstrap published an epoch");
+    drop(registry);
+
+    // Positive control: the published incarnation answers `complete` and
+    // the reported epoch is the published one.
+    let info = spaces(&scratch, &[]);
+    let scan = tmux_scan(&info);
+    assert_eq!(scan.outcome, "complete", "{scan:?}");
+    assert_eq!(scan.server_epoch, Some(published), "{scan:?}");
+
+    // Replace the server on the same namespace: the registry still
+    // publishes the old incarnation; the live one carries no epoch.
+    assert!(scratch.tmux(&["kill-server"]).status.success());
+    wait_for(
+        "old scratch server to exit",
+        Duration::from_secs(10),
+        || !scratch.tmux(&["list-sessions"]).status.success(),
+    );
+    let replaced = Command::new("tmux")
+        .args([
+            "-L",
+            &ns,
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            "stranger",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        replaced.status.success(),
+        "replacement scratch tmux server: {}",
+        String::from_utf8_lossy(&replaced.stderr)
+    );
+    assert_eq!(scratch.session_names(), vec!["stranger".to_string()]);
+
+    let info = spaces(&scratch, &[]);
+    let scan = tmux_scan(&info);
+    assert_ne!(scan.outcome, "complete", "{scan:?}");
+    assert_eq!(scan.outcome, "malformed", "{scan:?}");
+    assert!(
+        scan.detail
+            .as_deref()
+            .unwrap_or("")
+            .contains("backend_epoch_changed"),
+        "{scan:?}"
+    );
+    assert_eq!(
+        scan.rows, None,
+        "a stranger's sessions are not rows: {scan:?}"
+    );
+    assert_eq!(scan.server_epoch, None, "{scan:?}");
+
+    // `new` on the identical rig agrees with `spaces` now: the replaced
+    // incarnation is refused and nothing is created on it.
+    let request = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        new_payload("on-a-stranger"),
+    );
+    let (code, response) = scratch.agent(&request);
+    assert_ne!(code, 0, "{response:?}");
+    let refusal = error_code(&response);
+    assert!(
+        refusal == "wrong_backend_instance" || refusal == "backend_epoch_changed",
+        "{response:?}"
+    );
+    assert_eq!(scratch.session_names(), vec!["stranger".to_string()]);
 }
 
 #[test]

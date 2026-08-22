@@ -30,6 +30,7 @@ use rusqlite::OptionalExtension;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::backend::scope::{self, ManagedTarget};
 use crate::backend::tmux::{TmuxProvider, TmuxServerIdentity};
 use crate::backend::wez::{IdentityExpectation, WezProvider};
 use crate::backend::{InventoryOutcome, InventoryScope, Provider, ProviderError, SplitDirection};
@@ -1258,31 +1259,58 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
         });
     }
     let mut scans = Vec::new();
-    match find_instance(&cx.registry, Backend::Tmux)? {
-        Some((instance, namespace)) => {
-            if !try_backend_scan_lock(&mut scan_locks, instance)? {
-                scans.push(recovering_summary(Backend::Tmux, instance));
-            } else {
-                populate_native_tokens(&cx.registry, &mut spaces, instance)?;
-                match namespace {
-                    Some(namespace) => {
-                        let provider = TmuxProvider::new(namespace.clone());
-                        // audit(unmanaged_endpoint): WS-A.5 burn-down: spaces RPC tmux arm hardcodes no epoch (finding #13)
-                        let scope = InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace);
-                        scans.push(scan_summary(Backend::Tmux, &provider.inventory(&scope)));
-                    }
-                    None => scans.push(ScanSummary {
-                        backend: Backend::Tmux,
-                        outcome: "unavailable".into(),
-                        detail: Some("managed instance has no recorded namespace".into()),
-                        rows: None,
-                        server_epoch: None,
-                    }),
-                }
-                scan_locks.release_last();
-            }
+    // The tmux arm resolves its instance through the one sanctioned
+    // resolver, so the scan is pinned to the epoch the registry published
+    // and a replaced server answers the epoch fault the client already
+    // maps (`malformed`, detail `backend_epoch_changed: …`), never
+    // `complete` (WS-A.5, review finding #13). An instance whose epoch was
+    // never published has nothing to pin to: it is `unreachable` and no
+    // tmux command runs, so a peer renders its Spaces `unreachable` rather
+    // than `live` on a stranger's word.
+    match scope::resolve_managed(&cx.registry, Backend::Tmux).map_err(typed_registry)? {
+        ManagedTarget::Unregistered => {}
+        ManagedTarget::Managed { instance, scope } => {
+            scans.push(fenced_tmux_scan(
+                &cx.registry,
+                &mut scan_locks,
+                &mut spaces,
+                instance,
+                || {
+                    let provider = TmuxProvider::new(scope.endpoint.clone());
+                    scan_summary(Backend::Tmux, &provider.inventory(&scope))
+                },
+            )?);
         }
-        None => {}
+        ManagedTarget::Unpublished(instance) => {
+            scans.push(fenced_tmux_scan(
+                &cx.registry,
+                &mut scan_locks,
+                &mut spaces,
+                instance,
+                || {
+                    unscanned_summary(
+                        Backend::Tmux,
+                        "unreachable",
+                        ManagedTarget::unpublished_detail(Backend::Tmux, instance),
+                    )
+                },
+            )?);
+        }
+        ManagedTarget::Unaddressable(instance) => {
+            scans.push(fenced_tmux_scan(
+                &cx.registry,
+                &mut scan_locks,
+                &mut spaces,
+                instance,
+                || {
+                    unscanned_summary(
+                        Backend::Tmux,
+                        "unavailable",
+                        ManagedTarget::unaddressable_detail(Backend::Tmux, instance),
+                    )
+                },
+            )?);
+        }
     }
     match find_instance(&cx.registry, Backend::Wez)? {
         Some((instance, socket)) => {
@@ -1477,6 +1505,40 @@ fn populate_native_tokens(
             .map(|binding| binding.native_token);
     }
     Ok(())
+}
+
+/// The tmux half of `spaces` under the instance's non-blocking SHARED read
+/// fence: a holder makes the backend `recovering` with no native IDs;
+/// otherwise the registry's binding tokens are exposed and `summary` says
+/// what the scan established. The fence is taken for every registered
+/// instance, whichever state the resolver put it in, so a recovery or
+/// mutation in flight is observable the same way in all of them.
+fn fenced_tmux_scan(
+    registry: &Registry,
+    scan_locks: &mut OrderedLocks,
+    spaces: &mut [SpaceInfo],
+    instance: BackendInstanceUid,
+    summary: impl FnOnce() -> ScanSummary,
+) -> Result<ScanSummary, TypedError> {
+    if !try_backend_scan_lock(scan_locks, instance)? {
+        return Ok(recovering_summary(Backend::Tmux, instance));
+    }
+    populate_native_tokens(registry, spaces, instance)?;
+    let summary = summary();
+    scan_locks.release_last();
+    Ok(summary)
+}
+
+/// A scan summary for a backend nothing was probed on: the outcome names
+/// why, and there are no rows and no epoch to report.
+fn unscanned_summary(backend: Backend, outcome: &str, detail: String) -> ScanSummary {
+    ScanSummary {
+        backend,
+        outcome: outcome.into(),
+        detail: Some(detail),
+        rows: None,
+        server_epoch: None,
+    }
 }
 
 fn recovering_summary(backend: Backend, instance: BackendInstanceUid) -> ScanSummary {
