@@ -47,7 +47,8 @@
 //! Every native verb — the child reads `split_list`, `normalize_plan` and
 //! `sole_window_id` included — first takes the published epoch the caller's
 //! managed scope carries (`required_action_epoch`, or `binding_epoch` for a
-//! binding-bearing verb) and pins every scan to it. An unmanaged scope
+//! binding-bearing verb, which additionally holds the binding to that pin —
+//! never the other way round) and pins every scan to it. An unmanaged scope
 //! (`InventoryScope::unmanaged_endpoint`) is refused typed before the
 //! endpoint is probed: nothing on it is verifiable, so no native ID is
 //! addressable and no mutation may run (ADR 012 WS-A.6, review finding #6).
@@ -1187,20 +1188,26 @@ impl<R: WezRunner> WezProvider<R> {
         Ok(scan)
     }
 
-    /// Cross-check a stale binding against the caller's scope before use.
+    /// The pin for a binding-bearing verb: the scope's published epoch,
+    /// cross-checked against the binding before any command. An unpinned
+    /// scope refuses `WrongInstance` like [`Self::required_action_epoch`] —
+    /// the binding's own `server_epoch` is never the pin, because the
+    /// caller used to synthesise that binding from the live scan and the
+    /// fence then compared the server against itself (ADR 012 WS-A.8,
+    /// review findings #5/#18). A binding whose epoch is not the pin is a
+    /// stale ref from another incarnation: `EpochChanged`, no command.
     fn binding_epoch(
         scope: &InventoryScope,
         binding: &NativeBinding,
     ) -> ProviderResult<ServerEpoch> {
-        if let Some(expected) = scope.expected_epoch()
-            && expected != binding.server_epoch
-        {
+        let expected = Self::required_action_epoch(scope)?;
+        if binding.server_epoch != expected {
             return Err(ProviderError::EpochChanged {
                 expected,
                 observed: Some(binding.server_epoch),
             });
         }
-        Ok(binding.server_epoch)
+        Ok(expected)
     }
 
     /// GUI-orchestration boundary: presentation/activation verbs are never
@@ -2973,9 +2980,9 @@ mod tests {
     }
 
     /// The managed scope every native verb needs: pinned to the epoch the
-    /// canned servers' sentinel serves (ADR 012 WS-A.6). `scope(None)` is
-    /// kept only for the discovery read (`inventory`) and for the refusal
-    /// tests that prove the fence.
+    /// canned servers' sentinel serves (ADR 012 WS-A.6/A.8). `scope(None)`
+    /// is kept only for the discovery read (`inventory`), the capability
+    /// probe, and the refusal tests that prove the fence.
     fn pinned() -> InventoryScope {
         scope(Some(ServerEpoch(EPOCH)))
     }
@@ -3442,7 +3449,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&fixture("list_two_workspaces.json"))],
         );
-        match provider(&runner).inspect(&scope(None), &binding("missing", EPOCH)) {
+        match provider(&runner).inspect(&pinned(), &binding("missing", EPOCH)) {
             Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "missing"),
             other => panic!("absent binding must be NotFound, got {other:?}"),
         }
@@ -3462,19 +3469,93 @@ mod tests {
         }
         assert!(runner.run_calls.borrow().is_empty());
 
-        // Binding epoch vs the epoch the live sentinel proves.
+        // Pin and binding agree on an epoch the live sentinel does not
+        // serve: the scan refuses, naming the pin and the live epoch.
         let runner = ScriptedRunner::new(
             vec![ProbeOutcome::Connectable],
             vec![ok(&fixture("list_two_workspaces.json"))],
         );
         let stale = binding("alpha", Uuid::from_u128(0xdead_beef));
-        match provider(&runner).inspect(&scope(None), &stale) {
+        match provider(&runner).inspect(&scope(Some(stale.server_epoch)), &stale) {
             Err(ProviderError::EpochChanged { expected, observed }) => {
                 assert_eq!(expected, stale.server_epoch);
                 assert_eq!(observed, Some(ServerEpoch(EPOCH)));
             }
             other => panic!("live epoch mismatch must be EpochChanged, got {other:?}"),
         }
+        assert_eq!(
+            runner.run_calls.borrow().len(),
+            1,
+            "the verifying list only"
+        );
+    }
+
+    /// WS-A.8 (review findings #5/#18): `binding_epoch` used to answer the
+    /// binding's own epoch on an unpinned scope, and the caller synthesised
+    /// that binding from the live scan — the fence compared the server
+    /// against itself. Now an unpinned scope refuses `WrongInstance` and a
+    /// binding whose epoch is not the pin refuses `EpochChanged`, both with
+    /// the endpoint never probed; a matching binding yields the pin.
+    #[test]
+    fn binding_epoch_refuses_an_unpinned_scope_and_a_binding_off_the_pin() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        let p = provider(&runner);
+        let matching = binding("alpha", EPOCH);
+        let stale = binding("alpha", Uuid::from_u128(0xdead_beef));
+
+        // Unpinned: the binding's self-report is not a pin.
+        let unpinned = scope(None);
+        let results: Vec<(&str, ProviderResult<()>)> = vec![
+            ("inspect", p.inspect(&unpinned, &matching).map(|_| ())),
+            (
+                "group_new",
+                p.group_new(&unpinned, &matching, &spec("alpha"))
+                    .map(|_| ()),
+            ),
+            ("remove", p.remove(&unpinned, &matching)),
+            ("group_list", p.group_list(&unpinned, &matching).map(|_| ())),
+        ];
+        for (verb, result) in results {
+            match result {
+                Err(ProviderError::WrongInstance { detail }) => {
+                    assert!(detail.contains("managed scope"), "{verb}: {detail}");
+                }
+                other => panic!("{verb} on an unpinned scope must be WrongInstance, got {other:?}"),
+            }
+        }
+
+        // Pinned, binding off the pin: refused before any command.
+        let results: Vec<(&str, ProviderResult<()>)> = vec![
+            ("inspect", p.inspect(&pinned(), &stale).map(|_| ())),
+            (
+                "group_new",
+                p.group_new(&pinned(), &stale, &spec("alpha")).map(|_| ()),
+            ),
+            ("remove", p.remove(&pinned(), &stale)),
+            ("group_list", p.group_list(&pinned(), &stale).map(|_| ())),
+        ];
+        for (verb, result) in results {
+            match result {
+                Err(ProviderError::EpochChanged { expected, observed }) => {
+                    assert_eq!(expected, ServerEpoch(EPOCH), "{verb}");
+                    assert_eq!(observed, Some(stale.server_epoch), "{verb}");
+                }
+                other => {
+                    panic!("{verb} with a binding off the pin must be EpochChanged, got {other:?}")
+                }
+            }
+        }
+        assert!(
+            runner.probe_calls.borrow().is_empty(),
+            "endpoint never probed"
+        );
+        assert!(runner.run_calls.borrow().is_empty(), "no native command");
+
+        // Pinned, binding on the pin: the pin is what the scan is held to.
+        assert_eq!(
+            WezProvider::<&ScriptedRunner>::binding_epoch(&pinned(), &matching).unwrap(),
+            ServerEpoch(EPOCH)
+        );
     }
 
     #[test]
@@ -4055,7 +4136,7 @@ mod tests {
             ],
         );
         let handle = provider(&runner)
-            .group_new(&scope(None), &binding("alpha", EPOCH), &spec("alpha"))
+            .group_new(&pinned(), &binding("alpha", EPOCH), &spec("alpha"))
             .expect("group_new");
         assert_eq!(handle, ProviderHandle::Wz(11));
         let calls = runner.run_calls.borrow();
@@ -4069,7 +4150,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[(1, 10, 100, "mw"), (2, 11, 101, "mw")]))],
         );
-        match provider(&runner).group_new(&scope(None), &binding("mw", EPOCH), &spec("mw")) {
+        match provider(&runner).group_new(&pinned(), &binding("mw", EPOCH), &spec("mw")) {
             Err(ProviderError::MultiWindow { window_count, .. }) => assert_eq!(window_count, 2),
             other => panic!("multi-window parent must refuse, got {other:?}"),
         }
@@ -4177,7 +4258,7 @@ mod tests {
             ],
         );
         provider(&runner)
-            .remove(&scope(None), &binding("alpha", EPOCH))
+            .remove(&pinned(), &binding("alpha", EPOCH))
             .expect("remove");
         let calls = runner.run_calls.borrow();
         assert_eq!(calls.len(), 5, "list, kill, kill, re-list, FINAL list");
@@ -4201,7 +4282,7 @@ mod tests {
             runs.push(ok("")); // kill
         }
         let runner = ScriptedRunner::new(probes, runs);
-        match provider(&runner).remove(&scope(None), &binding("alpha", EPOCH)) {
+        match provider(&runner).remove(&pinned(), &binding("alpha", EPOCH)) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("remove_unconverged"), "{detail}");
                 assert!(detail.contains("104"), "last survivors named: {detail}");
