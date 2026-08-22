@@ -762,14 +762,6 @@ impl NativeSnapshot {
         })
     }
 
-    pub fn recovery_titles(&self, request_uid: Uuid) -> Vec<String> {
-        let title = bootstrap::reserved_title(request_uid);
-        self.panes()
-            .filter(|(_, _, pane)| pane.title == title)
-            .map(|(_, _, pane)| pane.pane_id.clone())
-            .collect()
-    }
-
     pub fn tree_precondition(&self) -> NativeTreePrecondition {
         let mut windows = self
             .windows
