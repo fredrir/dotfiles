@@ -5,6 +5,7 @@
 
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
@@ -226,6 +227,32 @@ pub fn envelope(method: &str, request_uid: Uuid, payload: Value) -> Envelope {
         request_uid,
         payload,
     )
+}
+
+/// A `tmux` stand-in first on the agent's PATH that records every
+/// invocation and answers nothing, so "no tmux command ran" is proven by
+/// the absence of the witness rather than by trusting the code path.
+/// Returns the PATH value to hand the agent and the witness file.
+pub fn stub_tmux(scratch: &Scratch) -> (String, PathBuf) {
+    let dir = scratch.data.path().join("stub-bin");
+    std::fs::create_dir_all(&dir).unwrap();
+    let witness = scratch.data.path().join("tmux-ran");
+    let stub = dir.join("tmux");
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\nexit 1\n",
+            witness.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    (path, witness)
 }
 
 /// Poll until `probe` returns true or the deadline passes.

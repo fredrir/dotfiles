@@ -41,10 +41,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
         "src/gui_cli.rs",
         "WS-A.5 burn-down: opposite-backend create target launders a NULL epoch (finding #15)",
     ),
-    (
-        "src/remote/agent.rs",
-        "WS-A.5 burn-down: owner_lookup_target launders a NULL epoch (finding #17)",
-    ),
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

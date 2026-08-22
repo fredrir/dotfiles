@@ -706,7 +706,11 @@ fn find_instance(
 }
 
 /// One live-verified backend target: the owner's managed instance, its
-/// exact endpoint, and the verified current server epoch.
+/// exact endpoint, and the verified current server epoch. Built only by
+/// `verified_tmux_target` / `verified_wez_target`, from the epoch the
+/// registry published once the live server was checked against it; there
+/// is no other constructor and no default epoch (ADR 012 WS-A.12, review
+/// finding #20).
 struct Target {
     backend: Backend,
     instance: BackendInstanceUid,
@@ -1385,11 +1389,19 @@ fn lookup_wire(class: crate::resolve::ClassSummary) -> NewLookupClass {
     }
 }
 
-/// Build an exact owner inventory target without requiring the server to be
-/// live. NEW_LOOKUP must be able to classify stopped/indeterminate state;
-/// the mutating NEW path separately uses `verified_target` before creation.
+/// The owner's managed instance for one backend as `new_lookup` scans it:
+/// the scope the registry pinned and the adapter that scans under it. The
+/// server need not be live — a `server_stopped` scan is a determinate
+/// partition — but it must be the registry's: resolution goes through
+/// `backend::scope::resolve_managed`, and an instance whose epoch was never
+/// published is a typed epoch fault for the whole lookup. Nothing can be
+/// scanned on its behalf, so "name free" is never answered on the word of
+/// a server the registry did not vouch for (ADR 012 WS-A.5, review finding
+/// #17). The mutating NEW path separately uses `verified_target` before
+/// creation.
 struct OwnerLookupTarget {
-    target: Target,
+    backend: Backend,
+    instance: BackendInstanceUid,
     provider: Box<dyn Provider>,
     scope: InventoryScope,
 }
@@ -1398,39 +1410,36 @@ fn owner_lookup_target(
     registry: &Registry,
     backend: Backend,
 ) -> Result<Option<OwnerLookupTarget>, TypedError> {
-    let Some((instance, endpoint)) = find_instance(registry, backend)? else {
-        return Ok(None);
-    };
-    let endpoint = endpoint.ok_or_else(|| {
-        TypedError::new(
-            ErrorCode::ProviderUnavailable,
-            format!("managed {backend} instance has no recorded inventory endpoint"),
-        )
-    })?;
-    let epoch = registry
-        .backend_server(instance)
-        .map_err(typed_registry)?
-        .server_epoch;
-    let target = Target {
-        backend,
-        instance,
-        endpoint: endpoint.clone(),
-        epoch: epoch.unwrap_or(ServerEpoch(Uuid::nil())),
-    };
+    let (instance, scope) =
+        match scope::resolve_managed(registry, backend).map_err(typed_registry)? {
+            ManagedTarget::Unregistered => return Ok(None),
+            ManagedTarget::Managed { instance, scope } => (instance, scope),
+            // Registered and addressable, epoch NULL: indeterminate, never
+            // "name free". The refusal is the epoch fault the client already
+            // maps, so it can neither create nor connect on this answer.
+            ManagedTarget::Unpublished(instance) => {
+                return Err(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    ManagedTarget::unpublished_detail(backend, instance),
+                ));
+            }
+            ManagedTarget::Unaddressable(instance) => {
+                return Err(TypedError::new(
+                    ErrorCode::ProviderUnavailable,
+                    ManagedTarget::unaddressable_detail(backend, instance),
+                ));
+            }
+        };
     let provider: Box<dyn Provider> = match backend {
-        Backend::Tmux => Box::new(TmuxProvider::new(endpoint.clone())),
+        Backend::Tmux => Box::new(TmuxProvider::new(scope.endpoint.clone())),
         Backend::Wez => {
             let (bin, config) = wez_paths();
             Box::new(WezProvider::new(bin, config))
         }
     };
-    let scope = match epoch {
-        Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
-        // audit(unmanaged_endpoint): WS-A.5 burn-down: owner_lookup_target launders a NULL epoch (finding #17)
-        None => InventoryScope::unmanaged_endpoint(backend, endpoint),
-    };
     Ok(Some(OwnerLookupTarget {
-        target,
+        backend,
+        instance,
         provider,
         scope,
     }))
@@ -1449,14 +1458,14 @@ fn new_lookup(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Re
     let result = lookup_new_owner_fenced(
         &cx.env,
         wez.as_ref().map(|lookup| OwnerCreateTarget {
-            backend: lookup.target.backend,
-            instance: lookup.target.instance,
+            backend: lookup.backend,
+            instance: lookup.instance,
             provider: lookup.provider.as_ref(),
             scope: &lookup.scope,
         }),
         tmux.as_ref().map(|lookup| OwnerCreateTarget {
-            backend: lookup.target.backend,
-            instance: lookup.target.instance,
+            backend: lookup.backend,
+            instance: lookup.instance,
             provider: lookup.provider.as_ref(),
             scope: &lookup.scope,
         }),

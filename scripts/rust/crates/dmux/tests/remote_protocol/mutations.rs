@@ -4,8 +4,6 @@
 //! backend-instance/epoch verification matrix (stale claims refused,
 //! nothing created), rename/rm with cross-invocation replay.
 
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -19,7 +17,7 @@ use dmux::remote::protocol::{self, RenameResult, RmResult, ScanSummary, SpaceInf
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::util::{Scratch, envelope, error_code, wait_for};
+use crate::util::{Scratch, envelope, error_code, stub_tmux, wait_for};
 
 fn new_payload(name: &str) -> serde_json::Value {
     json!({
@@ -358,31 +356,6 @@ fn spaces_reports_recovering_without_native_ids_or_waiting_on_backend_exclusive(
     assert_eq!(scan.rows, None);
     assert_eq!(scan.server_epoch, None);
     assert!(scan.detail.as_deref().unwrap_or("").contains("recovering"));
-}
-
-/// A `tmux` stand-in first on the agent's PATH that records every
-/// invocation and answers nothing, so "no tmux command ran" is proven by
-/// the absence of the witness rather than by trusting the code path.
-fn stub_tmux(scratch: &Scratch) -> (String, PathBuf) {
-    let dir = scratch.data.path().join("stub-bin");
-    std::fs::create_dir_all(&dir).unwrap();
-    let witness = scratch.data.path().join("tmux-ran");
-    let stub = dir.join("tmux");
-    std::fs::write(
-        &stub,
-        format!(
-            "#!/bin/sh\necho \"$@\" >> '{}'\nexit 1\n",
-            witness.display()
-        ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = format!(
-        "{}:{}",
-        dir.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    (path, witness)
 }
 
 fn spaces(scratch: &Scratch, envs: &[(&str, String)]) -> SpacesInfo {
