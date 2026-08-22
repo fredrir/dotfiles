@@ -96,6 +96,18 @@ pub enum RegistryError {
     NativeTokenConflict {
         native_token: String,
     },
+    /// `backend_instances_one_per_owner_uq` from the other side: the owner's
+    /// one managed instance for `backend` is recorded at `recorded`, and a
+    /// caller asked to register (and thereby fence and scan) `requested`.
+    /// The existing row is never returned for a different endpoint — that
+    /// would fence instance A while a scan reads endpoint B (ADR 012
+    /// WS-A.12; review report 07's `repair_scan_wez` residual).
+    EndpointMismatch {
+        backend: Backend,
+        instance: BackendInstanceUid,
+        recorded: Option<String>,
+        requested: String,
+    },
     /// rpc request UID reused with a different method/payload digest.
     IdempotencyReuse {
         request_uid: Uuid,
@@ -189,6 +201,7 @@ impl RegistryError {
             | RegistryError::SpellingBound { .. }
             | RegistryError::AttachTokenExists { .. } => ErrorCode::IdentityConflict,
             RegistryError::IdempotencyReuse { .. } => ErrorCode::IdempotencyReuse,
+            RegistryError::EndpointMismatch { .. } => ErrorCode::WrongBackendInstance,
             RegistryError::NotFound { .. } => ErrorCode::NotFound,
             RegistryError::KindNotAllowed { .. } | RegistryError::LocalHostImmutable { .. } => {
                 ErrorCode::Usage
@@ -223,6 +236,24 @@ impl fmt::Display for RegistryError {
                 write!(
                     f,
                     "native token {native_token:?} already has a current binding"
+                )
+            }
+            RegistryError::EndpointMismatch {
+                backend,
+                instance,
+                recorded,
+                requested,
+            } => {
+                write!(
+                    f,
+                    "managed {backend} backend instance {} is recorded at endpoint {}, not \
+                     {requested:?}; refusing to register, fence or scan another endpoint \
+                     under it",
+                    instance.0,
+                    recorded
+                        .as_deref()
+                        .map(|endpoint| format!("{endpoint:?}"))
+                        .unwrap_or_else(|| "<none>".to_string())
                 )
             }
             RegistryError::IdempotencyReuse { request_uid } => {
@@ -1499,6 +1530,15 @@ impl Registry {
 
     /// Get-or-create the single managed instance for `backend` on this
     /// owner (plan §2.15; `backend_instances_one_per_owner_uq`).
+    ///
+    /// The "get" half is exact on the endpoint: when the instance already
+    /// exists with a recorded `socket_path` and the caller names a
+    /// different one, this is [`RegistryError::EndpointMismatch`] — never
+    /// the existing row, which every caller goes on to fence and scan. A
+    /// recorded endpoint is identity (ADR 001); it is not silently rebound
+    /// here, and a row registered without one stays unaddressable
+    /// (`backend::scope::ManagedTarget::Unaddressable`) rather than adopting
+    /// the first endpoint that asks.
     pub fn register_backend_instance(
         &mut self,
         backend: Backend,
@@ -1509,16 +1549,27 @@ impl Registry {
         self.immediate(|tx| {
             let owner: String =
                 tx.query_row("SELECT host_uid FROM meta WHERE id = 1", [], |row| row.get(0))?;
-            if let Some(existing) = tx
+            if let Some((existing, recorded)) = tx
                 .query_row(
-                    "SELECT backend_instance_uid FROM backend_instances \
+                    "SELECT backend_instance_uid, socket_path FROM backend_instances \
                      WHERE owner_host_uid = ?1 AND backend = ?2",
                     params![owner, backend.as_str()],
-                    |row| row.get::<_, String>(0),
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
                 )
                 .optional()?
             {
-                return Ok(BackendInstanceUid(parse_uuid(&existing)?));
+                let instance = BackendInstanceUid(parse_uuid(&existing)?);
+                if let (Some(requested), Some(recorded_endpoint)) = (socket_path, &recorded)
+                    && requested != recorded_endpoint
+                {
+                    return Err(RegistryError::EndpointMismatch {
+                        backend,
+                        instance,
+                        recorded,
+                        requested: requested.to_string(),
+                    });
+                }
+                return Ok(instance);
             }
             let now = now_rfc3339();
             tx.execute(

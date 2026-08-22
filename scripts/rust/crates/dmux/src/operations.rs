@@ -3509,9 +3509,36 @@ pub fn repair_scan_wez(
             "multi-window repair is defined only for Wez".into(),
         ));
     }
-    let instance = registry
-        .register_backend_instance(Backend::Wez, Some(&scope.endpoint), None)
-        .map_err(reg_err)?;
+    // The scope's endpoint may come from the hidden `--socket` seam, so it
+    // is compared against the registry before anything is fenced: the
+    // owner's one Wez instance is fenced and healed only on the endpoint it
+    // is recorded at — never instance A's lock over endpoint B (ADR 012
+    // WS-A.12; review report 07's `register_backend_instance` residual).
+    // Only a registry with no Wez instance at all registers first contact.
+    let instance = match registry
+        .backend_instance_for_backend(Backend::Wez)
+        .map_err(reg_err)?
+    {
+        Some(instance) => {
+            let info = registry.backend_instance_info(instance).map_err(reg_err)?;
+            if info.socket_path.as_deref() != Some(scope.endpoint.as_str()) {
+                return Err(OpError::Refused(format!(
+                    "managed wez backend instance {} is recorded at endpoint {}, not {:?}; \
+                     refusing to fence or scan another endpoint under it",
+                    instance.0,
+                    info.socket_path
+                        .as_deref()
+                        .map(|endpoint| format!("{endpoint:?}"))
+                        .unwrap_or_else(|| "<none>".to_string()),
+                    scope.endpoint
+                )));
+            }
+            instance
+        }
+        None => registry
+            .register_backend_instance(Backend::Wez, Some(&scope.endpoint), None)
+            .map_err(reg_err)?,
+    };
     let mut locks = OrderedLocks::new(&env.lock_dir);
     locks
         .acquire(LockScope::AuthorityGate, LockMode::Shared)

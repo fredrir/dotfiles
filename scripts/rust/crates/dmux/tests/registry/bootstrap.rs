@@ -4,7 +4,7 @@
 
 use dmux::bootstrap::{BootstrapJournal, BootstrapState, IssuedRequest};
 use dmux::error::ErrorCode;
-use dmux::model::{BackendInstanceUid, ServerEpoch};
+use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
 use dmux::registry::{Registry, RegistryError, bootstrap_can_transition, bootstrap_is_terminal};
 use uuid::Uuid;
 
@@ -407,4 +407,85 @@ fn republishing_a_new_epoch_fully_replaces_the_old_incarnation() {
     ));
     // The failed publish advanced nothing.
     assert_eq!(reg.authority_head().unwrap(), head2);
+}
+
+// ---------------------------------------------------------------------------
+// Backend instance registration is exact on the endpoint (ADR 012 WS-A.12)
+
+/// `register_backend_instance` is get-or-create on `(owner, backend)`, and
+/// the "get" must not hand back the owner's one instance for a *different*
+/// endpoint: every caller goes on to fence and scan under the returned uid,
+/// so instance A's lock would cover a read of endpoint B (review report 07's
+/// `repair_scan_wez` residual). The refusal is typed, names both endpoints,
+/// and changes nothing — not the row, not the revision chain.
+#[test]
+fn registering_the_same_backend_at_another_endpoint_is_a_typed_refusal() {
+    let s = scratch();
+    let mut reg = open(&s.config);
+    let instance = reg
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/a.sock"), Some("svc"))
+        .unwrap();
+    let head = reg.authority_head().unwrap();
+
+    let err = reg
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/b.sock"), None)
+        .unwrap_err();
+    match &err {
+        RegistryError::EndpointMismatch {
+            backend,
+            instance: named,
+            recorded,
+            requested,
+        } => {
+            assert_eq!(*backend, Backend::Wez);
+            assert_eq!(*named, instance);
+            assert_eq!(recorded.as_deref(), Some("/run/dmux/a.sock"));
+            assert_eq!(requested, "/run/dmux/b.sock");
+        }
+        other => panic!("expected EndpointMismatch, got {other:?}"),
+    }
+    assert_eq!(err.error_code(), ErrorCode::WrongBackendInstance);
+    let text = err.to_string();
+    assert!(
+        text.contains("/run/dmux/a.sock") && text.contains("/run/dmux/b.sock"),
+        "{text}"
+    );
+    assert_eq!(
+        reg.authority_head().unwrap(),
+        head,
+        "a refusal advances nothing"
+    );
+    assert_eq!(
+        reg.backend_instance_info(instance)
+            .unwrap()
+            .socket_path
+            .as_deref(),
+        Some("/run/dmux/a.sock"),
+        "the recorded endpoint is untouched"
+    );
+
+    // The same endpoint, or no endpoint, is the ordinary get.
+    assert_eq!(
+        reg.register_backend_instance(Backend::Wez, Some("/run/dmux/a.sock"), None)
+            .unwrap(),
+        instance
+    );
+    assert_eq!(
+        reg.register_backend_instance(Backend::Wez, None, None)
+            .unwrap(),
+        instance
+    );
+    assert_eq!(reg.authority_head().unwrap(), head);
+
+    // A row registered without an endpoint stays unaddressable: a later
+    // caller naming one is neither refused nor allowed to bind it here.
+    let tmux = reg
+        .register_backend_instance(Backend::Tmux, None, None)
+        .unwrap();
+    assert_eq!(
+        reg.register_backend_instance(Backend::Tmux, Some("dmux"), None)
+            .unwrap(),
+        tmux
+    );
+    assert_eq!(reg.backend_instance_info(tmux).unwrap().socket_path, None);
 }

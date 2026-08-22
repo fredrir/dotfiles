@@ -1060,3 +1060,65 @@ fn owner_fenced_create_refuses_an_unpinned_selected_scope_before_reserving() {
     assert_eq!(spaces.len(), 1);
     assert_eq!(spaces[0].lifecycle, dmux::model::Lifecycle::Aborted);
 }
+
+/// WS-A.12 (review report 07's residual): `repair_scan_wez` used to
+/// `register_backend_instance` from the scope's endpoint, and the registry
+/// answered with the owner's existing Wez instance whatever the socket — so
+/// the `--socket` seam fenced instance A while scanning endpoint B. Now the
+/// endpoint is compared with the registry before anything is fenced, and a
+/// mismatch (or an instance with no recorded endpoint at all) is refused
+/// naming both; the provider is never consulted. The matching endpoint is
+/// the ordinary path and reaches the scan.
+#[test]
+fn repair_scan_refuses_an_endpoint_other_than_the_instances_recorded_socket() {
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let epoch = ServerEpoch(Uuid::new_v4());
+    let instance = scripted_registry::registry(env)
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/a.sock"), None)
+        .unwrap();
+    let provider = Script::new(Backend::Wez, epoch, Vec::new());
+
+    let elsewhere = InventoryScope::unmanaged_endpoint(Backend::Wez, "/run/dmux/b.sock");
+    let err = dmux::operations::repair_scan_wez(env, &provider, &elsewhere).unwrap_err();
+    assert!(matches!(err, OpError::Refused(_)), "{err}");
+    let text = err.to_string();
+    assert!(
+        text.contains("/run/dmux/a.sock") && text.contains("/run/dmux/b.sock"),
+        "{text}"
+    );
+    assert!(text.contains(&instance.0.to_string()), "{text}");
+    assert!(
+        provider.calls().is_empty(),
+        "refused before any scan: {:?}",
+        provider.calls()
+    );
+    assert_eq!(
+        scripted_registry::registry(env)
+            .backend_instance_info(instance)
+            .unwrap()
+            .socket_path
+            .as_deref(),
+        Some("/run/dmux/a.sock")
+    );
+
+    let recorded = InventoryScope::unmanaged_endpoint(Backend::Wez, "/run/dmux/a.sock");
+    assert!(
+        dmux::operations::repair_scan_wez(env, &provider, &recorded)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(provider.calls(), vec!["inventory"]);
+
+    // No recorded endpoint: nothing vouches for any socket, so none is scanned.
+    let unaddressable = scripted_env();
+    scripted_registry::registry(&unaddressable.env)
+        .register_backend_instance(Backend::Wez, None, None)
+        .unwrap();
+    let provider = Script::new(Backend::Wez, epoch, Vec::new());
+    let err =
+        dmux::operations::repair_scan_wez(&unaddressable.env, &provider, &elsewhere).unwrap_err();
+    assert!(matches!(err, OpError::Refused(_)), "{err}");
+    assert!(err.to_string().contains("<none>"), "{err}");
+    assert!(provider.calls().is_empty());
+}
