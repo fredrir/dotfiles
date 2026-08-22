@@ -471,3 +471,26 @@ Findings at dispatch time (root, read-only): Archie is sentinel-only, rebooted 2
 
 Every agent's return must include the runtime-dir growth check (§7 amendment 5).
 
+### Wave 1 closes
+
+- **WS-B.5 — closed 2026-08-22** (`9e741f2`, `207ab92`, cherry-picked onto `dmux`). Root cause: the
+  fork returns the published descriptor through mlua's serde bridge, which renders a Rust `None` as
+  mlua's JSON-null *light userdata*, not Lua `nil`. A flag-off request omits `backend_instance_uid`,
+  so the old clause `descriptor.backend_instance_uid ~= request.backend_instance_uid` compared
+  `userdata ~= nil`, refused a descriptor the native side had already written
+  (`publish_replace` precedes the Lua check), and the handler returned at `dmux-mux.lua:1143` before
+  the only `failed` publish on that path. Managed starts send and receive a string and were never
+  affected (all 17 flag-on starts logged on Macie reached `ready`). Fix is Lua-only:
+  `service_witness_mismatch` names the disagreeing field, `native_absent` accepts `nil` or a
+  metatable-less userdata only when no UID was requested, a refused `starting` now publishes
+  `failed` with the refusal as its reason, and `error` text is normalised to the schema's bounds so a
+  `failed` publish cannot be refused for its own formatting. Report 08 §9 is answered. Optional fork
+  hardening (`serialize_none_to_null(false)` at `dmux_descriptor.rs:1332`) recorded, not required.
+  Takes effect at the next service restart, i.e. at WS-F.2; expected flag-off log after it:
+  `mux-startup BEGIN` → `sentinel spawned` → `mux-startup unavailable: no durable backend identity`
+  and a descriptor reading `state: failed`, `backend_instance_uid: null`, sentinel fields present.
+- Root-side wave 0 closed: WS-A.1 `027e777`, WS-A.2 `80ac3a7`, WS-A.3 `ce76a7c`, WS-A.4 (this
+  record's parent commit), WS-G.1 seed `636ee66`. Suite 990/0/1 at WS-A.4.
+- Operational note for every later worktree: the pre-commit hook needs `scripts/python/.venv`;
+  run `uv sync --project scripts/python --locked` in a fresh worktree before its first commit.
+
