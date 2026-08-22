@@ -532,6 +532,80 @@ fn socket_replacement_is_rejected_typed() {
     }
 }
 
+/// WS-E.2 (review report 08 §7): `cas_rename_workspace` and `sole_window_id`
+/// against a genuine second `wezterm-mux-server` behind the published socket
+/// path — the replacement shape ADR 001 task 4 and ADR 002 name, which the
+/// review only had call-chain proof for. Pinned to A's epoch, both verbs
+/// answer on A, refuse `EpochChanged` once the path points at B, and B's
+/// workspace is never renamed; unpinned, both refuse before the endpoint is
+/// probed (finding #6 inverted). The stock server suffices: the refusal
+/// precedes the CAS verb, and a fence failure would surface as a different
+/// typed error (the stock server rejects PDU 63), not as `EpochChanged`.
+#[test]
+fn replacement_server_refuses_cas_rename_and_sole_window_id_typed() {
+    require_wez!();
+    let mut a = ScratchMux::new();
+    let mut b = ScratchMux::new();
+    a.start();
+    b.start();
+    a.spawn_workspace("old");
+    b.spawn_workspace("old");
+    let b_window = b.window_id_of_workspace("old");
+
+    let published = a.dir.path().join("cur.sock");
+    std::os::unix::fs::symlink(&a.sock, &published).expect("publish symlink");
+    let provider = a.provider();
+    let scope = a.scope_at(&published, Some(a.epoch));
+    let window = provider
+        .sole_window_id(&scope, "old")
+        .expect("sole window on A");
+    assert_eq!(window, a.window_id_of_workspace("old"), "raw cross-check");
+
+    // Atomic repoint to B (ADR 001 task 4): same path, other incarnation.
+    let staging = a.dir.path().join("cur.sock.new");
+    std::os::unix::fs::symlink(&b.sock, &staging).expect("staging symlink");
+    std::fs::rename(&staging, &published).expect("atomic repoint");
+    let b_before = b.raw_list();
+
+    match provider.sole_window_id(&scope, "old") {
+        Err(ProviderError::EpochChanged { expected, observed }) => {
+            assert_eq!(expected, a.epoch);
+            assert_eq!(observed, Some(b.epoch));
+        }
+        other => panic!("sole_window_id on the replacement must be EpochChanged, got {other:?}"),
+    }
+    match provider.cas_rename_workspace(&scope, b_window, "old", "dmux:h:adopted", true) {
+        Err(ProviderError::EpochChanged { expected, observed }) => {
+            assert_eq!(expected, a.epoch);
+            assert_eq!(observed, Some(b.epoch));
+        }
+        other => panic!("cas_rename on the replacement must be EpochChanged, got {other:?}"),
+    }
+    assert_eq!(b.raw_list(), b_before, "zero native mutation on B");
+    assert!(
+        b.workspace_rows("dmux:h:adopted").is_empty(),
+        "B never renamed"
+    );
+    assert_eq!(b.workspace_rows("old").len(), 1, "B's workspace intact");
+
+    // Unpinned on the same published path: refused before any probe — the
+    // stock server would otherwise have answered the lookup exit 0.
+    let unpinned = a.scope_at(&published, None);
+    match provider.sole_window_id(&unpinned, "old") {
+        Err(ProviderError::WrongInstance { detail }) => {
+            assert!(detail.contains("managed scope"), "{detail}");
+        }
+        other => panic!("unpinned sole_window_id must be WrongInstance, got {other:?}"),
+    }
+    match provider.cas_rename_workspace(&unpinned, b_window, "old", "x", true) {
+        Err(ProviderError::WrongInstance { detail }) => {
+            assert!(detail.contains("managed scope"), "{detail}");
+        }
+        other => panic!("unpinned cas_rename must be WrongInstance, got {other:?}"),
+    }
+    assert_eq!(b.raw_list(), b_before, "still zero native mutation on B");
+}
+
 /// Gate: an absent socket is owner-proven `ServerStopped`, and neither the
 /// provider probe nor a raw `--no-auto-start` CLI call spawns any server.
 #[test]

@@ -419,6 +419,7 @@ struct WezScratch {
     server: std::process::Child,
     socket: String,
     config: String,
+    epoch: ServerEpoch,
     dir: tempfile::TempDir,
 }
 
@@ -458,6 +459,7 @@ return config
             server,
             socket,
             config: config_path.display().to_string(),
+            epoch: ServerEpoch(epoch),
             dir,
         }
     }
@@ -506,7 +508,9 @@ fn wez_hierarchy_full_cycle_at_the_operations_layer() {
     let helper_shim = shim.display().to_string();
     let provider =
         dmux::backend::wez::WezProvider::new("/opt/homebrew/bin/wezterm", s.config.clone());
-    let scope = InventoryScope::unmanaged_endpoint(Backend::Wez, s.socket.clone());
+    // Pinned to the scratch server's own epoch (WS-A.6: the adapter refuses
+    // an unpinned scope for every verb beyond `inventory`).
+    let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), s.epoch);
     // Wait for the sentinel to establish a complete epoched scan.
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {

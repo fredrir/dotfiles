@@ -44,6 +44,15 @@
 //! (ADR 001): typed outcomes come from the dmux-side probe, the sentinel
 //! handshake, and JSON parsing of the response actually consumed.
 //!
+//! Every native verb — the child reads `split_list`, `normalize_plan` and
+//! `sole_window_id` included — first takes the published epoch the caller's
+//! managed scope carries (`required_action_epoch`, or `binding_epoch` for a
+//! binding-bearing verb) and pins every scan to it. An unmanaged scope
+//! (`InventoryScope::unmanaged_endpoint`) is refused typed before the
+//! endpoint is probed: nothing on it is verifiable, so no native ID is
+//! addressable and no mutation may run (ADR 012 WS-A.6, review finding #6).
+//! Only `inventory` — the discovery read — scans an unmanaged endpoint.
+//!
 //! Mutations (P6, plan §11.1/§14): create/group_new/split_new/group_rename/
 //! remove/group_remove/split_remove are implemented here over the frozen
 //! P3b argv builders. The provider layer is pure native semantics — exact
@@ -1154,20 +1163,22 @@ impl<R: WezRunner> WezProvider<R> {
         })
     }
 
-    /// Scan mapped for `ProviderResult` verbs, with an optional epoch pin:
-    /// when `expected` is given the sentinel-proven epoch must match, else
-    /// the typed [`ProviderError::EpochChanged`]. Mutations call this twice
-    /// — before (pin from scope/binding) and after (pin from the pre-scan) —
-    /// so a server restart mid-mutation can never pass verification.
+    /// Scan mapped for `ProviderResult` verbs, pinned to `expected`: the
+    /// sentinel-proven epoch must match, else the typed
+    /// [`ProviderError::EpochChanged`]. There is no unpinned form — every
+    /// verb obtains its pin through [`Self::required_action_epoch`] (or
+    /// [`Self::binding_epoch`]) before its first native command, so an
+    /// unmanaged scope can never reach one (ADR 012 WS-A.6, review finding
+    /// #6). Mutations call this twice — before (pin from scope/binding) and
+    /// after (pin from the pre-scan) — so a server restart mid-mutation can
+    /// never pass verification.
     fn verified_scan(
         &self,
         scope: &InventoryScope,
-        expected: Option<ServerEpoch>,
+        expected: ServerEpoch,
     ) -> ProviderResult<DetailedScan> {
         let scan = self.scan(scope).map_err(|f| f.into_provider_error())?;
-        if let Some(expected) = expected
-            && expected != scan.epoch
-        {
+        if expected != scan.epoch {
             return Err(ProviderError::EpochChanged {
                 expected,
                 observed: Some(scan.epoch),
@@ -1262,6 +1273,13 @@ impl<R: WezRunner> WezProvider<R> {
         }
     }
 
+    /// The fail-closed pin every native verb takes before its first
+    /// command: the published epoch the caller's managed scope carries. An
+    /// unmanaged scope is a typed [`ProviderError::WrongInstance`] — nothing
+    /// on that endpoint is verifiable, so no native ID is addressable and no
+    /// mutation may run (ADR 012 WS-A.6; plan §8.1, §11.1). A managed read
+    /// without a pin refuses the same way: an unverified read of a managed
+    /// server is still unverified (ADR 012 WS-A.13).
     fn required_action_epoch(scope: &InventoryScope) -> ProviderResult<ServerEpoch> {
         if scope.backend != Backend::Wez {
             return Err(ProviderError::WrongInstance {
@@ -1269,8 +1287,9 @@ impl<R: WezRunner> WezProvider<R> {
             });
         }
         scope.expected_epoch().ok_or(ProviderError::WrongInstance {
-            detail: "managed wez child action requires a managed scope carrying the published server epoch; native child IDs \
-                     are unaddressable without a sentinel-proven incarnation"
+            detail: "managed wez operation requires a managed scope carrying the published server epoch; \
+                     nothing on an unpinned endpoint is verifiable and no native ID is addressable \
+                     without a sentinel-proven incarnation"
                 .into(),
         })
     }
@@ -2046,7 +2065,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
     /// spawn (acknowledgement-loss replay, plan §10.2): journal replay must
     /// rebind through the keyed lookup or report conflict.
     fn create(&self, scope: &InventoryScope, spec: &CreateSpec) -> ProviderResult<NativeBinding> {
-        let pre = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_scan(scope, expected)?;
         if let Some(row) = pre.row(&spec.native_token) {
             let windows = pre.workspace_windows(&spec.native_token);
             let panes = pre.workspace_panes(&spec.native_token);
@@ -2075,7 +2095,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         let out = self.run_mutation(invocation)?;
         let pane_id = Self::parse_spawn_pane_id("create (spawn --new-window)", &out)?;
 
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         let row =
             post.row(&spec.native_token)
                 .ok_or_else(|| ProviderError::PostconditionFailed {
@@ -2163,12 +2183,12 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         let expected = Self::binding_epoch(scope, binding)?;
         let mut survivors: Vec<u64> = Vec::new();
         for _round in 0..REMOVE_MAX_ROUNDS {
-            let scan = self.verified_scan(scope, Some(expected))?;
+            let scan = self.verified_scan(scope, expected)?;
             let panes = scan.workspace_panes(&binding.native_token);
             if panes.is_empty() {
                 // Converged at observation time — ADR 005: exit 0 is
                 // point-in-time only, so confirm with a final list.
-                let fin = self.verified_scan(scope, Some(expected))?;
+                let fin = self.verified_scan(scope, expected)?;
                 let resurfaced = fin.workspace_panes(&binding.native_token);
                 if resurfaced.is_empty() {
                     return Ok(());
@@ -2207,7 +2227,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         binding: &NativeBinding,
     ) -> ProviderResult<Vec<NativeGroupRow>> {
         let expected = Self::binding_epoch(scope, binding)?;
-        let scan = self.verified_scan(scope, Some(expected))?;
+        let scan = self.verified_scan(scope, expected)?;
         scan.rows
             .into_iter()
             .find(|r| r.native_token == binding.native_token)
@@ -2229,7 +2249,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         spec: &CreateSpec,
     ) -> ProviderResult<ProviderHandle> {
         let expected = Self::binding_epoch(scope, binding)?;
-        let pre = self.verified_scan(scope, Some(expected))?;
+        let pre = self.verified_scan(scope, expected)?;
         if pre.row(&binding.native_token).is_none() {
             return Err(ProviderError::NotFound {
                 native_ref: binding.native_token.clone(),
@@ -2249,7 +2269,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         let out = self.run_mutation(invocation)?;
         let pane_id = Self::parse_spawn_pane_id("group_new (spawn --window-id)", &out)?;
 
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         Self::sole_window(&post, &binding.native_token)?;
         let pane = post
             .pane(pane_id)
@@ -2294,7 +2314,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 detail: format!("not a wez tab handle: {handle}"),
             });
         };
-        let pre = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_scan(scope, expected)?;
         let owner = pre
             .tab_first_pane(*tab_id)
             .ok_or_else(|| ProviderError::NotFound {
@@ -2320,7 +2341,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 ),
             });
         }
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         Self::sole_window(&post, &workspace)?;
         let row = post
             .row(&workspace)
@@ -2356,7 +2377,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 detail: format!("not a wez tab handle: {handle}"),
             });
         };
-        let pre = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_scan(scope, expected)?;
         let owner = pre
             .tab_first_pane(*tab_id)
             .ok_or_else(|| ProviderError::NotFound {
@@ -2382,7 +2404,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
             // re-list below is the only postcondition authority.
             let _ = self.run_mutation(invocation)?;
         }
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         let remaining = post.tab_panes(*tab_id);
         if !remaining.is_empty() {
             return Err(ProviderError::PostconditionFailed {
@@ -2414,7 +2436,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 detail: format!("not a wez tab handle: {group}"),
             });
         };
-        let scan = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let scan = self.verified_scan(scope, expected)?;
         scan.rows
             .into_iter()
             .flat_map(|r| r.groups)
@@ -2442,7 +2465,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 detail: format!("not a wez tab handle: {group}"),
             });
         };
-        let pre = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_scan(scope, expected)?;
         let anchor = pre
             .tab_first_pane(*tab_id)
             .ok_or_else(|| ProviderError::NotFound {
@@ -2465,7 +2489,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         let out = self.run_mutation(invocation)?;
         let pane_id = Self::parse_spawn_pane_id("split_new (split-pane --pane-id)", &out)?;
 
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         Self::sole_window(&post, &workspace)?;
         let pane = post
             .pane(pane_id)
@@ -2536,7 +2560,8 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 detail: format!("not a wez pane handle: {handle}"),
             });
         };
-        let pre = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_scan(scope, expected)?;
         let pane = pre.pane(*pane_id).ok_or_else(|| ProviderError::NotFound {
             native_ref: handle.to_string(),
         })?;
@@ -2561,7 +2586,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         // Already-dead exit-1 is a benign race (ADR 005); the verified
         // re-list below is the only postcondition authority.
         let _ = self.run_mutation(invocation)?;
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         if post.pane(*pane_id).is_some() {
             return Err(ProviderError::PostconditionFailed {
                 detail: format!("wez split_remove: pane {pane_id} still listed after kill-pane"),
@@ -2573,21 +2598,22 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         Ok(())
     }
 
-    /// Local Wez normalization plan (plan §10.3, P8a): one verified
-    /// same-epoch scan, then the deterministic merge plan — target is the
-    /// LOWEST native window id of the workspace, moves are every pane of
-    /// every OTHER window in ascending (window_id, pane_id) order. Strictly
-    /// read-only: the plan is rendered for confirmation above this layer
-    /// and applied by [`Provider::normalize_apply`] under the caller's
-    /// exclusive fence. A sole-window workspace returns Ok with zero moves
-    /// ("nothing to do"); zero rows for the opaque key is a typed
+    /// Local Wez normalization plan (plan §10.3, P8a): one scan pinned to
+    /// the scope's published epoch, then the deterministic merge plan —
+    /// target is the LOWEST native window id of the workspace, moves are
+    /// every pane of every OTHER window in ascending (window_id, pane_id)
+    /// order. Strictly read-only: the plan is rendered for confirmation
+    /// above this layer and applied by [`Provider::normalize_apply`] under
+    /// the caller's exclusive fence. A sole-window workspace returns Ok with
+    /// zero moves ("nothing to do"); zero rows for the opaque key is a typed
     /// [`ProviderError::NotFound`].
     fn normalize_plan(
         &self,
         scope: &InventoryScope,
         native_token: &str,
     ) -> ProviderResult<NormalizePlan> {
-        let scan = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let scan = self.verified_scan(scope, expected)?;
         scan.derive_normalize_plan(native_token)
     }
 
@@ -2608,7 +2634,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
     /// An empty (sole-window) plan is a verified no-op success.
     fn normalize_apply(&self, scope: &InventoryScope, plan: &NormalizePlan) -> ProviderResult<()> {
         let token = plan.native_token.as_str();
-        let pre = self.verified_scan(scope, Some(plan.server_epoch))?;
+        let pre = self.verified_scan(scope, plan.server_epoch)?;
         let derived = match pre.derive_normalize_plan(token) {
             Ok(derived) => derived,
             Err(ProviderError::NotFound { .. }) => {
@@ -2655,7 +2681,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         let mut last_windows: Vec<u64> = Vec::new();
         let mut last_missing: Vec<u64> = Vec::new();
         for _round in 0..REMOVE_MAX_ROUNDS {
-            let scan = self.verified_scan(scope, Some(plan.server_epoch))?;
+            let scan = self.verified_scan(scope, plan.server_epoch)?;
             let windows = scan.workspace_windows(token);
             let missing: Vec<u64> = plan
                 .moves
@@ -2709,7 +2735,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         binding: &NativeBinding,
     ) -> ProviderResult<NativeSpaceRow> {
         let expected = Self::binding_epoch(scope, binding)?;
-        let scan = self.verified_scan(scope, Some(expected))?;
+        let scan = self.verified_scan(scope, expected)?;
         scan.rows
             .into_iter()
             .find(|r| r.native_token == binding.native_token)
@@ -2730,8 +2756,9 @@ impl<R: WezRunner> Provider for WezProvider<R> {
 const CAS_PROBE_WORKSPACE: &str = "dmux:probe:cas";
 
 impl<R: WezRunner> WezProvider<R> {
-    /// Sole native window id of one workspace token, from a sentinel/epoch-
-    /// verified scan (scope epoch enforced when pinned). [`NativeSpaceRow`]
+    /// Sole native window id of one workspace token, from a scan pinned to
+    /// the scope's published epoch (an unmanaged scope is refused before the
+    /// endpoint is probed, ADR 012 WS-A.6). [`NativeSpaceRow`]
     /// deliberately hides window ids, but the adopt flow needs one to feed
     /// [`WezProvider::cas_rename_workspace`] — this is the sanctioned
     /// lookup. Absent workspace ⇒ typed [`ProviderError::NotFound`];
@@ -2746,7 +2773,8 @@ impl<R: WezRunner> WezProvider<R> {
         scope: &InventoryScope,
         native_token: &str,
     ) -> ProviderResult<u64> {
-        let scan = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let scan = self.verified_scan(scope, expected)?;
         Self::sole_window(&scan, native_token)
     }
 
@@ -2795,9 +2823,11 @@ impl<R: WezRunner> WezProvider<R> {
 
     /// Fork CAS workspace reassignment (ADR 006): `cli rename-workspace
     /// --window-id N --if-workspace OLD [--if-sole-window] NEW` through the
-    /// configured fork CLI, bracketed by sentinel/epoch-verified scans (the
-    /// dmux-side epoch bracket ADR 006 requires). Typed CAS outcomes come
-    /// back as [`CasRenameOutcome`] — every non-`Renamed` variant is a
+    /// configured fork CLI, bracketed by scans pinned to the scope's
+    /// published epoch (the dmux-side epoch bracket ADR 006 requires; an
+    /// unmanaged scope is refused before any command, ADR 012 WS-A.6).
+    /// Typed CAS outcomes come back as [`CasRenameOutcome`] — every
+    /// non-`Renamed` variant is a
     /// server-guaranteed zero-mutation result. A `Renamed` outcome is
     /// additionally verified in the post-scan (the window must list under
     /// `new_workspace`). A stock server rejecting PDU ident 63 is a typed
@@ -2811,7 +2841,8 @@ impl<R: WezRunner> WezProvider<R> {
         new_workspace: &str,
         expect_sole_window: bool,
     ) -> ProviderResult<CasRenameOutcome> {
-        let pre = self.verified_scan(scope, None)?;
+        let expected = Self::required_action_epoch(scope)?;
+        let pre = self.verified_scan(scope, expected)?;
         let invocation = cas_rename_invocation(
             self.cas_bin(),
             &self.config_file,
@@ -2841,7 +2872,7 @@ impl<R: WezRunner> WezProvider<R> {
                 });
             }
         };
-        let post = self.verified_scan(scope, Some(pre.epoch))?;
+        let post = self.verified_scan(scope, pre.epoch)?;
         if outcome == CasRenameOutcome::Renamed {
             match post.window_workspace(window_id) {
                 Some(ws) if ws == new_workspace => {}
@@ -2939,6 +2970,14 @@ mod tests {
             // audit(unmanaged_endpoint): test-only scope(Option) helper
             None => InventoryScope::unmanaged_endpoint(Backend::Wez, SOCK),
         }
+    }
+
+    /// The managed scope every native verb needs: pinned to the epoch the
+    /// canned servers' sentinel serves (ADR 012 WS-A.6). `scope(None)` is
+    /// kept only for the discovery read (`inventory`) and for the refusal
+    /// tests that prove the fence.
+    fn pinned() -> InventoryScope {
+        scope(Some(ServerEpoch(EPOCH)))
     }
 
     fn complete(runner: &ScriptedRunner, expected: Option<ServerEpoch>) -> NativeInventory {
@@ -3456,10 +3495,25 @@ mod tests {
             .split_list(&scope(Some(ServerEpoch(EPOCH))), &ProviderHandle::Wz(10))
             .expect("split_list");
         assert_eq!(splits.len(), 2);
-        match p.split_list(&scope(None), &ProviderHandle::Tx(10)) {
-            Err(ProviderError::WrongInstance { .. }) => {}
+        match p.split_list(&pinned(), &ProviderHandle::Tx(10)) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("not a wez tab handle"), "{detail}");
+            }
             other => panic!("tmux handle must be WrongInstance, got {other:?}"),
         }
+        // A managed read without a pin is refused before the endpoint is
+        // probed (ADR 012 WS-A.6/A.13): the runner has no third probe.
+        match p.split_list(&scope(None), &ProviderHandle::Wz(10)) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("managed scope"), "{detail}");
+            }
+            other => panic!("unpinned split_list must be WrongInstance, got {other:?}"),
+        }
+        assert_eq!(
+            runner.probe_calls.borrow().len(),
+            2,
+            "two pinned scans only"
+        );
     }
 
     // -- non-provider verbs stay typed ---------------------------------------
@@ -3805,6 +3859,90 @@ mod tests {
         assert!(runner.run_calls.borrow().is_empty());
     }
 
+    /// The wez analogue of tmux's `create_on_unepoched_server_is_a_typed_error`
+    /// (review finding #6, ADR 012 WS-A.6). Unpinned, `create` is refused
+    /// before the endpoint is probed; pinned to an epoch the live sentinel
+    /// does not serve (a replaced server), the one verifying list refuses
+    /// `EpochChanged` and nothing is spawned.
+    #[test]
+    fn create_on_unpinned_scope_is_a_typed_error() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        match provider(&runner).create(&scope(None), &spec("dmux:h:s")) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("managed scope"), "{detail}");
+            }
+            other => panic!("unpinned create must be WrongInstance, got {other:?}"),
+        }
+        assert!(
+            runner.probe_calls.borrow().is_empty(),
+            "endpoint never probed"
+        );
+        assert!(runner.run_calls.borrow().is_empty(), "no native command");
+
+        let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&canned(&[]))]);
+        let claimed = ServerEpoch(Uuid::from_u128(0xfeed_face));
+        match provider(&runner).create(&scope(Some(claimed)), &spec("dmux:h:s")) {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, claimed);
+                assert_eq!(observed, Some(ServerEpoch(EPOCH)));
+            }
+            other => panic!("replaced server must be EpochChanged, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, no spawn");
+    }
+
+    /// The nine verbs the review found opening with an unpinned scan
+    /// (finding #6: `create`, `group_rename`, `group_remove`, `split_list`,
+    /// `split_new`, `split_remove`, `normalize_plan`, `sole_window_id`,
+    /// `cas_rename_workspace`). Each refuses an unmanaged scope typed with
+    /// the endpoint never probed and no command run — the reads included,
+    /// because a managed read without a pin is equally unverified (ADR 012
+    /// WS-A.13).
+    #[test]
+    fn every_fenced_verb_refuses_an_unpinned_scope_before_any_command() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        let p = provider(&runner).with_cas_binary("/fork/wezterm");
+        let s = scope(None);
+        let results: Vec<(&str, ProviderResult<()>)> = vec![
+            ("create", p.create(&s, &spec("k")).map(|_| ())),
+            (
+                "group_rename",
+                p.group_rename(&s, &ProviderHandle::Wz(10), "title"),
+            ),
+            ("group_remove", p.group_remove(&s, &ProviderHandle::Wz(10))),
+            (
+                "split_list",
+                p.split_list(&s, &ProviderHandle::Wz(10)).map(|_| ()),
+            ),
+            (
+                "split_new",
+                p.split_new(&s, &ProviderHandle::Wz(10), &spec("k").into())
+                    .map(|_| ()),
+            ),
+            ("split_remove", p.split_remove(&s, &ProviderHandle::Wz(100))),
+            ("normalize_plan", p.normalize_plan(&s, "mw").map(|_| ())),
+            ("sole_window_id", p.sole_window_id(&s, "alpha").map(|_| ())),
+            (
+                "cas_rename_workspace",
+                p.cas_rename_workspace(&s, 1, "old", "new", true)
+                    .map(|_| ()),
+            ),
+        ];
+        for (verb, result) in results {
+            match result {
+                Err(ProviderError::WrongInstance { detail }) => {
+                    assert!(detail.contains("managed scope"), "{verb}: {detail}");
+                }
+                other => panic!("{verb} on an unpinned scope must be WrongInstance, got {other:?}"),
+            }
+        }
+        assert!(
+            runner.probe_calls.borrow().is_empty(),
+            "endpoint never probed"
+        );
+        assert!(runner.run_calls.borrow().is_empty(), "no native command");
+    }
+
     #[test]
     fn create_spawns_once_and_returns_verified_binding() {
         let runner = ScriptedRunner::new(
@@ -3836,7 +3974,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[(3, 4, 7, "dmux:h:s")]))],
         );
-        match provider(&runner).create(&scope(None), &spec("dmux:h:s")) {
+        match provider(&runner).create(&pinned(), &spec("dmux:h:s")) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("workspace_exists"), "{detail}");
                 assert!(detail.contains("never respawns"), "{detail}");
@@ -3861,7 +3999,7 @@ mod tests {
                 ok(&canned_epoch(other, &[(3, 4, 7, "dmux:h:s")])),
             ],
         );
-        match provider(&runner).create(&scope(None), &spec("dmux:h:s")) {
+        match provider(&runner).create(&pinned(), &spec("dmux:h:s")) {
             Err(ProviderError::EpochChanged { expected, observed }) => {
                 assert_eq!(expected, ServerEpoch(EPOCH));
                 assert_eq!(observed, Some(ServerEpoch(other)));
@@ -3880,7 +4018,7 @@ mod tests {
                 ok(&canned(&[(3, 4, 7, "k"), (5, 6, 8, "k")])),
             ],
         );
-        match provider(&runner).create(&scope(None), &spec("k")) {
+        match provider(&runner).create(&pinned(), &spec("k")) {
             Err(ProviderError::MultiWindow {
                 native_ref,
                 window_count,
@@ -3898,7 +4036,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[])), ok("")],
         );
-        match provider(&runner).create(&scope(None), &spec("k")) {
+        match provider(&runner).create(&pinned(), &spec("k")) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.contains("unparseable spawn output"), "{detail}");
             }
@@ -3949,7 +4087,7 @@ mod tests {
             ],
         );
         let handle = provider(&runner)
-            .split_new(&scope(None), &ProviderHandle::Wz(10), &spec("alpha").into())
+            .split_new(&pinned(), &ProviderHandle::Wz(10), &spec("alpha").into())
             .expect("split_new");
         assert_eq!(handle, ProviderHandle::Wz(12));
         let calls = runner.run_calls.borrow();
@@ -3977,11 +4115,8 @@ mod tests {
                 ok(&canned(&[(1, 10, 100, "alpha"), (1, 11, 12, "alpha")])),
             ],
         );
-        match provider(&runner).split_new(
-            &scope(None),
-            &ProviderHandle::Wz(10),
-            &spec("alpha").into(),
-        ) {
+        match provider(&runner).split_new(&pinned(), &ProviderHandle::Wz(10), &spec("alpha").into())
+        {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.contains("wanted tab 10"), "{detail}");
             }
@@ -4000,7 +4135,7 @@ mod tests {
             vec![ok(&canned(&[(1, 10, 100, "alpha")])), ok(""), ok(&post)],
         );
         provider(&runner)
-            .group_rename(&scope(None), &ProviderHandle::Wz(10), "editor")
+            .group_rename(&pinned(), &ProviderHandle::Wz(10), "editor")
             .expect("group_rename");
         let calls = runner.run_calls.borrow();
         let want = set_tab_title_invocation(BIN, CFG, SOCK, 10, "editor").unwrap();
@@ -4017,7 +4152,7 @@ mod tests {
             vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
             vec![ok(&canned(&[(1, 10, 100, "alpha")])), ok(""), ok(&post)],
         );
-        match provider(&runner).group_rename(&scope(None), &ProviderHandle::Wz(10), "editor") {
+        match provider(&runner).group_rename(&pinned(), &ProviderHandle::Wz(10), "editor") {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.contains("wanted"), "{detail}");
             }
@@ -4082,7 +4217,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[(1, 10, 100, "alpha")]))],
         );
-        match provider(&runner).split_remove(&scope(None), &ProviderHandle::Wz(100)) {
+        match provider(&runner).split_remove(&pinned(), &ProviderHandle::Wz(100)) {
             Err(ProviderError::NativeFailure { detail }) => {
                 assert!(detail.starts_with("refused_last_pane"), "{detail}");
             }
@@ -4097,7 +4232,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[(1, 10, 100, "alpha"), (1, 10, 101, "alpha")]))],
         );
-        match provider(&runner).group_remove(&scope(None), &ProviderHandle::Wz(10)) {
+        match provider(&runner).group_remove(&pinned(), &ProviderHandle::Wz(10)) {
             Err(ProviderError::NativeFailure { detail }) => {
                 assert!(detail.starts_with("refused_last_group"), "{detail}");
             }
@@ -4117,7 +4252,7 @@ mod tests {
             ],
         );
         provider(&runner)
-            .split_remove(&scope(None), &ProviderHandle::Wz(101))
+            .split_remove(&pinned(), &ProviderHandle::Wz(101))
             .expect("split_remove");
         let calls = runner.run_calls.borrow();
         assert_eq!(
@@ -4228,10 +4363,10 @@ mod tests {
             ],
         );
         let p = provider(&runner);
-        let plan = p.normalize_plan(&scope(None), "solo").expect("plan");
+        let plan = p.normalize_plan(&pinned(), "solo").expect("plan");
         assert_eq!(plan.target_window, 3);
         assert!(plan.moves.is_empty(), "sole window: nothing to do");
-        match p.normalize_plan(&scope(None), "missing") {
+        match p.normalize_plan(&pinned(), "missing") {
             Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "missing"),
             other => panic!("zero rows must be NotFound, got {other:?}"),
         }
@@ -4270,7 +4405,7 @@ mod tests {
                 &[(1, 10, 100, "mw"), (2, 20, 200, "mw")],
             ))],
         );
-        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
             Err(ProviderError::EpochChanged { expected, observed }) => {
                 assert_eq!(expected, ServerEpoch(EPOCH));
                 assert_eq!(observed, Some(ServerEpoch(other)));
@@ -4290,7 +4425,7 @@ mod tests {
             (7, 70, 700, "mw"),
         ]);
         let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&drifted)]);
-        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("normalize_drift:"), "{detail}");
                 assert!(detail.contains("re-plan"), "{detail}");
@@ -4302,7 +4437,7 @@ mod tests {
         // A planned pane vanished.
         let vanished = canned(&[(1, 10, 100, "mw"), (2, 20, 200, "mw")]);
         let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&vanished)]);
-        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("normalize_drift:"), "{detail}");
             }
@@ -4313,7 +4448,7 @@ mod tests {
         // The whole workspace vanished between plan and apply.
         let gone = canned(&[(1, 10, 100, "other")]);
         let runner = ScriptedRunner::new(vec![ProbeOutcome::Connectable], vec![ok(&gone)]);
-        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("normalize_drift:"), "{detail}");
                 assert!(detail.contains("zero live panes"), "{detail}");
@@ -4336,7 +4471,7 @@ mod tests {
             moves: vec![],
         };
         provider(&runner)
-            .normalize_apply(&scope(None), &plan)
+            .normalize_apply(&pinned(), &plan)
             .expect("empty plan is a verified no-op success");
         assert_eq!(
             runner.run_calls.borrow().len(),
@@ -4364,7 +4499,7 @@ mod tests {
             runs.push(ok(&stuck));
         }
         let runner = ScriptedRunner::new(probes, runs);
-        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("normalize_unconverged:"), "{detail}");
                 assert!(detail.contains("window(s) [1, 7]"), "{detail}");
@@ -4400,7 +4535,7 @@ mod tests {
             runs.push(ok("")); // re-issued move for pane 201
         }
         let runner = ScriptedRunner::new(probes, runs);
-        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.starts_with("normalize_unconverged:"), "{detail}");
                 assert!(detail.contains("target 1"), "{detail}");
@@ -4685,7 +4820,7 @@ mod tests {
         );
         let outcome = provider(&runner)
             .with_cas_binary(fork)
-            .cas_rename_workspace(&scope(None), 1, "old", "new", true)
+            .cas_rename_workspace(&pinned(), 1, "old", "new", true)
             .expect("cas rename");
         assert_eq!(outcome, CasRenameOutcome::Renamed);
         let calls = runner.run_calls.borrow();
@@ -4707,7 +4842,7 @@ mod tests {
                 ok(&canned(&[(1, 10, 100, "old")])),
             ],
         );
-        match provider(&runner).cas_rename_workspace(&scope(None), 1, "old", "new", false) {
+        match provider(&runner).cas_rename_workspace(&pinned(), 1, "old", "new", false) {
             Err(ProviderError::PostconditionFailed { detail }) => {
                 assert!(detail.contains("Renamed but window"), "{detail}");
             }
@@ -4726,7 +4861,7 @@ mod tests {
             ],
         );
         let outcome = provider(&runner)
-            .cas_rename_workspace(&scope(None), 1, "old", "other", false)
+            .cas_rename_workspace(&pinned(), 1, "old", "other", false)
             .expect("typed outcome");
         assert_eq!(
             outcome,
@@ -4739,7 +4874,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[(1, 10, 100, "old")])), fail(LIVE_INVALID_PDU)],
         );
-        match provider(&runner).cas_rename_workspace(&scope(None), 1, "old", "new", false) {
+        match provider(&runner).cas_rename_workspace(&pinned(), 1, "old", "new", false) {
             Err(ProviderError::NativeFailure { detail }) => {
                 assert!(detail.starts_with("cas_capability_missing"), "{detail}");
             }
@@ -4766,7 +4901,7 @@ mod tests {
             vec![ProbeOutcome::Connectable],
             vec![ok(&canned(&[(3, 10, 100, "alpha")]))],
         );
-        match provider(&runner).sole_window_id(&scope(None), "missing") {
+        match provider(&runner).sole_window_id(&pinned(), "missing") {
             Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "missing"),
             other => panic!("absent workspace must be NotFound, got {other:?}"),
         }
@@ -4780,7 +4915,7 @@ mod tests {
                 (4, 12, 102, "mw"),
             ]))],
         );
-        match provider(&runner).sole_window_id(&scope(None), "mw") {
+        match provider(&runner).sole_window_id(&pinned(), "mw") {
             Err(ProviderError::MultiWindow {
                 native_ref,
                 window_count,
@@ -4800,6 +4935,141 @@ mod tests {
         match provider(&runner).sole_window_id(&scope(Some(wrong)), "alpha") {
             Err(ProviderError::EpochChanged { .. }) => {}
             other => panic!("wrong epoch must reject typed, got {other:?}"),
+        }
+    }
+
+    // -- WS-E.2: reproductions against a replacement server ------------------
+    //
+    // Review report 08 §7 had call-chain proof only for `cas_rename_workspace`
+    // (wez.rs:2806 at 493e92c) and `sole_window_id` (:2744). The runner plays
+    // a server whose sentinel epoch is not the pin — what a replaced
+    // `wezterm-mux-server` on the managed socket looks like to the adapter
+    // (plan §15.1, ADR 002). The live counterpart, with a real second server
+    // behind the published path, is `provider_wez::
+    // replacement_server_refuses_cas_rename_and_sole_window_id_typed`.
+
+    /// Finding #6 inverted for `cas_rename_workspace`: unpinned, the CAS verb
+    /// never reaches the endpoint; pinned against a replacement, the one
+    /// verifying list refuses `EpochChanged` and no `rename-workspace` is
+    /// recorded.
+    #[test]
+    fn cas_rename_on_a_replacement_server_refuses_epoch_changed_without_renaming() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        match provider(&runner)
+            .with_cas_binary("/fork/wezterm")
+            .cas_rename_workspace(&scope(None), 1, "old", "new", true)
+        {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("managed scope"), "{detail}");
+            }
+            other => panic!("unpinned CAS must be WrongInstance, got {other:?}"),
+        }
+        assert!(
+            runner.probe_calls.borrow().is_empty(),
+            "endpoint never probed"
+        );
+        assert!(runner.run_calls.borrow().is_empty(), "no native command");
+
+        let replacement = Uuid::from_u128(0x9e9e_9e9e_9e9e_9e9e);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned_epoch(replacement, &[(1, 10, 100, "old")]))],
+        );
+        match provider(&runner)
+            .with_cas_binary("/fork/wezterm")
+            .cas_rename_workspace(&pinned(), 1, "old", "new", true)
+        {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(ServerEpoch(replacement)));
+            }
+            other => panic!("replacement server must be EpochChanged, got {other:?}"),
+        }
+        let calls = runner.run_calls.borrow();
+        assert_eq!(calls.len(), 1, "the verifying list only");
+        let argvs: Vec<&Vec<String>> = calls.iter().map(|(inv, _)| &inv.argv).collect();
+        assert!(
+            argvs
+                .iter()
+                .all(|argv| !argv.iter().any(|a| a == "rename-workspace")),
+            "no rename-workspace reached the replacement: {argvs:?}"
+        );
+    }
+
+    /// Finding #6 inverted for `sole_window_id`: unpinned, no probe and no
+    /// list; pinned against a replacement, `EpochChanged` after the one
+    /// verifying list and no window id is ever answered.
+    #[test]
+    fn sole_window_id_on_a_replacement_server_refuses_epoch_changed() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        match provider(&runner).sole_window_id(&scope(None), "old") {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("managed scope"), "{detail}");
+            }
+            other => panic!("unpinned lookup must be WrongInstance, got {other:?}"),
+        }
+        assert!(
+            runner.probe_calls.borrow().is_empty(),
+            "endpoint never probed"
+        );
+        assert!(runner.run_calls.borrow().is_empty(), "no native command");
+
+        let replacement = Uuid::from_u128(0x9e9e_9e9e_9e9e_9e9e);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned_epoch(replacement, &[(1, 10, 100, "old")]))],
+        );
+        match provider(&runner).sole_window_id(&pinned(), "old") {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(ServerEpoch(replacement)));
+            }
+            other => panic!("replacement server must be EpochChanged, got {other:?}"),
+        }
+        assert_eq!(
+            runner.run_calls.borrow().len(),
+            1,
+            "the verifying list only"
+        );
+    }
+
+    /// The frozen fork CAS failure shapes (ADR 006; live-captured stderr),
+    /// driven through `cas_rename_workspace` under a pinned scope rather than
+    /// through the bare classifier: each non-`Renamed` outcome is the typed
+    /// result ADR 006 names, the CAS argv is the frozen one, and the
+    /// same-epoch post-scan is still taken.
+    #[test]
+    fn cas_rename_failure_shapes_are_typed_outcomes_under_a_pinned_scope() {
+        let cases = [
+            (LIVE_NO_WINDOW, CasRenameOutcome::NoSuchWindow),
+            (LIVE_NOT_SOLE, CasRenameOutcome::NotSoleWindow),
+            (
+                LIVE_MISMATCH,
+                CasRenameOutcome::WorkspaceMismatch {
+                    actual: "new".into(),
+                },
+            ),
+        ];
+        for (stderr, want) in cases {
+            let runner = ScriptedRunner::new(
+                vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
+                vec![
+                    ok(&canned(&[(1, 10, 100, "old")])),
+                    fail(stderr),
+                    ok(&canned(&[(1, 10, 100, "old")])),
+                ],
+            );
+            let outcome = provider(&runner)
+                .with_cas_binary("/fork/wezterm")
+                .cas_rename_workspace(&pinned(), 1, "old", "new", true)
+                .unwrap_or_else(|e| panic!("{stderr:?} must be a typed outcome, got {e:?}"));
+            assert_eq!(outcome, want, "{stderr:?}");
+            let calls = runner.run_calls.borrow();
+            assert_eq!(calls.len(), 3, "list, CAS, verifying list");
+            assert_eq!(
+                calls[1].0,
+                cas_rename_invocation("/fork/wezterm", CFG, SOCK, 1, "old", true, "new").unwrap()
+            );
         }
     }
 

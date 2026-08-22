@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use dmux::backend::tmux::TmuxProvider;
 use dmux::backend::wez::WezProvider;
 use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
-use dmux::model::{Backend, Health, Lifecycle};
+use dmux::model::{Backend, Health, Lifecycle, ServerEpoch};
 use dmux::operations::{OpError, OperationEnv, adopt_tmux, adopt_wez, tmux_bootstrap};
 use dmux::registry::{Registry, RegistryConfig};
 use uuid::Uuid;
@@ -237,6 +237,7 @@ struct WezScratch {
     server: Child,
     socket: String,
     config: String,
+    epoch: ServerEpoch,
     dir: tempfile::TempDir,
 }
 
@@ -275,6 +276,7 @@ return config
             server,
             socket,
             config: config_path.display().to_string(),
+            epoch: ServerEpoch(epoch),
             dir,
         }
     }
@@ -296,7 +298,7 @@ return config
     }
 
     fn scope(&self) -> InventoryScope {
-        InventoryScope::unmanaged_endpoint(Backend::Wez, self.socket.clone())
+        InventoryScope::managed(Backend::Wez, self.socket.clone(), self.epoch)
     }
 
     fn wait_ready(&self, provider: &WezProvider<dmux::backend::wez::SystemRunner>) {

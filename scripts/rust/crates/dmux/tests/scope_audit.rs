@@ -20,7 +20,7 @@
 //! burn-down are the review's laundering sites, migrated one commit at a
 //! time to `backend::scope::resolve_managed`; each migration deletes its
 //! entry here, so the burn-down is visible in the diff and the list ends at
-//! the two legitimate production sites plus the two test helpers.
+//! the one legitimate production site (`ls_cli` first-contact tmux) plus the two test helpers.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -34,10 +34,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
     (
         "src/ls_cli.rs",
         "first-contact tmux namespace; nothing is registered for this backend",
-    ),
-    (
-        "src/space_cli.rs",
-        "hidden --socket test seam (repair normalize)",
     ),
     ("src/backend/tmux.rs", "test-only scope(Option) helper"),
     ("src/backend/wez.rs", "test-only scope(Option) helper"),

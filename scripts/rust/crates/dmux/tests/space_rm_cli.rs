@@ -199,6 +199,8 @@ fn repair_normalize_previews_then_refuses_without_a_terminal() {
             "normalize",
             "--socket",
             &socket,
+            "--epoch",
+            "00000000-0000-4000-8000-0000000000ff",
             "--data-dir",
             &data,
             "--lock-dir",

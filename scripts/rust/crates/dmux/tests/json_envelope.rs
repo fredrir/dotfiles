@@ -216,12 +216,14 @@ struct WezStub {
     _listener: std::os::unix::net::UnixListener,
     socket: String,
     bin: String,
+    /// The sentinel epoch the stub answers with; the seam pins to it.
+    epoch: Uuid,
 }
 
 impl WezStub {
     /// A `wezterm` that answers every call with `rows`, and a live socket so
     /// the provider's strict-endpoint probe finds something connectable.
-    fn new(rows: &str) -> WezStub {
+    fn new(epoch: Uuid, rows: &str) -> WezStub {
         let dir = tempfile::tempdir_in("/tmp").unwrap();
         let socket = dir.path().join("sock");
         let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
@@ -233,6 +235,7 @@ impl WezStub {
             bin: bin.display().to_string(),
             _listener: listener,
             dir,
+            epoch,
         }
     }
 
@@ -242,7 +245,7 @@ impl WezStub {
             .args(args)
             .args(["--data-dir", self.dir.path().to_str().unwrap()])
             .args(["--lock-dir", self.dir.path().to_str().unwrap()])
-            .args(["--socket", &self.socket])
+            .args(["--socket", &self.socket, "--epoch", &self.epoch.to_string()])
             .env("DMUX_WEZ_BIN", &self.bin)
             .env("DMUX_WEZ_CONFIG", self.dir.path().join("wez.lua"));
         command.output().expect("dmux runs")
@@ -260,19 +263,24 @@ impl WezStub {
     }
 }
 
-fn sentinel_rows(extra: &str) -> String {
+fn sentinel_rows(epoch: Uuid, extra: &str) -> String {
     format!(
         r#"[{{"window_id":0,"tab_id":0,"pane_id":0,"workspace":"dmux:system:{}"}}{extra}]"#,
-        Uuid::new_v4()
+        epoch
     )
 }
 
 #[test]
 fn repair_normalize_format_json_documents_the_empty_scan() {
     let sandbox = Sandbox::new();
-    let stub = WezStub::new(&sentinel_rows(
-        r#",{"window_id":1,"tab_id":1,"pane_id":1,"workspace":"solo"}"#,
-    ));
+    let epoch = Uuid::new_v4();
+    let stub = WezStub::new(
+        epoch,
+        &sentinel_rows(
+            epoch,
+            r#",{"window_id":1,"tab_id":1,"pane_id":1,"workspace":"solo"}"#,
+        ),
+    );
 
     let out = stub.normalize(&sandbox, &["--format", "json"]);
     assert!(out.status.success(), "{}", stderr(&out));
@@ -295,10 +303,15 @@ fn repair_normalize_format_json_documents_the_empty_scan() {
 #[test]
 fn repair_normalize_without_yes_refuses_in_one_document() {
     let sandbox = Sandbox::new();
-    let stub = WezStub::new(&sentinel_rows(
-        r#",{"window_id":1,"tab_id":1,"pane_id":1,"workspace":"sprawl"},
+    let epoch = Uuid::new_v4();
+    let stub = WezStub::new(
+        epoch,
+        &sentinel_rows(
+            epoch,
+            r#",{"window_id":1,"tab_id":1,"pane_id":1,"workspace":"sprawl"},
            {"window_id":2,"tab_id":2,"pane_id":2,"workspace":"sprawl"}"#,
-    ));
+        ),
+    );
 
     let out = stub.normalize(&sandbox, &["--format", "json"]);
     assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
@@ -326,10 +339,15 @@ fn repair_normalize_reports_per_target_failure_and_exits_partial() {
     let sandbox = Sandbox::new();
     // The stub never actually moves a pane, so every apply fails its
     // postcondition — one quarantined target, zero mutation.
-    let stub = WezStub::new(&sentinel_rows(
-        r#",{"window_id":1,"tab_id":1,"pane_id":1,"workspace":"sprawl"},
+    let epoch = Uuid::new_v4();
+    let stub = WezStub::new(
+        epoch,
+        &sentinel_rows(
+            epoch,
+            r#",{"window_id":1,"tab_id":1,"pane_id":1,"workspace":"sprawl"},
            {"window_id":2,"tab_id":2,"pane_id":2,"workspace":"sprawl"}"#,
-    ));
+        ),
+    );
 
     let out = stub.normalize(&sandbox, &["--format", "json", "--yes"]);
     assert_eq!(out.status.code(), Some(7), "{}", stderr(&out));

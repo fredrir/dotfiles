@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use dmux::backend::wez::WezProvider;
 use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
-use dmux::model::Backend;
+use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
     CreateRequest, OpError, OperationEnv, create_space, normalize_apply, normalize_preview,
     repair_normalize_batch, repair_scan_wez,
@@ -22,6 +22,7 @@ struct WezScratch {
     server: Child,
     socket: String,
     config: String,
+    epoch: ServerEpoch,
     dir: tempfile::TempDir,
 }
 
@@ -60,6 +61,7 @@ return config
             server,
             socket,
             config: config_path.display().to_string(),
+            epoch: ServerEpoch(epoch),
             dir,
         }
     }
@@ -93,8 +95,10 @@ return config
         WezProvider::new(STOCK_WEZTERM, self.config.clone())
     }
 
+    /// Pinned to the epoch the scratch server was started with: since
+    /// WS-A.6 every wez verb beyond `inventory` refuses an unpinned scope.
     fn scope(&self) -> InventoryScope {
-        InventoryScope::unmanaged_endpoint(Backend::Wez, self.socket.clone())
+        InventoryScope::managed(Backend::Wez, self.socket.clone(), self.epoch)
     }
 
     fn wait_ready(&self, provider: &WezProvider<dmux::backend::wez::SystemRunner>) {
@@ -198,6 +202,14 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
     let s = WezScratch::start("c");
     let provider = s.provider();
     s.wait_ready(&provider);
+    // The pin every native verb needs (ADR 012 WS-A.6): the sentinel epoch
+    // this scratch server was started with, read back from its own list
+    // through the discovery read, which is the one unpinned scan allowed.
+    let InventoryOutcome::Complete(inv) = provider.inventory(&s.scope()) else {
+        panic!("scan must stay complete");
+    };
+    let epoch = inv.server_epoch.expect("sentinel-epoched scratch server");
+    let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), epoch);
 
     // Managed Space through the full broker (env shim per ADR 009 §4a).
     let shim = data.path().join("helper-shim.sh");
@@ -217,7 +229,7 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
     let created = create_space(
         &env,
         &provider,
-        &s.scope(),
+        &scope,
         Backend::Wez,
         &CreateRequest {
             request_uid: Uuid::new_v4(),
@@ -234,7 +246,7 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
     assert!(s.row(&provider, &created.native_token).multi_window);
 
     // Detection records managed quarantine.
-    let targets = repair_scan_wez(&env, &provider, &s.scope()).unwrap();
+    let targets = repair_scan_wez(&env, &provider, &scope).unwrap();
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].managed, Some(created.space_uid));
     let registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
@@ -248,24 +260,57 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
     );
     drop(registry);
 
+    // The seam is one pin, not a hatch (ADR 012 WS-A.6): `--socket` alone
+    // is refused at the grammar, and a pin the sentinel does not serve is
+    // refused typed — both before any move, the workspace stays two-window.
+    let seam_cli = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_dmux"))
+            .args([
+                "repair",
+                "normalize",
+                "--yes",
+                "--json",
+                "--data-dir",
+                data.path().to_str().unwrap(),
+                "--lock-dir",
+                locks.path().to_str().unwrap(),
+                "--socket",
+                &s.socket,
+            ])
+            .args(extra)
+            .env("DMUX_WEZ_BIN", STOCK_WEZTERM)
+            .env("DMUX_WEZ_CONFIG", &s.config)
+            .output()
+            .unwrap()
+    };
+    let lone = seam_cli(&[]);
+    assert!(
+        !lone.status.success(),
+        "--socket without --epoch must refuse"
+    );
+    assert!(
+        String::from_utf8_lossy(&lone.stderr).contains("--epoch"),
+        "stderr: {}",
+        String::from_utf8_lossy(&lone.stderr)
+    );
+    let wrong = seam_cli(&["--epoch", &Uuid::new_v4().to_string()]);
+    assert!(
+        !wrong.status.success(),
+        "a pin the sentinel does not serve must refuse"
+    );
+    let wrong_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&wrong.stdout),
+        String::from_utf8_lossy(&wrong.stderr)
+    );
+    assert!(wrong_text.contains("backend_epoch_changed"), "{wrong_text}");
+    assert!(
+        s.row(&provider, &created.native_token).multi_window,
+        "zero mutation on either refusal"
+    );
+
     // Heal through the REAL CLI with --yes and the test seams.
-    let out = Command::new(env!("CARGO_BIN_EXE_dmux"))
-        .args([
-            "repair",
-            "normalize",
-            "--yes",
-            "--json",
-            "--data-dir",
-            data.path().to_str().unwrap(),
-            "--lock-dir",
-            locks.path().to_str().unwrap(),
-            "--socket",
-            &s.socket,
-        ])
-        .env("DMUX_WEZ_BIN", STOCK_WEZTERM)
-        .env("DMUX_WEZ_CONFIG", &s.config)
-        .output()
-        .unwrap();
+    let out = seam_cli(&["--epoch", &epoch.0.to_string()]);
     assert!(
         out.status.success(),
         "stdout: {} stderr: {}",
@@ -289,14 +334,10 @@ fn repair_batch_detects_and_heals_managed_multi_window() {
         dmux::model::Health::Healthy
     );
     drop(registry);
-    assert!(
-        repair_scan_wez(&env, &provider, &s.scope())
-            .unwrap()
-            .is_empty()
-    );
+    assert!(repair_scan_wez(&env, &provider, &scope).unwrap().is_empty());
 
     // The batch API itself also runs clean on an empty target list.
-    assert!(repair_normalize_batch(&env, &provider, &s.scope(), &[]).is_empty());
+    assert!(repair_normalize_batch(&env, &provider, &scope, &[]).is_empty());
 }
 
 #[test]

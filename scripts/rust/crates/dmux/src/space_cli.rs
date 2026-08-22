@@ -146,9 +146,17 @@ pub enum RepairCmd {
         #[arg(long, hide = true)]
         lock_dir: Option<String>,
 
-        /// Test seam: exact wez service socket.
-        #[arg(long, hide = true)]
+        /// Test seam: exact wez service socket. Only together with
+        /// `--epoch`: an endpoint nothing in the registry vouches for is
+        /// scanned pinned to the sentinel epoch the test gave its scratch
+        /// server, never unpinned (ADR 012 WS-A.6 — the adapter refuses an
+        /// unmanaged scope before any command).
+        #[arg(long, hide = true, requires = "epoch")]
         socket: Option<String>,
+
+        /// Test seam: the sentinel epoch the `--socket` server must serve.
+        #[arg(long, hide = true, requires = "socket")]
+        epoch: Option<Uuid>,
     },
 
     /// Preview and resolve the journal rows a crashed holder stranded
@@ -204,6 +212,7 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             data_dir,
             lock_dir,
             socket,
+            epoch,
         } => {
             let envelope = format == Some(OutputFormat::Json);
             if json {
@@ -219,20 +228,29 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             // Past this point the env is known, so every refusal can stamp
             // the head of the registry the command was actually pointed at.
             let refused = |error: TypedError| refuse(ACTION, format, &error, Some(&env));
-            let (socket, expected_epoch) = match socket {
-                Some(socket) => (socket, None),
-                None => match verified_wez_target(&env, None) {
-                    Ok((socket, epoch)) => (socket, Some(epoch)),
+            let scope = match (socket, epoch) {
+                // Hidden test seam: the caller pins the endpoint to the
+                // epoch it published through its own scratch server's
+                // sentinel. Never an unmanaged scope — `normalize_plan`
+                // refuses one before any command (ADR 012 WS-A.6).
+                (Some(socket), Some(epoch)) => {
+                    InventoryScope::managed(Backend::Wez, socket, ServerEpoch(epoch))
+                }
+                (None, None) => match verified_wez_target(&env, None) {
+                    Ok((socket, epoch)) => InventoryScope::managed(Backend::Wez, socket, epoch),
                     Err(error) => return Ok(refused(error)),
                 },
+                // clap's `requires` pairs them; a lone one is a usage fault,
+                // never a fallback to the production target or to no pin.
+                (Some(_), None) | (None, Some(_)) => {
+                    return Ok(refused(TypedError::new(
+                        ErrorCode::Usage,
+                        "--socket and --epoch are one test seam; pass both",
+                    )));
+                }
             };
             let (bin, config) = production_wez_paths();
             let provider = dmux::backend::wez::WezProvider::new(&bin, config);
-            let scope = match expected_epoch {
-                Some(epoch) => InventoryScope::managed(Backend::Wez, socket, epoch),
-                // audit(unmanaged_endpoint): hidden --socket test seam (repair normalize)
-                None => InventoryScope::unmanaged_endpoint(Backend::Wez, socket),
-            };
 
             let mut targets = match operations::repair_scan_wez(&env, &provider, &scope) {
                 Ok(targets) => targets,
