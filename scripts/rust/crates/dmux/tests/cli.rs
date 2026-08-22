@@ -64,6 +64,12 @@ impl Sandbox {
             .env("XDG_DATA_HOME", self.state.path())
             .env("XDG_STATE_HOME", self.state.path())
             .env("XDG_RUNTIME_DIR", self.state.path())
+            // Same intent as the XDG_RUNTIME_DIR line, completed on macOS,
+            // where the platform resolver ignores XDG_RUNTIME_DIR: the seam
+            // keeps every lock the baseline takes out of the live runtime
+            // dir (ADR 012 WS-E.1). A harness line, not a retirement — every
+            // frozen assertion is unchanged (ADR 011 D1's precedent).
+            .env("DMUX_RUNTIME_DIR", self.state.path())
             .env("DMUX_DRY_RUN", "1")
             // The legacy path, stated rather than assumed. Today this is a
             // no-op — the default is legacy and `DMUX_WEZ_FIRST` is removed

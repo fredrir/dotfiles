@@ -525,4 +525,23 @@ allowlist entry; each lands a regression test that is the review's reproduction 
   `tests/cases/dmux-service-env.sh`, 3 doctor unit tests. Not proven here by design: a real
   `launchctl bootstrap`, a real reboot, and the Linux arm on a Linux host — those are WS-F.2/F.3's
   evidence. The loader only sets, never unsets: to state legacy, write `0`.
+- **WS-E.1 — closed 2026-08-22** (`d7a0234`, `fa78d56`, cherry-picked as `d060f21`, `6af50cc`; root
+  harness lines in the commit after). The bypass was one point: `runtime::dmux_runtime_dir()`
+  deliberately ignored `DMUX_RUNTIME_DIR` (a note from `88f585e`; only `pane-bootstrap` read it),
+  and every lock, socket, descriptor, bridge-key and bootstrap path is built relative to what that
+  resolver returns. The resolver now honours the seam (absolute path used verbatim; relative refused;
+  empty = unset), which the root ratifies against the `88f585e` note: ADR 009 §6 already classes the
+  variable with `--data-dir`/`--lock-dir` as an owner-side seam, and the peer's `ssh <route> dmux
+  _agent` command line carries those explicitly. Guards: `tests/runtime_dir_seam.rs` (a re-executed
+  copy of the test binary proves the production constructors resolve to the seam and the platform dir
+  is never touched) and `tests/run-isolated.sh` (fresh short seams, recursive before/after snapshot
+  of the live dir, fails naming new entries; refuses a seam whose socket path would exceed
+  `sun_path`). Proof: 989/0/1 under the wrapper with the live dir at 1367 → 1367. Four harnesses that
+  export no seam still reach the live authority gate under bare `cargo test`: `json_envelope.rs` and
+  `cli.rs` are fixed by the root in the next commit (the `cli.rs` line is a harness migration in ADR
+  011 D1's sense, no assertion changes); `new_cli_dispatch.rs` and `connect_cli_dispatch.rs` follow
+  when their wave-2 owners return. Follow-ups recorded: WS-B.4's doctor reports a set seam; the
+  stale-lock deletion uses E1's catalogue (1327 uuid-named zero-byte locks matching no live identity;
+  keep `backend_6ef8d4c9…`, the nine `decision_9d1950c7…`, `authority-gate.lock`, the socket,
+  descriptor, lease, `.replace-*`, `bootstrap/`) and runs only when no suite is running anywhere.
 

@@ -55,6 +55,10 @@ impl Sandbox {
             .env("HOME", self.home.path())
             .env("XDG_DATA_HOME", self.home.path())
             .env("XDG_STATE_HOME", self.home.path())
+            // The CLI under test fences on the same lock dir the harness's
+            // own `registry()` opens on, and never on the live runtime dir
+            // (ADR 012 WS-E.1; §20.1 "suite runs leave it unchanged").
+            .env("DMUX_RUNTIME_DIR", self.locks.path())
             .env_remove("DMUX_WEZ_FIRST")
             .env_remove("DMUX_DRY_RUN")
             .env_remove("TMUX")
