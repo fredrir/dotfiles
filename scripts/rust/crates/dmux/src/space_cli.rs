@@ -16,13 +16,14 @@ use clap::Subcommand;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use dmux::backend::scope::{ManagedTarget, resolve_managed_instance};
 use dmux::backend::{InventoryScope, Provider, SplitDirection};
 use dmux::error::{ErrorCode, TypedError};
 use dmux::model::{Backend, BackendInstanceUid, ServerEpoch};
 use dmux::operations::{self, GroupNewRequest, OpError, OperationEnv, SplitNewRequest};
 use dmux::output::{self, OutputFormat};
 use dmux::refs::{ChildRefShape, ParsedRef, SpaceRefShape, parse_ref};
-use dmux::registry::{Registry, RegistryConfig};
+use dmux::registry::{Registry, RegistryConfig, RegistryError};
 
 #[derive(Subcommand)]
 pub enum GroupCmd {
@@ -457,35 +458,32 @@ fn reconcile_cmd(
         }
     }
 
-    let results: Vec<operations::ReconcileResult> = targets
+    let results: Vec<(operations::ReconcileResult, ErrorCode)> = targets
         .iter()
-        .map(|target| {
-            let backend = reconcile_provider(&env, target);
-            operations::reconcile_apply(&env, target, backend.as_ref().map(ReconcileNative::lend))
-        })
+        .map(|target| reconcile_one(&env, target))
         .collect();
-    let all_ok = results.iter().all(|result| result.ok);
+    let all_ok = results.iter().all(|(result, _)| result.ok);
     if envelope {
         // An unresolved row is a typed error beside the rows that did
         // resolve — the §16.3 partial (7), never a resultless failure.
         let errors: Vec<TypedError> = results
             .iter()
-            .filter(|result| !result.ok)
-            .map(|result| {
-                let mut error = TypedError::new(
-                    reconcile_error_code(result.outcome),
-                    format!("{}: {}", result.logical_name, result.detail),
-                );
+            .filter(|(result, _)| !result.ok)
+            .map(|(result, code)| {
+                let mut error =
+                    TypedError::new(*code, format!("{}: {}", result.logical_name, result.detail));
                 error.target = Some(result.space_uid.0.to_string());
                 error
             })
             .collect();
+        let rows: Vec<&operations::ReconcileResult> =
+            results.iter().map(|(result, _)| result).collect();
         println!(
             "{}",
             output::document(
                 ACTION,
                 all_ok,
-                json!({ "targets": targets, "results": results }),
+                json!({ "targets": targets, "results": rows }),
                 &errors,
                 authority_revision(&env),
             )
@@ -494,7 +492,7 @@ fn reconcile_cmd(
             output::document_exit(all_ok, true, &errors).code(),
         ));
     }
-    for result in &results {
+    for (result, _) in &results {
         println!(
             "{}\t{}\t{}",
             result.logical_name,
@@ -604,45 +602,97 @@ impl ReconcileNative {
     }
 }
 
-/// The provider/scope for a stranded Space's backend instance, or `None` when
-/// it cannot be reached. A tmux adoption reservation is decidable from the
-/// registry alone; every other duty — and every Wez adoption, whose rename may
-/// already have landed — fails closed without one, which is the point.
+/// Reconcile one stranded row: obtain its backend, or refuse it outright,
+/// then hand it to the journal's own decision. The error code travels
+/// beside the result because the two halves name failures differently — an
+/// applied outcome maps through [`reconcile_error_code`], while a refusal
+/// keeps the code it was refused with (`backend_epoch_changed`,
+/// `provider_unavailable`, a registry error's own) rather than being
+/// flattened into `repair_required`.
+///
+/// A refusal is reported in the same row shape as an applied outcome,
+/// `failed_closed`: the evidence the table demands was unobtainable and
+/// nothing changed. `resume_duty` stays the only judge of what a crashed
+/// operation means (ADR 011 D8); declining to gather evidence from a server
+/// nothing can vouch for is not a second judgement.
+fn reconcile_one(
+    env: &OperationEnv,
+    target: &operations::ReconcileTarget,
+) -> (operations::ReconcileResult, ErrorCode) {
+    match reconcile_provider(env, target) {
+        Ok(backend) => {
+            let result = operations::reconcile_apply(
+                env,
+                target,
+                backend.as_ref().map(ReconcileNative::lend),
+            );
+            let code = reconcile_error_code(result.outcome);
+            (result, code)
+        }
+        Err(error) => (
+            operations::ReconcileResult {
+                operation_uid: target.operation_uid,
+                space_uid: target.space_uid,
+                logical_name: target.logical_name.clone(),
+                kind: target.kind,
+                duty: target.duty,
+                outcome: operations::ReconcileOutcome::FailedClosed,
+                detail: error.message,
+                ok: false,
+            },
+            error.code,
+        ),
+    }
+}
+
+/// The provider/scope for a stranded Space's backend instance, pinned to the
+/// epoch the registry published for it — or the typed refusal that stands in
+/// for one. A refusal here precedes every native call and every registry
+/// write, so the row is left exactly as the crash left it.
+///
+/// On tmux there is no half-state: an instance the registry vouches for is
+/// pinned (`backend::scope::resolve_managed_instance`), one it cannot vouch
+/// for — no published epoch, no recorded endpoint — is refused. A tmux scope
+/// built without the epoch is what the review caught releasing a reservation
+/// on a stranger's word (finding #7): the unpinned keyed lookup trusted
+/// whatever server answered, and `abort_create` followed from that read.
+/// Every managed tmux mutation is refused without the current epoch anyway,
+/// so such a scope also made `remove_verify_absence` structurally
+/// unreachable.
+///
+/// A registry error is its own typed error (`RegistryError::error_code`),
+/// never "no native provider": the `.ok()` this replaces made a busy or
+/// corrupt registry indistinguishable from an unepoched server.
+///
+/// `Ok(None)` is Wez-only: the managed server could not be verified against
+/// its descriptor (`verified_wez_target`), and `reconcile_apply` fails every
+/// duty that needs native evidence closed without it, naming what it could
+/// not check — a crashed Wez adoption's rename may already have landed, so
+/// "unreachable" must never read as "nothing happened".
 fn reconcile_provider(
     env: &OperationEnv,
     target: &operations::ReconcileTarget,
-) -> Option<ReconcileNative> {
-    let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).ok()?;
-    let info = registry
-        .backend_instance_info(target.backend_instance)
-        .ok()?;
-    match info.backend {
+) -> Result<Option<ReconcileNative>, TypedError> {
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(typed_registry)?;
+    match target.backend {
         Backend::Tmux => {
-            let namespace = info.socket_path?;
-            Some(ReconcileNative::Tmux(
-                dmux::backend::tmux::TmuxProvider::new(namespace.clone()),
-                // Every managed tmux mutation — `remove` included — is
-                // refused without the current epoch, so a scope built
-                // without it makes `remove_verify_absence` structurally
-                // unreachable. Same source `adopt_cli::owner_scope` uses.
-                match registry
-                    .backend_server(target.backend_instance)
-                    .ok()
-                    .and_then(|server| server.server_epoch)
-                {
-                    Some(epoch) => InventoryScope::managed(Backend::Tmux, namespace, epoch),
-                    // audit(unmanaged_endpoint): WS-A.5 burn-down: reconcile tmux arm launders a NULL epoch (finding #7)
-                    None => InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace),
-                },
-            ))
+            let scope = managed_scope(&registry, Backend::Tmux, target.backend_instance)?;
+            Ok(Some(ReconcileNative::Tmux(
+                dmux::backend::tmux::TmuxProvider::new(scope.endpoint.clone()),
+                scope,
+            )))
         }
         Backend::Wez => {
-            let (socket, epoch) = verified_wez_target(env, Some(target.backend_instance)).ok()?;
+            let Ok((socket, epoch)) = verified_wez_target(env, Some(target.backend_instance))
+            else {
+                return Ok(None);
+            };
             let (bin, config) = production_wez_paths();
-            Some(ReconcileNative::Wez(
+            Ok(Some(ReconcileNative::Wez(
                 dmux::backend::wez::WezProvider::new(&bin, config),
                 InventoryScope::managed(Backend::Wez, socket, epoch),
-            ))
+            )))
         }
     }
 }
@@ -985,6 +1035,14 @@ fn registry_error(error: impl std::fmt::Display) -> TypedError {
     TypedError::new(ErrorCode::OperationFailed, format!("registry: {error}"))
 }
 
+/// A registry error under its own code (`RegistryError::error_code`): busy
+/// is `registry_busy`, an unknown row is `not_found`. Used where the caller
+/// goes on to decide something from the answer, so the kind of failure has
+/// to survive — `registry_error` flattens everything to `operation_failed`.
+fn typed_registry(error: RegistryError) -> TypedError {
+    TypedError::new(error.error_code(), error.to_string())
+}
+
 fn runtime_error(error: impl std::fmt::Display) -> TypedError {
     TypedError::new(
         ErrorCode::OperationFailed,
@@ -1054,6 +1112,46 @@ pub(crate) fn verified_wez_target(
         ));
     }
     Ok((descriptor.socket, epoch))
+}
+
+/// The pinned scope for a Space's managed backend instance, resolved the
+/// one sanctioned way (`backend::scope::resolve_managed_instance`), or the
+/// typed refusal that stands in for it. The tmux counterpart of
+/// [`verified_wez_target`]: a tmux instance has no descriptor to hand-shake
+/// with, so what the registry published is all there is to pin to — and
+/// when it published nothing, there is nothing to pin to and the verb
+/// refuses rather than scan whatever answers on the namespace.
+///
+/// * `Unpublished` is an epoch fault, `backend_epoch_changed` — the mapping
+///   `ls` made (ADR 012 WS-A.4): the row exists, the server incarnation was
+///   never published, nothing about the live server can be verified.
+/// * `Unaddressable` is the provider being unavailable (§16.3 exit 6), the
+///   code this file has always answered a missing namespace with.
+/// * `Unregistered` cannot happen for a Space's foreign key; if it does the
+///   registry is inconsistent, which is a typed internal error, not a panic.
+fn managed_scope(
+    registry: &Registry,
+    backend: Backend,
+    instance: BackendInstanceUid,
+) -> Result<InventoryScope, TypedError> {
+    match resolve_managed_instance(registry, instance).map_err(typed_registry)? {
+        ManagedTarget::Managed { scope, .. } => Ok(scope),
+        ManagedTarget::Unpublished(instance) => Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            ManagedTarget::unpublished_detail(backend, instance),
+        )),
+        ManagedTarget::Unaddressable(instance) => Err(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            ManagedTarget::unaddressable_detail(backend, instance),
+        )),
+        ManagedTarget::Unregistered => Err(TypedError::new(
+            ErrorCode::PostconditionFailed,
+            format!(
+                "internal: backend instance {} is a Space's foreign key yet resolved as unregistered",
+                instance.0
+            ),
+        )),
+    }
 }
 
 /// The pane-bootstrap helper is installed beside dmux.
@@ -1751,10 +1849,20 @@ fn split_cmd(cmd: SplitCmd, format: Option<OutputFormat>) -> Result<ExitCode, Ty
 
 #[cfg(test)]
 mod tests {
-    use dmux::model::ServerEpoch;
+    use dmux::model::{Lifecycle, OperationKind, OperationState, ServerEpoch, SpaceNo, SpaceUid};
     use uuid::Uuid;
 
     use super::*;
+
+    fn scratch_env() -> (tempfile::TempDir, OperationEnv) {
+        let dir = tempfile::tempdir().unwrap();
+        let env = OperationEnv {
+            db_path: dir.path().join("registry.sqlite3"),
+            lock_dir: dir.path().join("locks"),
+        };
+        std::fs::create_dir_all(&env.lock_dir).unwrap();
+        (dir, env)
+    }
 
     /// Every managed tmux mutation refuses without the current epoch —
     /// `remove_space_inner` answers `remove requires the current epoch` — so a
@@ -1763,12 +1871,7 @@ mod tests {
     /// could only ever fail closed, whatever the backend said.
     #[test]
     fn a_reconcile_scope_carries_the_epoch_every_tmux_mutation_requires() {
-        let dir = tempfile::tempdir().unwrap();
-        let env = OperationEnv {
-            db_path: dir.path().join("registry.sqlite3"),
-            lock_dir: dir.path().join("locks"),
-        };
-        std::fs::create_dir_all(&env.lock_dir).unwrap();
+        let (_dir, env) = scratch_env();
         let epoch = ServerEpoch(Uuid::from_u128(0x5eed));
         let mut registry =
             Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
@@ -1784,12 +1887,104 @@ mod tests {
         drop(registry);
 
         let targets = operations::reconcile_scan(&env).unwrap();
-        match reconcile_provider(&env, &targets[0]).expect("a registered tmux instance is usable") {
+        match reconcile_provider(&env, &targets[0])
+            .expect("a published tmux instance resolves")
+            .expect("a published tmux instance is usable")
+        {
             ReconcileNative::Tmux(_, scope) => {
                 assert_eq!(scope.expected_epoch(), Some(epoch), "{scope:?}");
                 assert_eq!(scope.endpoint, "dmux-scratch");
             }
             ReconcileNative::Wez(..) => panic!("tmux instance resolved as wez"),
         }
+    }
+
+    /// Review finding #7, at the function: the registry knows the tmux
+    /// namespace but has published no epoch for it. The old arm built an
+    /// unpinned scope and `reconcile_apply` went on to scan whatever
+    /// answered there and release the reservation on its word. Now the
+    /// target is refused before a provider exists — `backend_epoch_changed`,
+    /// `failed_closed`, and the row exactly as the crash left it.
+    #[test]
+    fn a_stranded_row_on_an_unpublished_tmux_instance_is_refused_before_any_provider() {
+        let (_dir, env) = scratch_env();
+        let mut registry =
+            Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("dmux-scratch"), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space_kind("proj", instance, Uuid::new_v4(), OperationKind::Create)
+            .unwrap();
+        drop(registry);
+
+        let targets = operations::reconcile_scan(&env).unwrap();
+        let error = match reconcile_provider(&env, &targets[0]) {
+            Ok(_) => panic!("no published epoch is a refusal, not a scope"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, ErrorCode::BackendEpochChanged, "{error:?}");
+        assert_eq!(
+            error.message,
+            ManagedTarget::unpublished_detail(Backend::Tmux, instance)
+        );
+
+        let (result, code) = reconcile_one(&env, &targets[0]);
+        assert_eq!(code, ErrorCode::BackendEpochChanged);
+        assert_eq!(result.outcome, operations::ReconcileOutcome::FailedClosed);
+        assert!(!result.ok);
+        assert_eq!(result.space_uid, reservation.space_uid);
+        let registry = Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().lifecycle,
+            Lifecycle::Reserved
+        );
+        assert_eq!(
+            registry.operation(reservation.operation_uid).unwrap().state,
+            OperationState::Prepared
+        );
+    }
+
+    /// A registry error while resolving the instance is that error — here
+    /// `not_found`, for an instance the registry has never seen — and never
+    /// "no native provider". The `.ok()` this replaces turned a busy, corrupt
+    /// or missing row into the same `None` an unepoched server produced, and
+    /// on tmux `None` meant "decide from the registry alone".
+    #[test]
+    fn a_registry_error_resolving_the_instance_is_that_error_never_no_provider() {
+        let (_dir, env) = scratch_env();
+        drop(Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap());
+        let target = operations::ReconcileTarget {
+            operation_uid: Uuid::new_v4(),
+            request_uid: Uuid::new_v4(),
+            space_uid: SpaceUid(Uuid::new_v4()),
+            space_no: SpaceNo(std::num::NonZeroU64::new(1).unwrap()),
+            logical_name: "ghost".into(),
+            backend: Backend::Tmux,
+            backend_instance: BackendInstanceUid(Uuid::new_v4()),
+            kind: OperationKind::Adopt,
+            state: OperationState::Prepared,
+            lifecycle: Lifecycle::Reserved,
+            duty: "adoption_reconcile",
+            in_flight: false,
+            started_at: String::new(),
+        };
+
+        let error = match reconcile_provider(&env, &target) {
+            Ok(_) => panic!("an unknown instance is a registry error, not a missing provider"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
+        assert!(
+            error.message.contains("backend instance"),
+            "{}",
+            error.message
+        );
+
+        let (result, code) = reconcile_one(&env, &target);
+        assert_eq!(code, ErrorCode::NotFound);
+        assert_eq!(result.outcome, operations::ReconcileOutcome::FailedClosed);
+        assert!(!result.ok);
+        assert_eq!(result.detail, error.message);
     }
 }

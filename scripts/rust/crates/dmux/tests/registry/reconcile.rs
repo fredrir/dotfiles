@@ -10,21 +10,50 @@
 //! production path is consulted; XDG and the runtime dir are redirected too,
 //! belt and braces.
 
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-use dmux::model::{Backend, Lifecycle, OperationKind, OperationState};
-use dmux::registry::SpaceReservation;
+use dmux::model::{
+    Backend, BackendInstanceUid, Lifecycle, OperationKind, OperationState, ServerEpoch,
+};
+use dmux::registry::{Registry, SpaceReservation};
 use serde_json::Value;
 use uuid::Uuid;
 
 use super::util::{self, Scratch};
+
+/// The managed tmux instance a crashed holder's row points at, in the state
+/// every production instance is in once `tmux_bootstrap` has run: a recorded
+/// namespace and a published epoch. Reconciliation refuses anything less
+/// before it decides (`backend::scope::resolve_managed_instance`), so the
+/// fixture has to be what the registry can vouch for. Later
+/// `util::tmux_instance` calls in the same test resolve to this row —
+/// `register_backend_instance` returns the existing `(owner, backend)` one.
+fn published_tmux_instance(registry: &mut Registry) -> BackendInstanceUid {
+    let instance = registry
+        .register_backend_instance(Backend::Tmux, Some("dmux-reconcile-scratch"), None)
+        .unwrap();
+    registry
+        .publish_backend_server(
+            instance,
+            ServerEpoch(Uuid::new_v4()),
+            Some(4242),
+            Some("start"),
+            None,
+            None,
+        )
+        .unwrap();
+    instance
+}
 
 /// A `reserved` Space beside a `prepared` adopt row: exactly what a SIGKILL
 /// between `reserve_space_kind` and `abort_create` leaves behind, and what no
 /// verb could reap before `repair reconcile`.
 fn stranded_adoption(scratch: &Scratch) -> SpaceReservation {
     let mut registry = util::open(&scratch.config);
-    let instance = util::tmux_instance(&mut registry);
+    let instance = published_tmux_instance(&mut registry);
     registry
         .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
         .unwrap()
@@ -45,12 +74,13 @@ fn stranded_wez_adoption(scratch: &Scratch) -> SpaceReservation {
         .unwrap()
 }
 
-fn dmux(scratch: &Scratch, args: &[&str]) -> Output {
+fn dmux_command(scratch: &Scratch, args: &[&str]) -> Command {
     let data_dir = scratch.dir.path().display().to_string();
     let lock_dir = scratch.config.lock_dir.display().to_string();
     let sink = scratch.dir.path().join("xdg");
     std::fs::create_dir_all(&sink).unwrap();
-    Command::new(env!("CARGO_BIN_EXE_dmux"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dmux"));
+    command
         .args(args)
         .args(["--data-dir", &data_dir, "--lock-dir", &lock_dir])
         // The seams above are what the command reads; these only guarantee
@@ -67,7 +97,111 @@ fn dmux(scratch: &Scratch, args: &[&str]) -> Output {
         .env_remove("WEZTERM_UNIX_SOCKET")
         .env_remove("WEZTERM_PANE")
         // Not a terminal, which is the state §7.4's rule is written for.
-        .stdin(Stdio::null())
+        .stdin(Stdio::null());
+    command
+}
+
+fn dmux(scratch: &Scratch, args: &[&str]) -> Output {
+    dmux_command(scratch, args).output().expect("dmux runs")
+}
+
+/// A `tmux` on PATH that records every invocation before handing it to the
+/// real binary: proof of which native commands a verb ran — or that it ran
+/// none — on a real server.
+struct TmuxWrapper {
+    bin: tempfile::TempDir,
+    log: PathBuf,
+}
+
+impl TmuxWrapper {
+    fn install() -> TmuxWrapper {
+        let real = std::env::var_os("PATH")
+            .and_then(|path| {
+                std::env::split_paths(&path)
+                    .map(|dir| dir.join("tmux"))
+                    .find(|candidate| candidate.is_file())
+            })
+            .expect("a real tmux on PATH");
+        let bin = tempfile::tempdir().unwrap();
+        let log = bin.path().join("tmux.log");
+        let script = bin.path().join("tmux");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nexec {} \"$@\"\n",
+                log.display(),
+                real.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        TmuxWrapper { bin, log }
+    }
+
+    /// PATH with the wrapper first, the real binaries behind it.
+    fn path(&self) -> std::ffi::OsString {
+        let mut dirs = vec![self.bin.path().to_path_buf()];
+        if let Some(path) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&path));
+        }
+        std::env::join_paths(dirs).unwrap()
+    }
+
+    fn invocations(&self) -> Vec<String> {
+        fs::read_to_string(&self.log)
+            .map(|text| text.lines().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+}
+
+/// A private tmux server nothing has epoched, answering on a namespace the
+/// registry records: the "foreign server" of the review's reproduction.
+struct ForeignTmux {
+    ns: String,
+}
+
+impl ForeignTmux {
+    fn start(tag: &str) -> ForeignTmux {
+        let server = ForeignTmux {
+            ns: format!("dmux-reconcile-{tag}-{}", std::process::id()),
+        };
+        let out = Command::new("tmux")
+            .args(["-L", &server.ns, "-f", "/dev/null"])
+            .args(["new-session", "-d", "-s", "seed"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        server
+    }
+
+    fn sessions(&self) -> usize {
+        let out = Command::new("tmux")
+            .args(["-L", &self.ns, "list-sessions", "-F", "#{session_id}"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).lines().count()
+    }
+}
+
+impl Drop for ForeignTmux {
+    fn drop(&mut self) {
+        let _ = Command::new("tmux")
+            .args(["-L", &self.ns, "kill-server"])
+            .output();
+    }
+}
+
+/// `dmux` able to reach a [`ForeignTmux`]: the child's `tmux` is the logging
+/// wrapper, and `TMUX_TMPDIR` is left alone so its socket directory is the
+/// one the test's own `tmux` used.
+fn dmux_with_tmux(scratch: &Scratch, wrapper: &TmuxWrapper, args: &[&str]) -> Output {
+    dmux_command(scratch, args)
+        .env("PATH", wrapper.path())
+        .env_remove("TMUX_TMPDIR")
         .output()
         .expect("dmux runs")
 }
@@ -345,4 +479,105 @@ fn an_empty_registry_answers_with_a_document_rather_than_nothing() {
     let document = one_document(&output);
     assert_eq!(document["ok"], true);
     assert_eq!(document["result"]["targets"].as_array().unwrap().len(), 0);
+}
+
+/// Review finding #7 inverted (ADR 012 WS-A.5; cases 11 and 13). The
+/// registry knows the tmux instance and its namespace but has published no
+/// epoch for it, and a server nobody verified answers on that namespace.
+/// Reconciliation used to build an unpinned scope, run the crashed create's
+/// keyed lookup against the stranger, find nothing under the reserved key,
+/// and release the reservation — a durable `abort_create` driven by an
+/// unverified read. Now the target is refused before any native call:
+/// `backend_epoch_changed`, the row exactly as the crash left it, the server
+/// never spoken to.
+#[test]
+fn a_stranded_create_on_an_unpublished_tmux_instance_is_refused_not_released() {
+    let scratch = util::scratch();
+    let server = ForeignTmux::start("unpub");
+    let wrapper = TmuxWrapper::install();
+    let (instance, reservation) = {
+        let mut registry = util::open(&scratch.config);
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some(&server.ns), None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space_kind("proj", instance, Uuid::new_v4(), OperationKind::Create)
+            .unwrap();
+        (instance, reservation)
+    };
+
+    let output = dmux_with_tmux(
+        &scratch,
+        &wrapper,
+        &["--format", "json", "repair", "reconcile", "--yes"],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let document = one_document(&output);
+    assert_eq!(document["ok"], false);
+    assert_eq!(document["result"]["targets"][0]["kind"], "create");
+    assert_eq!(document["result"]["targets"][0]["in_flight"], false);
+    assert_eq!(document["result"]["results"][0]["outcome"], "failed_closed");
+    assert_eq!(document["errors"][0]["code"], "backend_epoch_changed");
+    assert_eq!(
+        document["errors"][0]["target"],
+        reservation.space_uid.0.to_string()
+    );
+    let detail = document["errors"][0]["message"].as_str().unwrap();
+    assert!(detail.contains("has published no server epoch"), "{detail}");
+    assert!(detail.contains(&instance.0.to_string()), "{detail}");
+    assert_eq!(
+        state_of(&scratch, &reservation),
+        (Lifecycle::Reserved, OperationState::Prepared)
+    );
+    assert_eq!(
+        wrapper.invocations(),
+        Vec::<String>::new(),
+        "a refused target must not be scanned"
+    );
+    assert_eq!(server.sessions(), 1, "the stranger was never touched");
+}
+
+/// The same row on an instance with no recorded endpoint is refused too —
+/// with the code this verb's siblings already answer a missing namespace
+/// with — rather than released on the registry's word alone. Before, the
+/// missing namespace produced "no provider", and on tmux "no provider"
+/// meant "decide without evidence".
+#[test]
+fn a_stranded_row_on_an_unaddressable_tmux_instance_is_refused() {
+    let scratch = util::scratch();
+    let (instance, reservation) = {
+        let mut registry = util::open(&scratch.config);
+        let instance = util::tmux_instance(&mut registry);
+        let reservation = registry
+            .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
+            .unwrap();
+        (instance, reservation)
+    };
+
+    let output = dmux(
+        &scratch,
+        &["--format", "json", "repair", "reconcile", "--yes"],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let document = one_document(&output);
+    assert_eq!(document["ok"], false);
+    assert_eq!(document["result"]["results"][0]["outcome"], "failed_closed");
+    assert_eq!(document["errors"][0]["code"], "provider_unavailable");
+    let detail = document["errors"][0]["message"].as_str().unwrap();
+    assert!(detail.contains("has no recorded endpoint"), "{detail}");
+    assert!(detail.contains(&instance.0.to_string()), "{detail}");
+    assert_eq!(
+        state_of(&scratch, &reservation),
+        (Lifecycle::Reserved, OperationState::Prepared)
+    );
 }
