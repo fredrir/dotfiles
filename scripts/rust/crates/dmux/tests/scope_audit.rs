@@ -37,10 +37,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
     ),
     ("src/backend/tmux.rs", "test-only scope(Option) helper"),
     ("src/backend/wez.rs", "test-only scope(Option) helper"),
-    (
-        "src/gui_cli.rs",
-        "WS-A.5 burn-down: opposite-backend create target launders a NULL epoch (finding #15)",
-    ),
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

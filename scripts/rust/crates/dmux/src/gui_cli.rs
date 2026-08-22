@@ -1391,41 +1391,55 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
     /// instance. `None` remains only a hint: the owner-fenced operation
     /// re-queries the registry while holding the exact-name decision lock
     /// and accepts it only when the opposite instance is still absent.
+    ///
+    /// The target exists so that a same-named Space on the other backend is
+    /// detected before anything is reserved or spawned (§8.2 steps 3–8,
+    /// cases 5–7). A registered, addressable opposite instance whose server
+    /// epoch was never published is therefore refused here, before the
+    /// fenced create runs, with `backend_epoch_changed`: an inventory nothing
+    /// verified cannot establish "no collision", and a scan under an unpinned
+    /// scope would accept whatever server answered (review finding #15).
+    /// Only `backend::scope::resolve_managed` turns the row into a scope; this
+    /// wrapper's own job is constructing the provider.
     fn local_opposite_create_target(
         &self,
         selected: Backend,
     ) -> Result<Option<OwnedCreateTarget>, TypedError> {
+        use crate::backend::scope::{self, ManagedTarget};
+
         let opposite = match selected {
             Backend::Wez => Backend::Tmux,
             Backend::Tmux => Backend::Wez,
         };
         let registry = self.registry()?;
-        let Some(instance) = registry
-            .backend_instance_for_backend(opposite)
-            .map_err(typed_registry)?
-        else {
-            return Ok(None);
-        };
-        let info = registry
-            .backend_instance_info(instance)
-            .map_err(typed_registry)?;
-        if info.backend != opposite {
+        let (instance, scope) =
+            match scope::resolve_managed(&registry, opposite).map_err(typed_registry)? {
+                ManagedTarget::Managed { instance, scope } => (instance, scope),
+                ManagedTarget::Unpublished(instance) => {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendEpochChanged,
+                        ManagedTarget::unpublished_detail(opposite, instance),
+                    ));
+                }
+                ManagedTarget::Unaddressable(_) => {
+                    return Err(unavailable(format!(
+                        "registered opposite {opposite} backend has no inventory endpoint"
+                    )));
+                }
+                // No opposite instance: nothing to collide with. The fenced
+                // create re-proves this under the decision lock.
+                ManagedTarget::Unregistered => return Ok(None),
+            };
+        if scope.backend != opposite {
             return Err(TypedError::new(
                 ErrorCode::WrongBackendInstance,
                 "opposite backend instance changed kind during GUI create preflight",
             ));
         }
-        let endpoint = info.socket_path.ok_or_else(|| {
-            unavailable(format!(
-                "registered opposite {opposite} backend has no inventory endpoint"
-            ))
-        })?;
-        let expected_epoch = registry
-            .backend_server(instance)
-            .map_err(typed_registry)?
-            .server_epoch;
         let provider: Box<dyn Provider> = match opposite {
-            Backend::Tmux => Box::new(crate::backend::tmux::TmuxProvider::new(endpoint.clone())),
+            Backend::Tmux => Box::new(crate::backend::tmux::TmuxProvider::new(
+                scope.endpoint.clone(),
+            )),
             Backend::Wez => Box::new(crate::backend::wez::WezProvider::new(
                 &self.wezterm_bin,
                 self.wezterm_config.clone(),
@@ -1435,11 +1449,7 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             backend: opposite,
             instance,
             provider,
-            scope: match expected_epoch {
-                Some(epoch) => InventoryScope::managed(opposite, endpoint, epoch),
-                // audit(unmanaged_endpoint): WS-A.5 burn-down: opposite-backend create target launders a NULL epoch (finding #15)
-                None => InventoryScope::unmanaged_endpoint(opposite, endpoint),
-            },
+            scope,
         }))
     }
 
@@ -7966,6 +7976,220 @@ mod tests {
             schema::user_version(&conn).unwrap(),
             schema::SCHEMA_VERSION,
             "the fence must have migrated the registry on its way in"
+        );
+    }
+
+    /// A GUI authority over a scratch registry and lock directory. The
+    /// wezterm/helper binaries are `/bin/false` because nothing under test
+    /// may spawn them: `local_opposite_create_target` constructs a provider
+    /// and never invokes one.
+    struct ScratchGui {
+        _data: tempfile::TempDir,
+        _runtime: tempfile::TempDir,
+        _state: tempfile::TempDir,
+        db_path: PathBuf,
+        lock_dir: PathBuf,
+        gui: ProductionGuiAuthority<DirectInvoker>,
+    }
+
+    impl ScratchGui {
+        fn new() -> Self {
+            let data = tempfile::tempdir().unwrap();
+            let runtime = tempfile::tempdir().unwrap();
+            let state = tempfile::tempdir().unwrap();
+            let db_path = data.path().join("registry.sqlite3");
+            let lock_dir = runtime.path().join("locks");
+            let gui = ProductionGuiAuthority::with_dependencies(
+                OperationEnv {
+                    db_path: db_path.clone(),
+                    lock_dir: lock_dir.clone(),
+                },
+                runtime.path().to_path_buf(),
+                state.path().to_path_buf(),
+                "/bin/false".into(),
+                "/dev/null".into(),
+                PathBuf::from("/dev/null"),
+                "/bin/false".into(),
+                DirectInvoker,
+            );
+            Self {
+                _data: data,
+                _runtime: runtime,
+                _state: state,
+                db_path,
+                lock_dir,
+                gui,
+            }
+        }
+
+        fn registry(&self) -> Registry {
+            Registry::open(RegistryConfig::new(&self.db_path, &self.lock_dir)).unwrap()
+        }
+    }
+
+    fn opposite_of(backend: Backend) -> Backend {
+        match backend {
+            Backend::Wez => Backend::Tmux,
+            Backend::Tmux => Backend::Wez,
+        }
+    }
+
+    fn scratch_endpoint(backend: Backend) -> &'static str {
+        match backend {
+            Backend::Tmux => "dmux-scratch-opposite",
+            Backend::Wez => "/tmp/dmux-scratch-opposite.sock",
+        }
+    }
+
+    /// Review finding #15 (ADR 012 WS-A.5, `gui_cli.rs` site): the GUI
+    /// create's opposite-backend collision fence used to scan a registered
+    /// opposite instance whose `server_epoch` was NULL under an unmanaged
+    /// scope, and `scan_epoch_for_create` waved whatever server answered
+    /// through. Unpublished now means refuse — `backend_epoch_changed`, before
+    /// the fenced create is entered, so no Space row and no journal entry can
+    /// exist afterwards (§8.2 steps 3–8; cases 5–7).
+    #[test]
+    fn gui_create_refuses_an_unpublished_opposite_instance_before_any_reservation() {
+        use crate::backend::scope::ManagedTarget;
+
+        for selected in [Backend::Wez, Backend::Tmux] {
+            let opposite = opposite_of(selected);
+            let scratch = ScratchGui::new();
+            let instance = scratch
+                .registry()
+                .register_backend_instance(opposite, Some(scratch_endpoint(opposite)), None)
+                .unwrap();
+            // Registered and addressable, but nobody has published a server
+            // incarnation for it: the row exists before the mux coordinates.
+            assert_eq!(
+                scratch
+                    .registry()
+                    .backend_server(instance)
+                    .unwrap()
+                    .server_epoch,
+                None
+            );
+
+            let error = scratch
+                .gui
+                .local_opposite_create_target(selected)
+                .err()
+                .unwrap_or_else(|| {
+                    panic!("{selected}: an unpublished opposite {opposite} instance must refuse")
+                });
+            assert_eq!(
+                error.code,
+                ErrorCode::BackendEpochChanged,
+                "{selected}: {error:?}"
+            );
+            assert_eq!(
+                error.message,
+                ManagedTarget::unpublished_detail(opposite, instance),
+                "{selected}: the refusal is the shared unpublished text"
+            );
+
+            // Refused before `create_space_owner_fenced`: nothing was
+            // reserved, journaled, or created.
+            let registry = scratch.registry();
+            assert!(
+                registry.spaces().unwrap().is_empty(),
+                "{selected}: the refusal must consume no Space identity"
+            );
+            assert!(
+                registry.unfinished_operations().unwrap().is_empty(),
+                "{selected}: the refusal must journal nothing"
+            );
+        }
+    }
+
+    /// Positive control for the test above: once the opposite instance has
+    /// published its epoch the target is built, pinned to exactly that
+    /// epoch and endpoint, and the borrowed view the fenced create consumes
+    /// carries the same pin.
+    #[test]
+    fn gui_create_pins_a_published_opposite_instance_to_its_registry_epoch() {
+        for selected in [Backend::Wez, Backend::Tmux] {
+            let opposite = opposite_of(selected);
+            let endpoint = scratch_endpoint(opposite);
+            let scratch = ScratchGui::new();
+            let mut registry = scratch.registry();
+            let instance = registry
+                .register_backend_instance(opposite, Some(endpoint), None)
+                .unwrap();
+            let epoch = ServerEpoch(Uuid::new_v4());
+            registry
+                .publish_backend_server(instance, epoch, Some(4242), Some("tok"), None, None)
+                .unwrap();
+            drop(registry);
+
+            let target = scratch
+                .gui
+                .local_opposite_create_target(selected)
+                .unwrap_or_else(|error| panic!("{selected}: {error:?}"))
+                .unwrap_or_else(|| {
+                    panic!("{selected}: a published opposite {opposite} instance is a target")
+                });
+            assert_eq!(target.backend, opposite, "{selected}");
+            assert_eq!(target.instance, instance, "{selected}");
+            assert_eq!(
+                target.scope,
+                InventoryScope::managed(opposite, endpoint, epoch),
+                "{selected}"
+            );
+            let borrowed = target.borrowed();
+            assert_eq!(borrowed.backend, opposite, "{selected}");
+            assert_eq!(borrowed.instance, instance, "{selected}");
+            assert_eq!(borrowed.scope.expected_epoch(), Some(epoch), "{selected}");
+            assert_eq!(borrowed.scope.endpoint, endpoint, "{selected}");
+        }
+    }
+
+    /// `Unregistered` keeps its meaning: no opposite instance is nothing to
+    /// collide with, and the selected backend's own instance is never
+    /// mistaken for an opposite one.
+    #[test]
+    fn gui_create_has_no_opposite_target_when_that_backend_is_unregistered() {
+        for selected in [Backend::Wez, Backend::Tmux] {
+            let scratch = ScratchGui::new();
+            let mut registry = scratch.registry();
+            let own = registry
+                .register_backend_instance(selected, Some(scratch_endpoint(selected)), None)
+                .unwrap();
+            registry
+                .publish_backend_server(own, ServerEpoch(Uuid::new_v4()), None, None, None, None)
+                .unwrap();
+            drop(registry);
+
+            let target = scratch
+                .gui
+                .local_opposite_create_target(selected)
+                .unwrap_or_else(|error| panic!("{selected}: {error:?}"));
+            assert!(
+                target.is_none(),
+                "{selected}: only the selected backend is registered, so there is no opposite"
+            );
+        }
+    }
+
+    /// `Unaddressable` keeps the file's existing refusal: a registered
+    /// opposite instance with no recorded endpoint is `provider_unavailable`,
+    /// not an epoch fault and not a scan.
+    #[test]
+    fn gui_create_refuses_an_opposite_instance_with_no_recorded_endpoint() {
+        let scratch = ScratchGui::new();
+        scratch
+            .registry()
+            .register_backend_instance(Backend::Tmux, None, None)
+            .unwrap();
+        let error = scratch
+            .gui
+            .local_opposite_create_target(Backend::Wez)
+            .err()
+            .expect("an opposite instance without an endpoint must refuse");
+        assert_eq!(error.code, ErrorCode::ProviderUnavailable, "{error:?}");
+        assert_eq!(
+            error.message,
+            "registered opposite tmux backend has no inventory endpoint"
         );
     }
 }
