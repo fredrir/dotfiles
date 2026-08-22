@@ -687,4 +687,28 @@ amended). `dmux recovery abort` keeps its existing meaning.
   markers, left for the recovery path to judge). Live dir 1,572 → 34 entries; `wez-dmux.json`,
   the lease and the socket keep their 2026-08-19 12:42 mtimes. Archie's runtime dir held 3 entries
   and needs no sweep.
+- **WS-A.5 remote agent (A5-c) — closed 2026-08-23** (`a173ca9`, `9396a2d` → `1baf413`, `7210816`).
+  The `spaces` RPC's tmux arm resolves through `resolve_managed`: Unpublished answers `unreachable`
+  with the shared detail and runs no tmux; Managed pins the scan so a replaced server is not
+  `complete` (peer rendering proven in-process through `ls_cli::peer_listing`). `owner_lookup_target`
+  resolves the same way; `new_lookup` on an unpublished instance refuses as a typed
+  `backend_epoch_changed` — a ratified deviation from the per-partition `Indeterminate` class, which
+  needs an `operations::lookup_new_owner_fenced` seam (recorded as a follow-up; the refusal is the
+  stricter answer and never "name free"); `ServerEpoch(Uuid::nil())` is gone (WS-A.12's first item).
+  Follow-ups recorded: `ls_cli::peer_scan_error_code` should map a peer's epoch-changed detail to
+  `BackendEpochChanged` as the local path does; two stale "has no recorded namespace" texts
+  (`remote/attach.rs:314`, `gui_cli.rs:1344`); the remote-side dev/ino readers from O's handoff.
+- **WS-A.5 gui_cli (A5-e) — closed 2026-08-23** (`e029a2b` → `b98d2fb`). `local_opposite_create_target`
+  is a thin wrapper over `resolve_managed`; an unpublished opposite instance refuses the GUI create
+  with `backend_epoch_changed` before `create_space_owner_fenced`, so no reservation, journal row or
+  spawn follows; Unregistered keeps `Ok(None)`. Four unit tests, the refusal proven to fail on the old
+  body. Optional defence-in-depth recorded: `scan_epoch_for_create` could refuse an opposite scope
+  with no pin outright.
+- **WS-A.5 gate — met 2026-08-23.** `grep -rn "verified_scan(scope, None)" src/backend/wez.rs` → 0;
+  the audit allowlist holds exactly the first-contact tmux site in `ls_cli` and the two
+  `scope(Option)` test helpers — every one of the review's nine laundering sites plus `main.rs:1450`
+  is migrated, each with the review's reproduction inverted as a regression that failed on the
+  pre-change code. The seven near-duplicate resolvers are deleted. Dead's four commits
+  (`88edd34`…`6c50bc3` → `3eaf15f`…`a00201f`: rows 10, 13, 14 and A.13) are integrated; its
+  manifest entries follow with its return.
 

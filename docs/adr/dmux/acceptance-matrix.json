@@ -56,21 +56,31 @@
   "5": {
    "title": "Same name on both backends exits 4 with both stable refs; explicit backend chooses its match",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "unit::gui_cli::tests::gui_create_pins_a_published_opposite_instance_to_its_registry_epoch",
+    "unit::operations::tests::collision_acknowledgement_allows_only_opposite_selectable_managed_row",
+    "unit::operations::tests::owner_fenced_create_refuses_opposite_unmanaged_name_and_indeterminate_scan_without_allocation"
+   ],
+   "implemented_at": [
+    "src/gui_cli.rs local_opposite_create_target (epoch-pinned opposite-backend fence)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped"
   },
   "6": {
    "title": "Opposite-backend-only match + explicit backend errors; --allow-name-collision creates intentionally",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
    "tests": [
-    "adopt_cli::a_name_live_on_the_opposite_backend_is_a_collision"
+    "adopt_cli::a_name_live_on_the_opposite_backend_is_a_collision",
+    "unit::gui_cli::tests::gui_create_pins_a_published_opposite_instance_to_its_registry_epoch",
+    "unit::operations::tests::collision_acknowledgement_allows_only_opposite_selectable_managed_row",
+    "unit::operations::tests::owner_fenced_create_refuses_opposite_unmanaged_name_and_indeterminate_scan_without_allocation"
    ],
    "implemented_at": [
-    "src/operations.rs:1475 require_no_cross_backend_name"
+    "src/operations.rs:1475 require_no_cross_backend_name",
+    "src/gui_cli.rs local_opposite_create_target (epoch-pinned opposite-backend fence)"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
@@ -82,7 +92,8 @@
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
    "tests": [
     "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation",
-    "new_cli_dispatch::an_unpublished_tmux_instance_refuses_the_gated_new_before_any_reservation_or_tmux_call"
+    "new_cli_dispatch::an_unpublished_tmux_instance_refuses_the_gated_new_before_any_reservation_or_tmux_call",
+    "unit::gui_cli::tests::gui_create_refuses_an_unpublished_opposite_instance_before_any_reservation"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -207,73 +218,100 @@
   "16": {
    "title": "Trusted Wez controller + usable USB creates remote Wez",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
    "implemented_at": [
-    "tests/remote_protocol/main.rs header"
+    "tests/remote_protocol/main.rs header",
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
    ],
    "live_evidence": [],
    "live_evidence_required": [
     "two_host checkpoint (WS-G.2)"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "17a": {
    "title": "No enrolled USB route -> positive route_absent -> automatic tmux",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
+   "implemented_at": [
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "17b": {
    "title": "Enrolled USB route with failing probe -> refuse, create neither backend",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
+   "implemented_at": [
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "18": {
    "title": "Plain SSH over available cable creates tmux",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
+   "implemented_at": [
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "19": {
    "title": "USB reachable but Wez auth/version/protocol failing exits 6, creates neither",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
+   "implemented_at": [
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "20": {
    "title": "Existing remote Wez Space reconnects over Tailscale after USB removal without changing ID/backend",
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
-    "unit::gui_cli::tests::presentation_routes_conflict_only_on_a_different_identity"
+    "unit::gui_cli::tests::presentation_routes_conflict_only_on_a_different_identity",
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
    ],
    "implemented_at": [
-    "src/gui_cli.rs:978 choose_compatible_presentation_row"
+    "src/gui_cli.rs:978 choose_compatible_presentation_row",
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
    ],
    "live_evidence": [],
    "live_evidence_required": [
@@ -285,26 +323,36 @@
   "21": {
    "title": "Only enumerated pre-auth transport failures retry another verified route; nothing falls back to another backend",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
+   "implemented_at": [
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "22": {
    "title": "Lost SSH acknowledgement + retry returns the original mutation result",
    "earliest_owning_phase": "P7 remote/routes",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+   ],
+   "implemented_at": [
+    "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending"
   },
   "23": {
    "title": "Two Wez tabs/four panes report two Groups/four Splits via tab_id; tmux uses window/pane IDs",
@@ -321,7 +369,8 @@
    "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
    "tests": [
     "unit::main::tests::ls_long_help_renders_every_documented_scope",
-    "ls_cli::the_help_names_every_scope_and_both_axes"
+    "ls_cli::the_help_names_every_scope_and_both_axes",
+    "remote_protocol::mutations::spaces_reports_an_unpublished_tmux_instance_unreachable_without_running_tmux"
    ],
    "implemented_at": [
     "src/ls_cli.rs:58"
@@ -392,7 +441,8 @@
     "operations_flow::a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_scan",
     "registry::bindings::the_recorded_binding_epoch_is_readable_and_refreshed_only_on_the_current_row",
     "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain",
-    "operations_flow::retire_incarnation_clears_exactly_the_named_epoch_and_guards_a_live_pid"
+    "operations_flow::retire_incarnation_clears_exactly_the_named_epoch_and_guards_a_live_pid",
+    "remote_protocol::mutations::spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_complete"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -557,7 +607,7 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "mapped"
+   "status": "live_pending"
   },
   "40": {
    "title": "Remote owner recovery never restores imported remote panes as local shells",
