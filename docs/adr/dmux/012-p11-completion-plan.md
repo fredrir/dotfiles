@@ -494,3 +494,20 @@ Every agent's return must include the runtime-dir growth check (§7 amendment 5)
 - Operational note for every later worktree: the pre-commit hook needs `scripts/python/.venv`;
   run `uv sync --project scripts/python --locked` in a fresh worktree before its first commit.
 
+### Wave 2 — dispatched 2026-08-22, base `f663972` (WS-A.4 `cb3c543` plus the WS-B.5 picks)
+
+WS-A.5 fanned out by file, per the owner-approved amendment to §6; integration is serial in
+blast-radius order: A5-a adopt → A5-a migrate → A5-b reconcile → A5-b group new → A5-c spaces →
+A5-d new → A5-d rm → A5-e → A5-c new_lookup. WS-A.7 (`main.rs:1450`) stays with the root in wave 3.
+
+| agent | sites (report finding) | worktree / branch | owned paths |
+| --- | --- | --- | --- |
+| A5-a | `adopt_cli::owner_scope` (#2), `migrate_cli::scan_target` + `Target` (#3) | `~/packages/dmux-p11/a5a`, `p11/a5a` | `src/{adopt_cli,migrate_cli}.rs`, `tests/{adopt_cli,adopt_flow,migrate_cli}.rs`, own audit entries |
+| A5-b | `space_cli::reconcile_provider` tmux arm incl. the `.ok()` (#7), `group new` tmux arm (#4) | `a5b`, `p11/a5b` | `src/space_cli.rs`, `tests/{hierarchy_flow,registry/reconcile}.rs`, one new test file, own entries |
+| A5-c | `remote/agent.rs` `spaces` tmux arm (#13), `owner_lookup_target` (#17) and WS-A.12's nil-epoch fabrication (#20) | `a5c`, `p11/a5c` | `src/remote/agent.rs`, `tests/remote_protocol/**`, own entries |
+| A5-d | `new_cli::local_target` (#12), `rm_cli::local_scope` (#16) | `a5d`, `p11/a5d` | `src/{new_cli,rm_cli}.rs`, `tests/{new_cli,new_cli_dispatch,space_rm_cli}.rs`, own entries |
+| A5-e | `gui_cli::local_opposite_create_target` (#15) | `a5e`, `p11/a5e` | `src/gui_cli.rs` (function, caller, tests module only), `tests/{gui_lifecycle,connect_cli,connect_cli_dispatch}.rs`, own entry |
+
+Each commit states what `Unpublished` means for its verb; each deletes its `tests/scope_audit.rs`
+allowlist entry; each lands a regression test that is the review's reproduction inverted.
+
