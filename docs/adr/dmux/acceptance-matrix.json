@@ -1,0 +1,625 @@
+{
+ "schema_version": 1,
+ "created": "2026-08-22",
+ "revision": "58da730",
+ "source": "ADR 012 WS-G.1; plan §20.1 (amended) and §20.2",
+ "rule": "A case is passed only when every test listed under it is green at the named revision AND every live-evidence artifact it requires exists and is named here. A green suite alone proves nothing; an empty tests list is a gap, not a pass.",
+ "test_id_format": "unit::<module>::tests::<fn> for lib tests; <integration binary>::<module path>::<fn> for tests/ (binary = file stem, or the directory name for tests/<dir>/main.rs trees).",
+ "status_vocabulary": {
+  "unmapped": "no test or evidence named yet",
+  "mapped": "tests named; not yet re-run at the claimed revision",
+  "blocked": "depends on an open ADR 012 workstream item listed under open_items",
+  "passed": "tests green at revision and live evidence present",
+  "live_pending": "tests green; live evidence still to be produced"
+ },
+ "cases": {
+  "1": {
+   "title": "Local trusted Wez + no project creates one Wez Space with one Group/Split, next permanent ID, connects",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "2": {
+   "title": "Local plain/headless context creates tmux",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "3": {
+   "title": "Existing Wez project is connected even when policy would now choose tmux",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "4": {
+   "title": "Existing tmux project is connected even when policy would now choose Wez",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "5": {
+   "title": "Same name on both backends exits 4 with both stable refs; explicit backend chooses its match",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "6": {
+   "title": "Opposite-backend-only match + explicit backend errors; --allow-name-collision creates intentionally",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [
+    "adopt_cli::a_name_live_on_the_opposite_backend_is_a_collision"
+   ],
+   "implemented_at": [
+    "src/operations.rs:1475 require_no_cross_backend_name"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "7": {
+   "title": "Indeterminate inventory creates/attaches nothing; stopped-service recovery repeated before space_absent",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "8": {
+   "title": "con and dmux - never create",
+   "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "9": {
+   "title": "Rename preserves SpaceUid, SpaceNo, backend, owner, history",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "10": {
+   "title": "Remove then recreate gets a new UID and larger SpaceNo; old ref stays deleted",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "11": {
+   "title": "Concurrent create/rename/adopt/rebind serializes owner-wide; no collision; gaps not reused",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [
+    "registry::reconcile::stranded_adoption"
+   ],
+   "implemented_at": [
+    "src/space_cli.rs:154",
+    "src/space_cli.rs:371",
+    "src/operations.rs:3582"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "12": {
+   "title": "External tmux rename preserves identity through markers",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "13": {
+   "title": "ls leaves external Wez unmanaged; fenced adoption once to opaque key, unstamped until acked; crash states reconcile; tampering is explicit conflict",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [
+    "adopt_cli::a_second_adopt_of_the_same_native_ref_is_refused",
+    "ls_cli::an_external_workspace_stays_unmanaged",
+    "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered",
+    "registry::reconcile::stranded_adoption"
+   ],
+   "implemented_at": [
+    "src/operations.rs:1452 require_unbound_native",
+    "src/operations.rs:1521 require_no_foreign_stamp",
+    "src/registry/mod.rs:2434 current_binding_by_native"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [
+    "ADR 012 WS-A.5 adopt_cli.rs:238 (adopt on an unverified server)",
+    "WS-D.1 repair rebind (tamper -> absent -> rebind -> unstamped -> stamp -> healthy)",
+    "WS-D.2 adoption journal source token"
+   ],
+   "status": "blocked"
+  },
+  "14": {
+   "title": "Forget/re-enroll same HostUid restores alias; different HostUid never receives it",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "15": {
+   "title": "z->aa rollover, rollback/clone detection, divergent heads, stale responses, handshake rollback quarantine",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [],
+   "implemented_at": [
+    "src/ls_cli.rs:426 refuse"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped",
+   "note": "identity tests live under tests/identity/** and tests/registry/** — enumerate in WS-G.1"
+  },
+  "16": {
+   "title": "Trusted Wez controller + usable USB creates remote Wez",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [
+    "tests/remote_protocol/main.rs header"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two_host checkpoint (WS-G.2)"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "17a": {
+   "title": "No enrolled USB route -> positive route_absent -> automatic tmux",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "17b": {
+   "title": "Enrolled USB route with failing probe -> refuse, create neither backend",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "18": {
+   "title": "Plain SSH over available cable creates tmux",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "19": {
+   "title": "USB reachable but Wez auth/version/protocol failing exits 6, creates neither",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "20": {
+   "title": "Existing remote Wez Space reconnects over Tailscale after USB removal without changing ID/backend",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [
+    "unit::gui_cli::tests::presentation_routes_conflict_only_on_a_different_identity"
+   ],
+   "implemented_at": [
+    "src/gui_cli.rs:978 choose_compatible_presentation_row"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "WS-G.5 USB removal -> Tailscale reconnect"
+   ],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "21": {
+   "title": "Only enumerated pre-auth transport failures retry another verified route; nothing falls back to another backend",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "22": {
+   "title": "Lost SSH acknowledgement + retry returns the original mutation result",
+   "earliest_owning_phase": "P7 remote/routes",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "23": {
+   "title": "Two Wez tabs/four panes report two Groups/four Splits via tab_id; tmux uses window/pane IDs",
+   "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "24": {
+   "title": "ls, ls --tree, ls --all-hosts, host ls have distinct documented scopes",
+   "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
+   "tests": [
+    "unit::main::tests::ls_long_help_renders_every_documented_scope",
+    "ls_cli::the_help_names_every_scope_and_both_axes"
+   ],
+   "implemented_at": [
+    "src/ls_cli.rs:58"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "25": {
+   "title": "GUI-closed standalone listing targets exact socket/sentinel epoch, rejects replacement, never starts a server",
+   "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
+   "tests": [
+    "ls_cli::a_stopped_wez_service_lists_as_stopped_and_starts_nothing",
+    "ls_cli::a_rejected_scan_is_a_partial_listing_not_a_clean_one",
+    "ls_cli::a_managed_instance_without_a_published_epoch_refuses_to_scan"
+   ],
+   "implemented_at": [
+    "src/ls_cli.rs:736 scope",
+    "src/ls_cli.rs:829 scan_target"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [
+    "ADR 012 WS-B.1 stale incarnation (a dead pid is never detected today)",
+    "WS-C legacy list.rs/attach.rs pin the socket and filter the sentinel"
+   ],
+   "status": "blocked"
+  },
+  "26": {
+   "title": "New Group/Split inherits exact owner/backend/cwd; backend override rejected",
+   "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "27": {
+   "title": "Group/Split refs correlate within an epoch; new incarnations publish new epochs; unepoched tmux stays unmanaged with no native write; first contact serializes",
+   "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
+   "tests": [
+    "ls_cli::a_live_native_tmux_session_is_listed_when_nothing_is_registered"
+   ],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [
+    "ADR 012 WS-A.5/A.6/A.8/A.9 (mutation on an unverified server; binding_epoch tautology; tmux dev/ino witness)",
+    "WS-B.1 stale incarnation"
+   ],
+   "status": "blocked"
+  },
+  "28": {
+   "title": "Every logical key follows the active marker; invalid markers change nothing",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "29": {
+   "title": "Command+Shift+T in an Archie Wez pane creates on Archie with Wez even over Tailscale",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "30": {
+   "title": "Cancel Command+W changes nothing; confirm removes only the named Group; final Group needs explicit Space escalation",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "31": {
+   "title": "Status shows active logical owner/backend and warns MIXED",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "32": {
+   "title": "Closing/reopening the GUI leaves owner pane/process IDs unchanged and restores no snapshots",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "33": {
+   "title": "Command+Q and disconnect leave owner pane counts unchanged for both backends",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "34": {
+   "title": "Command+Q/managed close detaches and proves every old owner pane survived; destructive QuitApplication never called",
+   "earliest_owning_phase": "P9 GUI/presentation",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "35": {
+   "title": "Every service start produces one verified sentinel and no unmanaged default shell; eligible manifest restores exactly once",
+   "earliest_owning_phase": "P10 recovery",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "36": {
+   "title": "A nonempty server never restores",
+   "earliest_owning_phase": "P10 recovery",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "37": {
+   "title": "Explicit removal of the final Space prevents later resurrection",
+   "earliest_owning_phase": "P10 recovery",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "38": {
+   "title": "Two simultaneous startup clients restore once",
+   "earliest_owning_phase": "P10 recovery",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "39": {
+   "title": "Partial/crashed recovery is observable; orphan reconciliation and journal resume are idempotent; snapshot publication cannot overlap",
+   "earliest_owning_phase": "P10 recovery",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "40": {
+   "title": "Remote owner recovery never restores imported remote panes as local shells",
+   "earliest_owning_phase": "P10 recovery",
+   "tests": [],
+   "implemented_at": [],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+   ],
+   "open_items": [],
+   "status": "unmapped"
+  },
+  "41": {
+   "title": "Non-TTY remove without --yes changes nothing, exits 5; decline exits 5",
+   "earliest_owning_phase": "P1/P4/P6 CLI and output",
+   "tests": [
+    "space_rm_cli::wez_first_rm_without_a_terminal_changes_nothing_and_exits_5",
+    "space_rm_cli::wez_first_rm_refusal_never_reaches_the_authority",
+    "space_rm_cli::a_refused_json_rm_reports_revision_zero_rather_than_allocating_one",
+    "space_rm_cli::the_prompt_names_the_space_before_it_asks"
+   ],
+   "implemented_at": [
+    "src/rm_cli.rs:110 run_remove"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "42": {
+   "title": "Multi-target remove preflights all; partial mutation returns per-target JSON + exit 7",
+   "earliest_owning_phase": "P1/P4/P6 CLI and output",
+   "tests": [
+    "unit::rm_cli::tests::a_partial_batch_is_exit_7_and_a_total_failure_is_not",
+    "space_rm_cli::every_bad_target_in_a_batch_is_reported_and_nothing_is_mutated",
+    "json_envelope::repair_normalize_reports_per_target_failure_and_exits_partial"
+   ],
+   "implemented_at": [
+    "src/rm_cli.rs:126",
+    "src/rm_cli.rs:1386 batch_ok"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "43": {
+   "title": "JSON is one valid schema-versioned document with no human stdout",
+   "earliest_owning_phase": "P1/P4/P6 CLI and output",
+   "tests": [
+    "json_envelope::sole_document",
+    "json_envelope::every_refusal_branch_is_one_document",
+    "json_envelope::format_json_on_a_verb_that_has_none_refuses_as_a_document",
+    "ls_cli::format_json_is_the_versioned_envelope_and_json_stays_bare",
+    "registry::reconcile::stranded_adoption"
+   ],
+   "implemented_at": [
+    "src/main.rs:618",
+    "src/main.rs:1976 refuse",
+    "src/space_cli.rs:905 refuse"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped"
+  },
+  "44": {
+   "title": "Deprecated row indices cannot silently target a stable ID; --row is explicit",
+   "earliest_owning_phase": "P1/P4/P6 CLI and output",
+   "tests": [
+    "unit::main::tests::rm_help_calls_a_bare_digit_a_ref_not_a_row_index",
+    "space_rm_cli::wez_first_row_refuses_to_index_an_incomplete_listing",
+    "space_rm_cli::a_legacy_index_removal_keeps_its_plan_and_gains_a_hint",
+    "space_rm_cli::row_indexes_the_managed_prefix_even_with_one_registered_backend",
+    "space_rm_cli::the_prompt_names_the_space_before_it_asks"
+   ],
+   "implemented_at": [
+    "src/rm_cli.rs:816 resolve_row",
+    "src/rm_cli.rs:1292 confirm_removals",
+    "src/attach.rs:228 note_index_target"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [
+    "ADR 012 WS-D.3: assert once through resolve::resolve_space_ref, not five times"
+   ],
+   "status": "blocked"
+  },
+  "45": {
+   "title": "Existing resources migrate once through explicit adoption; multi-window Wez normalized or quarantined; wrappers expand to the same plans",
+   "earliest_owning_phase": "P11 migration/regression",
+   "tests": [
+    "migrate_cli::a_second_commit_is_a_clean_no_op_not_a_second_migration",
+    "space_rm_cli::rm_name_removes_the_legacy_name_the_positional_ref_cannot_reach"
+   ],
+   "implemented_at": [
+    "src/migrate_cli.rs:30",
+    "src/migrate_cli.rs:1177 read_stamp"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [
+    "WS-F.4 migrate preview + --commit on Macie and Archie; migrated-v1.json; second run no-op"
+   ],
+   "open_items": [
+    "ADR 012 WS-A.5 migrate_cli.rs:743 (commit on an unverified server)"
+   ],
+   "status": "blocked"
+  },
+  "46": {
+   "title": "Every still-valid baseline test stays green; obsolete assertions have approved manifest entries",
+   "earliest_owning_phase": "P11 migration/regression",
+   "tests": [],
+   "implemented_at": [
+    "docs/adr/dmux/baseline-tests.json",
+    "tests/cli.rs DMUX_LEGACY_POLICY=1 harness line"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "unmapped",
+   "note": "passes when every baseline ID is green at the claimed revision and every retirement has a manifest entry"
+  }
+ }
+}
