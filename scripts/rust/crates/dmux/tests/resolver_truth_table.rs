@@ -47,6 +47,7 @@ fn binding(n: u64, token: &str) -> BindingRow {
         native_kind: NativeKind::TmuxSessionId,
         binding_state: BindingState::Current,
         observation: dmux::model::Observation::Live,
+        server_epoch: None,
     }
 }
 

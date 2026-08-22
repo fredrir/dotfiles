@@ -270,6 +270,7 @@ mod tests {
             native_kind: NativeKind::TmuxSessionId,
             binding_state: BindingState::Current,
             observation: Observation::Live,
+            server_epoch: None,
         }
     }
 

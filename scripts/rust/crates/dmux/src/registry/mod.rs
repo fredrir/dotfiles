@@ -876,6 +876,11 @@ pub struct BindingRow {
     pub native_kind: NativeKind,
     pub binding_state: BindingState,
     pub observation: Observation,
+    /// `native_bindings.server_epoch`: the incarnation the binding was
+    /// recorded (or, for a wez key, last proven live) under — see
+    /// [`Registry::current_binding_epoch`] for what it means per native
+    /// kind. `None` is a binding recorded without an epoch.
+    pub server_epoch: Option<ServerEpoch>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2806,20 +2811,11 @@ impl Registry {
     /// is observation metadata — the last incarnation a complete scan proved
     /// the key live under — refreshed by [`Self::observe_binding_epoch`].
     pub fn current_binding_epoch(&self, space_uid: SpaceUid) -> Result<Option<ServerEpoch>> {
-        self.conn
-            .query_row(
-                "SELECT server_epoch FROM native_bindings \
-                 WHERE space_uid = ?1 AND binding_state = 'current'",
-                [space_uid.0.to_string()],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?
+        self.current_binding(space_uid)?
+            .map(|binding| binding.server_epoch)
             .ok_or_else(|| RegistryError::NotFound {
                 what: format!("current binding of space {}", space_uid.0),
-            })?
-            .as_deref()
-            .map(|epoch| parse_uuid(epoch).map(ServerEpoch))
-            .transpose()
+            })
     }
 
     /// Record that a complete scan under the published incarnation `epoch`
@@ -3205,7 +3201,7 @@ const SPACE_COLUMNS: &str = "space_uid, owner_host_uid, space_no, backend_instan
 const LEASE_COLUMNS: &str = "lease_id, scope, holder_request_uid, fencing_token, holder_pid, \
                              holder_start_token, expires_at, state";
 const BINDING_COLUMNS: &str = "binding_id, space_uid, native_token, native_kind, binding_state, \
-                               observation";
+                               observation, server_epoch";
 
 type RawOperationRow = (
     String,
@@ -3303,7 +3299,7 @@ fn finish_space_row(raw: RawSpaceRow) -> Result<SpaceRow> {
     })
 }
 
-type RawBindingRow = (i64, String, String, String, String, String);
+type RawBindingRow = (i64, String, String, String, String, String, Option<String>);
 
 fn map_binding_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawBindingRow> {
     Ok((
@@ -3313,11 +3309,12 @@ fn map_binding_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawBindingRow> {
         row.get(3)?,
         row.get(4)?,
         row.get(5)?,
+        row.get(6)?,
     ))
 }
 
 fn finish_binding_row(raw: RawBindingRow) -> Result<BindingRow> {
-    let (binding_id, space, token, kind, state, observation) = raw;
+    let (binding_id, space, token, kind, state, observation, server_epoch) = raw;
     Ok(BindingRow {
         binding_id,
         space_uid: SpaceUid(parse_uuid(&space)?),
@@ -3327,6 +3324,10 @@ fn finish_binding_row(raw: RawBindingRow) -> Result<BindingRow> {
         binding_state: BindingState::parse(&state)
             .ok_or_else(|| RegistryError::Corrupt(format!("binding_state {state:?}")))?,
         observation: token_enum(&observation)?,
+        server_epoch: server_epoch
+            .as_deref()
+            .map(|epoch| parse_uuid(epoch).map(ServerEpoch))
+            .transpose()?,
     })
 }
 
