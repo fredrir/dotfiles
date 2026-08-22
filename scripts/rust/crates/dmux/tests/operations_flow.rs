@@ -574,6 +574,12 @@ mod scripted {
             self.calls.borrow().clone()
         }
 
+        /// The `NativeBinding.server_epoch` values the provider was handed,
+        /// in call order.
+        pub fn handed_epochs(&self) -> Vec<ServerEpoch> {
+            self.handed_epochs.borrow().clone()
+        }
+
         fn note(&self, call: &'static str) {
             self.calls.borrow_mut().push(call);
         }
@@ -1121,4 +1127,198 @@ fn repair_scan_refuses_an_endpoint_other_than_the_instances_recorded_socket() {
     assert!(matches!(err, OpError::Refused(_)), "{err}");
     assert!(err.to_string().contains("<none>"), "{err}");
     assert!(provider.calls().is_empty());
+}
+
+/// WS-A.8 at the operations layer (findings #5/#18; the executable form of
+/// report 08 §7's `operations.rs:2277` and `registry/mod.rs:2812`): the
+/// binding handed to a tmux adapter carries the registry's recorded epoch,
+/// and a binding recorded under another incarnation than the one the scope
+/// is pinned to is refused `backend_epoch_changed` before any journal row or
+/// native command — a `$N` on the new server is not provably this Space.
+/// Once the registry records the pinned epoch the same verbs reach the
+/// provider, and what they hand it is that recorded value.
+#[test]
+fn a_tmux_binding_recorded_under_another_incarnation_is_refused_before_any_native_command() {
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let recorded = ServerEpoch(Uuid::new_v4());
+    let published = ServerEpoch(Uuid::new_v4());
+    let (_instance, space_uid) = seed_bound_space(
+        env,
+        Backend::Tmux,
+        "tmux-script",
+        published,
+        "$1",
+        Some(recorded),
+    );
+    let provider = Script::new(
+        Backend::Tmux,
+        published,
+        vec![one_window("$1", dmux::model::ProviderHandle::Tx)],
+    );
+    let scope = InventoryScope::managed(Backend::Tmux, "tmux-script", published);
+
+    let err = group_new(env, &provider, &scope, &group_request(space_uid)).unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "{err}");
+    assert!(err.to_string().contains(&recorded.0.to_string()), "{err}");
+    assert!(err.to_string().contains(&published.0.to_string()), "{err}");
+    assert_eq!(provider.calls(), vec!["inventory"]);
+    assert_eq!(bootstrap_rows(env), 0);
+
+    let err = remove_space(
+        env,
+        &provider,
+        &scope,
+        Backend::Tmux,
+        space_uid,
+        Uuid::new_v4(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "{err}");
+    let err = rename_space(
+        env,
+        &provider,
+        &scope,
+        Backend::Tmux,
+        space_uid,
+        "renamed",
+        Uuid::new_v4(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "{err}");
+    assert_eq!(
+        provider.calls(),
+        vec!["inventory"],
+        "no native command for rm/rename"
+    );
+    let registry = scripted_registry::registry(env);
+    let row = registry.space(space_uid).unwrap();
+    assert_eq!(row.lifecycle, dmux::model::Lifecycle::Active);
+    assert_eq!(row.logical_name, "proj");
+    assert!(
+        registry.unfinished_operation(space_uid).unwrap().is_none(),
+        "refused before any intent was journaled"
+    );
+    assert_eq!(
+        registry.current_binding_epoch(space_uid).unwrap(),
+        Some(recorded)
+    );
+    drop(registry);
+
+    // Control: the registry now records the pinned epoch; the provider is
+    // reached and handed exactly that value.
+    scripted_registry::registry(env)
+        .observe_binding_epoch(space_uid, published)
+        .unwrap();
+    let err = group_new(env, &provider, &scope, &group_request(space_uid)).unwrap_err();
+    assert!(matches!(err, OpError::Provider(_)), "{err}");
+    assert_eq!(
+        provider.calls(),
+        vec!["inventory", "inventory", "group_new"]
+    );
+    assert_eq!(provider.handed_epochs(), vec![published]);
+    assert_eq!(bootstrap_rows(env), 1);
+}
+
+/// The wez half of WS-A.8. A workspace key is registry-minted identity that
+/// survives a restart (cold recovery restores it by key, plan §15.3), so a
+/// binding recorded under an earlier incarnation is not stale by itself: a
+/// complete scan under the pin that lists the key proves it live, the
+/// registry's recorded epoch is refreshed as observation metadata, and the
+/// provider is handed that refreshed value. A key the pinned scan does not
+/// list has nothing live to kill: an explicit removal proceeds to its
+/// tombstone without a native command, and nothing is refreshed.
+#[test]
+fn a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_scan() {
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let recorded = ServerEpoch(Uuid::new_v4());
+    let published = ServerEpoch(Uuid::new_v4());
+    let key = "dmux:host:space";
+    let (_instance, space_uid) = seed_bound_space(
+        env,
+        Backend::Wez,
+        "/run/dmux/wez.sock",
+        published,
+        key,
+        Some(recorded),
+    );
+    let provider = Script::new(
+        Backend::Wez,
+        published,
+        vec![one_window(key, dmux::model::ProviderHandle::Wz)],
+    );
+    let scope = InventoryScope::managed(Backend::Wez, "/run/dmux/wez.sock", published);
+
+    let err = group_new(env, &provider, &scope, &group_request(space_uid)).unwrap_err();
+    assert!(matches!(err, OpError::Provider(_)), "{err}");
+    assert_eq!(provider.calls(), vec!["inventory", "group_new"]);
+    assert_eq!(provider.handed_epochs(), vec![published]);
+    assert_eq!(
+        scripted_registry::registry(env)
+            .current_binding_epoch(space_uid)
+            .unwrap(),
+        Some(published),
+        "the recorded epoch is refreshed by the verified scan"
+    );
+
+    // Removal with the key live hands the (now pinned) recorded epoch.
+    let err = remove_space(
+        env,
+        &provider,
+        &scope,
+        Backend::Wez,
+        space_uid,
+        Uuid::new_v4(),
+    )
+    .unwrap_err();
+    assert!(matches!(err, OpError::Provider(_)), "{err}");
+    assert_eq!(provider.calls(), vec!["inventory", "group_new", "remove"]);
+    assert_eq!(provider.handed_epochs(), vec![published, published]);
+
+    // A key the pinned scan no longer lists: explicit remove, verified absent,
+    // no native command, the recorded epoch left as it was.
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let (_instance, space_uid) = seed_bound_space(
+        env,
+        Backend::Wez,
+        "/run/dmux/wez.sock",
+        published,
+        key,
+        Some(recorded),
+    );
+    let provider = Script::new(Backend::Wez, published, Vec::new());
+    remove_space(
+        env,
+        &provider,
+        &scope,
+        Backend::Wez,
+        space_uid,
+        Uuid::new_v4(),
+    )
+    .unwrap();
+    assert_eq!(
+        provider.calls(),
+        vec!["inventory", "inventory"],
+        "scan, final-empty scan"
+    );
+    assert!(
+        provider.handed_epochs().is_empty(),
+        "no binding was handed to the provider"
+    );
+    let registry = scripted_registry::registry(env);
+    assert_eq!(
+        registry.space(space_uid).unwrap().lifecycle,
+        dmux::model::Lifecycle::Deleted
+    );
+    let severed: Option<String> = registry
+        .raw_connection()
+        .query_row(
+            "SELECT server_epoch FROM native_bindings WHERE space_uid = ?1",
+            [space_uid.0.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(severed.as_deref(), Some(recorded.0.to_string().as_str()));
 }

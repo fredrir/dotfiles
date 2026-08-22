@@ -16,6 +16,7 @@ mod adopt;
 mod alloc;
 mod attach;
 mod backup;
+mod bindings;
 mod bootstrap;
 mod busy;
 mod hosts;

@@ -1217,22 +1217,38 @@ pub fn rename_space(
         )));
     }
 
-    let operation_uid = registry
-        .begin_rename(space_uid, new_name, request_uid)
-        .map_err(reg_err)?;
-    if backend == Backend::Tmux {
+    // tmux renames the session natively; the binding it is handed carries
+    // the registry's recorded epoch (WS-A.8), decided before the rename is
+    // journaled so a stale binding never strands an unfinished operation.
+    let tmux_native = if backend == Backend::Tmux {
         let binding = registry
             .current_binding(space_uid)
             .map_err(reg_err)?
             .ok_or_else(|| OpError::NotFound("no current native binding".into()))?;
-        let native = crate::backend::NativeBinding {
+        let epoch = match binding_epoch_for_adapter(&mut registry, scope, &binding, |_| Ok(false))?
+        {
+            BindingVerdict::Pinned(epoch) => epoch,
+            BindingVerdict::AbsentUnderPin => {
+                return Err(OpError::NotFound(format!(
+                    "{} is not live under the published incarnation",
+                    binding.native_token
+                )));
+            }
+        };
+        Some(crate::backend::NativeBinding {
             native_token: binding.native_token,
-            server_epoch: scope.expected_epoch().ok_or_else(|| {
-                OpError::Indeterminate("rename requires the current epoch".into())
-            })?,
+            server_epoch: epoch,
             root_group: ProviderHandle::Tx(0),
             root_split: ProviderHandle::Tx(0),
-        };
+        })
+    } else {
+        None
+    };
+
+    let operation_uid = registry
+        .begin_rename(space_uid, new_name, request_uid)
+        .map_err(reg_err)?;
+    if let Some(native) = tmux_native {
         provider
             .rename(scope, &native, new_name)
             .map_err(|e| OpError::Provider(format!("{e:?}")))?;
@@ -1317,6 +1333,26 @@ fn remove_space_inner(
         .acquire(LockScope::Space(space_uid), LockMode::Exclusive)
         .map_err(|e| OpError::Lock(e.to_string()))?;
 
+    // The binding handed to the provider carries the registry's recorded
+    // epoch (WS-A.8). Decided before the deleting intent is journaled, so a
+    // stale tmux binding is refused without stranding an unfinished remove;
+    // a wez key that a complete pinned scan no longer lists has nothing live
+    // to kill and the explicit removal proceeds straight to its tombstone.
+    let native = match registry.current_binding(space_uid).map_err(reg_err)? {
+        Some(binding) => match binding_epoch_for_adapter(&mut registry, scope, &binding, |pin| {
+            native_token_live_under(provider, scope, pin, &binding.native_token)
+        })? {
+            BindingVerdict::Pinned(epoch) => Some(crate::backend::NativeBinding {
+                native_token: binding.native_token,
+                server_epoch: epoch,
+                root_group: ProviderHandle::Tx(0),
+                root_split: ProviderHandle::Tx(0),
+            }),
+            BindingVerdict::AbsentUnderPin => None,
+        },
+        None => None,
+    };
+
     let operation_uid = match resume_operation {
         None => registry
             .begin_remove(space_uid, request_uid)
@@ -1338,16 +1374,7 @@ fn remove_space_inner(
             operation_uid
         }
     };
-    let binding = registry.current_binding(space_uid).map_err(reg_err)?;
-    if let Some(binding) = binding {
-        let native = crate::backend::NativeBinding {
-            native_token: binding.native_token,
-            server_epoch: scope.expected_epoch().ok_or_else(|| {
-                OpError::Indeterminate("remove requires the current epoch".into())
-            })?,
-            root_group: ProviderHandle::Tx(0),
-            root_split: ProviderHandle::Tx(0),
-        };
+    if let Some(native) = native {
         match provider.remove(scope, &native) {
             Ok(()) => {}
             Err(crate::backend::ProviderError::NotFound { .. }) if resume_operation.is_some() => {}
@@ -1982,6 +2009,104 @@ fn load_bound_space(
     Ok((row, binding))
 }
 
+/// What the registry's recorded binding epoch says about handing the
+/// binding to an adapter under `scope` (see [`binding_epoch_for_adapter`]).
+enum BindingVerdict {
+    /// Hand the adapter a `NativeBinding` carrying this epoch — the
+    /// registry's recorded value, which equals the scope's pin.
+    Pinned(ServerEpoch),
+    /// The binding was recorded under another incarnation and a complete
+    /// scan under the pin lists no such native resource: there is nothing
+    /// live to hand an adapter. Only a removal may proceed from here, and
+    /// without a native command.
+    AbsentUnderPin,
+}
+
+/// The epoch carried by the `NativeBinding` handed to an adapter is the
+/// REGISTRY's recorded binding epoch, never the scan's own word and never
+/// the pin copied across (review findings #5/#18, ADR 012 WS-A.8): the
+/// adapters' `binding_epoch` compares that value against the scope's pin,
+/// and that comparison is only a fence when the two have independent
+/// sources. The registry row is also consulted here first, so a stale
+/// binding is refused before any journal row or native command.
+///
+/// A binding recorded under the pinned epoch is handed as is. One recorded
+/// under another incarnation (or none) depends on the native kind:
+///
+/// * `tmux_session_id` — server-minted and recycled by the next
+///   incarnation (plan §11.2: a restart invalidates prior refs). Nothing can
+///   prove a `$N` on the new server is this Space, so it is refused typed;
+///   the Space is absent until `dmux repair rebind` names its new session.
+/// * `wez_workspace_key` — registry-minted identity that survives a restart
+///   (cold recovery restores the key, plan §15.3 step 8). The caller proves
+///   the key live by a complete scan under the pin (`live_under_pin`); the
+///   recorded epoch is then refreshed as observation metadata
+///   (`Registry::observe_binding_epoch`) and handed. A key the pinned scan
+///   does not list is [`BindingVerdict::AbsentUnderPin`].
+fn binding_epoch_for_adapter(
+    registry: &mut Registry,
+    scope: &InventoryScope,
+    binding: &crate::registry::BindingRow,
+    live_under_pin: impl FnOnce(ServerEpoch) -> Result<bool, OpError>,
+) -> Result<BindingVerdict, OpError> {
+    let pin = scope.expected_epoch().ok_or_else(|| {
+        OpError::Indeterminate(
+            "a native binding is handed to a provider only under a scope pinned to the \
+             registry-published server epoch"
+                .into(),
+        )
+    })?;
+    let recorded = registry
+        .current_binding_epoch(binding.space_uid)
+        .map_err(reg_err)?;
+    if recorded == Some(pin) {
+        return Ok(BindingVerdict::Pinned(pin));
+    }
+    let recorded_text = recorded
+        .map(|epoch| epoch.0.to_string())
+        .unwrap_or_else(|| "<none>".to_string());
+    match binding.native_kind {
+        NativeKind::TmuxSessionId => Err(OpError::StaleRef(format!(
+            "binding {} of space {} was recorded under server epoch {recorded_text} but the \
+             published incarnation is {}; a tmux session id does not survive a server restart \
+             (plan §11.2), so the Space is absent until `dmux repair rebind` names its session",
+            binding.native_token, binding.space_uid.0, pin.0
+        ))),
+        NativeKind::WezWorkspaceKey => {
+            if live_under_pin(pin)? {
+                registry
+                    .observe_binding_epoch(binding.space_uid, pin)
+                    .map_err(reg_err)?;
+                Ok(BindingVerdict::Pinned(pin))
+            } else {
+                Ok(BindingVerdict::AbsentUnderPin)
+            }
+        }
+    }
+}
+
+/// Whether a complete scan under exactly `pin` lists `native_token`. Any
+/// other outcome — incomplete, unepoched, or answered under another epoch —
+/// is indeterminate, never "absent".
+fn native_token_live_under(
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    pin: ServerEpoch,
+    native_token: &str,
+) -> Result<bool, OpError> {
+    match provider.inventory(scope) {
+        InventoryOutcome::Complete(inv) => {
+            let observed = inv.server_epoch.ok_or_else(|| {
+                OpError::Indeterminate("managed scan is complete but unepoched".into())
+            })?;
+            require_pinned_epoch(scope, observed)?;
+            debug_assert_eq!(observed, pin);
+            Ok(inv.rows.iter().any(|row| row.native_token == native_token))
+        }
+        other => Err(OpError::Indeterminate(format!("scan: {other:?}"))),
+    }
+}
+
 /// Child mutations are blocked on unstamped/conflicted Spaces (plan §10.3);
 /// listing and context remain allowed.
 fn require_child_mutable(row: &crate::registry::SpaceRow) -> Result<(), OpError> {
@@ -2225,6 +2350,19 @@ pub fn group_new(
     // `dmux group new` under an unpinned scope created a window, aborted,
     // and left an orphan window plus a live `pane-bootstrap`.
     let epoch = require_pinned_epoch(scope, observed)?;
+    // The scan above proved the binding's token live under the pin; the
+    // registry's recorded binding epoch decides whether that token is this
+    // Space at all (WS-A.8). Refused before the journal row below exists.
+    let binding_epoch =
+        match binding_epoch_for_adapter(&mut registry, scope, &binding, |_| Ok(true))? {
+            BindingVerdict::Pinned(epoch) => epoch,
+            BindingVerdict::AbsentUnderPin => {
+                return Err(OpError::Indeterminate(format!(
+                    "{} was listed by the scan but is not live under the pinned epoch",
+                    binding.native_token
+                )));
+            }
+        };
     let pre_groups: std::collections::HashSet<String> = native_row
         .groups
         .iter()
@@ -2271,7 +2409,7 @@ pub fn group_new(
     };
     let native_binding = crate::backend::NativeBinding {
         native_token: binding.native_token.clone(),
-        server_epoch: epoch,
+        server_epoch: binding_epoch,
         root_group: native_row
             .groups
             .first()

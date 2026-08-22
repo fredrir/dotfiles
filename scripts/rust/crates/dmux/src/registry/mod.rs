@@ -2503,6 +2503,60 @@ impl Registry {
             .transpose()
     }
 
+    /// The server epoch recorded on a Space's current binding —
+    /// `native_bindings.server_epoch`, written at create/adopt and, until
+    /// ADR 012 WS-A.8, never read back (review finding #18). `None` is a
+    /// binding recorded without an epoch; a Space with no current binding is
+    /// [`RegistryError::NotFound`].
+    ///
+    /// What the value means depends on the native kind. A `tmux_session_id`
+    /// is minted by one server incarnation and recycled by the next, so the
+    /// epoch it was bound under is the only proof the id still names this
+    /// Space. A `wez_workspace_key` is registry-minted and survives restarts
+    /// (cold recovery restores it by key, plan §15.3 step 8), so the epoch
+    /// is observation metadata — the last incarnation a complete scan proved
+    /// the key live under — refreshed by [`Self::observe_binding_epoch`].
+    pub fn current_binding_epoch(&self, space_uid: SpaceUid) -> Result<Option<ServerEpoch>> {
+        self.conn
+            .query_row(
+                "SELECT server_epoch FROM native_bindings \
+                 WHERE space_uid = ?1 AND binding_state = 'current'",
+                [space_uid.0.to_string()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .ok_or_else(|| RegistryError::NotFound {
+                what: format!("current binding of space {}", space_uid.0),
+            })?
+            .as_deref()
+            .map(|epoch| parse_uuid(epoch).map(ServerEpoch))
+            .transpose()
+    }
+
+    /// Record that a complete scan under the published incarnation `epoch`
+    /// proved the Space's current binding live: `server_epoch` and
+    /// `observed_at` are refreshed on the current row only. Observation
+    /// metadata, not identity — the native token is untouched and the
+    /// authority chain does not advance (the same policy as
+    /// [`Self::set_space_health`]). The caller holds the backend-instance
+    /// fence and has the scan in hand; this never infers anything itself.
+    pub fn observe_binding_epoch(&mut self, space_uid: SpaceUid, epoch: ServerEpoch) -> Result<()> {
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            let changed = tx.execute(
+                "UPDATE native_bindings SET server_epoch = ?2, observed_at = ?3 \
+                 WHERE space_uid = ?1 AND binding_state = 'current'",
+                params![space_uid.0.to_string(), epoch.0.to_string(), now],
+            )?;
+            if changed != 1 {
+                return Err(RegistryError::NotFound {
+                    what: format!("current binding of space {}", space_uid.0),
+                });
+            }
+            Ok(())
+        })
+    }
+
     // -- rpc idempotency ledger ---------------------------------------------
 
     /// Record (or replay) an RPC request. Same UID + same method/digest
