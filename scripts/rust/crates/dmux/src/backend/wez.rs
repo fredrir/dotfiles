@@ -72,8 +72,9 @@
 //! deterministic multi-window merge plan from one verified same-epoch scan
 //! — target = the LOWEST native window id of the workspace, moves = every
 //! pane of every other window in ascending (window_id, pane_id) order; a
-//! sole-window workspace plans zero moves. `normalize_apply` re-scans
-//! pinned to the plan's epoch, re-derives the plan and requires EQUALITY
+//! sole-window workspace plans zero moves. `normalize_apply` refuses a
+//! plan whose epoch is not the scope's pin, re-scans pinned to that pin,
+//! re-derives the plan and requires EQUALITY
 //! with the confirmed one (any drift refuses `normalize_drift:` with zero
 //! mutation), executes each move through the exact `move-pane-to-new-tab
 //! --pane-id P --window-id <target>` argv, and proves single-window
@@ -2624,9 +2625,13 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         scan.derive_normalize_plan(native_token)
     }
 
-    /// Apply a previously confirmed merge plan (plan §10.3): re-scan pinned
-    /// to `plan.server_epoch` (a flip is [`ProviderError::EpochChanged`];
-    /// native IDs discarded), re-derive the plan from the live tree and
+    /// Apply a previously confirmed merge plan (plan §10.3): take the
+    /// scope's published epoch as the pin and refuse a plan whose
+    /// `server_epoch` is not that pin — a plan made under another
+    /// incarnation is not applicable (ADR 012 WS-A.12; never pin to the
+    /// plan's own epoch, which is what the plan observed) — then re-scan
+    /// pinned (a flip is [`ProviderError::EpochChanged`]; native IDs
+    /// discarded), re-derive the plan from the live tree and
     /// require it to EQUAL the confirmed plan — any drift (a new pane, a
     /// vanished pane, a changed window set) refuses with the stable
     /// `normalize_drift:` detail prefix and ZERO mutation. Then each move
@@ -2641,7 +2646,14 @@ impl<R: WezRunner> Provider for WezProvider<R> {
     /// An empty (sole-window) plan is a verified no-op success.
     fn normalize_apply(&self, scope: &InventoryScope, plan: &NormalizePlan) -> ProviderResult<()> {
         let token = plan.native_token.as_str();
-        let pre = self.verified_scan(scope, plan.server_epoch)?;
+        let expected = Self::required_action_epoch(scope)?;
+        if plan.server_epoch != expected {
+            return Err(ProviderError::EpochChanged {
+                expected,
+                observed: Some(plan.server_epoch),
+            });
+        }
+        let pre = self.verified_scan(scope, expected)?;
         let derived = match pre.derive_normalize_plan(token) {
             Ok(derived) => derived,
             Err(ProviderError::NotFound { .. }) => {
@@ -2688,7 +2700,7 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         let mut last_windows: Vec<u64> = Vec::new();
         let mut last_missing: Vec<u64> = Vec::new();
         for _round in 0..REMOVE_MAX_ROUNDS {
-            let scan = self.verified_scan(scope, plan.server_epoch)?;
+            let scan = self.verified_scan(scope, expected)?;
             let windows = scan.workspace_windows(token);
             let missing: Vec<u64> = plan
                 .moves
@@ -4492,6 +4504,58 @@ mod tests {
                 assert_eq!(observed, Some(ServerEpoch(other)));
             }
             other => panic!("epoch flip must be EpochChanged, got {other:?}"),
+        }
+        assert_eq!(runner.run_calls.borrow().len(), 1, "list only, zero moves");
+    }
+
+    /// WS-A.12 (review report 07's residual on finding #21): `normalize_apply`
+    /// used to pin its scans to `plan.server_epoch` — the epoch the plan
+    /// itself observed — so a plan made under another incarnation verified
+    /// itself. It now pins to the scope's published epoch and refuses a plan
+    /// whose epoch differs, before any command; unpinned it refuses like
+    /// every other verb.
+    #[test]
+    fn normalize_apply_pins_to_the_scope_not_the_plan() {
+        let runner = ScriptedRunner::new(vec![], vec![]);
+        let foreign = NormalizePlan {
+            server_epoch: ServerEpoch(Uuid::from_u128(0xdead_beef)),
+            ..mw_plan()
+        };
+        match provider(&runner).normalize_apply(&pinned(), &foreign) {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(foreign.server_epoch));
+            }
+            other => panic!("a plan from another incarnation must be EpochChanged, got {other:?}"),
+        }
+        match provider(&runner).normalize_apply(&scope(None), &mw_plan()) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("managed scope"), "{detail}");
+            }
+            other => panic!("unpinned normalize_apply must be WrongInstance, got {other:?}"),
+        }
+        assert!(
+            runner.probe_calls.borrow().is_empty(),
+            "endpoint never probed"
+        );
+        assert!(runner.run_calls.borrow().is_empty(), "no native command");
+
+        // The plan's epoch is the pin (made under this scope) and the live
+        // sentinel has moved on: the scope's pin is what the scan names.
+        let other = Uuid::from_u128(0x0ddb_a11);
+        let runner = ScriptedRunner::new(
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&canned_epoch(
+                other,
+                &[(1, 10, 100, "mw"), (2, 20, 200, "mw")],
+            ))],
+        );
+        match provider(&runner).normalize_apply(&pinned(), &mw_plan()) {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, ServerEpoch(EPOCH));
+                assert_eq!(observed, Some(ServerEpoch(other)));
+            }
+            other => panic!("live flip must be EpochChanged, got {other:?}"),
         }
         assert_eq!(runner.run_calls.borrow().len(), 1, "list only, zero moves");
     }
