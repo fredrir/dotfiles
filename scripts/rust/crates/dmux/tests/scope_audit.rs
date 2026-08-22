@@ -50,10 +50,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
         "WS-A.5 burn-down: group new tmux arm hardcodes no epoch (finding #4)",
     ),
     (
-        "src/migrate_cli.rs",
-        "WS-A.5 burn-down: scan_target launders a NULL epoch (finding #3)",
-    ),
-    (
         "src/new_cli.rs",
         "WS-A.5 burn-down: local_target launders a NULL epoch (finding #12)",
     ),

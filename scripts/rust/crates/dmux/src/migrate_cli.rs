@@ -48,6 +48,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::adopt_cli::WezCli;
+use crate::backend::scope::{self, ManagedTarget};
 use crate::backend::tmux::TmuxProvider;
 use crate::backend::wez::{SystemRunner, WezProvider, WezRunner};
 use crate::backend::{InventoryOutcome, InventoryScope, Provider};
@@ -509,8 +510,14 @@ fn build_plan<R: WezRunner>(
         records.push((space, binding));
     }
 
-    let wez_target = scan_target(&registry, Backend::Wez)?;
-    let tmux_target = scan_target(&registry, Backend::Tmux)?;
+    // Unlike `ls`, migration never falls back to a well-known socket: §17
+    // steps 2–4 import the backend definitions before step 6 scans them, and
+    // guessing `tmux -L default` on a machine that never enrolled would
+    // batch-adopt whatever that server happens to hold. `resolve_managed`
+    // gives exactly that — a scope only for a registered, addressable,
+    // *published* instance, and a distinct arm for every reason there is none.
+    let wez_target = scope::resolve_managed(&registry, Backend::Wez).map_err(reg)?;
+    let tmux_target = scope::resolve_managed(&registry, Backend::Tmux).map_err(reg)?;
     let scans = scan_backends(env, &wez_target, &tmux_target)?;
 
     // §17.6: a migration reads a *complete* owner scan or it reads nothing.
@@ -518,18 +525,38 @@ fn build_plan<R: WezRunner>(
     // one would quarantine live resources that simply were not seen.
     let mut scanned = Vec::new();
     for (backend, target) in [(Backend::Wez, &wez_target), (Backend::Tmux, &tmux_target)] {
-        let Some(_) = target.scope() else {
-            continue;
-        };
-        scanned.push(backend.as_str());
-        if let Some(detail) = indeterminate_detail(scans.get(backend)) {
-            blockers.push(TypedError::new(
-                scan_error_code(scans.get(backend)),
-                format!(
-                    "{backend} owner scan is indeterminate, so the migration cannot tell an \
-                     absent resource from an unseen one: {detail}"
-                ),
-            ));
+        match target {
+            ManagedTarget::Managed { .. } => {
+                scanned.push(backend.as_str());
+                if let Some(detail) = indeterminate_detail(scans.get(backend)) {
+                    blockers.push(TypedError::new(
+                        scan_error_code(scans.get(backend)),
+                        format!(
+                            "{backend} owner scan is indeterminate, so the migration cannot tell \
+                             an absent resource from an unseen one: {detail}"
+                        ),
+                    ));
+                }
+            }
+            // A registered, addressable instance that has published no server
+            // epoch is refused, not scanned. An unpinned scan of its endpoint
+            // would trust whatever server answered, and a `Complete` answer
+            // from a stranger would make every one of its workspaces look
+            // adoptable — which is exactly how the review drove `migrate`
+            // against a foreign mux and got `adopted:2` (finding #3). Blocking
+            // it here refuses the cutover in preview (a typed failure document,
+            // never "nothing to migrate") and in --commit, before the backup,
+            // any adoption, or the stamp.
+            ManagedTarget::Unpublished(instance) => {
+                blockers.push(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    ManagedTarget::unpublished_detail(backend, *instance),
+                ));
+            }
+            // Nothing registered, or registered with no endpoint: a machine
+            // that never enrolled this backend is a normal state, not a
+            // failed cutover, so there is nothing to migrate for it.
+            ManagedTarget::Unaddressable(_) | ManagedTarget::Unregistered => {}
         }
     }
     checks.push(Check {
@@ -698,61 +725,25 @@ fn next_space_no(registry: &Registry) -> Result<u64, TypedError> {
         .map_err(|e| operation_failed(format!("reading the SpaceNo counter: {e}")))
 }
 
-/// What to probe for one backend. Unlike `ls`, migration never falls back to
-/// a well-known socket: §17 steps 2–4 import the backend definitions before
-/// step 6 scans them, and guessing `tmux -L default` on a machine that never
-/// enrolled would batch-adopt whatever that server happens to hold.
-enum Target {
-    Managed(BackendInstanceUid, InventoryScope),
-    Unaddressable,
-    Unregistered,
-}
-
-impl Target {
-    fn scope(&self) -> Option<&InventoryScope> {
-        match self {
-            Target::Managed(_, scope) => Some(scope),
-            _ => None,
-        }
-    }
-
-    fn instance(&self) -> Option<BackendInstanceUid> {
-        match self {
-            Target::Managed(instance, _) => Some(*instance),
-            _ => None,
-        }
-    }
-}
-
-fn scan_target(registry: &Registry, backend: Backend) -> Result<Target, TypedError> {
-    let Some(instance) = registry
-        .backend_instance_for_backend(backend)
-        .map_err(reg)?
-    else {
-        return Ok(Target::Unregistered);
-    };
-    let info = registry.backend_instance_info(instance).map_err(reg)?;
-    let Some(endpoint) = info.socket_path else {
-        return Ok(Target::Unaddressable);
-    };
-    Ok(Target::Managed(
-        instance,
-        match registry.backend_server(instance).map_err(reg)?.server_epoch {
-            Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
-            // audit(unmanaged_endpoint): WS-A.5 burn-down: scan_target launders a NULL epoch (finding #3)
-            None => InventoryScope::unmanaged_endpoint(backend, endpoint),
-        },
-    ))
-}
-
 /// Both owner scans, under the same shared fences `ls` takes: a recovering
 /// or mutating instance is not scanned at all, because a half-restored tree
 /// read as a complete inventory would publish live Spaces as unmanaged and
 /// this driver would then adopt them.
+/// The instance whose shared fence a scan holds: only a Managed target is
+/// probed, so only its instance is fenced. An Unpublished or Unaddressable
+/// instance is registered but never scanned, so fencing it would be lock
+/// traffic for a probe that does not happen.
+fn probed_instance(target: &ManagedTarget) -> Option<BackendInstanceUid> {
+    match target {
+        ManagedTarget::Managed { instance, .. } => Some(*instance),
+        _ => None,
+    }
+}
+
 fn scan_backends<R: WezRunner>(
     env: &Bound<'_, R>,
-    wez: &Target,
-    tmux: &Target,
+    wez: &ManagedTarget,
+    tmux: &ManagedTarget,
 ) -> Result<inventory::BackendScans, TypedError> {
     let mut locks = OrderedLocks::new(&env.ops.lock_dir);
     locks
@@ -760,7 +751,7 @@ fn scan_backends<R: WezRunner>(
         .map_err(|e| operation_failed(format!("authority scan lock: {e}")))?;
     let mut fenced = Vec::new();
     // Same-rank scopes are taken in increasing key order (§10.1).
-    let mut ordered = [wez.instance(), tmux.instance()];
+    let mut ordered = [probed_instance(wez), probed_instance(tmux)];
     ordered.sort_by_key(|instance| instance.map(|i| LockScope::BackendInstance(i).key()));
     for instance in ordered.into_iter().flatten() {
         if locks
@@ -771,20 +762,27 @@ fn scan_backends<R: WezRunner>(
         }
     }
 
-    let probe = |target: &Target, run: &dyn Fn(&InventoryScope) -> InventoryOutcome| match target {
-        Target::Managed(instance, scope) if fenced.contains(instance) => run(scope),
-        Target::Managed(..) => InventoryOutcome::Unreachable {
-            detail: "backend instance is recovering or mutating".into(),
-        },
-        Target::Unaddressable => InventoryOutcome::Unreachable {
-            detail: "the registered backend instance has no recorded endpoint".into(),
-        },
-        // Nothing registered, so nothing is probed and nothing is
-        // established: reconcile must not read this as an empty backend.
-        Target::Unregistered => InventoryOutcome::Unreachable {
-            detail: "no backend instance is registered".into(),
-        },
-    };
+    let probe =
+        |target: &ManagedTarget, run: &dyn Fn(&InventoryScope) -> InventoryOutcome| match target {
+            ManagedTarget::Managed { instance, scope } if fenced.contains(instance) => run(scope),
+            ManagedTarget::Managed { .. } => InventoryOutcome::Unreachable {
+                detail: "backend instance is recovering or mutating".into(),
+            },
+            // No scope, so `run` is never called and nothing is probed. This
+            // detail is not read — build_plan refuses an Unpublished target
+            // by its own arm — but a scan result is still required here.
+            ManagedTarget::Unpublished(_) => InventoryOutcome::Unreachable {
+                detail: "backend instance has published no server epoch".into(),
+            },
+            ManagedTarget::Unaddressable(_) => InventoryOutcome::Unreachable {
+                detail: "the registered backend instance has no recorded endpoint".into(),
+            },
+            // Nothing registered, so nothing is probed and nothing is
+            // established: reconcile must not read this as an empty backend.
+            ManagedTarget::Unregistered => InventoryOutcome::Unreachable {
+                detail: "no backend instance is registered".into(),
+            },
+        };
     // Sequential on purpose: `inventory::scan_both` needs both closures to
     // be `Send`, which would force the injected wezterm runner to be `Sync`
     // for no benefit — a one-time cutover has nothing to gain from overlapping
@@ -1145,9 +1143,21 @@ fn scan_scope<R: WezRunner>(
     env: &Bound<'_, R>,
     backend: Backend,
 ) -> Result<InventoryScope, TypedError> {
-    match scan_target(&open(env.ops)?, backend)? {
-        Target::Managed(_, scope) => Ok(scope),
-        _ => Err(TypedError::new(
+    // Reached only for an adopt row, which only a Managed target produces, so
+    // a build that blocked on an Unpublished instance never gets here. The
+    // arms are still written out so a future caller cannot adopt onto an
+    // unverified server through this seam either.
+    match scope::resolve_managed(&open(env.ops)?, backend).map_err(reg)? {
+        ManagedTarget::Managed { scope, .. } => Ok(scope),
+        ManagedTarget::Unpublished(instance) => Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            ManagedTarget::unpublished_detail(backend, instance),
+        )),
+        ManagedTarget::Unaddressable(instance) => Err(TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            ManagedTarget::unaddressable_detail(backend, instance),
+        )),
+        ManagedTarget::Unregistered => Err(TypedError::new(
             ErrorCode::ProviderUnavailable,
             format!("no addressable managed {backend} instance"),
         )),

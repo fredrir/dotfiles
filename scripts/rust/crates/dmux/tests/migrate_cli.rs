@@ -25,7 +25,7 @@ use dmux::history::History;
 use dmux::migrate_cli::{
     BACKUP_FILE, Consent, MigrateArgs, MigrateEnv, MigrateOutput, STAMP_FILE, migrate_in,
 };
-use dmux::model::{Backend, Health, Lifecycle, ServerEpoch};
+use dmux::model::{Backend, BackendInstanceUid, Health, Lifecycle, ServerEpoch};
 use dmux::operations::{OperationEnv, tmux_bootstrap};
 use dmux::output::OutputFormat;
 use dmux::registry::{Registry, RegistryConfig};
@@ -202,6 +202,10 @@ struct FakeMux {
     epoch: Uuid,
     /// `(window_id, tab_id, pane_id, workspace)`.
     panes: RefCell<Vec<(u64, u64, u64, String)>>,
+    /// Everything this mux was asked, in order: a socket probe as
+    /// `["probe", socket]`, otherwise the `wezterm cli` argv. A migration
+    /// that refuses before scanning must have asked it nothing.
+    commands: RefCell<Vec<Vec<String>>>,
 }
 
 impl FakeMux {
@@ -214,7 +218,12 @@ impl FakeMux {
                     .map(|(w, t, p, ws)| (*w, *t, *p, ws.to_string()))
                     .collect(),
             ),
+            commands: RefCell::new(Vec::new()),
         }
+    }
+
+    fn commands(&self) -> Vec<Vec<String>> {
+        self.commands.borrow().clone()
     }
 
     fn workspaces(&self) -> Vec<String> {
@@ -282,12 +291,16 @@ impl FakeMux {
 }
 
 impl WezRunner for &FakeMux {
-    fn probe(&self, _socket: &str, _pid: Option<u32>) -> ProbeOutcome {
+    fn probe(&self, socket: &str, _pid: Option<u32>) -> ProbeOutcome {
+        self.commands
+            .borrow_mut()
+            .push(vec!["probe".to_string(), socket.to_string()]);
         ProbeOutcome::Connectable
     }
 
     fn run(&self, invocation: &WezInvocation, _: Duration) -> Result<RunOutput, RunError> {
         let argv = &invocation.argv;
+        self.commands.borrow_mut().push(argv.clone());
         if argv.iter().any(|a| a == "list") {
             return Ok(RunOutput {
                 status: 0,
@@ -831,6 +844,148 @@ fn an_indeterminate_owner_scan_blocks_the_commit_and_emits_a_document() {
         tmux.marker(&tmux.session_id("legacy"), "@dmux_space_uid"),
         None
     );
+}
+
+// ---------------------------------------------------------------------------
+// Review finding #3 (ADR 012 WS-A.5) — a NULL-epoch instance refuses the
+// cutover in both preview and commit, and writes no stamp that blocks it
+
+/// Register the managed Wez instance the way `dmux-mux-start.sh` leaves it
+/// before the mux coordinates: addressable, but with no published epoch. A
+/// bootstrap that never finished coordinating leaves exactly this row.
+fn wez_registered_unpublished(scratch: &Scratch) -> BackendInstanceUid {
+    scratch
+        .registry()
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), None)
+        .unwrap()
+}
+
+fn preview_wez_cli(mux: &FakeMux) -> WezCli<&FakeMux> {
+    WezCli {
+        bin: "/opt/homebrew/bin/wezterm".into(),
+        config: "/etc/dmux/wez.lua".into(),
+        runner: mux,
+    }
+}
+
+/// Finding #3, inverted. The review ran `dmux migrate` against a foreign mux
+/// whose registry row had a NULL `server_epoch`, previewed `disposition:
+/// adopt` for two foreign workspaces, and committed `adopted:2` — renaming
+/// both and writing `migrated-v1.json`, which then made every later migrate a
+/// permanent no-op. A registered, addressable instance that has published no
+/// epoch is now refused: the preview surfaces a typed failure document (never
+/// "nothing to migrate"), `--commit` refuses before the backup, any
+/// adoption, or the stamp, and because no stamp is written a later run — once
+/// the instance publishes an epoch — is not blocked by it.
+#[test]
+fn a_null_epoch_wez_instance_refuses_preview_and_commit_and_leaves_no_stamp() {
+    let scratch = Scratch::new();
+    // A stub that *would* list two adoptable foreign workspaces if asked.
+    let mux = FakeMux::new(&[(1, 10, 100, "alpha"), (2, 20, 200, "beta")]);
+    let instance = wez_registered_unpublished(&scratch);
+    let before = scratch.revision();
+
+    // Preview: one document, typed refusal, nothing adoptable — and the stub
+    // was never asked, so the unpinned foreign workspaces never surfaced.
+    let preview = migrate_in(
+        env(
+            &scratch.env(),
+            preview_wez_cli(&mux),
+            scratch.history(),
+            &NoTerminal,
+        ),
+        Some(OutputFormat::Json),
+        preview_args(),
+    );
+    assert_eq!(
+        preview.stdout.trim_end().lines().count(),
+        1,
+        "{}",
+        preview.stdout
+    );
+    let pdoc = document(&preview);
+    assert_eq!(pdoc["action"], "migrate");
+    assert_eq!(pdoc["errors"][0]["code"], "backend_epoch_changed");
+    assert!(
+        pdoc["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has published no server epoch"),
+        "{pdoc}"
+    );
+    assert!(rows(&pdoc, "adopt").is_empty(), "{pdoc}");
+    assert!(mux.commands().is_empty(), "{:?}", mux.commands());
+
+    // Commit --yes: refuse before the backup, any adoption, or the stamp.
+    let commit = migrate_in(
+        env(
+            &scratch.env(),
+            preview_wez_cli(&mux),
+            scratch.history(),
+            &NoTerminal,
+        ),
+        Some(OutputFormat::Json),
+        commit_args(),
+    );
+    assert_eq!(
+        commit.status,
+        ExitStatus::OperationFailure,
+        "{}",
+        commit.stdout
+    );
+    let cdoc = document(&commit);
+    assert_eq!(cdoc["ok"], false);
+    assert_eq!(cdoc["errors"][0]["code"], "backend_epoch_changed");
+    assert!(mux.commands().is_empty(), "{:?}", mux.commands());
+
+    // Nothing durable: no Space adopted, no backup, no stamp, chain unmoved.
+    assert_eq!(scratch.spaces().len(), 0);
+    assert!(
+        !scratch.backup().exists(),
+        "a refused commit wrote a backup"
+    );
+    assert!(
+        !scratch.stamp().exists(),
+        "a refused commit recorded a cutover"
+    );
+    assert_eq!(scratch.revision(), before);
+
+    // The refusal wrote no stamp, so once the instance publishes an epoch the
+    // cutover is not permanently blocked by a stranger-driven no-op. Publish
+    // the epoch the stub actually serves and re-run.
+    scratch
+        .registry()
+        .publish_backend_server(
+            instance,
+            ServerEpoch(mux.epoch),
+            Some(4242),
+            Some("start-token"),
+            None,
+            None,
+        )
+        .unwrap();
+    let after_publish = scratch.revision();
+
+    let again = migrate_in(
+        env(
+            &scratch.env(),
+            preview_wez_cli(&mux),
+            scratch.history(),
+            &NoTerminal,
+        ),
+        Some(OutputFormat::Json),
+        commit_args(),
+    );
+    assert_eq!(again.status, ExitStatus::Success, "{}", again.stdout);
+    let adoc = document(&again);
+    assert_eq!(adoc["result"]["adopted"], 2, "{adoc}");
+    assert_eq!(adoc["result"]["recorded"], true, "{adoc}");
+    assert_eq!(scratch.spaces().len(), 2);
+    assert!(
+        scratch.stamp().exists(),
+        "the real cutover recorded its stamp"
+    );
+    assert!(scratch.revision() > after_publish);
 }
 
 // ---------------------------------------------------------------------------
