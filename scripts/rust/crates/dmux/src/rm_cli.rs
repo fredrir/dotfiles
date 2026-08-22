@@ -11,6 +11,7 @@ use std::io::{IsTerminal, Write};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::backend::scope::{self, ManagedTarget};
 use crate::backend::{InventoryOutcome, InventoryScope, Provider};
 use crate::connect_cli::{
     ConnectAuthority, FrozenBinding, FrozenConnectTarget, HostSelector, OwnerConnectQuery,
@@ -836,8 +837,8 @@ fn resolve_row(owner: HostUid, row: u64) -> Result<Selector, TypedError> {
         Some(listed) if index < listing.managed || listing.incomplete.is_none() => listed,
         _ => {
             return Err(match listing.incomplete {
-                Some(detail) => TypedError::new(
-                    ErrorCode::ProviderUnavailable,
+                Some(Incomplete { code, detail }) => TypedError::new(
+                    code,
                     format!("--row cannot index an incomplete listing: {detail}"),
                 ),
                 None => TypedError::new(
@@ -885,7 +886,39 @@ struct Listing {
     /// How many leading rows carry a permanent SpaceNo.
     managed: usize,
     /// Why the unmanaged tail could not be established, when it could not.
-    incomplete: Option<String>,
+    incomplete: Option<Incomplete>,
+}
+
+/// An unproven tail: the code `--row` refuses an index into it with, and
+/// the per-backend reason the operator is told.
+struct Incomplete {
+    code: ErrorCode,
+    detail: String,
+}
+
+/// What the listing does for one backend, decided from the registry's word
+/// alone (`backend::scope::resolve_managed`) before anything is probed.
+enum ListingScan {
+    /// A managed instance with a published epoch: scan it, pinned to that
+    /// epoch.
+    Pinned(InventoryScope),
+    /// Nothing is probed. `outcome` is what the listing records for the
+    /// backend — indeterminate, so reconcile reads it as "established
+    /// nothing", never as an empty backend (plan §2.10) — and `code` is what
+    /// `--row` refuses an index into the unproven tail with.
+    Refused {
+        outcome: InventoryOutcome,
+        code: ErrorCode,
+    },
+}
+
+impl ListingScan {
+    fn refusal_code(&self) -> Option<ErrorCode> {
+        match self {
+            ListingScan::Pinned(_) => None,
+            ListingScan::Refused { code, .. } => Some(*code),
+        }
+    }
 }
 
 /// The listing `--row` counts against, built exactly the way `ls` builds it
@@ -933,29 +966,31 @@ fn listing_rows(owner: HostUid) -> Result<Listing, TypedError> {
         backends.push((space.space_uid, backend));
         records.push((space, binding));
     }
-    let wez = local_scope(&registry, Backend::Wez)?;
-    let tmux = local_scope(&registry, Backend::Tmux)?;
+    let wez = listing_scan(&registry, Backend::Wez)?;
+    let tmux = listing_scan(&registry, Backend::Tmux)?;
+    let refusals = (wez.refusal_code(), tmux.refusal_code());
     let (wez_bin, wez_config) = crate::runtime::production_wez_paths();
     let scans = inventory::scan_both(
-        move || match &wez {
-            Some(scope) => {
-                crate::backend::wez::WezProvider::new(&wez_bin, wez_config).inventory(scope)
+        move || match wez {
+            ListingScan::Pinned(scope) => {
+                crate::backend::wez::WezProvider::new(&wez_bin, wez_config).inventory(&scope)
             }
-            None => no_instance(),
+            ListingScan::Refused { outcome, .. } => outcome,
         },
-        move || match &tmux {
-            Some(scope) => {
-                crate::backend::tmux::TmuxProvider::new(scope.endpoint.clone()).inventory(scope)
+        move || match tmux {
+            ListingScan::Pinned(scope) => {
+                crate::backend::tmux::TmuxProvider::new(scope.endpoint.clone()).inventory(&scope)
             }
-            None => no_instance(),
+            ListingScan::Refused { outcome, .. } => outcome,
         },
     );
-    let incomplete = (!scans.both_determinate()).then(|| {
-        format!(
+    let incomplete = (!scans.both_determinate()).then(|| Incomplete {
+        code: tail_refusal_code(&[(refusals.0, &scans.wez), (refusals.1, &scans.tmux)]),
+        detail: format!(
             "wez {}, tmux {}",
-            outcome_word(&scans.wez),
-            outcome_word(&scans.tmux)
-        )
+            outcome_summary(&scans.wez),
+            outcome_summary(&scans.tmux)
+        ),
     });
     let rows = inventory::reconcile(
         &records,
@@ -1117,40 +1152,74 @@ fn local_backend(target: &FrozenConnectTarget) -> (Box<dyn Provider>, InventoryS
     )
 }
 
-/// The exact endpoint one managed backend instance publishes, or `None`
-/// when this owner has never registered that backend.
-fn local_scope(
-    registry: &Registry,
-    backend: Backend,
-) -> Result<Option<InventoryScope>, TypedError> {
-    let Some(instance) = registry
-        .backend_instance_for_backend(backend)
-        .map_err(typed_registry)?
-    else {
-        return Ok(None);
-    };
-    let info = registry
-        .backend_instance_info(instance)
-        .map_err(typed_registry)?;
-    let Some(endpoint) = info.socket_path else {
-        return Ok(None);
-    };
-    let expected_epoch = registry
-        .backend_server(instance)
-        .map_err(typed_registry)?
-        .server_epoch;
-    Ok(Some(match expected_epoch {
-        Some(epoch) => InventoryScope::managed(backend, endpoint, epoch),
-        // audit(unmanaged_endpoint): WS-A.5 burn-down: local_scope launders a NULL epoch (finding #16)
-        None => InventoryScope::unmanaged_endpoint(backend, endpoint),
-    }))
+/// Resolve one backend for the listing. An unregistered backend is not
+/// proof of an empty one, so it stays indeterminate and `--row` refuses
+/// the tail rather than renumbering (plan §2.10). An instance whose epoch
+/// was never published is refused the same way, but as the epoch fault it
+/// is: an unpinned scan of its endpoint accepts whatever server answers,
+/// and a complete answer from a stranger put the stranger's sessions in
+/// the tail as rows `--row` then advertised as adoptable (review finding
+/// #16). Nothing is probed here, so no provider command runs against a
+/// server nothing verified.
+fn listing_scan(registry: &Registry, backend: Backend) -> Result<ListingScan, TypedError> {
+    Ok(
+        match scope::resolve_managed(registry, backend).map_err(typed_registry)? {
+            ManagedTarget::Managed { scope, .. } => ListingScan::Pinned(scope),
+            ManagedTarget::Unpublished(instance) => ListingScan::Refused {
+                outcome: InventoryOutcome::Unreachable {
+                    detail: ManagedTarget::unpublished_detail(backend, instance),
+                },
+                code: ErrorCode::BackendEpochChanged,
+            },
+            ManagedTarget::Unaddressable(instance) => ListingScan::Refused {
+                outcome: InventoryOutcome::Unreachable {
+                    detail: ManagedTarget::unaddressable_detail(backend, instance),
+                },
+                code: ErrorCode::ProviderUnavailable,
+            },
+            ManagedTarget::Unregistered => ListingScan::Refused {
+                outcome: InventoryOutcome::Unreachable {
+                    detail: "no managed backend instance is registered".into(),
+                },
+                code: ErrorCode::ProviderUnavailable,
+            },
+        },
+    )
 }
 
-/// An unregistered backend is not proof of an empty one, so it stays
-/// indeterminate and `--row` refuses rather than renumbering (plan §2.10).
-fn no_instance() -> InventoryOutcome {
-    InventoryOutcome::Unreachable {
-        detail: "no managed backend instance is registered".into(),
+/// The code `--row` refuses an unproven tail with. A backend refused before
+/// any probe knows better than the generic `Unreachable` it recorded — an
+/// unpublished epoch is an epoch fault, not an unreachable endpoint, the
+/// same distinction `ls` keeps in its `errors[]` — and a pinned scan that
+/// met a different epoch is the same fault observed live. Everything else
+/// is the ordinary unavailability the tail always refused with.
+fn tail_refusal_code(backends: &[(Option<ErrorCode>, &InventoryOutcome)]) -> ErrorCode {
+    let epoch_fault = backends.iter().any(|(refused, outcome)| {
+        *refused == Some(ErrorCode::BackendEpochChanged)
+            || inventory::epoch_changed_detail(outcome).is_some()
+    });
+    if epoch_fault {
+        ErrorCode::BackendEpochChanged
+    } else {
+        ErrorCode::ProviderUnavailable
+    }
+}
+
+/// One backend's outcome for the operator: the word, plus the reason when
+/// the scan established nothing.
+fn outcome_summary(outcome: &InventoryOutcome) -> String {
+    let word = outcome_word(outcome);
+    match outcome {
+        InventoryOutcome::Complete(_) | InventoryOutcome::ServerStopped { .. } => word.to_string(),
+        InventoryOutcome::Unreachable { detail }
+        | InventoryOutcome::AuthFailed { detail }
+        | InventoryOutcome::HostKeyIdentityFailed { detail }
+        | InventoryOutcome::CommandMissing { detail }
+        | InventoryOutcome::VersionMismatch { detail }
+        | InventoryOutcome::ProtocolMismatch { detail }
+        | InventoryOutcome::Malformed { detail }
+        | InventoryOutcome::Timeout { detail }
+        | InventoryOutcome::PermissionFailure { detail } => format!("{word} ({detail})"),
     }
 }
 

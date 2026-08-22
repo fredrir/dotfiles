@@ -461,6 +461,32 @@ struct Owner {
 
 impl Owner {
     fn start(tag: &str) -> Owner {
+        let owner = Owner::spawn(tag);
+        owner.epoch();
+        owner
+    }
+
+    /// The registry row `dmux-mux-start.sh` leaves when it registers the
+    /// instance and coordination never publishes an incarnation (ADR 012
+    /// §4): the tmux instance registered on this namespace, addressable,
+    /// `server_epoch` NULL — while a stranger's `seed` session is live on
+    /// the very server it names.
+    fn start_unpublished(tag: &str) -> Owner {
+        let owner = Owner::spawn(tag);
+        Registry::open(RegistryConfig::new(
+            owner.env().db_path,
+            owner.env().lock_dir,
+        ))
+        .unwrap()
+        .register_backend_instance(Backend::Tmux, Some(&owner.ns), None)
+        .unwrap();
+        assert!(owner.tmux_server_epoch().is_none(), "nothing published yet");
+        owner
+    }
+
+    /// The scratch server alone: its namespace, registry and lock directory,
+    /// and the `seed` session — nothing registered or published yet.
+    fn spawn(tag: &str) -> Owner {
         let owner = Owner {
             ns: format!("dmux-rmcli-{tag}-{}", std::process::id()),
             data: tempfile::tempdir().unwrap(),
@@ -489,8 +515,73 @@ impl Owner {
             "{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        owner.epoch();
         owner
+    }
+
+    /// What the registry publishes for the managed tmux instance.
+    fn tmux_server_epoch(&self) -> Option<ServerEpoch> {
+        let registry =
+            Registry::open(RegistryConfig::new(self.env().db_path, self.env().lock_dir)).unwrap();
+        let instance = registry
+            .backend_instance_for_backend(Backend::Tmux)
+            .unwrap()
+            .expect("the tmux instance is registered");
+        registry.backend_server(instance).unwrap().server_epoch
+    }
+
+    /// A managed Wez instance this owner can scan to completion: a
+    /// listening socket, a published epoch, and a `wezterm` stand-in whose
+    /// `cli list` carries that epoch's sentinel. With it the listing's only
+    /// unproven half is whatever tmux contributes.
+    fn published_wez_stub(&self) -> WezStub {
+        let socket = self.data.path().join("wez.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        let mut registry =
+            Registry::open(RegistryConfig::new(self.env().db_path, self.env().lock_dir)).unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Wez, Some(&socket.display().to_string()), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, epoch, None, None, None, None)
+            .unwrap();
+        let bin = self.data.path().join("wezterm");
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nprintf '%s' '[{{\"window_id\":0,\"tab_id\":0,\"pane_id\":0,\
+                 \"workspace\":\"dmux:system:{}\"}}]'\n",
+                epoch.0
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        WezStub {
+            _listener: listener,
+            bin: bin.display().to_string(),
+        }
+    }
+
+    /// A `tmux` that records every invocation and answers nothing, in a
+    /// directory to put ahead of the real one on the child's PATH: a dmux
+    /// that reaches any tmux call leaves the witness behind, and "never
+    /// called" is proven by its absence. The test process itself keeps the
+    /// real tmux.
+    fn tmux_witness(&self) -> (String, String) {
+        let dir = self.data.path().join("witness");
+        fs::create_dir_all(&dir).unwrap();
+        let log = self.data.path().join("tmux-ran");
+        let stub = dir.join("tmux");
+        fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexit 1\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        (dir.display().to_string(), log.display().to_string())
     }
 
     fn env(&self) -> OperationEnv {
@@ -595,6 +686,13 @@ impl Drop for Owner {
             .args(["-L", &self.ns, "kill-server"])
             .output();
     }
+}
+
+/// The published Wez stand-in from `Owner::published_wez_stub`: the
+/// listener keeps the recorded socket connectable for as long as it lives.
+struct WezStub {
+    _listener: UnixListener,
+    bin: String,
 }
 
 fn document(output: &Output) -> Value {
@@ -1054,4 +1152,86 @@ fn a_name_failure_is_told_apart_from_the_ref_failure_it_shadows() {
             (3, "decoy".to_string(), Lifecycle::Active),
         ]
     );
+}
+
+/// Review finding #16, inverted. A registered, addressable tmux instance
+/// whose epoch was never published names a server a stranger's `seed`
+/// session is live on. `--row` past the managed prefix used to scan it
+/// anyway and advertise `seed` as adoptable — `repair_required: … dmux
+/// adopt native:tmux:…` — byte-identically to the matching-epoch control.
+/// Now the unpublished instance is refused before any probe: the tail is
+/// unindexable, with `backend_epoch_changed` naming the instance, nothing
+/// is called adoptable, nothing is removed, and tmux is never run. The
+/// control publishes the epoch through the production bootstrap and shows
+/// the identical command then reaching the adopt advice for `seed` — the
+/// verdict only a verified scan may give.
+#[test]
+fn row_refuses_an_unpublished_instance_instead_of_advertising_its_sessions_as_adoptable() {
+    let owner = Owner::start_unpublished("unpublished");
+    let wez = owner.published_wez_stub();
+    let (witness_dir, witness) = owner.tmux_witness();
+
+    let output = owner
+        .command(&["--format", "json", "rm", "--yes", "--row", "1"])
+        .env("PATH", &witness_dir)
+        .env("DMUX_WEZ_BIN", &wez.bin)
+        .env("DMUX_WEZ_CONFIG", "/dev/null")
+        .output()
+        .expect("dmux runs");
+    let doc = document(&output);
+    assert_eq!(code(&output), 1, "{doc}: {}", stderr(&output));
+    assert_eq!(doc["ok"], false, "{doc}");
+    assert_eq!(doc["result"], Value::Null, "{doc}");
+    assert_eq!(doc["errors"].as_array().unwrap().len(), 1, "{doc}");
+    assert_eq!(doc["errors"][0]["code"], "backend_epoch_changed", "{doc}");
+    let message = doc["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("--row cannot index an incomplete listing"),
+        "{message}"
+    );
+    assert!(message.contains("published no server epoch"), "{message}");
+    let text = doc.to_string();
+    for forbidden in ["adopt", "repair_required", "native:tmux", "seed"] {
+        assert!(
+            !text.contains(forbidden),
+            "{forbidden:?} advertises the stranger's session: {text}"
+        );
+    }
+    assert!(
+        !std::path::Path::new(&witness).exists(),
+        "dmux ran tmux against an unverified server:\n{}",
+        fs::read_to_string(&witness).unwrap_or_default()
+    );
+    assert!(owner.lifecycles().is_empty(), "{:?}", owner.lifecycles());
+    assert!(
+        owner.tmux_server_epoch().is_none(),
+        "the refusal published nothing"
+    );
+    assert_eq!(owner.sessions(), vec!["seed".to_string()]);
+
+    // Control: the same server, its epoch now published, the real tmux
+    // reachable. Both scans complete, `seed` is row 1 of the proven tail,
+    // and `--row 1` says what it always said about an unmanaged row.
+    owner.epoch();
+    let control = owner
+        .command(&["--format", "json", "rm", "--yes", "--row", "1"])
+        .env("DMUX_WEZ_BIN", &wez.bin)
+        .env("DMUX_WEZ_CONFIG", "/dev/null")
+        .output()
+        .expect("dmux runs");
+    let doc = document(&control);
+    assert_eq!(code(&control), 4, "{doc}: {}", stderr(&control));
+    assert_eq!(doc["errors"][0]["code"], "repair_required", "{doc}");
+    let message = doc["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("--row 1 is the unmanaged resource \"seed\""),
+        "{message}"
+    );
+    // The token is the session id `$0` — the review's `native:tmux:JDA`.
+    assert!(
+        message.contains("`dmux adopt native:tmux:JDA`"),
+        "{message}"
+    );
+    assert!(owner.lifecycles().is_empty(), "{:?}", owner.lifecycles());
+    assert_eq!(owner.sessions(), vec!["seed".to_string()]);
 }
