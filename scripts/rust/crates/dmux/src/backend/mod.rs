@@ -13,8 +13,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Backend, ProviderHandle, ServerEpoch};
+pub mod scope;
 pub mod tmux;
 pub mod wez;
+
+pub use scope::InventoryScope;
 
 /// Typed inventory outcomes (plan §8.1, exhaustive). Only `Complete` or an
 /// owner-local, identity-checked `ServerStopped` establishes zero live native
@@ -107,18 +110,6 @@ pub struct NativeSplitRow {
     pub handle: ProviderHandle,
     pub title: Option<String>,
     pub cwd: Option<String>,
-}
-
-/// Scope for an inventory scan. v1 has one managed instance per backend per
-/// owner; the scope carries the exact endpoint identity to verify against.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InventoryScope {
-    pub backend: Backend,
-    /// Exact socket path (Wez service socket / tmux `-L` namespace socket).
-    pub endpoint: String,
-    /// Expected epoch when the caller already holds one; a mismatch is
-    /// `backend_epoch_changed`, and returned native IDs are discarded.
-    pub expected_epoch: Option<ServerEpoch>,
 }
 
 /// Exact creation order for one native Space (plan §8.2 step 9, ADR 004).
