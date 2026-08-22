@@ -19,7 +19,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -207,15 +206,14 @@ pub fn is_sentinel_workspace(name: &str) -> bool {
 /// JSON) counts as absent for the same reason; the sentinel filter protects
 /// the listing either way.
 ///
-/// `DMUX_RUNTIME_DIR` is the owner-side test seam, used verbatim exactly as
-/// `_pane-bootstrap` uses it: the production resolver never reads it (see
-/// `runtime::linux_base_dir`), and it is what lets a test point this process
-/// at a scratch descriptor instead of the live runtime directory.
+/// The runtime directory comes from `runtime::dmux_runtime_dir()`, which
+/// honours the owner-side `DMUX_RUNTIME_DIR` seam (ADR 012 WS-E.1); that is
+/// what lets a test point this process at a scratch descriptor instead of
+/// the live runtime directory.
 pub fn managed_wez_socket() -> Option<String> {
-    let runtime_dir = match std::env::var_os("DMUX_RUNTIME_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => runtime::dmux_runtime_dir().ok()?,
-    };
+    // The resolver honours the `DMUX_RUNTIME_DIR` seam itself (ADR 012
+    // WS-E.1), so tests and the legacy path read the same descriptor path.
+    let runtime_dir = runtime::dmux_runtime_dir().ok()?;
     let descriptor = runtime::read_wez_descriptor_in(&runtime_dir).ok()??;
     // An empty value would fall through to wezterm's socket discovery
     // (ADR 006) — that is a malformed descriptor, not a pin.
