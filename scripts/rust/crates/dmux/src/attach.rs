@@ -81,6 +81,43 @@ pub fn attach_row(context: &Context, row: &Row, window: Option<&str>) -> Result<
 /// so the honest error stands. No toggle state is recorded: `dmux -` moves
 /// between tmux sessions, and a workspace switch is not a departure.
 fn attach_wez(context: &Context, row: &Row, window: Option<&str>) -> Result<ExitCode, String> {
+    let (plan, envs) = plan_attach_wez(context, row, window)?;
+    Ok(exec_plan(plan, &envs))
+}
+
+/// The refusal a sentinel row gets wherever it turns up: one text, so a test
+/// can tell it from every other reason an attach declines.
+pub fn sentinel_refusal(name: &str) -> String {
+    format!(
+        "'{name}' is the reserved dmux service sentinel, not a workspace; it cannot be attached"
+    )
+}
+
+/// What `attach_wez` execs: the argv, and the environment it must carry.
+type WezAttachPlan = (Vec<String>, Vec<(&'static str, String)>);
+
+/// The plan behind `attach_wez` — argv plus the environment the exec must
+/// carry — kept apart from the exec so every refusal, above all the
+/// sentinel's, is provable with no exec in reach.
+///
+/// The sentinel check comes first, before the context: plan §15.1 says the
+/// reserved `dmux:system:<epoch>` workspace "cannot be addressed by public
+/// commands". The listing never presents it (`list::wez_rows_from`), and
+/// this refusal stands on its own should a row reach here from anywhere
+/// else, inside wezterm or out.
+///
+/// The activate is sent to the socket the row was listed from, when the
+/// service descriptor pinned one: a pane id is only meaningful on the server
+/// that issued it, so activating it anywhere else is at best "not found"
+/// and at worst some other server's pane (ADR 001).
+fn plan_attach_wez(
+    context: &Context,
+    row: &Row,
+    window: Option<&str>,
+) -> Result<WezAttachPlan, String> {
+    if list::is_sentinel_workspace(&row.name) {
+        return Err(sentinel_refusal(&row.name));
+    }
     if !context.inside_wezterm {
         return Err(format!(
             "'{}' is a wezterm workspace; switch to it inside wezterm",
@@ -98,7 +135,12 @@ fn attach_wez(context: &Context, row: &Row, window: Option<&str>) -> Result<Exit
     };
     let mut plan = plan(&["wezterm", "cli", "activate-pane", "--pane-id"]);
     plan.push(pane.to_string());
-    Ok(exec_plan(plan, &[]))
+    let envs = row
+        .socket
+        .iter()
+        .map(|socket| (list::WEZ_SOCKET_ENV, socket.clone()))
+        .collect();
+    Ok((plan, envs))
 }
 
 pub fn new_session(context: &Context, name: &str) -> Result<ExitCode, String> {
@@ -549,6 +591,73 @@ mod tests {
             inside_wezterm,
             inside_tmux,
         }
+    }
+
+    fn wez_row(name: &str, pane: Option<u64>, socket: Option<&str>) -> Row {
+        Row {
+            index: 1,
+            name: name.to_string(),
+            kind: Kind::Wez,
+            host: "",
+            pane,
+            socket: socket.map(str::to_string),
+            created: None,
+            windows: 1,
+            attached: false,
+        }
+    }
+
+    /// Plan §15.1: the sentinel is refused with its own text in every
+    /// context — inside wezterm with a pane to activate, outside it, with
+    /// `-w`, with no pane — and the refusal is the planner's first answer,
+    /// so no plan (and therefore no `activate-pane`) ever exists for it.
+    #[test]
+    fn the_sentinel_is_refused_before_context_pane_or_exec() {
+        let name = "dmux:system:895ca35a-78ac-4ff7-ae9c-222a9aee3a81";
+        let expected = sentinel_refusal(name);
+        assert!(expected.contains(name));
+        let cases = [
+            (context(true, true, false), Some(7), None),
+            (context(true, false, false), Some(7), None),
+            (context(true, true, false), Some(7), Some("2")),
+            (context(true, true, true), None, None),
+        ];
+        for (context, pane, window) in cases {
+            let row = wez_row(name, pane, Some("/tmp/wez-dmux.sock"));
+            assert_eq!(
+                plan_attach_wez(&context, &row, window).unwrap_err(),
+                expected,
+                "pane {pane:?}, window {window:?}, inside_wezterm {}",
+                context.inside_wezterm
+            );
+        }
+    }
+
+    /// A real workspace still activates by its lowest pane, and the activate
+    /// carries the socket the row was listed from; a row listed without a
+    /// pin (no service descriptor) execs exactly as before.
+    #[test]
+    fn a_workspace_attach_is_pinned_to_the_socket_it_was_listed_from() {
+        let inside = context(true, true, false);
+        let pinned = wez_row("work", Some(3), Some("/tmp/wez-dmux.sock"));
+        let (plan, envs) = plan_attach_wez(&inside, &pinned, None).unwrap();
+        assert_eq!(plan, ["wezterm", "cli", "activate-pane", "--pane-id", "3"]);
+        assert_eq!(
+            envs,
+            [("WEZTERM_UNIX_SOCKET", "/tmp/wez-dmux.sock".to_string())]
+        );
+
+        let unpinned = wez_row("work", Some(3), None);
+        let (plan, envs) = plan_attach_wez(&inside, &unpinned, None).unwrap();
+        assert_eq!(plan, ["wezterm", "cli", "activate-pane", "--pane-id", "3"]);
+        assert!(envs.is_empty());
+
+        // The pre-existing refusals are untouched and still come after the
+        // sentinel check, which they never reach for an ordinary name.
+        let error = plan_attach_wez(&context(true, false, false), &pinned, None).unwrap_err();
+        assert!(error.contains("switch to it inside wezterm"), "{error}");
+        let error = plan_attach_wez(&inside, &pinned, Some("2")).unwrap_err();
+        assert!(error.contains("-w selects tmux windows"), "{error}");
     }
 
     #[test]

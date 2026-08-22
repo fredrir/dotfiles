@@ -6,9 +6,20 @@
 //! error. Ordering is deterministic — wezterm rows by name, then tmux rows
 //! by creation time — because the printed index is what `con`/`rm` resolve
 //! numeric targets against.
+//!
+//! This is the legacy, registry-free path: it runs whenever `DMUX_WEZ_FIRST`
+//! is unset and is what every rollback returns to (plan §21), so it is kept
+//! for one release after the cutover and then deleted. Until then it makes
+//! exactly two concessions to the managed service (ADR 001, plan §15.1):
+//! when the service descriptor names a socket, the wezterm probe is pinned
+//! to that socket and bounded by a dmux-side deadline; and the reserved
+//! `dmux:system:<epoch>` sentinel workspace is never presented as a row,
+//! whichever server answered.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
+use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -16,6 +27,10 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthStr;
 use workstation::Style;
+
+use dmux::childio::{bounded_read, join_capture, kill_process_group};
+use dmux::model::WEZ_SENTINEL_PREFIX;
+use dmux::runtime;
 
 use crate::PROGRAM;
 use crate::hosts::{self, Context, Host};
@@ -36,6 +51,13 @@ pub struct Row {
     /// `--json` shape stays as it is.
     #[serde(skip)]
     pub pane: Option<u64>,
+    /// The exact socket this wezterm row was listed from, when the managed
+    /// service descriptor named one. A pane id means something only on the
+    /// server that issued it, so an attach must send its `activate-pane` to
+    /// this same socket — carried on the row rather than re-resolved, so
+    /// the two cannot disagree. Internal, like `pane`; tmux rows have none.
+    #[serde(skip)]
+    pub socket: Option<String>,
     pub created: Option<i64>,
     pub windows: usize,
     pub attached: bool,
@@ -143,29 +165,82 @@ pub fn gather(
     Ok(rows)
 }
 
+/// The sole endpoint selector the stock CLI honours (ADR 001).
+pub const WEZ_SOCKET_ENV: &str = "WEZTERM_UNIX_SOCKET";
+
+/// Per-child deadline for the wezterm probe, the same bound the managed
+/// provider puts on every `wezterm cli` child (`backend::wez`). ADR 001: a
+/// live-but-silent socket hangs the stock CLI indefinitely, so the timeout
+/// is manufactured by dmux killing the child, never by wezterm.
+const WEZ_LIST_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Grace for the stdout reader once the child is gone, shared with the
+/// crate's other bounded probes (`remote::wez_compat`).
+const WEZ_LIST_DRAIN_GRACE: Duration = Duration::from_secs(2);
+
+/// Cap on the listing the child may hand back. Past this the answer is not a
+/// listing, and `childio::bounded_read` keeps the capture from becoming an
+/// out-of-memory abort while still draining the pipe to EOF.
+const WEZ_LIST_MAX_OUTPUT: usize = 4 * 1024 * 1024;
+
+/// The sentinel is the service's own reserved workspace (plan §15.1,
+/// ADR 002): never a Space, never a target, and "cannot be addressed by
+/// public commands" — so it must not appear as a row or be attachable.
+pub fn is_sentinel_workspace(name: &str) -> bool {
+    name.starts_with(WEZ_SENTINEL_PREFIX)
+}
+
+/// The exact socket of the managed `wezterm-mux-server`, when the service
+/// descriptor (plan §15.1) names one; `None` when there is no descriptor.
+///
+/// With a descriptor present `WEZTERM_UNIX_SOCKET` is pinned to its socket,
+/// so neither an ambient GUI socket nor wezterm's own discovery can answer
+/// on the service's behalf (ADR 001: the env variable is the sole endpoint
+/// selector). The descriptor's `state` is deliberately not required to be
+/// `ready`: a `starting` or `failed` descriptor still names the only socket
+/// this path may talk to, and pinning to a down server yields an honest
+/// empty listing where discovery could have listed some other server.
+/// Without a descriptor nothing is pinned and today's discovery stands — the
+/// legacy path gains no new fallback and no registry dependency (the
+/// descriptor is a service file, not the registry). A descriptor that exists
+/// but cannot be read (ownership or mode, a rewrite in progress, malformed
+/// JSON) counts as absent for the same reason; the sentinel filter protects
+/// the listing either way.
+///
+/// `DMUX_RUNTIME_DIR` is the owner-side test seam, used verbatim exactly as
+/// `_pane-bootstrap` uses it: the production resolver never reads it (see
+/// `runtime::linux_base_dir`), and it is what lets a test point this process
+/// at a scratch descriptor instead of the live runtime directory.
+pub fn managed_wez_socket() -> Option<String> {
+    let runtime_dir = match std::env::var_os("DMUX_RUNTIME_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => runtime::dmux_runtime_dir().ok()?,
+    };
+    let descriptor = runtime::read_wez_descriptor_in(&runtime_dir).ok()??;
+    // An empty value would fall through to wezterm's socket discovery
+    // (ADR 006) — that is a malformed descriptor, not a pin.
+    (!descriptor.socket.is_empty()).then_some(descriptor.socket)
+}
+
+/// One pane as `wezterm cli list --format json` reports it; the fields the
+/// listing consumes, the rest ignored.
+#[derive(Deserialize)]
+struct WezPane {
+    window_id: u64,
+    pane_id: u64,
+    workspace: String,
+}
+
 /// A workspace is the set of windows whose panes carry its name; the one
 /// holding `WEZTERM_PANE` is the workspace this process is sitting in.
 /// `--no-auto-start` because a listing is a question, not a request to
 /// daemonize a wezterm-mux-server on a machine that runs none.
 fn wez_rows() -> Vec<Row> {
-    let Ok(output) = Command::new("wezterm")
-        .args(["cli", "--no-auto-start", "list", "--format", "json"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    else {
+    let socket = managed_wez_socket();
+    let Some(stdout) = run_wezterm_list(socket.as_deref()) else {
         return Vec::new();
     };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    #[derive(Deserialize)]
-    struct Pane {
-        window_id: u64,
-        pane_id: u64,
-        workspace: String,
-    }
-    let Ok(panes) = serde_json::from_slice::<Vec<Pane>>(&output.stdout) else {
+    let Ok(panes) = serde_json::from_slice::<Vec<WezPane>>(&stdout) else {
         return Vec::new();
     };
     // Same staleness rule as `Context::resolve`: a WEZTERM_PANE frozen into
@@ -181,10 +256,79 @@ fn wez_rows() -> Vec<Row> {
     } else {
         None
     };
+    wez_rows_from(panes, current, socket)
+}
+
+/// `wezterm cli --no-auto-start list --format json` on the pinned socket
+/// when there is one, bounded the way every other wezterm child in the crate
+/// is (`childio`): its own process group, a capped stdout reader, and a
+/// dmux-side deadline after which the group is killed. `None` for anything
+/// but a clean, complete answer — a missing binary, a nonzero exit, a
+/// timeout, or a listing past the cap all contribute no rows, exactly as a
+/// failed probe always has.
+fn run_wezterm_list(socket: Option<&str>) -> Option<Vec<u8>> {
+    let mut command = Command::new("wezterm");
+    command.args(["cli", "--no-auto-start", "list", "--format", "json"]);
+    if let Some(socket) = socket {
+        command.env(WEZ_SOCKET_ENV, socket);
+    }
+    let mut child = command
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let stdout = child.stdout.take()?;
+    let reader = thread::spawn(move || bounded_read(stdout, WEZ_LIST_MAX_OUTPUT));
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Closes the pipe write end any descendant inherited, so the
+                // reader below reaches EOF instead of outliving the deadline.
+                kill_process_group(child.id());
+                break status;
+            }
+            Ok(None) if started.elapsed() >= WEZ_LIST_DEADLINE => {
+                abandon_wezterm_list(&mut child, reader);
+                return None;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(5)),
+            Err(_) => {
+                abandon_wezterm_list(&mut child, reader);
+                return None;
+            }
+        }
+    };
+    let capture = join_capture(reader, Instant::now() + WEZ_LIST_DRAIN_GRACE)?;
+    (status.success() && !capture.truncated).then_some(capture.bytes)
+}
+
+/// The deadline and wait-error exit: kill the whole group first, so the
+/// reader's pipe is closed before it is waited on, then bound that wait too.
+fn abandon_wezterm_list(
+    child: &mut std::process::Child,
+    reader: thread::JoinHandle<dmux::childio::BoundedCapture>,
+) {
+    kill_process_group(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = join_capture(reader, Instant::now() + WEZ_LIST_DRAIN_GRACE);
+}
+
+/// Rows from a listing, the sentinel left out. Pure, so the filter is
+/// provable without a wezterm on PATH.
+fn wez_rows_from(panes: Vec<WezPane>, current: Option<u64>, socket: Option<String>) -> Vec<Row> {
     // Windows, attachment, and the lowest pane id — a stable handle for
     // `attach` to activate the workspace with from inside wezterm.
     let mut workspaces: BTreeMap<String, (BTreeSet<u64>, bool, Option<u64>)> = BTreeMap::new();
     for pane in panes {
+        // Plan §15.1: the reserved sentinel is excluded from user inventory
+        // and is never a target — whichever server answered this listing.
+        if is_sentinel_workspace(&pane.workspace) {
+            continue;
+        }
         let entry = workspaces.entry(pane.workspace).or_default();
         entry.0.insert(pane.window_id);
         entry.1 |= current == Some(pane.pane_id);
@@ -202,6 +346,7 @@ fn wez_rows() -> Vec<Row> {
             kind: Kind::Wez,
             host: "",
             pane,
+            socket: socket.clone(),
             created: None,
             windows: windows.len(),
             attached,
@@ -283,6 +428,7 @@ fn parse_tmux_line(line: &str) -> Option<Row> {
         kind: Kind::Tmux,
         host: "",
         pane: None,
+        socket: None,
         created: Some(created),
         windows,
         attached: attached > 0,
@@ -431,10 +577,58 @@ mod tests {
             kind,
             host: "",
             pane: None,
+            socket: None,
             created,
             windows: 1,
             attached: false,
         }
+    }
+
+    fn pane(window_id: u64, pane_id: u64, workspace: &str) -> WezPane {
+        WezPane {
+            window_id,
+            pane_id,
+            workspace: workspace.to_string(),
+        }
+    }
+
+    /// The sentinel prefix is the frozen `dmux:system:` constant, matched
+    /// as a prefix: every epoch's sentinel, and nothing merely similar.
+    #[test]
+    fn the_sentinel_is_recognised_by_its_frozen_prefix() {
+        assert!(is_sentinel_workspace(
+            "dmux:system:895ca35a-78ac-4ff7-ae9c-222a9aee3a81"
+        ));
+        assert!(is_sentinel_workspace("dmux:system:"));
+        assert!(!is_sentinel_workspace("dmux:ws:work"));
+        assert!(!is_sentinel_workspace("dmux:systemic"));
+        assert!(!is_sentinel_workspace("work"));
+    }
+
+    /// Plan §15.1: a sentinel-only server lists as empty, and a sentinel
+    /// beside real workspaces vanishes without disturbing them — their
+    /// window counts, lowest-pane handles and the socket pin all stand.
+    #[test]
+    fn sentinel_workspaces_never_become_rows() {
+        let sentinel = "dmux:system:895ca35a-78ac-4ff7-ae9c-222a9aee3a81";
+        let only = vec![pane(1, 1, sentinel), pane(1, 2, sentinel)];
+        assert!(wez_rows_from(only, Some(1), None).is_empty());
+
+        let mixed = vec![
+            pane(1, 1, sentinel),
+            pane(2, 7, "work"),
+            pane(2, 3, "work"),
+            pane(3, 9, "other"),
+        ];
+        let rows = wez_rows_from(mixed, Some(3), Some("/tmp/wez-dmux.sock".to_string()));
+        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(names, ["other", "work"]);
+        let work = &rows[1];
+        assert_eq!(work.pane, Some(3));
+        assert_eq!(work.windows, 1);
+        assert!(work.attached);
+        assert_eq!(work.socket.as_deref(), Some("/tmp/wez-dmux.sock"));
+        assert_eq!(rows[0].socket.as_deref(), Some("/tmp/wez-dmux.sock"));
     }
 
     fn indexed(mut rows: Vec<Row>) -> Vec<Row> {
