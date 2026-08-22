@@ -2482,26 +2482,7 @@ impl Registry {
                     "intentional-empty authority revision {revision} exceeds i64"
                 ))
             })?;
-            tx.execute(
-                "UPDATE backend_instances \
-                 SET intentional_empty_revision = \
-                   CASE WHEN intentional_empty_revision IS NULL \
-                          OR intentional_empty_revision < ?2 \
-                        THEN ?2 ELSE intentional_empty_revision END \
-                 WHERE backend_instance_uid = ?1",
-                params![instance.0.to_string(), revision_i64],
-            )?;
-            let stored: i64 = tx.query_row(
-                "SELECT intentional_empty_revision FROM backend_instances \
-                 WHERE backend_instance_uid = ?1",
-                [instance.0.to_string()],
-                |row| row.get(0),
-            )?;
-            u64::try_from(stored).map_err(|_| {
-                RegistryError::Corrupt(format!(
-                    "negative intentional-empty revision {stored}"
-                ))
-            })
+            recovery::raise_intentional_empty_floor_on(tx, instance, revision_i64)
         })
     }
 

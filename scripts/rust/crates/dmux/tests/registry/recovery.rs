@@ -129,115 +129,139 @@ fn issue_bootstrap(
     uid
 }
 
+/// The intentional-empty floor's guards, asserted on the production entry
+/// point that raises it (`registry::recovery` module docs, ADR 012 WS-E.3
+/// row 8): the exact exclusive backend-instance kernel lock, a published
+/// epoch, the floor captured from the current head inside the abort's own
+/// transaction, never lowered, and no authority revision advanced.
 #[test]
-fn intentional_empty_requires_exact_lock_epoch_and_head_without_advancing_revision() {
-    let s = scratch();
-    let mut reg = open(&s.config);
-    let (instance, epoch) = published_instance(&mut reg);
+fn the_empty_floor_is_raised_only_under_the_exact_exclusive_lock_and_published_epoch() {
+    let (s, mut reg, instance, epoch, kernel, lease) = recovery_setup();
     assert_eq!(reg.intentional_empty_revision(instance).unwrap(), None);
-
-    let shared = locks::acquire(
-        &s.config.lock_dir,
-        LockScope::BackendInstance(instance),
-        LockMode::Shared,
-    )
-    .unwrap();
-    let head = reg.authority_head().unwrap();
-    assert!(matches!(
-        reg.record_intentional_empty_revision(instance, epoch, head.revision, &shared),
-        Err(RegistryError::KernelLockMismatch { .. })
-    ));
-    drop(shared);
-
+    let spec = generation(instance, epoch);
+    reg.begin_recovery(&spec, &[], &lease).unwrap();
+    // Registering an instance is an identity mutation that advances the
+    // chain, so the head is captured after it.
     let wrong_instance = reg
-        .register_backend_instance(Backend::Wez, Some("/tmp/w6.sock"), Some("test"))
+        .register_backend_instance(Backend::Wez, Some("/tmp/w8.sock"), Some("test"))
         .unwrap();
+    let head = reg.authority_head().unwrap();
+
+    // Another instance's exclusive lock, or a shared lock on this one, is
+    // refused before any write; so is an epoch the instance does not publish.
     let wrong_kernel = locks::acquire(
         &s.config.lock_dir,
         LockScope::BackendInstance(wrong_instance),
         LockMode::Exclusive,
     )
     .unwrap();
-    let head = reg.authority_head().unwrap();
     assert!(matches!(
-        reg.record_intentional_empty_revision(instance, epoch, head.revision, &wrong_kernel),
+        reg.abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Pending,
+            epoch,
+            &wrong_kernel,
+            &lease,
+        ),
         Err(RegistryError::KernelLockMismatch { .. })
     ));
     drop(wrong_kernel);
-
+    drop(kernel);
+    let shared = locks::acquire(
+        &s.config.lock_dir,
+        LockScope::BackendInstance(instance),
+        LockMode::Shared,
+    )
+    .unwrap();
+    assert!(matches!(
+        reg.abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Pending,
+            epoch,
+            &shared,
+            &lease,
+        ),
+        Err(RegistryError::KernelLockMismatch { .. })
+    ));
+    drop(shared);
     let kernel = locks::acquire(
         &s.config.lock_dir,
         LockScope::BackendInstance(instance),
         LockMode::Exclusive,
     )
     .unwrap();
-    let head = reg.authority_head().unwrap();
     assert!(
-        reg.record_intentional_empty_revision(
-            instance,
+        reg.abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Pending,
             ServerEpoch(Uuid::new_v4()),
-            head.revision,
             &kernel,
-        )
-        .is_err()
-    );
-    assert!(
-        reg.record_intentional_empty_revision(
-            instance,
-            epoch,
-            head.revision.saturating_sub(1),
-            &kernel,
+            &lease,
         )
         .is_err()
     );
     assert_eq!(reg.intentional_empty_revision(instance).unwrap(), None);
-
     assert_eq!(
-        reg.record_intentional_empty_revision(instance, epoch, head.revision, &kernel)
-            .unwrap(),
-        head.revision
-    );
-    assert_eq!(
-        reg.intentional_empty_revision(instance).unwrap(),
-        Some(head.revision)
+        reg.recovery_rows(spec.generation_uid).unwrap()[0].node_state,
+        RecoveryNodeState::Pending
     );
     assert_eq!(reg.authority_head().unwrap(), head);
+
+    // The floor is the head captured inside the abort's own transaction,
+    // and the abort advances no revision.
+    let (floor, rows) = reg
+        .abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Pending,
+            epoch,
+            &kernel,
+            &lease,
+        )
+        .unwrap();
+    assert_eq!(floor, head.revision);
     assert_eq!(
-        reg.record_intentional_empty_revision(instance, epoch, head.revision, &kernel)
-            .unwrap(),
-        head.revision
+        reg.intentional_empty_revision(instance).unwrap(),
+        Some(floor)
+    );
+    assert!(
+        rows.iter()
+            .all(|row| row.node_state == RecoveryNodeState::Aborted)
     );
     assert_eq!(reg.authority_head().unwrap(), head);
 
     // A later real authority mutation permits a strictly higher floor; the
-    // floor update itself still adds no revision.
+    // next abort raises it, a replay of the first cannot lower it, and
+    // neither adds a revision.
     reserve(&mut reg, "advance-head", instance);
     let later = reg.authority_head().unwrap();
     assert!(later.revision > head.revision);
-    assert_eq!(
-        reg.record_intentional_empty_revision(instance, epoch, later.revision, &kernel)
-            .unwrap(),
-        later.revision
-    );
-    assert_eq!(reg.authority_head().unwrap(), later);
-    assert!(
-        reg.record_intentional_empty_revision(instance, epoch, head.revision, &kernel)
-            .is_err(),
-        "a stale revision cannot lower the floor"
-    );
+    let next = generation(instance, epoch);
+    reg.begin_recovery(&next, &[], &lease).unwrap();
+    let (raised, _) = reg
+        .abort_recovery_generation_and_record_current_empty(
+            next.generation_uid,
+            RecoveryNodeState::Pending,
+            epoch,
+            &kernel,
+            &lease,
+        )
+        .unwrap();
+    assert_eq!(raised, later.revision);
     assert_eq!(
         reg.intentional_empty_revision(instance).unwrap(),
         Some(later.revision)
     );
-
-    reserve(&mut reg, "capture-current-head", instance);
-    let captured = reg.authority_head().unwrap();
-    assert_eq!(
-        reg.record_current_intentional_empty_revision(instance, epoch, &kernel)
-            .unwrap(),
-        captured.revision
-    );
-    assert_eq!(reg.authority_head().unwrap(), captured);
+    let (replayed, _) = reg
+        .abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Pending,
+            epoch,
+            &kernel,
+            &lease,
+        )
+        .unwrap();
+    assert_eq!(replayed, later.revision, "a replay never lowers the floor");
+    assert_eq!(reg.authority_head().unwrap(), later);
 }
 
 #[test]
@@ -799,10 +823,14 @@ fn unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered() {
     .unwrap();
 
     let (found, found_rows) = reg
-        .unfinished_recovery(instance, epoch)
+        .unfinished_recovery_for_instance(instance)
         .unwrap()
         .expect("pending root is unfinished");
     assert_eq!(found, spec);
+    assert_eq!(
+        found.server_epoch, epoch,
+        "the root carries the epoch it was journaled under; the caller compares it"
+    );
     assert_eq!(
         found_rows
             .iter()
@@ -810,12 +838,6 @@ fn unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered() {
             .collect::<Vec<_>>(),
         vec![RECOVERY_GENERATION_PATH, "a", "m", "z"]
     );
-    assert!(
-        reg.unfinished_recovery(instance, ServerEpoch(Uuid::new_v4()))
-            .unwrap()
-            .is_none()
-    );
-
     reg.transition_recovery_node(
         spec.generation_uid,
         RECOVERY_GENERATION_PATH,
@@ -844,7 +866,9 @@ fn unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered() {
     )
     .unwrap();
     assert!(
-        reg.unfinished_recovery(instance, epoch).unwrap().is_some(),
+        reg.unfinished_recovery_for_instance(instance)
+            .unwrap()
+            .is_some(),
         "failed remains resumable"
     );
     reg.transition_recovery_node(
@@ -874,7 +898,11 @@ fn unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered() {
         &lease,
     )
     .unwrap();
-    assert!(reg.unfinished_recovery(instance, epoch).unwrap().is_none());
+    assert!(
+        reg.unfinished_recovery_for_instance(instance)
+            .unwrap()
+            .is_none()
+    );
 
     // A completed root no longer blocks a fresh generation on the instance.
     let next = generation(instance, epoch);
@@ -1036,11 +1064,16 @@ fn child_abort_is_explicit_fenced_and_terminal_from_every_nonterminal_state() {
         .is_err(),
         "the root must use the atomic generation-abort API"
     );
-    assert!(reg.unfinished_recovery(instance, epoch).unwrap().is_some());
+    assert!(
+        reg.unfinished_recovery_for_instance(instance)
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]
-fn atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation() {
+fn atomic_generation_abort_with_floor_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation()
+ {
     let (_s, mut reg, instance, epoch, kernel, lease) = recovery_setup();
     let spec = generation(instance, epoch);
     let pending = "nodes/pending";
@@ -1131,19 +1164,33 @@ fn atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_
     let before = reg.recovery_rows(spec.generation_uid).unwrap();
     let head = reg.authority_head().unwrap();
     assert!(
-        reg.abort_recovery_generation(spec.generation_uid, RecoveryNodeState::Restoring, &lease,)
-            .is_err(),
+        reg.abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Restoring,
+            epoch,
+            &kernel,
+            &lease,
+        )
+        .is_err(),
         "a stale root expectation must lose its compare-and-set"
     );
+    assert_eq!(reg.intentional_empty_revision(instance).unwrap(), None);
     assert_eq!(reg.recovery_rows(spec.generation_uid).unwrap(), before);
 
     reg.release_lease(&LeaseScope::Recovery(instance), lease.holder_request_uid)
         .unwrap();
     assert!(
-        reg.abort_recovery_generation(spec.generation_uid, RecoveryNodeState::Failed, &lease,)
-            .is_err(),
+        reg.abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Failed,
+            epoch,
+            &kernel,
+            &lease,
+        )
+        .is_err(),
         "a stale lease must not abort any row"
     );
+    assert_eq!(reg.intentional_empty_revision(instance).unwrap(), None);
     assert_eq!(reg.recovery_rows(spec.generation_uid).unwrap(), before);
 
     let replacement = reg
@@ -1155,9 +1202,20 @@ fn atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_
             None,
         )
         .unwrap();
-    let aborted = reg
-        .abort_recovery_generation(spec.generation_uid, RecoveryNodeState::Failed, &replacement)
+    let (floor, aborted) = reg
+        .abort_recovery_generation_and_record_current_empty(
+            spec.generation_uid,
+            RecoveryNodeState::Failed,
+            epoch,
+            &kernel,
+            &replacement,
+        )
         .unwrap();
+    assert_eq!(floor, head.revision, "the floor is the head at abort time");
+    assert_eq!(
+        reg.intentional_empty_revision(instance).unwrap(),
+        Some(floor)
+    );
     let state = |path: &str| {
         aborted
             .iter()
@@ -1173,18 +1231,24 @@ fn atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_
     assert_eq!(state(skipped), RecoveryNodeState::Skipped);
     assert!(aborted.iter().all(|row| row.node_state.is_terminal()));
     assert_eq!(reg.authority_head().unwrap(), head);
-    assert!(reg.unfinished_recovery(instance, epoch).unwrap().is_none());
+    assert!(
+        reg.unfinished_recovery_for_instance(instance)
+            .unwrap()
+            .is_none()
+    );
 
     // A lost acknowledgement is exactly replayable with the old expected
     // root, and no journal timestamp or authority revision changes.
     assert_eq!(
-        reg.abort_recovery_generation(
+        reg.abort_recovery_generation_and_record_current_empty(
             spec.generation_uid,
             RecoveryNodeState::Failed,
+            epoch,
+            &kernel,
             &replacement,
         )
         .unwrap(),
-        aborted
+        (floor, aborted.clone())
     );
     assert_eq!(reg.authority_head().unwrap(), head);
 
@@ -1197,14 +1261,14 @@ fn atomic_generation_abort_is_fenced_preserves_proof_rows_and_unblocks_the_next_
 }
 
 #[test]
-fn atomic_generation_abort_accepts_each_nonterminal_root_state_only() {
+fn atomic_generation_abort_with_floor_accepts_each_nonterminal_root_state_only() {
     for target in [
         RecoveryNodeState::Pending,
         RecoveryNodeState::Preparing,
         RecoveryNodeState::Restoring,
         RecoveryNodeState::Failed,
     ] {
-        let (_s, mut reg, instance, epoch, _kernel, lease) = recovery_setup();
+        let (_s, mut reg, instance, epoch, kernel, lease) = recovery_setup();
         let spec = generation(instance, epoch);
         reg.begin_recovery(&spec, &[], &lease).unwrap();
         if target != RecoveryNodeState::Pending {
@@ -1243,8 +1307,14 @@ fn atomic_generation_abort_accepts_each_nonterminal_root_state_only() {
             )
             .unwrap();
         }
-        let rows = reg
-            .abort_recovery_generation(spec.generation_uid, target, &lease)
+        let (_, rows) = reg
+            .abort_recovery_generation_and_record_current_empty(
+                spec.generation_uid,
+                target,
+                epoch,
+                &kernel,
+                &lease,
+            )
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].node_state, RecoveryNodeState::Aborted);
@@ -1255,8 +1325,14 @@ fn atomic_generation_abort_accepts_each_nonterminal_root_state_only() {
             RecoveryNodeState::Aborted,
         ] {
             assert!(
-                reg.abort_recovery_generation(spec.generation_uid, terminal, &lease)
-                    .is_err(),
+                reg.abort_recovery_generation_and_record_current_empty(
+                    spec.generation_uid,
+                    terminal,
+                    epoch,
+                    &kernel,
+                    &lease,
+                )
+                .is_err(),
                 "terminal expected state {} must not initiate abort",
                 terminal.as_str()
             );
@@ -1374,26 +1450,11 @@ fn stale_epoch_generation_is_visible_and_can_be_retired_under_the_current_fence(
         )
         .unwrap();
 
-    assert!(
-        reg.unfinished_recovery(instance, new_epoch)
-            .unwrap()
-            .is_none()
-    );
     let (found, _) = reg
         .unfinished_recovery_for_instance(instance)
         .unwrap()
         .expect("old epoch root remains a durable instance owner");
     assert_eq!(found, old);
-    assert!(
-        reg.abort_recovery_generation(
-            old.generation_uid,
-            RecoveryNodeState::Pending,
-            &current_lease
-        )
-        .is_err(),
-        "the old exact-epoch API must not silently retarget its fence"
-    );
-
     let retired = reg
         .abort_stale_recovery_generation(
             old.generation_uid,

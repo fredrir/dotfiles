@@ -173,13 +173,20 @@ fn failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted() {
             None,
         )
         .unwrap();
-    let aborted = reg
-        .abort_recovery_generation(seeded.generation, RecoveryNodeState::Failed, &lease)
+    let (floor, aborted) = reg
+        .abort_recovery_generation_and_record_current_empty(
+            seeded.generation,
+            RecoveryNodeState::Failed,
+            seeded.epoch,
+            &kernel,
+            &lease,
+        )
         .unwrap();
     assert_eq!(aborted[0].node_state, RecoveryNodeState::Aborted);
     assert_eq!(aborted[1].node_state, RecoveryNodeState::Completed);
+    assert_eq!(floor, head.revision);
     assert!(
-        reg.unfinished_recovery(seeded.instance, seeded.epoch)
+        reg.unfinished_recovery_for_instance(seeded.instance)
             .unwrap()
             .is_none()
     );

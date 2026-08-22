@@ -5,6 +5,47 @@
 //! transaction as the journal mutation. The recovery and snapshot database
 //! scopes share the backend-instance kernel lock; callers acquire that lock
 //! before obtaining the lease through the normal registry API.
+//!
+//! # Surface (ADR 012 WS-E.3 row 8; review report 06 #8)
+//!
+//! The review found four journal APIs here with tests and no production
+//! caller. The surface is now exactly what production calls, and the
+//! reasons are recorded so the variants do not regrow:
+//!
+//! * **One unfinished-generation lookup, epoch-agnostic**
+//!   ([`Registry::unfinished_recovery_for_instance`]). An instance has at
+//!   most one unfinished root (two is a corruption error below), so an
+//!   epoch-pinned lookup could only ever return that same root or *hide* it
+//!   — and hiding a durable owner left by an older incarnation is precisely
+//!   the hazard `require_no_unfinished_recovery` and
+//!   `a_durable_old_epoch_recovery_blocks_after_restart_and_process_lock_drop`
+//!   exist to prevent. Discovery is therefore always agnostic; the caller
+//!   compares the root's `server_epoch` with the published incarnation and
+//!   either resumes it (same epoch) or retires it
+//!   ([`Registry::abort_stale_recovery_generation`], other epoch). The
+//!   pinned `unfinished_recovery(instance, epoch)` was deleted.
+//! * **Two aborts, both of which say what happens to the floor.**
+//!   [`Registry::abort_recovery_generation_and_record_current_empty`] is
+//!   the explicit/coordinator abort of the current incarnation's
+//!   generation: it raises `intentional_empty_revision` in the same
+//!   transaction, so the manifest the operator just aborted is not restored
+//!   by the next cold start. [`Registry::abort_stale_recovery_generation`]
+//!   retires an older incarnation's generation and deliberately leaves the
+//!   floor alone, so the current incarnation may still restore. A plain
+//!   `abort_recovery_generation` that aborted the current generation
+//!   *without* recording the floor would let the next start restore it
+//!   again; production never called it, and it was deleted.
+//! * **One floor primitive, private, in every production transaction.**
+//!   Raising the intentional-empty floor is `raise_intentional_empty_floor_on`,
+//!   called inside the abort above and inside
+//!   `Registry::complete_remove_intentionally_empty` (the final-Space
+//!   removal, plan §15.3) — each in the transaction that makes the floor
+//!   true. The two public wrappers (`record_intentional_empty_revision`,
+//!   `record_current_intentional_empty_revision`) ran their own transaction
+//!   and so could never be what production calls; they were deleted, and
+//!   their properties — exact exclusive kernel lock, published epoch, never
+//!   lowered, no authority advance — are asserted on the production entry
+//!   points in `tests/registry/recovery.rs`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -169,28 +210,16 @@ fn recovery_rows_on(conn: &Connection, generation_uid: Uuid) -> Result<Vec<Recov
 fn unfinished_recovery_on(
     conn: &Connection,
     instance: BackendInstanceUid,
-    epoch: Option<ServerEpoch>,
 ) -> Result<Option<(RecoveryGenerationSpec, Vec<RecoveryJournalRow>)>> {
-    let mut sql = String::from(
+    let mut stmt = conn.prepare(
         "SELECT generation_uid, server_epoch, manifest_id FROM recovery_journal \
-         WHERE backend_instance_id = ?1 ",
-    );
-    if epoch.is_some() {
-        sql.push_str("AND server_epoch = ?2 ");
-    }
-    sql.push_str(
-        "AND manifest_node_path = ?3 \
-         AND node_state IN ('pending', 'preparing', 'restoring', 'failed') \
+         WHERE backend_instance_id = ?1 AND manifest_node_path = ?2 \
+           AND node_state IN ('pending', 'preparing', 'restoring', 'failed') \
          ORDER BY generation_uid",
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let mut roots = if let Some(epoch) = epoch {
-        stmt.query_map(
-            params![
-                instance.0.to_string(),
-                epoch.0.to_string(),
-                RECOVERY_GENERATION_PATH
-            ],
+    )?;
+    let mut roots = stmt
+        .query_map(
+            params![instance.0.to_string(), RECOVERY_GENERATION_PATH],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -199,26 +228,7 @@ fn unfinished_recovery_on(
                 ))
             },
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-    } else {
-        // Numbered parameters deliberately retain ?3 so the exact-epoch and
-        // all-epoch forms share one query shape.
-        stmt.query_map(
-            params![
-                instance.0.to_string(),
-                rusqlite::types::Null,
-                RECOVERY_GENERATION_PATH
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-    };
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     match roots.len() {
         0 => Ok(None),
         1 => {
@@ -236,13 +246,39 @@ fn unfinished_recovery_on(
             )))
         }
         count => Err(recovery_error(format!(
-            "{count} unfinished roots for backend instance {}{}",
-            instance.0,
-            epoch
-                .map(|value| format!(" epoch {}", value.0))
-                .unwrap_or_default()
+            "{count} unfinished roots for backend instance {}",
+            instance.0
         ))),
     }
+}
+
+/// Raise a backend instance's intentional-empty floor to `revision` inside
+/// the caller's transaction, never lowering an existing floor, and return
+/// what is stored. The one floor write in the crate (module docs): the
+/// explicit abort and the final-Space removal each call it in the
+/// transaction that makes the floor true.
+pub(super) fn raise_intentional_empty_floor_on(
+    tx: &Connection,
+    instance: BackendInstanceUid,
+    revision: i64,
+) -> Result<u64> {
+    tx.execute(
+        "UPDATE backend_instances \
+         SET intentional_empty_revision = \
+           CASE WHEN intentional_empty_revision IS NULL \
+                  OR intentional_empty_revision < ?2 \
+                THEN ?2 ELSE intentional_empty_revision END \
+         WHERE backend_instance_uid = ?1",
+        params![instance.0.to_string(), revision],
+    )?;
+    let stored: i64 = tx.query_row(
+        "SELECT intentional_empty_revision FROM backend_instances \
+         WHERE backend_instance_uid = ?1",
+        [instance.0.to_string()],
+        |row| row.get(0),
+    )?;
+    u64::try_from(stored)
+        .map_err(|_| recovery_error(format!("negative intentional-empty revision {stored}")))
 }
 
 fn recovery_error(message: impl Into<String>) -> RegistryError {
@@ -507,104 +543,6 @@ impl Registry {
             .transpose()
     }
 
-    /// Record the authority revision whose complete same-epoch scan proved
-    /// the instance intentionally empty. This is journal metadata: it does
-    /// not advance authority and it never lowers an existing floor.
-    pub fn record_intentional_empty_revision(
-        &mut self,
-        instance: BackendInstanceUid,
-        server_epoch: ServerEpoch,
-        revision: u64,
-        kernel: &HeldLock,
-    ) -> Result<u64> {
-        if kernel.mode() != LockMode::Exclusive
-            || kernel.scope() != &LockScope::BackendInstance(instance)
-        {
-            return Err(RegistryError::KernelLockMismatch {
-                scope: LeaseScope::Backend(instance).as_scope_string(),
-            });
-        }
-        let revision_i64 = i64::try_from(revision)
-            .map_err(|_| recovery_error(format!("authority revision {revision} exceeds i64")))?;
-        self.immediate(|tx| {
-            require_published_epoch(tx, instance, server_epoch)?;
-            let head: i64 = tx.query_row(
-                "SELECT authority_revision FROM meta WHERE id = 1",
-                [],
-                |row| row.get(0),
-            )?;
-            if head != revision_i64 {
-                return Err(recovery_error(format!(
-                    "intentional-empty revision {revision} is not current head {head}"
-                )));
-            }
-            tx.execute(
-                "UPDATE backend_instances \
-                 SET intentional_empty_revision = \
-                   CASE WHEN intentional_empty_revision IS NULL \
-                          OR intentional_empty_revision < ?2 \
-                        THEN ?2 ELSE intentional_empty_revision END \
-                 WHERE backend_instance_uid = ?1",
-                params![instance.0.to_string(), revision_i64],
-            )?;
-            let stored: i64 = tx.query_row(
-                "SELECT intentional_empty_revision FROM backend_instances \
-                 WHERE backend_instance_uid = ?1",
-                [instance.0.to_string()],
-                |row| row.get(0),
-            )?;
-            u64::try_from(stored).map_err(|_| {
-                recovery_error(format!("negative intentional-empty revision {stored}"))
-            })
-        })
-    }
-
-    /// Atomically capture the current authority head as this instance's
-    /// intentional-empty floor.  This is the production remove-path helper:
-    /// unrelated authority operations may advance the global head while the
-    /// caller holds the backend lock, so selecting the head and storing the
-    /// floor must happen in one SQLite transaction.
-    pub fn record_current_intentional_empty_revision(
-        &mut self,
-        instance: BackendInstanceUid,
-        server_epoch: ServerEpoch,
-        kernel: &HeldLock,
-    ) -> Result<u64> {
-        if kernel.mode() != LockMode::Exclusive
-            || kernel.scope() != &LockScope::BackendInstance(instance)
-        {
-            return Err(RegistryError::KernelLockMismatch {
-                scope: LeaseScope::Backend(instance).as_scope_string(),
-            });
-        }
-        self.immediate(|tx| {
-            require_published_epoch(tx, instance, server_epoch)?;
-            let revision: i64 = tx.query_row(
-                "SELECT authority_revision FROM meta WHERE id = 1",
-                [],
-                |row| row.get(0),
-            )?;
-            tx.execute(
-                "UPDATE backend_instances \
-                 SET intentional_empty_revision = \
-                   CASE WHEN intentional_empty_revision IS NULL \
-                          OR intentional_empty_revision < ?2 \
-                        THEN ?2 ELSE intentional_empty_revision END \
-                 WHERE backend_instance_uid = ?1",
-                params![instance.0.to_string(), revision],
-            )?;
-            let stored: i64 = tx.query_row(
-                "SELECT intentional_empty_revision FROM backend_instances \
-                 WHERE backend_instance_uid = ?1",
-                [instance.0.to_string()],
-                |row| row.get(0),
-            )?;
-            u64::try_from(stored).map_err(|_| {
-                recovery_error(format!("negative intentional-empty revision {stored}"))
-            })
-        })
-    }
-
     /// Verify that `lease` is the current held fence for `scope`.
     pub fn assert_lease_fence(&self, scope: &LeaseScope, lease: &Lease) -> Result<()> {
         assert_lease_fence_on(&self.conn, scope, lease)
@@ -700,24 +638,17 @@ impl Registry {
         recovery_rows_on(&self.conn, generation_uid)
     }
 
-    /// The unfinished generation for this exact backend epoch. The reserved
-    /// root is authoritative; completed generations are not returned.
-    pub fn unfinished_recovery(
-        &self,
-        instance: BackendInstanceUid,
-        server_epoch: ServerEpoch,
-    ) -> Result<Option<(RecoveryGenerationSpec, Vec<RecoveryJournalRow>)>> {
-        unfinished_recovery_on(&self.conn, instance, Some(server_epoch))
-    }
-
-    /// The sole unfinished generation for an instance, including one left
-    /// behind by an older server epoch.  Callers use this before admitting a
-    /// new generation so a server restart cannot hide a durable owner.
+    /// The sole unfinished generation for an instance, whichever server
+    /// epoch it was journaled under — the reserved root is authoritative and
+    /// completed generations are not returned. This is the only lookup
+    /// (module docs): a caller compares the root's `server_epoch` with the
+    /// published incarnation itself, so a server restart can never hide a
+    /// durable owner.
     pub fn unfinished_recovery_for_instance(
         &self,
         instance: BackendInstanceUid,
     ) -> Result<Option<(RecoveryGenerationSpec, Vec<RecoveryJournalRow>)>> {
-        unfinished_recovery_on(&self.conn, instance, None)
+        unfinished_recovery_on(&self.conn, instance)
     }
 
     /// The completed generation for an exact server incarnation.  It is
@@ -873,43 +804,6 @@ impl Registry {
         })
     }
 
-    /// Atomically terminate one recovery generation after its caller has
-    /// proved every native resource removed or absent. The root is a strict
-    /// compare-and-set from `expected_root`; all nonterminal children become
-    /// `aborted` in the same transaction, while completed/skipped children
-    /// remain immutable proof history. An exact lost-ack replay of an already
-    /// aborted, wholly-terminal generation returns its durable rows.
-    ///
-    /// Recovery abort is journal bookkeeping and never advances authority.
-    pub fn abort_recovery_generation(
-        &mut self,
-        generation_uid: Uuid,
-        expected_root: RecoveryNodeState,
-        lease: &Lease,
-    ) -> Result<Vec<RecoveryJournalRow>> {
-        if !is_abortable(expected_root) {
-            return Err(recovery_error(format!(
-                "generation abort expected state {} is not abortable",
-                expected_root.as_str()
-            )));
-        }
-
-        self.immediate(|tx| {
-            let rows = recovery_rows_on(tx, generation_uid)?;
-            if rows.is_empty() {
-                return Err(RegistryError::NotFound {
-                    what: format!("recovery generation {generation_uid}"),
-                });
-            }
-            let root = checked_generation_root(generation_uid, &rows)?;
-
-            let scope = LeaseScope::Recovery(root.backend_instance);
-            assert_lease_fence_on(tx, &scope, lease)?;
-            require_published_epoch(tx, root.backend_instance, root.server_epoch)?;
-            abort_generation_rows_on(tx, generation_uid, expected_root, &rows)
-        })
-    }
-
     /// Atomically record the current authority head as an intentional-empty
     /// floor and terminally abort the exact generation.  The current server
     /// epoch may differ from the journal epoch (for an explicit abort after a
@@ -974,30 +868,16 @@ impl Registry {
                 ));
             }
 
+            // Unrelated authority operations may advance the global head
+            // while the caller holds the backend lock, so the head is read
+            // and the floor raised in this one transaction.
             let revision: i64 = tx.query_row(
                 "SELECT authority_revision FROM meta WHERE id = 1",
                 [],
                 |row| row.get(0),
             )?;
-            tx.execute(
-                "UPDATE backend_instances \
-                 SET intentional_empty_revision = \
-                   CASE WHEN intentional_empty_revision IS NULL \
-                          OR intentional_empty_revision < ?2 \
-                        THEN ?2 ELSE intentional_empty_revision END \
-                 WHERE backend_instance_uid = ?1",
-                params![root.backend_instance.0.to_string(), revision],
-            )?;
+            let stored = raise_intentional_empty_floor_on(tx, root.backend_instance, revision)?;
             let aborted = abort_generation_rows_on(tx, generation_uid, expected_root, &rows)?;
-            let stored: i64 = tx.query_row(
-                "SELECT intentional_empty_revision FROM backend_instances \
-                 WHERE backend_instance_uid = ?1",
-                [root.backend_instance.0.to_string()],
-                |row| row.get(0),
-            )?;
-            let stored = u64::try_from(stored).map_err(|_| {
-                recovery_error(format!("negative intentional-empty revision {stored}"))
-            })?;
             Ok((stored, aborted))
         })
     }
