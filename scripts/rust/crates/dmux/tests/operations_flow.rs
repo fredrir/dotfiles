@@ -1487,3 +1487,87 @@ fn a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_everywhere() {
     s.epoch();
     assert!(hierarchy(&s.env(), &provider, &scope, created.space_uid).is_ok());
 }
+
+// ---------------------------------------------------------------------------
+// `dmux repair retire-incarnation` (ADR 012 WS-B.3) at the operations layer.
+
+/// The operator's explicit clear. It retires exactly the epoch named — a
+/// stale or absent publication is refused before any write — and refuses a
+/// published pid that is still alive unless the caller acknowledges it, so
+/// a serving incarnation is never retired by accident. Afterwards the
+/// instance resolves as unpublished, which every verb already refuses.
+#[test]
+fn retire_incarnation_clears_exactly_the_named_epoch_and_guards_a_live_pid() {
+    use dmux::backend::scope::{ManagedTarget, resolve_managed};
+    use dmux::operations::retire_incarnation;
+
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let epoch = ServerEpoch(Uuid::new_v4());
+    let other = ServerEpoch(Uuid::new_v4());
+    let own_pid = i64::from(std::process::id());
+    let instance = {
+        let mut registry = scripted_registry::registry(env);
+        let instance = registry
+            .register_backend_instance(Backend::Tmux, Some("tmux-script"), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, epoch, Some(own_pid), Some("start"), None, None)
+            .unwrap();
+        instance
+    };
+
+    // Nothing registered for the other backend.
+    let err = retire_incarnation(env, Backend::Wez, epoch, false).unwrap_err();
+    assert!(matches!(err, OpError::NotFound(_)), "{err}");
+    // Wrong epoch: refused naming the published one.
+    let err = retire_incarnation(env, Backend::Tmux, other, false).unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "{err}");
+    assert!(err.to_string().contains(&epoch.0.to_string()), "{err}");
+    // A live pid (this test process) is refused without the acknowledgement.
+    let err = retire_incarnation(env, Backend::Tmux, epoch, false).unwrap_err();
+    assert!(matches!(err, OpError::Refused(_)), "{err}");
+    assert!(err.to_string().contains(&own_pid.to_string()), "{err}");
+    let registry = scripted_registry::registry(env);
+    assert_eq!(
+        registry.backend_server(instance).unwrap().server_epoch,
+        Some(epoch)
+    );
+    let head = registry.authority_head().unwrap();
+    drop(registry);
+
+    let retired = retire_incarnation(env, Backend::Tmux, epoch, true).unwrap();
+    assert_eq!(retired.backend, Backend::Tmux);
+    assert_eq!(retired.backend_instance, instance);
+    assert_eq!(retired.retired_epoch, epoch);
+    assert_eq!(retired.retired_pid, Some(own_pid));
+    assert_eq!(retired.authority_revision, head.revision + 1);
+    let registry = scripted_registry::registry(env);
+    assert_eq!(
+        registry.backend_server(instance).unwrap().server_epoch,
+        None
+    );
+    assert_eq!(
+        resolve_managed(&registry, Backend::Tmux).unwrap(),
+        ManagedTarget::Unpublished(instance)
+    );
+    drop(registry);
+
+    // Nothing published any more: nothing to retire.
+    let err = retire_incarnation(env, Backend::Tmux, epoch, true).unwrap_err();
+    assert!(matches!(err, OpError::NotFound(_)), "{err}");
+
+    // A dead publication (no pid recorded) needs no acknowledgement.
+    scripted_registry::registry(env)
+        .publish_backend_server(instance, other, None, None, None, None)
+        .unwrap();
+    let retired = retire_incarnation(env, Backend::Tmux, other, false).unwrap();
+    assert_eq!(retired.retired_pid, None);
+    assert_eq!(
+        scripted_registry::registry(env)
+            .backend_server(instance)
+            .unwrap()
+            .server_epoch,
+        None
+    );
+}

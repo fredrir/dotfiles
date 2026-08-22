@@ -28,8 +28,9 @@
 //! ```
 //!
 //! Revision-advance policy: identity/lifecycle/name/binding mutations,
-//! backend-instance registration, and server-epoch publication
-//! ([`Registry::publish_backend_server`] — which server incarnation is
+//! backend-instance registration, and server-epoch publication and
+//! retirement ([`Registry::publish_backend_server`],
+//! [`Registry::retire_backend_server`] — which server incarnation is
 //! authoritative is identity, exactly like registering the instance was)
 //! advance the chain (one row per committed mutation transaction). Journal
 //! state bookkeeping (operations and bootstrap_requests), lease
@@ -107,6 +108,14 @@ pub enum RegistryError {
         instance: BackendInstanceUid,
         recorded: Option<String>,
         requested: String,
+    },
+    /// [`Registry::retire_backend_server`]'s compare-and-set lost: the
+    /// instance publishes `published` (possibly nothing), not the
+    /// `expected` epoch the caller read. Nothing was changed.
+    IncarnationMismatch {
+        instance: BackendInstanceUid,
+        expected: ServerEpoch,
+        published: Option<ServerEpoch>,
     },
     /// rpc request UID reused with a different method/payload digest.
     IdempotencyReuse {
@@ -202,6 +211,7 @@ impl RegistryError {
             | RegistryError::AttachTokenExists { .. } => ErrorCode::IdentityConflict,
             RegistryError::IdempotencyReuse { .. } => ErrorCode::IdempotencyReuse,
             RegistryError::EndpointMismatch { .. } => ErrorCode::WrongBackendInstance,
+            RegistryError::IncarnationMismatch { .. } => ErrorCode::BackendEpochChanged,
             RegistryError::NotFound { .. } => ErrorCode::NotFound,
             RegistryError::KindNotAllowed { .. } | RegistryError::LocalHostImmutable { .. } => {
                 ErrorCode::Usage
@@ -254,6 +264,21 @@ impl fmt::Display for RegistryError {
                         .as_deref()
                         .map(|endpoint| format!("{endpoint:?}"))
                         .unwrap_or_else(|| "<none>".to_string())
+                )
+            }
+            RegistryError::IncarnationMismatch {
+                instance,
+                expected,
+                published,
+            } => {
+                write!(
+                    f,
+                    "backend instance {} publishes {}, not epoch {}; nothing was retired",
+                    instance.0,
+                    published
+                        .map(|epoch| format!("epoch {}", epoch.0))
+                        .unwrap_or_else(|| "no incarnation".to_string()),
+                    expected.0
                 )
             }
             RegistryError::IdempotencyReuse { request_uid } => {
@@ -1633,8 +1658,79 @@ impl Registry {
         })
     }
 
-    /// Read back the published server incarnation for an instance
-    /// (all-`None` when stopped/never published).
+    /// Retire the published incarnation of a managed backend instance: a
+    /// compare-and-set on `expected_epoch` that clears every incarnation
+    /// column (epoch, pid, start token, socket dev/ino) and advances the
+    /// authority revision chain exactly as publishing did, so the transition
+    /// is journaled rather than overwritten (ADR 012 WS-B.3). When the
+    /// published epoch is not `expected_epoch` — a stranger republished in
+    /// between, or nothing is published — this is the typed
+    /// [`RegistryError::IncarnationMismatch`] and nothing changes.
+    ///
+    /// Two callers: the managed `mux-startup` publish path
+    /// (`recovery::publish_incarnation_if_needed`), which retires the
+    /// incarnation it found immediately before publishing its fresh one
+    /// under the lease it already holds; and `dmux repair
+    /// retire-incarnation` (`operations::retire_incarnation`), the
+    /// operator's explicit clear for an incarnation the service will not
+    /// bring back managed (ADR 012 §3.1 state F). Takes no lock itself:
+    /// callers hold the backend-instance fence.
+    pub fn retire_backend_server(
+        &mut self,
+        instance: BackendInstanceUid,
+        expected_epoch: ServerEpoch,
+    ) -> Result<()> {
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            let changed = tx.execute(
+                "UPDATE backend_instances SET server_epoch = NULL, server_pid = NULL, \
+                 server_start_token = NULL, socket_dev = NULL, socket_ino = NULL \
+                 WHERE backend_instance_uid = ?1 AND server_epoch = ?2",
+                params![instance.0.to_string(), expected_epoch.0.to_string()],
+            )?;
+            if changed != 1 {
+                let published: Option<Option<String>> = tx
+                    .query_row(
+                        "SELECT server_epoch FROM backend_instances \
+                         WHERE backend_instance_uid = ?1",
+                        [instance.0.to_string()],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                return match published {
+                    None => Err(RegistryError::NotFound {
+                        what: format!("backend instance {}", instance.0),
+                    }),
+                    Some(published) => Err(RegistryError::IncarnationMismatch {
+                        instance,
+                        expected: expected_epoch,
+                        published: published
+                            .as_deref()
+                            .map(|epoch| parse_uuid(epoch).map(ServerEpoch))
+                            .transpose()?,
+                    }),
+                };
+            }
+            advance_revision(tx, &now)?;
+            Ok(())
+        })
+    }
+
+    /// Read back the server incarnation record for an instance.
+    ///
+    /// The five columns are written together and are all `None` or all
+    /// `Some`. `None` is one of two states the registry does not tell
+    /// apart — the instance was registered and never published (ADR 012
+    /// states C/D: `dmux-mux-start.sh`/`tmux_bootstrap` register first and
+    /// coordination has not published yet, or never will) or its last
+    /// incarnation was retired by [`Self::retire_backend_server`]. `Some`
+    /// means an incarnation was PUBLISHED — and publication is not proof of
+    /// a live server (ADR 012 §3.1 state F): a crashed or replaced server
+    /// leaves its row exactly as it published it, and nothing here
+    /// re-validates it. A reader that needs a live server verifies the pid,
+    /// start token and socket dev/ino against a fresh probe before trusting
+    /// the epoch; `backend::scope::resolve_managed` hands the epoch out as a
+    /// pin for that verification, never as liveness.
     pub fn backend_server(&self, instance: BackendInstanceUid) -> Result<BackendServerRecord> {
         self.conn
             .query_row(

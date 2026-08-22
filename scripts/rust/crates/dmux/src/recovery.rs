@@ -3504,6 +3504,19 @@ fn publish_incarnation_if_needed(
         && current.socket_dev == socket_dev
         && current.socket_ino == socket_ino;
     if !exact {
+        // A previous incarnation is retired before the fresh one is
+        // published, under the lease this coordinator already holds, so the
+        // transition is journaled as two authority revisions instead of an
+        // overwrite (ADR 012 WS-B.3). The retirement is a compare-and-set on
+        // the epoch read above: a stranger that published in between is a
+        // typed refusal, never silently clobbered.
+        if let Some(previous) = current.server_epoch
+            && previous != options.server_epoch
+        {
+            guard
+                .registry
+                .retire_backend_server(options.backend_instance, previous)?;
+        }
         guard.registry.publish_backend_server(
             options.backend_instance,
             options.server_epoch,

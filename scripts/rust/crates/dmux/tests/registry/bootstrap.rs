@@ -489,3 +489,131 @@ fn registering_the_same_backend_at_another_endpoint_is_a_typed_refusal() {
     );
     assert_eq!(reg.backend_instance_info(tmux).unwrap().socket_path, None);
 }
+
+// ---------------------------------------------------------------------------
+// Explicit clear of a published incarnation (ADR 012 WS-B.3; review finding #1)
+
+/// The published incarnation used to be write-once-and-never-invalidated:
+/// `publish_backend_server` was the sole writer of `server_epoch`, nothing
+/// cleared it, and a row naming a dead pid was permanent. `retire_backend_server`
+/// is the clear: a compare-and-set on the epoch the caller read that NULLs
+/// every incarnation column and advances the chain like publishing did, so
+/// retire → publish is two journaled revisions with the unpublished state in
+/// between, and a row that does not publish the named epoch is refused typed
+/// and left alone.
+#[test]
+fn retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain() {
+    use dmux::backend::scope::{ManagedTarget, resolve_managed};
+
+    let s = scratch();
+    let mut reg = open(&s.config);
+    let instance = reg
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), Some("svc"))
+        .unwrap();
+    let epoch1 = ServerEpoch(Uuid::new_v4());
+    reg.publish_backend_server(
+        instance,
+        epoch1,
+        Some(5458),
+        Some("macos:1787136165"),
+        Some(16777231),
+        Some(10519741),
+    )
+    .unwrap();
+    let published = reg.authority_head().unwrap();
+
+    // Wrong epoch: typed, names what is published, changes nothing.
+    let wrong = ServerEpoch(Uuid::new_v4());
+    let err = reg.retire_backend_server(instance, wrong).unwrap_err();
+    match &err {
+        RegistryError::IncarnationMismatch {
+            instance: named,
+            expected,
+            published: actual,
+        } => {
+            assert_eq!(*named, instance);
+            assert_eq!(*expected, wrong);
+            assert_eq!(*actual, Some(epoch1));
+        }
+        other => panic!("expected IncarnationMismatch, got {other:?}"),
+    }
+    assert_eq!(err.error_code(), ErrorCode::BackendEpochChanged);
+    assert_eq!(
+        reg.backend_server(instance).unwrap().server_epoch,
+        Some(epoch1)
+    );
+    assert_eq!(reg.backend_server(instance).unwrap().server_pid, Some(5458));
+    assert_eq!(reg.authority_head().unwrap(), published);
+
+    // The named epoch: every incarnation column is cleared in one
+    // transaction and the chain advances by exactly one.
+    reg.retire_backend_server(instance, epoch1).unwrap();
+    let retired = reg.backend_server(instance).unwrap();
+    assert_eq!(retired.server_epoch, None);
+    assert_eq!(retired.server_pid, None);
+    assert_eq!(retired.server_start_token, None);
+    assert_eq!(retired.socket_dev, None);
+    assert_eq!(retired.socket_ino, None);
+    let after_retire = reg.authority_head().unwrap();
+    assert_eq!(after_retire.revision, published.revision + 1);
+    assert_ne!(after_retire.head_hash, published.head_hash);
+    // A retired row resolves exactly like one that was never published.
+    assert_eq!(
+        resolve_managed(&reg, Backend::Wez).unwrap(),
+        ManagedTarget::Unpublished(instance)
+    );
+    // The registration half is untouched.
+    assert_eq!(
+        reg.backend_instance_info(instance)
+            .unwrap()
+            .socket_path
+            .as_deref(),
+        Some("/run/dmux/wez.sock")
+    );
+
+    // Retiring again names an epoch nothing publishes: refused, unchanged.
+    let err = reg.retire_backend_server(instance, epoch1).unwrap_err();
+    assert!(matches!(
+        err,
+        RegistryError::IncarnationMismatch {
+            published: None,
+            ..
+        }
+    ));
+    assert_eq!(reg.authority_head().unwrap(), after_retire);
+    // An unknown instance is not-found, as for publish.
+    assert!(matches!(
+        reg.retire_backend_server(BackendInstanceUid(Uuid::new_v4()), epoch1),
+        Err(RegistryError::NotFound { .. })
+    ));
+
+    // The managed start's sequence, retire → publish, is two journaled
+    // revisions: the chain records the clear, then the fresh incarnation.
+    let epoch2 = ServerEpoch(Uuid::new_v4());
+    reg.publish_backend_server(
+        instance,
+        epoch2,
+        Some(54528),
+        Some("macos:1787142345"),
+        Some(16777233),
+        Some(14788383),
+    )
+    .unwrap();
+    let republished = reg.authority_head().unwrap();
+    assert_eq!(republished.revision, published.revision + 2);
+    assert_eq!(
+        reg.backend_server(instance).unwrap().server_epoch,
+        Some(epoch2)
+    );
+    let chain = reg.revision_chain().unwrap();
+    assert!(
+        chain
+            .iter()
+            .any(|link| link.revision == after_retire.revision)
+    );
+    assert!(
+        chain
+            .iter()
+            .any(|link| link.revision == republished.revision)
+    );
+}

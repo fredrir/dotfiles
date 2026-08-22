@@ -158,6 +158,110 @@ pub fn tmux_bootstrap(
     })
 }
 
+/// What `dmux repair retire-incarnation` reports (ADR 012 WS-B.3).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RetiredIncarnation {
+    pub backend: Backend,
+    pub backend_instance: BackendInstanceUid,
+    /// The epoch that was published, and that the caller named.
+    pub retired_epoch: ServerEpoch,
+    /// The pid the retired incarnation had published, if any.
+    pub retired_pid: Option<i64>,
+    /// The authority revision the retirement committed as.
+    pub authority_revision: u64,
+}
+
+/// The operator's explicit clear for a published incarnation the managed
+/// service will not bring back (ADR 012 §3.1 state F; WS-B.3): the
+/// registry's `backend_instances` row names a server epoch/pid that is
+/// dead or replaced, every verb refuses on it, and the only writer of that
+/// row is a managed start that is not coming. This retires exactly the
+/// incarnation the operator names — a compare-and-set on `expected_epoch`,
+/// journaled as an authority revision — so that the instance reads as
+/// unpublished (`ManagedTarget::Unpublished`) until the service republishes.
+///
+/// Refusals, all before any write: no registered instance for `backend`
+/// (`NotFound`); nothing published (`NotFound`); a different published
+/// epoch (`StaleRef` — the operator must name what is published, so a
+/// republication between reading and retiring is never clobbered); an
+/// unfinished recovery generation (`Refused`, as for every write); and a
+/// published pid that is still alive (`Refused`) unless `allow_live_pid`
+/// acknowledges it — a live pid is not proof the incarnation is managed,
+/// but retiring a serving incarnation makes every verb refuse until the
+/// service restarts, so it is an explicit choice. Takes the authority gate
+/// shared and the backend-instance lock exclusive, like every mutation.
+pub fn retire_incarnation(
+    env: &OperationEnv,
+    backend: Backend,
+    expected_epoch: ServerEpoch,
+    allow_live_pid: bool,
+) -> Result<RetiredIncarnation, OpError> {
+    let mut registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let instance = registry
+        .backend_instance_for_backend(backend)
+        .map_err(reg_err)?
+        .ok_or_else(|| {
+            OpError::NotFound(format!(
+                "this owner has no registered {backend} backend instance"
+            ))
+        })?;
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    locks
+        .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
+
+    let published = registry.backend_server(instance).map_err(reg_err)?;
+    match published.server_epoch {
+        Some(epoch) if epoch == expected_epoch => {}
+        Some(epoch) => {
+            return Err(OpError::StaleRef(format!(
+                "{backend} backend instance {} publishes epoch {}, not {}; re-read `dmux ls` \
+                 or `dmux doctor` and name the published epoch",
+                instance.0, epoch.0, expected_epoch.0
+            )));
+        }
+        None => {
+            return Err(OpError::NotFound(format!(
+                "{backend} backend instance {} publishes no incarnation; nothing to retire",
+                instance.0
+            )));
+        }
+    }
+    if let Some(pid) = published.server_pid
+        && !allow_live_pid
+        && i32::try_from(pid).is_ok_and(|pid| {
+            matches!(
+                crate::registry::probe_pid(pid),
+                crate::registry::HolderLiveness::Alive
+            )
+        })
+    {
+        return Err(OpError::Refused(format!(
+            "published pid {pid} of {backend} backend instance {} is alive, so the incarnation \
+             may still be serving; stop the managed service first, or acknowledge the live pid \
+             explicitly to retire it anyway",
+            instance.0
+        )));
+    }
+
+    registry
+        .retire_backend_server(instance, expected_epoch)
+        .map_err(reg_err)?;
+    let head = registry.authority_head().map_err(reg_err)?;
+    Ok(RetiredIncarnation {
+        backend,
+        backend_instance: instance,
+        retired_epoch: expected_epoch,
+        retired_pid: published.server_pid,
+        authority_revision: head.revision,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Fenced Space operations (plan §10.2, P6). All owner-local; explicit
 // backend; the P4 resolver/policy integration joins them at the CLI cutover.
