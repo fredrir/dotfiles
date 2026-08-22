@@ -590,32 +590,6 @@ pub fn newest_eligible_manifest(
     Ok((candidates.into_iter().next(), diagnostics))
 }
 
-/// Durably publish an already validated JSON document (same-directory temp,
-/// fsync, rename, parent fsync).  The caller owns the common backend lock and
-/// the snapshot lease for this entire function.
-pub fn atomic_publish_manifest(path: &Path, manifest: &RecoveryManifest) -> Result<()> {
-    let parent = path.parent().ok_or_else(|| {
-        RecoveryError::Io(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "recovery manifest path has no parent",
-        ))
-    })?;
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            RecoveryError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "recovery manifest has no UTF-8 basename",
-            ))
-        })?;
-    let directory = open_private_leaf_dir(parent, true)?;
-    let mut bytes = serde_json::to_vec(manifest)?;
-    bytes.push(b'\n');
-    directory.publish_immutable(name, &bytes, MAX_RECOVERY_MANIFEST_BYTES)?;
-    Ok(())
-}
-
 // -------------------------------------------------------------------------
 // Complete in-process native snapshots
 

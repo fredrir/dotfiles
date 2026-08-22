@@ -7,7 +7,7 @@ use dmux::model::{BackendInstanceUid, ServerEpoch, SpaceUid};
 use dmux::recovery::{
     MANIFEST_SCHEMA_VERSION, ManifestGroup, ManifestSpace, ManifestSplit, ManifestWindow,
     NativePane, NativeSnapshot, NativeTab, NativeWindow, RecoveryManifest, RestoreOperation,
-    atomic_publish_manifest, newest_eligible_manifest,
+    newest_eligible_manifest,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -270,8 +270,15 @@ fn hostile_manifest_entries_are_skipped_without_following_or_blocking() {
     assert_eq!(fs::read(&victim).unwrap(), b"victim-must-survive");
 }
 
+/// The publication half of this case moved with the publisher: the only
+/// production writer of a manifest is `publish_snapshot_manifest` (its
+/// `_for_test` seam in `coordinator.rs`), whose symlink and link-race
+/// refusals are asserted by
+/// `snapshot_candidate_ids_and_preplanted_plan_links_fail_before_the_fence`
+/// and `snapshot_capture_publishes_the_exact_fenced_plan_atomically`
+/// (ADR 012 WS-E.3 row 13).
 #[test]
-fn manifest_directory_and_publication_never_follow_symlinks() {
+fn manifest_directory_is_never_opened_through_a_symlink() {
     let outer = private_dir();
     let actual = outer.path().join("actual");
     fs::DirBuilder::new()
@@ -283,14 +290,6 @@ fn manifest_directory_and_publication_never_follow_symlinks() {
     symlink(&actual, &alias).unwrap();
     let error = newest_eligible_manifest(&alias, instance(), None).unwrap_err();
     assert!(matches!(error, dmux::recovery::RecoveryError::Io(_)));
-
-    let victim = actual.join("victim");
-    write_private(&victim, b"immutable-victim");
-    let destination = actual.join("published.json");
-    symlink(&victim, &destination).unwrap();
-    let error = atomic_publish_manifest(&destination, &manifest(10)).unwrap_err();
-    assert!(matches!(error, dmux::recovery::RecoveryError::Io(_)));
-    assert_eq!(fs::read(victim).unwrap(), b"immutable-victim");
 }
 
 fn sentinel_snapshot(epoch: ServerEpoch) -> NativeSnapshot {
