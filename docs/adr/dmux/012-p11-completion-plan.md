@@ -1,6 +1,6 @@
 # ADR 012: P11 completion plan — epoch integrity, live-host repair, and the cutover gate
 
-Status: proposed (draft for review; nothing in this record is dispatched yet)
+Status: accepted 2026-08-22 (owner-approved; §7 amendments applied to the plan in the same change); dispatch recorded in §10
 Date: 2026-08-22
 Owner: root integrator
 Inputs: `docs/adr/dmux/report/**` (independent review at `493e92c`), ADR 007 (P0 ratified,
@@ -442,3 +442,32 @@ in it.
 - **Two-host work** (`two_host`, cases 16–22, WS-G.5) still has only one live transport matrix
   exercised (`r5.md`); USB removal with same-ID Tailscale reconnect has not been run live since
   the route split (`1a522dc`).
+
+## 10. Dispatch log (root-recorded per §19.2; appended as waves start and close)
+
+Decisions settled with the owner before dispatch, 2026-08-22:
+
+- The root commits directly to `dmux`, one commit per numbered item; nothing is pushed unless asked.
+- WS-A.5's nine sites are parallelised across file-disjoint agents in worktrees; integration stays serial, in the blast-radius order §5 gives. §6's "root, serial" is thereby amended.
+- WS-B.3's operator verb is a new `dmux repair retire-incarnation`, recorded as a §7.1 grammar addition in the style of ADR 011 D8; `dmux recovery abort` keeps its existing meaning.
+- WS-G.2's phase names beyond `mac_deployed`: `arch_deployed`, `migrated`, `canary_mac`, `canary_arch`, `flipped`.
+- The orphan Space `w6mac-smoke-20260817-archie` is removed (`rm`), not kept, before WS-F.4's migration preview.
+- WS-G.3's reader is a fresh subagent with no conversation context, given only the plan and `docs/adr/dmux/**`.
+- Live-host steps each require a separate owner confirmation: Macie kickstart, anything on Archie, `migrate --commit` per host, canary start/rollback rehearsal, the flip. Waves 0–3 touch no host.
+
+Refinement to WS-A.3: the audit test holds an explicit allowlist rather than "exactly two" from the outset, so the suite stays green at every commit between A.3 and the end of A.5; each A.5 commit removes one suspect entry, and the allowlist ends at the two legitimate sites. The burn-down is thereby visible in the diff.
+
+Findings at dispatch time (root, read-only): Archie is sentinel-only, rebooted 2026-08-22, descriptor `starting` with `backend_instance_uid: null`, no `DMUX_*` in its systemd user environment, no `environment.d`; its journal shows `starting descriptor FAILED: native descriptor publisher returned a mismatched service witness` on every boot since 2026-08-18. Macie's per-pid mux log (`wezterm-mux-server-log-54528.txt`) shows the same two refusals at 12:42:45 on 2026-08-19; the handler returns at `dmux-mux.lua:1143` before the missing-instance guard at `:1147`, which is why `failed` never lands (answers report 08 §9). Tailscale SSH from Macie to Archie requires an interactive Tailscale check-in; USB works non-interactively. A full suite run with `DMUX_RUNTIME_DIR` exported still grew the live runtime dir by 18 entries (9 `backend_`, 8 `space_`, 1 `decision_` locks) — the seam is bypassed, not merely unused.
+
+### Wave 1 — dispatched 2026-08-22, base `6451acd`
+
+| agent | workstream | worktree / branch | owned paths |
+| --- | --- | --- | --- |
+| E1 | WS-E.1 | `~/packages/dmux-p11/e1`, `p11/e1` | `src/locks.rs`, `src/runtime.rs`, new guard files under `tests/`; line-scoped lock-path edits elsewhere only if uncentralisable |
+| C | WS-C | `~/packages/dmux-p11/c`, `p11/c` | `src/list.rs`, `src/attach.rs`, one new test file under `tests/` |
+| F1 | WS-F.1 | `~/packages/dmux-p11/f1`, `p11/f1` | `macos/launchd/com.fredrir.dmux-env.plist`, a new loader script, `shared/wezterm/mux/dmux-mux-start.sh`, `linux/arch/wezterm-mux/**`, `src/doctor.rs` (flag-source section only), one new `tests/cases/` file |
+| B5 | WS-B.5 | `~/packages/dmux-p11/b5`, `p11/b5` | `shared/wezterm/mux/dmux-mux.lua`, cases under `shared/wezterm/wez/dmux_bridge/tests/`, `tests/recovery/mux_lua_contract.rs` only if source-pinning is chosen |
+| root | WS-A.1–3, WS-G.1 seed, this record | `/Users/fredrir/dotfiles`, `dmux` | `backend/{mod,scope}.rs`, the 61 `InventoryScope` sites, `docs/**` |
+
+Every agent's return must include the runtime-dir growth check (§7 amendment 5).
+

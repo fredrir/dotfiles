@@ -146,6 +146,8 @@ health: healthy | multi_window | native_key_collision | unstamped | unknown
 client: attached | detached | unknown
 ```
 
+A backend instance — the registry row behind every managed Space of one backend — has six distinguishable states, named A–F (ADR 012 §3.1, review report 04): A not registered; B registered without an endpoint; C registered, unpublished, idle; D registered, unpublished, with the exclusive instance lease held (a bootstrap or recovery in flight); E published and the live server agrees; F published but the live server disagrees or the published process is dead (`stale_incarnation`). A published epoch is never proof of a live server: readers verify pid liveness, the start token, and the socket dev/ino against a fresh `stat` before treating E as established, and every mutation refuses F. Space rows under an F instance render `observation: unreachable` with `detail: stale_incarnation`; the operator advice is to restart the managed service only when it holds no user panes, and otherwise `dmux repair retire-incarnation` once the service is confirmed down. `dmux ls` and `dmux doctor` distinguish C from D (lease probe) and E from F (liveness probe) and never collapse them.
+
 Absence never creates a deletion tombstone. Only a successfully verified explicit removal does.
 
 ### 5.3 Nested and mixed contexts
@@ -351,7 +353,7 @@ timeout
 permission failure
 ```
 
-Only a complete inventory or an owner-local, identity-checked proof that the selected server process is stopped establishes zero live native rows. Both are determinate outcomes, but neither erases a durable registry match. A remote connection failure is `unreachable`, never proof that its server is stopped/empty.
+Only a complete inventory or an owner-local, identity-checked proof that the selected server process is stopped establishes zero live native rows. Both are determinate outcomes, but neither erases a durable registry match. A remote connection failure is `unreachable`, never proof that its server is stopped/empty. A published incarnation whose process is dead, whose start token has changed, or whose socket dev/ino no longer matches a fresh `stat` is `unreachable` with detail `stale_incarnation` (instance state F, §5.2); it is never `owner-proven server stopped`, because nothing verified has answered.
 
 Every owner Wez probe targets the single enrolled backend instance by its service-published exact unix socket, never by configuration order or bare `--prefer-mux`. The command starts from a sanitized environment, then sets `WEZTERM_UNIX_SOCKET` to the recorded socket and always uses `--no-auto-start`. Before and after any operation it verifies the runtime descriptor, socket identity, service process start token, and the reserved mux sentinel's backend-instance/epoch nonce. A mismatch yields `backend_epoch_changed` or `wrong_backend_instance`; returned native IDs are discarded. P0 must prove this selector/handshake against two configured unix domains and a socket-replacement race, or select and freeze a forked strict selector instead.
 
@@ -1098,6 +1100,7 @@ files changed
 tests run and exact result
 contract deviations (normally none)
 risks/unknowns
+runtime-dir growth check (live `dmux_runtime_dir()` entry count before/after the owned test run; must be 0)
 next-agent handoff
 ```
 
@@ -1117,8 +1120,8 @@ A specialist may spawn read-only research/review grandchildren freely within the
 - Two-host fault tests: USB removal, Tailscale reconnect, auth/version/identity failures, response loss and retry.
 - Wez live-driver tests: default unix attach, GUI bridge, domain route mutual exclusion, backend-aware keys, safe quit, multi-domain name isolation.
 - Recovery tests: empty/nonempty, intentional empty, two starters, crash at every phase, corrupt manifest.
-- Full repository tests: `cargo test -p dmux`, repository shell tests, Lua formatting/config validation, and manual smoke checks on both machines.
-- Baseline accountability: `docs/adr/dmux/baseline-tests.json` records every original test ID/result. Any obsolete assertion needs a reviewed one-to-one or one-to-many replacement/retirement entry with rationale and new test IDs; deleting a test file is never evidence of preserved coverage.
+- Full repository tests: `cargo test -p dmux`, repository shell tests, Lua formatting/config validation, and manual smoke checks on both machines. Suite runs leave the live runtime directory (`dmux_runtime_dir()`) unchanged; a run that grows it fails.
+- Baseline accountability: `docs/adr/dmux/baseline-tests.json` records every original test ID/result. Any obsolete assertion needs a reviewed one-to-one or one-to-many replacement/retirement entry with rationale and new test IDs; deleting a test file is never evidence of preserved coverage. `docs/adr/dmux/acceptance-matrix.json` is the case-accountability artifact beside it: every case 1–46 (17 as 17a/17b) maps to the test IDs and live evidence that prove it, and a case is not passed by a green suite unless the ledger names what proves it.
 
 ### 20.2 Required acceptance cases
 
@@ -1211,9 +1214,9 @@ All cases 1–46 are mandatory P11 gates; "earliest phase" assigns implementatio
 4. Install the service/epoch/sentinel path, disable GUI startup restoration, enable the persistent unix domain behind its flag, and prove every server-start path creates no unmanaged pane.
 5. Enable the selected bridge, backend-aware bindings, managed-close interception, and safe quit; verify pane/process survival on both hosts.
 6. Enable guarded cold recovery and perform intentional-empty, reboot, server-failure, and crash/resume drills.
-7. Run a 24–48-hour local auto-Wez canary on one host, rehearse rollback, then repeat on the second host. The canary runs under the existing **host-scoped** `DMUX_WEZ_FIRST=1` opt-in, which is what makes automatic Wez selection active on that one host without changing any default. This resolves what would otherwise be a circular gate: step 9's global flip is gated on the full P11 gate, which includes this canary, which would in turn need the flip. It does not — the flag already provides per-host enablement, and step 9 changes only what happens when the flag is *unset*. Each host gets its own canary period and its own rollback rehearsal; the floor is 48 hours across the two.
+7. Run a 24–48-hour local auto-Wez canary on one host, rehearse rollback, then repeat on the second host. The canary runs under the existing **host-scoped** `DMUX_WEZ_FIRST=1` opt-in, which is what makes automatic Wez selection active on that one host without changing any default. This resolves what would otherwise be a circular gate: step 9's global flip is gated on the full P11 gate, which includes this canary, which would in turn need the flip. It does not — the flag already provides per-host enablement, and step 9 changes only what happens when the flag is *unset*. Each host gets its own canary period and its own rollback rehearsal; the floor is 48 hours across the two. The canary host's `DMUX_WEZ_FIRST=1` is set through the durable per-host mechanism (ADR 012 WS-F.1: `~/.config/dmux/service.env`, loaded into the session by the `com.fredrir.dmux-env` LaunchAgent and sourced by `dmux-mux-start.sh` on macOS; `~/.config/environment.d/50-dmux.conf` on Linux), never by `launchctl setenv`/`systemctl --user set-environment` alone — those do not survive a reboot (ADR 012 §3.1). A reboot during the window is part of the canary, not a reset of it: the canary report states whether enablement survived it, using `dmux doctor`'s report of where the flag came from.
 8. Exercise explicit remote Wez over USB; remove the cable and verify same-ID Tailscale reconnect and the exact route-retry matrix before canarying remote auto selection.
-9. Flip automatic policy globally only after all 46 cases and the full P11 gate pass. "Flip globally" means changing the default that applies when `DMUX_WEZ_FIRST` is unset — from legacy tmux to Wez-first — and shipping the emergency legacy-policy opt-out (`DMUX_LEGACY_POLICY=1`) that reverses it for one release. Hosts already canarying under `DMUX_WEZ_FIRST=1` see no behavior change at the flip; the flag becomes redundant rather than removed.
+9. Flip automatic policy globally only after all 46 cases and the full P11 gate pass. "Flip globally" means changing the default that applies when `DMUX_WEZ_FIRST` is unset — from legacy tmux to Wez-first — and shipping the emergency legacy-policy opt-out (`DMUX_LEGACY_POLICY=1`) that reverses it for one release. Hosts already canarying under `DMUX_WEZ_FIRST=1` see no behavior change at the flip; the flag becomes redundant rather than removed. The flip has two halves and ships both or neither (ADR 010 §5): (a) the Rust default `WEZ_FIRST_BY_DEFAULT = true`, which governs the surface and policy of `dmux` invocations that never inherited the variable; and (b) the tracked service defaults — the value `dmux-mux-start.sh` assumes when neither the process environment nor the per-host env file states one, and the matching default in GUI config evaluation — which are what make the mux and the GUI run managed, and therefore what make automatic policy select Wez at all. Flipping only (a) yields the Wez-first flags and tmux Spaces; flipping only (b) is the canary. Checklist at the flip: (a) and (b) land in one change; `the_policy_resolver_answers_every_switch_combination` is re-evaluated against the new default; `tests/cli.rs` keeps `DMUX_LEGACY_POLICY=1` so case 46 holds; the legacy path is retained one release.
 
 ### Rollback
 
