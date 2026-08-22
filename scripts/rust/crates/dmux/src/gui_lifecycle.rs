@@ -564,8 +564,8 @@ impl DescriptorSource for RuntimeDescriptorSource {
     ) -> io::Result<Option<WezMuxDescriptor>> {
         runtime::read_verified_ready_wez_descriptor_in(
             runtime_dir,
-            Some(expected_instance),
-            Some(expected_epoch),
+            expected_instance,
+            expected_epoch,
         )
     }
 }

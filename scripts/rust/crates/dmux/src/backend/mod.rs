@@ -294,6 +294,11 @@ pub type ProviderResult<T> = Result<T, ProviderError>;
 pub trait Provider {
     fn capabilities(&self) -> Capabilities;
 
+    /// Inventory under `scope`. A managed scope is verified against the live
+    /// server and a mismatch is the `backend_epoch_changed` fault; an
+    /// unmanaged scope may only discover a server nobody has published — a
+    /// published server reached without a pin is refused, never answered
+    /// (the contract double in `tests/provider_contract.rs` models both).
     fn inventory(&self, scope: &InventoryScope) -> InventoryOutcome;
 
     /// Create exactly one native Space resource and verify it (one Group,

@@ -1237,13 +1237,10 @@ pub(crate) fn verified_wez_target(
     let epoch = server
         .server_epoch
         .ok_or_else(|| unavailable("managed Wez backend has no published server epoch"))?;
-    let descriptor = dmux::runtime::read_verified_ready_wez_descriptor_in(
-        &env.lock_dir,
-        Some(instance.0),
-        Some(epoch.0),
-    )
-    .map_err(runtime_error)?
-    .ok_or_else(|| unavailable("managed mux descriptor absent (service not running)"))?;
+    let descriptor =
+        dmux::runtime::read_verified_ready_wez_descriptor_in(&env.lock_dir, instance.0, epoch.0)
+            .map_err(runtime_error)?
+            .ok_or_else(|| unavailable("managed mux descriptor absent (service not running)"))?;
     if info.socket_path.as_deref() != Some(descriptor.socket.as_str())
         || server.server_pid != Some(i64::from(descriptor.pid))
         || server.server_start_token.as_deref() != Some(descriptor.start_token.as_str())

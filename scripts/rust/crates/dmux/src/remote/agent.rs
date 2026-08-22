@@ -1046,8 +1046,8 @@ fn ready_wez_identity(
     }
     let verified = crate::runtime::read_verified_ready_wez_descriptor_in(
         runtime_dir,
-        Some(instance.0),
-        Some(descriptor_epoch.0),
+        instance.0,
+        descriptor_epoch.0,
     )
     .map_err(|error| {
         WezIdentityError::Refused(TypedError::new(

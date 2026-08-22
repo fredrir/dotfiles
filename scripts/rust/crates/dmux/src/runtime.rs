@@ -717,14 +717,15 @@ fn descriptor_fingerprint(
 /// Every caller resolves `runtime_dir` itself — [`dmux_runtime_dir`] for the
 /// local service, the peer's seam for a remote agent, a scratch directory in
 /// tests — and passes the instance and epoch it already holds from the
-/// registry: a `None` skips that comparison and is only meaningful where no
-/// registry value exists to compare against. Production callers pin both
-/// (each sources them from an `ok_or_else` on the registry row). There is
-/// deliberately no fixed-runtime wrapper (ADR 012 WS-E.3 row 14).
+/// registry. Both are mandatory: there is no form of this read that skips a
+/// comparison, because a descriptor nothing verified against the registry is
+/// exactly the laundering ADR 012 closes (every production caller sources
+/// both from an `ok_or_else` on the registry row). There is deliberately no
+/// fixed-runtime wrapper either (WS-E.3 row 14).
 pub fn read_verified_ready_wez_descriptor_in(
     runtime_dir: &Path,
-    expected_instance: Option<uuid::Uuid>,
-    expected_epoch: Option<uuid::Uuid>,
+    expected_instance: uuid::Uuid,
+    expected_epoch: uuid::Uuid,
 ) -> io::Result<Option<WezMuxDescriptor>> {
     let directory = open_descriptor_runtime(runtime_dir)?;
     let Some(descriptor) = read_wez_descriptor_from_directory(runtime_dir, &directory)? else {
@@ -739,13 +740,13 @@ pub fn read_verified_ready_wez_descriptor_in(
             .expect("require_ready checked backend_instance_uid"),
     )?;
     let epoch = parse_descriptor_uuid("epoch", &descriptor.epoch)?;
-    if expected_instance.is_some_and(|expected| expected != instance) {
+    if expected_instance != instance {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "managed Wez descriptor names a different backend instance",
         ));
     }
-    if expected_epoch.is_some_and(|expected| expected != epoch) {
+    if expected_epoch != epoch {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "managed Wez descriptor names a different server epoch",
@@ -1404,18 +1405,14 @@ mod tests {
         .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
 
-        let descriptor =
-            read_verified_ready_wez_descriptor_in(base.path(), Some(instance), Some(epoch))
-                .unwrap()
-                .unwrap();
+        let descriptor = read_verified_ready_wez_descriptor_in(base.path(), instance, epoch)
+            .unwrap()
+            .unwrap();
         assert_eq!(descriptor.pid, std::process::id());
 
-        let error = read_verified_ready_wez_descriptor_in(
-            base.path(),
-            Some(instance),
-            Some(uuid::Uuid::new_v4()),
-        )
-        .unwrap_err();
+        let error =
+            read_verified_ready_wez_descriptor_in(base.path(), instance, uuid::Uuid::new_v4())
+                .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     }
 

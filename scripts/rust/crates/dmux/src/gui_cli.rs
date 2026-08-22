@@ -1352,8 +1352,8 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 }
                 let descriptor = crate::runtime::read_verified_ready_wez_descriptor_in(
                     &self.runtime_dir,
-                    Some(instance.0),
-                    Some(epoch.0),
+                    instance.0,
+                    epoch.0,
                 )
                 .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?
                 .ok_or_else(|| unavailable("managed Wez descriptor is absent"))?;
@@ -5699,8 +5699,8 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 .ok_or_else(|| unavailable("registered Wez backend has no live server epoch"))?;
             let descriptor = crate::runtime::read_verified_ready_wez_descriptor_in(
                 &self.runtime_dir,
-                Some(instance.0),
-                Some(epoch.0),
+                instance.0,
+                epoch.0,
             )
             .map_err(|error| unavailable(format!("managed Wez descriptor: {error}")))?
             .ok_or_else(|| unavailable("managed Wez descriptor is absent"))?;

@@ -4960,13 +4960,10 @@ mod secure_incarnation_tests {
         )
         .unwrap();
         fs::set_permissions(&descriptor_path, fs::Permissions::from_mode(0o600)).unwrap();
-        let verified = crate::runtime::read_verified_ready_wez_descriptor_in(
-            &runtime,
-            Some(instance.0),
-            Some(epoch.0),
-        )
-        .unwrap()
-        .unwrap();
+        let verified =
+            crate::runtime::read_verified_ready_wez_descriptor_in(&runtime, instance.0, epoch.0)
+                .unwrap()
+                .unwrap();
         assert_eq!(verified.pid, pid);
     }
 }
