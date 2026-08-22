@@ -2219,15 +2219,15 @@ pub fn group_new(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
-    let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
-    if let Some(expected) = scope.expected_epoch()
-        && expected != epoch
-    {
-        return Err(OpError::StaleRef(format!(
-            "expected epoch {} but the live server is {}",
-            expected.0, epoch.0
-        )));
-    }
+    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    // Check-first (ADR 012 §3.4, WS-A.11). Everything the post-mutation
+    // `split_list` below can refuse — an unpinned scope and an epoch the
+    // live server does not serve — is decided here, before the bootstrap
+    // row is journaled and before the native window exists. In the old
+    // order that refusal landed after `provider.group_new`, so every
+    // `dmux group new` under an unpinned scope created a window, aborted,
+    // and left an orphan window plus a live `pane-bootstrap`.
+    let epoch = require_pinned_epoch(scope, observed)?;
     let pre_groups: std::collections::HashSet<String> = native_row
         .groups
         .iter()
@@ -2414,7 +2414,8 @@ pub fn split_new(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, instance, req.space_uid)?;
 
-    let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let epoch = require_pinned_epoch(scope, observed)?;
     require_live_epoch(&req.group, epoch)?;
     let parent = native_row
         .groups
@@ -2575,7 +2576,8 @@ pub fn group_rename(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let epoch = require_pinned_epoch(scope, observed)?;
     require_live_epoch(group, epoch)?;
     if !native_row.groups.iter().any(|g| g.handle == group.handle) {
         return Err(OpError::NotFound(format!(
@@ -2616,7 +2618,8 @@ pub fn group_remove(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let epoch = require_pinned_epoch(scope, observed)?;
     require_live_epoch(group, epoch)?;
     if !native_row.groups.iter().any(|g| g.handle == group.handle) {
         return Err(OpError::NotFound(format!(
@@ -2674,7 +2677,8 @@ pub fn split_remove(
     require_child_mutable(&row)?;
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
-    let (epoch, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let (observed, native_row) = scan_space_row(provider, scope, &binding.native_token)?;
+    let epoch = require_pinned_epoch(scope, observed)?;
     require_live_epoch(split, epoch)?;
     let parent = native_row
         .groups
@@ -2759,18 +2763,29 @@ pub struct ZoomedSplit {
     pub replayed: bool,
 }
 
-fn require_exact_action_epoch(
+/// The one epoch a mutation may act under, or a registry row be minted
+/// from: the epoch the scope was pinned to, confirmed by a complete scan
+/// that answered under exactly that epoch. An unpinned scope is never
+/// mutated — nothing in the registry vouches for what answered on it — and
+/// a scan that answered under another epoch is a replaced server. Both
+/// adapters refuse the same two things inside their own verbs (tmux
+/// `required_epoch`, wez `required_action_epoch`); this is the operations
+/// layer deciding them *first*, before any journal row or native command,
+/// so a refusal can never land after a mutation (ADR 012 §3.4, WS-A.10/11).
+fn require_pinned_epoch(
     scope: &InventoryScope,
     live_epoch: ServerEpoch,
-) -> Result<(), OpError> {
+) -> Result<ServerEpoch, OpError> {
     match scope.expected_epoch() {
-        Some(expected) if expected == live_epoch => Ok(()),
+        Some(expected) if expected == live_epoch => Ok(expected),
         Some(expected) => Err(OpError::StaleRef(format!(
-            "action expected server epoch {} but the live server is {}",
+            "scope is pinned to server epoch {} but the live server answered under {}",
             expected.0, live_epoch.0
         ))),
         None => Err(OpError::Indeterminate(
-            "exact logical child actions require a pinned server epoch".into(),
+            "managed mutations require a scope pinned to the registry-published server epoch; \
+             an unmanaged endpoint is listable but never mutated"
+                .into(),
         )),
     }
 }
@@ -2816,7 +2831,7 @@ pub fn group_activate_exact(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_exact_action_epoch(scope, epoch)?;
+    require_pinned_epoch(scope, epoch)?;
     require_live_epoch(group, epoch)?;
     if !native.groups.iter().any(|row| row.handle == group.handle) {
         return Err(OpError::NotFound(format!(
@@ -2885,7 +2900,7 @@ pub fn split_direction(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_exact_action_epoch(scope, epoch)?;
+    require_pinned_epoch(scope, epoch)?;
     require_live_epoch(origin, epoch)?;
     let parent = split_parent(&native, &origin.handle).ok_or_else(|| {
         OpError::NotFound(format!(
@@ -2966,7 +2981,7 @@ pub fn split_resize(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_exact_action_epoch(scope, epoch)?;
+    require_pinned_epoch(scope, epoch)?;
     require_live_epoch(split, epoch)?;
     split_parent(&native, &split.handle).ok_or_else(|| {
         OpError::NotFound(format!(
@@ -3026,7 +3041,7 @@ pub fn split_zoom(
     let mut locks = OrderedLocks::new(&env.lock_dir);
     ChildLocks::acquire(&mut locks, &registry, row.backend_instance, space_uid)?;
     let (epoch, native) = scan_space_row(provider, scope, &binding.native_token)?;
-    require_exact_action_epoch(scope, epoch)?;
+    require_pinned_epoch(scope, epoch)?;
     require_live_epoch(split, epoch)?;
     split_parent(&native, &split.handle).ok_or_else(|| {
         OpError::NotFound(format!(

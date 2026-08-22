@@ -13,9 +13,9 @@ use dmux::backend::{InventoryScope, SplitDirection};
 use dmux::bootstrap::MarkerContext;
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
-    CreateRequest, OpError, OperationEnv, SplitNewRequest, create_space, group_activate_exact,
-    remove_space, rename_space, resume_remove_space, split_direction, split_new, split_resize,
-    split_zoom, tmux_bootstrap, validate_marker_context,
+    CreateRequest, GroupNewRequest, OpError, OperationEnv, SplitNewRequest, create_space,
+    group_activate_exact, group_new, remove_space, rename_space, resume_remove_space,
+    split_direction, split_new, split_resize, split_zoom, tmux_bootstrap, validate_marker_context,
 };
 use dmux::refs::{ChildRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
@@ -523,4 +523,394 @@ fn exact_child_actions_are_fenced_and_ack_replay_does_not_toggle_twice() {
         ),
         Err(OpError::StaleRef(_))
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Scripted-provider regressions at the operations layer (ADR 012 WS-A.8,
+// WS-A.10, WS-A.11, WS-A.12; review report 08 §7 "call-chain only" items
+// operations.rs:2243/2277 and registry/mod.rs:2812). No native server is
+// involved: the provider answers exactly what each case needs and records
+// every call, and the assertions are about what the operations layer wrote
+// to the registry and what it handed the provider — nothing else.
+
+mod scripted {
+    use std::cell::RefCell;
+
+    use dmux::backend::{
+        Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
+        NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizePlan, PresentationTarget,
+        Provider, ProviderError, ProviderResult, SplitSpec,
+    };
+    use dmux::model::{Backend, ProviderHandle, ServerEpoch};
+
+    /// One scripted backend. `inventory` answers `Complete` under `epoch`
+    /// with `rows`; every mutation records its call and the binding epoch it
+    /// was handed, then fails typed so the operations layer aborts instead of
+    /// waiting on a helper that does not exist. `split_list` mirrors the
+    /// adapters' `required_epoch`/`required_action_epoch`: it refuses an
+    /// unpinned scope — the refusal `operations::group_new` used to reach
+    /// only after its mutation had landed (ADR 012 §3.4).
+    pub struct Script {
+        pub backend: Backend,
+        pub epoch: ServerEpoch,
+        pub rows: Vec<NativeSpaceRow>,
+        pub calls: RefCell<Vec<&'static str>>,
+        pub handed_epochs: RefCell<Vec<ServerEpoch>>,
+    }
+
+    impl Script {
+        pub fn new(backend: Backend, epoch: ServerEpoch, rows: Vec<NativeSpaceRow>) -> Script {
+            Script {
+                backend,
+                epoch,
+                rows,
+                calls: RefCell::new(Vec::new()),
+                handed_epochs: RefCell::new(Vec::new()),
+            }
+        }
+
+        pub fn calls(&self) -> Vec<&'static str> {
+            self.calls.borrow().clone()
+        }
+
+        fn note(&self, call: &'static str) {
+            self.calls.borrow_mut().push(call);
+        }
+
+        fn refuse(&self, call: &'static str) -> ProviderError {
+            ProviderError::NativeFailure {
+                detail: format!("scripted {call}: reached the provider"),
+            }
+        }
+    }
+
+    /// One Space row with one Group holding one Split, as a fresh create
+    /// leaves it.
+    pub fn one_window(token: &str, handle: fn(u64) -> ProviderHandle) -> NativeSpaceRow {
+        NativeSpaceRow {
+            native_token: token.into(),
+            native_name: token.into(),
+            groups: vec![NativeGroupRow {
+                handle: handle(1),
+                title: None,
+                splits: vec![NativeSplitRow {
+                    handle: handle(1),
+                    title: None,
+                    cwd: None,
+                }],
+            }],
+            multi_window: false,
+        }
+    }
+
+    impl Provider for Script {
+        fn capabilities(&self) -> Capabilities {
+            Capabilities {
+                backend: self.backend,
+                cas_rename: false,
+                probed: Vec::new(),
+            }
+        }
+
+        fn inventory(&self, _scope: &InventoryScope) -> InventoryOutcome {
+            self.note("inventory");
+            InventoryOutcome::Complete(NativeInventory {
+                server_epoch: Some(self.epoch),
+                rows: self.rows.clone(),
+            })
+        }
+
+        fn create(
+            &self,
+            _scope: &InventoryScope,
+            _spec: &CreateSpec,
+        ) -> ProviderResult<NativeBinding> {
+            self.note("create");
+            Err(self.refuse("create"))
+        }
+
+        fn prepare_presentation(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+            _child: Option<&ProviderHandle>,
+        ) -> ProviderResult<PresentationTarget> {
+            self.note("prepare_presentation");
+            Err(self.refuse("prepare_presentation"))
+        }
+
+        fn rename(
+            &self,
+            _scope: &InventoryScope,
+            binding: &NativeBinding,
+            _new_native_name: &str,
+        ) -> ProviderResult<()> {
+            self.note("rename");
+            self.handed_epochs.borrow_mut().push(binding.server_epoch);
+            Err(self.refuse("rename"))
+        }
+
+        fn remove(&self, _scope: &InventoryScope, binding: &NativeBinding) -> ProviderResult<()> {
+            self.note("remove");
+            self.handed_epochs.borrow_mut().push(binding.server_epoch);
+            Err(self.refuse("remove"))
+        }
+
+        fn group_list(
+            &self,
+            _scope: &InventoryScope,
+            _binding: &NativeBinding,
+        ) -> ProviderResult<Vec<NativeGroupRow>> {
+            self.note("group_list");
+            Err(self.refuse("group_list"))
+        }
+
+        fn group_new(
+            &self,
+            _scope: &InventoryScope,
+            binding: &NativeBinding,
+            _spec: &CreateSpec,
+        ) -> ProviderResult<ProviderHandle> {
+            self.note("group_new");
+            self.handed_epochs.borrow_mut().push(binding.server_epoch);
+            Err(self.refuse("group_new"))
+        }
+
+        fn group_activate(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            self.note("group_activate");
+            Err(self.refuse("group_activate"))
+        }
+
+        fn group_rename(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+            _title: &str,
+        ) -> ProviderResult<()> {
+            self.note("group_rename");
+            Err(self.refuse("group_rename"))
+        }
+
+        fn group_remove(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            self.note("group_remove");
+            Err(self.refuse("group_remove"))
+        }
+
+        fn split_list(
+            &self,
+            scope: &InventoryScope,
+            group: &ProviderHandle,
+        ) -> ProviderResult<Vec<NativeSplitRow>> {
+            self.note("split_list");
+            if scope.expected_epoch().is_none() {
+                return Err(ProviderError::WrongInstance {
+                    detail: "scripted split_list: a managed read requires a pinned scope".into(),
+                });
+            }
+            Ok(self
+                .rows
+                .iter()
+                .flat_map(|row| row.groups.iter())
+                .find(|row| row.handle == *group)
+                .map(|row| row.splits.clone())
+                .unwrap_or_default())
+        }
+
+        fn split_new(
+            &self,
+            _scope: &InventoryScope,
+            _group: &ProviderHandle,
+            _spec: &SplitSpec,
+        ) -> ProviderResult<ProviderHandle> {
+            self.note("split_new");
+            Err(self.refuse("split_new"))
+        }
+
+        fn split_activate(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            self.note("split_activate");
+            Err(self.refuse("split_activate"))
+        }
+
+        fn split_remove(
+            &self,
+            _scope: &InventoryScope,
+            _handle: &ProviderHandle,
+        ) -> ProviderResult<()> {
+            self.note("split_remove");
+            Err(self.refuse("split_remove"))
+        }
+
+        fn normalize_plan(
+            &self,
+            _scope: &InventoryScope,
+            native_token: &str,
+        ) -> ProviderResult<NormalizePlan> {
+            self.note("normalize_plan");
+            Err(ProviderError::NativeFailure {
+                detail: format!("scripted normalize_plan: {native_token}"),
+            })
+        }
+
+        fn inspect(
+            &self,
+            _scope: &InventoryScope,
+            binding: &NativeBinding,
+        ) -> ProviderResult<NativeSpaceRow> {
+            self.note("inspect");
+            self.handed_epochs.borrow_mut().push(binding.server_epoch);
+            Err(self.refuse("inspect"))
+        }
+    }
+}
+
+mod scripted_registry {
+    use dmux::model::{Backend, BackendInstanceUid, ServerEpoch, SpaceUid};
+    use dmux::operations::OperationEnv;
+    use dmux::registry::{NativeBindingSpec, NativeKind, Registry, RegistryConfig};
+    use uuid::Uuid;
+
+    pub struct ScriptedEnv {
+        _data: tempfile::TempDir,
+        _locks: tempfile::TempDir,
+        pub env: OperationEnv,
+    }
+
+    pub fn scripted_env() -> ScriptedEnv {
+        let data = tempfile::tempdir().unwrap();
+        let locks = tempfile::tempdir().unwrap();
+        let env = OperationEnv {
+            db_path: data.path().join("registry.sqlite3"),
+            lock_dir: locks.path().to_path_buf(),
+        };
+        ScriptedEnv {
+            _data: data,
+            _locks: locks,
+            env,
+        }
+    }
+
+    pub fn registry(env: &OperationEnv) -> Registry {
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).unwrap()
+    }
+
+    /// The registry state a finished create leaves behind, minus the server:
+    /// the managed `backend` instance on `endpoint`, its incarnation
+    /// published as `published`, and one Active/Healthy Space bound to
+    /// `token` with `binding_epoch` recorded on the binding.
+    pub fn seed_bound_space(
+        env: &OperationEnv,
+        backend: Backend,
+        endpoint: &str,
+        published: ServerEpoch,
+        token: &str,
+        binding_epoch: Option<ServerEpoch>,
+    ) -> (BackendInstanceUid, SpaceUid) {
+        let mut registry = registry(env);
+        let instance = registry
+            .register_backend_instance(backend, Some(endpoint), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, published, Some(4242), Some("start"), None, None)
+            .unwrap();
+        let reservation = registry
+            .reserve_space("proj", instance, Uuid::new_v4())
+            .unwrap();
+        registry
+            .finalize_create(
+                reservation.space_uid,
+                reservation.operation_uid,
+                &NativeBindingSpec {
+                    native_token: token.into(),
+                    native_kind: match backend {
+                        Backend::Tmux => NativeKind::TmuxSessionId,
+                        Backend::Wez => NativeKind::WezWorkspaceKey,
+                    },
+                    server_epoch: binding_epoch,
+                },
+            )
+            .unwrap();
+        (instance, reservation.space_uid)
+    }
+
+    /// Rows in `bootstrap_requests` — the durable journal WS-A.10 is about.
+    pub fn bootstrap_rows(env: &OperationEnv) -> i64 {
+        registry(env)
+            .raw_connection()
+            .query_row("SELECT COUNT(*) FROM bootstrap_requests", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    }
+}
+
+use scripted::{Script, one_window};
+use scripted_registry::{bootstrap_rows, scripted_env, seed_bound_space};
+
+fn group_request(space_uid: dmux::model::SpaceUid) -> GroupNewRequest {
+    GroupNewRequest {
+        request_uid: Uuid::new_v4(),
+        space_uid,
+        cwd: None,
+        program: Vec::new(),
+        helper_bin: "/unused/pane-bootstrap".into(),
+    }
+}
+
+/// ADR 012 §3.4 / WS-A.11 (case 26): the scripted `split_list` refuses an
+/// unpinned scope exactly as both adapters do. Before the fix
+/// `operations::group_new` reached that refusal only after
+/// `provider.group_new` had created the window and the bootstrap row had
+/// been journaled. Now nothing is created: the provider sees one inventory
+/// call and the journal stays empty. The pinned control proves the refusal
+/// is the scope, not the seed — the same request reaches the provider's
+/// `group_new` and the journal row it aborts carries the pinned epoch.
+#[test]
+fn group_new_under_an_unpinned_scope_creates_nothing() {
+    let scratch = scripted_env();
+    let env = &scratch.env;
+    let epoch = ServerEpoch(Uuid::new_v4());
+    let (_instance, space_uid) =
+        seed_bound_space(env, Backend::Tmux, "tmux-script", epoch, "$1", Some(epoch));
+    let provider = Script::new(
+        Backend::Tmux,
+        epoch,
+        vec![one_window("$1", dmux::model::ProviderHandle::Tx)],
+    );
+
+    let unpinned = InventoryScope::unmanaged_endpoint(Backend::Tmux, "tmux-script");
+    let err = group_new(env, &provider, &unpinned, &group_request(space_uid)).unwrap_err();
+    assert!(matches!(err, OpError::Indeterminate(_)), "{err}");
+    assert!(err.to_string().contains("pinned"), "{err}");
+    assert_eq!(
+        provider.calls(),
+        vec!["inventory"],
+        "no mutation, no split_list"
+    );
+    assert_eq!(
+        bootstrap_rows(env),
+        0,
+        "nothing journaled under an unpinned scope"
+    );
+
+    // Control: the pinned scope reaches the mutation, journaled first.
+    let pinned = InventoryScope::managed(Backend::Tmux, "tmux-script", epoch);
+    let err = group_new(env, &provider, &pinned, &group_request(space_uid)).unwrap_err();
+    assert!(matches!(err, OpError::Provider(_)), "{err}");
+    assert_eq!(
+        provider.calls(),
+        vec!["inventory", "inventory", "group_new"]
+    );
+    assert_eq!(bootstrap_rows(env), 1);
 }

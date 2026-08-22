@@ -419,7 +419,6 @@ struct WezScratch {
     server: std::process::Child,
     socket: String,
     config: String,
-    epoch: ServerEpoch,
     dir: tempfile::TempDir,
 }
 
@@ -459,7 +458,6 @@ return config
             server,
             socket,
             config: config_path.display().to_string(),
-            epoch: ServerEpoch(epoch),
             dir,
         }
     }
@@ -508,21 +506,36 @@ fn wez_hierarchy_full_cycle_at_the_operations_layer() {
     let helper_shim = shim.display().to_string();
     let provider =
         dmux::backend::wez::WezProvider::new("/opt/homebrew/bin/wezterm", s.config.clone());
-    // Pinned to the scratch server's own epoch (WS-A.6: the adapter refuses
-    // an unpinned scope for every verb beyond `inventory`).
-    let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), s.epoch);
-    // Wait for the sentinel to establish a complete epoched scan.
+    // First contact: discover the sentinel epoch on the bare endpoint, then
+    // register and publish the managed instance the way `mux-startup` does,
+    // so every verb below runs under a scope pinned to the registry's
+    // published epoch (mutations refuse an unpinned scope — ADR 012 WS-A.11).
+    let probe = InventoryScope::unmanaged_endpoint(Backend::Wez, s.socket.clone());
     let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
+    let epoch = loop {
         use dmux::backend::{InventoryOutcome, Provider};
-        if let InventoryOutcome::Complete(inv) = provider.inventory(&scope)
-            && inv.server_epoch.is_some()
+        if let InventoryOutcome::Complete(inv) = provider.inventory(&probe)
+            && let Some(epoch) = inv.server_epoch
         {
-            break;
+            break epoch;
         }
         assert!(Instant::now() < deadline, "mux server never became ready");
         std::thread::sleep(Duration::from_millis(100));
+    };
+    {
+        let mut registry = dmux::registry::Registry::open(dmux::registry::RegistryConfig::new(
+            &env.db_path,
+            &env.lock_dir,
+        ))
+        .unwrap();
+        let instance = registry
+            .register_backend_instance(Backend::Wez, Some(&s.socket), None)
+            .unwrap();
+        registry
+            .publish_backend_server(instance, epoch, None, None, None, None)
+            .unwrap();
     }
+    let scope = InventoryScope::managed(Backend::Wez, s.socket.clone(), epoch);
 
     // Space create through the full broker protocol on a wez pane.
     let mark = data.path().join("wm");
