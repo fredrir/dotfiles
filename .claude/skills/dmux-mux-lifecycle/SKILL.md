@@ -149,7 +149,7 @@ Owner mode (`mux/dmux-mux.lua`): reached only under `WEZ_FIRST`, through
 - `wezterm.json_encode` cannot distinguish an empty sequence from an empty object. The recovery
   manifest requires `spaces` to stay a JSON array, so the code patches `"spaces":{}` after encoding
   and fails if the replacement count is not exactly 1.
-- The systemd unit needs `PassEnvironment=DMUX_WEZ_FIRST`; the flag is read at config evaluation and
+- The flag reaches the systemd unit from the user manager's own environment block, which `~/.config/environment.d/50-dmux.conf` populates (the unit's `PassEnvironment=` lines are inert for a user manager — see the unit's comments); the flag is read at config evaluation and
   a service that does not inherit it comes up unmanaged.
 - The launchd plist deliberately sets no `StandardOutPath`/`StandardErrorPath` — asking launchd to
   open predictable `/tmp` log paths is a symlink hazard.

@@ -510,4 +510,19 @@ A5-d new → A5-d rm → A5-e → A5-c new_lookup. WS-A.7 (`main.rs:1450`) stays
 
 Each commit states what `Unpublished` means for its verb; each deletes its `tests/scope_audit.rs`
 allowlist entry; each lands a regression test that is the review's reproduction inverted.
+- **WS-F.1 — closed 2026-08-22** (`9f6d469`, `f9fbdd9`, `6b15866`, `386fe55`, cherry-picked as
+  `539ff49`…`fc38805`). Mechanism: the untracked `~/.config/dmux/service.env` is the durable source
+  on macOS — parsed by one sourced helper (`shared/wezterm/mux/dmux-service-env.sh`: keys
+  `^DMUX_[A-Z0-9_]*$`, values `^[A-Za-z0-9_./:@+,-]*$`, last assignment wins, one malformed line
+  refuses the whole file, never eval/source), applied to the launchd session at login by the
+  one-shot `com.fredrir.dmux-env` LaunchAgent (`dmux-env-load.sh`), and read by `dmux-mux-start.sh`
+  itself so the mux never depends on agent ordering. Precedence: a non-empty process-environment
+  value, then the file (Darwin only), then the tracked default `0`. On Linux the single knob is
+  `~/.config/environment.d/50-dmux.conf`; the unit's `PassEnvironment=` lines are inert for a user
+  manager (systemd.exec(5)) and the manager's block delivers the value, so no directive changed.
+  `dmux doctor` reports the flag per layer (process / launchd-or-systemd / file) with a
+  reboot-durability verdict, in human output and both JSON forms. 13 shell cases under
+  `tests/cases/dmux-service-env.sh`, 3 doctor unit tests. Not proven here by design: a real
+  `launchctl bootstrap`, a real reboot, and the Linux arm on a Linux host — those are WS-F.2/F.3's
+  evidence. The loader only sets, never unsets: to state legacy, write `0`.
 
