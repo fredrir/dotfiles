@@ -179,6 +179,53 @@ pub enum RepairCmd {
         #[arg(long, hide = true)]
         lock_dir: Option<String>,
     },
+
+    /// Clear a published backend incarnation whose process is gone (plan
+    /// §5.2 state F; ADR 012 WS-B.3). Compare-and-set on the published
+    /// epoch, journaled as a revision; the instance is unpublished until the
+    /// managed service republishes. Expert, confirmed, owner-local.
+    #[command(name = "retire-incarnation")]
+    RetireIncarnation {
+        /// Which backend's instance to retire
+        #[arg(long, value_enum)]
+        backend: RetireBackend,
+
+        /// The epoch the registry currently publishes; anything else refuses
+        #[arg(long)]
+        epoch: Uuid,
+
+        /// Retire even though the published pid is still alive
+        #[arg(long)]
+        allow_live_pid: bool,
+
+        /// Apply without asking
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Test seam: directory holding registry.sqlite3.
+        #[arg(long, hide = true)]
+        data_dir: Option<String>,
+
+        /// Test seam: kernel-lock directory.
+        #[arg(long, hide = true)]
+        lock_dir: Option<String>,
+    },
+}
+
+/// The backend named on `repair retire-incarnation`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum RetireBackend {
+    Wez,
+    Tmux,
+}
+
+impl From<RetireBackend> for Backend {
+    fn from(backend: RetireBackend) -> Backend {
+        match backend {
+            RetireBackend::Wez => Backend::Wez,
+            RetireBackend::Tmux => Backend::Tmux,
+        }
+    }
 }
 
 pub fn repair(cmd: RepairCmd, format: Option<OutputFormat>) -> ExitCode {
@@ -193,6 +240,7 @@ fn repair_action(cmd: &RepairCmd) -> &'static str {
     match cmd {
         RepairCmd::Normalize { .. } => "repair_normalize",
         RepairCmd::Reconcile { .. } => "repair_reconcile",
+        RepairCmd::RetireIncarnation { .. } => "repair_retire_incarnation",
     }
 }
 
@@ -205,6 +253,22 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             data_dir,
             lock_dir,
         } => reconcile_cmd(spaces, yes, data_dir, lock_dir, format),
+        RepairCmd::RetireIncarnation {
+            backend,
+            epoch,
+            allow_live_pid,
+            yes,
+            data_dir,
+            lock_dir,
+        } => retire_incarnation_cmd(
+            Backend::from(backend),
+            ServerEpoch(epoch),
+            allow_live_pid,
+            yes,
+            data_dir,
+            lock_dir,
+            format,
+        ),
         RepairCmd::Normalize {
             tokens,
             yes,
@@ -391,6 +455,74 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
 ///
 /// Preview first, always; then one §16.2 document on every branch — nothing
 /// to do, refused, declined, applied, or partially applied.
+/// `dmux repair retire-incarnation` (ADR 012 WS-B.3; plan §5.2 state F):
+/// the operator's explicit clear for an incarnation the managed service will
+/// not bring back. Confirmation per §7.4, then one compare-and-set in the
+/// registry; every refusal is typed and mutates nothing.
+fn retire_incarnation_cmd(
+    backend: Backend,
+    epoch: ServerEpoch,
+    allow_live_pid: bool,
+    yes: bool,
+    data_dir: Option<String>,
+    lock_dir: Option<String>,
+    format: Option<OutputFormat>,
+) -> Result<ExitCode, TypedError> {
+    const ACTION: &str = "repair_retire_incarnation";
+    let env = match (data_dir, lock_dir) {
+        (Some(data), Some(lock)) => OperationEnv {
+            db_path: std::path::PathBuf::from(data).join("registry.sqlite3"),
+            lock_dir: std::path::PathBuf::from(lock),
+        },
+        _ => OperationEnv::production().map_err(runtime_error)?,
+    };
+    let target = format!("{backend} incarnation {}", epoch.0);
+    if let Err(code) = confirm(
+        ACTION,
+        format,
+        &target,
+        &format!(
+            "retire the published {target}? The instance stays unpublished until the managed \
+             service republishes; every verb on it refuses until then."
+        ),
+        yes,
+        Some(&env),
+    ) {
+        return Ok(code);
+    }
+    match operations::retire_incarnation(&env, backend, epoch, allow_live_pid) {
+        Ok(retired) => {
+            if format == Some(OutputFormat::Json) {
+                emit_document(
+                    ACTION,
+                    json!({
+                        "backend": retired.backend,
+                        "backend_instance": retired.backend_instance,
+                        "retired_epoch": retired.retired_epoch,
+                        "retired_pid": retired.retired_pid,
+                        "authority_revision": retired.authority_revision,
+                    }),
+                    retired.authority_revision,
+                );
+            } else {
+                println!(
+                    "retired {} incarnation {} ({}) of instance {} at authority revision {}; the \
+                     instance is unpublished until the managed service republishes",
+                    retired.backend,
+                    retired.retired_epoch.0,
+                    retired
+                        .retired_pid
+                        .map_or_else(|| "no pid".to_string(), |pid| format!("pid {pid}")),
+                    retired.backend_instance.0,
+                    retired.authority_revision
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(error) => Ok(refuse(ACTION, format, &typed_op(&error), Some(&env))),
+    }
+}
+
 fn reconcile_cmd(
     spaces: Vec<String>,
     yes: bool,
