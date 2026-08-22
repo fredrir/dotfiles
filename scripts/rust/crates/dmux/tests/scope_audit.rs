@@ -42,10 +42,6 @@ const ALLOWLIST: &[(&str, &str)] = &[
     ("src/backend/tmux.rs", "test-only scope(Option) helper"),
     ("src/backend/wez.rs", "test-only scope(Option) helper"),
     (
-        "src/space_cli.rs",
-        "WS-A.5 burn-down: group new tmux arm hardcodes no epoch (finding #4)",
-    ),
-    (
         "src/new_cli.rs",
         "WS-A.5 burn-down: local_target launders a NULL epoch (finding #12)",
     ),

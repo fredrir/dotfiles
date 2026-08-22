@@ -1242,17 +1242,23 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedErro
         .backend_instance_info(row.backend_instance)
         .map_err(registry_error)?;
     let (provider, scope): (Box<dyn Provider>, InventoryScope) = match info.backend {
+        // The tmux Space's instance is an FK the registry vouches for, but
+        // "registered" is not "verified": until the mux publishes its epoch
+        // (`dmux-mux-start.sh` registers first, publishes later), nothing
+        // about the live server can be checked, and this verb builds a real
+        // provider that would mutate whatever answers on the namespace.
+        // Finding #4 proved `group new` under that unpinned scope creating a
+        // window on an impostor server. Pin through the one resolver, or
+        // refuse before any provider exists — `backend_epoch_changed` for an
+        // unpublished incarnation, the file's missing-endpoint code for an
+        // unaddressable one. The Wez arm below has always pinned this way.
         Backend::Tmux => {
-            let namespace = info.socket_path.ok_or_else(|| {
-                TypedError::new(
-                    ErrorCode::ProviderUnavailable,
-                    "tmux instance has no namespace recorded",
-                )
-            })?;
+            let scope = managed_scope(&registry, Backend::Tmux, row.backend_instance)?;
             (
-                Box::new(dmux::backend::tmux::TmuxProvider::new(namespace.clone())),
-                // audit(unmanaged_endpoint): WS-A.5 burn-down: group new tmux arm hardcodes no epoch (finding #4)
-                InventoryScope::unmanaged_endpoint(Backend::Tmux, namespace),
+                Box::new(dmux::backend::tmux::TmuxProvider::new(
+                    scope.endpoint.clone(),
+                )),
+                scope,
             )
         }
         Backend::Wez => {
