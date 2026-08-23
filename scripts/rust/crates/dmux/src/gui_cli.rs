@@ -1476,6 +1476,20 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                         ManagedTarget::unpublished_detail(opposite, instance),
                     ));
                 }
+                // Published but refuted by the host (state F): an inventory
+                // nothing verified cannot establish "no collision" either.
+                ManagedTarget::StaleIncarnation {
+                    instance,
+                    published,
+                    observed,
+                } => {
+                    return Err(TypedError::new(
+                        ErrorCode::BackendEpochChanged,
+                        ManagedTarget::stale_incarnation_detail(
+                            opposite, instance, &published, &observed,
+                        ),
+                    ));
+                }
                 ManagedTarget::Unaddressable(_) => {
                     return Err(unavailable(format!(
                         "registered opposite {opposite} backend has no inventory endpoint"
@@ -8104,7 +8118,16 @@ mod tests {
                 .unwrap();
             let epoch = ServerEpoch(Uuid::new_v4());
             registry
-                .publish_backend_server(instance, epoch, Some(4242), Some("tok"), None, None)
+                // A live incarnation: this process's pid and OS start witness
+                // (ADR 012 WS-B.1 refutes a published row whose process is dead).
+                .publish_backend_server(
+                    instance,
+                    epoch,
+                    Some(i64::from(std::process::id())),
+                    Some(&crate::runtime::process_start_token(std::process::id()).unwrap()),
+                    None,
+                    None,
+                )
                 .unwrap();
             drop(registry);
 

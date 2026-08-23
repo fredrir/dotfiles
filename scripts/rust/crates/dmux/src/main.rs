@@ -1481,6 +1481,20 @@ fn context_cmd(data_dir: Option<String>, lock_dir: Option<String>) -> Result<Exi
                 ManagedTarget::Unpublished(uid) => {
                     return Err(ManagedTarget::unpublished_detail(Backend::Tmux, uid));
                 }
+                // Published but refuted by the host (state F): no marker is
+                // minted from a server that is not the published incarnation.
+                ManagedTarget::StaleIncarnation {
+                    instance: uid,
+                    published,
+                    observed,
+                } => {
+                    return Err(ManagedTarget::stale_incarnation_detail(
+                        Backend::Tmux,
+                        uid,
+                        &published,
+                        &observed,
+                    ));
+                }
                 ManagedTarget::Unaddressable(uid) => {
                     return Err(ManagedTarget::unaddressable_detail(Backend::Tmux, uid));
                 }

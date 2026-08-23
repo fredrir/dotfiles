@@ -373,6 +373,22 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
                     ManagedTarget::unpublished_detail(backend, instance),
                 ));
             }
+            // A published epoch the host refutes (state F) refuses the same
+            // way, before any lookup or reservation: a scan pinned to it
+            // could only be answered by a server that is not the published
+            // one, and nothing derived from that may reach the registry.
+            ManagedTarget::StaleIncarnation {
+                instance,
+                published,
+                observed,
+            } => {
+                return Err(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    ManagedTarget::stale_incarnation_detail(
+                        backend, instance, &published, &observed,
+                    ),
+                ));
+            }
             ManagedTarget::Unaddressable(instance) => {
                 return Err(TypedError::new(
                     ErrorCode::ProviderUnavailable,

@@ -1300,6 +1300,34 @@ fn spaces(cx: &mut AgentCx) -> Result<Reply, TypedError> {
                 },
             )?);
         }
+        // Published but refuted by the host (state F): `unreachable` with
+        // the stale detail, and no tmux command runs — a peer renders the
+        // instance's Spaces `unreachable`, never `live` or `stopped` on the
+        // word of a server that is not the published incarnation (§8.1).
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => {
+            scans.push(fenced_tmux_scan(
+                &cx.registry,
+                &mut scan_locks,
+                &mut spaces,
+                instance,
+                || {
+                    unscanned_summary(
+                        Backend::Tmux,
+                        "unreachable",
+                        ManagedTarget::stale_incarnation_detail(
+                            Backend::Tmux,
+                            instance,
+                            &published,
+                            &observed,
+                        ),
+                    )
+                },
+            )?);
+        }
         ManagedTarget::Unaddressable(instance) => {
             scans.push(fenced_tmux_scan(
                 &cx.registry,
@@ -1410,26 +1438,39 @@ fn owner_lookup_target(
     registry: &Registry,
     backend: Backend,
 ) -> Result<Option<OwnerLookupTarget>, TypedError> {
-    let (instance, scope) =
-        match scope::resolve_managed(registry, backend).map_err(typed_registry)? {
-            ManagedTarget::Unregistered => return Ok(None),
-            ManagedTarget::Managed { instance, scope } => (instance, scope),
-            // Registered and addressable, epoch NULL: indeterminate, never
-            // "name free". The refusal is the epoch fault the client already
-            // maps, so it can neither create nor connect on this answer.
-            ManagedTarget::Unpublished(instance) => {
-                return Err(TypedError::new(
-                    ErrorCode::BackendEpochChanged,
-                    ManagedTarget::unpublished_detail(backend, instance),
-                ));
-            }
-            ManagedTarget::Unaddressable(instance) => {
-                return Err(TypedError::new(
-                    ErrorCode::ProviderUnavailable,
-                    ManagedTarget::unaddressable_detail(backend, instance),
-                ));
-            }
-        };
+    let (instance, scope) = match scope::resolve_managed(registry, backend)
+        .map_err(typed_registry)?
+    {
+        ManagedTarget::Unregistered => return Ok(None),
+        ManagedTarget::Managed { instance, scope } => (instance, scope),
+        // Registered and addressable, epoch NULL: indeterminate, never
+        // "name free". The refusal is the epoch fault the client already
+        // maps, so it can neither create nor connect on this answer.
+        ManagedTarget::Unpublished(instance) => {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::unpublished_detail(backend, instance),
+            ));
+        }
+        // Published but refuted by the host (state F): the same typed
+        // epoch fault; still never "name free".
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::stale_incarnation_detail(backend, instance, &published, &observed),
+            ));
+        }
+        ManagedTarget::Unaddressable(instance) => {
+            return Err(TypedError::new(
+                ErrorCode::ProviderUnavailable,
+                ManagedTarget::unaddressable_detail(backend, instance),
+            ));
+        }
+    };
     let provider: Box<dyn Provider> = match backend {
         Backend::Tmux => Box::new(TmuxProvider::new(scope.endpoint.clone())),
         Backend::Wez => {

@@ -1565,6 +1565,17 @@ fn managed_scope(
             ErrorCode::BackendEpochChanged,
             ManagedTarget::unpublished_detail(backend, instance),
         )),
+        // Published but refuted by the host (state F): the same epoch fault,
+        // so every group/split verb and `repair reconcile` refuse before any
+        // provider exists, exactly as for an unpublished instance.
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            ManagedTarget::stale_incarnation_detail(backend, instance, &published, &observed),
+        )),
         ManagedTarget::Unaddressable(instance) => Err(TypedError::new(
             ErrorCode::ProviderUnavailable,
             ManagedTarget::unaddressable_detail(backend, instance),
@@ -2327,7 +2338,15 @@ mod tests {
             .register_backend_instance(Backend::Tmux, Some("dmux-scratch"), None)
             .unwrap();
         registry
-            .publish_backend_server(instance, epoch, Some(4242), Some("start"), None, None)
+            // A live pid: WS-B.1 refutes a published row whose process is dead.
+            .publish_backend_server(
+                instance,
+                epoch,
+                Some(i64::from(std::process::id())),
+                Some("start"),
+                None,
+                None,
+            )
             .unwrap();
         registry
             .reserve_space("stranded", instance, Uuid::new_v4())

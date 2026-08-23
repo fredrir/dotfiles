@@ -348,8 +348,9 @@ fn wez_registered<'a>(scratch: &Scratch, mux: &'a FakeMux) -> WezCli<&'a FakeMux
         .publish_backend_server(
             instance,
             ServerEpoch(mux.epoch),
-            Some(4242),
-            Some("start-token"),
+            // A live incarnation (ADR 012 WS-B.1 refutes a dead published pid).
+            Some(i64::from(std::process::id())),
+            Some(&dmux::runtime::process_start_token_for_pid(std::process::id()).unwrap()),
             None,
             None,
         )
@@ -958,8 +959,9 @@ fn a_null_epoch_wez_instance_refuses_preview_and_commit_and_leaves_no_stamp() {
         .publish_backend_server(
             instance,
             ServerEpoch(mux.epoch),
-            Some(4242),
-            Some("start-token"),
+            // A live incarnation (ADR 012 WS-B.1 refutes a dead published pid).
+            Some(i64::from(std::process::id())),
+            Some(&dmux::runtime::process_start_token_for_pid(std::process::id()).unwrap()),
             None,
             None,
         )

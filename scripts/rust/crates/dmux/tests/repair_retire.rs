@@ -91,9 +91,9 @@ fn retire_incarnation_clears_only_the_named_epoch_after_confirmation() {
     assert!(
         matches!(
             resolve_managed(&home.registry(), Backend::Tmux).unwrap(),
-            ManagedTarget::Managed { .. }
+            ManagedTarget::StaleIncarnation { .. }
         ),
-        "a declined retire changes nothing"
+        "a declined retire changes nothing: the row still publishes the dead incarnation"
     );
 
     // The wrong epoch refuses as an epoch fault and changes nothing.
@@ -113,7 +113,7 @@ fn retire_incarnation_clears_only_the_named_epoch_after_confirmation() {
     assert_eq!(document(&out)["errors"][0]["code"], "backend_epoch_changed");
     assert!(matches!(
         resolve_managed(&home.registry(), Backend::Tmux).unwrap(),
-        ManagedTarget::Managed { .. }
+        ManagedTarget::StaleIncarnation { .. }
     ));
 
     // The named epoch retires: the row is cleared and the chain advanced.

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use uuid::Uuid;
 
+use crate::backend::scope;
 use crate::backend::tmux::{EpochSetOutcome, SystemRunner, TmuxProvider};
 use crate::locks::{LockMode, LockScope, OrderedLocks};
 use crate::model::{Backend, ServerEpoch};
@@ -2618,19 +2619,18 @@ fn verify_published_incarnation(
                 scope.endpoint
             ))
         })?;
-        let recorded = (
-            published.server_pid,
-            published.server_start_token.clone(),
-            published.socket_dev,
-            published.socket_ino,
-        );
-        let observed = (
-            Some(i64::from(live.identity.pid)),
-            Some(live.identity.start_token.clone()),
-            i64::try_from(live.socket_dev).ok(),
-            i64::try_from(live.socket_ino).ok(),
-        );
-        if recorded != observed {
+        // The comparison itself is the resolver's (`backend::scope::
+        // compare_incarnation`, ADR 012 WS-B.1), so a mutation's pre-check
+        // and `resolve_managed`'s liveness verdict cannot drift apart.
+        let recorded = scope::PublishedIncarnation::from_record(&published)
+            .expect("a Managed scope was resolved from a published row");
+        let observed = scope::ObservedIncarnation::Process {
+            pid: i64::from(live.identity.pid),
+            start_token: Some(live.identity.start_token.clone()),
+            socket_dev: i64::try_from(live.socket_dev).ok(),
+            socket_ino: i64::try_from(live.socket_ino).ok(),
+        };
+        if scope::compare_incarnation(&recorded, &observed).is_err() {
             return Err(OpError::StaleRef(format!(
                 "tmux server on namespace {:?} is not the registry-published incarnation: \
                  registry pid {:?} start {:?} socket dev/ino {:?}/{:?}; live pid {} start {:?} \

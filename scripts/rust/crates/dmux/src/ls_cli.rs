@@ -15,7 +15,10 @@ use serde_json::{Value, json};
 use unicode_width::UnicodeWidthStr;
 use uuid::Uuid;
 
-use crate::backend::scope::{self, ManagedTarget};
+use crate::backend::scope::{
+    self, IncarnationProbe, ManagedTarget, ObservedIncarnation, OsIncarnationProbe,
+    PublishedIncarnation,
+};
 use crate::backend::tmux::TmuxProvider;
 use crate::backend::wez::WezProvider;
 use crate::backend::{InventoryOutcome, InventoryScope, Provider};
@@ -739,6 +742,10 @@ enum ScanTarget {
     /// registers first, publishes later) and stays this way if coordination
     /// never completes.
     Unpublished(BackendInstanceUid),
+    /// A registered instance whose published incarnation the host refutes
+    /// (plan §5.2 state F): nothing is probed, and every Space on it is
+    /// `unreachable` with the `stale_incarnation` detail carried here.
+    Stale(String),
     /// No instance registered, but the backend has a well-known endpoint
     /// natives can be discovered on. Not fenced — there is no managed
     /// instance to fence — and it can only ever yield unmanaged rows.
@@ -812,9 +819,18 @@ impl Authority {
         discoverable: Option<&str>,
     ) -> Result<ScanTarget, TypedError> {
         Ok(
-            match scope::resolve_managed(registry, backend).map_err(typed_registry)? {
+            match scope::resolve_managed_with(registry, backend, &LiveIncarnationProbe)
+                .map_err(typed_registry)?
+            {
                 ManagedTarget::Managed { instance, scope } => ScanTarget::Managed(instance, scope),
                 ManagedTarget::Unpublished(instance) => ScanTarget::Unpublished(instance),
+                ManagedTarget::StaleIncarnation {
+                    instance,
+                    published,
+                    observed,
+                } => ScanTarget::Stale(ManagedTarget::stale_incarnation_detail(
+                    backend, instance, &published, &observed,
+                )),
                 ManagedTarget::Unaddressable(_) => ScanTarget::Unaddressable,
                 ManagedTarget::Unregistered => match discoverable {
                     // audit(unmanaged_endpoint): first-contact tmux namespace; nothing is registered for this backend
@@ -894,6 +910,12 @@ impl Authority {
                 // from the wrong one demotes every live Space to `absent`.
                 ScanTarget::Unpublished(instance) => InventoryOutcome::Unreachable {
                     detail: unpublished_detail(*instance),
+                },
+                // Published and refuted by the host (state F): never
+                // `stopped`, never probed — nothing verified has answered
+                // (§8.1), so the rows are `unreachable: stale_incarnation`.
+                ScanTarget::Stale(detail) => InventoryOutcome::Unreachable {
+                    detail: detail.clone(),
                 },
                 ScanTarget::Unregistered(scope) => probe(scope),
                 ScanTarget::Unaddressable => InventoryOutcome::Unreachable {
@@ -1161,8 +1183,50 @@ fn unpublished_detail(instance: BackendInstanceUid) -> String {
 /// make (`gui_lifecycle.rs`, `gui_cli.rs`) has to survive into `errors[]`.
 fn target_error_code(target: &ScanTarget, outcome: &InventoryOutcome) -> ErrorCode {
     match target {
-        ScanTarget::Unpublished(_) => ErrorCode::BackendEpochChanged,
+        ScanTarget::Unpublished(_) | ScanTarget::Stale(_) => ErrorCode::BackendEpochChanged,
         _ => scan_error_code(outcome),
+    }
+}
+
+/// The liveness probe the listing resolves under (ADR 012 WS-B.1). For Wez
+/// the OS probe is the whole check. For tmux the server is asked — the
+/// adapter's `server_incarnation` probe, the one `tmux_bootstrap` published
+/// from — so the start token is compared too, and a server that answers with
+/// another pid, a fresh socket inode, or "no server" on a namespace whose
+/// published pid is alive (pid reuse) is stale before it is listed. The
+/// resolver itself runs no adapter code; this is the caller-supplied probe
+/// its contract names.
+pub struct LiveIncarnationProbe;
+
+impl IncarnationProbe for LiveIncarnationProbe {
+    fn observe(
+        &self,
+        backend: Backend,
+        endpoint: &str,
+        published: &PublishedIncarnation,
+    ) -> Result<ObservedIncarnation, String> {
+        match backend {
+            Backend::Wez => OsIncarnationProbe.observe(backend, endpoint, published),
+            Backend::Tmux => {
+                let pid = published
+                    .pid
+                    .ok_or_else(|| "the registry publishes no pid to observe".to_string())?;
+                match TmuxProvider::new(endpoint).server_incarnation(endpoint) {
+                    Ok(live) => Ok(ObservedIncarnation::Process {
+                        pid: i64::from(live.identity.pid),
+                        start_token: Some(live.identity.start_token),
+                        socket_dev: i64::try_from(live.socket_dev).ok(),
+                        socket_ino: i64::try_from(live.socket_ino).ok(),
+                    }),
+                    Err(crate::backend::ProviderError::NativeFailure { detail })
+                        if detail.starts_with("no tmux server for this namespace") =>
+                    {
+                        Ok(ObservedIncarnation::NoServer { pid, detail })
+                    }
+                    Err(error) => Err(format!("tmux incarnation probe: {error:?}")),
+                }
+            }
+        }
     }
 }
 

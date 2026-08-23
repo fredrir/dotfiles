@@ -39,7 +39,8 @@ fn published_tmux_instance(registry: &mut Registry) -> BackendInstanceUid {
         .publish_backend_server(
             instance,
             ServerEpoch(Uuid::new_v4()),
-            Some(4242),
+            // A live pid: WS-B.1 refutes a published row whose process is dead.
+            Some(i64::from(std::process::id())),
             Some("start"),
             None,
             None,

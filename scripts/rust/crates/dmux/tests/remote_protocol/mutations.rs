@@ -504,15 +504,18 @@ fn spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_
     );
     assert_eq!(scratch.session_names(), vec!["stranger".to_string()]);
 
+    // The published pid is dead, so the row is refuted before any scan
+    // (ADR 012 WS-B.1, plan §8.1): `unreachable` with the stale detail,
+    // never `complete`, and never `server_stopped` either.
     let info = spaces(&scratch, &[]);
     let scan = tmux_scan(&info);
     assert_ne!(scan.outcome, "complete", "{scan:?}");
-    assert_eq!(scan.outcome, "malformed", "{scan:?}");
+    assert_eq!(scan.outcome, "unreachable", "{scan:?}");
     assert!(
         scan.detail
             .as_deref()
             .unwrap_or("")
-            .contains("backend_epoch_changed"),
+            .contains("stale_incarnation"),
         "{scan:?}"
     );
     assert_eq!(

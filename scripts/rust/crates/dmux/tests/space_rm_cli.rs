@@ -826,11 +826,13 @@ fn an_externally_killed_session_is_still_removable() {
     );
 }
 
-/// A stopped server is a determinate answer, and it is not the same answer
-/// as a scan that established nothing: §16.3 code 6 is "the provider is
-/// unavailable", and the remedy — start it — belongs in the message. The
-/// connect resolver's "could not be proven by complete live owner scans" is
-/// false about a server that was never scanned.
+/// A stopped managed server whose published pid is dead is instance state F
+/// (plan §5.2/§8.1 as amended, ADR 012 WS-B.1): the published incarnation
+/// is stale, never "owner-proven stopped", because nothing verified has
+/// answered. The refusal names that state and its remedy rather than
+/// blaming the scan — the connect resolver's "could not be proven by
+/// complete live owner scans" is false about a server that was never
+/// scanned — and the record is left exactly as it was.
 #[test]
 fn a_stopped_server_names_itself_instead_of_blaming_the_scan() {
     let owner = Owner::start("stopped");
@@ -839,16 +841,38 @@ fn a_stopped_server_names_itself_instead_of_blaming_the_scan() {
         .args(["-L", &owner.ns, "kill-server"])
         .output()
         .unwrap();
+    let published_pid = {
+        let registry = Registry::open(RegistryConfig::new(
+            owner.env().db_path,
+            owner.env().lock_dir,
+        ))
+        .unwrap();
+        let instance = registry
+            .backend_instance_for_backend(Backend::Tmux)
+            .unwrap()
+            .expect("tmux_bootstrap registered the instance");
+        registry
+            .backend_server(instance)
+            .unwrap()
+            .server_pid
+            .expect("bootstrap published the server pid")
+    };
+    for _ in 0..200 {
+        if unsafe { libc::kill(published_pid as libc::pid_t, 0) } != 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
     let output = owner.dmux(&["--format", "json", "rm", "--yes", "parked"]);
     let doc = document(&output);
-    assert_eq!(code(&output), 6, "{doc}");
-    assert_eq!(doc["errors"][0]["code"], "provider_unavailable", "{doc}");
+    assert_eq!(code(&output), 1, "{doc}");
+    assert_eq!(doc["errors"][0]["code"], "backend_epoch_changed", "{doc}");
     assert_eq!(doc["errors"][0]["target"], "parked", "{doc}");
-    assert_eq!(
-        doc["errors"][0]["message"], "the managed tmux server is stopped; start it, then remove",
-        "{doc}"
-    );
+    let message = doc["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains("stale_incarnation"), "{doc}");
+    assert!(message.contains("is dead"), "{doc}");
+    assert!(message.contains("retire-incarnation"), "{doc}");
     assert_eq!(
         owner.lifecycles(),
         vec![(1, "parked".to_string(), Lifecycle::Active)]

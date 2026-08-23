@@ -701,11 +701,13 @@ fn wez_registered<'a>(scratch: &Scratch, mux: &'a FakeMux) -> WezCli<&'a FakeMux
         .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), None)
         .unwrap();
     registry
+        // A live incarnation: this process's pid and OS start witness, so
+        // the resolver's liveness check (ADR 012 WS-B.1) sees state E.
         .publish_backend_server(
             instance,
             ServerEpoch(mux.epoch),
-            Some(4242),
-            Some("start-token"),
+            Some(i64::from(std::process::id())),
+            Some(&dmux::runtime::process_start_token_for_pid(std::process::id()).unwrap()),
             None,
             None,
         )

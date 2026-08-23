@@ -758,25 +758,52 @@ fn frozen_local_target(
     backend: Backend,
     owner: HostUid,
 ) -> Result<FrozenConnectTarget, TypedError> {
-    let info = registry
-        .backend_instance_info(space.backend_instance)
-        .map_err(typed_registry)?;
-    let endpoint = info.socket_path.ok_or_else(|| {
-        TypedError::new(
-            ErrorCode::ProviderUnavailable,
-            format!("the managed {backend} instance has no recorded endpoint"),
-        )
-    })?;
-    let server_epoch = registry
-        .backend_server(space.backend_instance)
+    // The instance is resolved the one sanctioned way (WS-B.1 unifying
+    // verified site 17): an unpublished instance is the epoch fault every
+    // other verb reports, with the shared text, and a published incarnation
+    // the host refutes (state F) refuses the same way — the fenced remove
+    // would otherwise run its scan against whatever answers on the endpoint.
+    let scope = match scope::resolve_managed_instance(registry, space.backend_instance)
         .map_err(typed_registry)?
-        .server_epoch
-        .ok_or_else(|| {
-            TypedError::new(
+    {
+        ManagedTarget::Managed { scope, .. } => scope,
+        ManagedTarget::Unpublished(instance) => {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::unpublished_detail(backend, instance),
+            ));
+        }
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::stale_incarnation_detail(backend, instance, &published, &observed),
+            ));
+        }
+        ManagedTarget::Unaddressable(instance) => {
+            return Err(TypedError::new(
                 ErrorCode::ProviderUnavailable,
-                format!("the managed {backend} instance has published no server epoch"),
-            )
-        })?;
+                ManagedTarget::unaddressable_detail(backend, instance),
+            ));
+        }
+        ManagedTarget::Unregistered => {
+            return Err(TypedError::new(
+                ErrorCode::PostconditionFailed,
+                format!(
+                    "internal: backend instance {} is a Space's foreign key yet resolved as \
+                     unregistered",
+                    space.backend_instance.0
+                ),
+            ));
+        }
+    };
+    let endpoint = scope.endpoint.clone();
+    let server_epoch = scope
+        .expected_epoch()
+        .expect("a Managed target carries its published epoch");
     // A record with no current binding has nothing native left to kill;
     // the fenced remove skips the provider entirely and tombstones it.
     let native_token = registry
@@ -1158,6 +1185,21 @@ fn listing_scan(registry: &Registry, backend: Backend) -> Result<ListingScan, Ty
             ManagedTarget::Unpublished(instance) => ListingScan::Refused {
                 outcome: InventoryOutcome::Unreachable {
                     detail: ManagedTarget::unpublished_detail(backend, instance),
+                },
+                code: ErrorCode::BackendEpochChanged,
+            },
+            // Published but refuted by the host (state F): the same epoch
+            // fault, so the tail is unproven and `--row` names nothing
+            // adoptable off whatever answers on the endpoint.
+            ManagedTarget::StaleIncarnation {
+                instance,
+                published,
+                observed,
+            } => ListingScan::Refused {
+                outcome: InventoryOutcome::Unreachable {
+                    detail: ManagedTarget::stale_incarnation_detail(
+                        backend, instance, &published, &observed,
+                    ),
                 },
                 code: ErrorCode::BackendEpochChanged,
             },

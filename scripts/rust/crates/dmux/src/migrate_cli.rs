@@ -553,6 +553,22 @@ fn build_plan<R: WezRunner>(
                     ManagedTarget::unpublished_detail(backend, *instance),
                 ));
             }
+            // A published epoch the host refutes (state F) blocks the same
+            // way: a scan pinned to it would be refused, and a cutover that
+            // read "nothing to migrate" off a stale row would stamp itself
+            // done against a server it never saw.
+            ManagedTarget::StaleIncarnation {
+                instance,
+                published,
+                observed,
+            } => {
+                blockers.push(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    ManagedTarget::stale_incarnation_detail(
+                        backend, *instance, published, observed,
+                    ),
+                ));
+            }
             // Nothing registered, or registered with no endpoint: a machine
             // that never enrolled this backend is a normal state, not a
             // failed cutover, so there is nothing to migrate for it.
@@ -773,6 +789,10 @@ fn scan_backends<R: WezRunner>(
             // by its own arm — but a scan result is still required here.
             ManagedTarget::Unpublished(_) => InventoryOutcome::Unreachable {
                 detail: "backend instance has published no server epoch".into(),
+            },
+            // Same: no scope, nothing probed; build_plan blocks on its own arm.
+            ManagedTarget::StaleIncarnation { .. } => InventoryOutcome::Unreachable {
+                detail: "backend instance publishes a stale incarnation (stale_incarnation)".into(),
             },
             ManagedTarget::Unaddressable(_) => InventoryOutcome::Unreachable {
                 detail: "the registered backend instance has no recorded endpoint".into(),
@@ -1152,6 +1172,14 @@ fn scan_scope<R: WezRunner>(
         ManagedTarget::Unpublished(instance) => Err(TypedError::new(
             ErrorCode::BackendEpochChanged,
             ManagedTarget::unpublished_detail(backend, instance),
+        )),
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            ManagedTarget::stale_incarnation_detail(backend, instance, &published, &observed),
         )),
         ManagedTarget::Unaddressable(instance) => Err(TypedError::new(
             ErrorCode::ProviderUnavailable,

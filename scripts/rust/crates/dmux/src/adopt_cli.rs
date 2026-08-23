@@ -189,6 +189,19 @@ fn run<R: WezRunner>(
                 ManagedTarget::unpublished_detail(backend, instance),
             ));
         }
+        // A published epoch the host refutes (state F) is the same fault
+        // one step later: the CAS would run against whatever answers on the
+        // endpoint, never the incarnation the registry vouches for.
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => {
+            return Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::stale_incarnation_detail(backend, instance, &published, &observed),
+            ));
+        }
         ManagedTarget::Unaddressable(instance) => {
             return Err(TypedError::new(
                 ErrorCode::ProviderUnavailable,
