@@ -58,10 +58,30 @@ impl ScratchTmux {
         self.tmux(&["display-message", "-p", "#{socket_path}"])
     }
 
+    /// `kill-server`, then wait for the server to be gone: tmux's client
+    /// returns once the server acknowledges, while the server unlinks its
+    /// socket as it exits. A replacement started on the same `-L` name in
+    /// that window loses its fresh socket to the dying server's cleanup and
+    /// reports "server exited unexpectedly" — deterministic on Linux tmux
+    /// 3.7 (Archie, ADR 012 §10), masked by timing on macOS.
     fn kill(&self) {
+        let socket = Command::new("tmux")
+            .args(["-L", &self.ns, "display-message", "-p", "#{socket_path}"])
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
         let _ = Command::new("tmux")
             .args(["-L", &self.ns, "kill-server"])
-            .output();
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if let Some(socket) = socket.filter(|s| !s.is_empty()) {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while std::path::Path::new(&socket).exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
     }
 }
 
