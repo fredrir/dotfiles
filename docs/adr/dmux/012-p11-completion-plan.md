@@ -780,4 +780,32 @@ Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `r
   and applied next: `main.rs` passes `cli.host` to `repair_for` (today `--host` was silently dropped
   for every repair verb) and the reconcile `lend` tmux arm carries a marker reader so a crashed
   tmux rebind reconciles through the binary. No real fork CAS was exercised — WS-G/F evidence.
+- **QA (WS-E.2 shell/Lua, WS-E.4, flake triage) — closed 2026-08-23** (`0b6e9de`…`eb7419a` →
+  `f98579f`…`6bb8727`; the one residual handed back is fixed by the root in the next commit). The
+  three out-of-crate findings are non-defects with executable proof (verdicts appended to
+  report 07). `tests/gated_dispatch.rs` drives every Wez-first verb through the gated binary with
+  `DMUX_WEZ_FIRST=1` on the child beside its `DMUX_LEGACY_POLICY=1` baseline (report 08 §2 closed).
+  Flakes: the `json_envelope` document race was tmux's automatic window rename between two listings
+  (fixed in the fixture); the `capability_gate` quartet shares one cause — a `/bin/sh` spawn measured
+  at up to 1.6 s under load against a 2 s probe bound — the two fixture-argument tests were resized
+  by QA, the two that reach the production constant are fixed by raising
+  `DEFAULT_PROBE_DEADLINE` to 10 s with `PROBE_DRAIN_GRACE` strictly shorter (root). Same class,
+  lower priority, not yet touched: `cli::the_activated_pane_is_the_workspaces_lowest`,
+  `tmux_context_hooks::managed_config_passes_the_real_tmux_37_client_and_move_hook_shapes`, and
+  the pre-existing deadline cases in `tests/cases/dmux-context.sh`.
+- **RT (WS-G.2 tool) — closed 2026-08-23** (`c77f6e9`…`a71a31c` → `e85d048`…`6a7c41e`; pytest 35 → 59,
+  ruff clean, r5's manifest loads). Landed: validated ordered phases; `plan --archie-ssh` and
+  `--archie-dmux-host` (a ratified split: `dmux --host` takes an enrolled selector, never
+  `user@host`, so the ssh route and the selector are two manifest fields); durable enablement
+  through `service.env`/`environment.d` with the file's bytes backed up and restored, and a
+  `deploy-mac` preflight that refuses until the `com.fredrir.dmux-env` plist is linked and
+  bootstrapped by hand; `dmux doctor --format json` stored beside every owner snapshot;
+  `canary-start`/`canary-reboot-observed`/`canary-end` with a wall-clock 24 h floor (and a refusal
+  on a state-F doctor report); `rollback-rehearsal`. Ratified deviation: under
+  `DMUX_LEGACY_POLICY=1` the Wez-first surface is off and the legacy `new` prints no receipt, so
+  the rehearsal proves "new Spaces go tmux" with the legacy planner's `DMUX_DRY_RUN` statement plus
+  the exit-2 surface refusal, and records the GUI-switch question as the operator's
+  `legacy_con_switches_gui` field. Follow-ups: a machine `durable` field in doctor's `wez_first`
+  (the tool's verdict currently matches prose), a doctor line for `DMUX_LEGACY_POLICY`, a
+  `set-phase` verb for `migrated`/`flipped`, and the rollout section of docs/scripts.md.
 

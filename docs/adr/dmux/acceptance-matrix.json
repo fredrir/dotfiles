@@ -21,7 +21,8 @@
     "resolver_truth_table::auto_truth_table",
     "new_cli::wez_presentation_is_preflighted_before_owner_reservation",
     "registry::alloc::concurrent_reserves_allocate_unique_monotonic_numbers_and_uids",
-    "hierarchy_flow::wez_hierarchy_full_cycle_at_the_operations_layer"
+    "hierarchy_flow::wez_hierarchy_full_cycle_at_the_operations_layer",
+    "gated_dispatch::new_dispatches_to_new_cli_under_the_gate_and_to_the_legacy_create_otherwise"
    ],
    "implemented_at": [
     "src/policy.rs:65 decide_backend",
@@ -43,7 +44,8 @@
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
    "tests": [
     "unit::policy::tests::automatic_decision_table",
-    "cli::new_creates_and_attaches_locally"
+    "cli::new_creates_and_attaches_locally",
+    "gated_dispatch::new_dispatches_to_new_cli_under_the_gate_and_to_the_legacy_create_otherwise"
    ],
    "implemented_at": [
     "src/policy.rs:65 decide_backend",
@@ -63,7 +65,8 @@
     "resolver_truth_table::auto_truth_table",
     "resolver_truth_table::explicit_tmux_truth_table_mirrors",
     "new_cli::existing_literal_match_connects_without_name_validation_or_creation_policy_probe",
-    "unit::policy::tests::plan_new_validates_grammar_only_on_the_creation_path"
+    "unit::policy::tests::plan_new_validates_grammar_only_on_the_creation_path",
+    "gated_dispatch::new_dispatches_to_new_cli_under_the_gate_and_to_the_legacy_create_otherwise"
    ],
    "implemented_at": [
     "src/resolve.rs:239 lookup_for_new",
@@ -84,7 +87,8 @@
     "resolver_truth_table::auto_truth_table",
     "resolver_truth_table::explicit_wez_truth_table",
     "new_cli::existing_literal_match_connects_without_name_validation_or_creation_policy_probe",
-    "unit::policy::tests::plan_new_validates_grammar_only_on_the_creation_path"
+    "unit::policy::tests::plan_new_validates_grammar_only_on_the_creation_path",
+    "gated_dispatch::new_dispatches_to_new_cli_under_the_gate_and_to_the_legacy_create_otherwise"
    ],
    "implemented_at": [
     "src/resolve.rs:239 lookup_for_new",
@@ -153,7 +157,8 @@
     "connect_cli_dispatch::feature_on_bare_dash_routes_to_stable_previous_with_typed_not_found",
     "connect_cli::missing_previous_is_not_found_and_has_no_owner_or_create_side_effect",
     "cli::con_refuses_to_create",
-    "cli::dash_without_state_says_so"
+    "cli::dash_without_state_says_so",
+    "gated_dispatch::con_dispatches_to_connect_cli_under_the_gate_and_to_the_legacy_attach_otherwise"
    ],
    "implemented_at": [
     "src/connect_cli.rs connect() (no create arm)",
@@ -507,7 +512,8 @@
    "tests": [
     "unit::main::tests::ls_long_help_renders_every_documented_scope",
     "ls_cli::the_help_names_every_scope_and_both_axes",
-    "remote_protocol::mutations::spaces_reports_an_unpublished_tmux_instance_unreachable_without_running_tmux"
+    "remote_protocol::mutations::spaces_reports_an_unpublished_tmux_instance_unreachable_without_running_tmux",
+    "gated_dispatch::ls_all_hosts_lists_the_enrolled_hosts_under_the_gate_and_is_refused_under_legacy"
    ],
    "implemented_at": [
     "src/ls_cli.rs:58"
@@ -597,7 +603,12 @@
    "tests": [
     "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one",
     "unit::gui::tests::production_bridge_call_fails_closed_on_invalid_origin_ack_and_context",
-    "unit::gui_cli::tests::invalid_or_authority_refused_origin_reaches_no_action"
+    "unit::gui_cli::tests::invalid_or_authority_refused_origin_reaches_no_action",
+    "gated_dispatch::context_mints_or_refuses_identically_under_both_policies",
+    "shell::dmux-context::dmux_context_rejects_child_refs_outside_the_reported_epoch",
+    "shell::dmux-context::dmux_context_epoch_rotation_is_taken_only_from_the_validated_response",
+    "shell::dmux-context::dmux_context_controller_refusal_retires_the_prior_epoch_from_env_and_pane",
+    "lua::controller::the_in_gui_origin_is_the_marker_byte_for_byte_with_no_seam"
    ],
    "implemented_at": [
     "src/main.rs context_cmd (tmux arm resolves the Space's instance from the registry and pins to its published epoch)",
@@ -898,7 +909,8 @@
     "space_rm_cli::wez_first_rm_without_a_terminal_changes_nothing_and_exits_5",
     "space_rm_cli::wez_first_rm_refusal_never_reaches_the_authority",
     "space_rm_cli::a_refused_json_rm_reports_revision_zero_rather_than_allocating_one",
-    "space_rm_cli::the_prompt_names_the_space_before_it_asks"
+    "space_rm_cli::the_prompt_names_the_space_before_it_asks",
+    "gated_dispatch::rm_row_reaches_the_gated_confirmation_and_is_refused_under_legacy"
    ],
    "implemented_at": [
     "src/rm_cli.rs:110 run_remove"
@@ -933,7 +945,11 @@
     "json_envelope::every_refusal_branch_is_one_document",
     "json_envelope::format_json_on_a_verb_that_has_none_refuses_as_a_document",
     "ls_cli::format_json_is_the_versioned_envelope_and_json_stays_bare",
-    "registry::reconcile::stranded_adoption"
+    "registry::reconcile::stranded_adoption",
+    "gated_dispatch::ls_format_json_is_the_envelope_under_the_gate_and_a_typed_refusal_under_legacy",
+    "gated_dispatch::rename_is_journaled_under_the_gate_and_refused_with_a_format_under_legacy",
+    "gated_dispatch::adopt_refuses_an_unpublished_instance_under_the_gate_and_the_verb_under_legacy",
+    "gated_dispatch::repair_retire_incarnation_is_dispatched_the_same_way_under_both_policies"
    ],
    "implemented_at": [
     "src/main.rs:618",
@@ -954,7 +970,9 @@
     "space_rm_cli::a_legacy_index_removal_keeps_its_plan_and_gains_a_hint",
     "space_rm_cli::row_indexes_the_managed_prefix_even_with_one_registered_backend",
     "space_rm_cli::the_prompt_names_the_space_before_it_asks",
-    "space_rm_cli::row_refuses_an_unpublished_instance_instead_of_advertising_its_sessions_as_adoptable"
+    "space_rm_cli::row_refuses_an_unpublished_instance_instead_of_advertising_its_sessions_as_adoptable",
+    "gated_dispatch::rm_row_reaches_the_gated_confirmation_and_is_refused_under_legacy",
+    "gated_dispatch::ls_tree_expands_live_children_under_the_gate_and_is_refused_under_legacy"
    ],
    "implemented_at": [
     "src/rm_cli.rs:816 resolve_row",
@@ -976,7 +994,12 @@
     "space_rm_cli::rm_name_removes_the_legacy_name_the_positional_ref_cannot_reach",
     "migrate_cli::a_null_epoch_wez_instance_refuses_preview_and_commit_and_leaves_no_stamp",
     "unit::backend::wez::tests::cas_rename_failure_shapes_are_typed_outcomes_under_a_pinned_scope",
-    "normalize_flow::repair_batch_detects_and_heals_managed_multi_window"
+    "normalize_flow::repair_batch_detects_and_heals_managed_multi_window",
+    "gated_dispatch::migrate_preview_and_commit_run_under_the_gate_and_are_refused_under_legacy",
+    "shell::dmux-wrappers::wrapper_expands_to_the_same_plan_as_direct_dmux",
+    "shell::dmux-wrappers::wrapper_bare_word_is_create_or_connect_on_the_named_host",
+    "shell::dmux-wrappers::wrapper_forwards_every_listed_verb_verbatim_instead_of_creating",
+    "shell::dmux-wrappers::wrapper_injects_no_policy_variable_backend_flag_or_seam"
    ],
    "implemented_at": [
     "src/migrate_cli.rs:30",

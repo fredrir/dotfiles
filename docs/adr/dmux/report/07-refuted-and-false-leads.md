@@ -82,3 +82,38 @@ reproduced end-to-end: NULL epoch + stranger stub → exit 7, `observation:"unre
 `wezterm` never spawned. `gui_lifecycle.rs:972` does return `fatal(..)` while the live-scan mismatch
 at `:1013` stays `Retry`. Both claimed follow-on defects — the `Unpublished` fence collapse and the
 orphaned doc comment — are confirmed ([the fence/state analysis](04-fence-and-instance-states.md), [Ranked findings](01-findings.md) row 22).
+
+---
+
+## Post-review verdicts (ADR 012 WS-E.2, 2026-08-23)
+
+The three out-of-crate findings listed in [08 §7](08-untested.md) as call-chain-only were each made
+executable by the QA role and found to be **non-defects**; the evidence is in the tree:
+
+- **`shared/zsh/conf.d/91-tmux-attach.zsh:45`** — `_dmux_wrap` expands a lone bare non-flag word that
+  is not in `_dmux_verbs` to `dmux --host H new NAME` and forwards everything else verbatim; it
+  carries no backend flag, no `DMUX_WEZ_FIRST`/`DMUX_LEGACY_POLICY`, no `--socket`/`--epoch`/
+  `--data-dir`/`--lock-dir`/`--namespace`, and no default. Every epoch decision is the crate's,
+  reached identically through the wrapper or directly (`tests/cases/dmux-wrappers.sh`, 10 cases).
+  ADR 010 §4 upheld; `repair` is already in the allowlist, so `repair retire-incarnation` and
+  `repair rebind` need no wrapper change.
+- **`shared/zsh/conf.d/94-dmux-context.zsh:216`** — the prompt hook is a pure carrier: §13.1 puts
+  epoch verification in the crate (WS-A.7, `tests/context_cli.rs`). The hook exports and emits only
+  what one validated `dmux _context` response for the requested Space contains, refuses child refs
+  whose epoch differs from the response's `server_epoch`, takes a rotated epoch only from that
+  response, and retires the prior epoch on a controller refusal (`tests/cases/dmux-context.sh`,
+  three cases).
+- **`shared/wezterm/wez/dmux_bridge/controller.lua:115`** — `invoke`/`argv` build
+  `_gui --origin-json <marker> <verb>` with the marker byte for byte and no seam argument; the
+  controller consults only `DMUX_BIN`, runs no child on an unparseable marker or an unready bridge,
+  and surfaces the crate's typed `backend_epoch_changed` unchanged; the GUI-origin marker is
+  revalidated crate-side by `operations::validate_marker_context` via `gui_cli::validate_local_marker`
+  (Lua `controller` case).
+
+Also refuted on this pass: [06](06-unreachable-code.md) row 11's claim that the live
+`HeartbeatSource::live_instances` lacks a freshness check — at 493e92c `gui_lifecycle.rs:652`
+reaches `validate_heartbeat`, which enforces `HEARTBEAT_MAX_AGE`; the dead helper was deleted and
+the stale-heartbeat refusal is proven on the production reader (GUI close, ADR 012 §10). And
+`bare()`'s `wezterm cli spawn` in the legacy `attach.rs` is a deliberate non-pin (it carries no pane
+id; spawning on the managed server would create an unmanaged pane) — WS-C.
+
