@@ -558,7 +558,8 @@ pub trait ConnectPresenter {
     ) -> Result<PresentationReceipt, TypedError>;
 
     /// Explicit targeted cold helper (normally
-    /// `gui_cli::present_cold_production`); never an unqualified GUI summon.
+    /// `gui_cli::present_frozen_cold_production`); never an unqualified GUI
+    /// summon.
     fn present_wez_cold(
         &mut self,
         target: &FrozenConnectTarget,
