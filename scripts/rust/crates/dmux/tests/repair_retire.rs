@@ -31,7 +31,7 @@ impl Home {
         .unwrap()
     }
 
-    fn retire(&self, args: &[&str]) -> Output {
+    fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_dmux"));
         command
             .args(["--format", "json", "repair", "retire-incarnation"])
@@ -44,7 +44,21 @@ impl Home {
             .env("DMUX_RUNTIME_DIR", self.dir.path().join("locks"))
             .env_remove("DMUX_WEZ_FIRST")
             .stdin(Stdio::null());
-        command.output().expect("dmux runs")
+        command
+    }
+
+    fn retire(&self, args: &[&str]) -> Output {
+        self.command(args).output().expect("dmux runs")
+    }
+
+    /// The same invocation under the Wez-first flag, which is what lets an
+    /// enrolled alias/label/UID on the global `--host` reach the verb at all
+    /// (flag-off, `main` refuses every non-legacy host before dispatch).
+    fn retire_wez_first(&self, args: &[&str]) -> Output {
+        self.command(args)
+            .env("DMUX_WEZ_FIRST", "1")
+            .output()
+            .expect("dmux runs")
     }
 }
 
@@ -194,6 +208,118 @@ fn retire_incarnation_guards_a_live_pid_unless_told_otherwise() {
         &epoch_text,
         "--yes",
         "--allow-live-pid",
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(matches!(
+        resolve_managed(&home.registry(), Backend::Tmux).unwrap(),
+        ManagedTarget::Unpublished(_)
+    ));
+}
+
+/// Retire is owner-local (plan §7.4): the global `--host` naming an enrolled
+/// peer is the same typed refusal `rebind` gives (ADR 011 D7), before any
+/// confirmation and without touching the row. This host's own spellings —
+/// the local alias `a` and its HostUid — are not remote.
+#[test]
+fn retire_incarnation_refuses_a_foreign_host_as_protocol_mismatch() {
+    let home = Home::new();
+    let (epoch, _) = seed_dead_incarnation(&home);
+    let peer = home
+        .registry()
+        .enroll_host(dmux::model::HostUid(Uuid::new_v4()), Some("archie"))
+        .unwrap();
+    let epoch_text = epoch.0.to_string();
+
+    for spelling in [
+        peer.alias.clone(),
+        "archie".to_string(),
+        peer.host_uid.0.to_string(),
+    ] {
+        let out = home.retire_wez_first(&[
+            "--host",
+            &spelling,
+            "--backend",
+            "tmux",
+            "--epoch",
+            &epoch_text,
+            "--yes",
+        ]);
+        assert_eq!(
+            out.status.code(),
+            Some(6),
+            "{spelling}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let doc = document(&out);
+        assert_eq!(
+            doc["errors"][0]["code"], "protocol_mismatch",
+            "{spelling}: {doc}"
+        );
+        assert!(
+            doc["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("owner-local"),
+            "{doc}"
+        );
+        assert!(
+            matches!(
+                resolve_managed(&home.registry(), Backend::Tmux).unwrap(),
+                ManagedTarget::StaleIncarnation { .. }
+            ),
+            "{spelling}: a refused retire changes nothing"
+        );
+    }
+
+    // An unknown host is not-found, not a quiet local retirement.
+    let out = home.retire_wez_first(&[
+        "--host",
+        "nowhere",
+        "--backend",
+        "tmux",
+        "--epoch",
+        &epoch_text,
+        "--yes",
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(document(&out)["errors"][0]["code"], "not_found");
+
+    // Naming this host is not remote: the local alias refuses nothing, and
+    // the retirement proceeds exactly as without `--host`.
+    let local_uid = home.registry().identity().unwrap().host_uid.0.to_string();
+    let out = home.retire_wez_first(&[
+        "--host",
+        &local_uid,
+        "--backend",
+        "tmux",
+        "--epoch",
+        &epoch_text,
+    ]);
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(document(&out)["errors"][0]["code"], "confirmation_required");
+    let out = home.retire_wez_first(&[
+        "--host",
+        "a",
+        "--backend",
+        "tmux",
+        "--epoch",
+        &epoch_text,
+        "--yes",
     ]);
     assert_eq!(
         out.status.code(),

@@ -299,6 +299,7 @@ fn repair_cmd(
             data_dir,
             lock_dir,
         } => retire_incarnation_cmd(
+            host,
             Backend::from(backend),
             ServerEpoch(epoch),
             allow_live_pid,
@@ -498,6 +499,7 @@ fn repair_cmd(
 /// not bring back. Confirmation per §7.4, then one compare-and-set in the
 /// registry; every refusal is typed and mutates nothing.
 fn retire_incarnation_cmd(
+    host: Option<String>,
     backend: Backend,
     epoch: ServerEpoch,
     allow_live_pid: bool,
@@ -514,6 +516,7 @@ fn retire_incarnation_cmd(
         },
         _ => OperationEnv::production().map_err(runtime_error)?,
     };
+    refuse_remote_retire(&env, host.as_deref())?;
     let target = format!("{backend} incarnation {}", epoch.0);
     if let Err(code) = confirm(
         ACTION,
@@ -719,23 +722,9 @@ fn refuse_remote_rebind(
     host: Option<&str>,
     shape: &SpaceRefShape,
 ) -> Result<(), TypedError> {
-    let remote = |spelling: &str| {
-        TypedError::new(
-            ErrorCode::ProtocolMismatch,
-            format!(
-                "rebind is owner-local (plan §10.3) and the agent protocol carries no REBIND \
-                 method, so a Space on host {spelling} cannot be rebound from here; run \
-                 `dmux repair rebind` on that host"
-            ),
-        )
-    };
-    enum Named<'a> {
-        Uid(dmux::model::HostUid),
-        Spelling(&'a str),
-    }
     let named = match (host, shape) {
-        (Some(host), _) => Named::Spelling(host),
-        (None, SpaceRefShape::Canonical { host, .. }) => Named::Uid(*host),
+        (Some(host), _) => NamedHost::Spelling(host),
+        (None, SpaceRefShape::Canonical { host, .. }) => NamedHost::Uid(*host),
         (
             None,
             SpaceRefShape::Numbered {
@@ -745,11 +734,58 @@ fn refuse_remote_rebind(
                 host: Some(token), ..
             },
         ) => match token {
-            dmux::refs::HostToken::Uid(uid) => Named::Uid(*uid),
-            dmux::refs::HostToken::AliasOrLabel(spelling) => Named::Spelling(spelling),
+            dmux::refs::HostToken::Uid(uid) => NamedHost::Uid(*uid),
+            dmux::refs::HostToken::AliasOrLabel(spelling) => NamedHost::Spelling(spelling),
         },
         (None, _) => return Ok(()),
     };
+    refuse_unless_local(env, named, |spelling| {
+        TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            format!(
+                "rebind is owner-local (plan §10.3) and the agent protocol carries no REBIND \
+                 method, so a Space on host {spelling} cannot be rebound from here; run \
+                 `dmux repair rebind` on that host"
+            ),
+        )
+    })
+}
+
+/// `retire-incarnation` has no host in its grammar (plan §7.1) and clears
+/// only this owner's registry row, so the global `--host` naming another
+/// host is the same typed refusal `rebind` gives (ADR 011 D7) — never a
+/// quiet retirement of the local instance under a remote name.
+fn refuse_remote_retire(env: &OperationEnv, host: Option<&str>) -> Result<(), TypedError> {
+    let Some(host) = host else {
+        return Ok(());
+    };
+    refuse_unless_local(env, NamedHost::Spelling(host), |spelling| {
+        TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            format!(
+                "retire-incarnation is owner-local (plan §7.4) and the agent protocol carries no \
+                 RETIRE method, so host {spelling}'s published incarnation cannot be retired from \
+                 here; run `dmux repair retire-incarnation` on that host"
+            ),
+        )
+    })
+}
+
+/// A host an owner-local verb was pointed at, as spelled on the command line.
+enum NamedHost<'a> {
+    Uid(dmux::model::HostUid),
+    Spelling(&'a str),
+}
+
+/// The owner-local rule shared by `rebind` and `retire-incarnation`: a named
+/// host that resolves to this registry's own identity is not remote; any
+/// other enrolled host is refused with the verb's own `protocol_mismatch`.
+/// A registry that does not exist yet has no peers to refuse.
+fn refuse_unless_local(
+    env: &OperationEnv,
+    named: NamedHost<'_>,
+    remote: impl Fn(&str) -> TypedError,
+) -> Result<(), TypedError> {
     if !env.db_path.exists() {
         return Ok(());
     }
@@ -757,8 +793,8 @@ fn refuse_remote_rebind(
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(typed_registry)?;
     let local = registry.identity().map_err(typed_registry)?.host_uid;
     let (uid, spelling) = match named {
-        Named::Uid(uid) => (uid, uid.0.to_string()),
-        Named::Spelling(spelling) => (
+        NamedHost::Uid(uid) => (uid, uid.0.to_string()),
+        NamedHost::Spelling(spelling) => (
             dmux::remote::hosts::resolve_host(&registry, spelling)?.host_uid,
             spelling.to_string(),
         ),

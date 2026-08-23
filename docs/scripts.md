@@ -1442,7 +1442,9 @@ is the operator's explicit clear for one whose process is gone (plan §5.2
 state F): a compare-and-set on the published epoch, journaled as a revision,
 refusing a mismatching epoch, a live pid without `--allow-live-pid`, and any
 unfinished recovery; afterwards the instance is unpublished until the managed
-service republishes, and every verb on it refuses until then. It is confirmed
+service republishes, and every verb on it refuses until then. It is owner-local:
+a `--host` naming another enrolled host is refused `protocol_mismatch`, never
+a quiet retirement of the local row under a remote name. It is confirmed
 per §7.4 (`-y` to skip the prompt; one `confirmation_required` document under
 `--format json`).
 

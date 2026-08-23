@@ -881,3 +881,15 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   grammar block never received the `repair retire-incarnation` line this log recorded as the "§7.1
   grammar addition", and §7.4 had no rule paragraph for it; both are added in the same commit. The
   §18/§22 fresh-context reader-test gate is met.
+- **`repair retire-incarnation --host` — closed 2026-08-23** (found while checking the reader's
+  question 21 against the code). The verb's dispatch dropped the global `--host`, so under the
+  Wez-first flag `dmux --host archie repair retire-incarnation …` would have retired the *local*
+  row under a remote name. It now shares `rebind`'s owner-local rule (`refuse_unless_local`): a host
+  that resolves to this registry's identity is not remote; any other enrolled host is
+  `protocol_mismatch`/6 before the confirmation step and before any read of the row; an unknown
+  host is `not_found`. `tests/repair_retire.rs::retire_incarnation_refuses_a_foreign_host_as_protocol_mismatch`
+  drives alias, label and UID spellings, the unknown host, and the local UID/alias `a`. Plan §7.4,
+  `scripts/COMMANDS.md` and `docs/scripts.md` say so. Observation for the follow-up list, not
+  changed here: `repair reconcile` and `repair normalize` advertise `[--host H]` in §7.1 yet
+  `repair_cmd` passes no host to either — the flag is dropped, not refused; their refs can still
+  carry a host token, which `resolve_space_ref` handles.

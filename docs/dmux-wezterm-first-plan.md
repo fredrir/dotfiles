@@ -359,6 +359,8 @@ on the published epoch (`--epoch` must equal the row's published epoch, else `ba
 nulls the published incarnation columns, and advances the authority revision chain so the retirement
 is journaled like a publication. It refuses a still-live published pid without `--allow-live-pid`, a
 mismatching epoch, and any unfinished recovery generation, and it never touches the native server.
+A global `--host` naming another enrolled host is refused `protocol_mismatch` like `rebind`
+(ADR 011 D7); this host's own alias or HostUid is not remote.
 Afterwards the instance resolves as Unpublished (state C) until a managed start or bootstrap publishes
 a fresh epoch. A managed start performs the same retirement itself before publishing (ADR 012
 WS-B.3: `recovery::publish_incarnation_if_needed`), so the verb is needed only when no managed
