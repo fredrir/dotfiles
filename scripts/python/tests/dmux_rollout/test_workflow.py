@@ -1182,3 +1182,188 @@ def test_archie_canary_uses_the_archie_owner_snapshot_and_phase(tmp_path, monkey
     assert (
         item.checkpoints["canary.archie.start"]["evidence"]["owner"]["doctor"]["artifact"]
     ).endswith("canary.archie.start.owner-archie.json")
+
+
+# Rollback rehearsal (plan §21 step 7; WS-G.2) -------------------------------
+
+
+def test_every_dmux_call_states_its_policy_and_scrubs_the_ambient_one(tmp_path):
+    assert "DMUX_WEZ_FIRST" in AMBIENT_MUX_VARS
+    assert "DMUX_LEGACY_POLICY" in AMBIENT_MUX_VARS
+    seen = []
+
+    class Recorder(Runner):
+        def capture(self, argv, **kwargs):
+            seen.append((list(argv), kwargs))
+            return Result(tuple(argv), 0, "{}", "")
+
+    cfg = config(tmp_path, tmp_path / "d", tmp_path / "w")
+    workflow = Workflow(RolloutStore(tmp_path / "state"), Recorder(), cfg)
+    workflow._await_live_gui = lambda *a, **k: {"gui": True}
+
+    workflow._dmux(["doctor"], env={"DMUX_LEGACY_POLICY": "1", "DMUX_DRY_RUN": "1"})
+    workflow._dmux_json(["recovery", "status"])
+    workflow._present_and_wait(None, host="b", name="s", host_uid="h", space_uid="u")
+
+    assert seen[0][0] == [str(cfg.mac_dmux), "doctor"]
+    assert seen[0][1]["env"] == {
+        "DMUX_WEZ_FIRST": "1",
+        "DMUX_LEGACY_POLICY": "1",
+        "DMUX_DRY_RUN": "1",
+    }
+    assert seen[1][1]["env"] == {"DMUX_WEZ_FIRST": "1"}
+    assert seen[2][0][1:] == [
+        "con",
+        "--host",
+        "b",
+        "--name",
+        "s",
+        "--backend",
+        "wez",
+        "--launch-gui",
+    ]
+    assert seen[2][1]["env"] == {"DMUX_WEZ_FIRST": "1"}
+    for _, kwargs in seen:
+        assert "DMUX_LEGACY_POLICY" in kwargs["unset_env"]
+        assert "DMUX_WEZ_FIRST" in kwargs["unset_env"]
+
+    remote = workflow._remote_dmux_argv(["ls", "--json"], env={"DMUX_LEGACY_POLICY": "1"})
+    assert remote[-3:] == [str(cfg.archie_home / ".local/bin/dmux"), "ls", "--json"]
+    assert remote.index("DMUX_LEGACY_POLICY=1") > remote.index("DMUX_LEGACY_POLICY")
+    assert remote[remote.index("DMUX_LEGACY_POLICY") - 1] == "-u"
+    assert "DMUX_WEZ_FIRST=1" in remote
+
+    source = Path(Workflow.__module__.replace(".", "/") + ".py")
+    text = (Path(__file__).parents[2] / "src" / source).read_text(encoding="utf-8")
+    assert 'env={"DMUX_WEZ_FIRST": "1"}' not in text, "every dmux call goes through _dmux"
+
+
+SMOKE_HOST = "9d1950c7-968f-4fdc-a709-0b116096598a"
+SMOKE_SPACE = "01a01044-08ed-7d51-a908-9278d89238e7"
+
+
+def _rehearsal_release(tmp_path, store, workflow, fake, monkeypatch):
+    item = release(tmp_path)
+    item.set_smoke_identity(space_uid=SMOKE_SPACE, host_uid=SMOKE_HOST)
+    fake.rows.append(
+        {"window_id": 1, "tab_id": 1, "pane_id": 7, "workspace": f"dmux:{SMOKE_HOST}:{SMOKE_SPACE}"}
+    )
+    fake.path.parent.mkdir(parents=True, exist_ok=True)
+    fake.path.write_text("# canary\nDMUX_WEZ_FIRST=1\n", encoding="utf-8")
+    fake.session["DMUX_WEZ_FIRST"] = "1"
+    _clock(monkeypatch)
+    with store.exclusive():
+        store.create(item)
+        item.set_phase("canary_mac")
+        workflow._checkpoint(item, "canary.mac.end", {"host": "mac"})
+        store.save(item)
+    quits = []
+    workflow._present_and_wait = lambda *a, **k: {"gui_instance": "g", "pid": 1}
+    workflow._safe_quit_gui = lambda gui, **k: quits.append(gui) or {"gui_instance": "g"}
+    return item, quits
+
+
+def _legacy_dmux(fake, *, plan="would exec: tmux new-session -A -s rollout-smoke-rehearsal\n"):
+    """Answer the rehearsal's dmux calls the way the legacy path does, and
+    record the host-level policy each call saw."""
+    calls = []
+
+    def is_new(argv):
+        return argv[1:2] == ["new"]
+
+    def answer_new(argv, kwargs):
+        calls.append(("new", argv[2:], kwargs["env"], dict(fake.session)))
+        if "--no-connect" in argv:
+            return Result(
+                tuple(argv),
+                2,
+                "",
+                "dmux: --backend/--no-connect/--allow-name-collision/--launch-gui require "
+                "DMUX_WEZ_FIRST=1\n",
+            )
+        return Result(tuple(argv), 0, plan, "")
+
+    def is_ls(argv):
+        return argv[1:3] == ["ls", "--json"]
+
+    def answer_ls(argv, kwargs):
+        calls.append(("ls", argv[2:], kwargs["env"], dict(fake.session)))
+        rows = [
+            {"index": 1, "name": "rollout-smoke", "kind": "wez", "host": "macie", "windows": 1},
+            {"index": 2, "name": "other", "kind": "tmux", "host": "macie", "windows": 1},
+        ]
+        return Result(tuple(argv), 0, json.dumps(rows), "")
+
+    fake.responders.extend([(is_new, answer_new), (is_ls, answer_ls)])
+    return calls
+
+
+def test_rollback_rehearsal_flips_the_policy_proves_tmux_and_restores_the_host(
+    tmp_path, monkeypatch
+):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item, quits = _rehearsal_release(tmp_path, store, workflow, fake, monkeypatch)
+    calls = _legacy_dmux(fake)
+
+    with store.exclusive():
+        workflow.rollback_rehearsal(item, "mac", legacy_con_switches_gui="false")
+
+    row = item.checkpoints["rollback.rehearsal.mac"]["evidence"]
+    # (a) the policy was set the durable way and every legacy call carried it
+    assert row["policy_set"]["launchd"] == {"DMUX_WEZ_FIRST": "1", "DMUX_LEGACY_POLICY": "1"}
+    assert row["policy_set"]["file"]["assignments"] == {
+        "DMUX_WEZ_FIRST": "1",
+        "DMUX_LEGACY_POLICY": "1",
+    }
+    assert [kind for kind, *_ in calls] == ["new", "new", "ls"]
+    for _, _, env, session in calls:
+        assert env["DMUX_LEGACY_POLICY"] == "1" and env["DMUX_WEZ_FIRST"] == "1"
+        assert session["DMUX_LEGACY_POLICY"] == "1", "the host carried the policy during the call"
+    # (b) creation plans tmux and executes nothing; the Wez-first surface is off
+    assert calls[0][1] == ["rollout-smoke-rehearsal"]
+    assert calls[0][2]["DMUX_DRY_RUN"] == "1"
+    assert row["legacy_create_plan"]["stdout"].startswith("would exec: tmux new-session")
+    assert row["legacy_create_plan"]["backend"] == "tmux"
+    assert row["legacy_create_plan"]["executed"] is False
+    assert row["wez_first_surface_refused"]["returncode"] == 2
+    assert "require DMUX_WEZ_FIRST=1" in row["wez_first_surface_refused"]["stderr"]
+    # (c) the existing Wez Space still lists on the legacy path and presents
+    assert row["legacy_listing"]["row"]["name"] == "rollout-smoke"
+    assert row["legacy_listing"]["cli_env"]["DMUX_LEGACY_POLICY"] == "1"
+    assert row["presentation"]["cli_env"] == {"DMUX_WEZ_FIRST": "1"}
+    assert row["presentation"]["owner_panes"] == [7]
+    assert quits == [{"gui_instance": "g", "pid": 1}]
+    assert row["legacy_con_switches_gui"] == "false"
+    # (d) the file and the session are back as the canary left them; no restart
+    assert fake.path.read_text() == "# canary\nDMUX_WEZ_FIRST=1\n"
+    assert fake.session == {"DMUX_WEZ_FIRST": "1"}
+    assert row["restored"]["launchd"] == {"DMUX_WEZ_FIRST": "1", "DMUX_LEGACY_POLICY": ""}
+    assert row["restored"]["mux_restarted"] is False
+    assert not any("-k" in argv for argv in fake.sent if argv[:1] == ["launchctl"])
+    assert row["after"]["pid"] == row["before"]["pid"] == fake.pid
+    assert row["after"]["doctor"]["artifact"].endswith("rollback.rehearsal.mac.after-mac.json")
+    assert row["before"]["doctor"]["artifact"].endswith("rollback.rehearsal.mac.before-mac.json")
+    assert item.phase == "canary_mac"
+
+
+def test_rollback_rehearsal_clears_the_policy_when_a_step_fails(tmp_path, monkeypatch):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item, _ = _rehearsal_release(tmp_path, store, workflow, fake, monkeypatch)
+    _legacy_dmux(fake, plan="would exec: wezterm cli spawn --workspace rollout-smoke-rehearsal\n")
+
+    with store.exclusive(), pytest.raises(Refusal, match="did not plan a tmux session"):
+        workflow.rollback_rehearsal(item, "mac")
+
+    assert "rollback.rehearsal.mac" not in item.checkpoints
+    assert fake.path.read_text() == "# canary\nDMUX_WEZ_FIRST=1\n"
+    assert fake.session == {"DMUX_WEZ_FIRST": "1"}
+
+
+def test_rollback_rehearsal_requires_the_canary_and_a_valid_gui_answer(tmp_path):
+    workflow, fake, _store = mac_workflow(tmp_path)
+    item = release(tmp_path)
+    with pytest.raises(StateError, match="legacy_con_switches_gui must be one of"):
+        workflow.rollback_rehearsal(item, "mac", legacy_con_switches_gui="yes")
+    with pytest.raises(Refusal, match="canary.mac.end is not journaled"):
+        workflow.rollback_rehearsal(item, "mac")
+    assert fake.sent == []

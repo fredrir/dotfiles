@@ -303,6 +303,47 @@ def canary_end(
     )
 
 
+@app.command(
+    "rollback-rehearsal",
+    help=(
+        "Rehearse §21's rollback on one host after its canary: set DMUX_LEGACY_POLICY=1 in the "
+        "host's env file and service manager, prove new Spaces plan tmux and the Wez-first "
+        "surface is refused while the existing Wez smoke Space still lists and presents, "
+        "then clear the policy and prove the host is back as the canary left it. The mux is "
+        "never restarted."
+    ),
+)
+def rollback_rehearsal(
+    ctx: typer.Context,
+    host: str = _host_option(),
+    approve_space: list[str] = typer.Option([], "--approve-space"),
+    legacy_con_switches_gui: str = typer.Option(
+        "unobserved",
+        "--legacy-con-switches-gui",
+        help=(
+            "What you observed for flag-off `dmux con <wez-space>` inside the managed GUI "
+            "(ADR 012 §10, WS-C): true, false, or unobserved. Recorded verbatim."
+        ),
+    ),
+):
+    context: Context = ctx.obj
+    release = _locked(
+        context,
+        lambda: context.workflow.rollback_rehearsal(
+            _load(context),
+            host,
+            approved_spaces=set(approve_space),
+            legacy_con_switches_gui=legacy_con_switches_gui,
+        ),
+    )
+    _summary(release)
+    row = release.checkpoints[f"rollback.rehearsal.{host}"]["evidence"]
+    typer.echo(
+        f"rehearsal {host}: legacy plan {row['legacy_create_plan']['stdout']!r}; "
+        f"policy cleared; legacy_con_switches_gui={row['legacy_con_switches_gui']}"
+    )
+
+
 @app.command(help="Show the active release and completed checkpoints.")
 def status(
     ctx: typer.Context,

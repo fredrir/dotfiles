@@ -50,6 +50,10 @@ CANARY_PHASE = {"mac": "canary_mac", "archie": "canary_arch"}
 # journaled start (model.utc_now), never from a monotonic clock that a
 # reboot -- itself part of the canary -- would reset.
 CANARY_FLOOR = timedelta(hours=24)
+# Scrubbed from every child's environment. The two policy switches are here
+# too: each dmux call states its own (`_dmux` exports DMUX_WEZ_FIRST=1 and the
+# rehearsal adds DMUX_LEGACY_POLICY=1 per call), so whatever the operator's
+# shell carries never decides what the tool drives.
 AMBIENT_MUX_VARS = (
     "TMUX",
     "TMUX_PANE",
@@ -64,6 +68,8 @@ AMBIENT_MUX_VARS = (
     "DMUX_SERVER_EPOCH",
     "DMUX_BACKEND_INSTANCE_UID",
     "DMUX_TMUX_CLIENT_UID",
+    "DMUX_WEZ_FIRST",
+    "DMUX_LEGACY_POLICY",
 )
 
 
@@ -1561,13 +1567,33 @@ class Workflow:
         except json.JSONDecodeError as error:
             raise Refusal(f"WezTerm {command} returned malformed JSON") from error
 
-    def _dmux_json(self, argv: Sequence[str], *, timeout: float = 40) -> Any:
-        output = self.runner.capture(
+    def _dmux(
+        self,
+        argv: Sequence[str],
+        *,
+        env: dict[str, str] | None = None,
+        timeout: float = 60,
+        check: bool = True,
+    ):
+        """Run the installed Mac dmux with an explicit policy environment.
+
+        Every call exports DMUX_WEZ_FIRST=1 on top of a scrubbed ambient
+        environment; `env` adds or overrides per call (the rollback rehearsal
+        passes DMUX_LEGACY_POLICY=1 and DMUX_DRY_RUN=1), so no call is ever
+        contradicted by a hardcoded default.
+        """
+        return self.runner.capture(
             [str(self.config.mac_dmux), *argv],
-            env={"DMUX_WEZ_FIRST": "1"},
+            env={"DMUX_WEZ_FIRST": "1", **(env or {})},
             unset_env=AMBIENT_MUX_VARS,
             timeout=timeout,
-        ).stdout
+            check=check,
+        )
+
+    def _dmux_json(
+        self, argv: Sequence[str], *, env: dict[str, str] | None = None, timeout: float = 40
+    ) -> Any:
+        output = self._dmux(argv, env=env, timeout=timeout).stdout
         try:
             return json.loads(output)
         except json.JSONDecodeError as error:
@@ -2140,15 +2166,7 @@ class Workflow:
             raise Refusal("Archie owner has attached clients; deployment requires a quiet point")
         inventory = self._validate_native_inventory(rows, descriptor, approved_spaces)
         recovery = self._remote_json(
-            host,
-            [
-                *scrubbed_env("DMUX_WEZ_FIRST=1"),
-                str(self.config.archie_home / ".local/bin/dmux"),
-                "recovery",
-                "status",
-                "--format",
-                "json",
-            ],
+            host, self._remote_dmux_argv(["recovery", "status", "--format", "json"])
         )
         status = recovery.get("result", {}).get("status", {})
         if (
@@ -2180,17 +2198,20 @@ class Workflow:
     def _archie_doctor(self, release: Release) -> dict[str, Any]:
         host = release.data["hosts"]["archie"]["ssh"]
         document = self._remote_json(
-            host,
-            [
-                *scrubbed_env("DMUX_WEZ_FIRST=1"),
-                str(self.config.archie_home / ".local/bin/dmux"),
-                "doctor",
-                "--format",
-                "json",
-            ],
-            timeout=60,
+            host, self._remote_dmux_argv(["doctor", "--format", "json"]), timeout=60
         )
         return self._require_doctor_document(document, "Archie")
+
+    def _remote_dmux_argv(
+        self, argv: Sequence[str], *, env: dict[str, str] | None = None
+    ) -> list[str]:
+        """Archie's installed dmux under the same explicit policy as `_dmux`."""
+        assignments = {"DMUX_WEZ_FIRST": "1", **(env or {})}
+        return [
+            *scrubbed_env(*(f"{key}={value}" for key, value in assignments.items())),
+            str(self.config.archie_home / ".local/bin/dmux"),
+            *[str(part) for part in argv],
+        ]
 
     def _wait_archie_owner(
         self,
@@ -2334,18 +2355,8 @@ class Workflow:
     def _ensure_primary_smoke(self, release: Release) -> None:
         smoke = release.data["smoke"]
         if smoke.get("space_uid") is None:
-            receipt = self.runner.capture(
-                [
-                    str(self.config.mac_dmux),
-                    "new",
-                    smoke["name"],
-                    "--backend",
-                    "wez",
-                    "--no-connect",
-                ],
-                env={"DMUX_WEZ_FIRST": "1"},
-                unset_env=AMBIENT_MUX_VARS,
-                timeout=60,
+            receipt = self._dmux(
+                ["new", smoke["name"], "--backend", "wez", "--no-connect"], timeout=60
             ).stdout.strip()
             host_uid, space_uid = self._parse_new_receipt(receipt, backend="wez")
             release.set_smoke_identity(space_uid=space_uid, host_uid=host_uid)
@@ -2386,24 +2397,12 @@ class Workflow:
         name: str,
         host_uid: str,
         space_uid: str,
+        env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        argv = [
-            str(self.config.mac_dmux),
-            "con",
-            "--name",
-            name,
-            "--backend",
-            "wez",
-            "--launch-gui",
-        ]
+        argv = ["con", "--name", name, "--backend", "wez", "--launch-gui"]
         if host is not None:
-            argv[2:2] = ["--host", host]
-        self.runner.capture(
-            argv,
-            env={"DMUX_WEZ_FIRST": "1"},
-            unset_env=AMBIENT_MUX_VARS,
-            timeout=90,
-        )
+            argv[1:1] = ["--host", host]
+        self._dmux(argv, env=env, timeout=90)
         return self._await_live_gui(
             host_uid, space_uid, what="GUI never published the exact smoke marker"
         )
@@ -2421,7 +2420,14 @@ class Workflow:
             time.sleep(0.1)
         raise Refusal(f"{what}: {last}")
 
-    def _gui_controller(self, gui: dict[str, Any], verb: str, args: list[str]) -> str:
+    def _gui_controller(
+        self,
+        gui: dict[str, Any],
+        verb: str,
+        args: list[str],
+        *,
+        env: dict[str, str] | None = None,
+    ) -> str:
         """Issue one controller verb from an exact live GUI pane origin.
 
         This is the same `dmux _gui` invocation the in-GUI Lua controller
@@ -2435,17 +2441,15 @@ class Workflow:
             "domain": gui["domain"],
             "marker": gui["context"],
         }
-        return self.runner.capture(
+        return self._dmux(
             [
-                str(self.config.mac_dmux),
                 "_gui",
                 "--origin-json",
                 json.dumps(origin, sort_keys=True, separators=(",", ":")),
                 verb,
                 *args,
             ],
-            env={"DMUX_WEZ_FIRST": "1"},
-            unset_env=AMBIENT_MUX_VARS,
+            env=env,
             timeout=90,
         ).stdout.strip()
 
@@ -2750,9 +2754,8 @@ class Workflow:
         smoke = release.data["smoke"]
         removal = smoke.setdefault("removal", {"name": f"{smoke['name']}-remove"})
         if not release.completed("verify.removal_created"):
-            receipt = self.runner.capture(
+            receipt = self._dmux(
                 [
-                    str(self.config.mac_dmux),
                     "new",
                     removal["name"],
                     "--backend",
@@ -2764,8 +2767,6 @@ class Workflow:
                     # that, and clap refuses it alongside --no-connect.
                     "--launch-gui",
                 ],
-                env={"DMUX_WEZ_FIRST": "1"},
-                unset_env=AMBIENT_MUX_VARS,
                 timeout=90,
             ).stdout.strip()
             host_uid, space_uid = self._parse_new_receipt(receipt, backend="wez")
@@ -2825,9 +2826,8 @@ class Workflow:
         # route the tool itself uses to reach Archie.
         host = release.archie_dmux_host
         if not release.completed("verify.two_host_identity"):
-            receipt = self.runner.capture(
+            receipt = self._dmux(
                 [
-                    str(self.config.mac_dmux),
                     "new",
                     "--host",
                     host,
@@ -2839,8 +2839,6 @@ class Workflow:
                     # witness before it can trust the enrolled route.
                     "--launch-gui",
                 ],
-                env={"DMUX_WEZ_FIRST": "1"},
-                unset_env=AMBIENT_MUX_VARS,
                 timeout=90,
             ).stdout.strip()
             host_uid, space_uid = self._parse_new_receipt(receipt, backend="wez")
@@ -3091,6 +3089,273 @@ class Workflow:
         self._checkpoint(release, name, ended)
         self.store.save(release)
         return release
+
+    # Rollback rehearsal (plan §21 step 7; ADR 012 WS-G.2) -----------------
+    #
+    # §21's rollback is a policy switch, not a service stop: DMUX_LEGACY_POLICY=1
+    # sends every new Space to tmux while the managed mux keeps running and
+    # existing Wez Spaces stay attachable. The rehearsal sets that switch the
+    # durable way (the host's env file, loaded into launchd/systemd), proves
+    # both halves without creating or destroying anything, then clears it and
+    # proves the host is back where the canary left it. The mux is never
+    # restarted here.
+    #
+    # Under the legacy policy the whole Wez-first CLI surface is off
+    # (main.rs: "--backend/--no-connect/... require DMUX_WEZ_FIRST=1"), so the
+    # proof that creation goes tmux is the legacy planner's own statement
+    # under DMUX_DRY_RUN (attach.rs exec_plan: `would exec: tmux new-session
+    # ...`, which executes nothing) plus the surface refusal itself. The
+    # Wez-first `new --no-connect` receipt named in WS-G.2 cannot exist on
+    # this path; see the rehearsal checkpoint's `legacy_create_plan`.
+
+    LEGACY_CON_ANSWERS = ("true", "false", "unobserved")
+    LEGACY_PLAN_PREFIX = "would exec: tmux new-session"
+    SURFACE_REFUSAL = "require DMUX_WEZ_FIRST=1"
+
+    def rollback_rehearsal(
+        self,
+        release: Release,
+        host: str,
+        *,
+        approved_spaces: set[str] | None = None,
+        legacy_con_switches_gui: str = "unobserved",
+    ) -> Release:
+        self._require_host(host)
+        if legacy_con_switches_gui not in self.LEGACY_CON_ANSWERS:
+            raise StateError(
+                "legacy_con_switches_gui must be one of " + ", ".join(self.LEGACY_CON_ANSWERS)
+            )
+        name = f"rollback.rehearsal.{host}"
+        if release.completed(name):
+            return release
+        if not release.completed(f"canary.{host}.end"):
+            raise Refusal(
+                f"the {host} rollback rehearsal follows its canary (plan §21 step 7); "
+                f"canary.{host}.end is not journaled"
+            )
+        smoke = self._rehearsal_space(release, host)
+        approved = self._host_spaces(release, host) | set(approved_spaces or ())
+        before, detail = self._canary_snapshot(release, host, approved_spaces)
+        legacy = {service_env.LEGACY_POLICY: "1"}
+        evidence: dict[str, Any] = {
+            "host": host,
+            "space": smoke,
+            "before": before,
+            "wez_first_before": detail,
+            "legacy_con_switches_gui": legacy_con_switches_gui,
+        }
+        env_backup = self._rehearsal_env_backup(release, host)
+        evidence["env_file_before"] = {key: env_backup[key] for key in ("path", "absent", "sha256")}
+        try:
+            evidence["policy_set"] = self._rehearsal_set_policy(release, host, legacy)
+            evidence["legacy_create_plan"] = self._rehearsal_legacy_plan(
+                release, host, f"{smoke['name']}-rehearsal", legacy
+            )
+            evidence["wez_first_surface_refused"] = self._rehearsal_surface_refused(
+                release, host, f"{smoke['name']}-rehearsal", legacy
+            )
+            evidence["legacy_listing"] = self._rehearsal_legacy_listing(
+                release, host, smoke, legacy
+            )
+            evidence["presentation"] = self._rehearsal_presentation(
+                release, host, smoke, approved, before
+            )
+        except BaseException as error:
+            try:
+                self._rehearsal_restore(release, host, env_backup)
+            except RolloutError as restore_error:
+                raise Refusal(
+                    f"rehearsal failed ({error}) and the policy could not be cleared: "
+                    f"{restore_error}; {env_backup['path']} must be restored by hand"
+                ) from error
+            raise
+        evidence["restored"] = self._rehearsal_restore(release, host, env_backup)
+        after, detail_after = self._canary_snapshot(release, host, approved_spaces)
+        if not self._same_incarnation(before, after):
+            raise Refusal(f"the {host} mux restarted during the rehearsal; it must not")
+        if after["backend_instance_uid"] != before["backend_instance_uid"]:
+            raise Refusal(f"{host} backend instance changed during the rehearsal")
+        if after["spaces"] != before["spaces"]:
+            raise Refusal(f"the {host} owner inventory changed during the rehearsal")
+        evidence["after"] = after
+        evidence["wez_first_after"] = detail_after
+        self._checkpoint(release, name, evidence)
+        self.store.save(release)
+        return release
+
+    @staticmethod
+    def _rehearsal_space(release: Release, host: str) -> dict[str, Any]:
+        smoke = release.data["smoke"]
+        row = smoke if host == "mac" else smoke.get("remote")
+        if not isinstance(row, dict) or not row.get("space_uid"):
+            raise Refusal(f"no journaled Wez smoke Space exists on {host} to keep attachable")
+        return {key: row[key] for key in ("name", "host_uid", "space_uid")}
+
+    def _rehearsal_env_backup(self, release: Release, host: str) -> dict[str, Any]:
+        if host == "mac":
+            return self._env_file_backup(self.config.mac_service_env)
+        return self._remote_env_file_backup(release.archie_ssh, self.config.archie_env_file)
+
+    def _rehearsal_set_policy(
+        self, release: Release, host: str, legacy: dict[str, str]
+    ) -> dict[str, Any]:
+        if host == "mac":
+            written = self._set_mac_env(legacy)
+            carried = {
+                key: self._launchd_env(key)
+                for key in (service_env.WEZ_FIRST, service_env.LEGACY_POLICY)
+            }
+            manager = "launchd"
+        else:
+            written = self._set_archie_env(release, legacy)
+            shown = self._systemd_env(release.archie_ssh)
+            carried = {
+                key: shown.get(key, "")
+                for key in (service_env.WEZ_FIRST, service_env.LEGACY_POLICY)
+            }
+            manager = "systemd"
+        if carried[service_env.LEGACY_POLICY] != "1":
+            raise Refusal(f"{manager} does not carry DMUX_LEGACY_POLICY=1 after the file write")
+        return {"file": written, manager: carried, "mux_restarted": False}
+
+    def _rehearsal_run(
+        self,
+        release: Release,
+        host: str,
+        argv: list[str],
+        env: dict[str, str],
+        *,
+        check: bool,
+    ) -> tuple[Any, dict[str, Any]]:
+        """One dmux call on `host` under `env`; returns (result, evidence)."""
+        if host == "mac":
+            result = self._dmux(argv, env=env, check=check)
+        else:
+            result = self.runner.capture(
+                remote_argv(release.archie_ssh, self._remote_dmux_argv(argv, env=env)),
+                timeout=60,
+                check=check,
+            )
+        return result, {
+            "argv": ["dmux", *argv],
+            "cli_env": {"DMUX_WEZ_FIRST": "1", **env},
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+
+    def _rehearsal_legacy_plan(
+        self, release: Release, host: str, name: str, legacy: dict[str, str]
+    ) -> dict[str, Any]:
+        """Under the legacy policy, `dmux new NAME` plans a tmux session."""
+        result, evidence = self._rehearsal_run(
+            release, host, ["new", name], {**legacy, "DMUX_DRY_RUN": "1"}, check=True
+        )
+        plan = result.stdout.strip()
+        if not plan.startswith(self.LEGACY_PLAN_PREFIX) or name not in plan:
+            raise Refusal(
+                f"legacy creation on {host} did not plan a tmux session for {name}: {plan!r}"
+            )
+        evidence["backend"] = "tmux"
+        evidence["executed"] = False
+        return evidence
+
+    def _rehearsal_surface_refused(
+        self, release: Release, host: str, name: str, legacy: dict[str, str]
+    ) -> dict[str, Any]:
+        """Under the legacy policy, the Wez-first creation surface is refused."""
+        result, evidence = self._rehearsal_run(
+            release, host, ["new", name, "--no-connect"], legacy, check=False
+        )
+        combined = result.stdout + result.stderr
+        if result.returncode == 0 or self.SURFACE_REFUSAL not in combined:
+            raise Refusal(
+                f"the Wez-first creation surface was not refused on {host} under "
+                f"DMUX_LEGACY_POLICY=1 (exit {result.returncode}): {combined.strip()!r}"
+            )
+        return evidence
+
+    def _rehearsal_legacy_listing(
+        self, release: Release, host: str, smoke: dict[str, Any], legacy: dict[str, str]
+    ) -> dict[str, Any]:
+        """The legacy listing -- the rollback's own path -- still shows the Wez Space."""
+        result, evidence = self._rehearsal_run(release, host, ["ls", "--json"], legacy, check=True)
+        try:
+            rows = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise Refusal(f"legacy `dmux ls --json` on {host} returned malformed JSON") from error
+        if not isinstance(rows, list):
+            raise Refusal(f"legacy `dmux ls --json` on {host} is not a bare array")
+        matching = [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and row.get("name") == smoke["name"]
+            and row.get("kind") == "wez"
+        ]
+        if len(matching) != 1:
+            raise Refusal(
+                f"the legacy listing on {host} does not show the Wez smoke Space "
+                f"{smoke['name']} exactly once ({len(matching)} rows)"
+            )
+        del evidence["stdout"]
+        evidence["row"] = matching[0]
+        evidence["rows"] = len(rows)
+        return evidence
+
+    def _rehearsal_presentation(
+        self,
+        release: Release,
+        host: str,
+        smoke: dict[str, Any],
+        approved: set[str],
+        before: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The existing Wez Space still presents through the managed server.
+
+        Driven with the tool's Wez-first CLI environment, not the legacy one:
+        `con --name/--backend/--launch-gui` is part of the gated surface, and
+        the legacy `con <workspace>` is a GUI-origin activate that the tool
+        cannot issue from outside wezterm -- that is the open WS-C question
+        the operator answers in `legacy_con_switches_gui`.
+        """
+        gui = self._present_and_wait(
+            release,
+            host=None if host == "mac" else release.archie_dmux_host,
+            name=smoke["name"],
+            host_uid=smoke["host_uid"],
+            space_uid=smoke["space_uid"],
+        )
+        detached = self._safe_quit_gui(gui)
+        after = self._owner_snapshot(release, host, approved_spaces=approved, require_quiet=False)
+        self._require_same_owner_space(before, after, smoke["space_uid"])
+        return {
+            "cli_env": {"DMUX_WEZ_FIRST": "1"},
+            "gui": detached,
+            "owner_panes": after["spaces"].get(smoke["space_uid"]),
+        }
+
+    def _rehearsal_restore(
+        self, release: Release, host: str, env_backup: dict[str, Any]
+    ) -> dict[str, Any]:
+        if host == "mac":
+            restored = self._restore_mac_env_file(env_backup)
+            carried = {
+                key: self._launchd_env(key)
+                for key in (service_env.WEZ_FIRST, service_env.LEGACY_POLICY)
+            }
+            manager = "launchd"
+        else:
+            restored = self._restore_archie_env_file(release, env_backup)
+            shown = self._systemd_env(release.archie_ssh)
+            carried = {
+                key: shown.get(key, "")
+                for key in (service_env.WEZ_FIRST, service_env.LEGACY_POLICY)
+            }
+            manager = "systemd"
+        if carried[service_env.LEGACY_POLICY] != "":
+            raise Refusal(f"{manager} still carries DMUX_LEGACY_POLICY after the restore")
+        return {**restored, manager: carried, "mux_restarted": False}
 
     # Rollback -------------------------------------------------------------
 
