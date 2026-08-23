@@ -995,3 +995,17 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   restarts the mux — which now holds a user Space — so r6 must either run `deploy-mac` only after
   the owner accepts a restart (recovery restores the Space) or treat Macie as already deployed
   (rollout phase `mac_deployed` without the restart); decided at r6 time.
+- **Finding — a Spotlight/Dock launch of WezTerm is refused under Wez-first, by design, and the
+  designed launcher was not running.** After the flag reached launchd the owner could not open
+  WezTerm from Spotlight; `wezterm-gui-log-{3123,3135,3140}.txt` each end with the fork's gate
+  (`wezterm-gui/src/dmux_managed.rs:261`): "dmux wez-first startup refused because the broker did
+  not provide WEZTERM_UNIX_SOCKET; terminating". That is plan §15.1's "bounded error, never
+  auto-serve" for a direct app start; the supported cold launches are `dmux _gui summon` (what
+  Hammerspoon's CMD+§ runs under the flag) and `dmux con|new … --launch-gui`, whose broker sets
+  `DMUX_WEZ_FIRST=1` and the exact socket for the GUI child (`gui_lifecycle.rs:1479`). Hammerspoon
+  was not running at the time, so no launcher was reachable from the desktop. Spotlight also lists
+  eleven greyed `WezTerm.app` entries: `assets/macos/WezTerm.app` template bundles inside the
+  rollout/fork source worktrees, with no binaries — cosmetic. Open item for the owner: a
+  desktop-reachable entry point that survives a Hammerspoon exit (Hammerspoon as a login item, or a
+  small launcher `.app` that runs `dmux _gui summon`), and a visible error for the refused direct
+  start, which today is a log line only.
