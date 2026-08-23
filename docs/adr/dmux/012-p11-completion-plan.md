@@ -1145,3 +1145,5 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   (follow-up). The tool's `--skip-tests` is a method parameter, not a CLI flag, and a proof tool
   should not grow a bypass: r6 stays `mac_deployed`-only and **r7 is planned at the fixed commit**
   — a Mac rebuild and one more owner-approved `deploy-mac` restart, then `stage-archie` again.
+  Archie full suite at `ccc12c8` (seamed, `--no-fail-fast`, scratch worktree): **1132/0/1**, live
+  runtime dir unchanged (5 → 5). r7 is planned at the commit that records this.
