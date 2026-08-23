@@ -925,3 +925,47 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
 - **Gate 2026-08-23 at `18fef5e`** (R integrated): 1128/0/1 under `run-isolated.sh`, live runtime dir
   unchanged (42 before and after); Lua suite 28/0/3. Every wave-3 branch is integrated and every
   agent worktree removed (branches kept). Release binaries for wave 4 are rebuilt from this tree.
+
+### Wave 4 — WS-F.2 on Macie, owner-driven (2026-08-23)
+
+- **Steps 1–3 done by the owner** from an interactive shell: `dotfile link` placed
+  `~/Library/LaunchAgents/com.fredrir.dmux-env.plist`; `dotfile sync` rebuilt the workspace
+  (`setup.sh`: `cargo build --release --locked` over the whole workspace, so the artifacts differ
+  byte-wise from the root's `-p dmux --bin` build of the same tree — same source `18fef5e`, different
+  feature unification); the owner installed `~/.local/bin/dmux` = `9c328df1…` (8,107,776 B) and
+  `pane-bootstrap` = `df560953…` (585,088 B), both from `target/release` of that build; the installed
+  `dmux` answers `repair retire-incarnation --help` with `--allow-live-pid`, so it is the new code.
+  The backups were overwritten: the owner's `cp … .bak-20260820`/`.bak-20260818` lines were run once
+  before and once *after* the `install` lines, so both `.bak` files now hash identical to the new
+  binaries and the Aug 20 `dmux` / Aug 18 `pane-bootstrap` builds are gone from `~/.local/bin`. The
+  rollback path does not need them: `dmux-rollout rollback` restores the binaries recorded with the
+  r5 release. `~/.config/dmux/service.env` = `DMUX_WEZ_FIRST=1`. The first
+  `launchctl bootstrap gui/$UID …dmux-env.plist` (run before `service.env` existed) succeeded
+  silently and the agent ran once with exit 0 — applying nothing, since the file was not there yet;
+  the second `bootstrap` after writing the file failed `5: Input/output error`, which is launchd's
+  answer to bootstrapping an already-bootstrapped job. The re-apply is `launchctl kickstart
+  gui/$UID/com.fredrir.dmux-env`, as the plist's own comment says; `dmux doctor` says the same
+  (`process=unset launchd=unset file=1`).
+- **Pre-restart state, read-only** (`evidence/p11/doctor-macie-before-restart-20260823.json`, taken
+  with the installed binary): wez instance F (`stale_incarnation`: registry epoch `40c99029…` pid
+  5458 dead; live mux serves `895ca35a…`), tmux instance A, registry `88835a1a…` unchanged since Aug
+  19, mux pid 54528 with exactly one pane (the sentinel) — step 4's precondition holds.
+- **Finding — macOS purges the runtime dir.** The descriptor `${TMPDIR}dmux/wez-dmux.json` is gone.
+  No dmux code path removes a descriptor (`remove_file`/`os.remove` grep: none); the unified log
+  shows `dirhelper` "started normally … cleaning directories" at 03:35:02, the mtime of
+  `${TMPDIR}dmux/bootstrap/`, and the runtime dir shrank 58 → 42 → 28 entries across today's gates
+  while every survivor is newer than ~Aug 20 03:35 — i.e. macOS's periodic cleaner removed regular
+  files in `/var/folders/…/T` unaccessed for three days: the stranded `starting` descriptor (last
+  written Aug 19 12:42), an old `bootstrap/*.pane-env`, and ~30 stale lock files. The socket and
+  the dot-prefixed service lease survived. Consequences: (a) a *healthy* mux's `ready` descriptor
+  is written once at startup (`dmux-mux.lua publish_descriptor` has no refresh timer) and would be
+  purged after three idle days, after which every flag-on verb answers `provider_unavailable`
+  ("managed Wez descriptor is absent") until a service restart — which kills panes; (b) a purged
+  kernel-lock file breaks `fcntl` exclusion for a holder that still has the old inode, though locks
+  are held per operation and a long-held one (the lease) survived. Wave 4 proceeds — the managed
+  restart republishes the descriptor and the canary window is shorter than three days — but this
+  needs a plan amendment before the flip (§15.1/§19.3; the runtime-dir resolver is ADR 000 / plan
+  "dmux_runtime_dir()"). Candidate mitigations for the owner to choose: the mux re-publishes its
+  descriptor on a `wezterm.time.call_after` timer (daily; atomic rename, same content), and the
+  service wrapper touches its runtime files on the same cadence; or the descriptor moves beside the
+  registry (`~/.local/share/dmux`) with only sockets and locks left in `$TMPDIR`.
