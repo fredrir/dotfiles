@@ -902,24 +902,6 @@ pub fn parse_resident_origin_json(input: &str) -> Result<GuiResidentCliOrigin, G
     Ok(origin)
 }
 
-pub fn parse_signed_origin_json(input: &str) -> Result<BridgeOrigin, GuiError> {
-    if input.len() > MAX_MESSAGE_BYTES {
-        return Err(GuiError::MessageTooLarge(input.len()));
-    }
-    let raw: Value = serde_json::from_str(input)
-        .map_err(|e| GuiError::InvalidRequest(format!("signed origin JSON: {e}")))?;
-    if contains_null(&raw) {
-        return invalid("signed origin optional fields must be omitted, never null");
-    }
-    // Validate the original JSON before deserializing typed UUID wrappers;
-    // otherwise serde could accept a noncanonical UUID spelling and erase
-    // that evidence when the value is serialized again.
-    validate_origin(&raw, None)?;
-    let origin: BridgeOrigin = serde_json::from_str(input)
-        .map_err(|e| GuiError::InvalidRequest(format!("signed origin JSON: {e}")))?;
-    Ok(origin)
-}
-
 pub fn cold_launcher_origin(
     gui_instance: String,
     uid: u64,
@@ -3795,15 +3777,20 @@ mod tests {
     fn strict_request_unions_reject_unknown_stale_and_unbound_fields() {
         let key = [0x33; 32];
 
-        let signed_origin = request()["origin"].clone();
-        assert!(parse_signed_origin_json(&serde_json::to_string(&signed_origin).unwrap()).is_ok());
-        let mut noncanonical_origin = signed_origin;
-        noncanonical_origin["host_uid"] =
+        // The signed origin is validated on the raw JSON by the request
+        // validator `call_instance` runs before signing, bound to the selected
+        // consumer: a noncanonical UUID spelling is refused rather than
+        // canonicalised away, and an origin naming another consumer is
+        // refused even though it is well-formed on its own.
+        assert!(validate_request_for_instance(&request(), Some("gui-42-cafe")).is_ok());
+        let mut noncanonical_origin = request();
+        noncanonical_origin["origin"]["host_uid"] =
             Value::String("22222222-2222-4222-8222-22222222222A".into());
-        assert!(
-            parse_signed_origin_json(&serde_json::to_string(&noncanonical_origin).unwrap())
-                .is_err()
-        );
+        assert!(validate_request_for_instance(&noncanonical_origin, None).is_err());
+        let mut other_consumer = request();
+        other_consumer["origin"]["gui_instance"] = Value::String("gui-43-beef".into());
+        assert!(validate_request_for_instance(&other_consumer, None).is_ok());
+        assert!(validate_request_for_instance(&other_consumer, Some("gui-42-cafe")).is_err());
 
         let mut unknown = request();
         unknown["target"]["unexpected"] = Value::Bool(true);
