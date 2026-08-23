@@ -72,9 +72,15 @@ pub const CAP_ACTIVATE_EXISTING: &str = "wez:presentation:activate_existing:v1";
 pub const REQUIRED_PRESENTATION_CAPABILITIES: [&str; 2] =
     [CAP_ATTACH_NO_CREATE, CAP_ACTIVATE_EXISTING];
 
-/// Owner hello probes have a short independent bound.  This is not the mux
-/// provider's socket deadline: neither probe is allowed to contact a server.
-pub const DEFAULT_PROBE_DEADLINE: Duration = Duration::from_secs(2);
+/// Owner hello probes have an independent bound.  This is not the mux
+/// provider's socket deadline: neither probe is allowed to contact a server,
+/// so the bound only has to absorb process start-up.  Ten seconds, the same
+/// as the tmux provider's `DEFAULT_DEADLINE`: under a saturated host a single
+/// `/bin/sh` spawn was measured at 1.6 s, and a hello runs two probes, so the
+/// former 2 s bound turned scheduler stalls into "no wez capability" reports
+/// (ADR 012 §10, WS-E.4 flake triage).  A bound, not a wait — a healthy probe
+/// still answers in milliseconds.
+pub const DEFAULT_PROBE_DEADLINE: Duration = Duration::from_secs(10);
 
 const MAX_PROBE_OUTPUT: usize = 16 * 1024;
 const MAX_BUILD_LEN: usize = 128;
@@ -222,8 +228,12 @@ struct ProbeOutput {
 }
 
 /// Total extra time a probe may spend letting its readers drain after the
-/// child has been reaped. Mirrors `remote::client`'s transport grace.
-const PROBE_DRAIN_GRACE: Duration = Duration::from_secs(2);
+/// child has been reaped. The process group was killed before the drain, so
+/// the inherited write ends are already closed and the readers finish at
+/// once; the grace only covers a reader that was mid-`read(2)`. It is kept
+/// strictly shorter than [`DEFAULT_PROBE_DEADLINE`] so the success path can
+/// never take longer than a refused one.
+const PROBE_DRAIN_GRACE: Duration = Duration::from_secs(1);
 
 /// Kill the probe's whole process group, reap the direct child, then let both
 /// readers finish within one shared grace.
