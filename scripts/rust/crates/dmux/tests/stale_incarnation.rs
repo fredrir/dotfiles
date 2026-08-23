@@ -42,16 +42,28 @@ struct ScratchTmux {
 }
 
 impl ScratchTmux {
+    /// Start (or restart, on a namespace whose previous server was just
+    /// killed) with a bounded retry: Linux tmux can still be tearing the
+    /// old incarnation down when the newcomer binds, and then reports
+    /// "server exited unexpectedly" for what is a transient (ADR 012 §10).
     fn start(ns: &str) -> Option<ScratchTmux> {
         let server = ScratchTmux { ns: ns.to_string() };
-        let started = Command::new(real_tmux())
-            .args(["-L", &server.ns, "-f", "/dev/null"])
-            .args(["new-session", "-d", "-s", "proj"])
-            .status();
-        match started {
-            Ok(status) if status.success() => Some(server),
-            _ => None,
+        for attempt in 0..40 {
+            let started = Command::new(real_tmux())
+                .args(["-L", &server.ns, "-f", "/dev/null"])
+                .args(["new-session", "-d", "-s", "proj"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if matches!(started, Ok(status) if status.success()) {
+                return Some(server);
+            }
+            if attempt == 39 {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
+        None
     }
 
     fn tmux(&self, args: &[&str]) -> String {

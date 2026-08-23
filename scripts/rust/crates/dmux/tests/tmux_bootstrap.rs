@@ -122,11 +122,30 @@ fn restart_invalidates_the_epoch_and_rebinds() {
     let first = s.epoch_option();
 
     assert!(s.tmux(&["kill-server"]).status.success());
-    assert!(
-        s.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "two"])
+    // Linux tmux may acknowledge `kill-server` while the old server is still
+    // tearing down; wait until it stops answering, then start the fresh
+    // incarnation with a bounded retry (ADR 012 §10).
+    let gone = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while s
+        .tmux(&["display-message", "-p", "#{pid}"])
+        .status
+        .success()
+        && std::time::Instant::now() < gone
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let mut restarted = false;
+    for _ in 0..40 {
+        if s.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "two"])
             .status
             .success()
-    );
+        {
+            restarted = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(restarted, "the fresh incarnation did not start");
     assert_eq!(s.epoch_option(), "", "a fresh incarnation has no epoch");
 
     assert!(s.bootstrap().status.success());

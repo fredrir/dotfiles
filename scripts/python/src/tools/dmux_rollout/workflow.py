@@ -355,7 +355,7 @@ class Workflow:
                 Path(path).mkdir(mode=0o700, parents=True, exist_ok=True)
             before = self._runtime_dir_entries(live)
             self.runner.stream(
-                ["cargo", "test", "-p", "dmux", "--", "--test-threads=1"],
+                ["cargo", "test", "-p", "dmux", "--no-fail-fast", "--", "--test-threads=1"],
                 cwd=dotfiles / "scripts/rust",
                 env={**test_env, **seams},
                 unset_env=(*AMBIENT_MUX_VARS, *POLICY_VARS),
@@ -659,6 +659,7 @@ class Workflow:
                             str(dotfiles / "scripts/rust/Cargo.toml"),
                             "-p",
                             "dmux",
+                            "--no-fail-fast",
                             "--",
                             "--test-threads=1",
                         ],
