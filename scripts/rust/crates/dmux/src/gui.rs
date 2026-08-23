@@ -787,55 +787,6 @@ pub fn bind_cli_origin_with_heartbeat(
     Ok((selection, heartbeat))
 }
 
-/// Discover the one resident live GUI without requiring a pane marker. This
-/// is the zero-window `summon` seam: a fresh unique heartbeat is sufficient,
-/// but zero or multiple GUI processes are never guessed between.
-pub fn discover_single_live_instance(
-    runtime_dir: &Path,
-) -> Result<BridgeInstanceSelection, GuiError> {
-    let runtime = PrivateDir::open(runtime_dir, 0o700)?;
-    let bridge = runtime
-        .child(BRIDGE_DIR)
-        .map_err(|e| GuiError::BridgeUnavailable(format!("no registered GUI bridge: {e}")))?;
-    let instances = bridge
-        .child("instances")
-        .map_err(|e| GuiError::BridgeUnavailable(format!("no registered GUI instances: {e}")))?;
-    let now = unix_seconds()?;
-    let mut live = Vec::new();
-    for name in instances.entry_names()? {
-        let Some(instance) = name.to_str() else {
-            continue;
-        };
-        if validate_instance(instance).is_err() {
-            continue;
-        }
-        let dir = match instances.child(instance) {
-            Ok(dir) => dir,
-            Err(_) => continue,
-        };
-        let heartbeat = match read_live_heartbeat(&dir, instance, now) {
-            Ok(heartbeat) => heartbeat,
-            Err(_) => continue,
-        };
-        live.push(BridgeInstanceSelection {
-            gui_instance: heartbeat.gui_instance,
-            pid: heartbeat.pid,
-            process_start_token: heartbeat.process_start_token,
-            domains: heartbeat.domains,
-        });
-    }
-    match live.as_slice() {
-        [instance] => Ok(instance.clone()),
-        [] => Err(GuiError::BridgeUnavailable(
-            "no live resident GUI instance is registered".into(),
-        )),
-        many => Err(GuiError::InvalidInstance(format!(
-            "{} live GUI instances are registered; refusing to guess",
-            many.len()
-        ))),
-    }
-}
-
 /// Build the origin object placed in a signed in-GUI request. The consumer
 /// rechecks every marker field against its current pane before acting.
 pub fn in_gui_origin(

@@ -1,11 +1,13 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::OsString;
+use std::fs;
 use std::io;
 use std::num::NonZeroU64;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dmux::backend::{
     InventoryOutcome, InventoryScope, NativeGroupRow, NativeInventory, NativeSpaceRow,
@@ -13,7 +15,7 @@ use dmux::backend::{
 };
 use dmux::connect_cli::{FrozenBinding, FrozenConnectTarget};
 use dmux::error::{ErrorCode, TypedError};
-use dmux::gui::BridgeInstanceSelection;
+use dmux::gui::{BridgeHeartbeat, BridgeInstanceSelection};
 use dmux::gui_lifecycle::{
     ColdLaunchIntent, CommandExit, DescriptorSource, FixedServicePlatform,
     GUI_BACKEND_INSTANCE_ENV, GUI_INSTANCE_ENV, GUI_LAUNCHER_PID_ENV, GUI_LAUNCHER_REQUEST_UID_ENV,
@@ -21,8 +23,8 @@ use dmux::gui_lifecycle::{
     GUI_TARGET_HOST_UID_ENV, GUI_TARGET_SERVER_EPOCH_ENV, GUI_TARGET_SPACE_UID_ENV, GuiLaunchDeps,
     HeartbeatSource, LINUX_SERVICE_LABEL, LauncherProcessWitness, LauncherWitnessSource,
     LifecycleChild, LifecycleClock, LifecycleCommand, LifecycleCommandRunner, MACOS_SERVICE_LABEL,
-    ReadyWezService, ServiceEnsureDeps, WezServiceInventory, ensure_ready_wez_service_with,
-    launch_attach_only_gui_with,
+    ReadyWezService, RuntimeHeartbeatSource, ServiceEnsureDeps, WezServiceInventory,
+    ensure_ready_wez_service_with, launch_attach_only_gui_with,
 };
 use dmux::model::{
     Backend, BackendInstanceUid, HostUid, ProviderHandle, ServerEpoch, SpaceNo, SpaceUid,
@@ -1560,4 +1562,91 @@ fn heartbeat_read_failure_cleans_up_the_launched_process() {
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::BridgeUnavailable);
     assert_eq!(commands.cleanups.get(), 1);
+}
+
+fn private_dir(path: &Path) {
+    fs::create_dir_all(path).unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+fn write_heartbeat(root: &Path, name: &str, updated_at: u64, dir_mode: u32) {
+    let instance = root.join("bridge").join("instances").join(name);
+    private_dir(&instance);
+    fs::set_permissions(&instance, fs::Permissions::from_mode(dir_mode)).unwrap();
+    let heartbeat = BridgeHeartbeat {
+        protocol_version: 1,
+        gui_instance: name.into(),
+        pid: 4242,
+        process_start_token: "gui-start-token".into(),
+        updated_at,
+        panes: Vec::new(),
+        domains: BTreeMap::new(),
+    };
+    let path = instance.join("heartbeat.json");
+    fs::write(&path, serde_json::to_vec(&heartbeat).unwrap()).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+/// ADR 003 §3: a stale heartbeat means bridge-down. The production reader
+/// behind `summon`, cold launch and the frozen presentation paths lists a
+/// GUI as live only from a fresh, private, well-formed heartbeat; stale,
+/// future-dated, unprivate, malformed and absent ones are not live instances
+/// (report 06 row 11, closed here against `RuntimeHeartbeatSource`).
+#[test]
+fn stale_or_unprivate_heartbeats_are_not_live_instances() {
+    let root = TempDir::new().unwrap();
+    private_dir(root.path());
+    private_dir(&root.path().join("bridge"));
+    let instances = root.path().join("bridge").join("instances");
+    private_dir(&instances);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    write_heartbeat(root.path(), "gui-fresh", now, 0o700);
+    write_heartbeat(root.path(), "gui-stale", now - 10, 0o700);
+    write_heartbeat(root.path(), "gui-future", now + 60, 0o700);
+    write_heartbeat(root.path(), "gui-shared", now, 0o755);
+    let broken = instances.join("gui-broken");
+    private_dir(&broken);
+    fs::write(broken.join("heartbeat.json"), b"{").unwrap();
+    fs::set_permissions(
+        broken.join("heartbeat.json"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    private_dir(&instances.join("gui-silent"));
+
+    let live = RuntimeHeartbeatSource.live_instances(root.path()).unwrap();
+    assert_eq!(
+        live,
+        vec![BridgeInstanceSelection {
+            gui_instance: "gui-fresh".into(),
+            pid: 4242,
+            process_start_token: "gui-start-token".into(),
+            domains: BTreeMap::new(),
+        }]
+    );
+
+    // The one live GUI ages past HEARTBEAT_MAX_AGE: nothing is live, and the
+    // callers' `[]` arm (cold launch) is what follows, never a reuse.
+    write_heartbeat(root.path(), "gui-fresh", now - 3, 0o700);
+    assert!(
+        RuntimeHeartbeatSource
+            .live_instances(root.path())
+            .unwrap()
+            .is_empty()
+    );
+
+    // No instance directory yet (no GUI has ever registered) is an empty
+    // listing, not an error.
+    let bare = TempDir::new().unwrap();
+    private_dir(bare.path());
+    assert!(
+        RuntimeHeartbeatSource
+            .live_instances(bare.path())
+            .unwrap()
+            .is_empty()
+    );
 }
