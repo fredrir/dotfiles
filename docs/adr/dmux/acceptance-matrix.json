@@ -141,7 +141,8 @@
    "tests": [
     "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation",
     "new_cli_dispatch::an_unpublished_tmux_instance_refuses_the_gated_new_before_any_reservation_or_tmux_call",
-    "unit::gui_cli::tests::gui_create_refuses_an_unpublished_opposite_instance_before_any_reservation"
+    "unit::gui_cli::tests::gui_create_refuses_an_unpublished_opposite_instance_before_any_reservation",
+    "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -280,7 +281,10 @@
     "repair_rebind::wez_rebind_refuses_while_the_opaque_key_still_answers",
     "registry::reconcile::a_crashed_wez_adopt_with_a_name_is_reversed_to_the_source_not_the_logical_name",
     "registry::reconcile::a_pre_v5_wez_adopt_row_is_reversed_to_the_logical_name_as_before",
-    "adopt_cli::the_adoption_journal_records_the_source_token_beside_the_chosen_name"
+    "adopt_cli::the_adoption_journal_records_the_source_token_beside_the_chosen_name",
+    "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired",
+    "ls_cli::a_registered_tmux_instance_is_scanned_under_its_published_epoch",
+    "ls_cli::a_registered_tmux_instance_without_a_published_epoch_refuses_and_discovers_nothing"
    ],
    "implemented_at": [
     "src/operations.rs:1452 require_unbound_native",
@@ -513,7 +517,8 @@
     "unit::main::tests::ls_long_help_renders_every_documented_scope",
     "ls_cli::the_help_names_every_scope_and_both_axes",
     "remote_protocol::mutations::spaces_reports_an_unpublished_tmux_instance_unreachable_without_running_tmux",
-    "gated_dispatch::ls_all_hosts_lists_the_enrolled_hosts_under_the_gate_and_is_refused_under_legacy"
+    "gated_dispatch::ls_all_hosts_lists_the_enrolled_hosts_under_the_gate_and_is_refused_under_legacy",
+    "ls_cli::a_peer_epoch_fault_maps_to_backend_epoch_changed_like_the_local_one"
    ],
    "implemented_at": [
     "src/ls_cli.rs:58"
@@ -539,20 +544,25 @@
     "legacy_sentinel::a_workspace_attach_execs_activate_pane_on_the_service_socket",
     "legacy_sentinel::a_wedged_wezterm_is_abandoned_at_the_deadline",
     "unit::attach::tests::the_sentinel_is_refused_before_context_pane_or_exec",
-    "unit::list::tests::sentinel_workspaces_never_become_rows"
+    "unit::list::tests::sentinel_workspaces_never_become_rows",
+    "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired",
+    "stale_incarnation::a_replaced_tmux_socket_refutes_a_published_row_whose_pid_is_still_alive",
+    "doctor_cli::a_published_incarnation_whose_process_is_dead_is_reported_as_state_f",
+    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e"
    ],
    "implemented_at": [
     "src/ls_cli.rs:736 scope",
     "src/ls_cli.rs:829 scan_target",
     "src/backend/wez.rs required_action_epoch / verified_scan (non-Option since WS-A.6)",
-    "src/list.rs managed_wez_socket / src/attach.rs plan_attach_wez (legacy flag-off path: pinned socket, bounded probe, sentinel never a row or a target)"
+    "src/list.rs managed_wez_socket / src/attach.rs plan_attach_wez (legacy flag-off path: pinned socket, bounded probe, sentinel never a row or a target)",
+    "src/backend/scope.rs resolve_managed liveness probe (StaleIncarnation); src/doctor.rs A–F classification"
    ],
-   "live_evidence": [],
+   "live_evidence": [
+    "docs/adr/dmux/evidence/p11/doctor-macie-before-repair.json (state F on Macie before WS-F.2, 2026-08-23)"
+   ],
    "live_evidence_required": [],
-   "open_items": [
-    "ADR 012 WS-B.1 stale incarnation (a dead pid is never detected today)"
-   ],
-   "status": "blocked"
+   "open_items": [],
+   "status": "mapped"
   },
   "26": {
    "title": "New Group/Split inherits exact owner/backend/cwd; backend override rejected",
@@ -588,18 +598,19 @@
     "remote_protocol::mutations::spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_complete",
     "unit::gui_cli::tests::presentation_routes_must_name_the_validated_authority",
     "connect_client_context::a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_by_the_client_context_reader",
-    "connect_client_context::an_unwitnessed_row_still_refuses_a_replaced_server_by_identity"
+    "connect_client_context::an_unwitnessed_row_still_refuses_a_replaced_server_by_identity",
+    "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired",
+    "stale_incarnation::a_replaced_tmux_socket_refutes_a_published_row_whose_pid_is_still_alive",
+    "doctor_cli::a_published_incarnation_whose_process_is_dead_is_reported_as_state_f",
+    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e"
    ],
    "implemented_at": [
     "src/connect_cli.rs:1609 require_published_tmux_incarnation"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
-   "open_items": [
-    "ADR 012 WS-A.8 tmux adapter half (binding_epoch refuses an unpinned scope) — T agent",
-    "WS-B.1 stale incarnation (liveness in the resolver)"
-   ],
-   "status": "blocked"
+   "open_items": [],
+   "status": "mapped"
   },
   "28": {
    "title": "Every logical key follows the active marker; invalid markers change nothing",
@@ -783,7 +794,8 @@
     "recovery::mux_lua_contract::fallback_sentinel_never_publishes_a_ready_descriptor",
     "recovery::coordinator::simultaneous_startup_clients_restore_once_and_the_second_observes_ready",
     "recovery::coordinator::hard_death_after_completed_root_republishes_ready_without_restoring_again",
-    "lua::mux_startup_witness::managed_start_publishes_ready_after_spawning_only_the_sentinel_idle_pane"
+    "lua::mux_startup_witness::managed_start_publishes_ready_after_spawning_only_the_sentinel_idle_pane",
+    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e"
    ],
    "implemented_at": [
     "shared/wezterm/mux/dmux-mux.lua mux-startup",

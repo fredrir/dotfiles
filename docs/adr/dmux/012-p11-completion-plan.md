@@ -829,4 +829,30 @@ Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `r
   (`remote/agent.rs:~820`, `remote/attach.rs:347/643/1666`) can call
   `connect_cli::require_published_tmux_incarnation` before their `verify_epoch`; two more alias
   resolvers (`ls_cli.rs:408`, `remote/hosts.rs:56`) could call `resolve_enrolled_host`.
+- **T (WS-A.8 tmux half, A.9 adapter side, the `AlreadySet` refusal, E.2 tmux repros, E.3 row 9) —
+  integrated 2026-08-23** (`74be80c`, `29a1dcd`, `9d8d5eb` → `ff3090d`, `b3159e0`, `d2e719d`). Every
+  tmux binding-bearing verb holds to the scope's published epoch and refuses an unpinned scope
+  before any command; the adapter compares the published incarnation's socket witness and
+  `tmux_bootstrap` refuses to bootstrap a replaced server presenting the old epoch (the root's
+  policy decision); `prepare_presentation`, `capabilities` and `group_list` are gone from the
+  `Provider` trait with both impls, the contract double and the test fakes — production reads a
+  Space's Groups from `inventory`/`hierarchy`, presents over the ADR 003 bridge, and probes
+  capability through `probe_cas_rename`; `TmuxProvider` now refuses a scope for any namespace other
+  than its own before its first command (ADR 001 made literal). T's manifest entries for the
+  retired tests follow with its return.
+- **B (WS-B.1, B.2, B.4, the two `ls` tests, A.12's doc, `peer_scan_error_code`) — integrated
+  2026-08-23** (`d3569e1`…`6daecfa` → `6394f12`…`0e667a3`). `resolve_managed{,_instance}` prove the
+  published row before handing out a scope — `kill(pid, 0)`, then start token and socket dev/ino
+  against a fresh `stat` through the one `compare_incarnation` both the resolver and
+  `operations::verify_published_incarnation` use; the probe is a trait (`IncarnationProbe`; the OS
+  default for Wez, `ls_cli::LiveIncarnationProbe` asks tmux's `server_incarnation`), so the resolver
+  runs no adapter code. Failure is `ManagedTarget::StaleIncarnation { instance, published, observed }`,
+  refused by every verb (`tests/stale_incarnation.rs` drives ls, new, adopt, group new, rm --row,
+  _context and repair reconcile on a dead-pid row, then retires it and sees `Unpublished`). `ls`
+  tells state C from D with the shared fence and the recovery lease and no longer advises a restart;
+  `dmux doctor` names each instance A–F from a read-only registry snapshot against the live
+  descriptor, socket `stat` and tmux probe, in human and both JSON shapes, and reports a set
+  `DMUX_RUNTIME_DIR`. Evidence: `docs/adr/dmux/evidence/p11/doctor-macie-before-repair.json` —
+  this host's wez instance is state F. Gates on the merged tree: T 137 backend unit tests; B's
+  consumers all green; the full wrapper result is recorded at the next gate line.
 
