@@ -222,8 +222,8 @@ because nothing in that path consults the constant. The chain, verified:
    path, so the managed `dmux` unix client domain at the service's descriptor
    socket is never declared and the GUI is not an attach-only client of the
    managed mux. The mux wrapper agrees independently —
-   `shared/wezterm/mux/dmux-mux-start.sh:55` defaults the variable to `0` and
-   the managed branches at `:88` and `:98` require `= 1`.
+   `shared/wezterm/mux/dmux-mux-start.sh:93` defaults the variable to `0` and
+   the managed branches at `:126` and `:136` require `= 1`.
 3. A legacy GUI publishes no ambient bridge marker, so
    `ProductionGuiAuthority::creation_bridge`
    (`scripts/rust/crates/dmux/src/gui_cli.rs:1260-1271`) takes its
@@ -286,7 +286,7 @@ discovered mid-canary.
 legacy, anything else states no preference. Precedence is unchanged —
 `DMUX_LEGACY_POLICY=1`, then an explicit `DMUX_WEZ_FIRST`, then the default —
 and the rows the flip moves are now exactly the ones where nobody stated a
-preference. This matches `shared/wezterm/mux/dmux-mux-start.sh:55`
+preference. This matches `shared/wezterm/mux/dmux-mux-start.sh:93`
 (`${DMUX_WEZ_FIRST:-0}`) and `shared/zsh/conf.d/94-dmux-context.zsh:16`
 (`!= 1` returns early) rather than contradicting them.
 

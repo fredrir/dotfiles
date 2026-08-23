@@ -164,7 +164,10 @@ sh shared/wezterm/wez/dmux_bridge/tests/suite.sh
 
 The `domains`, `top_level`, `top_level_missing_descriptor`, and `top_level_missing_key` cases cover
 the descriptor and abort paths. They stub the descriptor reader rather than touching a real server,
-so a green suite does not prove the service works.
+so a green suite does not prove the service works. `mux_startup_witness` covers the other
+startup refusal: a native descriptor publisher whose service witness disagrees with the
+handler's (`service_witness_mismatch`, naming the field) or is absent (`native_absent`) must
+leave the descriptor `failed`, never frozen at `starting` (ADR 012 WS-B.5).
 
 Proving that needs a real restart, which kills live panes. Do it deliberately — on a machine with
 nothing running, or with the user's agreement — then confirm the descriptor reaches `ready` with

@@ -50,6 +50,13 @@ This section is exhaustive and unhedged.
    *was* spawned (the live `wezterm cli list` shows it), so `dmux-mux.lua:1140-1146` ran, yet the
    `DMUX_BACKEND_INSTANCE` guard at `:1148-1160` that should publish `failed` evidently did not
    land. I did not read the launchd log; doing so would not change any crate-level finding.
+   **Disposition (ADR 012 WS-B.5, 2026-08-23):** answered from the per-pid mux log. The
+   handler returned at `dmux-mux.lua:1143` — the native publisher refused `starting` with a
+   mismatched service witness, because mlua renders a Rust `None` as a JSON-null light
+   userdata rather than Lua `nil` — before the missing-instance guard at `:1147` could publish
+   `failed`. The comparison now names the disagreeing field (`service_witness_mismatch`),
+   accepts an absent native value (`native_absent`), and publishes `failed` after a refused
+   `starting`; the `mux_startup_witness` Lua case pins it (ADR 012 §10).
 10. **Not audited at all:** the Lua GUI bridge beyond the three flagged lines; whether the deployed
     `~/.local/bin/dmux` behaves as reviewed (it *contains* the fix — `strings` finds
     `"has published no server epoch"`, mtime Aug 20 00:45, post-`493e92c` — but was not run through

@@ -4,6 +4,25 @@ Part of the [dmux epoch-verification integrity review](INDEX.md). Reviewed tree 
 
 ---
 
+**Dispositions (ADR 012, 2026-08-23):** every action below is closed on `dmux` except the live-host
+half of 1. 1 — the liveness re-check landed (WS-B.1: a published incarnation whose pid is gone,
+whose start token changed, or whose socket dev/ino no longer match a fresh `stat` is
+`ManagedTarget::StaleIncarnation`, refused by every verb); repairing Macie's row itself is wave 4
+(owner-confirmed `service.env` + managed restart, or `repair retire-incarnation`). 2 — WS-B.4
+(`dmux doctor` names each instance A–F against descriptor, socket `stat` and tmux probe). 3 —
+WS-B.2 (`ls` branches on the shared fence and the recovery lease). 4, 5 — WS-A.1–A.5 (private
+epoch, constructors, `resolve_managed`, all nine sites migrated, `tests/scope_audit.rs` allowlist
+burned down to the first-contact site and two test helpers). 6 — WS-A.6 (nine wez verbs take
+`required_action_epoch`). 7 — WS-A.7 (`main.rs` `_context` resolves through the registry). 8 —
+WS-C (the legacy path pins `WEZTERM_UNIX_SOCKET`, bounds the probe, filters the sentinel). 9 —
+WS-A.8 (tmux dev/ino published at bootstrap and compared). 10 — WS-A.9 (`server_epoch` readable
+from `BINDING_COLUMNS`; `binding_epoch` strict on tmux, refreshed by the pinned scan on wez — a
+ratified deviation). 11 — WS-E.3 (the contract double refuses, `tests/provider_contract.rs`). 12 —
+WS-E.2 (executable reproductions for the nine call-chain-only findings, across W/O/T/QA). 13 —
+WS-E.3 row 14 (`Provider::inventory` states the contract at the trait).
+
+---
+
 1. **Deal with the live host first.** The registry publishes a dead incarnation and the descriptor
    has been `starting` for three days. Re-grade `registry/mod.rs:1586` from info to critical, and
    add a liveness re-check: nothing invalidates a published incarnation whose pid has exited.

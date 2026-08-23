@@ -47,7 +47,7 @@ After creating `tests/<name>.lua`, add `<name>` to the right arm of `mode_for()`
 
 | Mode | Preconditions | Existing cases |
 |---|---|---|
-| `unit` | no dmux environment at all | actions, consumer, controller, instance, presentation, run |
+| `unit` | no dmux environment at all | actions, consumer, controller, instance, mux_startup_witness, presentation, run |
 | `managed` | `DMUX_WEZ_FIRST=1` + a private `DMUX_RUNTIME_DIR` | config, config_linux, domains, picker, remote, resident_ingress, status, top_level, top_level_missing_descriptor, top_level_missing_key |
 | `flag-off` | asserts `DMUX_WEZ_FIRST` is absent | config_off, top_level_off |
 | `matrix` | parameterised; run once per combination | hammerspoon |
