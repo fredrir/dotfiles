@@ -89,12 +89,12 @@ are assigned over the merged set before `--tmux`/`--wez` filter; `con` refuses
 `rename` refuse `--name`/`--row`/`--backend`/`--format` (and
 `--allow-name-collision`); and `adopt` and `migrate` refuse outright.
 `group`, `split`, `context`, `repair`, `recovery`, `ssh`, and `host` are not
-gated. Two things the errors name do not exist yet: `migrate` answers
-"migrate is not implemented yet" even under the flag, and `dmux repair
-rebind` — the remedy for asserting dmux identity over an unmanaged resource —
-is unimplemented, so `repair reconcile` refuses that case and names the route
-that works today (rename the resource off the reserved name, reconcile again,
-then `adopt` it back).
+gated. `migrate` is implemented (preview, then `--commit --yes`, then a
+stamp that makes later runs no-ops). One thing the errors name is still
+landing: `dmux repair rebind` — the remedy for asserting dmux identity over an
+unmanaged resource — ships with ADR 012 WS-D.1; until then `repair reconcile`
+refuses that case and names the route that works today (rename the resource
+off the reserved name, reconcile again, then `adopt` it back).
 
 Bounded commands share one exit table: `0` success, `1` operation failure,
 `2` usage, `3` not found, `4` conflict, `5` confirmation required, `6`
