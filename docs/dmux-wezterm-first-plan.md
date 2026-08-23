@@ -333,6 +333,25 @@ dmux ssh HOST_OR_ADDRESS
 - `repair reconcile` resolves a mutation whose process died mid-flight, routing each stranded row through the §10.2 journal's own resume decision rather than a second judgement. It distinguishes crashed from running by trying the locks a live mutation would hold: nothing durable separates them, and elapsed time is not evidence. A scope still held is reported and left alone. It never binds an orphan to a reserved key — that needs the bootstrap acknowledgement `new` performs and `repair` cannot — so that case refuses and names `repair rebind`.
 - `NATIVE_REF` is an opaque provider-qualified token emitted for an unmanaged row, of the form `native:<backend>:<base64url-no-padding>`. It is never accepted as a backend command string. `adopt` re-resolves the token in a complete owner scan before acquiring its operation lease.
 
+`repair rebind SPACE_REF NATIVE_REF` (ADR 012 WS-D.1) is an expert, confirmed, owner-local
+assertion that one exact unmanaged native resource is a previously managed Space whose current
+binding no longer answers. It refuses before any mutation when the Space's binding still answers
+under the published incarnation (`identity_conflict`; rename or remove instead), when the resource
+is bound to any Space or carries foreign markers (`identity_conflict`), when the backend of the ref
+and the Space differ (`backend_mismatch`), when the instance has published no epoch or its published
+incarnation is stale (`backend_epoch_changed`), and for a Space on another host (`protocol_mismatch`,
+ADR 011 D7). It takes the locks and uses the primitive adoption uses — tmux: the session-id binding
+plus the `@dmux_*` stamp; Wez: the fork CAS rename to the Space's own opaque key with
+`--if-workspace`/`--if-sole-window` (ADR 006) — journals source and destination before the native
+step, severs the old binding, prints both identities, and finishes `unstamped` until every pane runs
+`dmux context stamp`. A JSON run without `--yes` emits one `confirmation_required` document and
+changes nothing; a pipe without `--yes` exits 5. A rebind that dies mid-flight is settled by
+`repair reconcile` into `rebind_rolled_back`, `rebind_committed` (active, unstamped) or conflict,
+by the journaled source, destination and epoch — the adoption journal records the source native
+token (registry schema v5, WS-D.2), so a crashed Wez adopt is reversed to its source, never to the
+logical name.
+
+
 ## 8. Resolution and creation policy
 
 ### 8.1 Typed inventory outcomes

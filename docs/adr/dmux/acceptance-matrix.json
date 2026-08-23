@@ -218,7 +218,10 @@
     "unit::space_cli::tests::a_registry_error_resolving_the_instance_is_that_error_never_no_provider",
     "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation",
     "operations_flow::owner_fenced_create_refuses_an_unpinned_selected_scope_before_reserving",
-    "registry::bootstrap::registering_the_same_backend_at_another_endpoint_is_a_typed_refusal"
+    "registry::bootstrap::registering_the_same_backend_at_another_endpoint_is_a_typed_refusal",
+    "repair_rebind::the_registry_rebind_journal_is_two_phase_and_typed",
+    "registry::adopt::reserve_adoption_records_the_source_token_and_refuses_create",
+    "repair_rebind::a_remote_space_is_refused_as_protocol_mismatch"
    ],
    "implemented_at": [
     "src/space_cli.rs:154",
@@ -263,20 +266,28 @@
     "registry::reconcile::a_stranded_create_on_an_unpublished_tmux_instance_is_refused_not_released",
     "registry::reconcile::a_stranded_row_on_an_unaddressable_tmux_instance_is_refused",
     "operations_flow::repair_scan_refuses_an_endpoint_other_than_the_instances_recorded_socket",
-    "operations_flow::a_tmux_binding_recorded_under_another_incarnation_is_refused_before_any_native_command"
+    "operations_flow::a_tmux_binding_recorded_under_another_incarnation_is_refused_before_any_native_command",
+    "repair_rebind::tamper_then_rebind_then_stamp_restores_health_on_tmux",
+    "repair_rebind::a_resource_bound_to_another_space_is_an_identity_conflict",
+    "repair_rebind::a_session_carrying_foreign_markers_is_refused_untouched",
+    "repair_rebind::wez_rebind_cas_renames_the_stranger_to_the_opaque_key_and_lands_unstamped",
+    "repair_rebind::wez_rebind_cas_mismatch_is_a_typed_conflict_never_a_silent_rebind",
+    "repair_rebind::wez_rebind_refuses_while_the_opaque_key_still_answers",
+    "registry::reconcile::a_crashed_wez_adopt_with_a_name_is_reversed_to_the_source_not_the_logical_name",
+    "registry::reconcile::a_pre_v5_wez_adopt_row_is_reversed_to_the_logical_name_as_before",
+    "adopt_cli::the_adoption_journal_records_the_source_token_beside_the_chosen_name"
    ],
    "implemented_at": [
     "src/operations.rs:1452 require_unbound_native",
     "src/operations.rs:1521 require_no_foreign_stamp",
-    "src/registry/mod.rs:2434 current_binding_by_native"
+    "src/registry/mod.rs:2434 current_binding_by_native",
+    "src/operations.rs:1987 rebind_prepare",
+    "src/operations.rs:4694 crashed-rebind reconciliation arm"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
-   "open_items": [
-    "WS-D.1 repair rebind (tamper -> absent -> rebind -> unstamped -> stamp -> healthy)",
-    "WS-D.2 adoption journal source token"
-   ],
-   "status": "blocked"
+   "open_items": [],
+   "status": "mapped"
   },
   "14": {
    "title": "Forget/re-enroll same HostUid restores alias; different HostUid never receives it",
@@ -847,7 +858,11 @@
     "registry::recovery::atomic_generation_abort_with_floor_is_fenced_preserves_proof_rows_and_unblocks_the_next_generation",
     "registry::recovery::atomic_generation_abort_with_floor_accepts_each_nonterminal_root_state_only",
     "registry::recovery::unfinished_lookup_tracks_nonterminal_root_and_rows_are_path_ordered",
-    "registry::migrate_v3::failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted"
+    "registry::migrate_v3::failed_v2_generation_migrates_losslessly_and_can_be_atomically_aborted",
+    "registry::migrate_v5::a_v4_journal_migrates_losslessly_and_pre_v5_rows_carry_no_source",
+    "registry::migrate_v5::a_pre_v5_stranded_adoption_reconciles_unchanged",
+    "repair_rebind::a_crashed_tmux_rebind_is_settled_by_the_markers_on_the_named_session",
+    "repair_rebind::a_crashed_wez_rebind_is_settled_by_source_and_destination_under_the_epoch"
    ],
    "implemented_at": [],
    "live_evidence": [],

@@ -765,4 +765,19 @@ Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `r
   so `two_host` addresses an enrolled route, `canary-start`/`canary-end` with a wall-clock 24 h floor
   and a journaled in-canary reboot, and `rollback-rehearsal`. The root's read-only survey of the
   tool (what it does by hand versus through the tool) is the agent's input.
+- **D (WS-D.1, WS-D.2) — closed 2026-08-23** (`f0134ff`, `40e5e31`, `a4cd745` → `30a569d`, `dbe6a32`,
+  `71eee47`; wrapper 1074/0/1 in its worktree). `dmux repair rebind SPACE_REF NATIVE_REF` lands
+  with the §7.4 rule recorded in the plan: refusals before any mutation (binding still answers,
+  resource bound or foreign-stamped, backend mismatch, unpublished or stale instance, another
+  host), the adoption primitive under the adoption locks (tmux session-id binding + stamp; Wez fork
+  CAS to the opaque key), journal before native step, old binding severed, both identities printed,
+  `unstamped` until `context stamp`. Case 13's tamper clause is proven end to end through the
+  binary on a scratch tmux server; the Wez leg against the scripted CAS (a mismatch is a typed
+  conflict, the row aborted, nothing moved). Schema v5 adds `operations.source_native_token`
+  (nullable, lossless migration test); `reserve_adoption` records it; a crashed Wez adopt reverses
+  to the journaled source and a crashed rebind is settled by source/destination/epoch (the
+  reconciliation the ADR 011 "known limitation" lacked — now closed there). Two root one-liners owed
+  and applied next: `main.rs` passes `cli.host` to `repair_for` (today `--host` was silently dropped
+  for every repair verb) and the reconcile `lend` tmux arm carries a marker reader so a crashed
+  tmux rebind reconciles through the binary. No real fork CAS was exercised — WS-G/F evidence.
 

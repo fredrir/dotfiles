@@ -175,4 +175,4 @@ case, so it is no longer optional polish.
 `{name, backend_instance}`. So when reconcile compensates a crashed Wez adopt by reversing the CAS
 rename, it renames to the reservation's **logical name** — byte-identical to the source unless
 `dmux adopt --name` was used. Making it exact requires a registry payload change carrying the
-source token, which also unblocks a real source/destination/epoch reconciliation. Not done here.
+source token, which also unblocks a real source/destination/epoch reconciliation. Not done here. **Closed by ADR 012 WS-D.2 (`40e5e31`, `a4cd745`): the journal records `source_native_token` (schema v5) and a crashed Wez adopt reverses to its source.**

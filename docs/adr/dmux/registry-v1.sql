@@ -308,3 +308,13 @@ CREATE TABLE pane_stamps (
 -- ever wrote the routes table).
 CREATE UNIQUE INDEX routes_host_transport_endpoint_uq
   ON routes(host_uid, transport, endpoint);
+
+-- ===========================================================================
+-- v5 appendix (ADR 012 WS-D.2; plan §10.3): applied by migration when
+-- user_version < 5. Implemented in registry/schema.rs (SCHEMA_VERSION = 5).
+-- The adopt/rebind journal row records the exact native token it was opened
+-- for (tmux session id; Wez workspace name before its CAS rename to the
+-- opaque key). NULL on create rows and on rows journaled before v5, which
+-- reconciliation reverses to the logical name as before.
+ALTER TABLE operations ADD COLUMN source_native_token TEXT;
+
