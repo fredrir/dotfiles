@@ -18,7 +18,12 @@ from typing import Any
 from tools.dmux_rollout import service_env
 from tools.dmux_rollout.command import Runner, remote_argv, require_ssh_host, sha256_file
 from tools.dmux_rollout.errors import Refusal, RolloutError, StateError
-from tools.dmux_rollout.model import Release, require_commit, require_space_uid
+from tools.dmux_rollout.model import (
+    Release,
+    require_commit,
+    require_dmux_host,
+    require_space_uid,
+)
 from tools.dmux_rollout.storage import RolloutStore
 
 WORKSPACE_RE = re.compile(r"^dmux:(?P<host>[0-9a-f-]{36}):(?P<space>[0-9a-f-]{36})$")
@@ -116,13 +121,18 @@ class Workflow:
         smoke_space_uid: str | None = None,
         smoke_host_uid: str | None = None,
         archie_ssh: str | None = None,
+        archie_dmux_host: str | None = None,
     ) -> Release:
-        # The Archie route is frozen into the manifest with the sources: every
-        # later ssh, scp and `dmux --host` call reads hosts.archie.ssh, never
-        # the config default, so a release addresses one enrolled route for
-        # its whole life. The bare `archie` alias is a disabled route since
-        # the route split (r5.md); r6 names `fredrir@10.77.77.2` explicitly.
+        # Archie is addressed two ways, both frozen into the manifest with the
+        # sources. hosts.archie.ssh is the tool's own route -- every ssh, scp
+        # and `ssh -t` reads it, never the config default -- and the bare
+        # `archie` alias is a disabled route since the route split (r5.md), so
+        # r6 names `fredrir@10.77.77.2`. hosts.archie.dmux_host is what the
+        # tool hands `dmux --host`, which resolves enrolled aliases, labels,
+        # HostUids and the legacy name only (connect_cli::host_row), never an
+        # ssh spelling.
         archie_host = require_ssh_host(archie_ssh) if archie_ssh else self.config.archie_host
+        dmux_host = require_dmux_host(archie_dmux_host) if archie_dmux_host else None
         dotfiles = self._git_source(self.config.dotfiles_repo, dotfiles_ref)
         wezterm = self._git_source(self.config.wezterm_repo, wezterm_ref)
         chosen = release_id or self._default_release_id(dotfiles["commit"], wezterm["commit"])
@@ -135,10 +145,15 @@ class Workflow:
                         raise Refusal(f"release {chosen} already freezes different source facts")
             if existing.data["smoke"]["name"] != smoke_name:
                 raise Refusal(f"release {chosen} already owns another smoke Space name")
-            recorded = existing.data["hosts"]["archie"]["ssh"]
+            recorded = existing.archie_ssh
             if archie_ssh is not None and recorded != archie_host:
                 raise Refusal(
                     f"release {chosen} already addresses Archie as {recorded!r}, not {archie_host!r}"
+                )
+            if dmux_host is not None and existing.archie_dmux_host != dmux_host:
+                raise Refusal(
+                    f"release {chosen} already names Archie's dmux host "
+                    f"{existing.archie_dmux_host!r}, not {dmux_host!r}"
                 )
             return existing
         release = Release.create(
@@ -147,6 +162,7 @@ class Workflow:
             wezterm=wezterm,
             smoke_name=smoke_name,
             archie_host=archie_host,
+            **({"archie_dmux_host": dmux_host} if dmux_host else {}),
         )
         if (smoke_space_uid is None) != (smoke_host_uid is None):
             raise StateError("smoke SpaceUid and HostUid must be supplied together")
@@ -2798,7 +2814,9 @@ class Workflow:
     def _verify_two_host(self, release: Release) -> None:
         smoke = release.data["smoke"]
         remote = smoke.setdefault("remote", {"name": f"{smoke['name']}-archie"})
-        host = release.data["hosts"]["archie"]["ssh"]
+        # `--host` takes dmux's selector for the enrolled host, not the ssh
+        # route the tool itself uses to reach Archie.
+        host = release.archie_dmux_host
         if not release.completed("verify.two_host_identity"):
             receipt = self.runner.capture(
                 [

@@ -82,7 +82,7 @@ def _summary(release: Release) -> None:
     typer.echo(f"phase:     {release.data['phase']}")
     typer.echo(f"dotfiles:  {frozen['dotfiles']['commit']}")
     typer.echo(f"wezterm:   {frozen['wezterm']['commit']}")
-    typer.echo(f"archie:    {release.data['hosts']['archie']['ssh']}")
+    typer.echo(f"archie:    {release.archie_ssh} (dmux --host {release.archie_dmux_host})")
     typer.echo(f"smoke:     {release.data['smoke']['name']}")
     typer.echo(f"SpaceUid:  {release.data['smoke'].get('space_uid') or '-'}")
     typer.echo(f"checkpoints: {len(release.checkpoints)}")
@@ -103,6 +103,14 @@ def plan(
             "the bare 'archie' alias is a disabled route. Default: archie."
         ),
     ),
+    archie_dmux_host: str | None = typer.Option(
+        None,
+        "--archie-dmux-host",
+        help=(
+            "What `dmux --host` is given for Archie in the two-host matrix: an enrolled alias "
+            "or label, a HostUid, or the legacy name. Default: archie."
+        ),
+    ),
     smoke_name: str | None = typer.Option(None, "--smoke-name"),
     smoke_space_uid: str | None = typer.Option(None, "--smoke-space-uid"),
     smoke_host_uid: str | None = typer.Option(None, "--smoke-host-uid"),
@@ -119,6 +127,7 @@ def plan(
             smoke_space_uid=smoke_space_uid,
             smoke_host_uid=smoke_host_uid,
             archie_ssh=archie_ssh,
+            archie_dmux_host=archie_dmux_host,
         ),
     )
     _summary(release)

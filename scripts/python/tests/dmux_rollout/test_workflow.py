@@ -563,11 +563,29 @@ def test_plan_freezes_an_explicit_archie_route_and_refuses_changing_it(tmp_path)
     with store.exclusive():
         default = workflow.plan(release_id="r7", smoke_name="smoke")
     assert default.data["hosts"]["archie"]["ssh"] == "archie"
+    assert default.archie_dmux_host == "archie"
+    del default.data["hosts"]["archie"]["dmux_host"]  # an r5-shaped manifest
+    assert default.archie_dmux_host == "archie"
+
+    # The ssh route is never what `dmux --host` is given: that is a separate,
+    # separately validated selector (alias/label/HostUid/legacy name).
+    with store.exclusive():
+        named = workflow.plan(
+            release_id="r8",
+            smoke_name="smoke",
+            archie_ssh="fredrir@10.77.77.2",
+            archie_dmux_host="b",
+        )
+    assert named.archie_dmux_host == "b"
+    with store.exclusive(), pytest.raises(Refusal, match="already names Archie's dmux host"):
+        workflow.plan(release_id="r8", smoke_name="smoke", archie_dmux_host="archie")
+    with store.exclusive(), pytest.raises(StateError, match="enrolled alias/label"):
+        workflow.plan(release_id="r9", smoke_name="smoke", archie_dmux_host="fredrir@10.77.77.2")
 
 
 def test_archie_steps_address_the_route_frozen_in_the_manifest(tmp_path):
     item = release(tmp_path)
-    item.data["hosts"]["archie"]["ssh"] = "fredrir@10.77.77.2"
+    item.data["hosts"]["archie"] = {"ssh": "fredrir@10.77.77.2", "dmux_host": "b"}
     item.data["artifacts"]["archie_packages"] = {
         "main": {"path": "/pkgs/wezterm-fredrir-git-1.11111111-1-x86_64.pkg.tar.zst"},
         "debug": {"path": "/pkgs/wezterm-fredrir-git-debug-1.11111111-1-x86_64.pkg.tar.zst"},
@@ -609,7 +627,8 @@ def test_archie_steps_address_the_route_frozen_in_the_manifest(tmp_path):
         workflow._verify_two_host(item)
 
     new_call = next(argv for argv in sent if "new" in argv)
-    assert new_call[new_call.index("--host") + 1] == "fredrir@10.77.77.2"
+    assert new_call[new_call.index("--host") + 1] == "b", "dmux --host takes the selector"
+    assert "fredrir@10.77.77.2" not in new_call
     assert item.data["smoke"]["remote"]["space_uid"] == space_uid
     assert snapshots == ["fredrir@10.77.77.2"]
 

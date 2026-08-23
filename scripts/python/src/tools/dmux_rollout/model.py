@@ -30,6 +30,12 @@ PHASES = (
 RELEASE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SPACE_UID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+# What `dmux --host` resolves (connect_cli::host_row): an enrolled alias or
+# label (refs.rs: [a-z][a-z0-9-]{0,31}), a HostUid, or one of the two legacy
+# names. Never an ssh destination -- `user@ip` is only ever the tool's own
+# route (hosts.archie.ssh), which dmux does not enrol under that spelling.
+DMUX_HOST_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+DEFAULT_ARCHIE_DMUX_HOST = "archie"
 
 
 def utc_now() -> str:
@@ -54,6 +60,17 @@ def require_space_uid(value: str, field: str = "space_uid") -> str:
     return value
 
 
+def require_dmux_host(value: str, field: str = "dmux host") -> str:
+    if not isinstance(value, str) or not (
+        DMUX_HOST_RE.fullmatch(value) or SPACE_UID_RE.fullmatch(value)
+    ):
+        raise StateError(
+            f"{field} must be an enrolled alias/label ([a-z][a-z0-9-]{{0,31}}), a HostUid, or "
+            "the legacy name archie"
+        )
+    return value
+
+
 def phase_index(phase: Any) -> int:
     if not isinstance(phase, str) or phase not in PHASES:
         raise StateError(f"unknown release phase {phase!r}; expected one of {', '.join(PHASES)}")
@@ -73,6 +90,7 @@ class Release:
         wezterm: dict[str, Any],
         smoke_name: str,
         archie_host: str,
+        archie_dmux_host: str = DEFAULT_ARCHIE_DMUX_HOST,
     ) -> Release:
         now = utc_now()
         release = cls(
@@ -86,7 +104,10 @@ class Release:
                 "frozen": {"dotfiles": dotfiles, "wezterm": wezterm},
                 "hosts": {
                     "mac": {"name": "macie", "service_label": "com.fredrir.wezterm-mux"},
-                    "archie": {"ssh": archie_host},
+                    "archie": {
+                        "ssh": archie_host,
+                        "dmux_host": require_dmux_host(archie_dmux_host),
+                    },
                 },
                 "artifacts": {},
                 "checkpoints": {},
@@ -178,6 +199,17 @@ class Release:
     @property
     def phase(self) -> str:
         return self.data["phase"]
+
+    @property
+    def archie_ssh(self) -> str:
+        return self.data["hosts"]["archie"]["ssh"]
+
+    @property
+    def archie_dmux_host(self) -> str:
+        """The `dmux --host` selector for Archie; old manifests predate the field."""
+        return require_dmux_host(
+            self.data["hosts"]["archie"].get("dmux_host", DEFAULT_ARCHIE_DMUX_HOST)
+        )
 
     def set_phase(self, phase: str) -> None:
         """Move to `phase`, refusing to go backwards.
