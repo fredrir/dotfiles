@@ -70,9 +70,13 @@ local process_calls = 0
 local last_argv
 local toasts = {}
 local errors = {}
+local background_calls = 0
+local last_background_argv
 local fake_wezterm = {
   GLOBAL = { dmux_bridge_instance = 'gui-42-cafe' },
-  background_child_process = function()
+  background_child_process = function(argv)
+    background_calls = background_calls + 1
+    last_background_argv = argv
     return true
   end,
   home_dir = '/tmp',
@@ -134,6 +138,86 @@ response = { schema_version = 1, ok = true, result = { refreshed = true } }
 process_success = true
 result = assert(controller.run(window, pane, 'context', { '--cache' }))
 assert(result.refreshed == true)
+
+-- ADR 012 WS-E.2, controller.lua:115 (report 08 §7). The controller is the
+-- carrier of the pane marker's server_epoch into `dmux _gui --origin-json`
+-- and verifies nothing about the epoch itself: plan §13.1 puts that in the
+-- crate (`operations::validate_marker_context`). What it must hold is that
+-- the origin is the pane's own marker, byte for byte and nothing more — no
+-- synthesized or defaulted epoch, no socket, namespace or seam argument
+-- through which the crate's verification could be steered, no environment
+-- lookup beyond the binary's path, and no child process at all once the
+-- marker cannot be parsed.
+assert(#last_argv == 6, 'argv is binary, _gui, --origin-json, origin, verb and one argument')
+assert(last_argv[5] == 'context' and last_argv[6] == '--cache')
+local in_gui_origin = assert(json.decode(last_argv[4]))
+local in_gui_keys = { domain = true, gui_instance = true, marker = true, pane_id = true, protocol_version = true }
+local in_gui_field_count = 0
+for key in pairs(in_gui_origin) do
+  assert(in_gui_keys[key], 'in-GUI origin added an unauthorized field: ' .. tostring(key))
+  in_gui_field_count = in_gui_field_count + 1
+end
+assert(in_gui_field_count == 5)
+assert(in_gui_origin.protocol_version == 1 and in_gui_origin.gui_instance == 'gui-42-cafe')
+assert(in_gui_origin.pane_id == 91 and in_gui_origin.domain == 'dmux-b-usb')
+local carried = in_gui_origin.marker
+local carried_count = 0
+for key, value in pairs(carried) do
+  assert(marker[key] == value, 'marker field altered in transit: ' .. tostring(key))
+  carried_count = carried_count + 1
+end
+assert(carried_count == 7, 'the origin marker carries exactly the seven marker fields, not the GUI locator')
+assert(carried.server_epoch == marker.server_epoch and carried.group_ref == marker.group_ref)
+assert(carried.domain == nil, 'an absent provider domain is omitted, never guessed from the GUI domain')
+assert(in_gui_origin.tmux_client_uid == nil, 'a Wez marker carries no tmux client locator')
+for _, word in ipairs(last_argv) do
+  for _, seam in ipairs { '--socket', '--epoch', '--namespace', '--data-dir', '--lock-dir', '--backend' } do
+    assert(word:sub(1, #seam) ~= seam, 'seam argument reached the controller argv: ' .. word)
+  end
+end
+
+-- A tmux marker's client locator rides beside the marker, never inside it.
+marker.tmux_client_uid = '66666666-6666-4666-8666-666666666666'
+assert(controller.run(window, pane, 'context', { '--cache' }))
+in_gui_origin = assert(json.decode(last_argv[4]))
+assert(in_gui_origin.tmux_client_uid == '66666666-6666-4666-8666-666666666666')
+assert(in_gui_origin.marker.tmux_client_uid == nil)
+marker.tmux_client_uid = nil
+
+-- The controller reads nothing from the process environment but the
+-- binary's location: no epoch, socket or policy can enter from there.
+-- (`rawset`: the probe replaces a stdlib field for one call and restores
+-- it; luacheck would otherwise read the assignment as a stray global edit.)
+local real_getenv = os.getenv
+local env_reads = {}
+rawset(os, 'getenv', function(name)
+  env_reads[name] = true
+  return real_getenv(name)
+end)
+assert(controller.run(window, pane, 'split-new', { '--direction', 'right' }))
+rawset(os, 'getenv', real_getenv)
+for name in pairs(env_reads) do
+  assert(name == 'DMUX_BIN', 'controller consulted the environment for ' .. tostring(name))
+end
+assert(env_reads.DMUX_BIN, 'the binary is resolved through DMUX_BIN')
+
+-- The epoch-class refusal the crate answers with once its verification
+-- fails (`backend_epoch_changed`) is a failure here, with no result and the
+-- code in the log; the controller never retries, rewrites or softens it.
+local before_epoch_refusal = process_calls
+response = {
+  schema_version = 1,
+  ok = false,
+  error = 'backend_epoch_changed',
+  message = 'backend instance has published no server epoch',
+}
+process_success = false
+result, err, partial = controller.run(window, pane, 'group-new')
+assert(result == nil and err == response.message and partial == nil)
+assert(process_calls == before_epoch_refusal + 1)
+assert(errors[#errors] == 'dmux group-new failed (pane 91) [backend_epoch_changed]: ' .. response.message)
+response = { schema_version = 1, ok = true, result = { refreshed = true } }
+process_success = true
 
 local before_resident = process_calls
 result = assert(controller.run_resident 'safe-quit')
@@ -210,10 +294,30 @@ local resolved_marker = context_module.from_pane
 context_module.from_pane = function()
   return nil, { message = 'pane has no dmux marker' }
 end
+local before_unparseable = process_calls
+local before_background = background_calls
 result, err = controller.run(window, pane, 'space-new')
 assert(result == nil and err == 'pane has no dmux marker')
 assert(errors[#errors] == 'dmux space-new failed: pane has no dmux marker')
+-- An unparseable marker is the end of the road: no origin is fabricated
+-- from the GUI's own identity, so no child process runs, foreground or
+-- background.
+assert(process_calls == before_unparseable, 'an unparseable marker reached the controller binary')
+assert(controller.background_refresh(pane) == false)
+assert(background_calls == before_background, 'an unparseable marker started a background refresh')
+local gui_instance_before = fake_wezterm.GLOBAL.dmux_bridge_instance
+fake_wezterm.GLOBAL.dmux_bridge_instance = nil
 context_module.from_pane = resolved_marker
+-- And a parseable marker without a ready GUI bridge identity is refused
+-- before the binary too: the origin is never half-built.
+result, err = controller.run(window, pane, 'space-new')
+assert(result == nil and err == 'trusted dmux GUI bridge is not ready')
+assert(process_calls == before_unparseable)
+fake_wezterm.GLOBAL.dmux_bridge_instance = gui_instance_before
+assert(controller.background_refresh(pane) == true)
+assert(background_calls == before_background + 1)
+assert(#last_background_argv == 6 and last_background_argv[5] == 'context' and last_background_argv[6] == '--cache')
+assert(json.decode(last_background_argv[4]).marker.server_epoch == marker.server_epoch)
 
 local now = os.time()
 cache_document = {
@@ -255,4 +359,4 @@ cache_document.message = 'owner epoch changed'
 _, err, state = controller.cached_context(pane, now)
 assert(err == 'owner epoch changed' and state == 'invalid_context')
 
-io.stdout:write 'dmux controller/cache test: typed failures, resident origin, and exact cache passed\n'
+io.stdout:write 'dmux controller/cache test: typed failures, exact origin carriage, resident origin, and exact cache passed\n'
