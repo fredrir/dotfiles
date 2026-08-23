@@ -73,6 +73,7 @@ Four listing scopes, deliberately distinct — `--all-hosts` sets host breadth,
 | `dmux repair normalize [TOKEN...]` | Preview, then merge multi-window Wez resources to one window each: deterministic pane-preserving plans, confirmed before any mutation, and a failure stays quarantined per target. Tokens restrict the scope; default is every detected multi-window resource. `-y`, `--yes`; deprecated `--json`. |
 | `dmux repair reconcile [SPACE...]` | Preview, then resolve the journal rows a crashed holder stranded, each through the frozen decision table; a row a live process still owns is listed and left alone. Spaces restrict the scope; default is every stranded row. `-y`, `--yes`. |
 | `dmux repair retire-incarnation --backend <wez\|tmux> --epoch <UUID>` | Clear a published backend incarnation whose process is gone (plan §5.2 state F): a compare-and-set on the published epoch, journaled as a revision; refuses a mismatching epoch, a live pid without `--allow-live-pid`, and any unfinished recovery. The instance stays unpublished until the managed service republishes. `-y`, `--yes`. |
+| `dmux repair rebind <SPACE_REF> <NATIVE_REF>` | Assert that one exact unmanaged resource (`native:<backend>:<token>`, as `dmux ls` prints it) is a previously managed Space whose binding no longer answers. Confirmed; owner-local (`protocol_mismatch` for another host); refuses while the old binding still answers, when the resource is bound or carries foreign markers, on a backend mismatch, and on an unpublished or stale instance. Uses the adoption primitive under the adoption locks, journals source and destination first, severs the old binding, prints both identities, and finishes `unstamped` until every pane runs `dmux context stamp`. `-y`, `--yes`. |
 | `dmux recovery <SUB>` | Guarded Wez mux recovery, always executed at the backend owner and qualified with the exact backend-instance/epoch pair, so a restart between inspection and mutation is a stale-target refusal. `status`; `resume`; `abort` with `-y`, `--yes`. |
 | `dmux ssh <TARGET>` | Enroll a host over SSH and open an interactive session on it. |
 | `dmux host <SUB>` | `ls`: enrolled hosts and their routes (deprecated `--json`); `label <HOST> <NEW_LABEL>`: set a friendly label; `forget <HOST>` with `-y`: disable a host's routes and tombstone its refs, never the local host, and re-enrolling reactivates it. `<HOST>` is an alias, a current label, or a HostUid. |
@@ -90,11 +91,10 @@ are assigned over the merged set before `--tmux`/`--wez` filter; `con` refuses
 `--allow-name-collision`); and `adopt` and `migrate` refuse outright.
 `group`, `split`, `context`, `repair`, `recovery`, `ssh`, and `host` are not
 gated. `migrate` is implemented (preview, then `--commit --yes`, then a
-stamp that makes later runs no-ops). One thing the errors name is still
-landing: `dmux repair rebind` — the remedy for asserting dmux identity over an
-unmanaged resource — ships with ADR 012 WS-D.1; until then `repair reconcile`
-refuses that case and names the route that works today (rename the resource
-off the reserved name, reconcile again, then `adopt` it back).
+stamp that makes later runs no-ops), and `dmux repair rebind` — the remedy
+for asserting dmux identity over an unmanaged resource — exists: `repair
+reconcile` still releases, never binds, and names `repair rebind` for the
+orphan case.
 
 Bounded commands share one exit table: `0` success, `1` operation failure,
 `2` usage, `3` not found, `4` conflict, `5` confirmation required, `6`

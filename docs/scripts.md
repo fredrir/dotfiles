@@ -1431,6 +1431,21 @@ service republishes, and every verb on it refuses until then. It is confirmed
 per §7.4 (`-y` to skip the prompt; one `confirmation_required` document under
 `--format json`).
 
+`dmux repair rebind SPACE_REF NATIVE_REF` is the other explicit repair: the
+confirmed, owner-local assertion that one exact unmanaged resource is a
+previously managed Space whose binding no longer answers — the remedy for
+external native-key tampering (case 13), which `repair reconcile` deliberately
+never performs because reconcile releases and never binds. It refuses before
+any mutation while the old binding still answers, when the resource is bound
+to any Space or carries foreign markers, on a backend mismatch, on an
+unpublished or stale instance, and for a Space on another host; it then uses
+the same primitive adoption uses, journals source and destination before the
+native step, severs the old binding, prints both identities, and finishes
+`unstamped` until every pane runs `dmux context stamp`. A rebind that dies
+mid-flight is settled by `repair reconcile` from the journaled source,
+destination and epoch, which is also what lets a crashed Wez `adopt --name`
+be reversed to its source rather than to the logical name.
+
 Attaching a remote host walks the chain the shell version had, now in one
 place. Inside wezterm a bare attach is a native mux tab on the peer's ssh
 domain — the `-usb` domain when the cable answers the probe, the `-ts`
