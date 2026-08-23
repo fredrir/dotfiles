@@ -922,3 +922,6 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   remote side proves it over the wire. Ledger: rows 7, 16–22, 27, 29, 44 updated; 29 is now
   `live_pending` (34 mapped / 13 live_pending / 0 unmapped / 0 blocked). R's stray first draft of
   the Lua case in the root worktree was untracked and removed; no git write ran there.
+- **Gate 2026-08-23 at `18fef5e`** (R integrated): 1128/0/1 under `run-isolated.sh`, live runtime dir
+  unchanged (42 before and after); Lua suite 28/0/3. Every wave-3 branch is integrated and every
+  agent worktree removed (branches kept). Release binaries for wave 4 are rebuilt from this tree.
