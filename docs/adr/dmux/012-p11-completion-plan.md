@@ -856,3 +856,18 @@ Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `r
   this host's wez instance is state F. Gates on the merged tree: T 137 backend unit tests; B's
   consumers all green; the full wrapper result is recorded at the next gate line.
 
+### Wave 3c — dispatched 2026-08-23 (after every wave-3b branch was integrated)
+
+Gates on `dmux`: 1095/0/1 at the QA/RT/probe state (`c95cd62`+docs), 1096/0/1 after D3
+(`ab3fafb`), both with the live runtime dir unchanged; the T+B gate is running.
+
+| agent | items | worktree / branch | owned paths |
+| --- | --- | --- | --- |
+| R | the handed-back follow-ups: remote-side tmux dev/ino readers (`remote/agent.rs`, `remote/attach.rs` ×3) via `connect_cli::require_published_tmux_incarnation`; remote `rename`/`inspect`/`attach_plan` binding epochs through `binding_epoch_for_adapter`; the `lookup_new_owner_fenced` Unpublished-partition seam (A5-c's deviation, so an explicit selectable backend connects when only the opposite instance is unpublished); two alias resolvers onto `resolve_enrolled_host`; case 29's Lua chord test and remote-create test; stale comments | `~/packages/dmux-p11/r`, `p11/r` | `src/remote/{agent,attach,hosts}.rs`, the named seams in `operations.rs`/`new_cli.rs`/`ls_cli.rs`/`gui_cli.rs`, `tests/remote_protocol/**`, the Lua case |
+| reader | WS-G.3: a fresh general-purpose agent with no conversation context, given only the plan and `docs/adr/dmux/**`, answers the 22-question set (drafted by a fork of the root; root-only answer key) | — | writes only its answers file; the root grades and checks in `reader-test-p11.md` |
+
+Root-side since the wave-3b dispatch: the retire→publish coordinator test (`edb4ffb`; case 35's
+last open item), the before-repair doctor evidence for Macie (`6f4e7f2`), the probe bound
+(`c95cd62`), and the docs for migrate/`--row`/enablement/legacy path/retire-incarnation/rebind/A–F.
+Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
+
