@@ -22,7 +22,10 @@ use dmux::model::{
     Backend, BackendInstanceUid, Health, HostUid, Lifecycle, Observation, ServerEpoch, SpaceNo,
     SpaceUid,
 };
-use dmux::operations::{HierarchyGroup, HierarchySplit, OperationEnv, SpaceHierarchy};
+use dmux::operations::{
+    HierarchyGroup, HierarchySplit, OperationEnv, SpaceHierarchy, TmuxBootstrapOutcome,
+    tmux_bootstrap,
+};
 use dmux::output::{self, OutputFormat};
 use dmux::registry::{NativeBindingSpec, NativeKind, Registry, RegistryConfig, SpaceRow};
 use dmux::remote::protocol;
@@ -1319,6 +1322,155 @@ fn a_live_native_tmux_session_is_listed_when_nothing_is_registered() {
         .unwrap_or_else(|| panic!("no seed row in {}", out.stdout));
     assert!(row.starts_with('-'), "no fabricated ref: {row:?}");
     assert!(row.contains("unmanaged"), "{row:?}");
+    assert!(!scratch.ran_wezterm());
+}
+
+/// A registered tmux instance is scanned under the epoch `tmux_bootstrap`
+/// published for it — the production path on a migrated machine, which no
+/// `ls` test registered before (review report 02's gap; ADR 012 WS-A.13
+/// follow-up). The Space bound to the live session is `live`, the live
+/// server's session is not a second, unmanaged row, and wezterm is never
+/// run for a backend nothing is registered for.
+#[test]
+fn a_registered_tmux_instance_is_scanned_under_its_published_epoch() {
+    let scratch = Scratch::new("registered");
+    let started = scratch.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "proj"]);
+    assert!(
+        started.as_ref().is_ok_and(|out| out.status.success()),
+        "{started:?}"
+    );
+    let epoch = match tmux_bootstrap(&scratch.env(), &scratch.namespace).unwrap() {
+        TmuxBootstrapOutcome::Bootstrapped { epoch } => epoch,
+        other => panic!("a fresh server bootstraps: {other:?}"),
+    };
+    let session = String::from_utf8(
+        scratch
+            .tmux(&["display-message", "-p", "-t", "proj", "#{session_id}"])
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let mut registry = scratch.registry();
+    let instance = registry
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("tmux_bootstrap registered the instance");
+    assert_eq!(
+        registry.backend_server(instance).unwrap().server_epoch,
+        Some(epoch)
+    );
+    let reservation = registry
+        .reserve_space("proj", instance, Uuid::new_v4())
+        .unwrap();
+    registry
+        .finalize_create(
+            reservation.space_uid,
+            reservation.operation_uid,
+            &NativeBindingSpec {
+                native_token: session.clone(),
+                native_kind: NativeKind::TmuxSessionId,
+                server_epoch: Some(epoch),
+            },
+        )
+        .unwrap();
+    registry
+        .set_space_health(reservation.space_uid, Health::Healthy)
+        .unwrap();
+    drop(registry);
+
+    let source = scratch.source(scratch.stub_wezterm("[]"));
+    let out = ls_cli::render(&source, Some(OutputFormat::Json), &LsArgs::default());
+    assert_eq!(
+        out.status,
+        ExitStatus::Success,
+        "{} {:?}",
+        out.stdout,
+        out.stderr
+    );
+    let doc: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(doc["ok"], true, "{doc}");
+    assert_eq!(doc["errors"], serde_json::json!([]), "{doc}");
+    let rows = doc["result"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "the bound session is one managed row: {doc}");
+    assert_eq!(rows[0]["managed"], true, "{doc}");
+    assert_eq!(rows[0]["name"], "proj", "{doc}");
+    assert_eq!(rows[0]["backend"], "tmux", "{doc}");
+    assert_eq!(rows[0]["observation"], "live", "{doc}");
+    assert_eq!(rows[0]["backend_instance"], instance.0.to_string(), "{doc}");
+    assert!(
+        !scratch.ran_wezterm(),
+        "no wez instance is registered, so nothing probes wezterm"
+    );
+}
+
+/// The same machine before the bootstrap hook has run: the tmux instance is
+/// registered on the namespace with no published epoch, and a Space is
+/// bound to the live server's `$0`. The listing is Partial with the typed
+/// epoch fault, the Space is `unreachable`, and the live server's sessions
+/// are not discovered — a managed endpoint nothing vouches for is refused,
+/// never probed as first contact (case 27; ADR 012 WS-A.4).
+#[test]
+fn a_registered_tmux_instance_without_a_published_epoch_refuses_and_discovers_nothing() {
+    let scratch = Scratch::new("nullepoch");
+    let started = scratch.tmux(&["-f", "/dev/null", "new-session", "-d", "-s", "seed"]);
+    assert!(
+        started.as_ref().is_ok_and(|out| out.status.success()),
+        "{started:?}"
+    );
+    let mut registry = scratch.registry();
+    let instance = registry
+        .register_backend_instance(Backend::Tmux, Some(&scratch.namespace), None)
+        .unwrap();
+    assert!(
+        registry
+            .backend_server(instance)
+            .unwrap()
+            .server_epoch
+            .is_none(),
+        "the fixture is only meaningful with server_epoch NULL"
+    );
+    let reservation = registry
+        .reserve_space("seed", instance, Uuid::new_v4())
+        .unwrap();
+    registry
+        .finalize_create(
+            reservation.space_uid,
+            reservation.operation_uid,
+            &NativeBindingSpec {
+                native_token: "$0".into(),
+                native_kind: NativeKind::TmuxSessionId,
+                server_epoch: None,
+            },
+        )
+        .unwrap();
+    registry
+        .set_space_health(reservation.space_uid, Health::Healthy)
+        .unwrap();
+    drop(registry);
+
+    let source = scratch.source(scratch.stub_wezterm("[]"));
+    let out = ls_cli::render(&source, Some(OutputFormat::Json), &LsArgs::default());
+    assert_eq!(out.status, ExitStatus::Partial, "{}", out.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(doc["ok"], false, "{doc}");
+    assert_eq!(doc["errors"][0]["code"], "backend_epoch_changed", "{doc}");
+    assert!(
+        doc["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has published no server epoch"),
+        "{doc}"
+    );
+    let rows = doc["result"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "only the durable row: {doc}");
+    assert_eq!(rows[0]["managed"], true, "{doc}");
+    assert_eq!(rows[0]["observation"], "unreachable", "{doc}");
+    assert!(
+        rows.iter().all(|row| row["managed"] == true),
+        "the live server's sessions are not discoveries: {doc}"
+    );
     assert!(!scratch.ran_wezterm());
 }
 
