@@ -1047,3 +1047,14 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   the resident GUI and live lock files, not the suite). The owner reinstalls via `dotfile sync`
   (workspace `--locked` build + install, the same path as this morning) before the reboot test, so
   post-reboot recovery restores the smoke Space under the login shell.
+- **Reboot test passed (owner rebooted; root verified read-only at +8 min).** `launchctl getenv
+  DMUX_WEZ_FIRST` = `1` with the loader at runs=1/exit 0 — the durable enablement survived the
+  reboot that lost the canary on 2026-08-19; `dmux doctor`: `process=1 launchd=1 file=1`, wez
+  instance E (pid 771, epoch `728e4d41…`), registry revisions 39/40 (retire → publish) at
+  03:40:41Z, cold recovery restored the smoke Space (manifest `34b6419c…`) and its pane runs
+  `/bin/zsh -l` (pid 1067) — the login-shell fix observed live. Evidence:
+  `evidence/p11/doctor-macie-after-reboot.json`. Installed by the owner's `dotfile sync` after
+  `793ad8d`: `dmux` `f0f00c50…`, `pane-bootstrap` `df560953…` (unchanged source). `dmux` pushed
+  (`1666508..307e3b4`). Owner decisions for the rest of wave 4: r6 `deploy-mac` may restart the mux;
+  the descriptor moves beside the registry (the `dirhelper` finding); a small launcher `.app`
+  wrapping `dmux _gui summon` gives the desktop a Wez-first entry point.
