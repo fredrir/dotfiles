@@ -10,8 +10,7 @@
 #
 # To reach a Space whose name collides with a verb, spell the verb yourself:
 # `ssa new ls` creates-or-connects one named "ls". (§7.4's `con --name` escape
-# is connect-only and is gated on DMUX_WEZ_FIRST until the cutover, so it is
-# not the answer today.)
+# is connect-only, so it is not the answer either.)
 #
 # `ssa detach`/`ssa disconnect` forward and then fail with a usage error, which
 # is correct rather than unfortunate: disconnect acts on the invoking local

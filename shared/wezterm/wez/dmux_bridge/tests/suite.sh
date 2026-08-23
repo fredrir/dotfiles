@@ -14,7 +14,7 @@
 #     hand it back only where it is wanted.
 #   - top_level_missing_descriptor writes a descriptor into DMUX_RUNTIME_DIR
 #     after asserting its absence, so every test gets its own directory.
-#   - hammerspoon branches on three variables and covers an eighth of itself
+#   - hammerspoon branches on three variables (the flag three-valued) and covers a twelfth of itself
 #     per invocation.
 #   - show_keys_config.lua is a config fixture injected into a real wezterm-gui
 #     by managed_show_keys.sh, not a standalone test.
@@ -86,7 +86,12 @@ run_hammerspoon() {
   managed=$2
   frontmost=$3
   set -- scrubbed "HAMMER_APP_STATE=$state"
-  [ "$managed" = 0 ] || set -- "$@" DMUX_WEZ_FIRST=1
+  # Three-valued flag (ADR 010 §5): 1 managed, 0 the explicit opt-out, and
+  # unset = no preference, which is managed since the §21 step 9 flip.
+  case "$managed" in
+  unset) ;;
+  *) set -- "$@" "DMUX_WEZ_FIRST=$managed" ;;
+  esac
   [ "$frontmost" = 0 ] || set -- "$@" HAMMER_FRONTMOST=1
   run "hammerspoon [state=$state managed=$managed frontmost=$frontmost]" \
     "$@" "$lua_bin" "$tests_dir/hammerspoon.lua"
@@ -125,7 +130,7 @@ for file in "$tests_dir"/*.lua; do
 done
 
 for state in absent zero; do
-  for managed in 1 0; do
+  for managed in 1 unset 0; do
     for frontmost in 1 0; do
       run_hammerspoon "$state" "$managed" "$frontmost"
     done

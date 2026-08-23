@@ -107,7 +107,10 @@ fn legacy_and_shadow_agree_on_the_native_row_set() {
         .env("PATH", bin.path())
         .env("XDG_STATE_HOME", state.path())
         .env("DMUX_DRY_RUN", "1")
+        // The legacy listing is the old side of this comparison; since the
+        // §21 step 9 flip it needs the explicit legacy environment.
         .env_remove("DMUX_WEZ_FIRST")
+        .env("DMUX_LEGACY_POLICY", "1")
         .env_remove("TMUX")
         .env_remove("WEZTERM_UNIX_SOCKET")
         .env_remove("WEZTERM_PANE")

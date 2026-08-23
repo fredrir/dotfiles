@@ -35,7 +35,7 @@ Bare `dmux` opens a picker (or creates `main` when nothing runs); with
 attaches an existing Space (a trailing `-w <WINDOW>` picks a window) and
 `dmux -` toggles back to the previous one. `-H`, `--host <HOST>` points any
 command at another host: `macie`/`archie` always, and any enrolled alias,
-label, or HostUid once `DMUX_WEZ_FIRST=1` is on. Global `--format
+label, or HostUid on the Wez-first path (the default). Global `--format
 <human|json>` chooses the shape of any command that has a bounded result; a
 verb that has none — `con`, `new`, `keys`, `ssh`, `disconnect`, and the bare
 picker — refuses `--format json` rather than ignoring it.
@@ -81,8 +81,12 @@ Four listing scopes, deliberately distinct — `--all-hosts` sets host breadth,
 | `dmux doctor` | Probe the environment transport selection depends on: where `DMUX_WEZ_FIRST` came from (process env, launchd/systemd session, per-host file) and whether it survives a reboot; each registered backend instance's state A–F (`result.backend_instances[].state`) from a read-only registry snapshot compared with the live descriptor, a fresh `stat` of the socket, the tmux server's own identity and the sentinel list — with the published and observed witnesses and the remedy for the state; and a set `DMUX_RUNTIME_DIR`. `--format json` for the envelope (`result.wez_first`, `result.backend_instances`); deprecated `--json` for the bare probe object. |
 | `dmux migrate` | The one-time cutover that brings existing sessions and workspaces under management: a deterministic per-resource mapping, previewed unless `--commit`, batch-adopted under `--commit --yes`, then stamped in `migrated-v1.json` so a second run is a no-op. Refuses, writing no stamp, when a managed instance has published no server epoch. |
 
-`DMUX_WEZ_FIRST=1` gates the Wez-first behaviour, and it is unset by default.
-While it is off, `ls` refuses `--all-hosts`/`--backend`/`--tree`/`--format`
+Wez-first is the default since the plan §21 step 9 flip (ADR 012 WS-G.7).
+`DMUX_WEZ_FIRST=0` is the explicit legacy opt-out (`1` states Wez-first and is
+now redundant; unset states no preference), and `DMUX_LEGACY_POLICY=1` is the
+emergency opt-out that returns creation policy to legacy tmux for one release
+without stopping a mux server. On the legacy path, `ls` refuses
+`--all-hosts`/`--backend`/`--tree`/`--format`
 and falls back to the legacy merged wezterm+tmux listing, whose row numbers
 are assigned over the merged set before `--tmux`/`--wez` filter; `con` refuses
 `--name`/`--backend`/`--group`/`--split`/`--launch-gui`; `new` refuses

@@ -208,12 +208,34 @@ test_loader_applies_each_line_in_order_through_launchctl_setenv() {
   write_env '# canary' 'DMUX_WEZ_FIRST=0' 'DMUX_LEGACY_POLICY=1' 'DMUX_WEZ_FIRST=1'
   run_loader
   assert_ok
+  # The file states DMUX_WEZ_FIRST, so no tracked default is prepended.
   [ "$(launchctl_trace)" = 'setenv DMUX_WEZ_FIRST 0
 setenv DMUX_LEGACY_POLICY 1
 setenv DMUX_WEZ_FIRST 1' ] || fail "launchctl trace:
 $(launchctl_trace)"
   assert_output_has "applied 3 assignment(s)"
   assert_file_is "$SANDBOX/logger.trace" "-t dmux-env-load -- applied 3 assignment(s) from $(env_file) to the launchd session"
+}
+
+test_loader_lets_an_explicit_zero_in_the_file_win_over_the_tracked_default() {
+  setup_shims
+  write_env 'DMUX_WEZ_FIRST=0'
+  run_loader
+  assert_ok
+  [ "$(launchctl_trace)" = 'setenv DMUX_WEZ_FIRST 0' ] || fail "launchctl trace:
+$(launchctl_trace)"
+}
+
+test_loader_places_the_tracked_default_in_the_session_when_the_file_states_nothing() {
+  setup_shims
+  write_env '# only the opt-out here' 'DMUX_LEGACY_POLICY=1'
+  run_loader
+  assert_ok
+  # The default goes first so a later line from the file would override it.
+  [ "$(launchctl_trace)" = 'setenv DMUX_WEZ_FIRST 1
+setenv DMUX_LEGACY_POLICY 1' ] || fail "launchctl trace:
+$(launchctl_trace)"
+  assert_output_has "applied 2 assignment(s) to the launchd session ($(env_file) states no DMUX_WEZ_FIRST; the tracked default 1 applies)"
 }
 
 test_loader_refuses_a_malformed_file_and_calls_launchctl_for_nothing() {
@@ -227,12 +249,14 @@ test_loader_refuses_a_malformed_file_and_calls_launchctl_for_nothing() {
   assert_output_has "refusing $(env_file): malformed; nothing applied"
 }
 
-test_loader_is_a_no_op_without_a_file() {
+test_loader_applies_only_the_tracked_default_without_a_file() {
   setup_shims
   run_loader
   assert_ok
-  assert_absent "$SANDBOX/launchctl.trace"
-  assert_output_has "nothing to apply"
+  [ "$(launchctl_trace)" = 'setenv DMUX_WEZ_FIRST 1' ] || fail "launchctl trace:
+$(launchctl_trace)"
+  assert_output_has "applied 1 assignment(s) to the launchd session"
+  assert_output_has "the tracked default 1 applies"
 }
 
 test_wrapper_process_environment_wins_over_the_file() {
@@ -248,15 +272,18 @@ test_wrapper_process_environment_wins_over_the_file() {
 
 test_wrapper_file_wins_over_the_tracked_default() {
   setup_shims
-  write_env 'DMUX_WEZ_FIRST=1' 'DMUX_LEGACY_POLICY=1'
+  # The file states the opt-out, which is the one value the flipped default
+  # must not override (ADR 010 §5: 0 is explicit).
+  write_env 'DMUX_WEZ_FIRST=0' 'DMUX_LEGACY_POLICY=1'
   run_wrapper
   assert_ok
   if file_is_read_by_wrapper; then
-    assert_output_has "wez_first=1"
-    assert_output_has "legacy_policy=1"
-    assert_output_has "backend_instance=0badcafe-0000-4000-8000-00000000f1f1"
-  else
     assert_output_has "wez_first=0"
+    assert_output_has "legacy_policy=1"
+    assert_output_has "backend_instance="
+    assert_output_lacks "backend_instance=0badcafe"
+  else
+    assert_output_has "wez_first=1"
     assert_output_has "legacy_policy=unset"
   fi
   assert_output_has "args=--dmux-managed-service --config-file $MUX_DIR/dmux-mux.lua"
@@ -264,32 +291,35 @@ test_wrapper_file_wins_over_the_tracked_default() {
 
 test_wrapper_empty_process_value_states_nothing_so_the_file_applies() {
   setup_shims
-  write_env 'DMUX_WEZ_FIRST=1'
+  write_env 'DMUX_WEZ_FIRST=0'
   run_wrapper DMUX_WEZ_FIRST=
   assert_ok
   if file_is_read_by_wrapper; then
-    assert_output_has "wez_first=1"
-  else
     assert_output_has "wez_first=0"
+  else
+    assert_output_has "wez_first=1"
   fi
 }
 
-test_wrapper_defaults_to_legacy_without_a_file() {
+test_wrapper_defaults_to_wez_first_without_a_file() {
   setup_shims
   run_wrapper
   assert_ok
-  assert_output_has "wez_first=0"
+  # The §21 step 9 tracked default: managed, with the recovery-resolved
+  # backend instance and the managed-service arguments.
+  assert_output_has "wez_first=1"
   assert_output_has "legacy_policy=unset"
-  assert_output_has "backend_instance="
-  assert_output_lacks "backend_instance=0badcafe"
+  assert_output_has "backend_instance=0badcafe-0000-4000-8000-00000000f1f1"
+  assert_output_has "args=--dmux-managed-service --config-file $MUX_DIR/dmux-mux.lua"
 }
 
 test_wrapper_ignores_a_malformed_file_with_a_warning() {
   setup_shims
-  write_env 'DMUX_WEZ_FIRST=1' 'DMUX_LEGACY_POLICY=`touch '"$SANDBOX"'/pwned`'
+  write_env 'DMUX_WEZ_FIRST=0' 'DMUX_LEGACY_POLICY=`touch '"$SANDBOX"'/pwned`'
   run_wrapper
   assert_ok
-  assert_output_has "wez_first=0"
+  # Nothing from the file applies, so the tracked default (Wez-first) does.
+  assert_output_has "wez_first=1"
   assert_output_has "legacy_policy=unset"
   assert_absent "$SANDBOX/pwned"
   if file_is_read_by_wrapper; then

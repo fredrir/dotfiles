@@ -1,6 +1,7 @@
 local mode = assert(os.getenv 'HAMMER_APP_STATE')
 assert(mode == 'absent' or mode == 'zero')
-local managed = os.getenv 'DMUX_WEZ_FIRST' == '1'
+-- Mirrors macos/hammerspoon/init.lua: only the explicit opt-out 0 is legacy.
+local managed = os.getenv 'DMUX_WEZ_FIRST' ~= '0'
 local frontmost = os.getenv 'HAMMER_FRONTMOST' == '1'
 
 local tasks = {}

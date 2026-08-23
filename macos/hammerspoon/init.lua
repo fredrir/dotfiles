@@ -8,7 +8,9 @@ local WEZTERM_BUNDLE = 'com.github.wez.wezterm'
 local HOME = os.getenv 'HOME'
 local WEZTERM_BIN = '/Applications/WezTerm.app/Contents/MacOS/wezterm'
 local DMUX_BIN = HOME .. '/.local/bin/dmux'
-local DMUX_WEZ_FIRST = os.getenv 'DMUX_WEZ_FIRST' == '1'
+-- Three-valued (ADR 010 §5): 1 states Wez-first, 0 states legacy, unset
+-- states no preference and means Wez-first since the §21 step 9 flip.
+local DMUX_WEZ_FIRST = os.getenv 'DMUX_WEZ_FIRST' ~= '0'
 
 -- Run a program without a shell; callback gets (exitCode, stdout, stderr).
 local function run(bin, args, callback)

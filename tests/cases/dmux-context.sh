@@ -593,8 +593,10 @@ test_dmux_context_real_tmux_gate_suppresses_zero_multiple_and_hidden_clients() (
 test_dmux_context_flag_off_is_inert() {
   setup_dmux_context_fixtures
 
+  # Flag off is the explicit opt-out DMUX_WEZ_FIRST=0 (ADR 010 §5); unset
+  # states no preference and means Wez-first since the §21 step 9 flip.
   run_dmux_context_zsh '
-    unset DMUX_WEZ_FIRST
+    export DMUX_WEZ_FIRST=0
     export DMUX_GROUP_REF=legacy-marker
     source $CONTEXT_HOOK > $OSC 2> $ERRORS
     [[ $DMUX_GROUP_REF == legacy-marker ]] || exit 23

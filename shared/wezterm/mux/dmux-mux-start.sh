@@ -68,8 +68,11 @@ sock="$runtime/wez-dmux.sock"
 #      shows every layer. A malformed file applies nothing (warned below;
 #      the loader refused the same file), so the host stays consistently on
 #      the tracked default rather than half-on.
-#   3. the tracked default below: 0 until the §21 step 9 flip, when it and
-#      WEZ_FIRST_BY_DEFAULT in main.rs move to Wez-first together.
+#   3. the tracked default below: 1 since the §21 step 9 flip (ADR 012
+#      WS-G.7, 2026-08-23), when it and WEZ_FIRST_BY_DEFAULT in main.rs moved
+#      to Wez-first together. A host that wants legacy states DMUX_WEZ_FIRST=0
+#      in the file (macOS) or environment.d (Linux); DMUX_LEGACY_POLICY=1 is
+#      the emergency opt-out for creation policy and leaves this mux managed.
 # On Linux ~/.config/environment.d/50-dmux.conf is the ONE knob: the systemd
 # user manager passes it to this unit and to the graphical session it
 # starts, so service.env is deliberately not read there -- two sources would
@@ -90,7 +93,7 @@ if [ "$(uname -s)" = Darwin ] && service_env=$(dmux_service_env_path); then
     echo "dmux-mux-start: WARN ignoring malformed $service_env; tracked defaults apply" >&2
   fi
 fi
-DMUX_WEZ_FIRST="${DMUX_WEZ_FIRST:-0}"
+DMUX_WEZ_FIRST="${DMUX_WEZ_FIRST:-1}"
 export DMUX_WEZ_FIRST
 
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }

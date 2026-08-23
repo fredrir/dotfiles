@@ -1362,10 +1362,15 @@ which leaves the deprecation notice nowhere to go but stderr. `ls --tmux` and
 both a filter and a contradicting `--backend` is an error rather than a
 silent winner.
 
-`DMUX_WEZ_FIRST=1` gates the Wez-first behaviour and is unset by default, so
-the shipped surface is narrower than `--help` looks. Flag-off, `ls` refuses
-`--all-hosts`, `--backend`, `--tree` and `--format` and falls back to the
-legacy merged listing, whose row numbers are assigned over the whole merged
+Wez-first is the default since the plan §21 step 9 flip (ADR 012 WS-G.7,
+2026-08-23): `DMUX_WEZ_FIRST` is three-valued — `1` states Wez-first
+(redundant now), `0` is the explicit legacy opt-out, unset states no
+preference and gets the default — and `DMUX_LEGACY_POLICY=1` is the emergency
+opt-out that returns creation policy to legacy tmux for the one release the
+legacy path is still shipped, without stopping a mux server or touching a
+pane. On the legacy path the surface is narrower than `--help` looks: `ls`
+refuses `--all-hosts`, `--backend`, `--tree` and `--format` and falls back to
+the legacy merged listing, whose row numbers are assigned over the whole merged
 wezterm+tmux set before `--tmux`/`--wez` filter — precisely the behaviour
 stable refs exist to end; `con`, `new`, `rm` and `rename` refuse their new
 flags with a usage error naming the variable; and `adopt` and `migrate` refuse
@@ -1381,26 +1386,31 @@ to end. `--row <N>` on `rm` and `rename` is the explicit, one-release escape
 for the deprecated listing indices: a bare digit is a SpaceNo, never a row, and
 `--row` refuses an incomplete or unverified listing rather than renumbering.
 
-Per-host enablement is durable, not `launchctl setenv` / `systemctl --user
+Per-host policy is durable, not `launchctl setenv` / `systemctl --user
 set-environment` — those do not survive a reboot, which is how the first
-canary was silently lost (ADR 012 §3.1). On macOS write `DMUX_WEZ_FIRST=1` to
-the untracked `~/.config/dmux/service.env`; the `com.fredrir.dmux-env`
-LaunchAgent (`macos/launchd/com.fredrir.dmux-env.plist`, program
+canary was silently lost (ADR 012 §3.1). On macOS the untracked
+`~/.config/dmux/service.env` states the host's value (`DMUX_WEZ_FIRST=0` to
+opt out; `1` is the default anyway); the `com.fredrir.dmux-env` LaunchAgent
+(`macos/launchd/com.fredrir.dmux-env.plist`, program
 `shared/wezterm/mux/dmux-env-load.sh`) applies each `KEY=VALUE` with
-`launchctl setenv` at login, and `dmux-mux-start.sh` reads the same file
-itself so the mux never depends on agent ordering. The grammar is deliberately
+`launchctl setenv` at login — placing the tracked default `DMUX_WEZ_FIRST=1`
+in the session when the file states nothing, because the maintained fork's
+GUI only ever tests the literal `1` — and `dmux-mux-start.sh` reads the same
+file itself so the mux never depends on agent ordering. The grammar is deliberately
 small (`shared/wezterm/mux/dmux-service-env.sh`): blank lines and `#`
 comments, keys `^DMUX_[A-Z0-9_]*$`, values `^[A-Za-z0-9_./:@+,-]*$`, last
 assignment wins, and one malformed line refuses the whole file — nothing is
 applied. A non-empty value already in the service's environment beats the
 file and the file beats the tracked default, so after editing it run
 `launchctl kickstart gui/$UID/com.fredrir.dmux-env` before restarting the mux.
-Write `0` to state legacy; deleting the line states nothing and leaves
-launchd's old value until reboot. On Linux the one knob is
-`~/.config/environment.d/50-dmux.conf` (`DMUX_WEZ_FIRST=1`), read by the
-systemd user manager at start and on `systemctl --user daemon-reload`;
-`service.env` is not read there. `dmux doctor`'s `wez-first flag` line shows
-all three layers and says whether enablement is durable.
+Write `0` to state legacy; deleting the line states nothing, which is the
+default, and the loader re-fills the session with `1` at the next login. On
+Linux the one knob is `~/.config/environment.d/50-dmux.conf`
+(`DMUX_WEZ_FIRST=0` to opt out), read by the systemd user manager at start and
+on `systemctl --user daemon-reload`; `service.env` is not read there, and the
+mux wrapper itself defaults an unset flag to `1`. `dmux doctor`'s `wez-first
+flag` line shows all three layers and says whether a reboot would change the
+host's policy.
 
 Two more macOS pieces land with `dotfile link` (ADR 012 §10, wave 4). The
 `com.fredrir.dmux-runtime-keepalive` LaunchAgent runs `dmux _runtime-keepalive`

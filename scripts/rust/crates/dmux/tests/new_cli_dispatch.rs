@@ -57,10 +57,17 @@ impl Sandbox {
             .env_remove("WEZTERM_PANE")
             .env_remove("TERM_PROGRAM")
             .env_remove("NO_COLOR");
+        // Feature-off is the §21 rollback environment (`DMUX_LEGACY_POLICY=1`,
+        // the flag removed), the same spelling `tests/cli.rs` pins: since the
+        // §21 step 9 flip an unset flag means Wez-first.
         if feature_on {
-            command.env("DMUX_WEZ_FIRST", "1");
+            command
+                .env("DMUX_WEZ_FIRST", "1")
+                .env_remove("DMUX_LEGACY_POLICY");
         } else {
-            command.env_remove("DMUX_WEZ_FIRST");
+            command
+                .env_remove("DMUX_WEZ_FIRST")
+                .env("DMUX_LEGACY_POLICY", "1");
         }
         command
     }

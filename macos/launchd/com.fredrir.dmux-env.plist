@@ -24,7 +24,9 @@
     `launchctl getenv DMUX_WEZ_FIRST`, and `dmux doctor`, which reports the
     process, launchd and file layers side by side.
     This job only sets; it never unsets. Write DMUX_WEZ_FIRST=0 to state
-    legacy (ADR 010 §5) rather than deleting the line.
+    legacy (ADR 010 §5) rather than deleting the line: since the §21 step 9
+    flip a file that states no DMUX_WEZ_FIRST (or no file at all) makes this
+    job place the tracked default DMUX_WEZ_FIRST=1 in the session.
   -->
   <key>Label</key>
   <string>com.fredrir.dmux-env</string>

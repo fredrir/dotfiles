@@ -88,7 +88,11 @@ impl Remote {
             .env("REMOTE_HOME", self.home.path())
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
+            // The legacy remote command string is what this file pins;
+            // since the §21 step 9 flip that path needs the explicit
+            // legacy environment (`DMUX_LEGACY_POLICY=1`, flag removed).
             .env_remove("DMUX_WEZ_FIRST")
+            .env("DMUX_LEGACY_POLICY", "1")
             .env_remove("DMUX_CONTEXT_VERSION")
             .env_remove("DMUX_BACKEND")
             .env_remove("DMUX_HOST_UID")

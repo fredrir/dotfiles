@@ -8,13 +8,15 @@
     exclusion, so a manual wezterm-mux-server on the same socket silently
     steals it. Install: launchctl bootstrap gui/$UID <this file>.
     Restart: launchctl kickstart -k gui/$UID/com.fredrir.wezterm-mux.
-    Canary / cutover flag (plan §21 steps 7 and 9, ADR 012 WS-F.1): write
-    DMUX_WEZ_FIRST=1 to the untracked ~/.config/dmux/service.env. The wrapper
-    reads that file itself, and the com.fredrir.dmux-env LaunchAgent copies it
-    into the launchd session at login for the GUI -- `launchctl setenv` alone
-    does not survive a reboot, which is how Macie lost its canary on
-    2026-08-19. With no value anywhere, the wrapper defaults to the inert
-    flag-off path. Emergency opt-out (ADR 010 §2/§5): DMUX_LEGACY_POLICY=1 in
+    Per-host policy flag (plan §21 steps 7 and 9, ADR 012 WS-F.1): the
+    untracked ~/.config/dmux/service.env may state DMUX_WEZ_FIRST=1 (redundant
+    since the §21 step 9 flip) or DMUX_WEZ_FIRST=0 (the explicit legacy
+    opt-out). The wrapper reads that file itself, and the com.fredrir.dmux-env
+    LaunchAgent copies it into the launchd session at login for the GUI --
+    `launchctl setenv` alone does not survive a reboot, which is how Macie
+    lost its canary on 2026-08-19. With no value anywhere, the wrapper and the
+    loader apply the tracked default, Wez-first (ADR 012 WS-G.7).
+    Emergency opt-out (ADR 010 §2/§5): DMUX_LEGACY_POLICY=1 in
     the same file (or launchctl setenv for one session) forces dmux back to
     legacy tmux creation even while DMUX_WEZ_FIRST=1 is still set, so a
     canary host escapes without first unsetting what it exported. It reverses creation policy only -- this job

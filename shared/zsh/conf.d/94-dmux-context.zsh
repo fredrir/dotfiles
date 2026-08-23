@@ -10,10 +10,14 @@ _DMUX_CONTEXT_SOURCE_ALIASES=${options[aliases]:-off}
 autoload -Uz add-zsh-hook
 add-zsh-hook -d precmd _dmux_context_refresh 2>/dev/null
 
-# The managed presentation path is deliberately inert unless its rollout
-# flag was inherited by this shell. In particular, flag-off shells retain
-# their existing environment and emit no terminal control sequences.
-if [[ ${DMUX_WEZ_FIRST:-0} != 1 ]]; then
+# The managed presentation path is deliberately inert on a legacy shell,
+# which is one that inherited the explicit opt-out DMUX_WEZ_FIRST=0. Unset
+# states no preference and, since the §21 step 9 flip, means Wez-first — the
+# same default main.rs applies. (DMUX_LEGACY_POLICY=1 reverses creation
+# policy only; panes of existing Wez Spaces keep their marker refresh, and
+# `_context` is not a gated verb.) Legacy shells retain their existing
+# environment and emit no terminal control sequences.
+if [[ ${DMUX_WEZ_FIRST:-1} != 1 ]]; then
   if [[ $_DMUX_CONTEXT_SOURCE_ALIASES == on ]]; then
     builtin unset _DMUX_CONTEXT_SOURCE_ALIASES
     builtin setopt aliases

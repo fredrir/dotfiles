@@ -1786,20 +1786,22 @@ fn other(
 /// The automatic policy that applies when neither switch is set — what an
 /// ordinary shell on an ordinary host gets.
 ///
-/// **The plan §21 step 9 cutover is this constant becoming `true`, and
-/// nothing else.** Do not flip it before the step 7 canary and the full P11
-/// gate pass (ADR 010 §2); flipping it early makes every host that never
-/// opted in start creating Wez Spaces. Hosts already canarying under
-/// `DMUX_WEZ_FIRST=1` see no change when it flips, hosts that stated
-/// `DMUX_WEZ_FIRST=0` stay legacy across it, and `DMUX_LEGACY_POLICY=1` is
-/// the emergency opt-out that reverses it for the one release the legacy path
-/// is still shipped.
+/// **This constant becoming `true` was the plan §21 step 9 cutover** (ADR 012
+/// WS-G.7, 2026-08-23). Hosts that had canaried under `DMUX_WEZ_FIRST=1` saw
+/// no change at the flip and the flag became redundant rather than removed;
+/// a host that states `DMUX_WEZ_FIRST=0` stays legacy across it; and
+/// `DMUX_LEGACY_POLICY=1` is the emergency opt-out that reverses it for the
+/// one release the legacy path is still shipped (§21 rollback: creation
+/// policy only — no mux server is stopped and no pane is touched).
 ///
 /// It is also only half of the cutover. This constant governs CLI invocations
-/// in shells that never inherited the variable; the service units exporting
-/// `DMUX_WEZ_FIRST=1` are what make the GUI and mux run managed, and without
-/// that half `decide_backend` still picks tmux (ADR 010 §5).
-const WEZ_FIRST_BY_DEFAULT: bool = false;
+/// in shells that never inherited the variable; the tracked service defaults
+/// — `shared/wezterm/mux/dmux-mux-start.sh` assuming `1` when neither the
+/// process environment nor the per-host env file states one, and
+/// `dmux-env-load.sh` placing that same default in the launchd session — are
+/// what make the GUI and mux run managed, and without that half
+/// `decide_backend` still picks tmux (ADR 010 §5). Both halves moved together.
+const WEZ_FIRST_BY_DEFAULT: bool = true;
 
 /// Whether this invocation gets the Wez-first surface and automatic policy.
 ///
@@ -2383,15 +2385,18 @@ mod tests {
         assert!(!resolve_wez_first(Some("1"), Some("1")));
     }
 
-    /// Guards the flip itself. §21 step 9 is gated on the step 7 canary and
-    /// the full P11 gate, so a host that stated no preference still gets
-    /// legacy. This one assertion is the second and last line the cutover
-    /// edits (`assert!(resolve_wez_first(None, None))`), which is also why it
-    /// goes through the resolver rather than reading the constant: an
-    /// `assert!` on a `const` is a clippy warning and folds away.
+    /// Guards the flip itself: since §21 step 9 (ADR 012 WS-G.7) a host
+    /// that stated no preference gets Wez-first. This assertion was the
+    /// second and last line the cutover edited, which is also why it goes
+    /// through the resolver rather than reading the constant: an `assert!`
+    /// on a `const` is a clippy warning and folds away. The explicit
+    /// opt-outs are what keep the legacy path reachable for its one
+    /// remaining release.
     #[test]
-    fn the_shipped_default_is_still_legacy_until_step_9() {
-        assert!(!resolve_wez_first(None, None));
+    fn the_shipped_default_is_wez_first_since_step_9() {
+        assert!(resolve_wez_first(None, None));
+        assert!(!resolve_wez_first(None, Some("0")));
+        assert!(!resolve_wez_first(Some("1"), None));
     }
 
     #[test]

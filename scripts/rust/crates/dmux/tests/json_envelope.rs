@@ -588,7 +588,9 @@ fn every_refusal_branch_is_one_document() {
             3,
             "not_found",
         ),
-        (vec!["migrate"], "migrate", 2, "usage"),
+        // `migrate`'s gate refusal moved to
+        // `the_gate_refusal_is_one_document_under_the_legacy_policy`: the
+        // default runs it since the §21 step 9 flip.
     ] {
         let mut argv = args.clone();
         argv.extend(["--format", "json"]);
@@ -606,6 +608,39 @@ fn every_refusal_branch_is_one_document() {
         assert_eq!(human.status.code(), Some(exit), "{args:?}");
         assert_eq!(stdout(&human), "", "{args:?}");
         assert!(!stderr(&human).is_empty(), "{args:?}");
+    }
+}
+
+/// The gate's own refusal is one document too. Since the §21 step 9 flip the
+/// gate is only reachable under an explicit opt-out, so this is the one row
+/// of the table above that pins the legacy environment (`DMUX_LEGACY_POLICY=1`,
+/// the §21 rollback spelling `tests/cli.rs` uses) instead of the default.
+#[test]
+fn the_gate_refusal_is_one_document_under_the_legacy_policy() {
+    let sandbox = Sandbox::new();
+    let (_, revision) = sandbox.with_a_peer();
+    for format in [true, false] {
+        let mut argv = vec!["migrate"];
+        if format {
+            argv.extend(["--format", "json"]);
+        }
+        let mut command = sandbox.command(&argv);
+        command.env("DMUX_LEGACY_POLICY", "1");
+        let out = command.output().expect("dmux runs");
+        assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+        if format {
+            let doc = sole_document(&out, "migrate");
+            assert_eq!(doc["ok"], false, "{doc}");
+            assert_eq!(doc["errors"][0]["code"], "usage", "{doc}");
+            assert_eq!(doc["authority_revision"], revision, "{doc}");
+        } else {
+            assert_eq!(stdout(&out), "");
+            assert!(
+                stderr(&out).contains("DMUX_WEZ_FIRST=1"),
+                "{}",
+                stderr(&out)
+            );
+        }
     }
 }
 

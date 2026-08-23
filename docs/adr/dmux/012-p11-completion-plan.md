@@ -1231,3 +1231,32 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   canary. `canary-start --host archie` at 06:25:08Z → phase `canary_arch`; Archie's floor clears at
   2026-08-24 06:25Z, Macie's at 06:18Z. Then `canary-end` per host, `rollback-rehearsal` per host,
   WS-G.5 with the owner present, WS-G.7.
+
+### Wave 4 — the flip (2026-08-23, owner's decision)
+
+- **Owner's decision, 2026-08-23 (after the Archie canary started):** skip `canary-end` on both
+  hosts, the rollback rehearsals and the WS-G.5 USB-pull drill — "if it's not an improvement, I
+  don't want it" — and finish P11. Recorded here, in plan §21 steps 7–8 and §22 (amended, original
+  text kept), and in the ledger: the 13 `live_pending` rows (16–22, 29, 38–40, 45) become `waived`
+  with their suite coverage still named, so the accountability rule holds — nobody reads them as
+  passed live. r9 stays journaled at `canary_arch` with both `canary.*.start` checkpoints and the
+  Macie reboot; no `canary.end` is fabricated. The rollback *mechanism* is proven by case 46
+  (`tests/cli.rs` and `legacy_sentinel.rs` pin `DMUX_LEGACY_POLICY=1`), not by a live rehearsal.
+- **WS-G.7 the flip, both halves in one change (plan §21 step 9, ADR 010 §5):**
+  (a) `WEZ_FIRST_BY_DEFAULT = true` (`main.rs`); the unit test becomes
+  `the_shipped_default_is_wez_first_since_step_9` and pins both opt-outs;
+  `the_policy_resolver_answers_every_switch_combination` and
+  `an_explicit_zero_survives_the_flip_as_an_opt_out` hold unchanged, being written against the
+  constant. (b) `dmux-mux-start.sh` defaults an unset flag to `1`; `dmux-env-load.sh` places the
+  tracked default `DMUX_WEZ_FIRST=1` in the launchd session when `service.env` states nothing
+  (the file's `0` still wins), because the frozen fork's GUI binary tests the literal `1`
+  (`wezterm-gui/src/main.rs:748`) and so do the fifteen Lua read sites, which therefore keep
+  `== '1'`; `94-dmux-context.zsh`, `dmux.app` and Hammerspoon default an unset flag to on.
+  `dmux doctor`'s flag verdict is re-worded for the new default (a runtime-only `1` no longer
+  "clears at reboot"; a runtime-only `0` is the value a reboot loses). Tests moved from
+  "unset = legacy" to the explicit legacy environment: `connect_cli_dispatch`, `new_cli_dispatch`
+  (feature-off = `DMUX_LEGACY_POLICY=1`, flag removed, the `cli.rs` spelling); `json_envelope`'s
+  migrate gate row became `the_gate_refusal_is_one_document_under_the_legacy_policy`; shell cases
+  `dmux-service-env` (loader default, file `0` wins, wrapper defaults managed), `dmux-launcher`
+  (unset summons), `dmux-context` (flag-off is `0`). Docs: `docs/scripts.md`, `scripts/COMMANDS.md`,
+  the service unit and plist comments, the Lua skill. Legacy path retained one release.

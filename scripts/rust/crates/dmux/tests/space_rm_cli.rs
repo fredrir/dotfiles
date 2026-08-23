@@ -88,7 +88,12 @@ impl Sandbox {
             .env("DMUX_DRY_RUN", "1")
             .env_remove("TMUX")
             .env_remove("TMUX_PANE")
+            // `dmux()` is the legacy path these index/row tests pin; since
+            // the §21 step 9 flip that is the explicit legacy environment
+            // (`DMUX_LEGACY_POLICY=1`, flag removed), and `wez_first()`
+            // below lifts it.
             .env_remove("DMUX_WEZ_FIRST")
+            .env("DMUX_LEGACY_POLICY", "1")
             .env_remove("DMUX_HOST_UID")
             .env_remove("DMUX_SPACE_UID")
             .env_remove("DMUX_GROUP_REF")
@@ -103,10 +108,11 @@ impl Sandbox {
         self.command(args).output().expect("dmux runs")
     }
 
-    /// The Wez-first gate on, which is what the canary machine exports.
+    /// The Wez-first path, which is the default since the §21 step 9 flip.
     fn wez_first(&self, args: &[&str]) -> Output {
         self.command(args)
             .env("DMUX_WEZ_FIRST", "1")
+            .env_remove("DMUX_LEGACY_POLICY")
             .output()
             .expect("dmux runs")
     }

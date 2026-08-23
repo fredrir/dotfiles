@@ -1,13 +1,15 @@
 #!/bin/sh
 # dmux.app -- the desktop entry point for WezTerm under dmux (ADR 012 §10,
 # wave 4). Spotlight, the Dock and Finder launch this bundle; it inherits the
-# launchd session environment, where com.fredrir.dmux-env put DMUX_WEZ_FIRST.
+# launchd session environment, where com.fredrir.dmux-env put DMUX_WEZ_FIRST
+# (the per-host value, or the tracked default 1 since the §21 step 9 flip).
 #
-# Flag on: the maintained fork refuses a bare WezTerm start (the GUI must be
-# handed the managed socket by dmux's broker), so summon the one resident GUI
-# through `dmux _gui summon`, which ensures the managed service is ready,
-# launches the attach-only GUI when none is live and presents the last Space.
-# Flag off: plain WezTerm, exactly as before dmux. A refusal is shown in a
+# Flag on (1, or unset): the maintained fork refuses a bare WezTerm start (the
+# GUI must be handed the managed socket by dmux's broker), so summon the one
+# resident GUI through `dmux _gui summon`, which ensures the managed service
+# is ready, launches the attach-only GUI when none is live and presents the
+# last Space. Flag off (the explicit opt-out 0): plain WezTerm, exactly as
+# before dmux. A refusal is shown in a
 # dialog instead of disappearing into a log file. No shell profile is sourced
 # and only fixed paths are used; DMUX_BIN / DMUX_OPEN_BIN / DMUX_OSASCRIPT_BIN
 # are test seams.
@@ -22,7 +24,7 @@ dialog() {
   "$osascript_bin" -e "display dialog \"$escaped\" with title \"dmux\" buttons {\"OK\"} default button 1 with icon caution" >/dev/null 2>&1
 }
 
-if [ "${DMUX_WEZ_FIRST:-0}" != 1 ]; then
+if [ "${DMUX_WEZ_FIRST:-1}" != 1 ]; then
   exec "$open_bin" -b "$wezterm_bundle"
 fi
 

@@ -6,13 +6,13 @@
 Description=dmux-managed WezTerm multiplexer server
 
 [Service]
-# Durable per-host enablement (ADR 012 WS-F.1; plan §21 steps 7 and 9).
+# Durable per-host policy (ADR 012 WS-F.1; plan §21 steps 7 and 9).
 # `systemctl --user set-environment`/`import-environment` are runtime-only
 # and a reboot clears them.  The durable source on Linux -- and the ONE knob
 # here, since dmux-mux-start.sh reads ~/.config/dmux/service.env only on
 # macOS -- is:
 #   ~/.config/environment.d/50-dmux.conf
-#     DMUX_WEZ_FIRST=1
+#     DMUX_WEZ_FIRST=1    (redundant since the §21 step 9 flip; 0 states legacy)
 # The user manager reads environment.d when it starts and again on
 # `systemctl --user daemon-reload` (environment.d(5),
 # systemd.environment-generator(7)) and exports the result to every user
@@ -22,8 +22,9 @@ Description=dmux-managed WezTerm multiplexer server
 # what the manager carries versus what the file says.  To apply an edit
 # without re-login: daemon-reload, then restart this unit (kills its panes)
 # and relaunch the GUI.  Write DMUX_WEZ_FIRST=0 to state legacy (ADR 010 §5:
-# 0 is an explicit opt-out, unset is "no preference"); the wrapper still
-# defaults an unset flag to 0 until the cutover flips the tracked default.
+# 0 is an explicit opt-out, unset is "no preference"); since the §21 step 9
+# flip (ADR 012 WS-G.7) the wrapper defaults an unset flag to 1, so a host
+# with no file runs managed.
 #
 # PassEnvironment= is kept as a statement of intent only.  systemd.exec(5):
 # "in case of the user service manager all environment variables are passed

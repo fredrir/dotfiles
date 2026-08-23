@@ -73,7 +73,11 @@ Both are fail-closed on purpose. Don't "fix" them by adding a `pcall`.
 
 ## Managed mode rebuilds your keybindings
 
-`DMUX_WEZ_FIRST=1` is read with `os.getenv` at config-evaluation time in fifteen files. When set,
+`DMUX_WEZ_FIRST=1` is read with `os.getenv` at config-evaluation time in fifteen files; the GUI
+binary of the maintained fork tests the same literal `1`, so the Lua keeps `== '1'` even though
+Wez-first is the default since the §21 step 9 flip — the `1` reaches the GUI from `dmux _gui
+summon`/`--launch-gui`, or from the launchd session where `dmux-env-load.sh` places the per-host
+value or the tracked default. When set,
 `wez/dmux_bridge/init.lua` runs `preflight` before every other module and then, after all of them
 (plugins included), **rebuilds `config.keys` from an allowlist of sources**, in this order:
 

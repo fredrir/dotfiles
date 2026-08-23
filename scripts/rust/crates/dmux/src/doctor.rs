@@ -429,7 +429,9 @@ fn wez_first_detail(provenance: &FlagProvenance) -> (bool, String) {
     let Some(value) = values.first().copied() else {
         return (
             true,
-            format!("{layers}; no preference stated anywhere, the tracked default applies"),
+            format!(
+                "{layers}; no preference stated anywhere, the tracked default (Wez-first) applies"
+            ),
         );
     };
     if values.len() > 1 {
@@ -454,16 +456,31 @@ fn wez_first_detail(provenance: &FlagProvenance) -> (bool, String) {
                 reload_hint(manager)
             ),
         ),
+        // Since the §21 step 9 flip the tracked default is Wez-first, so a
+        // runtime-only `1` survives a reboot in effect (the default takes
+        // over) and only a runtime-only `0` is lost by one.
+        (false, true) if value == "1" => (
+            true,
+            format!(
+                "{layers}; Wez-first: {manager} carries 1 and {file} states nothing; the tracked default is Wez-first, so a reboot changes nothing"
+            ),
+        ),
         (false, true) => (
             false,
             format!(
-                "{layers}; runtime-only {meaning}: {manager} carries {value} but {file} does not, so a reboot clears it"
+                "{layers}; runtime-only legacy: {manager} carries 0 but {file} does not, so a reboot returns this host to the Wez-first default"
+            ),
+        ),
+        (false, false) if value == "1" => (
+            true,
+            format!(
+                "{layers}; Wez-first: 1 is exported in this shell, neither {manager} nor {file} states a value, and the tracked default is Wez-first"
             ),
         ),
         (false, false) => (
             false,
             format!(
-                "{layers}; this shell only: {value} is exported here but neither {manager} nor {file} carries it"
+                "{layers}; this shell only: 0 is exported here but neither {manager} nor {file} carries it, so every other process is on the Wez-first default"
             ),
         ),
     }
@@ -1395,10 +1412,12 @@ mod tests {
         FlagLayer::Value(value.to_string())
     }
 
-    /// Every state a canary host can be in has its own verdict, and only the
-    /// two reboot-proof ones (nothing stated; file loaded into the manager)
-    /// are green. No `launchctl`/`systemctl` runs here: the inputs are
-    /// injected.
+    /// Every state a host can be in has its own verdict. Green means a
+    /// reboot changes nothing: nothing stated (the tracked default, Wez-first
+    /// since the §21 step 9 flip, applies), the file loaded into the
+    /// manager, or a runtime-only `1` that the default would replace with
+    /// itself. A runtime-only `0` is the one value a reboot loses. No
+    /// `launchctl`/`systemctl` runs here: the inputs are injected.
     #[test]
     fn the_flag_provenance_names_every_state_a_canary_can_be_in() {
         use FlagLayer::{Unavailable, Unset};
@@ -1407,7 +1426,7 @@ mod tests {
         assert!(ok);
         assert_eq!(
             detail,
-            "process=unset launchd=unset file=unset; no preference stated anywhere, the tracked default applies"
+            "process=unset launchd=unset file=unset; no preference stated anywhere, the tracked default (Wez-first) applies"
         );
 
         let (ok, detail) = wez_first_detail(&layers(value("1"), value("1"), value("1")));
@@ -1421,13 +1440,24 @@ mod tests {
         assert!(ok);
         assert!(detail.contains("durable legacy"), "{detail}");
 
-        // The Macie failure mode (ADR 012 §3.1): enabled by `launchctl setenv`
-        // alone, gone after the reboot.
+        // The Macie failure mode of ADR 012 §3.1 (enabled by `launchctl
+        // setenv` alone) is harmless after the flip: the reboot that clears
+        // the runtime value lands on the same default. It is also the
+        // steady state of a host with no file, whose loader placed the
+        // tracked default in the session.
         let (ok, detail) = wez_first_detail(&layers(value("1"), value("1"), Unset));
+        assert!(ok);
+        assert_eq!(
+            detail,
+            "process=1 launchd=1 file=unset; Wez-first: launchd carries 1 and ~/.config/dmux/service.env states nothing; the tracked default is Wez-first, so a reboot changes nothing"
+        );
+
+        // A runtime-only opt-out is the value a reboot now loses.
+        let (ok, detail) = wez_first_detail(&layers(value("0"), value("0"), Unset));
         assert!(!ok);
         assert_eq!(
             detail,
-            "process=1 launchd=1 file=unset; runtime-only Wez-first: launchd carries 1 but ~/.config/dmux/service.env does not, so a reboot clears it"
+            "process=0 launchd=0 file=unset; runtime-only legacy: launchd carries 0 but ~/.config/dmux/service.env does not, so a reboot returns this host to the Wez-first default"
         );
 
         // The file is written but the loader has not run since.
@@ -1440,9 +1470,17 @@ mod tests {
         );
 
         let (ok, detail) = wez_first_detail(&layers(value("1"), Unset, Unset));
+        assert!(ok);
+        assert!(
+            detail.contains("1 is exported in this shell")
+                && detail.contains("tracked default is Wez-first"),
+            "{detail}"
+        );
+
+        let (ok, detail) = wez_first_detail(&layers(value("0"), Unset, Unset));
         assert!(!ok);
         assert!(
-            detail.contains("this shell only: 1 is exported here"),
+            detail.contains("this shell only: 0 is exported here"),
             "{detail}"
         );
 

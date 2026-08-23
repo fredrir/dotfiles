@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 
 # macos/applications/dmux.app is the desktop entry point for WezTerm under
-# dmux (ADR 012 §10, wave 4): under DMUX_WEZ_FIRST=1 the maintained fork
-# refuses a bare Spotlight/Dock start of WezTerm, so the bundle's executable
-# summons the resident GUI through `dmux _gui summon`; flag off it opens
-# WezTerm itself. These cases drive that script with recording stand-ins for
+# dmux (ADR 012 §10, wave 4): under Wez-first (DMUX_WEZ_FIRST=1, or unset
+# since the §21 step 9 flip) the maintained fork refuses a bare Spotlight/Dock
+# start of WezTerm, so the bundle's executable summons the resident GUI
+# through `dmux _gui summon`; under the explicit opt-out DMUX_WEZ_FIRST=0 it
+# opens WezTerm itself. These cases drive that script with recording stand-ins for
 # dmux, `open` and `osascript` inside the sandbox. Nothing here launches a
 # GUI, touches launchd, or reaches the live runtime directory.
 
@@ -46,23 +47,24 @@ $TRACED
 $1"
 }
 
-test_launcher_opens_plain_wezterm_when_the_flag_is_off() {
+test_launcher_opens_plain_wezterm_only_under_the_explicit_opt_out() {
   setup_launcher_fixtures
-  run_launcher unset
-  assert_ok
-  assert_trace_is 'open -b com.github.wez.wezterm'
   run_launcher 0
   assert_ok
-  assert_trace_is 'open -b com.github.wez.wezterm
-open -b com.github.wez.wezterm'
+  assert_trace_is 'open -b com.github.wez.wezterm'
 }
 
-test_launcher_summons_through_the_broker_when_the_flag_is_on() {
+test_launcher_summons_through_the_broker_when_the_flag_is_on_or_unset() {
   setup_launcher_fixtures
   run_launcher 1
   assert_ok
   # Exactly one dmux call, the broker path, and no dialog.
   assert_trace_is 'dmux _gui summon --format json'
+  # Unset states no preference; since the §21 step 9 flip that is Wez-first.
+  run_launcher unset
+  assert_ok
+  assert_trace_is 'dmux _gui summon --format json
+dmux _gui summon --format json'
 }
 
 test_launcher_shows_the_refusal_in_a_dialog_and_keeps_the_exit_status() {

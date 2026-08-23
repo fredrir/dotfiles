@@ -10,7 +10,8 @@
   "mapped": "tests named; not yet re-run at the claimed revision",
   "blocked": "depends on an open ADR 012 workstream item listed under open_items",
   "passed": "tests green at revision and live evidence present",
-  "live_pending": "tests green; live evidence still to be produced"
+  "live_pending": "tests green; live evidence still to be produced",
+  "waived": "tests green; the live evidence this row required was waived by the owner (date and reason under `waiver`); NOT a live pass"
  },
  "cases": {
   "1": {
@@ -368,7 +369,12 @@
     "two_host checkpoint (WS-G.2)"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "17a": {
    "title": "No enrolled USB route -> positive route_absent -> automatic tmux",
@@ -387,7 +393,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "17b": {
    "title": "Enrolled USB route with failing probe -> refuse, create neither backend",
@@ -406,7 +417,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "18": {
    "title": "Plain SSH over available cable creates tmux",
@@ -425,7 +441,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "19": {
    "title": "USB reachable but Wez auth/version/protocol failing exits 6, creates neither",
@@ -444,7 +465,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "20": {
    "title": "Existing remote Wez Space reconnects over Tailscale after USB removal without changing ID/backend",
@@ -466,7 +492,12 @@
     "WS-G.5 USB removal -> Tailscale reconnect"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "21": {
    "title": "Only enumerated pre-auth transport failures retry another verified route; nothing falls back to another backend",
@@ -485,7 +516,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "22": {
    "title": "Lost SSH acknowledgement + retry returns the original mutation result",
@@ -505,7 +541,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "23": {
    "title": "Two Wez tabs/four panes report two Groups/four Splits via tab_id; tmux uses window/pane IDs",
@@ -681,8 +722,13 @@
     "WS-G.5: Command+Shift+T in an Archie Wez pane over Tailscale (two-host)"
    ],
    "open_items": [],
-   "status": "live_pending",
-   "confidence": "medium"
+   "status": "waived",
+   "confidence": "medium",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "30": {
    "title": "Cancel Command+W changes nothing; confirm removes only the named Group; final Group needs explicit Space escalation",
@@ -903,8 +949,13 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending",
-   "confidence": "high"
+   "status": "waived",
+   "confidence": "high",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "39": {
    "title": "Partial/crashed recovery is observable; orphan reconciliation and journal resume are idempotent; snapshot publication cannot overlap",
@@ -926,7 +977,12 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "40": {
    "title": "Remote owner recovery never restores imported remote panes as local shells",
@@ -943,9 +999,14 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "live_pending",
+   "status": "waived",
    "confidence": "medium",
-   "gap": "Only the read side is asserted (a manifest carrying an imported domain is rejected); the write-side stripping in resurrect.lua has no test, and no test covers a remote owner's recovery run end to end."
+   "gap": "Only the read side is asserted (a manifest carrying an imported domain is rejected); the write-side stripping in resurrect.lua has no test, and no test covers a remote owner's recovery run end to end.",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "41": {
    "title": "Non-TTY remove without --yes changes nothing, exits 5; decline exits 5",
@@ -1058,7 +1119,12 @@
     "WS-F.4 migrate preview + --commit on Macie and Archie; migrated-v1.json; second run no-op"
    ],
    "open_items": [],
-   "status": "live_pending"
+   "status": "waived",
+   "waiver": {
+    "date": "2026-08-23",
+    "by": "owner",
+    "reason": "live tests, canaries and rehearsals skipped as not an improvement (ADR 012 §10 'The flip'); suite coverage above is the only proof"
+   }
   },
   "46": {
    "title": "Every still-valid baseline test stays green; obsolete assertions have approved manifest entries",
@@ -1087,5 +1153,6 @@
   }
  },
  "note_2026_08_23": "Rows 1–4, 8–10, 12, 14, 15, 23, 29, 30, 32–38, 40, 46 mapped from a read-only sweep of the suite (ADR 012 WS-G.1); each carries a confidence and, where the suite does not prove the whole property, a gap. Honest zeroes: 29 (no test), 32 (related tests prove only attach-only launch), 46 (no executable check of the baseline manifest). Lua IDs are scenario labels cited by file:line in the sweep.",
- "note_2026_08_23_r": "Rows 7, 16–22, 27, 29 and 44 gained the follow-ups agent's tests (ADR 012 §10, agent R): the owner-side new_lookup partition rows, the replaced-server readers, the remote binding epochs and the case-29 assertions (Lua mac_keys byte-for-byte marker hand-off; _gui space-new from a remote Wez marker dispatching a Wez NEW to the marker's owner). 29 moves unmapped → live_pending; its two-host live evidence remains WS-G.5."
+ "note_2026_08_23_r": "Rows 7, 16–22, 27, 29 and 44 gained the follow-ups agent's tests (ADR 012 §10, agent R): the owner-side new_lookup partition rows, the replaced-server readers, the remote binding epochs and the case-29 assertions (Lua mac_keys byte-for-byte marker hand-off; _gui space-new from a remote Wez marker dispatching a Wez NEW to the marker's owner). 29 moves unmapped → live_pending; its two-host live evidence remains WS-G.5.",
+ "note_2026_08_23_flip": "Owner's decision 2026-08-23 (ADR 012 §10 'The flip'): the canary floors, canary-end, the rollback rehearsals and the WS-G.5 USB-pull drill were skipped; every live_pending row moved to `waived` with its suite coverage unchanged. Rows 32–34 and 41–44 keep their r6–r9 rollout evidence. The flip itself (WS-G.7) ships as r10."
 }

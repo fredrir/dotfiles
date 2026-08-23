@@ -5,16 +5,27 @@
 # into the launchd gui session with `launchctl setenv`, so a reboot no longer
 # clears the per-host DMUX_WEZ_FIRST canary/cutover flag (plan §21 steps 7
 # and 9; ADR 010 §5). launchd runs this once at login (RunAtLoad, no
-# KeepAlive); the WezTerm GUI reads the flag from that session environment
-# when it is next launched (shared/wezterm/wezterm.lua:9). The managed mux
-# does NOT wait for this job: dmux-mux-start.sh reads the same file itself.
+# KeepAlive); the WezTerm GUI, Hammerspoon and dmux.app read the flag from
+# that session environment when they are next launched
+# (shared/wezterm/wezterm.lua:9). The managed mux does NOT wait for this job:
+# dmux-mux-start.sh reads the same file itself.
+#
+# Since the §21 step 9 flip (ADR 012 WS-G.7) the tracked default is
+# Wez-first: when the file is absent or states no DMUX_WEZ_FIRST, this job
+# places DMUX_WEZ_FIRST=1 in the session — the same default
+# dmux-mux-start.sh assumes — so the frozen fork's GUI, which only ever tests
+# the literal value 1, runs managed on a host with no per-host file. A file
+# that states DMUX_WEZ_FIRST=0 wins (ADR 010 §5: 0 is an explicit opt-out;
+# unset is "no preference"). A value already in the session is NOT
+# consulted: this job is the writer of that session value, and a stale copy
+# from before an edit is exactly what a re-run replaces.
 #
 # Re-run after editing the file, then restart the mux:
 #   launchctl kickstart gui/$UID/com.fredrir.dmux-env
 #   launchctl kickstart -k gui/$UID/com.fredrir.wezterm-mux   # kills panes
 # This job only ever sets; it never unsets. To state legacy, write
-# DMUX_WEZ_FIRST=0 rather than deleting the line (ADR 010 §5: 0 is an explicit
-# opt-out, unset is "no preference"), or `launchctl unsetenv` by hand.
+# DMUX_WEZ_FIRST=0 rather than deleting the line, or `launchctl setenv` by
+# hand (an unsetenv would be re-filled with the default at next login).
 #
 # The parser lives in dmux-service-env.sh and is shared with the mux wrapper;
 # the grammar is documented there. A malformed file is refused WHOLE with a
@@ -52,9 +63,13 @@ if ! lines=$(dmux_service_env_lines "$file"); then
   log "refusing $file: malformed; nothing applied"
   exit 1
 fi
-if [ -z "$lines" ]; then
-  log "$file: nothing to apply"
-  exit 0
+
+# The tracked default (plan §21 step 9). The file's own line, if any, comes
+# later in the here-document and so is applied after this one, which is what
+# makes 0 in the file win.
+default_lines='DMUX_WEZ_FIRST=1'
+if dmux_service_env_lookup DMUX_WEZ_FIRST "$lines" >/dev/null; then
+  default_lines=''
 fi
 
 # Every line below was validated against the grammar in dmux-service-env.sh
@@ -71,6 +86,11 @@ while IFS= read -r line; do
   }
   count=$((count + 1))
 done <<EOF
+$default_lines
 $lines
 EOF
-log "applied $count assignment(s) from $file to the launchd session"
+if [ -n "$default_lines" ]; then
+  log "applied $count assignment(s) to the launchd session ($file states no DMUX_WEZ_FIRST; the tracked default 1 applies)"
+else
+  log "applied $count assignment(s) from $file to the launchd session"
+fi
