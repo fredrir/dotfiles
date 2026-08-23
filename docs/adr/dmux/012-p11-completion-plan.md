@@ -1155,3 +1155,12 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   revisions 43/44 (retire → publish), doctor E, smoke Space restored under zsh. r6 stays in the
   journal at `mac_deployed` with its failed `stage-archie` as the record of the harness defects.
   `stage-archie` for r7 started.
+- **r7 `stage-archie` stopped on one more instance of the teardown race**:
+  `stale_incarnation::a_replaced_tmux_socket_refutes_a_published_row_whose_pid_is_still_alive`
+  ("replacement server … server exited unexpectedly"), whose helper already waited for the old
+  *pid* to exit — so on Linux even a reaped server can still cost the newcomer its start. 5/5
+  green in isolation on Archie; lost once under the full run. `ScratchTmux::start` there and
+  `tmux_bootstrap`'s mid-test restart now wait for the old server to stop answering and retry the
+  start, bounded (`f761a88`), the pattern `remote_protocol/attach.rs` already documented for
+  Linux tmux. The tool now runs both dmux suites `--no-fail-fast`, so a stage reports every
+  failure in one run. Before r8 is frozen, the full Archie suite is run twice at `f761a88`.
