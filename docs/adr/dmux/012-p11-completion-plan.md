@@ -1116,3 +1116,32 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   checking (touched `wez-dmux.json`, the lease, `bridge/key`, `bridge/key.boot`).
 - Next: `stage-archie` → owner's `sudo pacman -U` on Archie → `resume` → `verify` → `canary-start
   --host mac` (needs `deploy.mac.service`, done) — each Archie step on the owner's go.
+- **Archie (WS-F.3) — owner's "go Archie" 2026-08-23.** Baseline read over USB before staging:
+  up 47 min, `wezterm-mux.service` active (pid 905, since 05:40 CEST), descriptor `starting` with
+  `backend_instance_uid: null` (the r5 stranding, §3.1), exactly one pane (the sentinel), no
+  `~/.config/environment.d/50-dmux.conf`, no `DMUX_WEZ_FIRST` in the user manager's environment,
+  `~/dotfiles` at `6451acd` with only `linux/kde/plasma/…appletsrc` dirty (outside the tool's
+  managed paths), `wezterm 20260817-233913-b9d8dfae`, `dmux 0.1.0` (r5). `stage-archie` started.
+- **r6 `stage-archie` stopped in the remote dmux suite — three harness defects, none in the
+  product, all Linux-only.** `stage.archie.config_preflight` and `stage.archie.wezterm_gates` passed;
+  the seamed `cargo test -p dmux` on Archie (tmux 3.7b, no `LANG` in a BatchMode ssh session)
+  failed `context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one`
+  deterministically, and a full `--no-fail-fast` run of the same tree from a scratch worktree
+  showed 1128/4/1 with the live runtime dir unchanged: (1) **kill-then-restart race** — tmux's
+  client returns from `kill-server` on acknowledgement while the server still unlinks its socket,
+  so a replacement started at once on the same `-L` name loses its socket and reports "server
+  exited unexpectedly"; reproduced with plain tmux on Archie, masked by timing on macOS (same tmux
+  3.7b). Every scratch-tmux helper that restarts a namespace (`context_cli`, `operations_flow`,
+  `provider_tmux`) now has `kill_server_and_wait`, which records the socket path, kills, and waits
+  (bounded 5 s) for it to vanish (`c06718c`, `d715516`). (2) **tab sanitisation** — without a UTF-8
+  locale tmux rewrites control characters in command output to `_`, so
+  `list-sessions -F '#{pid}\t#{socket_path}'` came back tab-less and `operations_flow`'s three
+  socket-witness tests failed; verified byte-for-byte on both hosts; the probe now separates with
+  `|` (`ccc12c8`). After the fixes the three binaries pass on Archie; the full suite at `ccc12c8`
+  is recorded at the next line. Production note for the remote path: `dmux _agent` runs on Archie
+  under the same locale-less sshd environment; its tmux parsing uses `|`/JSON and ASCII identities
+  (opaque keys, UUID titles), so nothing in production depends on a tab or on non-ASCII surviving,
+  but the forced-command environment should pin `LC_CTYPE=C.UTF-8` before names can carry UTF-8
+  (follow-up). The tool's `--skip-tests` is a method parameter, not a CLI flag, and a proof tool
+  should not grow a bypass: r6 stays `mac_deployed`-only and **r7 is planned at the fixed commit**
+  — a Mac rebuild and one more owner-approved `deploy-mac` restart, then `stage-archie` again.
