@@ -1963,6 +1963,12 @@ fn validate_same_request(
     Ok(())
 }
 
+/// The one acknowledgement decoder. [`call_instance`] is its only caller and
+/// has already validated the request for `instance` and computed `digest`
+/// from the same canonical bytes it signed. Decoding works on the exact
+/// bytes read from the spool, never on a re-serialized value: a duplicated
+/// key is a `deny_unknown_fields` decode error here, where a `Value` round
+/// trip would have silently kept the last spelling.
 fn decode_and_validate_ack(
     bytes: &[u8],
     request: &Value,
@@ -1978,27 +1984,6 @@ fn decode_and_validate_ack(
         .map_err(|e| GuiError::InvalidAck(format!("ack is not exact bridge-v1 JSON: {e}")))?;
     validate_ack(&ack, request, instance, digest)?;
     serde_json::to_value(ack).map_err(|e| GuiError::InvalidAck(e.to_string()))
-}
-
-/// Validate a decoded acknowledgement against the exact signed request and
-/// selected GUI instance. This is the integration seam for callers that
-/// receive an ack through a test broker rather than [`call_instance`].
-pub fn validate_acknowledgement(
-    ack: &Value,
-    request: &Value,
-    instance: &str,
-) -> Result<BridgeAck, GuiError> {
-    if contains_null(ack) {
-        return invalid_ack("ack optional fields must be omitted, never null");
-    }
-    validate_instance(instance)?;
-    validate_request_for_instance(request, Some(instance))?;
-    let bytes = serde_json::to_vec(ack).map_err(|error| GuiError::InvalidAck(error.to_string()))?;
-    let digest = request_sha256(request)?;
-    let decoded: BridgeAck =
-        serde_json::from_slice(&bytes).map_err(|error| GuiError::InvalidAck(error.to_string()))?;
-    validate_ack(&decoded, request, instance, &digest)?;
-    Ok(decoded)
 }
 
 pub fn request_sha256(request: &Value) -> Result<String, GuiError> {
@@ -4172,14 +4157,222 @@ mod tests {
             "group_ref": presentation["target"]["group_ref"],
             "split_ref": split
         });
-        let validated = validate_acknowledgement(&ack, &presentation, "gui-42-cafe").unwrap();
-        assert_eq!(validated.split_ref.as_deref(), Some(split));
+        let validated = decode_and_validate_ack(
+            &serde_json::to_vec(&ack).unwrap(),
+            &presentation,
+            "gui-42-cafe",
+            &digest,
+        )
+        .unwrap();
+        assert_eq!(validated["split_ref"].as_str(), Some(split));
 
-        let mut with_null = ack;
+        let mut with_null = ack.clone();
         with_null["already_hidden"] = Value::Null;
         assert!(matches!(
-            validate_acknowledgement(&with_null, &presentation, "gui-42-cafe"),
+            decode_and_validate_ack(
+                &serde_json::to_vec(&with_null).unwrap(),
+                &presentation,
+                "gui-42-cafe",
+                &digest,
+            ),
             Err(GuiError::InvalidAck(_))
         ));
+
+        // The decoder reads the spool bytes themselves: a duplicated member
+        // is refused rather than collapsed to its last spelling.
+        let mut duplicated = serde_json::to_string(&ack).unwrap();
+        duplicated.pop();
+        duplicated.push_str(&format!(",\"split_ref\":{}}}", serde_json::json!(split)));
+        assert!(matches!(
+            decode_and_validate_ack(duplicated.as_bytes(), &presentation, "gui-42-cafe", &digest),
+            Err(GuiError::InvalidAck(_))
+        ));
+    }
+
+    /// P9's gate "invalid context always fails closed" claimed against the
+    /// production bridge path, not a helper: `call_instance` is the only
+    /// signer and the only ack reader, `bind_cli_origin_with_heartbeat` the
+    /// only origin binder. Every refusal leaves the request spool untouched.
+    #[test]
+    fn production_bridge_call_fails_closed_on_invalid_origin_ack_and_context() {
+        let root = private_root();
+        ensure_bridge_key(root.path()).unwrap();
+        let now = unix_seconds().unwrap();
+        let marker = marker();
+        heartbeat(root.path(), "gui-42-cafe", now, &marker);
+        let selection = discover_in_gui_instance(root.path(), &marker).unwrap();
+        let instance = PrivateDir::open(root.path(), 0o700)
+            .unwrap()
+            .child("bridge")
+            .unwrap()
+            .child("instances")
+            .unwrap()
+            .child("gui-42-cafe")
+            .unwrap();
+        let requests = instance.child("requests").unwrap();
+        let acks = instance.child("acks").unwrap();
+        let ping = || {
+            request_document(
+                "ping",
+                serde_json::json!({}),
+                in_gui_origin(&selection, &marker, None),
+            )
+            .unwrap()
+        };
+        let call = |request: &mut Value| {
+            call_instance(root.path(), "gui-42-cafe", request, Duration::ZERO)
+        };
+
+        // Origin: the signed origin must name the selected consumer, spell
+        // every UUID canonically, and match the fresh heartbeat's process
+        // incarnation. None of these reaches the spool.
+        let mut other_consumer = ping();
+        other_consumer["origin"]["gui_instance"] = Value::String("gui-43-beef".into());
+        assert!(matches!(
+            call(&mut other_consumer),
+            Err(GuiError::InvalidRequest(_))
+        ));
+        let mut noncanonical = ping();
+        noncanonical["origin"]["host_uid"] = Value::String(marker.host_uid.0.simple().to_string());
+        assert!(matches!(
+            call(&mut noncanonical),
+            Err(GuiError::InvalidRequest(_))
+        ));
+        let mut stale_process = ping();
+        stale_process["origin"]["pid"] = Value::from(999u64);
+        assert!(matches!(
+            call(&mut stale_process),
+            Err(GuiError::InvalidInstance(_))
+        ));
+        let mut wrong_kind = ping();
+        wrong_kind["origin"] = serde_json::json!({
+            "kind": "resident_gui",
+            "gui_instance": "gui-42-cafe",
+            "pid": 123,
+            "process_start_token": "start-token",
+            "pane_id": 91
+        });
+        assert!(matches!(
+            call(&mut wrong_kind),
+            Err(GuiError::InvalidRequest(_))
+        ));
+        assert!(requests.entry_names().unwrap().is_empty());
+
+        // Ack: a prior ack on the spool is authoritative only when it binds
+        // this exact request and consumer; each tampered shape is refused
+        // before the request is ever written.
+        let valid_ack = |request: &Value| {
+            serde_json::json!({
+                "protocol_version": 1,
+                "uid": request["uid"],
+                "action": "ping",
+                "nonce": request["nonce"],
+                "ok": true,
+                "completed_at": unix_seconds().unwrap(),
+                "request_sha256": request_sha256(request).unwrap(),
+                "gui_instance": "gui-42-cafe",
+                "pong": true
+            })
+        };
+        let refuse_ack = |bytes: Vec<u8>, request: &mut Value| {
+            let name = format!("ack-{}.json", request["uid"].as_str().unwrap());
+            acks.write_new_atomic(&name, &bytes).unwrap();
+            assert!(matches!(call(request), Err(GuiError::InvalidAck(_))));
+            assert!(requests.entry_names().unwrap().is_empty());
+        };
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack["gui_instance"] = Value::String("gui-43-beef".into());
+        refuse_ack(serde_json::to_vec(&ack).unwrap(), &mut request);
+
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack["request_sha256"] = Value::String("0".repeat(64));
+        refuse_ack(serde_json::to_vec(&ack).unwrap(), &mut request);
+
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack["uid"] = Value::String(Uuid::new_v4().to_string());
+        refuse_ack(serde_json::to_vec(&ack).unwrap(), &mut request);
+
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack["action"] = Value::String("toast".into());
+        refuse_ack(serde_json::to_vec(&ack).unwrap(), &mut request);
+
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack["already_hidden"] = Value::Null;
+        refuse_ack(serde_json::to_vec(&ack).unwrap(), &mut request);
+
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack["ok"] = Value::Bool(false);
+        refuse_ack(serde_json::to_vec(&ack).unwrap(), &mut request);
+
+        let mut request = ping();
+        let mut duplicated = serde_json::to_string(&valid_ack(&request)).unwrap();
+        duplicated.pop();
+        duplicated.push_str(",\"pong\":true}");
+        refuse_ack(duplicated.into_bytes(), &mut request);
+
+        // A typed GUI refusal is delivered as itself, never as success.
+        let mut request = ping();
+        let mut ack = valid_ack(&request);
+        ack.as_object_mut().unwrap().remove("pong");
+        ack["ok"] = Value::Bool(false);
+        ack["error"] = Value::String("not_found".into());
+        ack["message"] = Value::String("opaque workspace is not imported".into());
+        let name = format!("ack-{}.json", request["uid"].as_str().unwrap());
+        acks.write_new_atomic(&name, &serde_json::to_vec(&ack).unwrap())
+            .unwrap();
+        assert!(matches!(
+            call(&mut request),
+            Err(GuiError::Rejected { code, .. }) if code == "not_found"
+        ));
+
+        // Context: the CLI locator binds only when the fresh heartbeat names
+        // the same pane, domain and owner-revalidated marker.
+        let cli = GuiCliOrigin {
+            protocol_version: BRIDGE_PROTOCOL_VERSION,
+            gui_instance: "gui-42-cafe".into(),
+            pane_id: 91,
+            domain: "dmux-b-usb".into(),
+            tmux_client_uid: None,
+            marker: marker.clone(),
+        };
+        assert!(bind_cli_origin_with_heartbeat(root.path(), &cli, &marker).is_ok());
+        let mut other_split = marker.clone();
+        other_split.split_ref = format!("p{}.wz-7", Uuid::from_u128(4));
+        assert!(matches!(
+            bind_cli_origin_with_heartbeat(root.path(), &cli, &other_split),
+            Err(GuiError::InvalidInstance(_))
+        ));
+        let mut other_pane = cli.clone();
+        other_pane.pane_id = 92;
+        assert!(matches!(
+            bind_cli_origin_with_heartbeat(root.path(), &other_pane, &marker),
+            Err(GuiError::InvalidInstance(_))
+        ));
+        let mut other_domain = cli.clone();
+        other_domain.domain = "dmux-b-ts".into();
+        assert!(matches!(
+            bind_cli_origin_with_heartbeat(root.path(), &other_domain, &marker),
+            Err(GuiError::InvalidInstance(_))
+        ));
+
+        // A stale heartbeat is bridge-down (ADR 003 §3): neither binding nor
+        // a fully valid signed request proceeds, and nothing is written.
+        heartbeat(root.path(), "gui-42-cafe", now.saturating_sub(10), &marker);
+        assert!(matches!(
+            bind_cli_origin_with_heartbeat(root.path(), &cli, &marker),
+            Err(GuiError::BridgeUnavailable(_))
+        ));
+        let mut valid = ping();
+        assert!(matches!(
+            call(&mut valid),
+            Err(GuiError::BridgeUnavailable(_))
+        ));
+        assert!(requests.entry_names().unwrap().is_empty());
     }
 }
