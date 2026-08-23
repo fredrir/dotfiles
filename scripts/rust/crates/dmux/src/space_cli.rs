@@ -24,6 +24,10 @@ use dmux::operations::{self, GroupNewRequest, OpError, OperationEnv, SplitNewReq
 use dmux::output::{self, OutputFormat};
 use dmux::refs::{ChildRefShape, ParsedRef, SpaceRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig, RegistryError};
+use dmux::resolve::{
+    HostContext, OwnerLocator, RefResolution, SpaceSelector, resolve_enrolled_host,
+    resolve_space_ref,
+};
 
 #[derive(Subcommand)]
 pub enum GroupCmd {
@@ -1586,7 +1590,11 @@ fn helper_bin() -> Result<String, TypedError> {
 }
 
 /// Resolve a local Space ref (name, number, or canonical URI) and build its
-/// provider/scope. Remote-host tokens arrive with P8b.
+/// provider/scope. The §6.2 scoping and lookup are the resolver's
+/// (`resolve::resolve_space_ref`, ADR 012 WS-D.3); this verb family is
+/// owner-local, so a ref whose owner the grammar resolves to an enrolled
+/// peer is refused here — remote child verbs arrive with P8b — while an
+/// `a:`-qualified ref is the local authority, as §6.2 says, not another host.
 fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedError> {
     // §16.3 distinguishes what went wrong: a misspelled ref is validation
     // (2), a ref that names nothing is target-not-found (3), and only the
@@ -1608,43 +1616,56 @@ fn resolve(space_ref: &str) -> Result<(Target, Option<ChildRefShape>), TypedErro
     let registry =
         Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(registry_error)?;
     let identity = registry.identity().map_err(registry_error)?;
+    let hosts = registry.hosts().map_err(registry_error)?;
 
-    let rows = registry.spaces().map_err(registry_error)?;
-    let row = match &parsed.space {
-        SpaceRefShape::Canonical { host, space } => {
-            if *host != identity.host_uid {
-                return Err(unsupported());
+    let (scoped, resolution) = resolve_space_ref(
+        SpaceSelector::Shape(&parsed.space),
+        HostContext {
+            local: identity.host_uid,
+            explicit: None,
+        },
+        |token| {
+            let owner = resolve_enrolled_host(&hosts, token)?;
+            if owner == identity.host_uid {
+                Ok(owner)
+            } else {
+                Err(unsupported())
             }
-            rows.iter()
-                .find(|r| r.space_uid == *space)
-                .ok_or_else(|| not_found(format!("no Space {}", space.0)))?
+        },
+        |_local| registry.spaces().map_err(registry_error),
+    )?;
+    let row = match resolution {
+        RefResolution::Space(row) => row,
+        RefResolution::Deleted(row) => {
+            let mut error = TypedError::new(
+                ErrorCode::SpaceDeleted,
+                format!(
+                    "Space {} ({:?}) is {:?}; its number and identity are never reused",
+                    row.space_no.get(),
+                    row.logical_name,
+                    row.lifecycle
+                ),
+            );
+            error.target = Some(space_ref.to_string());
+            return Err(error);
         }
-        SpaceRefShape::Numbered { host, no } => {
-            if host.is_some() {
-                return Err(unsupported());
-            }
-            rows.iter()
-                .find(|r| r.space_no == *no && r.lifecycle.occupies_name())
-                .ok_or_else(|| not_found(format!("no Space number {no}")))?
+        RefResolution::NotFound => {
+            return Err(not_found(match &scoped.locator {
+                OwnerLocator::Uid(space) => format!("no Space {}", space.0),
+                OwnerLocator::Number(no) => format!("no Space number {no}"),
+                OwnerLocator::Name(name) => format!("no Space named {name:?}"),
+            }));
         }
-        SpaceRefShape::Named { host, name } => {
-            if host.is_some() {
-                return Err(unsupported());
-            }
-            let matches: Vec<_> = rows
-                .iter()
-                .filter(|r| r.logical_name == *name && r.lifecycle.occupies_name())
-                .collect();
-            match matches.as_slice() {
-                [one] => *one,
-                [] => return Err(not_found(format!("no Space named {name:?}"))),
-                _ => {
-                    return Err(TypedError::new(
-                        ErrorCode::AmbiguousTarget,
-                        format!("name {name:?} is ambiguous across backends; use the Space number"),
-                    ));
-                }
-            }
+        RefResolution::AmbiguousName(_) => {
+            return Err(TypedError::new(
+                ErrorCode::AmbiguousTarget,
+                match &scoped.locator {
+                    OwnerLocator::Name(name) => {
+                        format!("name {name:?} is ambiguous across backends; use the Space number")
+                    }
+                    identity => format!("{identity:?} names more than one Space"),
+                },
+            ));
         }
     };
     if row.lifecycle != dmux::model::Lifecycle::Active {
