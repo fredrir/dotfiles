@@ -114,6 +114,21 @@ pub struct LsHost {
 }
 
 impl LsHost {
+    /// This row in the host table's shape for `resolve::resolve_enrolled_host`.
+    /// An `LsHost` exists only for an enrolled row (see `Authority::hosts`),
+    /// so the lifecycle is `Enrolled` by construction; the enrollment and
+    /// tombstone timestamps play no part in resolution and are left empty.
+    fn enrolled_row(&self) -> crate::registry::HostRow {
+        crate::registry::HostRow {
+            host_uid: self.host_uid,
+            alias: Some(self.alias.clone()),
+            label: self.label.clone(),
+            lifecycle: HostLifecycle::Enrolled,
+            enrolled_at: String::new(),
+            tombstoned_at: None,
+        }
+    }
+
     pub fn owner(&self) -> OwnerContext {
         OwnerContext {
             host_uid: self.host_uid.0.to_string(),
@@ -398,13 +413,17 @@ fn select(hosts: Vec<LsHost>, args: &LsArgs) -> Result<Vec<LsHost>, TypedError> 
                 )
             });
     };
+    // The one enrolled-host rule (`resolve::resolve_enrolled_host`, ADR 012
+    // WS-D.3) decides `--host`: `LsHost` rows are enrolled by construction
+    // (`Authority::hosts` keeps only `Enrolled` rows), so they are adapted
+    // to the resolver's row shape rather than matched by a third copy of
+    // the alias/label/HostUid rule.
+    let rows: Vec<crate::registry::HostRow> = hosts.iter().map(LsHost::enrolled_row).collect();
+    let host_uid =
+        crate::resolve::resolve_enrolled_host(&rows, &crate::remote::hosts::host_token(spelling))?;
     let matches: Vec<LsHost> = hosts
         .into_iter()
-        .filter(|host| {
-            host.alias == spelling
-                || host.label.as_deref() == Some(spelling)
-                || host.host_uid.0.to_string() == spelling
-        })
+        .filter(|host| host.host_uid == host_uid)
         .collect();
     match matches.len() {
         1 => Ok(matches),

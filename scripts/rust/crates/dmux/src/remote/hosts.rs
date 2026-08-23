@@ -3,8 +3,11 @@
 //! typed data/errors; rendering stays with the CLI.
 
 use crate::error::{ErrorCode, TypedError};
+use crate::model::HostUid;
 use crate::operations::OperationEnv;
+use crate::refs::HostToken;
 use crate::registry::{HostRow, Registry, RegistryConfig, RouteRow};
+use crate::resolve::resolve_enrolled_host;
 
 fn open(env: &OperationEnv) -> Result<Registry, TypedError> {
     Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir))
@@ -36,25 +39,32 @@ pub fn list(env: &OperationEnv) -> Result<Vec<HostListing>, TypedError> {
     Ok(listings)
 }
 
-/// Resolve a HOST_REF: current alias, current label, or full HostUid.
-/// Unknown/ambiguous spellings are typed errors, never guesses.
+/// The host-token shape of a HOST_REF spelling: a hyphenated HostUid, or an
+/// alias/label spelling — which of the two is the resolver's question.
+pub fn host_token(host_ref: &str) -> HostToken {
+    match uuid::Uuid::try_parse(host_ref) {
+        Ok(uid) if host_ref.len() == 36 => HostToken::Uid(HostUid(uid)),
+        _ => HostToken::AliasOrLabel(host_ref.to_string()),
+    }
+}
+
+/// Resolve a HOST_REF: current alias, current label, or full HostUid, by
+/// the one enrolled-host rule (`resolve::resolve_enrolled_host`, ADR 012
+/// WS-D.3): enrolled rows only, so a tombstoned host resolves by none of
+/// its spellings; an unknown spelling is `not_found` and an ambiguous one
+/// `ambiguous_target`, never a guess.
 pub fn resolve_host(registry: &Registry, host_ref: &str) -> Result<HostRow, TypedError> {
-    if let Some(row) = registry.host_by_alias(host_ref).map_err(typed)? {
-        return Ok(row);
-    }
     let hosts = registry.hosts().map_err(typed)?;
-    if let Some(row) = hosts.iter().find(|h| h.label.as_deref() == Some(host_ref)) {
-        return Ok(row.clone());
-    }
-    if let Ok(uid) = host_ref.parse::<uuid::Uuid>()
-        && let Some(row) = hosts.iter().find(|h| h.host_uid.0 == uid)
-    {
-        return Ok(row.clone());
-    }
-    Err(TypedError::new(
-        ErrorCode::NotFound,
-        format!("no enrolled host matches {host_ref:?}"),
-    ))
+    let host_uid = resolve_enrolled_host(&hosts, &host_token(host_ref))?;
+    hosts
+        .into_iter()
+        .find(|host| host.host_uid == host_uid)
+        .ok_or_else(|| {
+            TypedError::new(
+                ErrorCode::NotFound,
+                format!("no enrolled host matches {host_ref:?}"),
+            )
+        })
 }
 
 /// `dmux host label HOST_REF NEW_LABEL`. Spellings are never rebound to a
@@ -99,4 +109,71 @@ pub fn forget(env: &OperationEnv, host_ref: &str, confirmed: bool) -> Result<Hos
         .into_iter()
         .find(|h| h.host_uid == host.host_uid)
         .ok_or_else(|| TypedError::new(ErrorCode::OperationFailed, "host row vanished"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::HostUid;
+    use uuid::Uuid;
+
+    fn scratch() -> (tempfile::TempDir, OperationEnv) {
+        let dir = tempfile::tempdir().unwrap();
+        let env = OperationEnv {
+            db_path: dir.path().join("registry.sqlite3"),
+            lock_dir: dir.path().join("locks"),
+        };
+        (dir, env)
+    }
+
+    /// ADR 012 WS-D.3's follow-up: `host label|forget` and the recovery
+    /// verbs' `--host` resolve through `resolve::resolve_enrolled_host`, so
+    /// the three spellings answer the same row, an unknown spelling keeps
+    /// its `not_found` text, and a tombstoned host resolves by none of its
+    /// spellings — the old resolver still answered a forgotten host by its
+    /// label or HostUid.
+    #[test]
+    fn host_refs_resolve_enrolled_rows_only_through_the_one_resolver() {
+        let (_dir, env) = scratch();
+        let peer = HostUid(Uuid::from_u128(0x5EE7));
+        let alias = {
+            let mut registry = open(&env).unwrap();
+            registry.enroll_host(peer, Some("peer")).unwrap().alias
+        };
+        let registry = open(&env).unwrap();
+        for spelling in [alias.as_str(), "peer", &peer.0.to_string()] {
+            assert_eq!(
+                resolve_host(&registry, spelling).unwrap().host_uid,
+                peer,
+                "{spelling}"
+            );
+        }
+        let unknown = resolve_host(&registry, "nosuchhost").unwrap_err();
+        assert_eq!(unknown.code, ErrorCode::NotFound);
+        assert_eq!(unknown.message, "no enrolled host matches \"nosuchhost\"");
+        assert_eq!(
+            host_token(&peer.0.to_string()),
+            HostToken::Uid(peer),
+            "a hyphenated uuid is the HostUid form"
+        );
+        assert_eq!(
+            host_token(&peer.0.simple().to_string()),
+            HostToken::AliasOrLabel(peer.0.simple().to_string()),
+            "the compact form is not ref grammar and is matched as a spelling"
+        );
+        drop(registry);
+
+        let tombstoned = forget(&env, "peer", true).unwrap();
+        assert_eq!(tombstoned.host_uid, peer);
+        let registry = open(&env).unwrap();
+        for spelling in [alias.as_str(), "peer", &peer.0.to_string()] {
+            let error = resolve_host(&registry, spelling).unwrap_err();
+            assert_eq!(
+                error.code,
+                ErrorCode::NotFound,
+                "{spelling}: {}",
+                error.message
+            );
+        }
+    }
 }
