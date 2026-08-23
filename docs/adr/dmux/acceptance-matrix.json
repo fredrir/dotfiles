@@ -16,42 +16,86 @@
   "1": {
    "title": "Local trusted Wez + no project creates one Wez Space with one Group/Split, next permanent ID, connects",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "unit::policy::tests::automatic_decision_table",
+    "resolver_truth_table::auto_truth_table",
+    "new_cli::wez_presentation_is_preflighted_before_owner_reservation",
+    "registry::alloc::concurrent_reserves_allocate_unique_monotonic_numbers_and_uids",
+    "hierarchy_flow::wez_hierarchy_full_cycle_at_the_operations_layer"
+   ],
+   "implemented_at": [
+    "src/policy.rs:65 decide_backend",
+    "src/policy.rs:186 plan_new",
+    "src/new_cli.rs:1060 plan_lookup",
+    "src/operations.rs create_space_owner_fenced"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md 'Acceptance results' — cold_present/smoke_identity green on Macie at r5"
+   ],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "medium",
+   "gap": "No single test proves the case end to end: the policy row is a unit assertion; new_cli's FakeRuntime fabricates the created Space (no 'exactly one Group/one Split', no 'next permanent SpaceNo'); the only Wez-native operations test is gated on /opt/homebrew/bin/wezterm-mux-server and does not assert 1 group/1 split on the fresh Space."
   },
   "2": {
    "title": "Local plain/headless context creates tmux",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "unit::policy::tests::automatic_decision_table",
+    "cli::new_creates_and_attaches_locally"
+   ],
+   "implemented_at": [
+    "src/policy.rs:65 decide_backend",
+    "src/gui_cli.rs:2304 new_creation_context"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "medium",
+   "gap": "Only the decision table is asserted; ProductionGuiAuthority::new_creation_context (headless detection) has no test, and cli::new_creates_and_attaches_locally is the legacy surface where tmux is unconditional. No wez-first end-to-end test creates tmux from a plain/headless context."
   },
   "3": {
    "title": "Existing Wez project is connected even when policy would now choose tmux",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "resolver_truth_table::auto_truth_table",
+    "resolver_truth_table::explicit_tmux_truth_table_mirrors",
+    "new_cli::existing_literal_match_connects_without_name_validation_or_creation_policy_probe",
+    "unit::policy::tests::plan_new_validates_grammar_only_on_the_creation_path"
+   ],
+   "implemented_at": [
+    "src/resolve.rs:239 lookup_for_new",
+    "src/policy.rs:186 plan_new",
+    "src/new_cli.rs:1060 plan_lookup"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high",
+   "gap": "The orchestration test uses a tmux existing target; the Wez-existing direction is covered by the truth-table row (S,N)->ConnectWez plus the shared plan_new path only."
   },
   "4": {
    "title": "Existing tmux project is connected even when policy would now choose Wez",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "resolver_truth_table::auto_truth_table",
+    "resolver_truth_table::explicit_wez_truth_table",
+    "new_cli::existing_literal_match_connects_without_name_validation_or_creation_policy_probe",
+    "unit::policy::tests::plan_new_validates_grammar_only_on_the_creation_path"
+   ],
+   "implemented_at": [
+    "src/resolve.rs:239 lookup_for_new",
+    "src/policy.rs:186 plan_new",
+    "src/new_cli.rs:1060 plan_lookup"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high"
   },
   "5": {
    "title": "Same name on both backends exits 4 with both stable refs; explicit backend chooses its match",
@@ -104,32 +148,64 @@
   "8": {
    "title": "con and dmux - never create",
    "earliest_owning_phase": "P4 resolver / P6 creation / P9 presentation",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "connect_cli_dispatch::feature_on_refuses_legacy_create_and_native_window_before_owner_resolution",
+    "connect_cli_dispatch::feature_on_bare_dash_routes_to_stable_previous_with_typed_not_found",
+    "connect_cli::missing_previous_is_not_found_and_has_no_owner_or_create_side_effect",
+    "cli::con_refuses_to_create",
+    "cli::dash_without_state_says_so"
+   ],
+   "implemented_at": [
+    "src/connect_cli.rs connect() (no create arm)",
+    "src/main.rs con/dash dispatch"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high"
   },
   "9": {
    "title": "Rename preserves SpaceUid, SpaceNo, backend, owner, history",
    "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "registry::journal::rename_crash_reconciliation_commits_new_only_and_conflicts_on_both",
+    "operations_flow::create_replay_rename_remove_full_cycle",
+    "connect_cli::previous_uses_stable_space_uid_after_rename",
+    "identity::history::history_is_identity_keyed_and_per_host",
+    "identity::history::record_attach_shifts_current_into_previous_and_toggles"
+   ],
+   "implemented_at": [
+    "src/registry/mod.rs begin_rename/commit_rename",
+    "src/operations.rs:1226 rename_space",
+    "src/history.rs History"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high",
+   "gap": "Backend and owner (HostUid) after a rename are implied by the untouched binding row, not asserted explicitly."
   },
   "10": {
    "title": "Remove then recreate gets a new UID and larger SpaceNo; old ref stays deleted",
    "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "registry::alloc::tombstone_non_reuse_remove_then_recreate_same_name",
+    "operations_flow::create_replay_rename_remove_full_cycle",
+    "registry::alloc::live_name_conflict_is_typed_and_leaves_no_side_effects"
+   ],
+   "implemented_at": [
+    "src/registry/mod.rs begin_remove/complete_remove",
+    "src/registry/mod.rs reserve_space (monotonic counter)"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md removal: 01a011fe… lifecycle=deleted, row retained, pane gone"
+   ],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high"
   },
   "11": {
    "title": "Concurrent create/rename/adopt/rebind serializes owner-wide; no collision; gaps not reused",
@@ -157,12 +233,22 @@
   "12": {
    "title": "External tmux rename preserves identity through markers",
    "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "adopt_flow::tmux_adoption_stamps_binds_and_survives_external_rename",
+    "provider_tmux::markers_survive_external_rename",
+    "provider_tmux::markers_and_child_handles_survive_move_window_and_rename",
+    "adopt_flow::a_replayed_native_ref_is_refused_before_the_session_is_restamped",
+    "adopt_cli::a_session_carrying_foreign_dmux_markers_is_a_conflict_not_a_rebind"
+   ],
+   "implemented_at": [
+    "src/backend/tmux.rs stamp_markers/read_markers",
+    "src/operations.rs adopt_tmux"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high"
   },
   "13": {
    "title": "ls leaves external Wez unmanaged; fenced adoption once to opaque key, unstamped until acked; crash states reconcile; tampering is explicit conflict",
@@ -195,25 +281,52 @@
   "14": {
    "title": "Forget/re-enroll same HostUid restores alias; different HostUid never receives it",
    "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
-   "live_evidence_required": [],
-   "open_items": [],
-   "status": "unmapped"
-  },
-  "15": {
-   "title": "z->aa rollover, rollback/clone detection, divergent heads, stale responses, handshake rollback quarantine",
-   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
-   "tests": [],
+   "tests": [
+    "registry::hosts::aliases_are_never_reused_and_reenrollment_reactivates_the_same_alias",
+    "registry::hosts::forget_tombstones_refs_disables_routes_and_retains_history",
+    "registry::hosts::a_spelling_once_used_never_rebinds_to_a_different_host",
+    "registry::hosts::alias_allocation_skips_spellings_already_bound_as_labels",
+    "registry::hosts::enrollment_allocates_the_next_alias_and_is_idempotent_by_host_uid"
+   ],
    "implemented_at": [
-    "src/ls_cli.rs:426 refuse"
+    "src/registry/mod.rs enroll_host",
+    "src/registry/mod.rs forget_host"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped",
-   "note": "identity tests live under tests/identity/** and tests/registry/** — enumerate in WS-G.1"
+   "status": "mapped",
+   "confidence": "high"
+  },
+  "15": {
+   "title": "z->aa rollover, rollback/clone detection, divergent heads, stale responses, handshake rollback quarantine",
+   "earliest_owning_phase": "P2 identity+registry / P6 adoption+repair / P7 enrollment",
+   "tests": [
+    "unit::refs::tests::alias_rollover_is_bijective_base_26",
+    "registry::lineage::lineage_classification_matrix",
+    "registry::lineage::every_committed_mutation_advances_a_recomputable_hash_chain",
+    "unit::remote::lineage::tests::claimed_current_lower_head_is_rollback_suspect",
+    "unit::remote::lineage::tests::claimed_successor_without_cached_ancestor_is_suspect",
+    "unit::remote::lineage::tests::lower_revision_in_flight_is_stale_and_never_regresses",
+    "unit::remote::lineage::tests::registry_uid_mismatch_and_divergent_same_revision_conflict",
+    "unit::remote::lineage::tests::first_contact_stores_and_verified_advance_stores",
+    "unit::remote::client::tests::a_failed_lineage_checkpoint_write_is_propagated_not_discarded",
+    "registry::peer_cache::peer_cache_round_trips_verbatim_and_replaces_on_store"
+   ],
+   "implemented_at": [
+    "src/ls_cli.rs:426 refuse",
+    "src/refs.rs index_to_alias/alias_to_index",
+    "src/registry/mod.rs:969 classify_lineage",
+    "src/remote/lineage.rs:119 assess",
+    "src/remote/enroll.rs:130 second-fresh-handshake rollback quarantine"
+   ],
+   "live_evidence": [],
+   "live_evidence_required": [],
+   "open_items": [],
+   "status": "mapped",
+   "note": "identity tests live under tests/identity/** and tests/registry/** — enumerate in WS-G.1",
+   "confidence": "medium",
+   "gap": "The fresh-handshake rollback quarantine itself (src/remote/enroll.rs:130–146) has no test: nothing drives enroll_host_over_route with a rolled-back peer; only the classifier is proved."
   },
   "16": {
    "title": "Trusted Wez controller + usable USB creates remote Wez",
@@ -357,12 +470,25 @@
   "23": {
    "title": "Two Wez tabs/four panes report two Groups/four Splits via tab_id; tmux uses window/pane IDs",
    "earliest_owning_phase": "P8a local hierarchy / P8b remote; strict reads P3b/P5",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "provider_wez::grouping_two_tabs_three_panes_and_inspect",
+    "unit::backend::wez::tests::two_workspace_fixture_groups_and_extracts_epoch",
+    "provider_tmux::inventory_round_trip_matches_exact_native_ids",
+    "hierarchy_flow::wez_hierarchy_full_cycle_at_the_operations_layer",
+    "hierarchy_flow::local_hierarchy_full_cycle_with_markers_and_cascade_refusals",
+    "ls_cli::tree_indents_live_children_under_their_space"
+   ],
+   "implemented_at": [
+    "src/backend/wez.rs:1738 tab_first_pane / tab_panes",
+    "src/backend/tmux.rs inventory",
+    "src/refs.rs epoch-qualified child ref shapes"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high",
+   "gap": "The exact 2-tab/4-pane shape is not tested (Wez: 2 tabs/3 panes; tmux: 3 windows/4 panes); the property (unique tab_id → Group count; window/pane ids on tmux) is asserted. Live-provider tests are environment-gated."
   },
   "24": {
    "title": "ls, ls --tree, ls --all-hosts, host ls have distinct documented scopes",
@@ -471,23 +597,48 @@
    "title": "Command+Shift+T in an Archie Wez pane creates on Archie with Wez even over Tailscale",
    "earliest_owning_phase": "P9 GUI/presentation",
    "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "implemented_at": [
+    "shared/wezterm/wez/dmux_bridge/actions.lua:262 mac_keys CMD|SHIFT t",
+    "shared/wezterm/wez/dmux_bridge/actions.lua:48 new_space_prompt → controller space-new",
+    "src/gui_cli.rs:4906 create_space_for_origin (marker backend; AuthorityLocation::Remote → remote NEW)",
+    "src/gui_cli.rs:978 choose_compatible_presentation_row"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md lifecycle.keybinding green (single-host only; two_host deferred)"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "unmapped",
+   "confidence": "low",
+   "gap": "Nothing asserts this case: no Rust test exercises create_space_for_origin or constructs AuthorityLocation::Remote; the Lua suite never calls actions.mac_keys(); the Tailscale half is asserted only for presentation-row selection (case 20). Needs a test plus two-host live evidence (WS-G.5)."
   },
   "30": {
    "title": "Cancel Command+W changes nothing; confirm removes only the named Group; final Group needs explicit Space escalation",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "lua::actions::canceling_group_removal_must_not_mutate",
+    "lua::actions::confirmed_removal_calls_group_remove_with_confirmed_only",
+    "lua::actions::changed_group_context_fails_before_removal",
+    "lua::actions::final_group_escalates_and_cancel_of_the_escalation_mutates_nothing",
+    "hierarchy_flow::local_hierarchy_full_cycle_with_markers_and_cascade_refusals",
+    "hierarchy_flow::wez_hierarchy_full_cycle_at_the_operations_layer"
+   ],
+   "implemented_at": [
+    "shared/wezterm/wez/dmux_bridge/actions.lua:110 close_group",
+    "shared/wezterm/wez/dmux_bridge/actions.lua:88 prompt_context_is_current",
+    "src/gui_cli.rs:5240 group_remove (--confirmed; --escalate-space only for the final Group)",
+    "src/operations.rs group_remove (last Group refused)"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md removal_created/removal green via controller group-remove"
+   ],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "medium",
+   "gap": "The Rust guard in the _gui verb (gui_cli.rs:5246 refuse without --confirmed; :5254 --escalate-space only for the final Group) has no test; 'last Group refused' is reached only through operations::group_remove."
   },
   "31": {
    "title": "Status shows active logical owner/backend and warns MIXED",
@@ -507,89 +658,180 @@
    "title": "Closing/reopening the GUI leaves owner pane/process IDs unchanged and restores no snapshots",
    "earliest_owning_phase": "P9 GUI/presentation",
    "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "implemented_at": [
+    "src/gui_lifecycle.rs launch_attach_only_gui_with",
+    "shared/wezterm/wez/domains/init.lua:231 default_gui_startup_args = {connect, dmux}",
+    "shared/wezterm/wez/plugins/resurrect.lua:37 startup_restore = false under managed mode"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/evidence/spike3-gui-bridge.md §5 — GUI kill -9 leaves owner list and shell PIDs unchanged; re-attach presents the same pane ids",
+    "docs/adr/dmux/r5.md lifecycle/lifecycle.intent green (Macie, r5)"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "unmapped",
+   "related_tests": [
+    "gui_lifecycle::attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env",
+    "lua::domains::managed_gui_startup_args_are_connect_dmux"
+   ],
+   "confidence": "low",
+   "gap": "The related tests prove attach-only launch argv and the startup args, not the property: nothing asserts owner pane/process IDs unchanged across a GUI close/reopen, and nothing tests resurrect.lua's startup_restore=false (no Lua test file covers it). Proof rests on the spike3 live run; wave-4 GUI evidence required."
   },
   "33": {
    "title": "Command+Q and disconnect leave owner pane counts unchanged for both backends",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "remote_protocol::attach::exact_client_detach_removes_only_that_client_preserves_panes_and_replays",
+    "unit::gui_cli::tests::safe_quit_mixed_and_tmux_only_domain_plans_are_deterministic",
+    "unit::gui_cli::tests::detach_postcheck_rejects_a_missing_configured_persistent_domain",
+    "lua::presentation::detach_domain_completes_only_when_no_imported_pane_remains",
+    "cli::disconnect_and_legacy_detach_outside_clients_are_idempotent"
+   ],
+   "implemented_at": [
+    "src/gui_cli.rs:5887 disconnect",
+    "src/gui_cli.rs:4825 detach_tmux_client",
+    "src/gui_cli.rs:885 safe_quit_domain_plan / :929 heartbeat_proves_domains_detached"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/evidence/spike3-gui-bridge.md §5 — DetachDomain: owner diff zero, shell PIDs alive",
+    "docs/adr/dmux/r5.md lifecycle green"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "medium",
+   "gap": "The tmux half is proved exactly; the Wez half only via the detach plan and the heartbeat proof shape — no test compares an owner Wez pane census across safe-quit/disconnect. Wave-4 GUI evidence required."
   },
   "34": {
    "title": "Command+Q/managed close detaches and proves every old owner pane survived; destructive QuitApplication never called",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "unit::gui_cli::tests::safe_quit_refuses_disappearance_of_a_nonactive_owner_pane",
+    "unit::gui_cli::tests::safe_quit_refuses_sentinel_or_physical_pane_loss_including_sentinel_only_domain",
+    "unit::gui_cli::tests::safe_quit_mixed_and_tmux_only_domain_plans_are_deterministic",
+    "unit::gui_cli::tests::detach_postcheck_rejects_a_missing_configured_persistent_domain",
+    "lua::presentation::safe_quit_finish_hides_on_macos_and_quits_on_linux_without_native_actions",
+    "lua::presentation::safe_quit_detach_snapshot_mismatch_and_racing_domain_invalidate_the_proof",
+    "lua::config::forbidden_actions_never_survive_apply",
+    "lua::config::managed_window_close_event_runs_safe_quit",
+    "lua::top_level::final_sanitizer_drops_quitapplication_and_spawnwindow",
+    "lua::config_linux::linux_managed_chords_expose_no_command_binding",
+    "lua::managed_show_keys.sh::managed_gui_show_keys_contains_no_destructive_action"
+   ],
+   "implemented_at": [
+    "src/gui_cli.rs:683 require_native_tree_survived / :726 require_complete_hierarchy_survived",
+    "src/gui_cli.rs:885 safe_quit_domain_plan / :914 safe_quit_platform_action",
+    "src/gui_cli.rs:6259 safe_quit",
+    "shared/wezterm/wez/dmux_bridge/presentation.lua safe_quit"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md lifecycle/lifecycle.intent/lifecycle.keybinding green",
+    "docs/adr/dmux/evidence/spike3-gui-bridge.md §5"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "medium",
+   "gap": "Each mechanism is asserted in isolation; no integration test drives the _gui safe-quit verb on a real before/after census and proves the GUI stays open on failure."
   },
   "35": {
    "title": "Every service start produces one verified sentinel and no unmanaged default shell; eligible manifest restores exactly once",
    "earliest_owning_phase": "P10 recovery",
    "tests": [
-    "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain"
+    "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain",
+    "recovery::manifest::exactly_one_sentinel_and_no_default_shell_is_recovery_empty",
+    "gui_lifecycle::starting_descriptor_polls_then_accepts_nonempty_sentinel_verified_inventory",
+    "gui_lifecycle::missing_sentinel_outcome_is_rejected",
+    "recovery::mux_lua_contract::fallback_sentinel_never_publishes_a_ready_descriptor",
+    "recovery::coordinator::simultaneous_startup_clients_restore_once_and_the_second_observes_ready",
+    "recovery::coordinator::hard_death_after_completed_root_republishes_ready_without_restoring_again",
+    "lua::mux_startup_witness::managed_start_publishes_ready_after_spawning_only_the_sentinel_idle_pane"
    ],
-   "implemented_at": [],
-   "live_evidence": [],
+   "implemented_at": [
+    "shared/wezterm/mux/dmux-mux.lua mux-startup",
+    "src/recovery.rs NativeSnapshot::require_sentinel_only",
+    "src/gui_lifecycle.rs ensure_ready_wez_service_with"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/evidence/spike2-sentinel-startup.md — 1 pane, sentinel workspace, no default shell; 4 starts → 4 epochs",
+    "docs/adr/dmux/r5.md recovery/recovery.intent green"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [
     "coordinator-path test for retire→publish in src/recovery.rs (O handoff; owed)"
    ],
-   "status": "blocked"
+   "status": "blocked",
+   "confidence": "medium",
+   "gap": "'Restores exactly once' is asserted; 'every service start produces one verified sentinel and no unmanaged default shell' is per-layer only (Lua witness under a stubbed WezTerm; Rust refusals). No test drives a real service start; wave-4 WS-F.2 doctor evidence covers it."
   },
   "36": {
    "title": "A nonempty server never restores",
    "earliest_owning_phase": "P10 recovery",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "recovery::coordinator::no_manifest_is_ready_with_only_the_sentinel_and_nonempty_fails_immediately",
+    "recovery::manifest::exactly_one_sentinel_and_no_default_shell_is_recovery_empty"
+   ],
+   "implemented_at": [
+    "src/recovery.rs require_sentinel_only"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md recovery green"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high"
   },
   "37": {
    "title": "Explicit removal of the final Space prevents later resurrection",
    "earliest_owning_phase": "P10 recovery",
-   "tests": [],
-   "implemented_at": [],
-   "live_evidence": [],
+   "tests": [
+    "recovery::coordinator::explicit_final_wez_remove_records_empty_floor_and_blocks_old_manifest_in_fresh_epoch",
+    "registry::recovery::final_wez_tombstone_and_empty_floor_are_one_rollback_safe_transition",
+    "recovery::manifest::newest_complete_manifest_falls_back_around_corruption_and_honors_empty_floor"
+   ],
+   "implemented_at": [
+    "src/operations.rs remove_space (final Wez Space publishes the floor)",
+    "src/registry/mod.rs intentional_empty_revision",
+    "src/recovery.rs newest_eligible_manifest"
+   ],
+   "live_evidence": [
+    "docs/adr/dmux/r5.md removal green"
+   ],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "mapped",
+   "confidence": "high"
   },
   "38": {
    "title": "Two simultaneous startup clients restore once",
    "earliest_owning_phase": "P10 recovery",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "recovery::coordinator::simultaneous_startup_clients_restore_once_and_the_second_observes_ready",
+    "recovery::coordinator::hard_death_after_completed_root_republishes_ready_without_restoring_again"
+   ],
+   "implemented_at": [
+    "src/recovery.rs coordinator generation fence"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending",
+   "confidence": "high"
   },
   "39": {
    "title": "Partial/crashed recovery is observable; orphan reconciliation and journal resume are idempotent; snapshot publication cannot overlap",
@@ -612,14 +854,21 @@
   "40": {
    "title": "Remote owner recovery never restores imported remote panes as local shells",
    "earliest_owning_phase": "P10 recovery",
-   "tests": [],
-   "implemented_at": [],
+   "tests": [
+    "recovery::manifest::imported_remote_panes_are_never_eligible_local_shells"
+   ],
+   "implemented_at": [
+    "src/recovery.rs:330 validate_split_domains",
+    "shared/wezterm/wez/plugins/resurrect.lua:43-60 get_workspace_state override (untested)"
+   ],
    "live_evidence": [],
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped"
+   "status": "live_pending",
+   "confidence": "medium",
+   "gap": "Only the read side is asserted (a manifest carrying an imported domain is rejected); the write-side stripping in resurrect.lua has no test, and no test covers a remote owner's recovery run end to end."
   },
   "41": {
    "title": "Non-TTY remove without --yes changes nothing, exits 5; decline exits 5",
@@ -722,16 +971,27 @@
   "46": {
    "title": "Every still-valid baseline test stays green; obsolete assertions have approved manifest entries",
    "earliest_owning_phase": "P11 migration/regression",
-   "tests": [],
+   "tests": [
+    "cli::the_wrapper_verb_allowlist_matches_the_cli",
+    "cli::the_legacy_policy_flag_beats_a_wez_first_opt_in",
+    "cli::an_explicit_zero_keeps_the_legacy_surface"
+   ],
    "implemented_at": [
     "docs/adr/dmux/baseline-tests.json",
-    "tests/cli.rs DMUX_LEGACY_POLICY=1 harness line"
+    "tests/cli.rs DMUX_LEGACY_POLICY=1 harness line",
+    "docs/adr/dmux/baseline-tests.json (116 baseline IDs; retirements with rationale and replacement_tests)",
+    "tests/cli.rs:59 Sandbox::command (DMUX_LEGACY_POLICY harness line)"
    ],
-   "live_evidence": [],
+   "live_evidence": [
+    "manual check 2026-08-23: 115 of 116 baseline fns exist by name; the one absent (cli::detach_outside_tmux_refuses) has a retirement entry"
+   ],
    "live_evidence_required": [],
    "open_items": [],
-   "status": "unmapped",
-   "note": "passes when every baseline ID is green at the claimed revision and every retirement has a manifest entry"
+   "status": "mapped",
+   "note": "passes when every baseline ID is green at the claimed revision and every retirement has a manifest entry",
+   "confidence": "low",
+   "gap": "No executable check reads baseline-tests.json: nothing asserts every baseline ID still exists and is green at the claimed revision, nor that every retirement names replacement tests. Needs a test (or a script run at the gate) — WS-G.1 follow-up."
   }
- }
+ },
+ "note_2026_08_23": "Rows 1–4, 8–10, 12, 14, 15, 23, 29, 30, 32–38, 40, 46 mapped from a read-only sweep of the suite (ADR 012 WS-G.1); each carries a confidence and, where the suite does not prove the whole property, a gap. Honest zeroes: 29 (no test), 32 (related tests prove only attach-only launch), 46 (no executable check of the baseline manifest). Lua IDs are scenario labels cited by file:line in the sweep."
 }
