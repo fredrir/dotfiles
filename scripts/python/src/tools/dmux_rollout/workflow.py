@@ -54,6 +54,13 @@ CANARY_FLOOR = timedelta(hours=24)
 # too: each dmux call states its own (`_dmux` exports DMUX_WEZ_FIRST=1 and the
 # rehearsal adds DMUX_LEGACY_POLICY=1 per call), so whatever the operator's
 # shell carries never decides what the tool drives.
+# Archie's fixed managed-mux runtime dir (XDG_RUNTIME_DIR of uid 1000 + dmux),
+# the directory the maintained fork resolves there.
+ARCHIE_RUNTIME_DIR = Path("/run/user/1000/dmux")
+
+# Never inherited by a release test run: the suite sets policy per test.
+POLICY_VARS = ("DMUX_WEZ_FIRST", "DMUX_LEGACY_POLICY")
+
 AMBIENT_MUX_VARS = (
     "TMUX",
     "TMUX_PANE",
@@ -337,13 +344,30 @@ class Workflow:
         log = self._log_path(release, "build-mac-dotfiles.log")
         test_env = self._mac_dmux_test_environment(release, target)
         if not skip_tests:
+            # The suite must never reach the live runtime dir or registry
+            # (plan §19.3, §20.1): export the same three seams
+            # tests/run-isolated.sh does, release-scoped, and refuse the
+            # build if the live runtime dir gained an entry anyway. r6's
+            # first build ran without them and left 16 lock files there.
+            live = self._mac_runtime_dir()
+            seams = self._dmux_suite_seams(release.release_id, root, live.parent)
+            for path in seams.values():
+                Path(path).mkdir(mode=0o700, parents=True, exist_ok=True)
+            before = self._runtime_dir_entries(live)
             self.runner.stream(
                 ["cargo", "test", "-p", "dmux", "--", "--test-threads=1"],
                 cwd=dotfiles / "scripts/rust",
-                env=test_env,
-                unset_env=AMBIENT_MUX_VARS,
+                env={**test_env, **seams},
+                unset_env=(*AMBIENT_MUX_VARS, *POLICY_VARS),
                 log=log,
             )
+            grown = self._runtime_dir_growth(before, self._runtime_dir_entries(live))
+            if grown:
+                raise Refusal(
+                    f"the dmux suite reached the live runtime dir {live}: {len(grown)} new "
+                    f"entries ({', '.join(grown[:8])}); seams were {seams}"
+                )
+            shutil.rmtree(seams["DMUX_RUNTIME_DIR"], ignore_errors=True)
         self.runner.stream(
             [
                 "cargo",
@@ -370,6 +394,63 @@ class Workflow:
         )
         release.data["artifacts"]["mac_dotfiles"] = artifacts
         self._checkpoint(release, "build.mac.dotfiles", {"artifacts": artifacts})
+
+    @staticmethod
+    def _dmux_suite_seams(release_id: str, root: Path, runtime_base: Path) -> dict[str, str]:
+        """The isolation seams for one release's dmux suite run.
+
+        `DMUX_RUNTIME_DIR` sits directly under the platform temporary base
+        (the suite binds `<dir>/wez-dmux.sock`; sun_path is 104 bytes on
+        macOS, 108 on Linux), the registry and client state under the
+        release root. Every value is absolute; the caller creates them 0700.
+        """
+        short = re.sub(r"[^0-9a-z]", "", release_id.lower())[-8:] or "release"
+        runtime = Path(runtime_base) / f"dmux-r.{short}" / "rt"
+        socket = runtime / "wez-dmux.sock"
+        if len(str(socket)) >= 100:
+            raise Refusal(
+                f"release test runtime dir {runtime} is too deep for a unix socket path "
+                f"({len(str(socket))} bytes)"
+            )
+        home = root / "test-home"
+        seams = {
+            "DMUX_RUNTIME_DIR": str(runtime),
+            "XDG_DATA_HOME": str(home / "data"),
+            "XDG_STATE_HOME": str(home / "state"),
+        }
+        for value in seams.values():
+            if not value.startswith("/"):
+                raise Refusal(f"release test seam is not absolute: {value}")
+        return seams
+
+    @staticmethod
+    def _runtime_dir_entries(root: Path) -> list[str]:
+        """Every path beneath `root`, relative and sorted; empty if absent."""
+        if not root.is_dir():
+            return []
+        return sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+
+    def _remote_runtime_dir_entries(self, host: str, root: Path) -> list[str]:
+        """`_runtime_dir_entries` over ssh; an absent directory lists nothing."""
+        listed = self.runner.capture(
+            remote_argv(
+                host,
+                [
+                    "sh",
+                    "-c",
+                    'cd "$1" 2>/dev/null && find . -mindepth 1 | LC_ALL=C sort',
+                    "sh",
+                    str(root),
+                ],
+            ),
+            check=False,
+        )
+        return sorted(line.removeprefix("./") for line in listed.stdout.splitlines() if line)
+
+    @staticmethod
+    def _runtime_dir_growth(before: Iterable[str], after: Iterable[str]) -> list[str]:
+        """Entries present after a run that were not present before it."""
+        return sorted(set(after) - set(before))
 
     @staticmethod
     def _mac_dmux_test_environment(release: Release, target: Path) -> dict[str, str]:
@@ -552,12 +633,26 @@ class Workflow:
         if not release.completed("stage.archie.dotfiles"):
             target = remote_root / "targets/dotfiles"
             if not skip_tests:
+                # Same isolation as the Mac suite run (plan §19.3): seams
+                # exported to the remote `cargo test`, and the live runtime
+                # dir must not gain an entry.
+                live = ARCHIE_RUNTIME_DIR
+                seams = self._dmux_suite_seams(release.release_id, Path(remote_root), live.parent)
+                self.runner.stream(
+                    remote_argv(host, ["mkdir", "-p", "-m", "0700", *seams.values()]),
+                    cwd=None,
+                    env=None,
+                    log=self._log_path(release, "stage-archie-dotfiles.log"),
+                )
+                before = self._remote_runtime_dir_entries(host, live)
                 self.runner.stream(
                     remote_argv(
                         host,
                         [
                             "env",
+                            *[f"-u{name}" for name in (*AMBIENT_MUX_VARS, *POLICY_VARS)],
                             f"CARGO_TARGET_DIR={target}",
+                            *[f"{key}={value}" for key, value in seams.items()],
                             "cargo",
                             "test",
                             "--manifest-path",
@@ -572,6 +667,14 @@ class Workflow:
                     env=None,
                     log=self._log_path(release, "stage-archie-dotfiles.log"),
                 )
+                grown = self._runtime_dir_growth(
+                    before, self._remote_runtime_dir_entries(host, live)
+                )
+                if grown:
+                    raise Refusal(
+                        f"the dmux suite reached Archie's live runtime dir {live}: "
+                        f"{len(grown)} new entries ({', '.join(grown[:8])})"
+                    )
             self.runner.stream(
                 remote_argv(
                     host,
@@ -2112,7 +2215,7 @@ class Workflow:
         capture_doctor: bool = True,
     ) -> dict[str, Any]:
         host = release.data["hosts"]["archie"]["ssh"]
-        runtime = Path("/run/user/1000/dmux")
+        runtime = ARCHIE_RUNTIME_DIR
         descriptor_raw = self.runner.capture(
             remote_argv(host, ["cat", str(runtime / "wez-dmux.json")])
         ).stdout

@@ -245,6 +245,32 @@ def test_dmux_gate_uses_only_the_frozen_fork_binaries(tmp_path, monkeypatch):
     assert environment["PATH"] == f"{binary_dir}:/usr/bin"
 
 
+def test_dmux_suite_seams_are_short_absolute_and_release_scoped(tmp_path):
+    seams = Workflow._dmux_suite_seams(
+        "20260823-7675b61-b9d8dfae-r6", tmp_path / "release", Path("/var/folders/xx/T")
+    )
+    assert set(seams) == {"DMUX_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_STATE_HOME"}
+    assert seams["DMUX_RUNTIME_DIR"] == "/var/folders/xx/T/dmux-r.d8dfaer6/rt"
+    assert seams["XDG_DATA_HOME"] == str(tmp_path / "release/test-home/data")
+    assert seams["XDG_STATE_HOME"] == str(tmp_path / "release/test-home/state")
+    assert all(value.startswith("/") for value in seams.values())
+    with pytest.raises(Refusal, match="too deep for a unix socket path"):
+        Workflow._dmux_suite_seams("r", tmp_path, Path("/" + "x" * 95))
+
+
+def test_runtime_dir_growth_names_only_new_entries(tmp_path):
+    live = tmp_path / "live"
+    (live / "bridge").mkdir(parents=True)
+    (live / "wez-dmux.json").write_text("{}")
+    before = Workflow._runtime_dir_entries(live)
+    (live / "backend_1.lock").write_text("")
+    (live / "bridge" / "key").write_text("k")
+    (live / "wez-dmux.json").unlink()
+    after = Workflow._runtime_dir_entries(live)
+    assert Workflow._runtime_dir_growth(before, after) == ["backend_1.lock", "bridge/key"]
+    assert Workflow._runtime_dir_entries(tmp_path / "absent") == []
+
+
 def test_archie_pacman_pause_is_exact_and_interactive(tmp_path):
     item = release(tmp_path)
     item.data["artifacts"]["archie_packages"] = {

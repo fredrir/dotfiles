@@ -1086,3 +1086,33 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
 - **Gate 2026-08-23 after the keep-alive and launcher**: 1131/0/1 under `run-isolated.sh`, live
   runtime dir unchanged (33 entries — the reboot gave Macie a fresh runtime dir); shell case
   `dmux-launcher` 4/4.
+
+### Wave 4 — r6 through `dmux-rollout` (2026-08-23)
+
+- **`plan`** → release `20260823-7675b61-b9d8dfae-r6` (dotfiles `7675b61`, fork `b9d8dfae`,
+  Archie route `fredrir@10.77.77.2`, `dmux --host archie`, r5's smoke identity reused:
+  `w6mac-smoke-20260817` / `01a01044…`). **`build`** → `build.mac.wezterm`, `build.mac.dotfiles`
+  green in detached worktrees. **Finding — the tool's suite run bypassed the isolation seams.**
+  `_mac_dmux_test_environment` exported the fork binaries and `CARGO_TARGET_DIR` but neither
+  `DMUX_RUNTIME_DIR` nor the XDG seams, so `cargo test -p dmux` in the release worktree created 16
+  `backend_*/space_*.lock` files in Macie's live runtime dir (29 → 45 entries at 06:12); the Archie
+  stage ran its remote suite the same way. Fixed in the editable tool: `_dmux_suite_seams` (a
+  release-scoped `DMUX_RUNTIME_DIR` directly under the Darwin temp base / `/run/user/1000`, data and
+  state under the release root, sun_path bound), `POLICY_VARS` unset, a live-dir snapshot before and
+  after with a `Refusal` naming any growth (`_runtime_dir_entries`/`_runtime_dir_growth`, remote
+  variant over ssh for Archie), unit-tested (`test_dmux_suite_seams_are_short_absolute_and_release_scoped`,
+  `test_runtime_dir_growth_names_only_new_entries`); tool suite 62/0. r6's `build.mac.dotfiles`
+  checkpoint predates the fix; the artifacts are unaffected (the leak is lock-file litter, the
+  registry was not written: revision 40 and the instance row were unchanged afterwards).
+- **`deploy-mac`** (owner-approved restart) → phase `mac_deployed`, checkpoints
+  `deploy.mac.{preflight,backup,install,service.intent,service}`: `dmux` `97fc7ec5…`,
+  `pane-bootstrap` `2e0167f3…`, `/Applications/WezTerm.app` ad-hoc signed at `b9d8dfae`; mux
+  restarted to pid 23633, epoch `036f91ae…`, registry revisions 41/42 (retire → publish), doctor E,
+  the smoke Space restored under `/bin/zsh -l`, runtime dir 45 → 70 (the restart's own files).
+  Pre-deploy the owner had run `dotfile link` and bootstrapped `com.fredrir.dmux-runtime-keepalive`;
+  its first run exited 3 because the installed `dmux` (`f0f00c50…`, built before the verb) had no
+  `_runtime-keepalive` — the unknown-verb path also opened the registry read-only (file mtime
+  06:10, no revision). With the r6 binary the verb works; the root ran it once by hand while
+  checking (touched `wez-dmux.json`, the lease, `bridge/key`, `bridge/key.boot`).
+- Next: `stage-archie` → owner's `sudo pacman -U` on Archie → `resume` → `verify` → `canary-start
+  --host mac` (needs `deploy.mac.service`, done) — each Archie step on the owner's go.
