@@ -1358,9 +1358,12 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
             ));
         }
         let endpoint = match backend {
-            Backend::Tmux => info
-                .socket_path
-                .ok_or_else(|| unavailable("managed tmux backend has no recorded namespace"))?,
+            Backend::Tmux => info.socket_path.ok_or_else(|| {
+                unavailable(crate::backend::scope::ManagedTarget::unaddressable_detail(
+                    Backend::Tmux,
+                    instance,
+                ))
+            })?,
             Backend::Wez => {
                 let server = registry.backend_server(instance).map_err(typed_registry)?;
                 if server.server_epoch != Some(epoch) {
