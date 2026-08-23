@@ -42,8 +42,7 @@ use crate::operations::{
 };
 use crate::policy::{CreationContext, LocalEnv, RemoteEnv, RouteState};
 use crate::refs::{
-    ChildRefShape, HostToken, ParsedRef, SpaceRefShape, canonical_uri, child_suffix, parse_ref,
-    validate_new_name,
+    ChildRefShape, HostToken, ParsedRef, canonical_uri, child_suffix, parse_ref, validate_new_name,
 };
 use crate::registry::{
     HostLifecycle, HostRow, NetworkClass, Registry, RegistryConfig, RouteRow, Transport,
@@ -60,6 +59,10 @@ use crate::remote::protocol::{
     TmuxClientDetachResult, TmuxClientRefreshPayload, TmuxClientRefreshResult,
     TmuxClientStatusPayload, TmuxClientStatusResult, TmuxClientSwitchPayload,
     TmuxClientSwitchResult, WezNativePaneWitness, WezNativeTreePayload, WezNativeTreeResult,
+};
+use crate::resolve::{
+    HostContext, RefResolution, SpaceCandidate, SpaceSelector, resolve_enrolled_host,
+    resolve_space_ref,
 };
 
 pub const GUI_SCHEMA_VERSION: u64 = 1;
@@ -531,35 +534,65 @@ enum AuthorityLocation {
     Remote,
 }
 
-enum SpaceMatcher {
-    Uid(SpaceUid),
-    Number(SpaceNo),
-    Name(String),
-}
-
-impl SpaceMatcher {
-    fn matches(&self, candidate: &AuthorityMarker) -> bool {
-        self.matches_fields(
-            candidate.marker.space_uid,
-            candidate.marker.space_no,
-            &candidate.logical_name,
-        )
-    }
-
-    fn matches_fields(&self, space_uid: SpaceUid, space_no: SpaceNo, logical_name: &str) -> bool {
-        match self {
-            SpaceMatcher::Uid(uid) => space_uid == *uid,
-            SpaceMatcher::Number(no) => space_no == *no,
-            SpaceMatcher::Name(name) => logical_name == name,
-        }
-    }
-}
-
+/// Whether a live-correlated marker is the Space a locator names.
 fn connect_locator_matches(locator: &OwnerLocator, candidate: &AuthorityMarker) -> bool {
-    match locator {
-        OwnerLocator::Uid(uid) => candidate.marker.space_uid == *uid,
-        OwnerLocator::Number(no) => candidate.marker.space_no == *no,
-        OwnerLocator::Name(name) => candidate.logical_name == *name,
+    locator.matches(
+        candidate.marker.space_uid,
+        candidate.marker.space_no,
+        &candidate.logical_name,
+    )
+}
+
+/// Markers are correlated from active rows only, so as the resolver's
+/// candidate a marker is always `active`.
+impl SpaceCandidate for AuthorityMarker {
+    fn space_uid(&self) -> SpaceUid {
+        self.marker.space_uid
+    }
+
+    fn space_no(&self) -> SpaceNo {
+        self.marker.space_no
+    }
+
+    fn logical_name(&self) -> &str {
+        &self.logical_name
+    }
+
+    fn lifecycle(&self) -> Lifecycle {
+        Lifecycle::Active
+    }
+}
+
+/// One durable active Space as the cold (no provider, no GUI) resolver sees
+/// it: local rows name their backend by instance, which is read only for
+/// the one row the lookup selects; an owner's remote answer carries it.
+struct ColdCandidate {
+    space_uid: SpaceUid,
+    space_no: SpaceNo,
+    logical_name: String,
+    backend: ColdBackend,
+}
+
+enum ColdBackend {
+    Known(Backend),
+    Registered(BackendInstanceUid),
+}
+
+impl SpaceCandidate for ColdCandidate {
+    fn space_uid(&self) -> SpaceUid {
+        self.space_uid
+    }
+
+    fn space_no(&self) -> SpaceNo {
+        self.space_no
+    }
+
+    fn logical_name(&self) -> &str {
+        &self.logical_name
+    }
+
+    fn lifecycle(&self) -> Lifecycle {
+        Lifecycle::Active
     }
 }
 
@@ -2669,46 +2702,23 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
         Ok(rows)
     }
 
-    fn resolve_host_token(
-        &self,
-        token: Option<&HostToken>,
-        default: HostUid,
-    ) -> Result<HostUid, TypedError> {
-        let Some(token) = token else {
-            return Ok(default);
-        };
+    /// The host table's answer for a token a ref embeds: a UID must be
+    /// enrolled (the identity-class refusal this file has always given); an
+    /// alias or label resolves by the production rule.
+    fn resolve_host_token(&self, token: &HostToken) -> Result<HostUid, TypedError> {
         match token {
-            HostToken::Uid(uid) => {
-                self.enrolled_host(*uid)?;
-                Ok(*uid)
-            }
-            HostToken::AliasOrLabel(spelling) => {
-                let matches: Vec<_> = self
-                    .registry()?
-                    .hosts()
-                    .map_err(typed_registry)?
-                    .into_iter()
-                    .filter(|host| {
-                        host.lifecycle == HostLifecycle::Enrolled
-                            && (host.alias.as_deref() == Some(spelling)
-                                || host.label.as_deref() == Some(spelling))
-                    })
-                    .collect();
-                match matches.as_slice() {
-                    [host] => Ok(host.host_uid),
-                    [] => Err(TypedError::new(
-                        ErrorCode::NotFound,
-                        format!("no enrolled host {spelling:?}"),
-                    )),
-                    _ => Err(TypedError::new(
-                        ErrorCode::AmbiguousTarget,
-                        format!("host spelling {spelling:?} is ambiguous"),
-                    )),
-                }
+            HostToken::Uid(uid) => self.enrolled_host(*uid).map(|host| host.host_uid),
+            HostToken::AliasOrLabel(_) => {
+                let hosts = self.registry()?.hosts().map_err(typed_registry)?;
+                resolve_enrolled_host(&hosts, token)
             }
         }
     }
 
+    /// Resolve a Space ref to its live-correlated owner marker. Scoping and
+    /// lookup are the resolver's (`resolve::resolve_space_ref`, ADR 012
+    /// WS-D.3); `default_host` is the owner a bare ref means here — the
+    /// bound GUI's authority, not `--host`.
     fn resolve_space(
         &self,
         reference: &str,
@@ -2726,38 +2736,38 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 "present --space requires a Space ref without a child suffix",
             ));
         }
-        let (host_uid, matcher) = match parsed.space {
-            SpaceRefShape::Canonical { host, space } => (host, SpaceMatcher::Uid(space)),
-            SpaceRefShape::Numbered { host, no } => {
-                let owner = self.resolve_host_token(host.as_ref(), default_host)?;
-                (owner, SpaceMatcher::Number(no))
-            }
-            SpaceRefShape::Named { host, name } => {
-                let owner = self.resolve_host_token(host.as_ref(), default_host)?;
-                (owner, SpaceMatcher::Name(name))
-            }
-        };
-        let host = self.enrolled_host(host_uid)?;
         let identity = self.registry()?.identity().map_err(typed_registry)?;
-        let owner_spaces = if host_uid == identity.host_uid {
-            self.local_space_markers()?
-        } else {
-            // An explicit host-qualified lookup must surface that owner's
-            // route/authority failure. It must not be converted to a false
-            // local-looking NotFound by the best-effort all-host picker.
-            self.remote_space_markers(&host)?
-        };
-        let mut candidates: Vec<_> = owner_spaces
-            .into_iter()
-            .filter(|candidate| candidate.marker.host_uid == host_uid && matcher.matches(candidate))
-            .collect();
-        match candidates.len() {
-            0 => Err(TypedError::new(
+        let (_, resolution) = resolve_space_ref(
+            SpaceSelector::Shape(&parsed.space),
+            HostContext {
+                local: default_host,
+                explicit: None,
+            },
+            |token| self.resolve_host_token(token),
+            |owner| {
+                let host = self.enrolled_host(owner)?;
+                let markers = if owner == identity.host_uid {
+                    self.local_space_markers()?
+                } else {
+                    // An explicit host-qualified lookup must surface that
+                    // owner's route/authority failure. It must not be
+                    // converted to a false local-looking NotFound by the
+                    // best-effort all-host picker.
+                    self.remote_space_markers(&host)?
+                };
+                Ok(markers
+                    .into_iter()
+                    .filter(|candidate| candidate.marker.host_uid == owner)
+                    .collect())
+            },
+        )?;
+        match resolution {
+            RefResolution::Space(marker) => Ok(marker),
+            RefResolution::NotFound | RefResolution::Deleted(_) => Err(TypedError::new(
                 ErrorCode::NotFound,
                 format!("no live Space matches {reference:?}"),
             )),
-            1 => Ok(candidates.remove(0)),
-            _ => Err(TypedError::new(
+            RefResolution::AmbiguousName(_) => Err(TypedError::new(
                 ErrorCode::AmbiguousTarget,
                 format!("Space ref {reference:?} matches more than one backend"),
             )),
@@ -2785,74 +2795,77 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 "--launch-gui requires a Space ref without a child suffix",
             ));
         }
-        let (host_uid, matcher) = match parsed.space {
-            SpaceRefShape::Canonical { host, space } => (host, SpaceMatcher::Uid(space)),
-            SpaceRefShape::Numbered { host, no } => (
-                self.resolve_host_token(host.as_ref(), default_host)?,
-                SpaceMatcher::Number(no),
-            ),
-            SpaceRefShape::Named { host, name } => (
-                self.resolve_host_token(host.as_ref(), default_host)?,
-                SpaceMatcher::Name(name),
-            ),
-        };
-        self.enrolled_host(host_uid)?;
-
         let registry = self.registry()?;
         let identity = registry.identity().map_err(typed_registry)?;
-        let mut candidates = Vec::new();
-        if host_uid == identity.host_uid {
-            for row in registry
-                .spaces()
-                .map_err(typed_registry)?
-                .into_iter()
-                .filter(|row| row.lifecycle == Lifecycle::Active)
-            {
-                if !matcher.matches_fields(row.space_uid, row.space_no, &row.logical_name) {
-                    continue;
+        let (scoped, resolution) = resolve_space_ref(
+            SpaceSelector::Shape(&parsed.space),
+            HostContext {
+                local: default_host,
+                explicit: None,
+            },
+            |token| self.resolve_host_token(token),
+            |owner| {
+                self.enrolled_host(owner)?;
+                if owner == identity.host_uid {
+                    Ok(registry
+                        .spaces()
+                        .map_err(typed_registry)?
+                        .into_iter()
+                        .filter(|row| row.lifecycle == Lifecycle::Active)
+                        .map(|row| ColdCandidate {
+                            space_uid: row.space_uid,
+                            space_no: row.space_no,
+                            logical_name: row.logical_name,
+                            backend: ColdBackend::Registered(row.backend_instance),
+                        })
+                        .collect())
+                } else {
+                    // `spaces` is an owner read through identity/lineage-
+                    // validated routing. It performs no local service or GUI
+                    // mutation.
+                    self.remote_spaces(owner)?
+                        .spaces
+                        .into_iter()
+                        .filter(|space| space.lifecycle == Lifecycle::Active)
+                        .map(|space| {
+                            let space_no = std::num::NonZeroU64::new(space.space_no)
+                                .map(SpaceNo)
+                                .ok_or_else(|| {
+                                TypedError::new(
+                                    ErrorCode::ProtocolMismatch,
+                                    "owner returned SpaceNo zero during cold target preflight",
+                                )
+                            })?;
+                            Ok(ColdCandidate {
+                                space_uid: space.space_uid,
+                                space_no,
+                                logical_name: space.name,
+                                backend: ColdBackend::Known(space.backend),
+                            })
+                        })
+                        .collect()
                 }
-                let backend = registry
-                    .backend_instance_info(row.backend_instance)
-                    .map_err(typed_registry)?
-                    .backend;
-                candidates.push(ColdSpaceIdentity {
-                    host_uid,
-                    space_uid: row.space_uid,
-                    backend,
-                });
-            }
-        } else {
-            // `spaces` is an owner read through identity/lineage-validated
-            // routing. It performs no local service or GUI mutation.
-            let spaces = self.remote_spaces(host_uid)?;
-            for space in spaces
-                .spaces
-                .into_iter()
-                .filter(|space| space.lifecycle == Lifecycle::Active)
-            {
-                let Some(space_no) = std::num::NonZeroU64::new(space.space_no).map(SpaceNo) else {
-                    return Err(TypedError::new(
-                        ErrorCode::ProtocolMismatch,
-                        "owner returned SpaceNo zero during cold target preflight",
-                    ));
-                };
-                if matcher.matches_fields(space.space_uid, space_no, &space.name) {
-                    candidates.push(ColdSpaceIdentity {
-                        host_uid,
-                        space_uid: space.space_uid,
-                        backend: space.backend,
-                    });
-                }
-            }
-        }
-
-        match candidates.as_slice() {
-            [target] => Ok(*target),
-            [] => Err(TypedError::new(
+            },
+        )?;
+        match resolution {
+            RefResolution::Space(candidate) => Ok(ColdSpaceIdentity {
+                host_uid: scoped.owner,
+                space_uid: candidate.space_uid,
+                backend: match candidate.backend {
+                    ColdBackend::Known(backend) => backend,
+                    ColdBackend::Registered(instance) => {
+                        registry
+                            .backend_instance_info(instance)
+                            .map_err(typed_registry)?
+                            .backend
+                    }
+                },
+            }),
+            RefResolution::NotFound | RefResolution::Deleted(_) => Err(TypedError::new(
                 ErrorCode::NotFound,
                 format!("no durable active Space matches {reference:?}"),
             )),
-            _ => Err(TypedError::new(
+            RefResolution::AmbiguousName(_) => Err(TypedError::new(
                 ErrorCode::AmbiguousTarget,
                 format!("Space ref {reference:?} matches more than one backend"),
             )),
@@ -2895,12 +2908,10 @@ impl<I: RouteInvoker> ProductionGuiAuthority<I> {
                 let info = registry
                     .backend_instance_info(row.backend_instance)
                     .map_err(typed_registry)?;
-                let locator_match = match &query.locator {
-                    OwnerLocator::Uid(uid) => row.space_uid == *uid,
-                    OwnerLocator::Number(no) => row.space_no == *no,
-                    OwnerLocator::Name(name) => row.logical_name == *name,
-                };
-                if locator_match {
+                if query
+                    .locator
+                    .matches(row.space_uid, row.space_no, &row.logical_name)
+                {
                     rows.push((row.lifecycle, info.backend));
                 }
             }
