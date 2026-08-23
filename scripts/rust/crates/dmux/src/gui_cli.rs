@@ -1173,6 +1173,47 @@ pub struct BoundGuiOrigin {
     authority: AuthorityMarker,
 }
 
+impl BoundGuiOrigin {
+    /// Test seam (acceptance case 29, ADR 012 §10 R): a bound origin whose
+    /// authority is a REMOTE owner's Wez Space, as `bind_origin` would build
+    /// it after `validate_remote_marker` proved the marker over a route —
+    /// minus that proof, which needs a live owner hello. Everything the
+    /// create path reads from the authority is supplied verbatim; the
+    /// location is fixed to `Remote` so the test cannot bind a local arm by
+    /// accident. Never called by production: the only production
+    /// constructor is `bind_origin`.
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn remote_wez_for_test(
+        origin: GuiCliOrigin,
+        selection: BridgeSelection,
+        heartbeat: BridgeHeartbeat,
+        backend_instance: BackendInstanceUid,
+        logical_name: String,
+        hierarchy: SpaceHierarchy,
+        owner_alias: String,
+        owner_label: String,
+        route: String,
+    ) -> BoundGuiOrigin {
+        BoundGuiOrigin {
+            authority: AuthorityMarker {
+                marker: origin.marker.clone(),
+                backend_instance,
+                logical_name,
+                health: Health::Healthy,
+                hierarchy,
+                owner_alias,
+                owner_label,
+                route,
+                location: AuthorityLocation::Remote,
+            },
+            origin,
+            selection,
+            heartbeat,
+        }
+    }
+}
+
 /// Production dependencies are explicit so tests can substitute scratch
 /// registry/runtime/state directories and a fake route invoker.
 pub struct ProductionGuiAuthority<I = SshInvoker> {
