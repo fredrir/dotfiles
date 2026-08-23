@@ -893,3 +893,8 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   changed here: `repair reconcile` and `repair normalize` advertise `[--host H]` in §7.1 yet
   `repair_cmd` passes no host to either — the flag is dropped, not refused; their refs can still
   carry a host token, which `resolve_space_ref` handles.
+- **Gate 2026-08-23 at `9ca8336`** (after the reader test, the `retire-incarnation --host` refusal and
+  the handed-back docs): 1121/0/1 under `run-isolated.sh`, live runtime dir unchanged (42 entries
+  before and after). Release binaries for wave 4 are built from this tree's predecessor `349b1c9`
+  (`target/release/dmux` `613763aa…`, `pane-bootstrap` `24e6e6ab…`); the only code change since is
+  the owner-local refusal on `retire-incarnation`, so they are rebuilt at wave-4 time before install.
