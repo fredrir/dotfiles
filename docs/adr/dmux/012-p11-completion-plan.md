@@ -1147,3 +1147,11 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   — a Mac rebuild and one more owner-approved `deploy-mac` restart, then `stage-archie` again.
   Archie full suite at `ccc12c8` (seamed, `--no-fail-fast`, scratch worktree): **1132/0/1**, live
   runtime dir unchanged (5 → 5). r7 is planned at the commit that records this.
+- **r7 = `20260823-5b1f355-b9d8dfae-r7`** (same fork, same smoke identity). `build` → Mac suite
+  under the tool's new seams 1175/0/1 (dmux plus the fork gates), live runtime dir 70 → 70.
+  `deploy-mac` (the owner's standing approval for the restart) → `mac_deployed`: `dmux`
+  `97fc7ec5…` and `pane-bootstrap` `2e0167f3…` — byte-identical to r6's artifacts, since only
+  tests changed between the two frozen commits — mux pid 17890, epoch `e583de0b…`, registry
+  revisions 43/44 (retire → publish), doctor E, smoke Space restored under zsh. r6 stays in the
+  journal at `mac_deployed` with its failed `stage-archie` as the record of the harness defects.
+  `stage-archie` for r7 started.
