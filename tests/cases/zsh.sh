@@ -130,8 +130,7 @@ test_agent_shell_loads_the_machine_layer_only() {
   local loaded
   loaded="$(load_zshrc AGENT_SHELL=1)" || fail "sourcing .zshrc failed"
 
-  [ "$loaded" = '10-env
-11-env.macos
+  [ "$loaded" = '11-env.macos
 15-history
 21-paths.macos
 local-bin-env' ] || fail "agent shell loaded the wrong layer:
@@ -144,7 +143,7 @@ test_agent_shell_skips_aliases_hooks_and_plugins() {
   local loaded name
   loaded="$(load_zshrc AGENT_SHELL=1)" || fail "sourcing .zshrc failed"
 
-  for name in 03-theme 05-ohmyzsh 40-aliases 42-agents 55-completions \
+  for name in 03-theme 05-ohmyzsh 10-env 40-aliases 42-agents 55-completions \
     87-starship 88-direnv 90-utils 95-hooks; do
     case "$loaded" in
       *"$name"*) fail "$name leaked into an agent shell" ;;
@@ -189,18 +188,31 @@ setup_agent_commands() {
   export TRACE
 
   local name
-  for name in claude codex opencode; do
+  AGENT_ENV_TRACE="$SANDBOX/agent-env-trace"
+  export AGENT_ENV_TRACE
+
+  for name in claude codex opencode pi; do
     printf '%s\n' \
       '#!/bin/sh' \
       "printf '%s %s %s\\n' $name \"\${AGENT_SHELL:-unset}\" \"\$*\" >> \"\$TRACE\"" \
+      'printf "%s\n" \
+        "PAGER=${PAGER-unset}" \
+        "MANPAGER=${MANPAGER-unset}" \
+        "LESS=${LESS-unset}" \
+        "MANWIDTH=${MANWIDTH-unset}" \
+        "EDITOR=${EDITOR-unset}" \
+        "VISUAL=${VISUAL-unset}" \
+        "GIT_PAGER=${GIT_PAGER-unset}" \
+        "GIT_EDITOR=${GIT_EDITOR-unset}" \
+        "KEEP_ME=${KEEP_ME-unset}" > "$AGENT_ENV_TRACE"' \
       > "$COMMANDS/$name"
     chmod +x "$COMMANDS/$name"
   done
 }
 
 run_agent_wrapper() {
-  PATH="$COMMANDS:$PATH" "$ZSH_BIN" -f -c \
-    "source '$SOURCE_ROOT/shared/zsh/conf.d/42-agents.zsh'; $1"
+  env -u AGENT_SHELL -u CLAUDECODE -u AI_AGENT PATH="$COMMANDS:$PATH" \
+    "$ZSH_BIN" -f -c "source '$SOURCE_ROOT/shared/zsh/conf.d/42-agents.zsh'; $1"
 }
 
 test_agent_wrappers_mark_the_command_and_keep_their_flags() {
@@ -209,10 +221,33 @@ test_agent_wrappers_mark_the_command_and_keep_their_flags() {
   run_agent_wrapper 'claude -p hello' || fail "claude wrapper failed"
   run_agent_wrapper 'codex exec build' || fail "codex wrapper failed"
   run_agent_wrapper 'opencode run' || fail "opencode wrapper failed"
+  run_agent_wrapper 'pi run' || fail "pi wrapper failed"
 
   assert_file_is "$TRACE" 'claude 1 --dangerously-skip-permissions -p hello
 codex 1 --yolo exec build
-opencode 1 run'
+opencode 1 run
+pi 1 run'
+}
+
+test_agent_wrappers_remove_interactive_environment_only() {
+  setup_agent_commands
+
+  (
+    export PAGER=less MANPAGER='nvim +Man!' LESS=-R MANWIDTH=999
+    export EDITOR=nvim VISUAL=nvim GIT_PAGER=delta GIT_EDITOR=nvim
+    export KEEP_ME=preserved
+    run_agent_wrapper 'codex exec build'
+  ) || fail "codex wrapper failed"
+
+  assert_file_is "$AGENT_ENV_TRACE" 'PAGER=unset
+MANPAGER=unset
+LESS=unset
+MANWIDTH=unset
+EDITOR=unset
+VISUAL=unset
+GIT_PAGER=unset
+GIT_EDITOR=unset
+KEEP_ME=preserved'
 }
 
 test_agent_wrappers_do_not_mark_the_shell_they_were_run_from() {
