@@ -645,6 +645,7 @@ fn main() -> ExitCode {
                 | Some(Cmd::Rename { .. })
                 | Some(Cmd::Adopt { .. })
                 | Some(Cmd::Migrate { .. })
+                | Some(Cmd::Repair { .. })
                 | Some(Cmd::Other(_))
         );
     let legacy_host = match cli.host.as_deref().map(legacy_host) {
@@ -951,7 +952,7 @@ fn main() -> ExitCode {
         Some(Cmd::Group { cmd }) => Ok(space_cli::group(cmd, cli.format)),
         Some(Cmd::Split { cmd }) => Ok(space_cli::split(cmd, cli.format)),
         Some(Cmd::Context { cmd }) => Ok(space_cli::context(cmd, cli.format)),
-        Some(Cmd::Repair { cmd }) => Ok(space_cli::repair(cmd, cli.format)),
+        Some(Cmd::Repair { cmd }) => Ok(space_cli::repair_for(cli.host.clone(), cmd, cli.format)),
         Some(Cmd::Ssh { target }) => {
             let code = dmux::remote::enroll::run(&target);
             Ok(ExitCode::from(u8::try_from(code).unwrap_or(1)))

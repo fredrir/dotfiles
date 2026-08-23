@@ -1437,3 +1437,31 @@ fn a_crashed_wez_rebind_is_settled_by_source_and_destination_under_the_epoch() {
         assert!(mux.cas_calls().is_empty(), "{expect}: {:?}", mux.commands());
     }
 }
+
+/// `--host` reaches the handler: an enrolled peer named on the global flag
+/// is the same owner-local refusal as a host in the ref (ADR 011 D7), and
+/// nothing is touched locally.
+#[test]
+fn a_remote_host_flag_is_refused_as_protocol_mismatch_too() {
+    let home = Home::new();
+    home.registry()
+        .enroll_host(dmux::model::HostUid(Uuid::new_v4()), Some("archie"))
+        .unwrap();
+    let before = home.revision();
+    let out = home.json(&[
+        "--host",
+        "archie",
+        "repair",
+        "rebind",
+        "1",
+        &native_ref(Backend::Tmux, "$1"),
+    ]);
+    assert_eq!(out.status.code(), Some(6), "{}", stderr(&out));
+    let doc = document(&out);
+    assert_eq!(doc["errors"][0]["code"], "protocol_mismatch", "{doc}");
+    assert_eq!(
+        home.revision(),
+        before,
+        "a refused remote rebind writes nothing"
+    );
+}

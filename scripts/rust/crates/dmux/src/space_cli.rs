@@ -248,10 +248,6 @@ impl From<RetireBackend> for Backend {
     }
 }
 
-pub fn repair(cmd: RepairCmd, format: Option<OutputFormat>) -> ExitCode {
-    repair_for(None, cmd, format)
-}
-
 /// [`repair`] with the global `-H/--host` the binary parsed. Every repair
 /// verb is owner-local; `rebind` answers a non-local host with a typed
 /// `protocol_mismatch` the way `adopt` does (ADR 011 D7) instead of quietly
@@ -1019,7 +1015,9 @@ impl ReconcileNative {
     fn lend(&self) -> operations::ReconcileBackend<'_> {
         match self {
             ReconcileNative::Tmux(provider, scope) => {
-                operations::ReconcileBackend::scan_only(provider, scope)
+                // The marker reader is what settles a crashed tmux rebind by
+                // the `@dmux_*` stamps on the named session (WS-D.2).
+                operations::ReconcileBackend::scan_only(provider, scope).with_markers(provider)
             }
             ReconcileNative::Wez(provider, scope) => {
                 operations::ReconcileBackend::restorable(provider, scope, provider)
