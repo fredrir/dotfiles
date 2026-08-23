@@ -210,6 +210,26 @@ pub enum RepairCmd {
         #[arg(long, hide = true)]
         lock_dir: Option<String>,
     },
+
+    /// Bind an absent managed Space to one exact unmanaged native resource
+    /// (plan §10.3): the operator's assertion that the resource IS the
+    /// Space — after native-key tampering, or for the orphan `repair
+    /// reconcile` refuses to bind. Same locks and atomic primitive as
+    /// `adopt`; the old binding is severed; the Space finishes `unstamped`
+    /// until every pane runs `dmux context stamp`. Expert, confirmed,
+    /// owner-local.
+    Rebind {
+        /// The Space to rebind: name, number, or canonical URI
+        space: String,
+
+        /// The resource's native ref exactly as `dmux ls` prints it
+        /// (`native:<backend>:<token>`); never a backend command string
+        native_ref: String,
+
+        /// Apply without asking
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 /// The backend named on `repair retire-incarnation`.
@@ -229,8 +249,16 @@ impl From<RetireBackend> for Backend {
 }
 
 pub fn repair(cmd: RepairCmd, format: Option<OutputFormat>) -> ExitCode {
+    repair_for(None, cmd, format)
+}
+
+/// [`repair`] with the global `-H/--host` the binary parsed. Every repair
+/// verb is owner-local; `rebind` answers a non-local host with a typed
+/// `protocol_mismatch` the way `adopt` does (ADR 011 D7) instead of quietly
+/// acting on the local authority.
+pub fn repair_for(host: Option<String>, cmd: RepairCmd, format: Option<OutputFormat>) -> ExitCode {
     let action = repair_action(&cmd);
-    match repair_cmd(cmd, format) {
+    match repair_cmd(host, cmd, format) {
         Ok(code) => code,
         Err(error) => refuse(action, format, &error, None),
     }
@@ -241,10 +269,15 @@ fn repair_action(cmd: &RepairCmd) -> &'static str {
         RepairCmd::Normalize { .. } => "repair_normalize",
         RepairCmd::Reconcile { .. } => "repair_reconcile",
         RepairCmd::RetireIncarnation { .. } => "repair_retire_incarnation",
+        RepairCmd::Rebind { .. } => "repair_rebind",
     }
 }
 
-fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, TypedError> {
+fn repair_cmd(
+    host: Option<String>,
+    cmd: RepairCmd,
+    format: Option<OutputFormat>,
+) -> Result<ExitCode, TypedError> {
     const ACTION: &str = "repair_normalize";
     match cmd {
         RepairCmd::Reconcile {
@@ -253,6 +286,11 @@ fn repair_cmd(cmd: RepairCmd, format: Option<OutputFormat>) -> Result<ExitCode, 
             data_dir,
             lock_dir,
         } => reconcile_cmd(spaces, yes, data_dir, lock_dir, format),
+        RepairCmd::Rebind {
+            space,
+            native_ref,
+            yes,
+        } => rebind_cmd(space, native_ref, yes, host, format),
         RepairCmd::RetireIncarnation {
             backend,
             epoch,
@@ -521,6 +559,244 @@ fn retire_incarnation_cmd(
         }
         Err(error) => Ok(refuse(ACTION, format, &typed_op(&error), Some(&env))),
     }
+}
+
+/// `dmux repair rebind SPACE_REF NATIVE_REF` (plan §7.1, §10.3; ADR 012
+/// WS-D.1; ADR 011 D8's named remedy). Cheap typed refusals first — the
+/// native ref decoded and nothing else, a child ref, a remote host, an
+/// unresolvable Space, a backend mismatch — then §7.4's confirmation, then
+/// one fenced operation (`operations::rebind_tmux`/`rebind_wez`) that owns
+/// the locks, the scan and the atomic primitive. The receipt reports the
+/// durable row: both identities, the severed token, and the `unstamped`
+/// health the Space will keep until every pane runs `dmux context stamp`.
+///
+/// No `--data-dir`/`--lock-dir` seams: the Space is resolved through the
+/// file's resolver, which reads the production registry (under
+/// `XDG_DATA_HOME`/`DMUX_RUNTIME_DIR`), the way `context stamp` is.
+fn rebind_cmd(
+    space_ref: String,
+    native_ref: String,
+    yes: bool,
+    host: Option<String>,
+    format: Option<OutputFormat>,
+) -> Result<ExitCode, TypedError> {
+    const ACTION: &str = "repair_rebind";
+    // Decode before anything else: a token that is not an exact native ref
+    // reaches neither the registry nor a provider (plan §7.4).
+    let (backend, native_token) = output::parse_native_ref(&native_ref)?;
+    let parsed: ParsedRef = parse_ref(&space_ref).map_err(|e| {
+        TypedError::new(
+            ErrorCode::InvalidRef,
+            format!("invalid ref {space_ref:?}: {e:?}"),
+        )
+    })?;
+    if parsed.child.is_some() {
+        return Err(TypedError::new(
+            ErrorCode::Usage,
+            "repair rebind takes a Space ref; a Group/Split ref names a live child, which \
+             cannot be rebound",
+        ));
+    }
+    let env = OperationEnv::production().map_err(runtime_error)?;
+    refuse_remote_rebind(&env, host.as_deref(), &parsed.space)?;
+    let (target, _) = resolve(&space_ref)?;
+    if target.scope.backend != backend {
+        let mut error = TypedError::new(
+            ErrorCode::BackendMismatch,
+            format!(
+                "Space {:?} is a {} Space; {native_ref} names a {backend} resource, which cannot \
+                 become its binding",
+                target.logical_name, target.scope.backend
+            ),
+        );
+        error.target = Some(native_ref);
+        return Err(error);
+    }
+    if let Err(code) = confirm(
+        ACTION,
+        format,
+        &format!("{space_ref} -> {native_ref}"),
+        &format!(
+            "bind Space {:?} to {native_ref}? Its current binding is severed and every pane \
+             must acknowledge again (`dmux context stamp`).",
+            target.logical_name
+        ),
+        yes,
+        Some(&env),
+    ) {
+        return Ok(code);
+    }
+
+    let request_uid = Uuid::new_v4();
+    let outcome = match backend {
+        Backend::Tmux => operations::rebind_tmux(
+            &target.env,
+            &dmux::backend::tmux::TmuxProvider::new(target.scope.endpoint.clone()),
+            &target.scope,
+            target.space_uid,
+            &native_token,
+            request_uid,
+        ),
+        Backend::Wez => {
+            let (bin, config) = production_wez_paths();
+            operations::rebind_wez(
+                &target.env,
+                &dmux::backend::wez::WezProvider::new(&bin, config),
+                &target.scope,
+                target.space_uid,
+                &native_token,
+                request_uid,
+            )
+        }
+    };
+    let rebound = match outcome {
+        Ok(rebound) => rebound,
+        Err(error) => {
+            return Ok(refuse(
+                ACTION,
+                format,
+                &typed_rebind(&error, &native_ref),
+                Some(&target.env),
+            ));
+        }
+    };
+    // Report the durable row, not the operation's return value: the
+    // receipt's `active/unstamped` claim has to be what the registry holds.
+    let row = Registry::open(RegistryConfig::new(
+        &target.env.db_path,
+        &target.env.lock_dir,
+    ))
+    .and_then(|registry| registry.space(rebound.space_uid))
+    .map_err(typed_registry)?;
+    let compact_ref = row.space_no.get().to_string();
+    let uri = dmux::refs::canonical_uri(row.owner, row.space_uid);
+    let stamp_hint = format!("dmux context stamp {compact_ref}");
+    if format == Some(OutputFormat::Json) {
+        emit_document(
+            ACTION,
+            json!({
+                "uri": uri,
+                "portable_ref": format!("{}:{}", row.owner.0, row.space_no),
+                "compact_ref": compact_ref,
+                "space_uid": row.space_uid.0.to_string(),
+                "space_no": row.space_no.get(),
+                "name": row.logical_name,
+                "backend": rebound.backend.as_str(),
+                "native_ref": native_ref,
+                "native_token": rebound.native_token,
+                "severed_native_token": rebound.severed_native_token,
+                "server_epoch": rebound.server_epoch.0.to_string(),
+                "lifecycle": row.lifecycle,
+                "health": row.health,
+                "pending_stamp_command": stamp_hint,
+            }),
+            authority_revision(&target.env),
+        );
+    } else {
+        println!(
+            "rebound {compact_ref} {:?} ({}) as {uri}: {} -> {native_ref}\n{}: every pane that \
+             predates the rebind must run `{stamp_hint}`",
+            row.logical_name,
+            rebound.backend,
+            rebound.severed_native_token,
+            serde_json::to_value(row.health)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_string))
+                .unwrap_or_else(|| "unknown".into()),
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Rebind is owner-local (plan §2.6, §10.3) and the agent protocol carries
+/// no REBIND method, so a Space on another host — named by `--host` or by a
+/// host inside the ref — is refused typed, the answer `adopt` gives `--host`
+/// (ADR 011 D7), before anything is resolved or locked. A registry that does
+/// not exist yet is left alone: there is nothing local to compare against,
+/// and a refusal must not allocate this host's identity.
+fn refuse_remote_rebind(
+    env: &OperationEnv,
+    host: Option<&str>,
+    shape: &SpaceRefShape,
+) -> Result<(), TypedError> {
+    let remote = |spelling: &str| {
+        TypedError::new(
+            ErrorCode::ProtocolMismatch,
+            format!(
+                "rebind is owner-local (plan §10.3) and the agent protocol carries no REBIND \
+                 method, so a Space on host {spelling} cannot be rebound from here; run \
+                 `dmux repair rebind` on that host"
+            ),
+        )
+    };
+    enum Named<'a> {
+        Uid(dmux::model::HostUid),
+        Spelling(&'a str),
+    }
+    let named = match (host, shape) {
+        (Some(host), _) => Named::Spelling(host),
+        (None, SpaceRefShape::Canonical { host, .. }) => Named::Uid(*host),
+        (
+            None,
+            SpaceRefShape::Numbered {
+                host: Some(token), ..
+            }
+            | SpaceRefShape::Named {
+                host: Some(token), ..
+            },
+        ) => match token {
+            dmux::refs::HostToken::Uid(uid) => Named::Uid(*uid),
+            dmux::refs::HostToken::AliasOrLabel(spelling) => Named::Spelling(spelling),
+        },
+        (None, _) => return Ok(()),
+    };
+    if !env.db_path.exists() {
+        return Ok(());
+    }
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(typed_registry)?;
+    let local = registry.identity().map_err(typed_registry)?.host_uid;
+    let (uid, spelling) = match named {
+        Named::Uid(uid) => (uid, uid.0.to_string()),
+        Named::Spelling(spelling) => (
+            dmux::remote::hosts::resolve_host(&registry, spelling)?.host_uid,
+            spelling.to_string(),
+        ),
+    };
+    if uid == local {
+        return Ok(());
+    }
+    Err(remote(&spelling))
+}
+
+/// The operation's errors as the plan's typed codes, the partition
+/// `adopt` answers with: a server without the fork CAS verb is a build
+/// incompatibility, a multi-window resource is repairable, a resource that
+/// belongs to someone — or a Space that is not absent — is an identity
+/// conflict. Everything else is the file's shared mapping.
+fn typed_rebind(error: &OpError, native_ref: &str) -> TypedError {
+    let mut typed = match error {
+        OpError::Provider(detail) if detail.contains("cas_capability_missing") => TypedError::new(
+            ErrorCode::VersionMismatch,
+            format!(
+                "the managed WezTerm server lacks the fork CAS rename verb (ADR 006), so this \
+                 workspace stays unmanaged (plan §2.7): {detail}"
+            ),
+        ),
+        OpError::Provider(detail) if detail.contains("spans multiple windows") => TypedError::new(
+            ErrorCode::RepairRequired,
+            format!("run `dmux repair normalize {native_ref}` first: {detail}"),
+        ),
+        OpError::NameConflict(detail)
+            if detail.starts_with(operations::ADOPT_IDENTITY_CONFLICT)
+                || detail.starts_with(operations::ADOPT_MARKER_CONFLICT) =>
+        {
+            TypedError::new(ErrorCode::IdentityConflict, detail.clone())
+        }
+        other => typed_op(other),
+    };
+    typed.target = Some(native_ref.to_string());
+    typed
 }
 
 fn reconcile_cmd(

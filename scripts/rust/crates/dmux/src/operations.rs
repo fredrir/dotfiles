@@ -1929,6 +1929,339 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
 }
 
 // ---------------------------------------------------------------------------
+// Expert rebind (plan §10.3; ADR 012 WS-D.1). `dmux repair rebind SPACE_REF
+// NATIVE_REF` is the operator's confirmed assertion that one exact unmanaged
+// native resource IS a previously managed Space whose binding no longer
+// answers — after native-key tampering, or for the orphan `repair reconcile`
+// refuses to bind (ADR 011 D8). Same locks and same primitive as adoption
+// (tmux: the session-id binding plus the `@dmux_*` stamp; Wez: the fork CAS
+// rename to the Space's own opaque key, ADR 006). The old binding is severed,
+// the journal row carries source and destination before any native step,
+// and the Space finishes `active + unstamped` until every pane acknowledges.
+// Nothing here infers from pane similarity: the resource is named, found in
+// a complete scan pinned to the published incarnation, and either bound
+// exactly or refused typed with zero mutation.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReboundSpace {
+    pub space_uid: SpaceUid,
+    pub space_no: SpaceNo,
+    pub name: String,
+    pub backend: Backend,
+    /// The binding the rebind severed: the token that no longer answered.
+    pub severed_native_token: String,
+    /// The new current binding's token — Wez: the Space's opaque key the
+    /// source workspace now wears; tmux: the session id.
+    pub native_token: String,
+    pub server_epoch: ServerEpoch,
+}
+
+/// What a rebind settled under its fence before journaling anything: the
+/// registry handle (locks held for its lifetime), the Space and the binding
+/// to sever, the pinned epoch, and the scanned target resource.
+struct RebindFence {
+    registry: Registry,
+    identity: crate::registry::RegistryIdentity,
+    space: crate::registry::SpaceRow,
+    severed: crate::registry::BindingRow,
+    epoch: ServerEpoch,
+    target: NativeSpaceRow,
+    _locks: OrderedLocks,
+}
+
+/// The fenced preamble both backends share. In order: the Space must be
+/// `active` on an instance of the scope's backend; the §10.1 locks in rank
+/// order (gate shared, the decision lock for the Space's name, the backend
+/// instance and the Space exclusive); no unfinished recovery; the published
+/// incarnation verified against the live server and one complete scan under
+/// the pin. Then the two facts the verb exists to assert: the Space's
+/// current binding is ABSENT from that scan (a binding that still answers is
+/// not a rebind case — `identity_conflict`, the remedy is rename/remove),
+/// and the named resource is present and bound to nobody.
+fn rebind_prepare(
+    env: &OperationEnv,
+    provider: &dyn Provider,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    native_token: &str,
+) -> Result<RebindFence, OpError> {
+    let registry =
+        Registry::open(RegistryConfig::new(&env.db_path, &env.lock_dir)).map_err(reg_err)?;
+    let identity = registry.identity().map_err(reg_err)?;
+    let space = registry.space(space_uid).map_err(reg_err)?;
+    if space.lifecycle != Lifecycle::Active {
+        return Err(OpError::NotFound(format!(
+            "space {} is {:?}, not active; rebind asserts identity over a previously managed \
+             Space only",
+            space_uid.0, space.lifecycle
+        )));
+    }
+    let instance = space.backend_instance;
+    let info = registry.backend_instance_info(instance).map_err(reg_err)?;
+    if info.backend != scope.backend {
+        return Err(OpError::Refused(format!(
+            "Space {} ({:?}) is a {} Space; a {} resource cannot become its binding",
+            space.space_no, space.logical_name, info.backend, scope.backend
+        )));
+    }
+    if info.socket_path.as_deref() != Some(scope.endpoint.as_str()) {
+        return Err(OpError::Refused(format!(
+            "scope endpoint {:?} is not the recorded endpoint {:?} of backend instance {}",
+            scope.endpoint, info.socket_path, instance.0
+        )));
+    }
+
+    let mut locks = OrderedLocks::new(&env.lock_dir);
+    locks
+        .acquire(LockScope::AuthorityGate, LockMode::Shared)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    locks
+        .acquire_decisions(
+            identity.host_uid,
+            &[space.logical_name.as_str()],
+            LockMode::Exclusive,
+        )
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    locks
+        .acquire(LockScope::BackendInstance(instance), LockMode::Exclusive)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    locks
+        .acquire(LockScope::Space(space_uid), LockMode::Exclusive)
+        .map_err(|e| OpError::Lock(e.to_string()))?;
+    require_no_unfinished_recovery(&registry, instance)?;
+
+    let published = verify_published_incarnation(&registry, instance, scope)?;
+    let inventory = match provider.inventory(scope) {
+        InventoryOutcome::Complete(inventory) => inventory,
+        other => {
+            return Err(OpError::Indeterminate(format!(
+                "{} scan: {other:?}",
+                scope.backend
+            )));
+        }
+    };
+    let live_epoch = inventory
+        .server_epoch
+        .ok_or_else(|| OpError::Indeterminate("rebind requires an epoched server".into()))?;
+    let epoch = require_pinned_epoch(scope, live_epoch)?;
+    require_published_epoch(&published, epoch)?;
+
+    let severed = registry
+        .current_binding(space_uid)
+        .map_err(reg_err)?
+        .ok_or_else(|| {
+            OpError::NotFound(format!(
+                "space {} has no current binding to sever",
+                space_uid.0
+            ))
+        })?;
+    if inventory
+        .rows
+        .iter()
+        .any(|row| row.native_token == severed.native_token)
+    {
+        return Err(OpError::NameConflict(format!(
+            "{ADOPT_IDENTITY_CONFLICT}: Space {} ({:?}) is not absent — its binding {} still \
+             answers under the published incarnation {}; rebind asserts identity over an absent \
+             Space only (plan §10.3). Rename or remove the live Space instead",
+            space.space_no, space.logical_name, severed.native_token, epoch.0
+        )));
+    }
+    let target = inventory
+        .rows
+        .into_iter()
+        .find(|row| row.native_token == native_token)
+        .ok_or_else(|| {
+            OpError::NotFound(format!(
+                "no live {} resource {native_token} under the published incarnation {}",
+                scope.backend, epoch.0
+            ))
+        })?;
+    require_unbound_native(&registry, instance, native_token)?;
+    Ok(RebindFence {
+        registry,
+        identity,
+        space,
+        severed,
+        epoch,
+        target,
+        _locks: locks,
+    })
+}
+
+/// Rebind a tmux Space to the exact session `$N` the operator named: the
+/// session is stamped with this Space's `@dmux_*` markers (verified by
+/// readback, the way `adopt_tmux` stamps) and bound by its immutable id
+/// under the published epoch; the old binding is severed.
+pub fn rebind_tmux<R: crate::backend::tmux::TmuxRunner>(
+    env: &OperationEnv,
+    provider: &crate::backend::tmux::TmuxProvider<R>,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    session_id: &str,
+    request_uid: Uuid,
+) -> Result<ReboundSpace, OpError> {
+    let mut fence = rebind_prepare(env, provider, scope, space_uid, session_id)?;
+    let markers = crate::backend::tmux::SpaceMarkers {
+        host_uid: fence.identity.host_uid.0.to_string(),
+        registry_uid: fence.identity.registry_uid.0.to_string(),
+        space_uid: space_uid.0.to_string(),
+        space_no: fence.space.space_no.to_string(),
+    };
+    let existing = provider
+        .read_markers(scope, session_id)
+        .map_err(|e| OpError::Provider(format!("{e:?}")))?;
+    // A session already wearing exactly this Space's markers is a rebind a
+    // crash left half done — the stamp landed, the binding did not — and
+    // re-stamping it is idempotent. Every other stamp answers to the
+    // adoption rule: a foreign identity, or this registry's markers for a
+    // live Space, is a conflict and is never overwritten (case 13).
+    let already_ours = existing.host_uid.as_deref() == Some(markers.host_uid.as_str())
+        && existing.registry_uid.as_deref() == Some(markers.registry_uid.as_str())
+        && existing.space_uid.as_deref() == Some(markers.space_uid.as_str());
+    if !already_ours {
+        require_no_foreign_stamp(&fence.registry, &fence.identity, session_id, &existing)?;
+    }
+    // Journal before the native step: source and destination are the same
+    // immutable id on tmux, and the row is what reconciliation settles by.
+    let operation_uid = fence
+        .registry
+        .begin_rebind(space_uid, request_uid, session_id, session_id)
+        .map_err(reg_err)?;
+    if let Err(e) = provider.stamp_markers(scope, session_id, &markers) {
+        let _ = fence.registry.abort_rebind(space_uid, operation_uid);
+        return Err(OpError::Provider(format!(
+            "marker stamp failed on session {session_id}: {e:?}"
+        )));
+    }
+    if let Err(e) = fence.registry.finalize_rebind(
+        space_uid,
+        operation_uid,
+        &NativeBindingSpec {
+            native_token: session_id.to_string(),
+            native_kind: NativeKind::TmuxSessionId,
+            server_epoch: Some(fence.epoch),
+        },
+    ) {
+        let _ = fence.registry.abort_rebind(space_uid, operation_uid);
+        return Err(OpError::Registry(format!(
+            "{e}; the rebind was aborted and session {session_id} carries this Space's markers — \
+             re-run `dmux repair rebind` to finish it"
+        )));
+    }
+    Ok(ReboundSpace {
+        space_uid,
+        space_no: fence.space.space_no,
+        name: fence.space.logical_name,
+        backend: Backend::Tmux,
+        severed_native_token: fence.severed.native_token,
+        native_token: session_id.to_string(),
+        server_epoch: fence.epoch,
+    })
+}
+
+/// Rebind a Wez Space to the exact workspace the operator named, with the
+/// fork's atomic CAS rename to the Space's own opaque key (plan §10.3,
+/// ADR 006): capability-probed, sole-window enforced server-side, zero
+/// mutation on every non-`Renamed` outcome — a mismatch is a typed conflict,
+/// never a silent rebind. The key is the one the severed binding carried, so
+/// cold recovery and every reader keep finding the Space under it.
+pub fn rebind_wez<R: crate::backend::wez::WezRunner>(
+    env: &OperationEnv,
+    provider: &crate::backend::wez::WezProvider<R>,
+    scope: &InventoryScope,
+    space_uid: SpaceUid,
+    source_workspace: &str,
+    request_uid: Uuid,
+) -> Result<ReboundSpace, OpError> {
+    use crate::backend::wez::CasRenameOutcome;
+
+    if !provider
+        .probe_cas_rename(scope)
+        .map_err(|e| OpError::Provider(format!("{e:?}")))?
+    {
+        return Err(OpError::Provider(
+            "cas_capability_missing: the managed server lacks the fork CAS verb (ADR 006); \
+             Wez rebind stays disabled"
+                .into(),
+        ));
+    }
+    let mut fence = rebind_prepare(env, provider, scope, space_uid, source_workspace)?;
+    if fence.target.multi_window {
+        return Err(OpError::Provider(format!(
+            "workspace {source_workspace:?} spans multiple windows: normalize first \
+             (plan §10.3); rebind refused"
+        )));
+    }
+    let window_id = provider
+        .sole_window_id(scope, source_workspace)
+        .map_err(|e| OpError::Provider(format!("{e:?}")))?;
+    let opaque_key = adoption_key(fence.identity.host_uid, space_uid);
+    let operation_uid = fence
+        .registry
+        .begin_rebind(space_uid, request_uid, source_workspace, &opaque_key)
+        .map_err(reg_err)?;
+
+    match provider.cas_rename_workspace(scope, window_id, source_workspace, &opaque_key, true) {
+        Ok(CasRenameOutcome::Renamed) => {}
+        Ok(CasRenameOutcome::NoSuchWindow) => {
+            let _ = fence.registry.abort_rebind(space_uid, operation_uid);
+            return Err(OpError::NotFound(format!(
+                "workspace {source_workspace:?} vanished before the atomic rename \
+                 (zero mutation)"
+            )));
+        }
+        Ok(other) => {
+            let _ = fence.registry.abort_rebind(space_uid, operation_uid);
+            return Err(OpError::NameConflict(format!(
+                "atomic rebind lost its race (zero mutation): {other:?}"
+            )));
+        }
+        Err(e) => {
+            let _ = fence.registry.abort_rebind(space_uid, operation_uid);
+            return Err(OpError::Provider(format!("{e:?}")));
+        }
+    }
+    if let Err(e) = fence.registry.finalize_rebind(
+        space_uid,
+        operation_uid,
+        &NativeBindingSpec {
+            native_token: opaque_key.clone(),
+            native_kind: NativeKind::WezWorkspaceKey,
+            server_epoch: Some(fence.epoch),
+        },
+    ) {
+        // The rename landed; put the name back under the same CAS guard
+        // before closing the row, exactly as `adopt_wez` does.
+        let restored = matches!(
+            provider.cas_rename_workspace(scope, window_id, &opaque_key, source_workspace, true),
+            Ok(CasRenameOutcome::Renamed)
+        );
+        let _ = fence.registry.abort_rebind(space_uid, operation_uid);
+        return Err(OpError::Registry(format!(
+            "{e}; the rebind was aborted and workspace {}",
+            if restored {
+                format!("restored to {source_workspace:?}")
+            } else {
+                format!(
+                    "still named {opaque_key:?} — rename it back to {source_workspace:?} before \
+                     retrying"
+                )
+            }
+        )));
+    }
+    Ok(ReboundSpace {
+        space_uid,
+        space_no: fence.space.space_no,
+        name: fence.space.logical_name,
+        backend: Backend::Wez,
+        severed_native_token: fence.severed.native_token,
+        native_token: opaque_key,
+        server_epoch: fence.epoch,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // P8a: child (Group/Split) operations, hierarchy reads, and marker context
 // (plan §7.2, §11.3, §13.1). Same fenced skeleton as the Space flows: rpc
 // ledger → §10.1 locks → registry + complete same-epoch scan guards →

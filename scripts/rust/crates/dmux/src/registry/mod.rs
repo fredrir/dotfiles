@@ -2339,6 +2339,157 @@ impl Registry {
         })
     }
 
+    // -- rebind (plan §10.3; ADR 012 WS-D.1) ---------------------------------
+
+    /// Record the intent of `dmux repair rebind`: an `active` Space whose
+    /// current binding no longer answers is to be bound to
+    /// `source_native_token` — the one exact unmanaged resource the operator
+    /// named — as `destination_native_token`, the token the new binding will
+    /// carry (Wez: the Space's opaque workspace key the resource is
+    /// CAS-renamed to; tmux: the session id itself, which is immutable). The
+    /// `rebind/prepared` row lands BEFORE any native step, so a holder that
+    /// dies between this and [`Registry::finalize_rebind`] leaves a row
+    /// `dmux repair reconcile` can settle by source, destination and epoch
+    /// (`reconcile::ResumeDuty::AdoptionReconcile`; plan §10.3). The Space's
+    /// current binding is untouched until finalization. A stranded row on
+    /// the Space is the typed [`RegistryError::OperationInProgress`]; a
+    /// Space that is not `active` is not-found (rebind asserts identity over
+    /// a previously managed Space, never over a reservation or a tombstone).
+    pub fn begin_rebind(
+        &mut self,
+        space_uid: SpaceUid,
+        request_uid: Uuid,
+        source_native_token: &str,
+        destination_native_token: &str,
+    ) -> Result<Uuid> {
+        let operation_uid = Uuid::new_v4();
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            let lifecycle: Option<String> = tx
+                .query_row(
+                    "SELECT lifecycle FROM spaces WHERE space_uid = ?1",
+                    [space_uid.0.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            match lifecycle.as_deref() {
+                Some("active") => {}
+                Some(other) => {
+                    return Err(RegistryError::NotFound {
+                        what: format!("active space {} (it is {other})", space_uid.0),
+                    });
+                }
+                None => {
+                    return Err(RegistryError::NotFound {
+                        what: format!("space {}", space_uid.0),
+                    });
+                }
+            }
+            let payload = serde_json::json!({
+                "source_native_token": source_native_token,
+                "destination_native_token": destination_native_token,
+            })
+            .to_string();
+            insert_operation(
+                tx,
+                operation_uid,
+                space_uid,
+                OperationKind::Rebind,
+                request_uid,
+                &payload,
+                &now,
+            )?;
+            advance_revision(tx, &now)?;
+            Ok(operation_uid)
+        })
+    }
+
+    /// Complete a rebind, one transaction: the Space's current binding
+    /// becomes `severed` (observed `absent` — the operator asserted it no
+    /// longer answers and the fenced scan agreed), `binding` is inserted as
+    /// the new current one, health drops to `unstamped` (plan §10.3: a
+    /// rebound Space finishes unstamped until every pane acknowledges), the
+    /// journal row completes and the chain advances — a binding mutation is
+    /// identity, exactly as [`Registry::finalize_adopt`] is. Requires the
+    /// row to be this Space's unfinished `rebind` (anything else is the typed
+    /// [`RegistryError::KindNotAllowed`]); a Space with no current binding
+    /// or not `active` is not-found and nothing changes. The new token may
+    /// equal the severed one (a Wez workspace CAS-renamed back to the
+    /// Space's own opaque key): `bindings_current_native_uq` sees the sever
+    /// before the insert.
+    pub fn finalize_rebind(
+        &mut self,
+        space_uid: SpaceUid,
+        operation_uid: Uuid,
+        binding: &NativeBindingSpec,
+    ) -> Result<()> {
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            require_unfinished_op(tx, operation_uid, space_uid, OperationKind::Rebind)?;
+            let severed = tx.execute(
+                "UPDATE native_bindings \
+                 SET binding_state = 'severed', observation = 'absent', observed_at = ?2 \
+                 WHERE space_uid = ?1 AND binding_state = 'current'",
+                params![space_uid.0.to_string(), now],
+            )?;
+            if severed != 1 {
+                return Err(RegistryError::NotFound {
+                    what: format!("current binding of space {}", space_uid.0),
+                });
+            }
+            let changed = tx.execute(
+                "UPDATE spaces SET health = 'unstamped', updated_at = ?2 \
+                 WHERE space_uid = ?1 AND lifecycle = 'active'",
+                params![space_uid.0.to_string(), now],
+            )?;
+            if changed != 1 {
+                return Err(RegistryError::NotFound {
+                    what: format!("active space {}", space_uid.0),
+                });
+            }
+            let instance: String = tx.query_row(
+                "SELECT backend_instance_id FROM spaces WHERE space_uid = ?1",
+                [space_uid.0.to_string()],
+                |row| row.get(0),
+            )?;
+            tx.execute(
+                "INSERT INTO native_bindings (space_uid, backend_instance_id, native_token, \
+                 native_kind, binding_state, server_epoch, observation, observed_at, bound_at) \
+                 VALUES (?1, ?2, ?3, ?4, 'current', ?5, 'live', ?6, ?6)",
+                params![
+                    space_uid.0.to_string(),
+                    instance,
+                    binding.native_token,
+                    binding.native_kind.as_str(),
+                    binding.server_epoch.map(|e| e.0.to_string()),
+                    now
+                ],
+            )
+            .map_err(|e| match RegistryError::from(e) {
+                RegistryError::NativeTokenConflict { .. } => RegistryError::NativeTokenConflict {
+                    native_token: binding.native_token.clone(),
+                },
+                other => other,
+            })?;
+            finish_op(tx, operation_uid, OperationState::Completed, &now)?;
+            advance_revision(tx, &now)?;
+            Ok(())
+        })
+    }
+
+    /// Close a rebind whose native step did not land (a refused CAS, a
+    /// failed marker stamp, or reconciliation finding the source untouched):
+    /// the row becomes `aborted`, the Space keeps its current binding and
+    /// health exactly as they were. Journal bookkeeping only — no revision.
+    pub fn abort_rebind(&mut self, space_uid: SpaceUid, operation_uid: Uuid) -> Result<()> {
+        self.immediate(|tx| {
+            let now = now_rfc3339();
+            require_unfinished_op(tx, operation_uid, space_uid, OperationKind::Rebind)?;
+            finish_op(tx, operation_uid, OperationState::Aborted, &now)?;
+            Ok(())
+        })
+    }
+
     // -- remove --------------------------------------------------------------
 
     /// Record `deleting` intent BEFORE killing anything (plan §10.2 remove
