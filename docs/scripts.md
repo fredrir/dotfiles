@@ -1421,6 +1421,21 @@ attach inside wezterm (`wezterm cli spawn`) is deliberately not pinned: it
 carries no pane id, and spawning on the managed server would create an
 unmanaged pane.
 
+A backend instance — the registry row behind every managed Space of one
+backend — is in one of six states, and `dmux ls` and `dmux doctor` name it
+rather than guess: **A** not registered; **B** registered without an endpoint;
+**C** registered, unpublished, idle; **D** registered, unpublished, with the
+exclusive instance lease held (a bootstrap or recovery in flight — wait and
+re-run `dmux ls`, never restart); **E** published and the live server agrees;
+**F** published but the live server disagrees or the published process is dead
+(`stale_incarnation`). A published epoch is never proof of a live server: the
+resolver every verb uses checks the pid, the start token and the socket's
+device and inode against a fresh `stat` before handing out a scope, so an F
+instance's Spaces list as `unreachable` with `detail: stale_incarnation` and
+every mutation refuses. `dmux doctor --format json` carries the classification
+per instance with the published and observed witnesses, which is what the
+canary report and the fresh-reader test cite.
+
 A backend instance's published incarnation is never taken as proof of a live
 server. `dmux repair retire-incarnation --backend <wez|tmux> --epoch <UUID>`
 is the operator's explicit clear for one whose process is gone (plan §5.2
