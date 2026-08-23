@@ -28,7 +28,9 @@ use crate::locks::{LockMode, LockScope, OrderedLocks};
 use crate::model::{Backend, BackendInstanceUid, HostUid, Observation, SpaceNo, SpaceUid};
 use crate::operations::{OperationEnv, SpaceHierarchy};
 use crate::output::{self, OutputFormat, OwnerContext};
-use crate::registry::{HostLifecycle, Registry, RegistryConfig, SpaceRow};
+use crate::registry::{
+    HolderLiveness, HostLifecycle, Lease, LeaseScope, Registry, RegistryConfig, SpaceRow, probe_pid,
+};
 use crate::remote::client::{
     AgentInvocation, PeerExpectation, SshInvoker, call_over_routes, request_envelope,
 };
@@ -758,11 +760,15 @@ enum ScanTarget {
 }
 
 impl ScanTarget {
-    /// The instance whose shared fence a scan must hold. Only a probed
-    /// target has one; `Unpublished` is never probed.
+    /// The instance whose shared fence the listing consults: a probed
+    /// target's, so the scan runs under it; an unpublished one's, so a
+    /// coordinator mid-flight (the exclusive holder between registering and
+    /// publishing — instance state D) is told from an idle instance nobody
+    /// has bootstrapped (state C). `Unpublished` is still never probed
+    /// (ADR 012 WS-B.2, review finding #19).
     fn instance(&self) -> Option<BackendInstanceUid> {
         match self {
-            ScanTarget::Managed(instance, _) => Some(*instance),
+            ScanTarget::Managed(instance, _) | ScanTarget::Unpublished(instance) => Some(*instance),
             _ => None,
         }
     }
@@ -898,6 +904,28 @@ impl Authority {
             }
         }
 
+        // An unpublished instance is classified now, while the fences are
+        // held and the registry is open: the two witnesses that tell a
+        // first bootstrap or recovery in flight (state D) from an idle,
+        // never-bootstrapped instance (state C) are the shared fence just
+        // tried and the instance's recovery lease.
+        let mut unpublished: HashMap<BackendInstanceUid, String> = HashMap::new();
+        for (backend, target) in [(Backend::Wez, &wez), (Backend::Tmux, &tmux)] {
+            if let ScanTarget::Unpublished(instance) = target {
+                let lease = registry
+                    .current_lease(&LeaseScope::Recovery(*instance))
+                    .map_err(typed_registry)?;
+                unpublished.insert(
+                    *instance,
+                    unpublished_state_detail(
+                        backend,
+                        *instance,
+                        !fenced.contains(instance),
+                        lease.as_ref(),
+                    ),
+                );
+            }
+        }
         let scan = |target: &ScanTarget, probe: &dyn Fn(&InventoryScope) -> InventoryOutcome| {
             match target {
                 ScanTarget::Managed(instance, scope) if fenced.contains(instance) => probe(scope),
@@ -909,7 +937,7 @@ impl Authority {
                 // accept whatever server answers, and a `Complete` answer
                 // from the wrong one demotes every live Space to `absent`.
                 ScanTarget::Unpublished(instance) => InventoryOutcome::Unreachable {
-                    detail: unpublished_detail(*instance),
+                    detail: unpublished[instance].clone(),
                 },
                 // Published and refuted by the host (state F): never
                 // `stopped`, never probed — nothing verified has answered
@@ -1164,16 +1192,55 @@ pub fn peer_listing(owner: HostUid, info: SpacesInfo, route: Option<String>) -> 
 /// The typed code for an indeterminate owner-local scan. Same mapping as
 /// `gui_lifecycle::inventory_error`, plus the epoch-mismatch case a listing
 /// can reach and a readiness probe cannot.
-/// The detail a refused unpublished-epoch scan reports, remedy included: the
-/// operator's move is to make the mux republish its incarnation, and nothing
-/// `ls` does can substitute for it.
-fn unpublished_detail(instance: BackendInstanceUid) -> String {
-    format!(
-        "the registered backend instance {} has published no server epoch, so no scan of it can \
-         be verified; restart the managed mux service so it republishes its server incarnation, \
-         then re-run `dmux doctor`",
-        instance.0
-    )
+/// The detail a refused unpublished-epoch scan reports, with the advice
+/// that is safe for the state the instance is actually in (plan §5.2;
+/// review report 04 rows C/D). `exclusive_held` is the non-blocking shared
+/// fence having been refused — the instance's exclusive holder is the
+/// coordinator between registering and publishing (`tmux_bootstrap`, the
+/// Wez recovery coordinator); `recovery_lease` is the instance's held
+/// `recovery:<uid>` lease, which a killed coordinator leaves behind for the
+/// next one to take over. Either witness is state D: something is in
+/// flight, and the only safe advice is to wait. Neither is state C: nothing
+/// has ever published, and nothing `ls` does can substitute for the
+/// coordination that would. Nothing here says "restart": a restart during
+/// a first bootstrap destroys the coordinator it is waiting for.
+pub fn unpublished_state_detail(
+    backend: Backend,
+    instance: BackendInstanceUid,
+    exclusive_held: bool,
+    recovery_lease: Option<&Lease>,
+) -> String {
+    let base = ManagedTarget::unpublished_detail(backend, instance);
+    let mut witnesses = Vec::new();
+    if exclusive_held {
+        witnesses.push("the backend-instance lock is held exclusively".to_string());
+    }
+    if let Some(lease) = recovery_lease {
+        witnesses.push(match lease.holder_pid {
+            Some(pid) => format!(
+                "a recovery lease is held by pid {pid} ({})",
+                match probe_pid(pid) {
+                    HolderLiveness::Alive => "alive",
+                    HolderLiveness::Dead => "exited; the next coordinator takes it over",
+                }
+            ),
+            None => "a recovery lease is held".to_string(),
+        });
+    }
+    if witnesses.is_empty() {
+        format!(
+            "{base}; the instance has never published an incarnation (instance state C): wait \
+             for the managed mux to coordinate (or run the tmux bootstrap, `dmux _tmux-bootstrap \
+             --namespace <ns>`, against a running managed server); if the service is up and still \
+             unpublished, `dmux doctor` names the state"
+        )
+    } else {
+        format!(
+            "{base}; a bootstrap or recovery is in flight (instance state D: {}); wait and re-run \
+             `dmux ls`",
+            witnesses.join(", ")
+        )
+    }
 }
 
 /// The code for a failed scan. Normally the outcome decides, but a target

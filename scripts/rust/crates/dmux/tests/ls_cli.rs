@@ -1077,9 +1077,16 @@ fn a_managed_instance_without_a_published_epoch_refuses_to_scan() {
         message.contains("published no server epoch"),
         "the operator is told what is missing: {message}"
     );
+    // Nothing holds the instance and no recovery lease exists, so this is
+    // state C — and the advice is to wait for coordination, never to
+    // restart a service that may be mid-bootstrap (ADR 012 WS-B.2).
     assert!(
-        message.contains("republishes"),
+        message.contains("instance state C") && message.contains("`dmux doctor`"),
         "and what to do about it: {message}"
+    );
+    assert!(
+        !message.to_lowercase().contains("restart"),
+        "the destructive advice is gone: {message}"
     );
     let dotfiles = doc["result"]
         .as_array()
@@ -1119,6 +1126,121 @@ fn a_managed_instance_without_a_published_epoch_refuses_to_scan() {
         .find(|line| line.contains("dotfiles"))
         .unwrap_or_else(|| panic!("no dotfiles row in {}", human.stdout));
     assert!(row.contains("unreachable"), "{row:?}");
+}
+
+/// Review finding #19's A/B, inverted (ADR 012 WS-B.2; report 04 rows C/D):
+/// the same instance under the identical held exclusive lock, changing only
+/// whether an epoch is published, produces two different remedies — and the
+/// unpublished one is "a coordinator is in flight; wait", never "restart the
+/// managed mux service", because the exclusive holder between registering
+/// and publishing IS the first bootstrap a restart would destroy. Free, the
+/// same instance is state C with its own advice; a recovery lease a killed
+/// coordinator left behind is state D again. Nothing is probed in any of
+/// the unpublished cases.
+#[test]
+fn an_unpublished_instance_tells_a_coordinator_in_flight_from_an_idle_one_and_never_says_restart() {
+    use dmux::locks::{self, LockMode, LockScope};
+    use dmux::registry::{LeaseHolder, LeaseScope};
+    use std::time::Duration;
+
+    let scratch = Scratch::new("cd");
+    let socket = scratch.path("wez.sock");
+    let _listener = UnixListener::bind(&socket).unwrap();
+    let instance = scratch
+        .registry()
+        .register_backend_instance(Backend::Wez, Some(&socket), None)
+        .unwrap();
+    let source = scratch.source(scratch.stub_wezterm("[]"));
+    let message = |out: &ls_cli::LsOutput| -> String {
+        assert_eq!(out.status, ExitStatus::Partial, "{}", out.stdout);
+        let doc: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        assert_eq!(doc["errors"][0]["code"], "backend_epoch_changed", "{doc}");
+        doc["errors"][0]["message"].as_str().unwrap().to_string()
+    };
+    let render = || ls_cli::render(&source, Some(OutputFormat::Json), &LsArgs::default());
+
+    // Free and unpublished: state C.
+    let idle = message(&render());
+    assert!(idle.contains("instance state C"), "{idle}");
+    assert!(
+        idle.contains("wait for the managed mux to coordinate"),
+        "{idle}"
+    );
+    assert!(!idle.to_lowercase().contains("restart"), "{idle}");
+
+    // The identical exclusive lock a coordinator holds between registering
+    // and publishing: state D, wait and re-run.
+    let held = locks::acquire(
+        &scratch.env().lock_dir,
+        LockScope::BackendInstance(instance),
+        LockMode::Exclusive,
+    )
+    .unwrap();
+    let in_flight = message(&render());
+    assert!(in_flight.contains("instance state D"), "{in_flight}");
+    assert!(
+        in_flight.contains("held exclusively") && in_flight.contains("re-run `dmux ls`"),
+        "{in_flight}"
+    );
+    assert!(!in_flight.to_lowercase().contains("restart"), "{in_flight}");
+    assert_ne!(idle, in_flight, "C and D are two remedies, not one");
+
+    // The report's A/B: the same lock, now with an epoch published (by a
+    // live incarnation — this process). The published arm has always said
+    // what it is; the unpublished arm now does too.
+    let epoch = ServerEpoch(Uuid::new_v4());
+    scratch
+        .registry()
+        .publish_backend_server(
+            instance,
+            epoch,
+            Some(i64::from(std::process::id())),
+            Some(&dmux::runtime::process_start_token_for_pid(std::process::id()).unwrap()),
+            None,
+            None,
+        )
+        .unwrap();
+    let out = render();
+    assert_eq!(out.status, ExitStatus::Partial, "{}", out.stdout);
+    let doc: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+    assert!(
+        doc["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("recovering or mutating"),
+        "{doc}"
+    );
+    assert!(
+        !scratch.ran_wezterm(),
+        "nothing is probed under a held fence"
+    );
+
+    // A recovery lease a coordinator took and never released (it was
+    // killed; the kernel lock died with it): state D on the lease alone.
+    let mut registry = scratch.registry();
+    registry.retire_backend_server(instance, epoch).unwrap();
+    registry
+        .acquire_lease(
+            &LeaseScope::Recovery(instance),
+            &LeaseHolder::current(Uuid::new_v4()),
+            Duration::from_secs(60),
+            &held,
+            None,
+        )
+        .unwrap();
+    drop(held);
+    drop(registry);
+    let orphaned = message(&render());
+    assert!(orphaned.contains("instance state D"), "{orphaned}");
+    assert!(
+        orphaned.contains(&format!(
+            "a recovery lease is held by pid {} (alive)",
+            std::process::id()
+        )),
+        "{orphaned}"
+    );
+    assert!(!orphaned.contains("held exclusively"), "{orphaned}");
+    assert!(!scratch.ran_wezterm());
 }
 
 /// "No instance is registered" is not a failed scan — nothing was probed.

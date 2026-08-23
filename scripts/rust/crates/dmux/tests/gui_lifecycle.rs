@@ -754,8 +754,12 @@ fn stale_descriptor_epoch_never_retargets_and_fails_fast() {
         error.message
     );
     assert!(
-        error.message.contains("registry records") && error.message.contains("Restart"),
-        "the operator is told which side is stale and what fixes it: {}",
+        error.message.contains("registry records")
+            && error.message.contains("instance state F")
+            && error.message.contains("retire-incarnation")
+            && error.message.contains("`dmux doctor`"),
+        "the operator is told which side is stale, the state it is, and what fixes it \
+         (ADR 012 WS-B.2: never an unconditional restart): {}",
         error.message
     );
     assert_eq!(

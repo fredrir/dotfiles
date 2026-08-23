@@ -967,20 +967,34 @@ fn validate_ready_descriptor(
     // whatever the last republication left.  Waiting cannot reconcile them:
     // the only republisher is the mux's own recovery coordinator, which no
     // read path — least of all this one — may stand in for.  Say so now and
-    // name the remedy, rather than spending the deadline re-reading two
-    // values that are already settled.
+    // name the state and its safe remedy (plan §5.2 as amended; ADR 012
+    // WS-B.2), rather than spending the deadline re-reading two values that
+    // are already settled.  A registry that records another incarnation is
+    // instance state F; one that records none is state C — the flag-off
+    // start that never publishes (ADR 012 §3.1).  Neither is "restart the
+    // service": a managed start republishes, but only a service holding no
+    // user panes may be restarted, and a flag-off restart publishes nothing.
     if server.server_epoch != Some(descriptor_epoch) {
+        let (recorded, state) = match server.server_epoch {
+            Some(epoch) => (
+                epoch.0.to_string(),
+                "stale (instance state F; `dmux repair retire-incarnation --backend wez \
+                 --epoch <recorded>` clears it once its process is confirmed gone)",
+            ),
+            None => (
+                "<unpublished>".to_string(),
+                "unpublished (instance state C: the service started without DMUX_WEZ_FIRST and \
+                 published no identity)",
+            ),
+        };
         return Err(fatal(TypedError::new(
             ErrorCode::BackendEpochChanged,
             format!(
-                "managed Wez service is ready at epoch {} but the registry records {}; \
-                 the registry's server incarnation is stale and waiting cannot refresh it. \
-                 Restart the managed Wez service so it republishes, then re-run `dmux doctor`",
+                "managed Wez service is ready at epoch {} but the registry records {recorded}; \
+                 the registry's server incarnation is {state}, and no read path republishes it. \
+                 `dmux doctor` names the state and the remedy; a managed (flag-on) service start \
+                 republishes the incarnation and is safe only while the mux holds no user panes",
                 descriptor_epoch.0,
-                server
-                    .server_epoch
-                    .map(|epoch| epoch.0.to_string())
-                    .unwrap_or_else(|| "<unpublished>".to_string())
             ),
         )));
     }
