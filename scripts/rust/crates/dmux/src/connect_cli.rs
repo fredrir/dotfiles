@@ -176,14 +176,9 @@ pub fn preflight_connect_request(request: &ConnectRequest) -> Result<(), TypedEr
     }
 }
 
-/// Exact owner-side lookup locator.  SpaceUid and SpaceNo are stable across
-/// rename; `Name` is exact, case-sensitive bytes on exactly one owner.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OwnerLocator {
-    Uid(SpaceUid),
-    Number(SpaceNo),
-    Name(String),
-}
+/// Exact owner-side lookup locator; the resolver's type, re-exported so the
+/// query the owner answers is the locator §6.2 scoped (ADR 012 WS-D.3).
+pub use crate::resolve::OwnerLocator;
 
 /// Query passed to the owner authority.  A backend filter is present only
 /// for name lookup, where it is authoritative disambiguation.  Stable

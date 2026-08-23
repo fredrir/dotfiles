@@ -5,11 +5,11 @@
 //! Root-owned (plan §19, W3).
 
 use crate::backend::InventoryOutcome;
-use crate::error::ErrorCode;
+use crate::error::{ErrorCode, TypedError};
 use crate::inventory::BackendScans;
 use crate::model::{Backend, Health, HostUid, Lifecycle, SpaceNo, SpaceUid};
 use crate::refs::{HostToken, SpaceRefShape};
-use crate::registry::{BindingRow, BindingState, SpaceRow};
+use crate::registry::{BindingRow, BindingState, HostLifecycle, HostRow, SpaceRow};
 
 /// What the live scan showed for one bound record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,67 +345,258 @@ pub fn lookup_name(
 }
 
 // ---------------------------------------------------------------------------
-// Space-ref resolution against the local registry (shadow scope: local
-// authority only; enrolled-remote scopes arrive with P7).
+// Space-ref resolution: §6.2's precedence, in one place (ADR 012 WS-D.3).
+//
+// `refs::parse_ref` classifies a spelling structurally (the seven-step
+// parsing precedence). Everything after that — which owner a shape names,
+// how `--host` and the local authority default in, what the `--name` escape
+// means, and how a locator is looked up on that owner — lives here and
+// nowhere else. Verbs that look the Space up themselves call
+// [`resolve_space_ref`]; verbs that hand the lookup to the owner authority
+// (`con`, `rm` — the owner may be remote) call [`scope_space_ref`] and pass
+// the [`ScopedSpaceRef`] on as their query. `tests/resolver_truth_table.rs`
+// drives exactly these entry points, so it vouches for production.
 
+/// Exact owner-side lookup locator. `Uid` and `Number` are stable across
+/// rename; `Name` is exact, case-sensitive bytes on exactly one owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RefResolution {
-    Space(SpaceUid),
-    /// The ref matched a terminal record: exit 3, distinct from not-found.
-    Deleted(SpaceUid),
-    NotFound,
-    /// Bare/host-qualified name matching more than one backend's Space.
-    AmbiguousName(Vec<SpaceUid>),
-    /// Host tokens beyond the local authority are not resolvable in shadow
-    /// mode (P7 adds enrollment).
-    UnsupportedHostScope,
+pub enum OwnerLocator {
+    Uid(SpaceUid),
+    Number(SpaceNo),
+    Name(String),
 }
 
-pub fn resolve_space_ref(
-    shape: &SpaceRefShape,
-    local_host: HostUid,
-    spaces: &[SpaceRow],
-) -> RefResolution {
-    let local_token_ok = |host: &Option<HostToken>| match host {
-        None => true,
-        Some(HostToken::Uid(uid)) => *uid == local_host,
-        Some(HostToken::AliasOrLabel(t)) => t == "a",
-    };
+impl OwnerLocator {
+    /// Whether a Space carrying these identity fields is the one this
+    /// locator names. Lifecycle is the lookup's question, not this one's.
+    pub fn matches(&self, space_uid: SpaceUid, space_no: SpaceNo, logical_name: &str) -> bool {
+        match self {
+            OwnerLocator::Uid(uid) => space_uid == *uid,
+            OwnerLocator::Number(no) => space_no == *no,
+            OwnerLocator::Name(name) => logical_name == name,
+        }
+    }
+}
+
+/// What a verb was handed to select a Space with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpaceSelector<'a> {
+    /// A §6.2 ref after structural parsing.
+    Shape(&'a SpaceRefShape),
+    /// The `--name` escape ("external legacy names remain operable by stable
+    /// ID or an explicit `--name` selector"): the literal name, never
+    /// structurally parsed, on the explicit or local owner only — bare names
+    /// are never searched across hosts.
+    ExactName(&'a str),
+}
+
+/// The hosts §6.2's defaulting reads: the local authority `a`, and an
+/// explicit `--host` already resolved to an enrolled owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostContext {
+    pub local: HostUid,
+    pub explicit: Option<HostUid>,
+}
+
+impl HostContext {
+    /// The owner of a selector that encodes none: "then explicit `--host`,
+    /// otherwise … local authority `a`" (§6.2).
+    pub fn default_owner(&self) -> HostUid {
+        self.explicit.unwrap_or(self.local)
+    }
+}
+
+/// A selector after host scoping: one owner and the exact locator on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopedSpaceRef {
+    pub owner: HostUid,
+    pub locator: OwnerLocator,
+}
+
+/// The host a shape encodes, before resolution: a canonical URI names its
+/// owner by `HostUid`; the other shapes carry a token or nothing.
+pub fn embedded_host(shape: &SpaceRefShape) -> Option<HostToken> {
     match shape {
-        SpaceRefShape::Canonical { host, space } => {
-            if *host != local_host {
-                return RefResolution::UnsupportedHostScope;
+        SpaceRefShape::Canonical { host, .. } => Some(HostToken::Uid(*host)),
+        SpaceRefShape::Numbered { host, .. } | SpaceRefShape::Named { host, .. } => host.clone(),
+    }
+}
+
+/// The locator a shape carries, whichever host it names.
+fn shape_locator(shape: &SpaceRefShape) -> OwnerLocator {
+    match shape {
+        SpaceRefShape::Canonical { space, .. } => OwnerLocator::Uid(*space),
+        SpaceRefShape::Numbered { no, .. } => OwnerLocator::Number(*no),
+        SpaceRefShape::Named { name, .. } => OwnerLocator::Name(name.clone()),
+    }
+}
+
+/// `--host` beside an encoded owner must agree with it. §6.2's "an encoded
+/// ref wins, then explicit `--host`" orders the *defaults*; two different
+/// owners named at once is a contradiction, refused rather than resolved
+/// either way.
+pub fn require_consistent_owner(
+    explicit: Option<HostUid>,
+    embedded: Option<HostUid>,
+) -> Result<(), TypedError> {
+    if let (Some(explicit), Some(embedded)) = (explicit, embedded)
+        && explicit != embedded
+    {
+        return Err(TypedError::new(
+            ErrorCode::InvalidRef,
+            format!(
+                "--host owner {} contradicts reference owner {}",
+                explicit.0, embedded.0
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// §6.2 host scoping for one selector. `resolve_host` turns an embedded
+/// token into an enrolled owner — `a` is whatever the host table says the
+/// local authority is, never a literal here — and its error is the answer
+/// for an unknown or tombstoned token: never a fallback to a logical name.
+pub fn scope_space_ref(
+    selector: SpaceSelector<'_>,
+    context: HostContext,
+    mut resolve_host: impl FnMut(&HostToken) -> Result<HostUid, TypedError>,
+) -> Result<ScopedSpaceRef, TypedError> {
+    match selector {
+        SpaceSelector::ExactName(name) => {
+            if name.is_empty() {
+                return Err(TypedError::new(
+                    ErrorCode::InvalidRef,
+                    "exact Space name cannot be empty",
+                ));
             }
-            match spaces.iter().find(|s| s.space_uid == *space) {
-                Some(s) if s.lifecycle.is_terminal() => RefResolution::Deleted(s.space_uid),
-                Some(s) => RefResolution::Space(s.space_uid),
+            Ok(ScopedSpaceRef {
+                owner: context.default_owner(),
+                locator: OwnerLocator::Name(name.to_string()),
+            })
+        }
+        SpaceSelector::Shape(shape) => {
+            let embedded = embedded_host(shape)
+                .map(|token| resolve_host(&token))
+                .transpose()?;
+            require_consistent_owner(context.explicit, embedded)?;
+            Ok(ScopedSpaceRef {
+                owner: embedded.unwrap_or_else(|| context.default_owner()),
+                locator: shape_locator(shape),
+            })
+        }
+    }
+}
+
+/// One Space as the lookup sees it: a durable row, a live-correlated marker,
+/// or an owner's remote answer.
+pub trait SpaceCandidate {
+    fn space_uid(&self) -> SpaceUid;
+    fn space_no(&self) -> SpaceNo;
+    fn logical_name(&self) -> &str;
+    fn lifecycle(&self) -> Lifecycle;
+}
+
+impl SpaceCandidate for SpaceRow {
+    fn space_uid(&self) -> SpaceUid {
+        self.space_uid
+    }
+
+    fn space_no(&self) -> SpaceNo {
+        self.space_no
+    }
+
+    fn logical_name(&self) -> &str {
+        &self.logical_name
+    }
+
+    fn lifecycle(&self) -> Lifecycle {
+        self.lifecycle
+    }
+}
+
+/// The outcome of looking a locator up on its owner. The matched candidate
+/// comes back whole, so the verb applies its own lifecycle gate (a child verb
+/// wants `active`; `rm` may finish a `deleting` row) without a second search.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefResolution<C> {
+    Space(C),
+    /// The ref names a terminal record: exit 3 as `space_deleted`, distinct
+    /// from not-found — a retired number or UID is never free (§6.1).
+    Deleted(C),
+    NotFound,
+    /// More than one live Space answers — a name held on both backends.
+    /// Never guessed; the caller says to use the number.
+    AmbiguousName(Vec<C>),
+}
+
+/// Look an owner-scoped locator up in that owner's candidates. Names of
+/// terminal records are free (a deleted `proj` is not `proj`); numbers and
+/// UIDs are permanent, so a terminal match is reported as such.
+pub fn resolve_locator<C: SpaceCandidate>(
+    locator: &OwnerLocator,
+    candidates: Vec<C>,
+) -> RefResolution<C> {
+    let (live, terminal): (Vec<C>, Vec<C>) = candidates
+        .into_iter()
+        .filter(|c| locator.matches(c.space_uid(), c.space_no(), c.logical_name()))
+        .partition(|c| !c.lifecycle().is_terminal());
+    match live.len() {
+        1 => RefResolution::Space(live.into_iter().next().expect("one live match")),
+        n if n > 1 => RefResolution::AmbiguousName(live),
+        _ => match locator {
+            OwnerLocator::Name(_) => RefResolution::NotFound,
+            OwnerLocator::Uid(_) | OwnerLocator::Number(_) => match terminal.into_iter().next() {
+                Some(retired) => RefResolution::Deleted(retired),
                 None => RefResolution::NotFound,
+            },
+        },
+    }
+}
+
+/// The one resolver: scope the selector, fetch that owner's candidates, look
+/// the locator up. `candidates` receives the scoped owner so a verb can read
+/// the local registry or ask a remote owner — whichever §6.2 selected.
+pub fn resolve_space_ref<C: SpaceCandidate>(
+    selector: SpaceSelector<'_>,
+    context: HostContext,
+    resolve_host: impl FnMut(&HostToken) -> Result<HostUid, TypedError>,
+    candidates: impl FnOnce(HostUid) -> Result<Vec<C>, TypedError>,
+) -> Result<(ScopedSpaceRef, RefResolution<C>), TypedError> {
+    let scoped = scope_space_ref(selector, context, resolve_host)?;
+    let resolution = resolve_locator(&scoped.locator, candidates(scoped.owner)?);
+    Ok((scoped, resolution))
+}
+
+/// The production host-token rule for a verb that reads the host table
+/// itself: enrolled rows only; a `HostUid` must be enrolled; an alias or
+/// label spelling must match exactly one enrolled owner (§6.2: labels and
+/// aliases are never rebound, and `a` is minted for the local authority at
+/// registry open).
+pub fn resolve_enrolled_host(hosts: &[HostRow], token: &HostToken) -> Result<HostUid, TypedError> {
+    let spelling = match token {
+        HostToken::Uid(uid) => uid.0.to_string(),
+        HostToken::AliasOrLabel(spelling) => spelling.clone(),
+    };
+    let matches: Vec<&HostRow> = hosts
+        .iter()
+        .filter(|host| host.lifecycle == HostLifecycle::Enrolled)
+        .filter(|host| match token {
+            HostToken::Uid(uid) => host.host_uid == *uid,
+            HostToken::AliasOrLabel(spelling) => {
+                host.alias.as_deref() == Some(spelling) || host.label.as_deref() == Some(spelling)
             }
-        }
-        SpaceRefShape::Numbered { host, no } => {
-            if !local_token_ok(host) {
-                return RefResolution::UnsupportedHostScope;
-            }
-            // SpaceNo is never reused, so at most one record matches.
-            match spaces.iter().find(|s| s.space_no == *no) {
-                Some(s) if s.lifecycle.is_terminal() => RefResolution::Deleted(s.space_uid),
-                Some(s) => RefResolution::Space(s.space_uid),
-                None => RefResolution::NotFound,
-            }
-        }
-        SpaceRefShape::Named { host, name } => {
-            if !local_token_ok(host) {
-                return RefResolution::UnsupportedHostScope;
-            }
-            let matches: Vec<&SpaceRow> = spaces
-                .iter()
-                .filter(|s| !s.lifecycle.is_terminal() && s.logical_name == *name)
-                .collect();
-            match matches.as_slice() {
-                [] => RefResolution::NotFound,
-                [one] => RefResolution::Space(one.space_uid),
-                many => RefResolution::AmbiguousName(many.iter().map(|s| s.space_uid).collect()),
-            }
-        }
+        })
+        .collect();
+    match matches.as_slice() {
+        [one] => Ok(one.host_uid),
+        [] => Err(TypedError::new(
+            ErrorCode::NotFound,
+            format!("no enrolled host matches {spelling:?}"),
+        )),
+        _ => Err(TypedError::new(
+            ErrorCode::AmbiguousTarget,
+            format!("host spelling {spelling:?} matches more than one enrolled owner"),
+        )),
     }
 }
