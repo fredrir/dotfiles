@@ -1058,3 +1058,31 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   (`1666508..307e3b4`). Owner decisions for the rest of wave 4: r6 `deploy-mac` may restart the mux;
   the descriptor moves beside the registry (the `dirhelper` finding); a small launcher `.app`
   wrapping `dmux _gui summon` gives the desktop a Wez-first entry point.
+- **Decision 3 (descriptor beside the registry) cannot be done in dotfiles — keep-alive landed
+  instead; decision 4 (launcher app) landed.** The maintained fork resolves the descriptor
+  directory itself for both the publisher (`wezterm.mux.dmux_publish_service_descriptor`) and the
+  GUI reader (`wezterm.gui.dmux_read_mux_descriptor`): `lua-api-crates/mux/src/dmux_descriptor.rs`
+  `platform_runtime_base()` is `confstr(_CS_DARWIN_USER_TEMP_DIR)` on macOS and `XDG_RUNTIME_DIR`
+  on Linux, and the fork's own test `missing_linux_runtime…` asserts `DMUX_RUNTIME_DIR` is ignored
+  as an attacker value; `domains/init.lua` records the same boundary ("never accepts a
+  caller-selected path"). Moving the file is therefore the fork's next-release item (recorded
+  here; plan §15.1 amended), not a wave-4 change. What dotfiles can do, and now does:
+  `dmux _runtime-keepalive` (`runtime::keepalive_touch`: `utimensat` with `AT_SYMLINK_NOFOLLOW`
+  on the descriptor, the service lease and every regular file under `bridge/` to a bounded depth;
+  current-user regular files only; absent files are not errors; one JSON line of what it touched;
+  unit test `runtime::tests::keepalive_touches_only_the_long_lived_regular_files_and_follows_nothing`),
+  run by `macos/launchd/com.fredrir.dmux-runtime-keepalive.plist` at login and every 12 h. The
+  launcher: `macos/applications/dmux.app` (`config/targets.dotfile` maps its two files into
+  `~/Applications/dmux.app/…` one by one, so the bundle is a real directory Spotlight indexes — a
+  symlinked bundle is not), an `LSUIElement` bundle whose executable opens plain WezTerm with the flag off
+  and runs `dmux _gui summon --format json` with it on, showing any refusal in a dialog;
+  `tests/cases/dmux-launcher.sh` drives both paths, the refusal dialog and the missing-binary case
+  with recording stand-ins. Owner steps: `dotfile link` (places the plist and the app), `launchctl
+  bootstrap gui/$UID ~/Library/LaunchAgents/com.fredrir.dmux-runtime-keepalive.plist`, `dotfile
+  sync` (installs the `dmux` with the verb), then Spotlight "dmux".
+  Incidental: `dotfile check` reported the WezTerm pin stale (`config/pins.dotfile` wanted
+  `20260817-154429-c0d2e47c`; r5 deployed and Macie runs `20260817-233913-b9d8dfae`, the fork
+  hash the r5 release identity names) — the pin now names the deployed build.
+- **Gate 2026-08-23 after the keep-alive and launcher**: 1131/0/1 under `run-isolated.sh`, live
+  runtime dir unchanged (33 entries — the reboot gave Macie a fresh runtime dir); shell case
+  `dmux-launcher` 4/4.

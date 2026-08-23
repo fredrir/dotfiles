@@ -32,6 +32,7 @@ use std::ffi::CString;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -319,6 +320,111 @@ pub fn production_wez_paths() -> (String, String) {
 // strict-selection checks before trusting a scan.
 
 pub const WEZ_DESCRIPTOR_FILE: &str = "wez-dmux.json";
+
+// ---------------------------------------------------------------------------
+// Runtime keep-alive (ADR 012 §10, wave 4). macOS's `dirhelper` removes
+// regular files under the per-user temporary directory that have not been
+// touched for three days, and the managed-mux descriptor, the service lease
+// and the GUI bridge's key and instance records live there, written once per
+// service or GUI start. `keepalive_touch` refreshes their timestamps so an
+// idle host keeps a readable descriptor. It never creates, follows, rewrites
+// or removes anything: regular files owned by the current user only, symlinks
+// and sockets skipped, a bounded walk of `bridge/`.
+
+/// Files refreshed directly under the runtime dir.
+pub const KEEPALIVE_FILES: &[&str] = &[WEZ_DESCRIPTOR_FILE, ".wez-dmux-service.lease"];
+/// Subtrees whose regular files are refreshed (bounded depth and count).
+pub const KEEPALIVE_TREES: &[&str] = &["bridge"];
+const KEEPALIVE_MAX_DEPTH: usize = 4;
+const KEEPALIVE_MAX_FILES: usize = 4096;
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct KeepaliveReport {
+    /// Runtime-dir-relative paths whose timestamps were set to now.
+    pub touched: Vec<String>,
+    /// Present but not regular files owned by this user (symlinks, sockets,
+    /// foreign owners): left alone.
+    pub skipped: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// Refresh the long-lived runtime files beneath `runtime_dir`. Absent files
+/// are simply absent (a stopped service has nothing to keep alive).
+pub fn keepalive_touch(runtime_dir: &Path) -> KeepaliveReport {
+    let mut report = KeepaliveReport::default();
+    for name in KEEPALIVE_FILES {
+        keepalive_file(&runtime_dir.join(name), runtime_dir, &mut report);
+    }
+    for tree in KEEPALIVE_TREES {
+        keepalive_walk(&runtime_dir.join(tree), 0, runtime_dir, &mut report);
+    }
+    report
+}
+
+fn keepalive_file(path: &Path, base: &Path, report: &mut KeepaliveReport) {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return;
+    };
+    let relative = path
+        .strip_prefix(base)
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    if !meta.file_type().is_file() || meta.uid() != unsafe { libc::geteuid() } {
+        report.skipped.push(relative);
+        return;
+    }
+    let Ok(c_path) = CString::new(path.as_os_str().as_bytes()) else {
+        report.errors.push(format!("{relative}: path contains NUL"));
+        return;
+    };
+    // SAFETY: a NUL-terminated path and a null times pointer (= now);
+    // AT_SYMLINK_NOFOLLOW so a symlink swapped in after the lstat above is
+    // touched as a link, never followed.
+    let rc = unsafe {
+        libc::utimensat(
+            libc::AT_FDCWD,
+            c_path.as_ptr(),
+            std::ptr::null(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if rc == 0 {
+        report.touched.push(relative);
+    } else {
+        report
+            .errors
+            .push(format!("{relative}: {}", io::Error::last_os_error()));
+    }
+}
+
+fn keepalive_walk(dir: &Path, depth: usize, base: &Path, report: &mut KeepaliveReport) {
+    if depth > KEEPALIVE_MAX_DEPTH {
+        return;
+    }
+    let Ok(meta) = fs::symlink_metadata(dir) else {
+        return;
+    };
+    if !meta.file_type().is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut names: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    names.sort();
+    for path in names {
+        if report.touched.len() + report.skipped.len() >= KEEPALIVE_MAX_FILES {
+            return;
+        }
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_dir() => keepalive_walk(&path, depth + 1, base, report),
+            Ok(_) => keepalive_file(&path, base, report),
+            Err(_) => {}
+        }
+    }
+}
+
 pub const WEZ_SOCKET_FILE: &str = "wez-dmux.sock";
 const MAX_EXACT_JSON_INTEGER: u64 = (1_u64 << 53) - 1;
 
@@ -1698,5 +1804,106 @@ mod tests {
         let err = runtime_dir_seam_from(Some(OsStr::new("relative/dir"))).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         assert!(err.to_string().contains("DMUX_RUNTIME_DIR"), "{err}");
+    }
+
+    fn set_mtime_days_ago(path: &Path, days: i64) {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - days * 86_400;
+        let times = [
+            libc::timespec {
+                tv_sec: secs,
+                tv_nsec: 0,
+            },
+            libc::timespec {
+                tv_sec: secs,
+                tv_nsec: 0,
+            },
+        ];
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        let rc = unsafe {
+            libc::utimensat(
+                libc::AT_FDCWD,
+                c_path.as_ptr(),
+                times.as_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        assert_eq!(rc, 0, "{}", io::Error::last_os_error());
+    }
+
+    fn mtime_secs(path: &Path) -> i64 {
+        fs::symlink_metadata(path).unwrap().mtime()
+    }
+
+    #[test]
+    fn keepalive_touches_only_the_long_lived_regular_files_and_follows_nothing() {
+        let base = tempfile::tempdir().unwrap();
+        let dir = base.path();
+        fs::create_dir_all(dir.join("bridge/instances/gui-1/acks")).unwrap();
+        fs::create_dir_all(dir.join("bootstrap")).unwrap();
+        let kept = [
+            "wez-dmux.json",
+            ".wez-dmux-service.lease",
+            "bridge/key",
+            "bridge/key.boot",
+            "bridge/instances/gui-1/heartbeat.json",
+            "bridge/instances/gui-1/acks/a.json",
+        ];
+        let left = ["bootstrap/old.pane-env", "recovery.json"];
+        for name in kept.iter().chain(left.iter()) {
+            fs::write(dir.join(name), b"x").unwrap();
+        }
+        std::os::unix::fs::symlink("key", dir.join("bridge/link-to-key")).unwrap();
+        std::os::unix::fs::symlink("../bootstrap", dir.join("bridge/link-to-dir")).unwrap();
+        for name in kept.iter().chain(left.iter()) {
+            set_mtime_days_ago(&dir.join(name), 10);
+        }
+        set_mtime_days_ago(&dir.join("bridge/link-to-key"), 10);
+
+        let report = keepalive_touch(dir);
+
+        let mut touched = report.touched.clone();
+        touched.sort();
+        let mut expected: Vec<String> = kept.iter().map(|s| s.to_string()).collect();
+        expected.sort();
+        assert_eq!(touched, expected, "{report:?}");
+        assert!(report.errors.is_empty(), "{report:?}");
+        let mut skipped = report.skipped.clone();
+        skipped.sort();
+        assert_eq!(
+            skipped,
+            vec![
+                "bridge/link-to-dir".to_string(),
+                "bridge/link-to-key".to_string()
+            ],
+            "{report:?}"
+        );
+        let fresh = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 60;
+        for name in kept {
+            assert!(mtime_secs(&dir.join(name)) > fresh, "{name} not refreshed");
+        }
+        for name in left {
+            assert!(
+                mtime_secs(&dir.join(name)) < fresh,
+                "{name} must be left alone"
+            );
+        }
+        // The symlink itself was not followed: its target was refreshed by
+        // its own path, the link's own timestamp stayed old.
+        assert!(mtime_secs(&dir.join("bridge/link-to-key")) < fresh);
+        // Absent files are not an error.
+        let empty = tempfile::tempdir().unwrap();
+        let report = keepalive_touch(empty.path());
+        assert!(
+            report.touched.is_empty() && report.errors.is_empty(),
+            "{report:?}"
+        );
     }
 }

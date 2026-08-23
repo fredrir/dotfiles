@@ -1,5 +1,5 @@
 # Tools that must run one exact build on every machine.
 
 shared {
-  wezterm = 20260817-154429-c0d2e47c
+  wezterm = 20260817-233913-b9d8dfae
 }

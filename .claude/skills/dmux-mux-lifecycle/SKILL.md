@@ -156,6 +156,14 @@ Owner mode (`mux/dmux-mux.lua`): reached only under `WEZ_FIRST`, through
 - `dmux _mux-idle` is what the sentinel runs. If you rename that subcommand, the sentinel silently
   degrades to the fallback and the backend stops being ready.
 
+- macOS purges regular files in the per-user temporary directory (the fixed managed-mux
+  runtime) after three untouched days — the descriptor included. The maintained fork fixes that
+  directory, so the fix is not a path change here: `com.fredrir.dmux-runtime-keepalive` runs
+  `dmux _runtime-keepalive` twice a day to refresh the descriptor, lease and bridge files. A
+  `ready` descriptor older than a day means the agent is not loaded. A bare Spotlight/Dock start
+  of WezTerm under the flag is refused by the fork's broker gate; `~/Applications/dmux.app`
+  (`macos/applications`, linked file by file so the bundle is a real directory) and Hammerspoon's CMD+§ both go through `dmux _gui summon`.
+
 ## Validating a change
 
 ```bash

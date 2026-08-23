@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- dmux.app: the desktop entry point for WezTerm under dmux (ADR 012 §10,
+       wave 4). Under DMUX_WEZ_FIRST=1 the maintained fork refuses a bare
+       Spotlight/Dock start of WezTerm (the GUI must be handed the managed
+       socket by dmux's broker), so this bundle's executable runs
+       `dmux _gui summon` instead; flag off, it opens WezTerm as before.
+       Linked to ~/Applications by `dotfile link` (config/targets.dotfile).
+       No Dock tile (LSUIElement): it only summons. -->
+  <key>CFBundleName</key>
+  <string>dmux</string>
+  <key>CFBundleDisplayName</key>
+  <string>dmux</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.fredrir.dmux-launcher</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleExecutable</key>
+  <string>dmux</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>

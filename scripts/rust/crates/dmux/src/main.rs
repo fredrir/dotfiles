@@ -315,6 +315,14 @@ enum Cmd {
     #[command(name = "_mux-idle", hide = true)]
     MuxIdle,
 
+    /// Internal: refresh the timestamps of the long-lived runtime files
+    /// (descriptor, service lease, bridge key and instance records) so
+    /// macOS's three-day temporary-directory purge never removes a live
+    /// service's descriptor (ADR 012 §10). Run by the
+    /// com.fredrir.dmux-runtime-keepalive LaunchAgent; touches only.
+    #[command(name = "_runtime-keepalive", hide = true)]
+    RuntimeKeepalive,
+
     /// Internal: provision the per-boot GUI bridge HMAC key beneath the
     /// verified runtime directory. The raw key is never printed.
     #[command(name = "_bridge-key", hide = true)]
@@ -931,6 +939,25 @@ fn main() -> ExitCode {
         Some(Cmd::MuxIdle) => loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         },
+        Some(Cmd::RuntimeKeepalive) => (|| {
+            let runtime = dmux::runtime::dmux_runtime_dir().map_err(|e| e.to_string())?;
+            let report = dmux::runtime::keepalive_touch(&runtime);
+            println!(
+                "{}",
+                serde_json::json!({
+                    "action": "runtime_keepalive",
+                    "runtime_dir": runtime.display().to_string(),
+                    "touched": report.touched,
+                    "skipped": report.skipped,
+                    "errors": report.errors,
+                })
+            );
+            Ok(if report.errors.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            })
+        })(),
         Some(Cmd::BridgeKey) => (|| {
             let runtime = dmux::runtime::dmux_runtime_dir().map_err(|e| e.to_string())?;
             dmux::gui::ensure_bridge_key(&runtime).map_err(|e| e.to_string())?;

@@ -1402,6 +1402,24 @@ systemd user manager at start and on `systemctl --user daemon-reload`;
 `service.env` is not read there. `dmux doctor`'s `wez-first flag` line shows
 all three layers and says whether enablement is durable.
 
+Two more macOS pieces land with `dotfile link` (ADR 012 §10, wave 4). The
+`com.fredrir.dmux-runtime-keepalive` LaunchAgent runs `dmux _runtime-keepalive`
+at login and every 12 hours: macOS purges regular files in the per-user
+temporary directory — where the maintained fork fixes the managed-mux runtime
+— once nothing has touched them for three days, and that is how Macie lost a
+live service descriptor on 2026-08-23. The verb refreshes the timestamps of
+the descriptor, the service lease and the bridge's key and instance records
+(current-user regular files only; it creates, follows, rewrites and removes
+nothing) and prints one JSON line naming what it touched. Install it once
+with `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.fredrir.dmux-runtime-keepalive.plist`.
+And `~/Applications/dmux.app` is the desktop entry point for WezTerm under
+the flag: the fork refuses a bare Spotlight or Dock start of WezTerm (the GUI
+must be handed the managed socket by dmux's broker, and the refusal is only a
+log line), so the bundle's executable runs `dmux _gui summon` — ensure the
+service, launch the attach-only GUI if none is live, present the last Space —
+and shows any refusal in a dialog; with the flag off it opens WezTerm as
+before. Hammerspoon's CMD+§ does the same when it is running.
+
 Flag-off, the legacy merged listing and `con` are no longer blind to the
 managed service. When the service descriptor (`wez-dmux.json` under the
 runtime directory) names a socket, every `wezterm cli` call the legacy path

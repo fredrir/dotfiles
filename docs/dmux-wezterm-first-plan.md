@@ -869,6 +869,7 @@ The owner is service-only:
 - the unix domain sets `no_serve_automatically = true`; every dmux CLI call uses `--no-auto-start`, and remote proxy/domain attachment cannot start the server;
 - a create operation may invoke only `systemctl --user start`/the fixed `launchctl` service label, then wait for bounded verified readiness;
 - the service writes a mode-0600 descriptor beneath `dmux_runtime_dir()` with `starting|ready|failed`, PID/start token, socket device/inode, backend-instance UID, epoch, and boot nonce;
+- on macOS the runtime directory is the per-user temporary directory, which the system purges of regular files untouched for three days (ADR 012 §10, 2026-08-23: it took a live descriptor). Until the maintained fork moves the descriptor beside the registry — the fork resolves the descriptor directory itself, so dotfiles cannot — the `com.fredrir.dmux-runtime-keepalive` LaunchAgent runs `dmux _runtime-keepalive` at login and every 12 hours, refreshing the timestamps of the descriptor, the service lease and the bridge's key and instance records (current-user regular files only; nothing created, followed, rewritten or removed). A descriptor older than a day on macOS means the agent is not loaded. Linux's `XDG_RUNTIME_DIR` is not age-purged;
 - `mux-startup` creates exactly one reserved `dmux:system:<epoch>` sentinel window/pane running `dmux _mux-idle`. It is excluded from user inventory, keeps an intentionally empty service managed, exposes the epoch handshake through normal list fields, and suppresses WezTerm's unmanaged default shell.
 
 The sentinel is never a Space, Group, or Split and cannot be addressed by public commands. A missing, duplicate, or wrong-epoch sentinel makes the backend unavailable. P0 must prove that this startup handler suppresses the default program on every supported server-start path and that descriptor/socket/sentinel verification detects a replaced server.
@@ -1134,7 +1135,7 @@ files changed
 tests run and exact result
 contract deviations (normally none)
 risks/unknowns
-runtime-dir growth check (live `dmux_runtime_dir()` entry count before/after the owned test run; must be 0)
+runtime-dir growth check (live `dmux_runtime_dir()` entry count before/after the owned test run; must be 0); the keep-alive only touches and is not a growth source
 next-agent handoff
 ```
 

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    dmux runtime keep-alive (ADR 012 §10, wave 4). macOS's dirhelper removes
+    regular files under the per-user temporary directory (confstr
+    DARWIN_USER_TEMP_DIR, where the maintained fork fixes the managed-mux
+    runtime) that nothing has touched for three days. On 2026-08-23 it took
+    Macie's service descriptor, written once at service start, and a
+    healthy idle host would lose its `ready` descriptor the same way --
+    after which every Wez-first verb answers provider_unavailable until a
+    service restart that kills panes. Moving the descriptor beside the
+    registry needs the fork (it resolves the directory itself; ADR 012 §10
+    records that as the fork's next-release item). Until then this agent
+    runs `dmux _runtime-keepalive` at login and every 12 hours: it refreshes
+    the timestamps of the descriptor, the service lease and the bridge's
+    key and instance records -- current-user regular files only, no symlink
+    followed, nothing created, rewritten or removed -- and prints one JSON
+    line naming what it touched.
+
+    Install, once, after `dotfile link` has placed this file:
+      launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.fredrir.dmux-runtime-keepalive.plist
+    Inspect: `launchctl print gui/$UID/com.fredrir.dmux-runtime-keepalive`
+    (last exit status 0 = every present file refreshed) and the descriptor's
+    mtime under the runtime dir, which should never be older than 12 hours.
+    Linux needs none of this: XDG_RUNTIME_DIR is not age-purged.
+  -->
+  <key>Label</key>
+  <string>com.fredrir.dmux-runtime-keepalive</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/fredrir/.local/bin/dmux</string>
+    <string>_runtime-keepalive</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>43200</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
