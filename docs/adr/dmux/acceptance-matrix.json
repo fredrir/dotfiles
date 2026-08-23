@@ -795,12 +795,14 @@
     "recovery::coordinator::simultaneous_startup_clients_restore_once_and_the_second_observes_ready",
     "recovery::coordinator::hard_death_after_completed_root_republishes_ready_without_restoring_again",
     "lua::mux_startup_witness::managed_start_publishes_ready_after_spawning_only_the_sentinel_idle_pane",
-    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e"
+    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e",
+    "unit::recovery::secure_incarnation_tests::a_managed_start_retires_the_previous_incarnation_before_publishing_its_own"
    ],
    "implemented_at": [
     "shared/wezterm/mux/dmux-mux.lua mux-startup",
     "src/recovery.rs NativeSnapshot::require_sentinel_only",
-    "src/gui_lifecycle.rs ensure_ready_wez_service_with"
+    "src/gui_lifecycle.rs ensure_ready_wez_service_with",
+    "src/recovery.rs publish_incarnation_if_needed (retire by CAS, then publish; two journaled revisions)"
    ],
    "live_evidence": [
     "docs/adr/dmux/evidence/spike2-sentinel-startup.md — 1 pane, sentinel workspace, no default shell; 4 starts → 4 epochs",
@@ -809,10 +811,8 @@
    "live_evidence_required": [
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
-   "open_items": [
-    "coordinator-path test for retire→publish in src/recovery.rs (O handoff; owed)"
-   ],
-   "status": "blocked",
+   "open_items": [],
+   "status": "mapped",
    "confidence": "medium",
    "gap": "'Restores exactly once' is asserted; 'every service start produces one verified sentinel and no unmanaged default shell' is per-layer only (Lua witness under a stubbed WezTerm; Rust refusals). No test drives a real service start; wave-4 WS-F.2 doctor evidence covers it."
   },

@@ -4966,6 +4966,131 @@ mod secure_incarnation_tests {
                 .unwrap();
         assert_eq!(verified.pid, pid);
     }
+
+    /// WS-B.3's coordinator half (ADR 012 §10, O's handoff): a managed start
+    /// that finds a previous incarnation published retires it by
+    /// compare-and-set before publishing its own, so the transition is two
+    /// journaled authority revisions rather than an overwrite; a witness
+    /// refresh of the same epoch is one revision; an exact match is none.
+    #[test]
+    fn a_managed_start_retires_the_previous_incarnation_before_publishing_its_own() {
+        let scratch = tempfile::tempdir().unwrap();
+        let runtime = scratch.path().join("runtime");
+        fs::DirBuilder::new().mode(0o700).create(&runtime).unwrap();
+        let socket = runtime.join(crate::runtime::WEZ_SOCKET_FILE);
+        let _listener = UnixListener::bind(&socket).unwrap();
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let socket_metadata = fs::symlink_metadata(&socket).unwrap();
+        let pid = std::process::id();
+        let start_token = crate::runtime::process_start_token_for_pid(pid).unwrap();
+        let boot_id = crate::runtime::current_boot_id().unwrap();
+        let epoch = ServerEpoch(Uuid::new_v4());
+        let previous = ServerEpoch(Uuid::new_v4());
+        let config = RegistryConfig::new(
+            scratch.path().join("registry.sqlite3"),
+            scratch.path().join("locks"),
+        );
+        let mut registry = Registry::open(config.clone()).unwrap();
+        let instance = registry
+            .register_backend_instance(
+                Backend::Wez,
+                Some(socket.to_str().unwrap()),
+                Some("test-service"),
+            )
+            .unwrap();
+        // The incarnation a crashed or replaced server left behind.
+        registry
+            .publish_backend_server(instance, previous, Some(1), Some("gone"), None, None)
+            .unwrap();
+        let head_before = registry.authority_head().unwrap().revision;
+        let links_before = registry.revision_chain().unwrap().len();
+        drop(registry);
+
+        let options = RecoveryCoordinatorOptions::new(
+            config.clone(),
+            runtime.clone(),
+            scratch.path().join("manifests"),
+            instance,
+            epoch,
+            i64::from(pid),
+            start_token.clone(),
+            "/test-only/pane-bootstrap".into(),
+        );
+        let witness = crate::runtime::VerifiedWezServiceIdentity {
+            pid,
+            start_token: start_token.clone(),
+            boot_id,
+            socket_dev: socket_metadata.dev(),
+            socket_ino: socket_metadata.ino(),
+        };
+        let lease = |config: &RegistryConfig| {
+            InstanceLeaseGuard::acquire(
+                config.clone(),
+                instance,
+                LeaseScope::Recovery(instance),
+                Uuid::new_v4(),
+                DEFAULT_LEASE_TTL,
+            )
+            .unwrap()
+        };
+
+        // Retire then publish: two journaled revisions, and the row is the
+        // fresh incarnation with the verified witnesses.
+        let mut guard = lease(&config);
+        publish_incarnation_if_needed(&mut guard, &options, Some(&witness)).unwrap();
+        guard.release().unwrap();
+        let registry = Registry::open(config.clone()).unwrap();
+        let published = registry.backend_server(instance).unwrap();
+        assert_eq!(published.server_epoch, Some(epoch));
+        assert_eq!(published.server_pid, Some(i64::from(pid)));
+        assert_eq!(
+            registry.authority_head().unwrap().revision,
+            head_before + 2,
+            "retire and publish are two revisions, not one overwrite"
+        );
+        assert_eq!(registry.revision_chain().unwrap().len(), links_before + 2);
+        let head_after_publish = registry.authority_head().unwrap().revision;
+        drop(registry);
+
+        // An exact match writes nothing.
+        let mut guard = lease(&config);
+        publish_incarnation_if_needed(&mut guard, &options, Some(&witness)).unwrap();
+        guard.release().unwrap();
+        let registry = Registry::open(config.clone()).unwrap();
+        assert_eq!(
+            registry.authority_head().unwrap().revision,
+            head_after_publish
+        );
+        drop(registry);
+
+        // The same epoch with a stale witness is refreshed in one revision:
+        // nothing to retire, because no other incarnation was published.
+        let mut registry = Registry::open(config.clone()).unwrap();
+        registry
+            .publish_backend_server(
+                instance,
+                epoch,
+                Some(i64::from(pid) + 1),
+                Some("stale"),
+                None,
+                None,
+            )
+            .unwrap();
+        let head_stale = registry.authority_head().unwrap().revision;
+        drop(registry);
+        let mut guard = lease(&config);
+        publish_incarnation_if_needed(&mut guard, &options, Some(&witness)).unwrap();
+        guard.release().unwrap();
+        let registry = Registry::open(config).unwrap();
+        assert_eq!(registry.authority_head().unwrap().revision, head_stale + 1);
+        let refreshed = registry.backend_server(instance).unwrap();
+        assert_eq!(refreshed.server_epoch, Some(epoch));
+        assert_eq!(refreshed.server_pid, Some(i64::from(pid)));
+        assert_eq!(
+            refreshed.server_start_token.as_deref(),
+            Some(start_token.as_str())
+        );
+    }
 }
 
 #[cfg(test)]
