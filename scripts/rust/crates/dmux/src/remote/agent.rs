@@ -8,7 +8,7 @@
 //! - canonical payload bytes = `serde_json::to_string(&payload)` of the
 //!   received payload value; `payload_sha256` must equal their sha256;
 //! - mutations are idempotent by the ENVELOPE `request_uid` end to end
-//!   (`new` through the `operations::create_space` ledger; `rename`/`rm`/
+//!   (`new` through the `operations::create_space_owner_fenced` ledger; `rename`/`rm`/
 //!   `attach_plan` through the agent's own ledger rows) — UID reuse with
 //!   different content is the typed `idempotency_reuse` error;
 //! - every response carries the full authority identity fields, and errors
@@ -258,14 +258,19 @@ pub fn run(args: &AgentArgs) -> i32 {
 /// Resolve the storage/lock seams exactly like `_tmux-bootstrap` does.
 ///
 /// The production arm resolves the lock directory through
-/// `runtime::dmux_runtime_dir()`, which on Linux no longer requires the login
-/// path to have run `pam_systemd`: with no `XDG_RUNTIME_DIR` exported it
-/// derives `/run/user/<geteuid()>` in-process and verifies it (owner, mode
-/// 0700, real directory) before trusting it. That is what makes this endpoint
-/// reachable over a Tailscale SSH session, where `tailscaled` terminates the
-/// connection itself and exports no session environment at all. The derived
-/// path is a function of the euid — never of anything the peer sent, and
-/// never of the command line the peer chose.
+/// `runtime::dmux_runtime_dir()`: the owner-side `DMUX_RUNTIME_DIR` seam
+/// when the owner's own process exported one (an absolute path, used
+/// verbatim — ADR 012 WS-E.1; ADR 009 §6 classes it with `--data-dir` and
+/// `--lock-dir` as an owner-side seam), otherwise the verified platform
+/// directory, which on Linux no longer requires the login path to have run
+/// `pam_systemd`: with no `XDG_RUNTIME_DIR` exported it derives
+/// `/run/user/<geteuid()>` in-process and verifies it (owner, mode 0700,
+/// real directory) before trusting it. That is what makes this endpoint
+/// reachable over a Tailscale SSH session, where `tailscaled` terminates
+/// the connection itself and exports no session environment at all. Either
+/// way the path is the owner's — a function of the owner's environment and
+/// euid, never of anything the peer sent: ssh carries no environment into
+/// the agent, and the peer's command line names only the method.
 pub fn resolve_env(args: &AgentArgs) -> std::io::Result<OperationEnv> {
     match (&args.data_dir, &args.lock_dir) {
         (Some(data), Some(lock)) => Ok(OperationEnv {
@@ -1931,7 +1936,8 @@ fn new_space(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Rep
         None
     };
     // End-to-end idempotency: the ENVELOPE request UID is the operation
-    // request UID; create_space owns the ledger row for method "new".
+    // request UID; create_space_owner_fenced owns the ledger row for method
+    // "new".
     let created = create_space_owner_fenced(
         &cx.env,
         OwnerCreateTarget {

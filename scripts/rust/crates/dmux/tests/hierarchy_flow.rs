@@ -499,9 +499,11 @@ fn wez_hierarchy_full_cycle_at_the_operations_layer() {
     let s = WezScratch::start("a", locks.path());
     // The wez mux server does NOT propagate arbitrary server env into
     // spawned panes (live-verified), so the DMUX_RUNTIME_DIR test seam
-    // cannot ride the server environment the way tmux tests do. Production
-    // is unaffected — the helper resolves the runtime dir itself via
-    // confstr — but the test shims the helper to export the seam.
+    // cannot ride the server environment the way tmux tests do. The helper
+    // resolves the runtime dir by the crate's one rule (ADR 012 WS-E.1:
+    // the seam when exported, else the verified platform directory), so the
+    // test shims the helper to export the seam into the pane; production
+    // exports no seam and the helper resolves the platform directory.
     let shim = data.path().join("helper-shim.sh");
     std::fs::write(
         &shim,

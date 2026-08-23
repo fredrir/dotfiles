@@ -311,7 +311,10 @@ fn verify(
     }
     let namespace = info.socket_path.ok_or((
         ErrorCode::ProviderUnavailable,
-        "managed tmux instance has no recorded namespace".to_string(),
+        crate::backend::scope::ManagedTarget::unaddressable_detail(
+            Backend::Tmux,
+            space.backend_instance,
+        ),
     ))?;
     let record = registry
         .backend_server(space.backend_instance)

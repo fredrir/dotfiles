@@ -4,8 +4,9 @@
 //!
 //! ADR 009 §4a pin: the wez mux server does NOT propagate server env into
 //! panes, so the real helper is wrapped in a shim exporting
-//! DMUX_RUNTIME_DIR (production is unaffected — the helper resolves the
-//! runtime dir itself via confstr). The shim rides the owner-side
+//! DMUX_RUNTIME_DIR — the helper resolves the runtime dir by the crate's one
+//! rule (ADR 012 WS-E.1: the seam when exported, else the verified platform
+//! directory), and production exports no seam. The shim rides the owner-side
 //! DMUX_HELPER_BIN seam; the client payloads never carry owner paths.
 
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
