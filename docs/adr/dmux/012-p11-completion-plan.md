@@ -1225,3 +1225,9 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   WS-G.7 the flip. Deferred, recorded above: the fork-side descriptor relocation, `LC_CTYPE` for
   the forced-command environment, `repair reconcile|normalize --host`, the doctor `wezterm cli`
   relabel, the `wezterm-attention` plugin's remote-window poll.
+- **Canaries on both hosts.** The owner rebooted Macie inside the window; `canary-reboot-observed
+  --host mac` (06:25:08Z) journaled `canary.mac.reboot.1`: the new incarnation (mux pid 819) with
+  `DMUX_WEZ_FIRST=1` still in the launchd session — enablement survived the reboot under the
+  canary. `canary-start --host archie` at 06:25:08Z → phase `canary_arch`; Archie's floor clears at
+  2026-08-24 06:25Z, Macie's at 06:18Z. Then `canary-end` per host, `rollback-rehearsal` per host,
+  WS-G.5 with the owner present, WS-G.7.
