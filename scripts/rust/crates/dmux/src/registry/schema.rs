@@ -1,8 +1,9 @@
 //! Versioned SQLite migrations implementing the frozen storage contract
 //! `docs/adr/dmux/registry-v1.sql` (plan §10.1), the v2 extension frozen
 //! in `docs/adr/dmux/009-w5-dispatch.md` §3 (attach tokens, pane stamps),
-//! the v3 durable terminal-abort extension for cold recovery, and the v4
-//! non-negative revision constraints.
+//! the v3 durable terminal-abort extension for cold recovery, the v4
+//! non-negative revision constraints, and the v5 adoption-journal source
+//! token.
 //!
 //! The v1 DDL below is the contract file transcribed verbatim — identical
 //! index names, identical semantics, including every `-- REQUIRED` partial
@@ -18,9 +19,15 @@ use rusqlite::Connection;
 
 /// Current schema version. Each entry in [`MIGRATIONS`] moves
 /// `user_version` from `n-1` to `n`.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
-const MIGRATIONS: &[(i64, &str)] = &[(1, V1_DDL), (2, V2_DDL), (3, V3_DDL), (4, V4_DDL)];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, V1_DDL),
+    (2, V2_DDL),
+    (3, V3_DDL),
+    (4, V4_DDL),
+    (5, V5_DDL),
+];
 
 /// registry-v1.sql, verbatim semantics (contract: equivalent index names
 /// allowed, weaker semantics not — the names are kept identical anyway).
@@ -448,6 +455,28 @@ WHERE authority_revision >= 0
 
 DROP TABLE remote_cache;
 ALTER TABLE remote_cache_v4 RENAME TO remote_cache;
+"#;
+
+/// Schema v5 (ADR 012 WS-D.2; plan §10.3 "the adoption journal covers
+/// reserved identity, source token, destination opaque key, …"): the
+/// `operations` journal gains `source_native_token`, the exact native
+/// token an `adopt`/`rebind` row was opened for — the tmux session id, or
+/// the Wez workspace name a CAS rename moved to the opaque key. Until now
+/// the journal recorded only `{name, backend_instance}`, so the
+/// compensation for a crashed Wez adoption had to aim its reverse rename at
+/// the reservation's *logical* name — byte-identical to the source unless
+/// `dmux adopt --name` was used (ADR 011's recorded limitation). With the
+/// column, reconciliation reverses to the source it was told, and a
+/// crashed `repair rebind` is settled by source/destination/epoch.
+///
+/// `ALTER TABLE … ADD COLUMN` with no constraint is the one in-place schema
+/// change SQLite performs without a rebuild: existing rows read back NULL,
+/// which every reader treats as "not journaled" (pre-v5 row) and falls back
+/// to the logical name exactly as before — lossless, and proven so by
+/// `tests/registry/migrate_v5.rs`. `create` rows have no source and stay
+/// NULL by design.
+const V5_DDL: &str = r#"
+ALTER TABLE operations ADD COLUMN source_native_token TEXT;
 "#;
 
 /// Apply the normative per-connection settings from the contract header:

@@ -85,6 +85,81 @@ fn rebind_reservation_finalizes_like_adopt() {
     assert_eq!(row.health, Health::Unstamped);
 }
 
+/// ADR 012 WS-D.2: the adoption journal carries the source token — the
+/// exact native token the operation was asked to adopt — beside the name
+/// the operator chose, so a crashed Wez adopt is reversed to the source and
+/// not to `--name`. A create has no source; `reserve_adoption` refuses it
+/// typed with nothing written.
+#[test]
+fn reserve_adoption_records_the_source_token_and_refuses_create() {
+    let s = scratch();
+    let mut reg = open(&s.config);
+    let instance = tmux_instance(&mut reg);
+
+    let r = reg
+        .reserve_adoption(
+            "other",
+            instance,
+            Uuid::new_v4(),
+            OperationKind::Adopt,
+            "legacy",
+        )
+        .unwrap();
+    let op = reg.operation(r.operation_uid).unwrap();
+    assert_eq!(op.kind, OperationKind::Adopt);
+    assert_eq!(op.source_native_token.as_deref(), Some("legacy"));
+    assert_eq!(reg.space(r.space_uid).unwrap().logical_name, "other");
+    let rebind = reg
+        .reserve_adoption(
+            "again",
+            instance,
+            Uuid::new_v4(),
+            OperationKind::Rebind,
+            "$4",
+        )
+        .unwrap();
+    assert_eq!(
+        reg.operation(rebind.operation_uid)
+            .unwrap()
+            .source_native_token
+            .as_deref(),
+        Some("$4")
+    );
+
+    let before = reg.authority_head().unwrap();
+    for kind in [
+        OperationKind::Create,
+        OperationKind::Rename,
+        OperationKind::Remove,
+        OperationKind::Normalize,
+        OperationKind::Stamp,
+    ] {
+        let err = reg
+            .reserve_adoption("fresh", instance, Uuid::new_v4(), kind, "$9")
+            .unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::KindNotAllowed { kind: k, allowed } if *k == kind && *allowed == "adopt/rebind"),
+            "{kind}: got {err}"
+        );
+    }
+    assert_eq!(reg.authority_head().unwrap(), before);
+    let ops: i64 = reg
+        .raw_connection()
+        .query_row("SELECT count(*) FROM operations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(ops, 2);
+
+    // The kind-only reservation still records no source: that is the shape
+    // of every row journaled before schema v5, and of every create.
+    let plain = reserve(&mut reg, "fresh", instance);
+    assert_eq!(
+        reg.operation(plain.operation_uid)
+            .unwrap()
+            .source_native_token,
+        None
+    );
+}
+
 #[test]
 fn reserve_space_kind_rejects_existing_space_kinds_typed_with_no_side_effects() {
     let s = scratch();

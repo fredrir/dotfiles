@@ -886,6 +886,12 @@ pub struct OperationRow {
     pub state: OperationState,
     pub request_uid: Uuid,
     pub payload_json: String,
+    /// The exact native token an `adopt`/`rebind` row was opened for (the
+    /// tmux session id; the Wez workspace name before its CAS rename to the
+    /// opaque key). `None` on `create` rows, which have no source, and on
+    /// rows journaled before schema v5 — reconciliation then falls back to
+    /// the reservation's logical name, as it always did (ADR 012 WS-D.2).
+    pub source_native_token: Option<String>,
     pub fencing_token: Option<i64>,
     pub started_at: String,
     pub updated_at: String,
@@ -1916,6 +1922,60 @@ impl Registry {
                 });
             }
         }
+        self.reserve_identity(name, backend_instance, request_uid, kind, None)
+    }
+
+    /// The reservation an explicit adoption opens (plan §10.3; ADR 012
+    /// WS-D.2): like [`Registry::reserve_space_kind`] for `adopt`/`rebind`,
+    /// but the journal row also records `source_native_token` — the exact
+    /// native token the operation was asked to adopt (the tmux session id;
+    /// the Wez workspace name before its CAS rename to the opaque key). That
+    /// is what a crashed Wez adoption is reversed to, and what
+    /// source/destination/epoch reconciliation reads; the logical name is
+    /// the operator's `--name`, not the resource. `create` has no source and
+    /// is the typed [`RegistryError::KindNotAllowed`] here, no side effects.
+    pub fn reserve_adoption(
+        &mut self,
+        name: &str,
+        backend_instance: BackendInstanceUid,
+        request_uid: Uuid,
+        kind: OperationKind,
+        source_native_token: &str,
+    ) -> Result<SpaceReservation> {
+        match kind {
+            OperationKind::Adopt | OperationKind::Rebind => {}
+            OperationKind::Create
+            | OperationKind::Rename
+            | OperationKind::Remove
+            | OperationKind::Normalize
+            | OperationKind::Stamp => {
+                return Err(RegistryError::KindNotAllowed {
+                    kind,
+                    allowed: "adopt/rebind",
+                });
+            }
+        }
+        self.reserve_identity(
+            name,
+            backend_instance,
+            request_uid,
+            kind,
+            Some(source_native_token),
+        )
+    }
+
+    /// Shared body of the two reservation entry points: SpaceUid (UUIDv7)
+    /// plus the next SpaceNo from the meta counter, committed as
+    /// `lifecycle=reserved` with a `<kind>/prepared` journal row, one
+    /// transaction, chain advanced.
+    fn reserve_identity(
+        &mut self,
+        name: &str,
+        backend_instance: BackendInstanceUid,
+        request_uid: Uuid,
+        kind: OperationKind,
+        source_native_token: Option<&str>,
+    ) -> Result<SpaceReservation> {
         let space_uid = SpaceUid(Uuid::now_v7());
         let operation_uid = Uuid::new_v4();
         let payload = serde_json::json!({
@@ -1954,18 +2014,15 @@ impl Registry {
                 },
                 other => other,
             })?;
-            tx.execute(
-                "INSERT INTO operations (operation_uid, space_uid, kind, operation_state, \
-                 request_uid, payload_json, started_at, updated_at) \
-                 VALUES (?1, ?2, ?3, 'prepared', ?4, ?5, ?6, ?6)",
-                params![
-                    operation_uid.to_string(),
-                    space_uid.0.to_string(),
-                    kind.as_str(),
-                    request_uid.to_string(),
-                    payload,
-                    now
-                ],
+            insert_operation(
+                tx,
+                operation_uid,
+                space_uid,
+                kind,
+                request_uid,
+                &payload,
+                source_native_token,
+                &now,
             )?;
             advance_revision(tx, &now)?;
             let space_no = NonZeroU64::new(no as u64)
@@ -2165,6 +2222,7 @@ impl Registry {
                 kind,
                 request_uid,
                 &payload,
+                None,
                 &now,
             )?;
             advance_revision(tx, &now)?;
@@ -2283,6 +2341,7 @@ impl Registry {
                 OperationKind::Rename,
                 request_uid,
                 &payload,
+                None,
                 &now,
             )?;
             advance_revision(tx, &now)?;
@@ -2397,6 +2456,7 @@ impl Registry {
                 OperationKind::Rebind,
                 request_uid,
                 &payload,
+                Some(source_native_token),
                 &now,
             )?;
             advance_revision(tx, &now)?;
@@ -2515,6 +2575,7 @@ impl Registry {
                 OperationKind::Remove,
                 request_uid,
                 &serde_json::json!({}).to_string(),
+                None,
                 &now,
             )?;
             advance_revision(tx, &now)?;
@@ -3137,7 +3198,8 @@ pub struct BackupReport {
 // Internal SQL helpers
 
 const OP_COLUMNS: &str = "operation_uid, space_uid, kind, operation_state, request_uid, \
-                          payload_json, fencing_token, started_at, updated_at, finished_at";
+                          payload_json, fencing_token, started_at, updated_at, finished_at, \
+                          source_native_token";
 const SPACE_COLUMNS: &str = "space_uid, owner_host_uid, space_no, backend_instance_id, \
                              logical_name, lifecycle, health, created_at, updated_at, deleted_at";
 const LEASE_COLUMNS: &str = "lease_id, scope, holder_request_uid, fencing_token, holder_pid, \
@@ -3156,6 +3218,7 @@ type RawOperationRow = (
     String,
     String,
     Option<String>,
+    Option<String>,
 );
 
 fn map_operation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawOperationRow> {
@@ -3170,11 +3233,12 @@ fn map_operation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawOperationRo
         row.get(7)?,
         row.get(8)?,
         row.get(9)?,
+        row.get(10)?,
     ))
 }
 
 fn finish_operation_row(raw: RawOperationRow) -> Result<OperationRow> {
-    let (op, space, kind, state, request, payload, fence, started, updated, finished) = raw;
+    let (op, space, kind, state, request, payload, fence, started, updated, finished, source) = raw;
     Ok(OperationRow {
         operation_uid: parse_uuid(&op)?,
         space_uid: SpaceUid(parse_uuid(&space)?),
@@ -3184,6 +3248,7 @@ fn finish_operation_row(raw: RawOperationRow) -> Result<OperationRow> {
             .ok_or_else(|| RegistryError::Corrupt(format!("operation state {state:?}")))?,
         request_uid: parse_uuid(&request)?,
         payload_json: payload,
+        source_native_token: source,
         fencing_token: fence,
         started_at: started,
         updated_at: updated,
@@ -3312,6 +3377,7 @@ fn read_lease(tx: &Connection, lease_id: i64) -> Result<Lease> {
     finish_lease_row(raw)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_operation(
     tx: &Connection,
     operation_uid: Uuid,
@@ -3319,18 +3385,20 @@ fn insert_operation(
     kind: OperationKind,
     request_uid: Uuid,
     payload_json: &str,
+    source_native_token: Option<&str>,
     now: &str,
 ) -> Result<()> {
     tx.execute(
         "INSERT INTO operations (operation_uid, space_uid, kind, operation_state, \
-         request_uid, payload_json, started_at, updated_at) \
-         VALUES (?1, ?2, ?3, 'prepared', ?4, ?5, ?6, ?6)",
+         request_uid, payload_json, source_native_token, started_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'prepared', ?4, ?5, ?6, ?7, ?7)",
         params![
             operation_uid.to_string(),
             space_uid.0.to_string(),
             kind.as_str(),
             request_uid.to_string(),
             payload_json,
+            source_native_token,
             now
         ],
     )

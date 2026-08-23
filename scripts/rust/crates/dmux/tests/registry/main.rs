@@ -5,7 +5,8 @@
 //! the bootstrap journal and server-epoch publication in [`bootstrap`];
 //! the P6 adoption surface (kind-explicit reservation, unstamped
 //! finalization, health transitions) lives in [`adopt`]. The W5/P7 identity
-//! surface (ADR 009 §3) adds the v1→v2 migration in [`migrate_v2`], host
+//! surface (ADR 009 §3) adds the v1→v2 migration in [`migrate_v2`] (the
+//! v4→v5 adoption-journal source token is [`migrate_v5`]), host
 //! enrollment in [`hosts`], route records in [`routes`], single-use attach
 //! tokens in [`attach`], the peer snapshot cache in [`peer_cache`], and
 //! pane stamps in [`stamps`].
@@ -27,6 +28,7 @@ mod leases;
 mod lineage;
 mod migrate_v2;
 mod migrate_v3;
+mod migrate_v5;
 mod peer_cache;
 mod reconcile;
 mod recovery;
