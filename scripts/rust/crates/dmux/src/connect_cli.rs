@@ -1101,7 +1101,7 @@ pub fn production_connect_client_context() -> Result<ConnectClientContext, Typed
                     "managed tmux instance has no valid published pid",
                 )
             })?,
-        start_token: server.server_start_token.ok_or_else(|| {
+        start_token: server.server_start_token.clone().ok_or_else(|| {
             TypedError::new(
                 ErrorCode::WrongBackendInstance,
                 "managed tmux instance has no published process start token",
@@ -1591,6 +1591,69 @@ fn marker_from_process_env() -> Result<crate::bootstrap::MarkerContext, TypedErr
         group_ref: required("DMUX_GROUP_REF")?,
         split_ref: required("DMUX_SPLIT_REF")?,
     })
+}
+
+/// ADR 012 WS-A.9 at this reader (O's close handed the five readers outside
+/// the operations layer to their file owners): when the registry row carries
+/// the socket witnesses `tmux_bootstrap` published, a fresh probe of the
+/// namespace and a fresh `stat` of its socket must agree with the row on pid,
+/// start token, dev and ino before the server's self-reported epoch is
+/// consulted. A replaced server on the same socket path that merely presents
+/// the old `@dmux_server_epoch` is a stale incarnation (ADR 012 §3.1 state F)
+/// and is refused `backend_epoch_changed` — the code every operations-layer
+/// tmux verification answers with (`operations::verify_published_incarnation`)
+/// — rather than the `wrong_backend_instance` a pid mismatch alone would draw
+/// from `verify_epoch`, so the operator hears one name for one fault. That is
+/// why this runs *before* `verify_epoch`. A row published before WS-A.9
+/// carries no witnesses and is verified by identity and epoch alone.
+pub fn require_published_tmux_incarnation(
+    provider: &crate::backend::tmux::TmuxProvider<crate::backend::tmux::SystemRunner>,
+    namespace: &str,
+    published: &crate::registry::BackendServerRecord,
+) -> Result<(), TypedError> {
+    if published.socket_dev.is_none() && published.socket_ino.is_none() {
+        return Ok(());
+    }
+    let live = provider.server_incarnation(namespace).map_err(|error| {
+        TypedError::new(
+            ErrorCode::ProviderUnavailable,
+            format!("tmux incarnation probe on namespace {namespace:?}: {error:?}"),
+        )
+    })?;
+    let recorded = (
+        published.server_pid,
+        published.server_start_token.clone(),
+        published.socket_dev,
+        published.socket_ino,
+    );
+    let observed = (
+        Some(i64::from(live.identity.pid)),
+        Some(live.identity.start_token.clone()),
+        i64::try_from(live.socket_dev).ok(),
+        i64::try_from(live.socket_ino).ok(),
+    );
+    if recorded != observed {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            format!(
+                "tmux server on namespace {namespace:?} is a stale incarnation, not the \
+                 registry-published one: registry pid {:?} start {:?} socket dev/ino {:?}/{:?}; \
+                 live pid {} start {:?} socket {:?} dev/ino {}/{} (ADR 012 §3.1 state F); \
+                 retire the published incarnation with `dmux repair retire-incarnation` and \
+                 re-bootstrap the live server",
+                published.server_pid,
+                published.server_start_token,
+                published.socket_dev,
+                published.socket_ino,
+                live.identity.pid,
+                live.identity.start_token,
+                live.socket_path,
+                live.socket_dev,
+                live.socket_ino
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn typed_context_provider(error: crate::backend::ProviderError) -> TypedError {
