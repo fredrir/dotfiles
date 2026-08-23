@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tools.dmux_rollout import service_env
 from tools.dmux_rollout.command import Runner, remote_argv, require_ssh_host, sha256_file
 from tools.dmux_rollout.errors import Refusal, RolloutError, StateError
 from tools.dmux_rollout.model import Release, require_commit, require_space_uid
@@ -31,6 +33,11 @@ PACKAGE_RE = re.compile(
 # The unit that linux/arch/wezterm-mux installs; the *binary* it runs is
 # wezterm-mux-server, which is a different name and not interchangeable.
 ARCHIE_MUX_UNIT = "wezterm-mux.service"
+# The one-shot LaunchAgent that copies ~/.config/dmux/service.env into the
+# launchd session (ADR 012 WS-F.1). macos/launchd/com.fredrir.dmux-env.plist
+# is tracked; linking and bootstrapping it is the operator's step, never
+# this tool's, which is why deploy-mac refuses when it is absent.
+MAC_ENV_LOADER_LABEL = "com.fredrir.dmux-env"
 AMBIENT_MUX_VARS = (
     "TMUX",
     "TMUX_PANE",
@@ -68,6 +75,12 @@ class WorkflowConfig:
     mac_app: Path = Path("/Applications/WezTerm.app")
     mac_dmux: Path = Path.home() / ".local" / "bin" / "dmux"
     mac_pane_bootstrap: Path = Path.home() / ".local" / "bin" / "pane-bootstrap"
+    mac_service_env: Path = Path.home() / service_env.MAC_RELATIVE_PATH
+    mac_env_loader_plist: Path = Path.home() / f"Library/LaunchAgents/{MAC_ENV_LOADER_LABEL}.plist"
+
+    @property
+    def archie_env_file(self) -> Path:
+        return self.archie_home / service_env.LINUX_RELATIVE_PATH
 
     @classmethod
     def production(cls, dotfiles_repo: Path) -> WorkflowConfig:
@@ -849,6 +862,7 @@ class Workflow:
         if release.data["smoke"].get("space_uid"):
             approved.add(release.data["smoke"]["space_uid"])
         self._require_live_config_matches(release)
+        self._require_mac_env_loader()
         self._verify_artifact_set(release.data["artifacts"].get("mac_dotfiles"), "mac_dotfiles")
         self._verify_artifact_set(release.data["artifacts"].get("mac_wezterm"), "mac_wezterm")
 
@@ -867,12 +881,16 @@ class Workflow:
         if not release.completed("deploy.mac.backup"):
             backups = self._backup_mac_files(release)
             release.data["rollback"]["mac"]["files"] = backups
-            release.data["rollback"]["mac"]["launchd_dmux_wez_first"] = self.runner.capture(
-                ["launchctl", "getenv", "DMUX_WEZ_FIRST"], check=False
-            ).stdout.strip()
-            self.store.checkpoint(release, "deploy.mac.backup", {"files": backups})
+            # The durable flag lives in a file, so the file is what rollback
+            # restores: its exact bytes, or its absence.
+            env_backup = self._env_file_backup(self.config.mac_service_env)
+            release.data["rollback"]["mac"]["service_env"] = env_backup
+            self.store.checkpoint(
+                release, "deploy.mac.backup", {"files": backups, "service_env": env_backup}
+            )
         else:
             self._verify_mac_backups(release)
+            self._require_mac_env_backup(release)
 
         if not release.completed("deploy.mac.install"):
             try:
@@ -898,7 +916,7 @@ class Workflow:
             if current["pid"] != intent["pid"] and current["epoch"] != intent["epoch"]:
                 after = current
             else:
-                self.runner.capture(["launchctl", "setenv", "DMUX_WEZ_FIRST", "1"])
+                enabled = self._enable_mac_durable_flag()
                 label = release.data["hosts"]["mac"]["service_label"]
                 self.runner.capture(
                     ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{label}"],
@@ -910,6 +928,7 @@ class Workflow:
                     require_quiet=True,
                     timeout=90,
                 )
+                after["service_env"] = enabled
             self.store.checkpoint(release, "deploy.mac.service", after)
         else:
             after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=True)
@@ -1027,6 +1046,182 @@ class Workflow:
             path = Path(row["backup"])
             if not path.is_file() or sha256_file(path) != row["before_sha256"]:
                 raise Refusal(f"Mac rollback artifact is missing or changed: {path}")
+
+    # Durable per-host enablement (ADR 012 WS-F.1) ------------------------
+    #
+    # DMUX_WEZ_FIRST reaches the mux and the GUI from a file, never from
+    # `launchctl setenv`/`systemctl --user set-environment` alone: those are
+    # runtime-only and a reboot clears them (§3.1). On macOS the tool writes
+    # ~/.config/dmux/service.env, re-runs the com.fredrir.dmux-env loader so
+    # the launchd session carries the value for the next GUI launch, and
+    # proves it did before the mux is restarted (dmux-mux-start.sh reads the
+    # file itself, so the mux never depends on the loader's order). On Linux
+    # the one knob is ~/.config/environment.d/50-dmux.conf plus daemon-reload.
+    # Rollback restores the file's exact prior bytes, or its absence.
+
+    def _require_mac_env_loader(self) -> None:
+        plist = self.config.mac_env_loader_plist
+        remedy = (
+            "dmux-rollout never links dotfiles; do it by hand first: `dotfile link`, then "
+            f"`launchctl bootstrap gui/{os.getuid()} {plist}`"
+        )
+        if not plist.is_file():
+            raise Refusal(
+                f"durable enablement needs the {MAC_ENV_LOADER_LABEL} LaunchAgent and {plist} "
+                f"is absent. {remedy}"
+            )
+        loaded = self.runner.capture(
+            ["launchctl", "print", f"gui/{os.getuid()}/{MAC_ENV_LOADER_LABEL}"], check=False
+        )
+        if loaded.returncode != 0:
+            raise Refusal(
+                f"{plist} is linked but gui/{os.getuid()}/{MAC_ENV_LOADER_LABEL} is not loaded. "
+                f"{remedy}"
+            )
+
+    @staticmethod
+    def _env_file_text(path: Path) -> str | None:
+        """The file's text, or None when it is absent. Refuses anything odd."""
+        if path.is_symlink():
+            raise Refusal(f"service environment file must not be a symlink: {path}")
+        if not path.exists():
+            return None
+        if not path.is_file():
+            raise Refusal(f"service environment path is not a regular file: {path}")
+        try:
+            return path.read_bytes().decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise Refusal(f"service environment file is not UTF-8: {path}") from error
+
+    def _env_file_backup(self, path: Path) -> dict[str, Any]:
+        text = self._env_file_text(path)
+        if text is None:
+            return {"path": str(path), "absent": True, "content": None, "sha256": None}
+        # A file the grammar refuses would be refused by the loader and the
+        # mux too; surface it before anything is installed, not at restart.
+        service_env.parse(text, name=str(path))
+        return {
+            "path": str(path),
+            "absent": False,
+            "content": text,
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        }
+
+    @staticmethod
+    def _require_env_backup(release: Release, host: str) -> dict[str, Any]:
+        backup = release.data["rollback"][host].get("service_env")
+        if not isinstance(backup, dict) or not {"path", "absent", "content"} <= set(backup):
+            raise StateError(
+                f"{host} service environment backup is absent: this release predates durable "
+                "enablement (ADR 012 WS-F.1); restore the flag by hand"
+            )
+        return backup
+
+    def _require_mac_env_backup(self, release: Release) -> dict[str, Any]:
+        return self._require_env_backup(release, "mac")
+
+    def _write_env_file(self, path: Path, content: str) -> dict[str, Any]:
+        service_env.parse(content, name=str(path))
+        if path.is_symlink():
+            raise Refusal(f"service environment file must not be a symlink: {path}")
+        directory = path.parent
+        if not directory.exists():
+            directory.mkdir(mode=0o700, parents=True)
+            os.chmod(directory, 0o700)
+        if directory.is_symlink() or not directory.is_dir():
+            raise Refusal(f"service environment directory is not a real directory: {directory}")
+        if directory.lstat().st_uid != os.getuid():
+            raise Refusal(f"service environment directory is not owned by this user: {directory}")
+        self._write_generated(path, content)
+        return {
+            "path": str(path),
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "assignments": service_env.parse(content, name=str(path)),
+        }
+
+    def _set_mac_env(self, assignments: dict[str, str]) -> dict[str, Any]:
+        """Apply `assignments` to service.env and load them into launchd."""
+        path = self.config.mac_service_env
+        current = self._env_file_text(path) or ""
+        rendered = service_env.render(current, assignments, name=str(path))
+        written = self._write_env_file(path, rendered)
+        self._reload_mac_env_loader()
+        for key, value in assignments.items():
+            self._require_launchd_env(key, value)
+        return written
+
+    def _enable_mac_durable_flag(self) -> dict[str, Any]:
+        path = self.config.mac_service_env
+        current = self._env_file_text(path)
+        if current is not None:
+            stated = service_env.parse(current, name=str(path)).get(service_env.WEZ_FIRST)
+            if stated == "1":
+                # Already durable (WS-F.2's by-hand repair writes this line);
+                # keep the operator's bytes and only prove launchd agrees.
+                self._reload_mac_env_loader()
+                self._require_launchd_env(service_env.WEZ_FIRST, "1")
+                return {
+                    "path": str(path),
+                    "sha256": hashlib.sha256(current.encode("utf-8")).hexdigest(),
+                    "assignments": service_env.parse(current, name=str(path)),
+                    "unchanged": True,
+                }
+        return self._set_mac_env({service_env.WEZ_FIRST: "1"})
+
+    def _reload_mac_env_loader(self) -> None:
+        self.runner.capture(
+            ["launchctl", "kickstart", f"gui/{os.getuid()}/{MAC_ENV_LOADER_LABEL}"], timeout=30
+        )
+
+    def _launchd_env(self, name: str) -> str:
+        return self.runner.capture(["launchctl", "getenv", name], check=False).stdout.strip()
+
+    def _require_launchd_env(self, name: str, expected: str, *, timeout: float = 15) -> None:
+        # The loader is a one-shot job and `kickstart` returns before it has
+        # applied the file, so poll the session environment briefly.
+        deadline = time.monotonic() + timeout
+        observed = self._launchd_env(name)
+        while observed != expected and time.monotonic() < deadline:
+            time.sleep(0.25)
+            observed = self._launchd_env(name)
+        if observed != expected:
+            raise Refusal(
+                f"launchd carries {name}={observed!r}, expected {expected!r}, after "
+                f"{MAC_ENV_LOADER_LABEL} ran; `launchctl print gui/{os.getuid()}/"
+                f"{MAC_ENV_LOADER_LABEL}` shows the loader's last exit status (nonzero means "
+                f"{self.config.mac_service_env} was refused whole and nothing was applied)"
+            )
+
+    def _restore_mac_env_file(self, backup: dict[str, Any]) -> dict[str, Any]:
+        """Put service.env back as it was, and make launchd agree with it.
+
+        The loader only sets, so a key the restored file no longer states is
+        unset by hand; the result is exactly the file's statement, which is
+        the durable truth a reboot would reproduce.
+        """
+        path = Path(backup["path"])
+        if backup["absent"]:
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise Refusal(f"rollback target is not the regular file the tool wrote: {path}")
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+            restored: dict[str, str] = {}
+        else:
+            content = backup["content"]
+            if hashlib.sha256(content.encode("utf-8")).hexdigest() != backup.get("sha256"):
+                raise StateError("Mac service environment backup does not match its hash")
+            self._write_env_file(path, content)
+            restored = service_env.parse(content, name=str(path))
+        self._reload_mac_env_loader()
+        for name in (service_env.WEZ_FIRST, service_env.LEGACY_POLICY):
+            if name in restored:
+                self._require_launchd_env(name, restored[name])
+            else:
+                self.runner.capture(["launchctl", "unsetenv", name], check=False)
+                self._require_launchd_env(name, "")
+        return {"path": str(path), "absent": backup["absent"], "assignments": restored}
 
     def _install_mac_release(self, release: Release) -> None:
         dotfiles = release.data["artifacts"]["mac_dotfiles"]
@@ -1338,19 +1533,13 @@ class Workflow:
         if not release.completed("deploy.archie.user_backup"):
             backups = self._backup_archie_user_binaries(release)
             release.data["rollback"]["archie"]["user_files"] = backups
-            environment = self.runner.capture(
-                remote_argv(host, ["systemctl", "--user", "show-environment"])
-            ).stdout.splitlines()
-            release.data["rollback"]["archie"]["dmux_wez_first"] = next(
-                (
-                    line.partition("=")[2]
-                    for line in environment
-                    if line.startswith("DMUX_WEZ_FIRST=")
-                ),
-                "",
+            env_backup = self._remote_env_file_backup(host, self.config.archie_env_file)
+            release.data["rollback"]["archie"]["service_env"] = env_backup
+            self.store.checkpoint(
+                release, "deploy.archie.user_backup", {"files": backups, "service_env": env_backup}
             )
-            self.store.checkpoint(release, "deploy.archie.user_backup", {"files": backups})
         else:
+            self._require_env_backup(release, "archie")
             self._verify_remote_artifacts(
                 host,
                 {
@@ -1401,12 +1590,7 @@ class Workflow:
             ):
                 after = current
             else:
-                self.runner.capture(
-                    remote_argv(
-                        host, ["systemctl", "--user", "set-environment", "DMUX_WEZ_FIRST=1"]
-                    )
-                )
-                self.runner.capture(remote_argv(host, ["systemctl", "--user", "daemon-reload"]))
+                enabled = self._set_archie_env(release, {service_env.WEZ_FIRST: "1"})
                 self.runner.capture(
                     remote_argv(host, ["systemctl", "--user", "restart", ARCHIE_MUX_UNIT]),
                     timeout=60,
@@ -1420,6 +1604,7 @@ class Workflow:
                     require_quiet=True,
                     timeout=90,
                 )
+                after["service_env"] = enabled
             self.store.checkpoint(release, "deploy.archie.service", after)
         else:
             self._archie_owner_snapshot(release, approved_spaces=approved, require_quiet=True)
@@ -1655,6 +1840,111 @@ class Workflow:
             if row["sha256"] != artifacts[name]["sha256"]:
                 raise Refusal(f"Archie installed binary differs after atomic replacement: {name}")
         return installed
+
+    def _remote_env_file_backup(self, host: str, path: Path) -> dict[str, Any]:
+        regular = self.runner.capture(remote_argv(host, ["test", "-f", str(path)]), check=False)
+        if regular.returncode != 0:
+            present = self.runner.capture(remote_argv(host, ["test", "-e", str(path)]), check=False)
+            if present.returncode == 0:
+                raise Refusal(f"Archie service environment path is not a regular file: {path}")
+            return {"path": str(path), "absent": True, "content": None, "sha256": None}
+        content = self.runner.capture(remote_argv(host, ["cat", "--", str(path)])).stdout
+        service_env.parse(content, name=f"{host}:{path}")
+        return {
+            "path": str(path),
+            "absent": False,
+            "content": content,
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        }
+
+    def _remote_user_directory(self, host: str, path: Path) -> None:
+        # Unlike the staging roots, ~/.config/environment.d is a directory
+        # systemd owns the meaning of; create it private when absent, but
+        # only require ownership of one that already exists.
+        self.runner.capture(remote_argv(host, ["install", "-d", "-m", "0700", str(path)]))
+        metadata = self.runner.capture(
+            remote_argv(host, ["stat", "-c", "%U:%F", str(path)])
+        ).stdout.strip()
+        if metadata != "fredrir:directory":
+            raise Refusal(f"remote directory is not this user's: {path} ({metadata})")
+
+    def _write_remote_env_file(
+        self, release: Release, host: str, path: Path, content: str, *, label: str
+    ) -> dict[str, Any]:
+        service_env.parse(content, name=f"{host}:{path}")
+        local = self._artifact_root(release) / "generated" / label
+        local.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._write_generated(local, content)
+        self._remote_user_directory(host, path.parent)
+        temporary = path.parent / f".{path.name}.{release.release_id}.tmp"
+        self.runner.capture(["scp", "-q", str(local), f"{host}:{temporary}"])
+        self.runner.capture(remote_argv(host, ["chmod", "0600", str(temporary)]))
+        self.runner.capture(remote_argv(host, ["mv", "-fT", "--", str(temporary), str(path)]))
+        expected = sha256_file(local)
+        actual = self._remote_artifacts(host, {path.name: path})[path.name]["sha256"]
+        if actual != expected:
+            raise Refusal(f"Archie service environment file differs after replacement: {path}")
+        return {
+            "path": str(path),
+            "sha256": expected,
+            "assignments": service_env.parse(content, name=f"{host}:{path}"),
+        }
+
+    def _systemd_env(self, host: str) -> dict[str, str]:
+        lines = self.runner.capture(
+            remote_argv(host, ["systemctl", "--user", "show-environment"])
+        ).stdout.splitlines()
+        return dict(line.partition("=")[::2] for line in lines if "=" in line)
+
+    def _require_systemd_env(self, host: str, name: str, expected: str) -> None:
+        observed = self._systemd_env(host).get(name, "")
+        if observed != expected:
+            raise Refusal(
+                f"Archie's systemd user manager carries {name}={observed!r}, expected "
+                f"{expected!r}, after daemon-reload; {self.config.archie_env_file} is the one "
+                "knob (environment.d(5)) -- check `systemctl --user show-environment` by hand"
+            )
+
+    def _set_archie_env(self, release: Release, assignments: dict[str, str]) -> dict[str, Any]:
+        """Apply `assignments` to 50-dmux.conf and load them into systemd."""
+        host = release.data["hosts"]["archie"]["ssh"]
+        path = self.config.archie_env_file
+        current = self._remote_env_file_backup(host, path)
+        text = "" if current["absent"] else current["content"]
+        rendered = service_env.render(text, assignments, name=f"{host}:{path}")
+        written = self._write_remote_env_file(
+            release, host, path, rendered, label=f"{path.name}.archie"
+        )
+        self.runner.capture(remote_argv(host, ["systemctl", "--user", "daemon-reload"]))
+        for key, value in assignments.items():
+            self._require_systemd_env(host, key, value)
+        return written
+
+    def _restore_archie_env_file(self, release: Release, backup: dict[str, Any]) -> dict[str, Any]:
+        host = release.data["hosts"]["archie"]["ssh"]
+        path = Path(backup["path"])
+        if backup["absent"]:
+            self.runner.capture(remote_argv(host, ["rm", "-f", "--", str(path)]))
+            restored: dict[str, str] = {}
+        else:
+            content = backup["content"]
+            if hashlib.sha256(content.encode("utf-8")).hexdigest() != backup.get("sha256"):
+                raise StateError("Archie service environment backup does not match its hash")
+            self._write_remote_env_file(
+                release, host, path, content, label=f"{path.name}.archie.rollback"
+            )
+            restored = service_env.parse(content, name=f"{host}:{path}")
+        self.runner.capture(remote_argv(host, ["systemctl", "--user", "daemon-reload"]))
+        for name in (service_env.WEZ_FIRST, service_env.LEGACY_POLICY):
+            if name in restored:
+                self._require_systemd_env(host, name, restored[name])
+            else:
+                self.runner.capture(
+                    remote_argv(host, ["systemctl", "--user", "unset-environment", name]),
+                    check=False,
+                )
+                self._require_systemd_env(host, name, "")
+        return {"path": str(path), "absent": backup["absent"], "assignments": restored}
 
     def _archie_owner_snapshot(
         self, release: Release, *, approved_spaces: set[str], require_quiet: bool
@@ -2436,6 +2726,7 @@ class Workflow:
         if release.data["phase"] == "rolled_back":
             return "rolled_back"
         if release.completed("deploy.mac.install") and not release.completed("rollback.mac"):
+            env_backup = self._require_mac_env_backup(release)
             self._restore_mac_files(release, require_release_hash=True)
             self.runner.capture(
                 ["codesign", "--force", "--deep", "--sign", "-", str(self.config.mac_app)],
@@ -2444,11 +2735,7 @@ class Workflow:
             self.runner.capture(
                 ["codesign", "--verify", "--deep", "--strict", str(self.config.mac_app)]
             )
-            previous = release.data["rollback"]["mac"].get("launchd_dmux_wez_first", "")
-            if previous:
-                self.runner.capture(["launchctl", "setenv", "DMUX_WEZ_FIRST", previous])
-            else:
-                self.runner.capture(["launchctl", "unsetenv", "DMUX_WEZ_FIRST"], check=False)
+            restored_env = self._restore_mac_env_file(env_backup)
             label = release.data["hosts"]["mac"]["service_label"]
             self.runner.capture(
                 ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{label}"], timeout=60
@@ -2463,7 +2750,7 @@ class Workflow:
             self.store.checkpoint(
                 release,
                 "rollback.mac",
-                {"files": hashes, "durable_state_preserved": True},
+                {"files": hashes, "service_env": restored_env, "durable_state_preserved": True},
             )
 
         if release.completed("deploy.archie.packages"):
@@ -2476,30 +2763,11 @@ class Workflow:
                 )
                 return "awaiting_archie_rollback_pacman"
             if not release.completed("rollback.archie"):
+                env_backup = self._require_env_backup(release, "archie")
                 self._restore_archie_user_files(release)
                 self._restore_archie_config(release)
                 host = release.data["hosts"]["archie"]["ssh"]
-                previous = release.data["rollback"]["archie"].get("dmux_wez_first", "")
-                if previous:
-                    self.runner.capture(
-                        remote_argv(
-                            host,
-                            [
-                                "systemctl",
-                                "--user",
-                                "set-environment",
-                                f"DMUX_WEZ_FIRST={previous}",
-                            ],
-                        )
-                    )
-                else:
-                    self.runner.capture(
-                        remote_argv(
-                            host, ["systemctl", "--user", "unset-environment", "DMUX_WEZ_FIRST"]
-                        ),
-                        check=False,
-                    )
-                self.runner.capture(remote_argv(host, ["systemctl", "--user", "daemon-reload"]))
+                restored_env = self._restore_archie_env_file(release, env_backup)
                 self.runner.capture(
                     remote_argv(host, ["systemctl", "--user", "restart", ARCHIE_MUX_UNIT]),
                     timeout=60,
@@ -2507,7 +2775,7 @@ class Workflow:
                 self.store.checkpoint(
                     release,
                     "rollback.archie",
-                    {"durable_state_preserved": True},
+                    {"service_env": restored_env, "durable_state_preserved": True},
                 )
         release.set_phase("rolled_back")
         self.store.save(release)

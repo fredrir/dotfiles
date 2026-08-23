@@ -1,13 +1,19 @@
+import hashlib
+import os
+import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from tools.dmux_rollout import service_env
 from tools.dmux_rollout.command import Result, Runner, remote_argv
-from tools.dmux_rollout.errors import CommandError, Refusal
+from tools.dmux_rollout.errors import CommandError, Refusal, StateError
 from tools.dmux_rollout.storage import RolloutStore
 from tools.dmux_rollout.workflow import (
     AMBIENT_MUX_VARS,
     ARCHIE_MUX_UNIT,
+    MAC_ENV_LOADER_LABEL,
     Workflow,
     WorkflowConfig,
 )
@@ -606,3 +612,308 @@ def test_archie_steps_address_the_route_frozen_in_the_manifest(tmp_path):
     assert new_call[new_call.index("--host") + 1] == "fredrir@10.77.77.2"
     assert item.data["smoke"]["remote"]["space_uid"] == space_uid
     assert snapshots == ["fredrir@10.77.77.2"]
+
+
+# Durable enablement (ADR 012 WS-F.1) ----------------------------------------
+
+
+REPO_ROOT = Path(__file__).parents[3].parent
+
+
+def test_service_env_grammar_matches_the_shell_helper_the_repo_installs(tmp_path):
+    helper = REPO_ROOT / "shared/wezterm/mux/dmux-service-env.sh"
+    text = helper.read_text(encoding="utf-8")
+
+    # The character sets are the grammar; compare them literally.
+    assert f"DMUX_SERVICE_ENV_KEY_CHARS='{service_env.KEY_CHARS}'" in text
+    assert f"DMUX_SERVICE_ENV_VALUE_CHARS='{service_env.VALUE_CHARS}'" in text
+    assert "/.config/dmux/service.env" in text
+    assert service_env.MAC_RELATIVE_PATH == ".config/dmux/service.env"
+    # The file paths and the loader's label come from the tracked files.
+    assert (
+        WorkflowConfig(
+            dotfiles_repo=Path("/d"), wezterm_repo=Path("/w"), packages_root=Path("/p")
+        ).mac_service_env
+        == Path.home() / service_env.MAC_RELATIVE_PATH
+    )
+    plist = (REPO_ROOT / f"macos/launchd/{MAC_ENV_LOADER_LABEL}.plist").read_text()
+    assert f"<string>{MAC_ENV_LOADER_LABEL}</string>" in plist
+    assert "dmux-env-load.sh" in plist
+    unit = (REPO_ROOT / "linux/arch/wezterm-mux" / ARCHIE_MUX_UNIT).read_text()
+    assert f"~/{service_env.LINUX_RELATIVE_PATH}" in unit
+
+    # Behavioural parity: what the tool renders, the helper reads back the
+    # same way, and what the helper refuses, the tool refuses.
+    rendered = service_env.render(
+        "# note\n  DMUX_LEGACY_POLICY=0\nDMUX_WEZ_FIRST=0\n",
+        {"DMUX_WEZ_FIRST": "1"},
+        name="x",
+    )
+    assert rendered == "# note\n  DMUX_LEGACY_POLICY=0\nDMUX_WEZ_FIRST=1\n"
+    good = tmp_path / "service.env"
+    good.write_text(rendered, encoding="utf-8")
+    bad = tmp_path / "bad.env"
+    bad.write_text("DMUX_WEZ_FIRST=1\nDMUX_X=$(id)\n", encoding="utf-8")
+    script = (
+        f'. "{helper}" && lines=$(dmux_service_env_lines "$1") && '
+        'dmux_service_env_lookup DMUX_WEZ_FIRST "$lines" && '
+        'dmux_service_env_lookup DMUX_LEGACY_POLICY "$lines"'
+    )
+    shell = subprocess.run(
+        ["/bin/sh", "-c", script, "sh", str(good)], capture_output=True, text=True, check=False
+    )
+    assert shell.returncode == 0, shell.stderr
+    assert shell.stdout == "1\n0\n"
+    assert service_env.parse(rendered, name="x") == {
+        "DMUX_LEGACY_POLICY": "0",
+        "DMUX_WEZ_FIRST": "1",
+    }
+    refused = subprocess.run(
+        ["/bin/sh", "-c", script, "sh", str(bad)], capture_output=True, text=True, check=False
+    )
+    assert refused.returncode != 0
+    assert "bad.env:2:" in refused.stderr
+    with pytest.raises(Refusal, match="line 2: value must match"):
+        service_env.parse(bad.read_text(), name="bad.env")
+
+
+def test_service_env_refuses_whole_files_and_keeps_the_last_assignment():
+    with pytest.raises(Refusal, match=r"line 1: key must start with DMUX_"):
+        service_env.parse("PATH=/bin\nDMUX_WEZ_FIRST=1\n", name="f")
+    with pytest.raises(Refusal, match=r"line 2: value must match"):
+        service_env.parse("DMUX_WEZ_FIRST=1\nDMUX_WEZ_FIRST=1\r\n", name="f")
+    with pytest.raises(Refusal, match="expected KEY=VALUE"):
+        service_env.parse("DMUX_WEZ_FIRST\n", name="f")
+    assert service_env.parse("DMUX_WEZ_FIRST=0\nDMUX_WEZ_FIRST=1\n", name="f") == {
+        "DMUX_WEZ_FIRST": "1"
+    }
+    # A file the tool cannot vouch for is never rewritten.
+    with pytest.raises(Refusal, match="malformed"):
+        service_env.render("DMUX_X=a b\n", {"DMUX_WEZ_FIRST": "1"}, name="f")
+    with pytest.raises(Refusal, match="does not match the file grammar"):
+        service_env.render("", {"DMUX_WEZ_FIRST": "1; id"}, name="f")
+    assert (
+        service_env.without(
+            "DMUX_LEGACY_POLICY=1\n# k\nDMUX_WEZ_FIRST=1\n", {"DMUX_LEGACY_POLICY"}, name="f"
+        )
+        == "# k\nDMUX_WEZ_FIRST=1\n"
+    )
+    assert service_env.without("DMUX_LEGACY_POLICY=1\n", {"DMUX_LEGACY_POLICY"}, name="f") == ""
+
+
+class LaunchdFake(Runner):
+    """launchctl with a session environment; the loader applies the file."""
+
+    def __init__(self, service_env_path):
+        self.path = service_env_path
+        self.session = {}
+        self.sent = []
+
+    def capture(self, argv, **kwargs):
+        argv = list(argv)
+        self.sent.append(argv)
+        if argv[:2] == ["launchctl", "kickstart"] and argv[-1].endswith(MAC_ENV_LOADER_LABEL):
+            if self.path.exists():
+                self.session.update(service_env.parse(self.path.read_text(), name="fake"))
+        elif argv[:2] == ["launchctl", "getenv"]:
+            return Result(tuple(argv), 0, self.session.get(argv[2], "") + "\n", "")
+        elif argv[:2] == ["launchctl", "unsetenv"]:
+            self.session.pop(argv[2], None)
+        return Result(tuple(argv), 0, "", "")
+
+
+def _env_workflow(tmp_path):
+    fake = LaunchdFake(tmp_path / "home/.config/dmux/service.env")
+    base = config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm")
+    workflow = Workflow(
+        RolloutStore(tmp_path / "state"),
+        fake,
+        WorkflowConfig(
+            **{
+                **base.__dict__,
+                "mac_service_env": fake.path,
+                "mac_env_loader_plist": tmp_path / "home/Library/LaunchAgents/loader.plist",
+            }
+        ),
+    )
+    return workflow, fake
+
+
+def test_deploy_mac_refuses_without_the_env_loader_agent_and_names_the_operator_steps(tmp_path):
+    workflow, fake = _env_workflow(tmp_path)
+    item = release(tmp_path)
+    workflow._require_live_config_matches = lambda _release: None
+
+    with pytest.raises(Refusal) as refusal:
+        workflow.deploy_mac(item)
+
+    text = str(refusal.value)
+    assert "never links dotfiles" in text
+    assert "`dotfile link`" in text
+    assert f"launchctl bootstrap gui/{os.getuid()} {workflow.config.mac_env_loader_plist}" in text
+    # Nothing was installed or backed up before the refusal.
+    assert item.checkpoints == {}
+    assert fake.sent == []
+
+
+def test_mac_durable_enablement_writes_the_file_then_proves_launchd_before_the_mux(tmp_path):
+    workflow, fake = _env_workflow(tmp_path)
+    fake.path.parent.mkdir(parents=True)
+    fake.path.write_text("# mine\nDMUX_LEGACY_POLICY=0\n", encoding="utf-8")
+
+    written = workflow._enable_mac_durable_flag()
+
+    assert fake.path.read_text() == "# mine\nDMUX_LEGACY_POLICY=0\nDMUX_WEZ_FIRST=1\n"
+    assert (fake.path.stat().st_mode & 0o777) == 0o600
+    assert written["assignments"] == {"DMUX_LEGACY_POLICY": "0", "DMUX_WEZ_FIRST": "1"}
+    assert fake.session["DMUX_WEZ_FIRST"] == "1"
+    kinds = [argv[1] for argv in fake.sent if argv[0] == "launchctl"]
+    assert kinds[0] == "kickstart"
+    assert fake.sent[0][-1] == f"gui/{os.getuid()}/{MAC_ENV_LOADER_LABEL}"
+    assert "getenv" in kinds
+    assert "setenv" not in kinds
+
+    # A line WS-F.2's by-hand repair already wrote is kept byte for byte.
+    before = fake.path.read_bytes()
+    again = workflow._enable_mac_durable_flag()
+    assert again["unchanged"] is True
+    assert fake.path.read_bytes() == before
+
+    # The loader applied nothing: the tool says so instead of restarting the mux.
+    fake.session.clear()
+    fake.path.write_text("DMUX_WEZ_FIRST=1\n", encoding="utf-8")
+    original = fake.capture
+
+    def loader_fails(argv, **kwargs):
+        if list(argv)[:2] == ["launchctl", "kickstart"]:
+            return Result(tuple(argv), 0, "", "")
+        return original(argv, **kwargs)
+
+    fake.capture = loader_fails
+    with pytest.raises(Refusal, match="launchd carries DMUX_WEZ_FIRST='', expected '1'"):
+        workflow._require_launchd_env("DMUX_WEZ_FIRST", "1", timeout=0)
+
+
+def test_mac_rollback_restores_the_env_file_and_unsets_what_it_no_longer_states(tmp_path):
+    workflow, fake = _env_workflow(tmp_path)
+
+    # Absent before deployment: rollback removes the file the tool created.
+    absent = workflow._env_file_backup(fake.path)
+    assert absent == {"path": str(fake.path), "absent": True, "content": None, "sha256": None}
+    workflow._enable_mac_durable_flag()
+    assert fake.session == {"DMUX_WEZ_FIRST": "1"}
+    restored = workflow._restore_mac_env_file(absent)
+    assert not fake.path.exists()
+    assert fake.session == {}
+    assert restored["assignments"] == {}
+    assert ["launchctl", "unsetenv", "DMUX_WEZ_FIRST"] in fake.sent
+
+    # Present before deployment: its exact bytes come back, and the session
+    # carries exactly what it states.
+    fake.path.parent.mkdir(parents=True, exist_ok=True)
+    fake.path.write_text("DMUX_WEZ_FIRST=0\n", encoding="utf-8")
+    present = workflow._env_file_backup(fake.path)
+    workflow._enable_mac_durable_flag()
+    assert fake.path.read_text() == "DMUX_WEZ_FIRST=1\n"
+    workflow._restore_mac_env_file(present)
+    assert fake.path.read_text() == "DMUX_WEZ_FIRST=0\n"
+    assert fake.session == {"DMUX_WEZ_FIRST": "0"}
+
+    # A manifest from before durable enablement cannot be rolled back blind.
+    item = release(tmp_path)
+    item.data["rollback"]["mac"] = {"files": [], "launchd_dmux_wez_first": ""}
+    with pytest.raises(StateError, match="predates durable enablement"):
+        workflow._require_mac_env_backup(item)
+
+
+class ArchieFake(Runner):
+    """ssh/scp against a remote file tree with a systemd environment block."""
+
+    def __init__(self, conf):
+        self.conf = str(conf)
+        self.files = {}
+        self.environment = {}
+        self.sent = []
+
+    def capture(self, argv, **kwargs):
+        argv = list(argv)
+        self.sent.append(argv)
+        if argv[0] == "scp":
+            self.files[argv[-1].partition(":")[2]] = Path(argv[-2]).read_text()
+            return Result(tuple(argv), 0, "", "")
+        assert argv[:3] == ["ssh", "-o", "BatchMode=yes"], argv
+        remote = shlex.split(argv[-1])
+        if remote[:2] == ["test", "-f"] or remote[:2] == ["test", "-e"]:
+            return Result(tuple(argv), 0 if remote[2] in self.files else 1, "", "")
+        if remote[0] == "cat":
+            return Result(tuple(argv), 0, self.files[remote[-1]], "")
+        if remote[0] == "sha256sum":
+            digest = hashlib.sha256(self.files[remote[-1]].encode()).hexdigest()
+            return Result(tuple(argv), 0, f"{digest}  {remote[-1]}\n", "")
+        if remote[:2] == ["stat", "-c"] and remote[2] == "%s":
+            return Result(tuple(argv), 0, f"{len(self.files[remote[-1]])}\n", "")
+        if remote[:2] == ["stat", "-c"]:
+            return Result(tuple(argv), 0, "fredrir:directory\n", "")
+        if remote[0] == "mv":
+            self.files[remote[-1]] = self.files.pop(remote[-2])
+        if remote[:2] == ["rm", "-f"]:
+            self.files.pop(remote[-1], None)
+        if remote[:3] == ["systemctl", "--user", "daemon-reload"] and self.conf in self.files:
+            self.environment.update(service_env.parse(self.files[self.conf], name="fake"))
+        if remote[:3] == ["systemctl", "--user", "unset-environment"]:
+            self.environment.pop(remote[3], None)
+        if remote[:3] == ["systemctl", "--user", "show-environment"]:
+            lines = "".join(f"{k}={v}\n" for k, v in self.environment.items())
+            return Result(tuple(argv), 0, lines, "")
+        return Result(tuple(argv), 0, "", "")
+
+
+def test_archie_durable_enablement_writes_environment_d_and_proves_systemd(tmp_path):
+    item = release(tmp_path)
+    item.data["hosts"]["archie"]["ssh"] = "fredrir@10.77.77.2"
+    base = config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm")
+    cfg = WorkflowConfig(**{**base.__dict__, "archie_home": tmp_path / "archie-home"})
+    fake = ArchieFake(cfg.archie_env_file)
+    workflow = Workflow(RolloutStore(tmp_path / "state"), fake, cfg)
+    assert cfg.archie_env_file == tmp_path / "archie-home/.config/environment.d/50-dmux.conf"
+
+    absent = workflow._remote_env_file_backup("fredrir@10.77.77.2", cfg.archie_env_file)
+    assert absent["absent"] is True
+
+    written = workflow._set_archie_env(item, {"DMUX_WEZ_FIRST": "1"})
+
+    assert fake.files[str(cfg.archie_env_file)] == "DMUX_WEZ_FIRST=1\n"
+    assert written["assignments"] == {"DMUX_WEZ_FIRST": "1"}
+    assert fake.environment == {"DMUX_WEZ_FIRST": "1"}
+    remote = [shlex.split(argv[-1]) for argv in fake.sent if argv[0] == "ssh"]
+    verbs = [" ".join(r[:3]) for r in remote]
+    assert "systemctl --user set-environment" not in verbs
+    chmod = next(i for i, r in enumerate(remote) if r[0] == "chmod")
+    move = next(i for i, r in enumerate(remote) if r[0] == "mv")
+    reload = next(
+        i for i, r in enumerate(remote) if r[:3] == ["systemctl", "--user", "daemon-reload"]
+    )
+    shown = next(i for i, r in enumerate(remote) if r[2:3] == ["show-environment"])
+    assert chmod < move < reload < shown
+    assert remote[chmod][1] == "0600"
+    assert all(argv[3] == "fredrir@10.77.77.2" for argv in fake.sent if argv[0] == "ssh")
+
+    # Rollback to "absent" removes the file and the manager's copy of the flag.
+    restored = workflow._restore_archie_env_file(item, absent)
+    assert str(cfg.archie_env_file) not in fake.files
+    assert fake.environment == {}
+    assert restored["assignments"] == {}
+    assert ["systemctl", "--user", "unset-environment", "DMUX_WEZ_FIRST"] in remote + [
+        shlex.split(argv[-1]) for argv in fake.sent[len(remote) :] if argv[0] == "ssh"
+    ]
+
+
+def test_rollout_source_never_sets_the_flag_runtime_only():
+    source = Path(Workflow.__module__.replace(".", "/") + ".py")
+    text = (Path(__file__).parents[2] / "src" / source).read_text(encoding="utf-8")
+
+    # launchctl setenv / systemctl set-environment do not survive a reboot;
+    # the file does. The tool may only ever unset a runtime copy (rollback).
+    assert '"setenv"' not in text
+    assert '"set-environment"' not in text
+    assert '"import-environment"' not in text
