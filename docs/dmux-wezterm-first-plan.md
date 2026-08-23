@@ -1,6 +1,6 @@
 # dmux WezTerm-mux-first plan specification
 
-Status: full plan specification; implementation is blocked until P0 selects and proves the low-level mechanisms named in this document  
+Status: P11 (the Wez-first cutover, §21 step 9) shipped 2026-08-23 as rollout r10 — ADR 012 §11; P12 items in §18 are optional follow-ups  
 Audience: the root implementation agent, specialist subagents, and future maintainers  
 Scope: `dmux`, the WezTerm configuration and resurrection fork, shell wrappers, host routing, migration, tests, and rollout
 

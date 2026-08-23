@@ -1,6 +1,6 @@
 # ADR 012: P11 completion plan — epoch integrity, live-host repair, and the cutover gate
 
-Status: accepted 2026-08-22 (owner-approved; §7 amendments applied to the plan in the same change); dispatch recorded in §10
+Status: closed 2026-08-23 — P11 shipped as r10 (`613c277`, the §21 step 9 flip) with the canary floors, rehearsals and the USB-pull drill waived by the owner; accepted 2026-08-22 (owner-approved; §7 amendments applied to the plan in the same change); dispatch recorded in §10, closure in §11
 Date: 2026-08-22
 Owner: root integrator
 Inputs: `docs/adr/dmux/report/**` (independent review at `493e92c`), ADR 007 (P0 ratified,
@@ -1260,3 +1260,63 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   `dmux-service-env` (loader default, file `0` wins, wrapper defaults managed), `dmux-launcher`
   (unset summons), `dmux-context` (flag-off is `0`). Docs: `docs/scripts.md`, `scripts/COMMANDS.md`,
   the service unit and plist comments, the Lua skill. Legacy path retained one release.
+- **r10 = `20260823-613c277-b9d8dfae-r10` — the flip shipped to both hosts.** `plan` at `613c277`
+  (fork unchanged at `b9d8dfae`, r6–r9's smoke identity). `build`: worktree suite 1176/0, live dir
+  unchanged. `stage-archie`: Archie suite 1177/0 under the seams, packages built; owner's pacman
+  reinstall. `resume` refused its postcondition once more on the recovered
+  `w6mac-smoke-20260817-archie` (`01a02d44…`, one fresh shell, no work) — the two-host verify
+  step's own Archie Space, restored by recovery at the restart; removed by URI under the owner's
+  standing decision, `resume` again → Archie ready (mux pid 117463). `deploy-mac` → Macie ready
+  (`deploy.mac.service` 16:01:00Z, doctor E, `dmux` `c8504c8a…`). `verify` 16:01:05–16:01:15Z:
+  `smoke_identity, cold_present, reconnect, lifecycle, lifecycle.intent, lifecycle.keybinding,
+  recovery.intent, recovery, removal, removal_created, two_host_identity, two_host` → `verified`,
+  29 checkpoints. **Incident, root's own:** while checking Archie's panes before the removal the
+  root guessed the descriptor filename wrong, so a bare `wezterm cli list` fell back to the default
+  socket and spawned a stray `wezterm-mux-server --daemonize` on Archie (`/run/user/1000/wezterm/sock`,
+  pid 120113, one default pane, nobody's work). It is not the managed server, doctor does not
+  report it, and per the owner's rule the root did not stop it; the owner was given the command.
+  Tool follow-ups recorded, not fixed here: the two-host verify step leaves its Archie smoke Space
+  for the next release's recovery to restore (approve or remove it in `resume`); `resume` labels
+  the release `deployed` after Archie alone, ahead of `mac_deployed`; the `migrated` phase has no
+  verb.
+## 11. Closure (2026-08-23)
+
+P11 is closed at r10 (`20260823-613c277-b9d8dfae-r10`). Against §2's rows, checked the same way —
+working tree, journal, live host — on 2026-08-23:
+
+| §18 P11 / §21 item | State | Evidence |
+| --- | --- | --- |
+| Wez-first CLI surface | **done, default** | `613c277` flips `WEZ_FIRST_BY_DEFAULT`; the gate is reachable only under `DMUX_WEZ_FIRST=0` / `DMUX_LEGACY_POLICY=1` |
+| `dmux migrate` | **done, run** | WS-F.4 (§10 wave 4): both hosts committed and idempotent |
+| `repair reconcile` / `repair rebind` / `repair retire-incarnation` | **done** | §10 waves 2–3c; `tests/repair_rebind.rs`, `tests/repair_retire.rs` |
+| Emergency opt-out, three-valued flag | **done** | `main.rs` `resolve_wez_first`, `the_shipped_default_is_wez_first_since_step_9`, `an_explicit_zero_survives_the_flip_as_an_opt_out` |
+| Harness migration for the flip | **done** | `tests/cli.rs`, `legacy_sentinel.rs`, and the five files `613c277` moved to the explicit legacy environment |
+| Docs/completions | **done** | `docs/scripts.md`, `scripts/COMMANDS.md`, skills, service unit and plist comments |
+| Acceptance ledger | **done** | `acceptance-matrix.json`: 34 `mapped`, 13 `waived` (owner, 2026-08-23), 0 unmapped |
+| Fresh-context reader test | **done** | `reader-test-p11.md`, 22/22 |
+| Two-host live verification | **done** | r6–r10 `verify.two_host` checkpoints |
+| Canary, Macie / Archie | **started, floors waived** | r9 `canary.mac.start` 06:18Z (+ `canary.mac.reboot.1`), `canary.archie.start` 06:25Z; owner's decision §10 |
+| Rollback rehearsal | **waived** | mechanism proven by case 46; owner's decision §10 |
+| WS-G.5 USB → Tailscale | **waived** | cases 16–22, 29 `waived`; suite coverage named per row |
+| Global flip (§21 step 9) | **done, shipped** | `613c277`; r10 `deploy.mac.*` / `deploy.archie.*` / `verify.*` checkpoints |
+| Test suite | **green** | `cargo test -p dmux` 1132/0/1 at `613c277`; shell cases 51/0; GUI Lua 32/0/3 |
+
+§22, clause by clause: cases 1–46 are either `mapped` with green tests or `waived` by the owner
+with their tests named — none is unmapped; every P0 mechanism is selected and checked in (ADR
+007); the owner registry is the only Space-ID authority (WS-A); listings distinguish empty from
+unavailable (WS-C); exact-existing-first and no-silent-fallback are fault-tested
+(`tests/new_cli.rs`, `remote_protocol/`); GUI restart and Command+Q preserve pane/process IDs
+(r6–r10 `verify.lifecycle*`, evidence `spike3-gui-bridge.md`); cold recovery restores only a new
+empty owner mux (`verify.recovery*`); the route-retry matrix and one service owner are suite-proven
+(cases 21–22 `waived` live); every multi-window Wez resource is normalized or quarantined
+(`normalize_flow`); keys are backend/owner aware and fail closed (`dmux_bridge` suite); wrappers
+carry no policy (`the_wrapper_verb_allowlist_matches_the_cli`); the canary-and-rehearsal clause is
+met as "started and waived" (plan §22, amended). No live mux server was stopped at any point: every
+managed restart in waves 4 went through the rollout tool's retire → publish path with the owner's
+approval.
+
+Open after P11 (P12 or follow-ups, recorded in §8 and §10): the fork-side descriptor relocation
+(macOS `dirhelper`; keepalive agent in place), `LC_CTYPE` for the forced-command environment,
+`repair reconcile|normalize --host`, the doctor `wezterm cli` relabel, the `wezterm-attention`
+remote-window poll, a `migrated`-phase verb for the rollout tool, and removal of the legacy path
+one release after r10.
