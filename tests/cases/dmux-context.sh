@@ -605,3 +605,145 @@ test_dmux_context_flag_off_is_inert() {
   [ ! -s "$OSC" ] || fail "flag-off hook emitted terminal control sequences"
   assert_file_is "$ERRORS" ''
 }
+
+# ---------------------------------------------------------------------------
+# ADR 012 WS-E.2, site 94-dmux-context.zsh:216 (report 08 §7). The hook is
+# the carrier of `server_epoch` from `dmux _context` to the pane's user
+# variables. It verifies nothing about the epoch itself — plan §13.1 puts
+# that in the crate, which now resolves the Space's instance from the
+# registry and pins the scan to the published epoch (WS-A.7,
+# tests/context_cli.rs) — so the property the hook must hold is narrower:
+# every epoch it exports or emits comes from one validated response for the
+# requested Space, child refs are refused unless they carry that same
+# epoch, the controller is handed the bare `_context` argv and the Space
+# locator and nothing that could steer its verification, and a controller
+# refusal retires the previous epoch from the environment and the pane.
+
+test_dmux_context_rejects_child_refs_outside_the_reported_epoch() {
+  setup_dmux_context_fixtures
+  # A response whose Group ref carries an epoch other than its own
+  # `server_epoch`: a marker stitched from two incarnations.
+  printf '%s\n' '{
+  "host_uid": "11111111-1111-4111-8111-111111111111",
+  "space_uid": "01890f47-6a3c-7cc0-8000-000000000001",
+  "space_no": 7,
+  "backend": "wez",
+  "domain": null,
+  "server_epoch": "22222222-2222-4222-8222-222222222222",
+  "group_ref": "g33333333-3333-4333-8333-333333333333.wz-3",
+  "split_ref": "p22222222-2222-4222-8222-222222222222.wz-4"
+}' > "$RESPONSE"
+
+  run_dmux_context_zsh '
+    export DMUX_WEZ_FIRST=1 WEZTERM_PANE=17
+    export DMUX_SPACE_UID=01890f47-6a3c-7cc0-8000-000000000001
+    source $CONTEXT_HOOK
+    _dmux_context_refresh > $OSC 2> $ERRORS
+    (( ${+DMUX_SERVER_EPOCH} == 0 && ${+DMUX_GROUP_REF} == 0 )) || exit 61
+  ' || fail "a child ref from another epoch was exported"
+
+  assert_file_is "$TRACE" '_context'
+  assert_file_is "$ERRORS" 'dmux: pane context response is malformed; pane markers cleared'
+  [ "$(osc_count "$OSC")" -eq 9 ] || fail "mixed-epoch response did not clear public markers"
+  case "$(hex_file "$OSC")" in
+    *33333333*) fail "the foreign epoch reached the pane" ;;
+  esac
+
+  # The same with the Split ref, and with a provider that is not the
+  # backend's (a tmux handle under a Wez marker).
+  local variant
+  for variant in \
+    '"group_ref": "g22222222-2222-4222-8222-222222222222.wz-3", "split_ref": "p33333333-3333-4333-8333-333333333333.wz-4"' \
+    '"group_ref": "g22222222-2222-4222-8222-222222222222.tx-3", "split_ref": "p22222222-2222-4222-8222-222222222222.wz-4"'; do
+    printf '{"host_uid":"11111111-1111-4111-8111-111111111111","space_uid":"01890f47-6a3c-7cc0-8000-000000000001","space_no":7,"backend":"wez","domain":null,"server_epoch":"22222222-2222-4222-8222-222222222222",%s}\n' \
+      "$variant" > "$RESPONSE"
+    : > "$OSC"; : > "$ERRORS"
+    run_dmux_context_zsh '
+      export DMUX_WEZ_FIRST=1 WEZTERM_PANE=17
+      export DMUX_SPACE_UID=01890f47-6a3c-7cc0-8000-000000000001
+      source $CONTEXT_HOOK
+      _dmux_context_refresh > $OSC 2> $ERRORS
+      (( ${+DMUX_SERVER_EPOCH} == 0 )) || exit 62
+    ' || fail "variant was exported: $variant"
+    assert_file_is "$ERRORS" 'dmux: pane context response is malformed; pane markers cleared'
+    [ "$(osc_count "$OSC")" -eq 9 ] || fail "variant did not clear public markers: $variant"
+  done
+}
+
+test_dmux_context_epoch_rotation_is_taken_only_from_the_validated_response() {
+  setup_dmux_context_fixtures
+  write_wez_context
+
+  # The pane still carries the previous incarnation's marker; the controller
+  # answers for the replacement (22222222…). Nothing of the old epoch may
+  # survive in the environment or on the wire, and the controller receives
+  # the bare `_context` argv — no epoch, socket, namespace or seam argument
+  # through which the hook could steer what the crate verifies.
+  run_dmux_context_zsh '
+    export DMUX_WEZ_FIRST=1 WEZTERM_PANE=17
+    export DMUX_CONTEXT_VERSION=1
+    export DMUX_HOST_UID=11111111-1111-4111-8111-111111111111
+    export DMUX_SPACE_UID=01890f47-6a3c-7cc0-8000-000000000001
+    export DMUX_SPACE_NO=7 DMUX_BACKEND=wez DMUX_DOMAIN=dmux_remote:route.one-2
+    export DMUX_SERVER_EPOCH=33333333-3333-4333-8333-333333333333
+    export DMUX_GROUP_REF=g33333333-3333-4333-8333-333333333333.wz-3
+    export DMUX_SPLIT_REF=p33333333-3333-4333-8333-333333333333.wz-4
+    source $CONTEXT_HOOK
+    _dmux_context_refresh > $OSC 2> $ERRORS
+    {
+      print -r -- "$DMUX_SERVER_EPOCH"
+      print -r -- "$DMUX_GROUP_REF|$DMUX_SPLIT_REF"
+    } > $STATE
+  ' || fail "epoch rotation refresh failed"
+
+  assert_file_is "$TRACE" '_context'
+  assert_file_is "$ERRORS" ''
+  assert_file_is "$STATE" '22222222-2222-4222-8222-222222222222
+g22222222-2222-4222-8222-222222222222.wz-3|p22222222-2222-4222-8222-222222222222.wz-4'
+  [ "$(osc_count "$OSC")" -eq 10 ] || fail "rotation did not emit one ten-field Wez refresh"
+  local hex
+  hex="$(hex_file "$OSC")"
+  # base64("22222222-2222-4222-8222-222222222222") begins MjIyMjIyMjIt;
+  # base64("33333333-…") begins MzMzMzMzMzMt. Only the new one may appear.
+  case "$hex" in
+    *4d6a49794d6a49794d6a4974*) ;;
+    *) fail "the validated epoch did not reach the pane" ;;
+  esac
+  case "$hex" in
+    *4d7a4d7a4d7a4d7a4d7a4d74*) fail "the retired epoch was re-emitted to the pane" ;;
+  esac
+}
+
+test_dmux_context_controller_refusal_retires_the_prior_epoch_from_env_and_pane() {
+  setup_dmux_context_fixtures
+  write_wez_context
+
+  # The fixed crate exits non-zero with no document for a stranger endpoint,
+  # a NULL published epoch, a rebound Space and a replaced server
+  # (tests/context_cli.rs). The hook must treat every such refusal as the
+  # end of the marker it was carrying, not keep the last good epoch.
+  run_dmux_context_zsh '
+    export DMUX_WEZ_FIRST=1 WEZTERM_PANE=17 DMUX_TEST_FAIL=1
+    export DMUX_CONTEXT_VERSION=1
+    export DMUX_HOST_UID=11111111-1111-4111-8111-111111111111
+    export DMUX_SPACE_UID=01890f47-6a3c-7cc0-8000-000000000001
+    export DMUX_SPACE_NO=7 DMUX_BACKEND=wez DMUX_DOMAIN=dmux_remote:route.one-2
+    export DMUX_SERVER_EPOCH=22222222-2222-4222-8222-222222222222
+    export DMUX_GROUP_REF=g22222222-2222-4222-8222-222222222222.wz-3
+    export DMUX_SPLIT_REF=p22222222-2222-4222-8222-222222222222.wz-4
+    source $CONTEXT_HOOK
+    _dmux_context_refresh > $OSC 2> $ERRORS
+    (( ${+DMUX_SERVER_EPOCH} == 0 && ${+DMUX_GROUP_REF} == 0 && ${+DMUX_SPLIT_REF} == 0 )) || exit 63
+    # A duplicate prompt inside the retry window re-emits nothing: the
+    # cache is empty, and the controller is not asked again.
+    _dmux_context_refresh >> $OSC 2>> $ERRORS
+    (( ${+DMUX_SERVER_EPOCH} == 0 )) || exit 64
+  ' || fail "a controller refusal left the previous epoch in place"
+
+  assert_file_is "$TRACE" '_context'
+  assert_file_is "$ERRORS" 'dmux: pane context is invalid or stale; pane markers cleared'
+  [ "$(osc_count "$OSC")" -eq 9 ] || fail "refusal did not emit exactly one nine-field clear"
+  case "$(hex_file "$OSC")" in
+    *4d6a49794d6a49794d6a4974*|*32323232323232322d*) fail "the retired epoch was emitted after the refusal" ;;
+  esac
+}
