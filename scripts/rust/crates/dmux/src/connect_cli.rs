@@ -1111,14 +1111,18 @@ pub fn production_connect_client_context() -> Result<ConnectClientContext, Typed
     drop(registry);
 
     let provider = crate::backend::tmux::TmuxProvider::new(namespace.clone());
+    require_published_tmux_incarnation(&provider, &namespace, &server)?;
     provider
         .verify_epoch(&namespace, epoch, &expected_identity)
         .map_err(typed_context_provider)?;
+    // `#{pid}` is tmux's "server PID" format (there is no `server_pid`;
+    // tmux expands an unknown variable to the empty string, which refused
+    // every real client here until ADR 012 WS-D.3's reader test ran one).
     let ambient = Command::new("tmux")
         .args([
             "display-message",
             "-p",
-            "#{server_pid}|#{pane_id}|#{@dmux_server_epoch}",
+            "#{pid}|#{pane_id}|#{@dmux_server_epoch}",
         ])
         .output()
         .map_err(|error| {
