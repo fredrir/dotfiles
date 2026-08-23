@@ -518,6 +518,50 @@ pane_vars = vars
 table.remove(scheduled, 1)()
 assert(pending_result and not pending_error and pending_result.pane_id == 91)
 
+-- r8 verify (ADR 012 §10): a present that follows the managed safe-quit by
+-- seconds finds the target window still wearing a pane of another domain
+-- while the route re-attaches. That is "not yet", polled to the deadline;
+-- only a foreign pane that outlives the deadline is refused, and then with
+-- its own code rather than as an absent workspace.
+local pane_domain = 'local'
+local real_domain_name = pane.get_domain_name
+pane.get_domain_name = function()
+  return pane_domain
+end
+selected.current = 'Attached'
+selected.panes = true
+windows = { sentinel_window, target_window }
+scheduled = {}
+pending_result, pending_error = nil, nil
+presentation.dispatch(
+  { action = 'present', target = target, expiry = os.time() + 10 },
+  { safe_quit = {} },
+  function(ok, err)
+    pending_result, pending_error = ok, err
+  end
+)
+assert(not pending_result and not pending_error and #scheduled == 1)
+pane_domain = 'dmux-b-usb'
+table.remove(scheduled, 1)()
+assert(pending_result and not pending_error and pending_result.pane_id == 91)
+
+pane_domain = 'local'
+fake_now = 200
+os.time = function()
+  return fake_now
+end
+scheduled = {}
+pending_result, pending_error = nil, nil
+presentation.dispatch({ action = 'present', target = target, expiry = 210 }, { safe_quit = {} }, function(ok, err)
+  pending_result, pending_error = ok, err
+end)
+assert(not pending_result and not pending_error and #scheduled == 1)
+fake_now = 215
+table.remove(scheduled, 1)()
+os.time = real_time
+assert(not pending_result and pending_error.code == 'workspace_domain_mismatch')
+pane.get_domain_name = real_domain_name
+
 local quit_state = { safe_quit = {}, persistent_domains = { 'dmux-b-ts', 'dmux-b-usb' } }
 local usb_incarnation = {
   name = 'dmux-b-usb',

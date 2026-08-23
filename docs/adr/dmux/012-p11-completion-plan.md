@@ -1187,3 +1187,20 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   registry revision 13; sentinel-only afterwards) and `resume` re-run → `deploy.archie.service`,
   phase `deployed` (WS-F.3 and WS-F.4's Archie orphan step done). `deploy-mac` → Mac mux pid 98783,
   epoch `90eb4819…`, revision 46, doctor E; 17 checkpoints. `verify` started.
+- **r8 `verify` stopped at `lifecycle.keybinding` on a bridge defect of ours (not the fork).**
+  `smoke_identity`, `cold_present`, `reconnect`, `lifecycle` and `lifecycle.intent` passed; then
+  `dmux con --name w6mac-smoke-20260817 --backend wez --launch-gui` was refused
+  `workspace_domain_mismatch` ("workspace is imported from another domain"). The GUI log shows
+  why: `lifecycle.intent` had sent the native application-quit, which the fork hands to the managed
+  safe-quit — the `dmux` domain detached (panes [2, 1]) while the process stayed resident — and the
+  keybinding step presented into that same GUI four seconds later, while it was re-attaching. In
+  `presentation.lua` an error from `workspace_in_domain` inside `wait_until` aborted the poll at
+  once (only `false` polls), so a window still wearing foreign panes mid-re-attach was refused
+  instead of waited for. At steady state the same command succeeds, and the resident GUI holds
+  exactly the two imported panes. Fix: inside both bounded waits (the sentinel check in
+  `attach_domain`, the target check in `present`) `workspace_domain_mismatch` is "not yet" and
+  remembered; a foreign pane that outlives the deadline is still refused, now with its own code
+  rather than `attach_timeout`/`not_found`; `correlation.activate` still revalidates every pane at
+  activation. Regression case in `tests/presentation.lua` (transient foreign pane presents once
+  in-domain; persistent one is refused at the deadline as a mismatch). This changes `shared/wezterm`
+  (a managed path), so r9 is planned at the fixing commit and the full sequence runs again.

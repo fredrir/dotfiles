@@ -247,6 +247,18 @@ local function workspace_in_domain(workspace, domain_name)
   return found == 1
 end
 
+-- A pane of another domain inside the target workspace is a refusal (a local
+-- window wearing a managed name must never be activated), but it is also what
+-- a window looks like for a moment while the domain is re-attaching after the
+-- managed safe-quit detached it (ADR 012 §10, r8 verify: the presentation that
+-- followed a safe-quit by four seconds was refused mid-re-attach). Inside a
+-- bounded wait it is therefore "not yet", remembered so the deadline reports
+-- it instead of a bare timeout; a foreign pane that outlives the deadline is
+-- still refused with its own code.
+local function is_transient_domain_mismatch(err)
+  return type(err) == 'table' and err.code == 'workspace_domain_mismatch'
+end
+
 local function sentinel_present(target)
   return workspace_in_domain('dmux:system:' .. target.server_epoch, target.domain)
 end
@@ -734,12 +746,17 @@ local function attach_domain(target, bridge_state, deadline, authorize, done)
         return
       end
     end
+    local last_mismatch
     wait_until(deadline, function()
       if domain_state(selected) ~= 'Attached' then
         return false
       end
       local present, sentinel_err = sentinel_present(target)
       if sentinel_err then
+        if is_transient_domain_mismatch(sentinel_err) then
+          last_mismatch = sentinel_err
+          return false
+        end
         return nil, sentinel_err
       end
       if not present then
@@ -748,6 +765,10 @@ local function attach_domain(target, bridge_state, deadline, authorize, done)
       return { domain = target.domain, domain_state = 'Attached' }
     end, function(result, attach_err)
       if attach_err then
+        if attach_err.code == 'attach_timeout' and last_mismatch then
+          done(nil, last_mismatch)
+          return
+        end
         done(nil, attach_err)
         return
       end
@@ -795,9 +816,14 @@ local function present(target, bridge_state, deadline, authorize, done)
       return
     end
     local incomplete_marker
+    local last_mismatch
     wait_until(deadline, function()
       local exists, workspace_err = workspace_in_domain(target.workspace, target.domain)
       if workspace_err then
+        if is_transient_domain_mismatch(workspace_err) then
+          last_mismatch = workspace_err
+          return false
+        end
         return nil, workspace_err
       end
       if not exists then
@@ -822,6 +848,12 @@ local function present(target, bridge_state, deadline, authorize, done)
         -- its server-side SetUserVar snapshot.  Retry only that exact partial
         -- marker shape; a stable incomplete marker still fails closed with
         -- its original typed error rather than being mislabeled not_found.
+        -- A foreign pane that never settled is reported as itself, not as
+        -- an absent workspace.
+        if wait_err.code == 'not_found' and last_mismatch and not incomplete_marker then
+          done(nil, last_mismatch)
+          return
+        end
         done(nil, incomplete_marker or wait_err)
       else
         done(result)
