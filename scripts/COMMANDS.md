@@ -125,16 +125,20 @@ completed step verifies its evidence instead of repeating the mutation.
 
 | Command | Purpose and options |
 | --- | --- |
-| `dmux-rollout plan` | Freeze pushed dotfiles and WezTerm commits. `--dotfiles-ref`, `--wezterm-ref`, `--release-id`, `--smoke-name`; an existing smoke may be adopted only with both `--smoke-space-uid` and `--smoke-host-uid`. |
+| `dmux-rollout plan` | Freeze pushed dotfiles and WezTerm commits. `--dotfiles-ref`, `--wezterm-ref`, `--release-id`, `--smoke-name`; an existing smoke may be adopted only with both `--smoke-space-uid` and `--smoke-host-uid`. `--archie-ssh <user@host>`: the ssh route the tool uses for Archie (the bare `archie` alias is a disabled dmux route); `--archie-dmux-host <alias\|label\|uuid>`: the enrolled selector `dmux --host` receives for the two-host check. |
 | `dmux-rollout build` | Test/build Mac artifacts from clean detached worktrees and record exact hashes. |
-| `dmux-rollout deploy-mac` | Back up and atomically install dmux/WezTerm, re-sign the app, restart only the exact launchd service, and verify a new PID/epoch/socket. `--approve-space <UID>` explicitly permits a pre-existing live Space. |
+| `dmux-rollout deploy-mac` | Back up and atomically install dmux/WezTerm, re-sign the app, enable `DMUX_WEZ_FIRST=1` durably through `~/.config/dmux/service.env` (the file's bytes are backed up; the `com.fredrir.dmux-env` LaunchAgent must already be linked and bootstrapped, or the step refuses and says so), restart only the exact launchd service, and verify a new PID/epoch/socket. Every owner snapshot stores `dmux doctor --format json` beside it. `--approve-space <UID>` explicitly permits a pre-existing live Space. |
 | `dmux-rollout stage-archie` | Build Archie user binaries and packages in exact remote worktrees, record hashes and rollback archives, then print—but never run—the exact interactive `sudo pacman -U` command. |
-| `dmux-rollout resume` | Detect that the staged packages were installed, atomically install Archie user binaries, restart the exact user service, and verify it. Exits 4 with the required pacman command while paused. |
+| `dmux-rollout resume` | Detect that the staged packages were installed, atomically install Archie user binaries, write `~/.config/environment.d/50-dmux.conf` and reload the user manager, restart the exact user service, and verify it. Exits 4 with the required pacman command while paused. |
 | `dmux-rollout verify` | Reuse one journaled smoke identity through cold presentation, reconnect, managed lifecycle, service recovery, explicit removal, and two-host checks. |
 | `dmux-rollout rollback` | Restore only recorded binaries/packages and exact service environment. Registry rows, tombstones, recovery manifests, and user state are deliberately preserved. Exits 4 at Archie's interactive package step. |
+| `dmux-rollout canary-start --host <mac\|archie>` | Open §21 step 7's canary on one host: records the wall-clock start, the owner snapshot and the doctor document, and requires doctor's verdict that enablement is durable (file/launchd or systemd, not only the process environment). `--approve-space <UID>`. |
+| `dmux-rollout canary-reboot-observed --host <mac\|archie>` | Journal the in-canary reboot: the new pid/epoch with a doctor report that still says durable. |
+| `dmux-rollout canary-end --host <mac\|archie>` | Close the canary only after 24 h of wall clock (it says how long remains), with the owner `ready`, the same backend instance, every pid/epoch change journaled as a reboot, and no state-F doctor row. |
+| `dmux-rollout rollback-rehearsal --host <mac\|archie>` | Rehearse §21's rollback without restarting the mux: set `DMUX_LEGACY_POLICY=1` durably, prove the legacy planner would create tmux and the Wez-first surface is refused while the Wez smoke Space still lists and presents, then clear the policy and restore the file. `--legacy-con-switches-gui <true\|false\|unobserved>` records the operator's observation. |
 | `dmux-rollout status [--json]` | Show the active release and its completed checkpoints or the full manifest. |
 
-Use global `--release <ID>` to operate on a non-active release. The runner
+Phases are an ordered set — `planned`, `built`, `archie_staged`, `mac_deployed`, `deployed`, `verified`, `migrated`, `canary_mac`, `canary_arch`, `flipped`, `rolled_back` — and never regress except into `rolled_back`; `status` lists the doctor artifacts. Use global `--release <ID>` to operate on a non-active release. The runner
 never uses broad process kills, never builds a dirty worktree, refuses
 unapproved panes or stale hashes/epochs, and does not infer a replacement
 target from process names or ordinals.
