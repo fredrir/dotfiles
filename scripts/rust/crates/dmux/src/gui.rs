@@ -726,21 +726,13 @@ fn discover_in_gui_instance_with_heartbeat(
 
 /// Bind Lua's untrusted locator to the marker the owner has just revalidated
 /// against registry + live inventory, then require the fresh GUI heartbeat
-/// to name the same instance, pane, and imported domain.
-pub fn bind_cli_origin(
-    runtime_dir: &Path,
-    cli: &GuiCliOrigin,
-    authoritative_marker: &MarkerContext,
-) -> Result<BridgeSelection, GuiError> {
-    bind_cli_origin_with_heartbeat(runtime_dir, cli, authoritative_marker)
-        .map(|(selection, _)| selection)
-}
-
-/// Bind Lua's untrusted locator and also return the same descriptor-read,
-/// fresh heartbeat used for the binding decision. Safe disconnect/quit uses
-/// the complete domain and pane snapshot for its before-state; callers must
-/// still perform authority-aware owner scans to prove pane survival after a
-/// detach acknowledgement.
+/// to name the same instance, pane, and imported domain. The same
+/// descriptor-read, fresh heartbeat used for the binding decision is
+/// returned with the selection: safe disconnect/quit uses the complete domain
+/// and pane snapshot for its before-state. Callers must still perform
+/// authority-aware owner scans to prove pane survival after a detach
+/// acknowledgement. This is the only binder; `ProductionGuiAuthority::
+/// bind_origin` reaches it after owner revalidation of the marker.
 pub fn bind_cli_origin_with_heartbeat(
     runtime_dir: &Path,
     cli: &GuiCliOrigin,
@@ -3797,10 +3789,6 @@ mod tests {
         assert_eq!(selection.pane_id, 91);
         assert_eq!(bound_heartbeat.gui_instance, "gui-42-cafe");
         assert_eq!(bound_heartbeat.panes.len(), 1);
-        assert_eq!(
-            bind_cli_origin(root.path(), &parsed, &marker).unwrap(),
-            selection
-        );
     }
 
     #[test]
