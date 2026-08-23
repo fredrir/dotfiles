@@ -22,7 +22,7 @@ use crate::history::History;
 use crate::model::{
     Backend, BackendInstanceUid, ChildKind, HostUid, ProviderHandle, ServerEpoch, SpaceNo, SpaceUid,
 };
-use crate::refs::{ChildRefShape, HostToken, SpaceRefShape, parse_ref};
+use crate::refs::{ChildRefShape, HostToken, parse_ref};
 use crate::registry::{HostLifecycle, Registry, RegistryConfig, RouteRow, Transport};
 use crate::remote::client::{
     AgentInvocation, DEFAULT_DEADLINE, PeerExpectation, RouteInvoker, SshInvoker,
@@ -31,6 +31,9 @@ use crate::remote::client::{
 use crate::remote::protocol::{
     self, AttachChildRequest, AttachPlan, AttachPlanChild, AttachPlanPayload, HelloInfo,
     HelloPayload, PROTOCOL_VERSION,
+};
+use crate::resolve::{
+    HostContext, SpaceSelector, embedded_host, require_consistent_owner, scope_space_ref,
 };
 
 /// Parse one standalone canonical child suffix (`g<epoch>.<handle>` or
@@ -149,24 +152,18 @@ pub fn preflight_connect_request(request: &ConnectRequest) -> Result<(), TypedEr
         ConnectSelector::ExactName(_) | ConnectSelector::Previous => Ok(()),
         ConnectSelector::Ref(reference) => {
             let parsed = parse_connect_ref(reference)?;
-            let embedded_host = match &parsed.space {
-                SpaceRefShape::Canonical { host, .. } => Some(HostSelector::Uid(*host)),
-                SpaceRefShape::Numbered { host, .. } | SpaceRefShape::Named { host, .. } => {
-                    host.as_ref().map(HostSelector::from)
-                }
+            // The one owner contradiction decidable without a host table:
+            // both spelled as UIDs. Alias/label spellings are resolved, and
+            // the same resolver rule applied, in `resolve_request_scope`.
+            let explicit = match &request.explicit_host {
+                Some(HostSelector::Uid(uid)) => Some(*uid),
+                _ => None,
             };
-            if let (Some(HostSelector::Uid(explicit)), Some(HostSelector::Uid(embedded))) =
-                (&request.explicit_host, embedded_host.as_ref())
-                && explicit != embedded
-            {
-                return Err(TypedError::new(
-                    ErrorCode::InvalidRef,
-                    format!(
-                        "--host owner {} contradicts reference owner {}",
-                        explicit.0, embedded.0
-                    ),
-                ));
-            }
+            let embedded = match embedded_host(&parsed.space) {
+                Some(HostToken::Uid(uid)) => Some(uid),
+                _ => None,
+            };
+            require_consistent_owner(explicit, embedded)?;
             merge_requested_child(
                 parsed.child.map(RequestedChild::from),
                 request.child.clone(),
@@ -1744,6 +1741,11 @@ pub fn commit_exec_history(history: &History, plan: &OwnerExecPlan) -> Result<()
         })
 }
 
+/// The owner and exact locator a request names, scoped by the §6.2
+/// resolver (`resolve::scope_space_ref`, ADR 012 WS-D.3): an encoded owner
+/// wins, then `--host`, then the local authority; `--name` is the literal
+/// escape on the explicit-or-local owner; `dmux -` is the stable history
+/// of that same default owner. Host tokens resolve through the authority.
 fn resolve_request_scope<A: ConnectAuthority + ?Sized>(
     request: &ConnectRequest,
     local_host: HostUid,
@@ -1755,19 +1757,20 @@ fn resolve_request_scope<A: ConnectAuthority + ?Sized>(
         .as_ref()
         .map(|selector| authority.resolve_host(selector))
         .transpose()?;
+    let context = HostContext {
+        local: local_host,
+        explicit,
+    };
 
-    let (embedded_host, locator, embedded_child) = match &request.selector {
-        ConnectSelector::ExactName(name) => {
-            if name.is_empty() {
-                return Err(TypedError::new(
-                    ErrorCode::InvalidRef,
-                    "exact Space name cannot be empty",
-                ));
-            }
-            (None, OwnerLocator::Name(name.clone()), None)
-        }
+    let (scoped, embedded_child) = match &request.selector {
+        ConnectSelector::ExactName(name) => (
+            scope_space_ref(SpaceSelector::ExactName(name), context, |token| {
+                authority.resolve_host(&HostSelector::from(token))
+            })?,
+            None,
+        ),
         ConnectSelector::Previous => {
-            let owner = explicit.unwrap_or(local_host);
+            let owner = context.default_owner();
             let previous = history.previous(owner).ok_or_else(|| {
                 TypedError::new(
                     ErrorCode::NotFound,
@@ -1778,45 +1781,14 @@ fn resolve_request_scope<A: ConnectAuthority + ?Sized>(
         }
         ConnectSelector::Ref(reference) => {
             let parsed = parse_connect_ref(reference)?;
-            let child = parsed.child.map(RequestedChild::from);
-            match parsed.space {
-                SpaceRefShape::Canonical { host, space } => (
-                    Some(authority.resolve_host(&HostSelector::Uid(host))?),
-                    OwnerLocator::Uid(space),
-                    child,
-                ),
-                SpaceRefShape::Numbered { host, no } => (
-                    host.as_ref()
-                        .map(|token| authority.resolve_host(&HostSelector::from(token)))
-                        .transpose()?,
-                    OwnerLocator::Number(no),
-                    child,
-                ),
-                SpaceRefShape::Named { host, name } => (
-                    host.as_ref()
-                        .map(|token| authority.resolve_host(&HostSelector::from(token)))
-                        .transpose()?,
-                    OwnerLocator::Name(name),
-                    child,
-                ),
-            }
+            let scoped = scope_space_ref(SpaceSelector::Shape(&parsed.space), context, |token| {
+                authority.resolve_host(&HostSelector::from(token))
+            })?;
+            (scoped, parsed.child.map(RequestedChild::from))
         }
     };
-
-    if let (Some(explicit), Some(embedded)) = (explicit, embedded_host)
-        && explicit != embedded
-    {
-        return Err(TypedError::new(
-            ErrorCode::InvalidRef,
-            format!(
-                "--host owner {} contradicts reference owner {}",
-                explicit.0, embedded.0
-            ),
-        ));
-    }
-    let owner = embedded_host.or(explicit).unwrap_or(local_host);
     let child = merge_requested_child(embedded_child, request.child.clone())?;
-    Ok((owner, locator, child))
+    Ok((scoped.owner, scoped.locator, child))
 }
 
 fn parse_connect_ref(reference: &str) -> Result<crate::refs::ParsedRef, TypedError> {
