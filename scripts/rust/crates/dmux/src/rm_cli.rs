@@ -22,13 +22,14 @@ use crate::inventory::{self, ReconRow};
 use crate::model::{Backend, HostUid, Lifecycle, OperationKind, SpaceNo, SpaceUid};
 use crate::operations::{OpError, OperationEnv};
 use crate::output::{self, OutputFormat};
-use crate::refs::{HostToken, SpaceRefShape, parse_ref};
+use crate::refs::{SpaceRefShape, parse_ref};
 use crate::registry::{HostLifecycle, Registry, RegistryConfig, SpaceRow};
 use crate::remote::client::{
     AgentInvocation, DEFAULT_DEADLINE, PeerExpectation, SshInvoker, call_over_routes,
     request_envelope,
 };
 use crate::remote::protocol::{self, RenamePayload, RenameResult, RmPayload, RmResult, SpacesInfo};
+use crate::resolve::{HostContext, SpaceSelector, scope_space_ref};
 
 /// True: `remove`/`rename` below resolve, confirm, and mutate for real. The
 /// binary consults this so a machine with the canary flag already exported
@@ -117,12 +118,8 @@ fn run_remove(json: bool, args: RmArgs) -> Result<ExitStatus, TypedError> {
     }
 
     let mut adapter = ProductionConnectAdapter::production()?;
-    let local = adapter.local_host_uid()?;
-    let explicit = args
-        .host
-        .as_deref()
-        .map(|spelling| adapter.resolve_host(&host_selector(spelling)))
-        .transpose()?;
+    let context = host_context(&mut adapter, args.host.as_deref())?;
+    let local = context.local;
 
     // Case 42 wants "preflights all", so a target that fails to parse or
     // names an unknown host joins the report instead of ending it; every
@@ -131,7 +128,7 @@ fn run_remove(json: bool, args: RmArgs) -> Result<ExitStatus, TypedError> {
     let mut selectors = Vec::new();
     let mut errors = Vec::new();
     for spelling in &args.targets {
-        match build_selector(&mut adapter, spelling, explicit, local) {
+        match build_selector(&mut adapter, spelling, context) {
             Ok(selector) => selectors.push(selector),
             Err(mut error) => {
                 error.target.get_or_insert_with(|| spelling.clone());
@@ -139,20 +136,22 @@ fn run_remove(json: bool, args: RmArgs) -> Result<ExitStatus, TypedError> {
             }
         }
     }
-    let owner = reconcile_owner(explicit, None, local)?;
+    let owner = context.default_owner();
     // The name is taken literally on exactly this owner: no `parse_ref`, no
-    // prefix or fuzzy fallback, no second host consulted. That is the only
-    // removal spelling a ref-shaped legacy name has (plan §7.4, §17.10).
+    // prefix or fuzzy fallback, no second host consulted — the resolver's
+    // `--name` escape (plan §7.4, §17.10). That is the only removal spelling
+    // a ref-shaped legacy name has.
     //
     // The spelling keeps the flag, exactly as `--row` does, because it is
     // what every failure and the confirmation subject echo back: `--name 3`
     // and the ref `3` reach different Spaces, so a bare `3` would give two
     // different removals one byte-identical document.
     if let Some(name) = &args.name {
+        let scoped = exact_name_selector(&mut adapter, name, context)?;
         selectors.push(Selector {
             spelling: format!("--name {name}"),
-            owner,
-            locator: OwnerLocator::Name(name.clone()),
+            owner: scoped.owner,
+            locator: scoped.locator,
         });
     }
     for row in &args.rows {
@@ -320,34 +319,20 @@ fn run_rename(json: bool, args: RenameArgs) -> Result<ExitStatus, TypedError> {
     })?;
 
     let mut adapter = ProductionConnectAdapter::production()?;
-    let local = adapter.local_host_uid()?;
-    let explicit = args
-        .host
-        .as_deref()
-        .map(|spelling| adapter.resolve_host(&host_selector(spelling)))
-        .transpose()?;
+    let context = host_context(&mut adapter, args.host.as_deref())?;
+    let local = context.local;
 
     let selector = match (selector, args.name, args.row) {
-        (Some(spelling), _, _) => {
-            let (embedded, locator) = parse_target(&spelling)?;
-            let embedded = embedded
-                .map(|token| adapter.resolve_host(&HostSelector::from(&token)))
-                .transpose()?;
+        (Some(spelling), _, _) => build_selector(&mut adapter, &spelling, context)?,
+        (None, Some(name), _) => {
+            let scoped = exact_name_selector(&mut adapter, &name, context)?;
             Selector {
-                owner: reconcile_owner(explicit, embedded, local)?,
-                spelling,
-                locator,
+                spelling: name,
+                owner: scoped.owner,
+                locator: scoped.locator,
             }
         }
-        (None, Some(name), _) => Selector {
-            spelling: name.clone(),
-            owner: reconcile_owner(explicit, None, local)?,
-            locator: OwnerLocator::Name(name),
-        },
-        (None, None, Some(row)) => {
-            let owner = reconcile_owner(explicit, None, local)?;
-            resolve_row(owner, row)?
-        }
+        (None, None, Some(row)) => resolve_row(context.default_owner(), row)?,
         (None, None, None) => unreachable!("selector_flag implies --name or --row"),
     };
 
@@ -448,8 +433,11 @@ struct Selector {
 }
 
 /// Bare digits are a permanent local SpaceNo, never a row index (plan
-/// §17.13); the whole §6.2 grammar comes from `refs::parse_ref`.
-fn parse_target(spelling: &str) -> Result<(Option<HostToken>, OwnerLocator), TypedError> {
+/// §17.13); the whole §6.2 grammar comes from `refs::parse_ref`, and this
+/// verb family adds exactly one rule of its own: it removes or renames
+/// Spaces, so a Group/Split ref is another verb's target (plan §7.2's
+/// cascade rule), refused rather than truncated to its Space prefix.
+fn parse_target(spelling: &str) -> Result<SpaceRefShape, TypedError> {
     let parsed = parse_ref(spelling).map_err(|error| {
         TypedError::new(
             ErrorCode::InvalidRef,
@@ -462,13 +450,7 @@ fn parse_target(spelling: &str) -> Result<(Option<HostToken>, OwnerLocator), Typ
             format!("{spelling:?} names a Group/Split: use `dmux group rm` or `dmux split rm`"),
         ));
     }
-    Ok(match parsed.space {
-        SpaceRefShape::Canonical { host, space } => {
-            (Some(HostToken::Uid(host)), OwnerLocator::Uid(space))
-        }
-        SpaceRefShape::Numbered { host, no } => (host, OwnerLocator::Number(no)),
-        SpaceRefShape::Named { host, name } => (host, OwnerLocator::Name(name)),
-    })
+    Ok(parsed.space)
 }
 
 fn host_selector(spelling: &str) -> HostSelector {
@@ -478,23 +460,30 @@ fn host_selector(spelling: &str) -> HostSelector {
     }
 }
 
-fn reconcile_owner(
-    explicit: Option<HostUid>,
-    embedded: Option<HostUid>,
-    local: HostUid,
-) -> Result<HostUid, TypedError> {
-    if let (Some(explicit), Some(embedded)) = (explicit, embedded)
-        && explicit != embedded
-    {
-        return Err(TypedError::new(
-            ErrorCode::Usage,
-            format!(
-                "--host owner {} contradicts reference owner {}",
-                explicit.0, embedded.0
-            ),
-        ));
-    }
-    Ok(embedded.or(explicit).unwrap_or(local))
+/// The hosts §6.2's defaulting reads for this invocation: the local
+/// authority and `--host`, resolved to an enrolled owner before any target
+/// is looked at.
+fn host_context(
+    adapter: &mut ProductionConnectAdapter,
+    explicit: Option<&str>,
+) -> Result<HostContext, TypedError> {
+    let local = adapter.local_host_uid()?;
+    let explicit = explicit
+        .map(|spelling| adapter.resolve_host(&host_selector(spelling)))
+        .transpose()?;
+    Ok(HostContext { local, explicit })
+}
+
+/// The `--name` escape through the resolver: literal, on the explicit or
+/// local owner, never searched across hosts.
+fn exact_name_selector(
+    adapter: &mut ProductionConnectAdapter,
+    name: &str,
+    context: HostContext,
+) -> Result<crate::resolve::ScopedSpaceRef, TypedError> {
+    scope_space_ref(SpaceSelector::ExactName(name), context, |token| {
+        adapter.resolve_host(&HostSelector::from(token))
+    })
 }
 
 fn require_single_owner(selectors: &[Selector]) -> Result<(), TypedError> {
@@ -534,23 +523,24 @@ fn preflight(
         })
 }
 
-/// One typed target from one spelling. Split out of the batch loop so a
-/// parse or host-resolution failure can be collected beside the preflight
-/// failures instead of ending the run at the first one.
+/// One typed target from one spelling, scoped by the resolver (an encoded
+/// owner wins, then `--host`, then the local authority; a contradiction
+/// between the two is refused). Split out of the batch loop so a parse or
+/// host-resolution failure can be collected beside the preflight failures
+/// instead of ending the run at the first one.
 fn build_selector(
     adapter: &mut ProductionConnectAdapter,
     spelling: &str,
-    explicit: Option<HostUid>,
-    local: HostUid,
+    context: HostContext,
 ) -> Result<Selector, TypedError> {
-    let (embedded, locator) = parse_target(spelling)?;
-    let embedded = embedded
-        .map(|token| adapter.resolve_host(&HostSelector::from(&token)))
-        .transpose()?;
+    let shape = parse_target(spelling)?;
+    let scoped = scope_space_ref(SpaceSelector::Shape(&shape), context, |token| {
+        adapter.resolve_host(&HostSelector::from(token))
+    })?;
     Ok(Selector {
         spelling: spelling.to_string(),
-        owner: reconcile_owner(explicit, embedded, local)?,
-        locator,
+        owner: scoped.owner,
+        locator: scoped.locator,
     })
 }
 
@@ -1505,6 +1495,7 @@ fn report_failure(json: bool, action: &str, errors: &[TypedError]) -> ExitStatus
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::refs::HostToken;
 
     fn uid(byte: u128) -> HostUid {
         HostUid(Uuid::from_u128(byte))
@@ -1520,26 +1511,29 @@ mod tests {
 
     /// Plan §17.13: under the gate a bare number is a permanent SpaceNo, and
     /// the whole §6.2 grammar keeps working — nothing here is a row index.
+    /// Scoping those shapes to an owner is the resolver's
+    /// (`tests/resolver_truth_table.rs`); `rm` only hands them over.
     #[test]
     fn targets_parse_as_stable_refs_only() {
         assert!(matches!(
             parse_target("3").unwrap(),
-            (None, OwnerLocator::Number(no)) if no.get() == 3
+            SpaceRefShape::Numbered { host: None, no } if no.get() == 3
         ));
         assert!(matches!(
             parse_target("b2").unwrap(),
-            (Some(HostToken::AliasOrLabel(alias)), OwnerLocator::Number(no))
+            SpaceRefShape::Numbered { host: Some(HostToken::AliasOrLabel(alias)), no }
                 if alias == "b" && no.get() == 2
         ));
         assert!(matches!(
             parse_target("project").unwrap(),
-            (None, OwnerLocator::Name(name)) if name == "project"
+            SpaceRefShape::Named { host: None, name } if name == "project"
         ));
         let host = Uuid::from_u128(1);
         let space = Uuid::from_u128(2);
         assert!(matches!(
             parse_target(&format!("dmux://{host}/spaces/{space}")).unwrap(),
-            (Some(HostToken::Uid(_)), OwnerLocator::Uid(got)) if got.0 == space
+            SpaceRefShape::Canonical { host: got_host, space: got }
+                if got_host.0 == host && got.0 == space
         ));
     }
 
@@ -1551,15 +1545,6 @@ mod tests {
         let error = parse_target(&child).unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidRef);
         assert!(error.message.contains("dmux split rm"));
-    }
-
-    #[test]
-    fn a_host_flag_contradicting_the_ref_owner_is_a_usage_error() {
-        let error = reconcile_owner(Some(uid(1)), Some(uid(2)), uid(3)).unwrap_err();
-        assert_eq!(error.code, ErrorCode::Usage);
-        assert_eq!(reconcile_owner(None, None, uid(3)).unwrap(), uid(3));
-        assert_eq!(reconcile_owner(Some(uid(1)), None, uid(3)).unwrap(), uid(1));
-        assert_eq!(reconcile_owner(None, Some(uid(2)), uid(3)).unwrap(), uid(2));
     }
 
     /// Plan §7.4: "cross-host bulk removal is forbidden".
