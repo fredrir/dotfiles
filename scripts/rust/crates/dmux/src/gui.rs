@@ -426,8 +426,7 @@ pub fn ensure_bridge_key(runtime_dir: &Path) -> Result<Vec<u8>, GuiError> {
             // or stale metadata without invalidating that consumer.
             bridge.write_replace_atomic(KEY_BOOT_FILE, boot.as_bytes())?;
         } else {
-            bridge.write_replace_atomic(KEY_FILE, &random_key()?)?;
-            bridge.write_replace_atomic(KEY_BOOT_FILE, boot.as_bytes())?;
+            replace_bridge_key(&bridge, &boot)?;
         }
     }
     read_bridge_key(runtime_dir)
@@ -450,10 +449,14 @@ pub fn read_bridge_key(runtime_dir: &Path) -> Result<Vec<u8>, GuiError> {
 
 /// Explicitly rotate the bridge key for provisioning/tests while the GUI is idle.
 ///
-/// Normal mux-service startup calls [`ensure_bridge_key`], which performs
-/// OS-boot-aware initialization and safe reuse. This explicit operation is
-/// not part of every mux epoch: it refuses while any fresh GUI heartbeat
-/// exists, so it cannot invalidate a live consumer.
+/// ADR 003 §3 freezes the key as per-OS-boot, issued by the runtime broker
+/// at service start through [`ensure_bridge_key`] and read by the GUI once
+/// at config load; nothing in that lifecycle rotates a key inside a boot, so
+/// this operation has no production caller by design. It shares
+/// [`ensure_bridge_key`]'s one replacement sequence and its guard: it refuses
+/// while any fresh GUI heartbeat exists, so it cannot invalidate a live
+/// consumer, while a GUI whose poller has died is bridge-down already and is
+/// not protected.
 pub fn rotate_bridge_key_if_idle(runtime_dir: &Path) -> Result<Vec<u8>, GuiError> {
     let runtime = PrivateDir::open(runtime_dir, 0o700)?;
     let bridge = runtime.ensure_child(BRIDGE_DIR)?;
@@ -462,12 +465,18 @@ pub fn rotate_bridge_key_if_idle(runtime_dir: &Path) -> Result<Vec<u8>, GuiError
             "refusing to rotate the per-boot bridge key while a live GUI heartbeat exists".into(),
         ));
     }
-    if let Some(existing) = bridge.open_private_file_optional(KEY_FILE)? {
-        drop(existing);
-    }
-    bridge.write_replace_atomic(KEY_FILE, &random_key()?)?;
-    bridge.write_replace_atomic(KEY_BOOT_FILE, current_boot_token()?.as_bytes())?;
+    replace_bridge_key(&bridge, &current_boot_token()?)?;
     read_bridge_key(runtime_dir)
+}
+
+/// The one key-replacement sequence. The key is replaced before the boot
+/// token so a crash between the two writes leaves a `key.boot` that still
+/// mismatches and the next [`ensure_bridge_key`] rotates again; the reverse
+/// order could record the current boot against a key no GUI was issued.
+/// Both writes refuse an existing symlink or non-private entry.
+fn replace_bridge_key(bridge: &PrivateDir, boot: &str) -> Result<(), GuiError> {
+    bridge.write_replace_atomic(KEY_FILE, &random_key()?)?;
+    bridge.write_replace_atomic(KEY_BOOT_FILE, boot.as_bytes())
 }
 
 /// Canonical request bytes signed by both Rust and Lua.
@@ -4042,6 +4051,58 @@ mod tests {
             Err(GuiError::BridgeUnavailable(_))
         ));
         assert_eq!(read_bridge_key(root.path()).unwrap(), rotated);
+    }
+
+    /// The rotation success path (report 06 row 15's coverage gap): with no
+    /// fresh heartbeat the key is replaced, the boot token is re-recorded,
+    /// both files stay private, and the next service start reuses the
+    /// rotated key instead of rotating again.
+    #[test]
+    fn idle_key_rotation_succeeds_and_the_next_service_start_reuses_it() {
+        let root = private_root();
+        let original = ensure_bridge_key(root.path()).unwrap();
+        let runtime = PrivateDir::open(root.path(), 0o700).unwrap();
+        let bridge = runtime.child("bridge").unwrap();
+        bridge
+            .write_replace_atomic(KEY_BOOT_FILE, b"macos:stale:boot")
+            .unwrap();
+
+        let rotated = rotate_bridge_key_if_idle(root.path()).unwrap();
+        assert_eq!(rotated.len(), 32);
+        assert_ne!(rotated, original);
+        assert_eq!(read_bridge_key(root.path()).unwrap(), rotated);
+        assert_eq!(
+            bridge.read_private_file(KEY_BOOT_FILE, 256).unwrap(),
+            current_boot_token().unwrap().as_bytes()
+        );
+        for name in [KEY_FILE, KEY_BOOT_FILE] {
+            assert_eq!(
+                fs::metadata(root.path().join("bridge").join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        assert_eq!(ensure_bridge_key(root.path()).unwrap(), rotated);
+
+        // A stale heartbeat is bridge-down, not a live consumer: rotation
+        // proceeds; a fresh one refuses it and leaves both files untouched.
+        heartbeat(root.path(), "gui-42-cafe", 1, &marker());
+        let rotated_again = rotate_bridge_key_if_idle(root.path()).unwrap();
+        assert_ne!(rotated_again, rotated);
+        heartbeat(
+            root.path(),
+            "gui-42-cafe",
+            unix_seconds().unwrap(),
+            &marker(),
+        );
+        assert!(matches!(
+            rotate_bridge_key_if_idle(root.path()),
+            Err(GuiError::BridgeUnavailable(_))
+        ));
+        assert_eq!(read_bridge_key(root.path()).unwrap(), rotated_again);
     }
 
     #[test]
