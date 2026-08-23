@@ -1320,13 +1320,16 @@ fn a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_sca
 // server.
 
 /// What `tmux -L <ns>` itself reports for the running server: pid and the
-/// resolved socket path.
+/// resolved socket path. `|`-separated, never a tab: with no UTF-8 locale
+/// in the environment (a BatchMode ssh session on Archie has no `LANG`)
+/// tmux sanitises control characters in command output to `_`, and the
+/// tab vanished (ADR 012 §10). A socket path contains no `|`.
 fn live_tmux_identity(s: &Scratch) -> (i64, String) {
-    let line = s.tmux(&["list-sessions", "-F", "#{pid}\t#{socket_path}"]);
+    let line = s.tmux(&["list-sessions", "-F", "#{pid}|#{socket_path}"]);
     let (pid, socket) = line
         .lines()
         .next()
-        .and_then(|line| line.split_once('\t'))
+        .and_then(|line| line.split_once('|'))
         .expect("pid and socket_path");
     (pid.parse().unwrap(), socket.to_string())
 }
