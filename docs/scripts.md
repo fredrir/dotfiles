@@ -1370,11 +1370,66 @@ wezterm+tmux set before `--tmux`/`--wez` filter — precisely the behaviour
 stable refs exist to end; `con`, `new`, `rm` and `rename` refuse their new
 flags with a usage error naming the variable; and `adopt` and `migrate` refuse
 outright. `group`, `split`, `context`, `repair`, `recovery`, `ssh` and `host`
-are not gated. `migrate` — the one-time cutover that would scan, print a
-deterministic mapping, and batch-adopt — is not implemented at all, and its
-module says so in a constant rather than in a comment, so that a machine with
-the canary flag already exported keeps the legacy behaviour instead of
-panicking in the user's shell.
+are not gated. `migrate` is the one-time cutover: it scans both backends under
+their published epochs, prints a deterministic mapping (adopt / quarantine /
+skip, one line per native resource), and under `--commit --yes` batch-adopts
+and writes `~/.local/share/dmux/migrated-v1.json`, after which every later run
+is a clean no-op. It refuses — in preview and in `--commit`, writing no stamp —
+when a managed instance has published no server epoch, because a mapping built
+from a server nothing verified is the wrong-server hazard the cutover exists
+to end. `--row <N>` on `rm` and `rename` is the explicit, one-release escape
+for the deprecated listing indices: a bare digit is a SpaceNo, never a row, and
+`--row` refuses an incomplete or unverified listing rather than renumbering.
+
+Per-host enablement is durable, not `launchctl setenv` / `systemctl --user
+set-environment` — those do not survive a reboot, which is how the first
+canary was silently lost (ADR 012 §3.1). On macOS write `DMUX_WEZ_FIRST=1` to
+the untracked `~/.config/dmux/service.env`; the `com.fredrir.dmux-env`
+LaunchAgent (`macos/launchd/com.fredrir.dmux-env.plist`, program
+`shared/wezterm/mux/dmux-env-load.sh`) applies each `KEY=VALUE` with
+`launchctl setenv` at login, and `dmux-mux-start.sh` reads the same file
+itself so the mux never depends on agent ordering. The grammar is deliberately
+small (`shared/wezterm/mux/dmux-service-env.sh`): blank lines and `#`
+comments, keys `^DMUX_[A-Z0-9_]*$`, values `^[A-Za-z0-9_./:@+,-]*$`, last
+assignment wins, and one malformed line refuses the whole file — nothing is
+applied. A non-empty value already in the service's environment beats the
+file and the file beats the tracked default, so after editing it run
+`launchctl kickstart gui/$UID/com.fredrir.dmux-env` before restarting the mux.
+Write `0` to state legacy; deleting the line states nothing and leaves
+launchd's old value until reboot. On Linux the one knob is
+`~/.config/environment.d/50-dmux.conf` (`DMUX_WEZ_FIRST=1`), read by the
+systemd user manager at start and on `systemctl --user daemon-reload`;
+`service.env` is not read there. `dmux doctor`'s `wez-first flag` line shows
+all three layers and says whether enablement is durable.
+
+Flag-off, the legacy merged listing and `con` are no longer blind to the
+managed service. When the service descriptor (`wez-dmux.json` under the
+runtime directory) names a socket, every `wezterm cli` call the legacy path
+makes — the `list` behind `ls`, `con`, `rm` and `rename`, and the
+`activate-pane` a workspace attach execs — carries that socket in
+`WEZTERM_UNIX_SOCKET`, overriding whatever the shell inherited from a GUI, and
+keeps `--no-auto-start`; the descriptor need not say `ready`, since a
+`starting` or `failed` one still names the only socket this path may talk to.
+Without a descriptor nothing is pinned and wezterm's own discovery stands, as
+before: the legacy path gains no registry dependency and no new fallback. The
+probe is bounded by a ten-second dmux-side deadline, after which a wedged
+wezterm is killed and contributes no rows. And the reserved
+`dmux:system:<epoch>` sentinel workspace is never listed and never attachable —
+it is dropped before rows are numbered, so it holds no index, and an attach
+that somehow names it is refused outright with no `activate-pane` run. A bare
+attach inside wezterm (`wezterm cli spawn`) is deliberately not pinned: it
+carries no pane id, and spawning on the managed server would create an
+unmanaged pane.
+
+A backend instance's published incarnation is never taken as proof of a live
+server. `dmux repair retire-incarnation --backend <wez|tmux> --epoch <UUID>`
+is the operator's explicit clear for one whose process is gone (plan §5.2
+state F): a compare-and-set on the published epoch, journaled as a revision,
+refusing a mismatching epoch, a live pid without `--allow-live-pid`, and any
+unfinished recovery; afterwards the instance is unpublished until the managed
+service republishes, and every verb on it refuses until then. It is confirmed
+per §7.4 (`-y` to skip the prompt; one `confirmation_required` document under
+`--format json`).
 
 Attaching a remote host walks the chain the shell version had, now in one
 place. Inside wezterm a bare attach is a native mux tab on the peer's ssh
