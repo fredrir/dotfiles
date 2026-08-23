@@ -898,3 +898,27 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   before and after). Release binaries for wave 4 are built from this tree's predecessor `349b1c9`
   (`target/release/dmux` `613763aa…`, `pane-bootstrap` `24e6e6ab…`); the only code change since is
   the owner-local refusal on `retire-incarnation`, so they are rebuilt at wave-4 time before install.
+- **R (the handed-back follow-ups; case 29) — closed 2026-08-23** (`dd9fe17`…`34a5149` on `p11/r` →
+  six clean picks onto `dmux` after `69b6bcd`; R's own gate 1126/0/1, live dir unchanged; Lua 28/0/3).
+  The remote agent's tmux target and the three `_attach` readers compare the published socket
+  witnesses before trusting an epoch (a replaced server presenting the old epoch is a stale
+  incarnation over the wire too); the remote `rename`/`attach_plan`/tmux-client RPCs take the
+  registry's recorded binding epoch through `operations::binding_epoch_for_adapter`;
+  `lookup_new_owner_fenced` takes `LookupInput::{Target, Unpublished}` so an unpublished instance is
+  an indeterminate partition rather than a whole-lookup refusal; `host label|forget`, the recovery
+  verbs' `--host` and `ls --host` resolve through `resolve::resolve_enrolled_host`; case 29 is
+  asserted (Lua `actions_mac_keys` hands the pane's own Wez marker to the controller byte for byte;
+  `tests/gui_remote_new.rs` drives `_gui space-new` from a remote Wez marker to a Wez NEW at the
+  marker's owner). Ratified: (1) `OwnerNewLookup::unpublished_epoch_fault` — both `new_lookup`
+  callers answer the partition only when the opposite side holds a selectable exact match (§8.2
+  step 7) and otherwise keep the typed `backend_epoch_changed` fault, so no existing refusal turns
+  into `provider_unavailable`; `StaleIncarnation` stays a whole-lookup refusal. (2) A tombstoned
+  host now resolves by none of its spellings and an ambiguous spelling is `ambiguous_target` —
+  stricter than the copies it replaced; nothing asserted the old behaviour. (3) One
+  `#[doc(hidden)] pub` seam, `BoundGuiOrigin::remote_wez_for_test` (`gui_cli.rs:1187`), because the
+  remote arm's types are private and lib tests cannot reach `CARGO_BIN_EXE_dmux`. Known partial
+  coverage: `attach.rs` readers 2 and 3 share the helper but only `verify` has a dedicated
+  replaced-server test; the local item-3 positive control proves the lookup at the resolver, the
+  remote side proves it over the wire. Ledger: rows 7, 16–22, 27, 29, 44 updated; 29 is now
+  `live_pending` (34 mapped / 13 live_pending / 0 unmapped / 0 blocked). R's stray first draft of
+  the Lua case in the root worktree was untracked and removed; no git write ran there.

@@ -142,7 +142,9 @@
     "new_cli::an_unpublished_instance_refuses_new_before_any_lookup_or_reservation",
     "new_cli_dispatch::an_unpublished_tmux_instance_refuses_the_gated_new_before_any_reservation_or_tmux_call",
     "unit::gui_cli::tests::gui_create_refuses_an_unpublished_opposite_instance_before_any_reservation",
-    "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired"
+    "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -353,7 +355,9 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [
     "tests/remote_protocol/main.rs header",
@@ -371,7 +375,9 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [
     "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
@@ -388,7 +394,9 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [
     "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
@@ -405,7 +413,9 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [
     "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
@@ -422,7 +432,9 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [
     "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
@@ -440,7 +452,10 @@
    "tests": [
     "unit::gui_cli::tests::presentation_routes_conflict_only_on_a_different_identity",
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished",
+    "remote_protocol::binding_epoch::a_tmux_binding_recorded_under_another_incarnation_is_refused_over_rename_and_attach_plan"
    ],
    "implemented_at": [
     "src/gui_cli.rs:978 choose_compatible_presentation_row",
@@ -458,7 +473,9 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished"
    ],
    "implemented_at": [
     "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
@@ -475,7 +492,10 @@
    "earliest_owning_phase": "P7 remote/routes",
    "tests": [
     "remote_protocol::new_lookup::owner_new_lookup_refuses_an_unpublished_instance_as_an_epoch_fault_never_name_free",
-    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid"
+    "remote_protocol::new_lookup::the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid",
+    "new_cli::an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished",
+    "remote_protocol::new_lookup::owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished",
+    "remote_protocol::binding_epoch::a_tmux_binding_recorded_under_another_incarnation_is_refused_over_rename_and_attach_plan"
    ],
    "implemented_at": [
     "src/remote/agent.rs owner_lookup_target / spaces (owner-side epoch-fault rows)"
@@ -602,10 +622,16 @@
     "stale_incarnation::every_verb_refuses_a_published_incarnation_whose_process_is_dead_until_it_is_retired",
     "stale_incarnation::a_replaced_tmux_socket_refutes_a_published_row_whose_pid_is_still_alive",
     "doctor_cli::a_published_incarnation_whose_process_is_dead_is_reported_as_state_f",
-    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e"
+    "doctor_cli::a_published_incarnation_the_host_agrees_with_is_reported_as_state_e",
+    "remote_protocol::stale_incarnation::a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_by_every_agent_path",
+    "remote_protocol::attach::a_replaced_server_presenting_the_old_epoch_refuses_the_token_as_a_stale_incarnation",
+    "remote_protocol::binding_epoch::a_tmux_binding_recorded_under_another_incarnation_is_refused_over_rename_and_attach_plan"
    ],
    "implemented_at": [
-    "src/connect_cli.rs:1609 require_published_tmux_incarnation"
+    "src/connect_cli.rs:1609 require_published_tmux_incarnation",
+    "src/remote/agent.rs:834 verified_tmux_target",
+    "src/remote/attach.rs:354/639/1671 socket-witness comparison before verify_epoch",
+    "src/remote/agent.rs:1139 adapter_binding"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
@@ -637,23 +663,26 @@
   "29": {
    "title": "Command+Shift+T in an Archie Wez pane creates on Archie with Wez even over Tailscale",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
+   "tests": [
+    "lua::actions_mac_keys::cmd_shift_t_creates_on_the_pane_marker_owner_backend_byte_for_byte",
+    "gui_remote_new::space_new_from_a_remote_wez_marker_dispatches_a_wez_new_to_the_markers_owner"
+   ],
    "implemented_at": [
     "shared/wezterm/wez/dmux_bridge/actions.lua:262 mac_keys CMD|SHIFT t",
     "shared/wezterm/wez/dmux_bridge/actions.lua:48 new_space_prompt → controller space-new",
     "src/gui_cli.rs:4906 create_space_for_origin (marker backend; AuthorityLocation::Remote → remote NEW)",
-    "src/gui_cli.rs:978 choose_compatible_presentation_row"
+    "src/gui_cli.rs:978 choose_compatible_presentation_row",
+    "src/gui_cli.rs:1187 BoundGuiOrigin::remote_wez_for_test (test seam)"
    ],
    "live_evidence": [
     "docs/adr/dmux/r5.md lifecycle.keybinding green (single-host only; two_host deferred)"
    ],
    "live_evidence_required": [
-    "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
+    "WS-G.5: Command+Shift+T in an Archie Wez pane over Tailscale (two-host)"
    ],
    "open_items": [],
-   "status": "unmapped",
-   "confidence": "low",
-   "gap": "Nothing asserts this case: no Rust test exercises create_space_for_origin or constructs AuthorityLocation::Remote; the Lua suite never calls actions.mac_keys(); the Tailscale half is asserted only for presentation-row selection (case 20). Needs a test plus two-host live evidence (WS-G.5)."
+   "status": "live_pending",
+   "confidence": "medium"
   },
   "30": {
    "title": "Cancel Command+W changes nothing; confirm removes only the named Group; final Group needs explicit Space escalation",
@@ -990,7 +1019,8 @@
     "gated_dispatch::rm_row_reaches_the_gated_confirmation_and_is_refused_under_legacy",
     "gated_dispatch::ls_tree_expands_live_children_under_the_gate_and_is_refused_under_legacy",
     "resolver_truth_table::a_bare_number_is_a_space_no_never_a_listing_index",
-    "resolver_truth_table::the_exact_name_escape_is_literal_and_owner_local"
+    "resolver_truth_table::the_exact_name_escape_is_literal_and_owner_local",
+    "unit::remote::hosts::tests::host_refs_resolve_enrolled_rows_only_through_the_one_resolver"
    ],
    "implemented_at": [
     "src/rm_cli.rs:816 resolve_row",
@@ -1056,5 +1086,6 @@
    "gap": "Executable half now held by tests/baseline_manifest.rs (every baseline id exists by fn name or is retired with existing replacements and a rationale). Still manual: that surviving assertions are unchanged (assertion-level retirements are checked by their parent fn only) — reviewed at the gate."
   }
  },
- "note_2026_08_23": "Rows 1–4, 8–10, 12, 14, 15, 23, 29, 30, 32–38, 40, 46 mapped from a read-only sweep of the suite (ADR 012 WS-G.1); each carries a confidence and, where the suite does not prove the whole property, a gap. Honest zeroes: 29 (no test), 32 (related tests prove only attach-only launch), 46 (no executable check of the baseline manifest). Lua IDs are scenario labels cited by file:line in the sweep."
+ "note_2026_08_23": "Rows 1–4, 8–10, 12, 14, 15, 23, 29, 30, 32–38, 40, 46 mapped from a read-only sweep of the suite (ADR 012 WS-G.1); each carries a confidence and, where the suite does not prove the whole property, a gap. Honest zeroes: 29 (no test), 32 (related tests prove only attach-only launch), 46 (no executable check of the baseline manifest). Lua IDs are scenario labels cited by file:line in the sweep.",
+ "note_2026_08_23_r": "Rows 7, 16–22, 27, 29 and 44 gained the follow-ups agent's tests (ADR 012 §10, agent R): the owner-side new_lookup partition rows, the replaced-server readers, the remote binding epochs and the case-29 assertions (Lua mac_keys byte-for-byte marker hand-off; _gui space-new from a remote Wez marker dispatching a Wez NEW to the marker's owner). 29 moves unmapped → live_pending; its two-host live evidence remains WS-G.5."
 }
