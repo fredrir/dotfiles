@@ -172,3 +172,118 @@ fn the_agent_never_fabricates_a_server_epoch_from_the_nil_uuid() {
         );
     }
 }
+
+/// ADR 012 §10, A5-c's ratified deviation resolved through the
+/// `operations::lookup_new_owner_fenced` seam: with only the OPPOSITE
+/// instance unpublished, the owner answers the partition — the published
+/// side scanned under its pin, the unpublished side `indeterminate`, no
+/// provider command run for it — so the client's resolver can still select
+/// an explicit backend's known live match (§8.2 step 7) while auto
+/// selection refuses (case 7). A name the published side does not hold is
+/// still the typed epoch fault, never "name free", and the create path
+/// keeps refusing the unpublished opposite.
+#[test]
+fn owner_new_lookup_answers_the_partition_when_only_the_opposite_instance_is_unpublished() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use dmux::resolve::{ClassSummary, NewLookup, lookup_for_new};
+
+    let scratch = Scratch::with_tmux("new-lookup-opposite");
+    let request = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        serde_json::json!({ "name": "proj", "backend": "tmux", "program": ["sleep", "300"] }),
+    );
+    let (status, response) = scratch.agent(&request);
+    assert_eq!(status, 0, "{response:?}");
+    let created: dmux::operations::CreatedSpace =
+        serde_json::from_value(response.payload.unwrap()).unwrap();
+    let sessions = scratch.session_names();
+
+    // The opposite instance: registered and addressable, never published.
+    // Its binary is a witness that must not run.
+    let wez_instance = scratch
+        .registry()
+        .register_backend_instance(Backend::Wez, Some("/tmp/dmux-p7-never-a-wez.sock"), None)
+        .unwrap();
+    let stub_dir = scratch.data.path().join("wez-stub");
+    std::fs::create_dir_all(&stub_dir).unwrap();
+    let witness = scratch.data.path().join("wezterm-ran");
+    let stub = stub_dir.join("wezterm");
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\nexit 1\n",
+            witness.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let seams = [("DMUX_WEZ_BIN", stub.display().to_string())];
+
+    let (status, response) = scratch.agent_env(&lookup("proj"), &seams);
+    assert_eq!(status, 0, "{response:?}");
+    let result: NewLookupResult = serde_json::from_value(response.payload.unwrap()).unwrap();
+    assert_eq!(
+        result.tmux,
+        NewLookupClass::Selectable {
+            space_uid: created.space_uid,
+            space_no: created.space_no.get(),
+        }
+    );
+    assert_eq!(result.wez, NewLookupClass::Indeterminate);
+    assert!(
+        !witness.exists(),
+        "no provider command may run for an unpublished instance: {}",
+        std::fs::read_to_string(&witness).unwrap_or_default()
+    );
+
+    // The client's resolver on exactly that partition.
+    let wez = ClassSummary::Indeterminate;
+    let tmux = ClassSummary::Selectable {
+        space: created.space_uid,
+        no: created.space_no,
+    };
+    assert!(matches!(
+        lookup_for_new(Some(Backend::Tmux), false, wez, tmux),
+        NewLookup::Connect { backend: Backend::Tmux, space, .. } if space == created.space_uid
+    ));
+    assert!(matches!(
+        lookup_for_new(None, false, wez, tmux),
+        NewLookup::Indeterminate {
+            backend: Backend::Wez
+        }
+    ));
+    assert!(matches!(
+        lookup_for_new(Some(Backend::Wez), false, wez, tmux),
+        NewLookup::Indeterminate {
+            backend: Backend::Wez
+        }
+    ));
+
+    // A name the published side does not hold: the epoch fault, never
+    // "name free".
+    let (status, response) = scratch.agent_env(&lookup("free"), &seams);
+    assert_eq!(status, 1, "{response:?}");
+    assert_eq!(error_code(&response), "backend_epoch_changed");
+    let message = &response.error.as_ref().unwrap().message;
+    assert!(
+        message.contains("has published no server epoch")
+            && message.contains(&wez_instance.0.to_string()),
+        "{response:?}"
+    );
+    assert!(response.payload.is_none(), "{response:?}");
+    assert!(!witness.exists());
+
+    // The create path still refuses the unpublished opposite: nothing is
+    // created on the published side either.
+    let request = envelope(
+        protocol::methods::NEW,
+        Uuid::new_v4(),
+        serde_json::json!({ "name": "free", "backend": "tmux", "program": ["sleep", "300"] }),
+    );
+    let (status, response) = scratch.agent_env(&request, &seams);
+    assert_ne!(status, 0, "{response:?}");
+    assert_eq!(scratch.session_names(), sessions, "a create reached tmux");
+    assert_eq!(scratch.registry().spaces().unwrap().len(), 1);
+}

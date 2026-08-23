@@ -791,15 +791,78 @@ pub struct OwnerNewLookup {
     pub tmux: ClassSummary,
 }
 
+impl OwnerNewLookup {
+    /// The rule the two `new_lookup` callers share for an
+    /// [`LookupInput::Unpublished`] side (ADR 012 §10, A5-c's ratified
+    /// deviation resolved): the partition is handed to the resolver only
+    /// when the OPPOSITE side holds a selectable exact match, because
+    /// §8.2 step 7's explicit-backend rule (`resolve.rs`, "the backend
+    /// constraint is authoritative for this noncreating selection") is the
+    /// one decision an indeterminate side does not refuse — and auto
+    /// selection still refuses it (case 7). In every other partition the
+    /// indeterminate side would refuse under any constraint, so the caller
+    /// answers the typed epoch fault the registry already names for the
+    /// instance (`ManagedTarget::unpublished_detail`, `backend_epoch_changed`)
+    /// instead of a bare "inventory unavailable": never "name free", and one
+    /// name for one fault. Returns the unpublished side to refuse on, if any.
+    pub fn unpublished_epoch_fault(
+        &self,
+        wez: Option<&LookupInput<'_>>,
+        tmux: Option<&LookupInput<'_>>,
+    ) -> Option<(Backend, BackendInstanceUid)> {
+        let sides = [
+            (Backend::Wez, wez, self.tmux),
+            (Backend::Tmux, tmux, self.wez),
+        ];
+        sides
+            .into_iter()
+            .find_map(|(backend, input, opposite)| match input {
+                Some(LookupInput::Unpublished(instance))
+                    if !matches!(opposite, ClassSummary::Selectable { .. }) =>
+                {
+                    Some((backend, *instance))
+                }
+                _ => None,
+            })
+    }
+}
+
+/// One backend's input to [`lookup_new_owner_fenced`].
+#[derive(Clone, Copy)]
+pub enum LookupInput<'a> {
+    /// A live-verified target: its pinned scope is scanned under the fence
+    /// and the exact-name candidates are partitioned from the scan.
+    Target(OwnerCreateTarget<'a>),
+    /// The owner's durable instance of this backend is registered and
+    /// addressable but has published no server epoch
+    /// (`ManagedTarget::Unpublished`, instance state C/D): nothing about its
+    /// live server can be verified, so no scan runs and the side is
+    /// classified [`ClassSummary::Indeterminate`] — existence can be ruled
+    /// neither in nor out — while its shared fence is still taken, so the
+    /// lookup cannot race a bootstrap that is publishing it.
+    Unpublished(BackendInstanceUid),
+}
+
+impl LookupInput<'_> {
+    fn instance(&self) -> BackendInstanceUid {
+        match self {
+            LookupInput::Target(target) => target.instance,
+            LookupInput::Unpublished(instance) => *instance,
+        }
+    }
+}
+
 /// Owner-side implementation of remote/local NEW_LOOKUP. Both provider
 /// inventories are obtained while the exact logical-name decision lease and
 /// all registered backend-instance shared locks are held in canonical order.
-/// A missing backend target is accepted only when the registry proves that
-/// no durable instance of that kind exists.
+/// A missing backend input is accepted only when the registry proves that
+/// no durable instance of that kind exists; an unpublished instance is
+/// accepted only as [`LookupInput::Unpublished`] and only while the registry
+/// agrees it publishes no epoch.
 pub fn lookup_new_owner_fenced(
     env: &OperationEnv,
-    wez: Option<OwnerCreateTarget<'_>>,
-    tmux: Option<OwnerCreateTarget<'_>>,
+    wez: Option<LookupInput<'_>>,
+    tmux: Option<LookupInput<'_>>,
     name: &str,
 ) -> Result<OwnerNewLookup, OpError> {
     let registry =
@@ -813,7 +876,7 @@ pub fn lookup_new_owner_fenced(
         .acquire_decisions(identity.host_uid, &[name], LockMode::Exclusive)
         .map_err(|error| OpError::Lock(error.to_string()))?;
 
-    let mut targets = Vec::new();
+    let mut fenced = Vec::new();
     for (backend, supplied) in [(Backend::Wez, wez), (Backend::Tmux, tmux)] {
         let durable = registry
             .backend_instance_for_backend(backend)
@@ -831,50 +894,73 @@ pub fn lookup_new_owner_fenced(
                     instance.0
                 )));
             }
-            (Some(instance), Some(target)) if target.instance != instance => {
+            (Some(instance), Some(input)) if input.instance() != instance => {
                 return Err(OpError::Refused(format!(
                     "{backend} lookup target {} is not durable instance {}",
-                    target.instance.0, instance.0
+                    input.instance().0,
+                    instance.0
                 )));
             }
-            (Some(_), Some(target)) if target.backend != backend => {
+            (Some(_), Some(LookupInput::Target(target))) if target.backend != backend => {
                 return Err(OpError::Refused(format!(
                     "lookup target kind is {}, expected {backend}",
                     target.backend
                 )));
             }
-            (Some(_), Some(target)) => {
+            (Some(_), Some(LookupInput::Target(target))) => {
                 validate_owner_create_target(&registry, identity.host_uid, target)?;
-                targets.push(target);
+                fenced.push(target.instance);
+            }
+            (Some(instance), Some(LookupInput::Unpublished(_))) => {
+                // The caller's claim is checked against the registry under
+                // the fence: an instance that does publish an epoch must be
+                // scanned, not waved through as indeterminate.
+                let published = registry.backend_server(instance).map_err(reg_err)?;
+                if let Some(epoch) = published.server_epoch {
+                    return Err(OpError::Refused(format!(
+                        "{backend} instance {} publishes server epoch {}; its inventory target \
+                         is required",
+                        instance.0, epoch.0
+                    )));
+                }
+                fenced.push(instance);
             }
         }
     }
-    targets.sort_by_key(|target| target.instance.0);
-    for target in &targets {
+    fenced.sort_by_key(|instance| instance.0);
+    for instance in &fenced {
         locks
-            .acquire(
-                LockScope::BackendInstance(target.instance),
-                LockMode::Shared,
-            )
+            .acquire(LockScope::BackendInstance(*instance), LockMode::Shared)
             .map_err(|error| OpError::Lock(error.to_string()))?;
-        require_no_unfinished_recovery(&registry, target.instance)?;
+        require_no_unfinished_recovery(&registry, *instance)?;
     }
 
     // Obtain every observation before classifying either side. This is
     // synchronous owner code today; neither failure can become proof that
-    // the opposite backend is empty.
-    let wez_scan = wez.map(|target| target.provider.inventory(target.scope));
-    let tmux_scan = tmux.map(|target| target.provider.inventory(target.scope));
-    let wez = match (wez, wez_scan.as_ref()) {
-        (Some(target), Some(scan)) => summarize_owner_target(&registry, target, scan, name)?,
-        (None, None) => ClassSummary::NoMatch,
-        _ => unreachable!(),
+    // the opposite backend is empty, and an unpublished side is observed by
+    // no scan at all.
+    let scan = |input: Option<LookupInput<'_>>| {
+        input.and_then(|input| match input {
+            LookupInput::Target(target) => Some(target.provider.inventory(target.scope)),
+            LookupInput::Unpublished(_) => None,
+        })
     };
-    let tmux = match (tmux, tmux_scan.as_ref()) {
-        (Some(target), Some(scan)) => summarize_owner_target(&registry, target, scan, name)?,
-        (None, None) => ClassSummary::NoMatch,
-        _ => unreachable!(),
+    let wez_scan = scan(wez);
+    let tmux_scan = scan(tmux);
+    let classify = |input: Option<LookupInput<'_>>,
+                    scan: Option<&InventoryOutcome>|
+     -> Result<ClassSummary, OpError> {
+        match (input, scan) {
+            (Some(LookupInput::Target(target)), Some(scan)) => {
+                summarize_owner_target(&registry, target, scan, name)
+            }
+            (Some(LookupInput::Unpublished(_)), None) => Ok(ClassSummary::Indeterminate),
+            (None, None) => Ok(ClassSummary::NoMatch),
+            _ => unreachable!("a scan exists exactly for a target input"),
+        }
     };
+    let wez = classify(wez, wez_scan.as_ref())?;
+    let tmux = classify(tmux, tmux_scan.as_ref())?;
     Ok(OwnerNewLookup { wez, tmux })
 }
 
@@ -5638,18 +5724,18 @@ mod tests {
         let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let lookup = lookup_new_owner_fenced(
             &env,
-            Some(OwnerCreateTarget {
+            Some(LookupInput::Target(OwnerCreateTarget {
                 backend: Backend::Wez,
                 instance: wez_instance,
                 provider: &wez,
                 scope: &wez_scope,
-            }),
-            Some(OwnerCreateTarget {
+            })),
+            Some(LookupInput::Target(OwnerCreateTarget {
                 backend: Backend::Tmux,
                 instance: tmux_instance,
                 provider: &tmux,
                 scope: &tmux_scope,
-            }),
+            })),
             "collision",
         )
         .unwrap();
@@ -5673,18 +5759,18 @@ mod tests {
         }));
         let lookup = lookup_new_owner_fenced(
             &env,
-            Some(OwnerCreateTarget {
+            Some(LookupInput::Target(OwnerCreateTarget {
                 backend: Backend::Wez,
                 instance: wez_instance,
                 provider: &wez,
                 scope: &wez_scope,
-            }),
-            Some(OwnerCreateTarget {
+            })),
+            Some(LookupInput::Target(OwnerCreateTarget {
                 backend: Backend::Tmux,
                 instance: tmux_instance,
                 provider: &unmanaged_tmux,
                 scope: &tmux_scope,
-            }),
+            })),
             "collision",
         )
         .unwrap();

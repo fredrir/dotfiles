@@ -23,7 +23,7 @@ use crate::error::{ErrorCode, TypedError};
 use crate::history::History;
 use crate::model::{Backend, BackendInstanceUid, HostUid, ServerEpoch, SpaceNo, SpaceUid};
 use crate::operations::{
-    CreateRequest, CreatedSpace, OpError, OperationEnv, OwnerCreateTarget,
+    CreateRequest, CreatedSpace, LookupInput, OpError, OperationEnv, OwnerCreateTarget,
     create_space_owner_fenced, lookup_new_owner_fenced,
 };
 use crate::policy::{CreationContext, LocalEnv, NewPlan, plan_new};
@@ -250,6 +250,23 @@ impl OwnedOwnerTarget {
     }
 }
 
+/// One backend's owned input to the lookup seam: a live-verified target, or
+/// the registered instance that has published no epoch
+/// (`operations::LookupInput`).
+enum LocalLookupInput {
+    Target(OwnedOwnerTarget),
+    Unpublished(BackendInstanceUid),
+}
+
+impl LocalLookupInput {
+    fn borrowed(&self) -> LookupInput<'_> {
+        match self {
+            LocalLookupInput::Target(target) => LookupInput::Target(target.borrowed()),
+            LocalLookupInput::Unpublished(instance) => LookupInput::Unpublished(*instance),
+        }
+    }
+}
+
 /// Production runtime shared by `new` and its exact connect handoff.
 pub struct ProductionNewRuntime<I = SshInvoker> {
     connect: ProductionConnectAdapter<I>,
@@ -343,40 +360,33 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
             == owner)
     }
 
-    /// The owner's managed instance of one backend as a lookup/create
-    /// target, or `None` when this owner has never registered that backend
-    /// — the only case `lookup_new_owner_fenced` accepts a missing target
+    /// The owner's managed instance of one backend as the lookup seam's
+    /// input, or `None` when this owner has never registered that backend
+    /// — the only case `lookup_new_owner_fenced` accepts a missing input
     /// for. Everything the registry says about the instance comes from
-    /// `backend::scope::resolve_managed`, so the scope is pinned to the
+    /// `backend::scope::resolve_managed`, so a scope is pinned to the
     /// published epoch by construction.
     ///
-    /// An instance with no published epoch refuses here, before any lookup
-    /// or reservation. `new` decides `Connect`/`Blocked`/`Create` from the
-    /// inventories and then reserves a SpaceNo and a bootstrap row on the
-    /// strength of that decision; an unverified scan can answer with a
-    /// stranger's sessions or a recycled `$1` on a replaced server, so
-    /// nothing derived from it may reach the registry (plan §2.10, §8.2;
-    /// review finding #12). For auto selection that makes the inventory
-    /// indeterminate (case 7: creates/attaches nothing); for an explicit
-    /// `--backend` it is the same refusal, because §8.2's "may return its
-    /// known live match" presumes a *complete* inventory on that backend,
-    /// and an unpublished one cannot return a known live match either.
-    fn local_target(&self, backend: Backend) -> Result<Option<OwnedOwnerTarget>, TypedError> {
+    /// An instance with no published epoch is handed through as
+    /// [`LookupInput::Unpublished`] (ADR 012 §10, A5-c's deviation
+    /// resolved): the seam takes its fence, runs no scan, and classifies the
+    /// side `Indeterminate`, so §8.2 step 7's explicit-backend rule can
+    /// still select a known live match on the OPPOSITE backend while auto
+    /// selection creates nothing (case 7). Whether that partition is
+    /// answered at all is `lookup_exact`'s rule. A published epoch the host
+    /// refutes (state F) refuses here, before any lookup or reservation: a
+    /// scan pinned to it could only be answered by a server that is not the
+    /// published one, and nothing derived from that may reach the registry
+    /// (plan §2.10, §8.2; review finding #12).
+    fn local_lookup_input(&self, backend: Backend) -> Result<Option<LocalLookupInput>, TypedError> {
         let registry = self.registry()?;
         let (instance, scope) = match scope::resolve_managed(&registry, backend)
             .map_err(|error| TypedError::new(error.error_code(), error.to_string()))?
         {
             ManagedTarget::Managed { instance, scope } => (instance, scope),
             ManagedTarget::Unpublished(instance) => {
-                return Err(TypedError::new(
-                    ErrorCode::BackendEpochChanged,
-                    ManagedTarget::unpublished_detail(backend, instance),
-                ));
+                return Ok(Some(LocalLookupInput::Unpublished(instance)));
             }
-            // A published epoch the host refutes (state F) refuses the same
-            // way, before any lookup or reservation: a scan pinned to it
-            // could only be answered by a server that is not the published
-            // one, and nothing derived from that may reach the registry.
             ManagedTarget::StaleIncarnation {
                 instance,
                 published,
@@ -406,12 +416,30 @@ impl<I: RouteInvoker + Clone> ProductionNewRuntime<I> {
                 self.wezterm_config.clone(),
             )),
         };
-        Ok(Some(OwnedOwnerTarget {
+        Ok(Some(LocalLookupInput::Target(OwnedOwnerTarget {
             backend,
             instance,
             provider,
             scope,
-        }))
+        })))
+    }
+
+    /// The owner's managed instance of one backend as a CREATE target.
+    /// Every path that may create requires determinate inventories from
+    /// both providers (§8.2), so here an unpublished instance is the typed
+    /// epoch fault it always was — before any reservation, for the selected
+    /// and the opposite backend alike (review finding #12): an explicit
+    /// backend may return its known live match but still cannot create
+    /// (case 7).
+    fn local_target(&self, backend: Backend) -> Result<Option<OwnedOwnerTarget>, TypedError> {
+        match self.local_lookup_input(backend)? {
+            Some(LocalLookupInput::Target(target)) => Ok(Some(target)),
+            Some(LocalLookupInput::Unpublished(instance)) => Err(TypedError::new(
+                ErrorCode::BackendEpochChanged,
+                ManagedTarget::unpublished_detail(backend, instance),
+            )),
+            None => Ok(None),
+        }
     }
 
     fn remote_call<T: for<'de> Deserialize<'de>>(
@@ -616,15 +644,28 @@ impl<I: RouteInvoker + Clone> NewAuthority for ProductionNewRuntime<I> {
         name: &str,
     ) -> Result<NewLookupSnapshot, TypedError> {
         if self.is_local_owner(owner)? {
-            let wez = self.local_target(Backend::Wez)?;
-            let tmux = self.local_target(Backend::Tmux)?;
-            let lookup = lookup_new_owner_fenced(
-                &self.env,
-                wez.as_ref().map(OwnedOwnerTarget::borrowed),
-                tmux.as_ref().map(OwnedOwnerTarget::borrowed),
-                name,
-            )
-            .map_err(typed_operation)?;
+            let wez = self.local_lookup_input(Backend::Wez)?;
+            let tmux = self.local_lookup_input(Backend::Tmux)?;
+            let (wez, tmux) = (
+                wez.as_ref().map(LocalLookupInput::borrowed),
+                tmux.as_ref().map(LocalLookupInput::borrowed),
+            );
+            let lookup =
+                lookup_new_owner_fenced(&self.env, wez, tmux, name).map_err(typed_operation)?;
+            // An unpublished side is the typed epoch fault unless the
+            // opposite side holds a selectable exact match — the one
+            // partition the resolver may still answer from (§8.2 step 7);
+            // the rule and its reasoning live with the seam
+            // (`OwnerNewLookup::unpublished_epoch_fault`). The remote
+            // `new_lookup` applies the same rule on the owner.
+            if let Some((backend, instance)) =
+                lookup.unpublished_epoch_fault(wez.as_ref(), tmux.as_ref())
+            {
+                return Err(TypedError::new(
+                    ErrorCode::BackendEpochChanged,
+                    ManagedTarget::unpublished_detail(backend, instance),
+                ));
+            }
             return Ok(NewLookupSnapshot {
                 wez: lookup.wez,
                 tmux: lookup.tmux,

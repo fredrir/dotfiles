@@ -1085,3 +1085,209 @@ fn a_published_epoch_lets_the_same_lookup_proceed_to_a_verified_answer() {
     );
     assert!(owner.registry().spaces().unwrap().is_empty());
 }
+
+/// ADR 012 §10, A5-c's ratified deviation resolved through the
+/// `operations::lookup_new_owner_fenced` seam: an instance that has
+/// published no epoch is handed to the lookup as `Unpublished` and
+/// classified `Indeterminate` under its fence, instead of refusing the whole
+/// lookup. So with only the OPPOSITE instance unpublished, an explicit
+/// backend whose own inventory holds a selectable exact match still connects
+/// (§8.2 step 7: the backend constraint is authoritative for this noncreating
+/// selection); auto selection with either side indeterminate creates and
+/// attaches nothing (case 7); a name the published side does not hold is
+/// still the typed epoch fault — never "name free"; and every path that may
+/// create keeps refusing the unpublished opposite before any reservation.
+#[test]
+fn an_explicit_backend_connects_to_its_selectable_match_when_only_the_opposite_is_unpublished() {
+    let owner = ScratchOwner::new("opposite-unpublished");
+    owner.start_server_with("proj");
+    let epoch = match tmux_bootstrap(&owner.env(), &owner.namespace).unwrap() {
+        TmuxBootstrapOutcome::Bootstrapped { epoch }
+        | TmuxBootstrapOutcome::AlreadyBound { epoch }
+        | TmuxBootstrapOutcome::Rebound { epoch, .. } => epoch,
+    };
+    let session_id = {
+        let out = owner.tmux(&["display-message", "-p", "-t", "proj", "#{session_id}"]);
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    assert!(session_id.starts_with('$'), "{session_id:?}");
+
+    // A managed, healthy tmux Space bound to the live session under the
+    // published incarnation, and the opposite instance registered and
+    // addressable but never published — the row the mux start leaves when
+    // coordination never completes.
+    let mut registry = owner.registry();
+    let local = registry.identity().unwrap().host_uid;
+    let tmux_instance = registry
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("bootstrap registered the tmux instance");
+    let reservation = registry
+        .reserve_space("proj", tmux_instance, Uuid::new_v4())
+        .unwrap();
+    registry
+        .finalize_create(
+            reservation.space_uid,
+            reservation.operation_uid,
+            &dmux::registry::NativeBindingSpec {
+                native_token: session_id,
+                native_kind: dmux::registry::NativeKind::TmuxSessionId,
+                server_epoch: Some(epoch),
+            },
+        )
+        .unwrap();
+    registry
+        .set_space_health(reservation.space_uid, dmux::model::Health::Healthy)
+        .unwrap();
+    let wez_instance = registry
+        .register_backend_instance(
+            Backend::Wez,
+            Some("/tmp/dmux-newcli-never-a-wez.sock"),
+            None,
+        )
+        .unwrap();
+    assert!(
+        registry
+            .backend_server(wez_instance)
+            .unwrap()
+            .server_epoch
+            .is_none()
+    );
+    let head = registry.authority_head().unwrap();
+    let counter = owner.meta_counter("space_no_counter");
+    drop(registry);
+
+    let mut runtime = owner.runtime();
+    // The partition the seam answers: the published side scanned under its
+    // pin, the unpublished side indeterminate, no wez binary run (the
+    // runtime's wezterm path does not exist).
+    let snapshot = runtime.lookup_exact(local, "proj").unwrap();
+    assert_eq!(
+        snapshot,
+        NewLookupSnapshot {
+            wez: ClassSummary::Indeterminate,
+            tmux: ClassSummary::Selectable {
+                space: reservation.space_uid,
+                no: reservation.space_no,
+            },
+        }
+    );
+
+    // Explicit tmux: the known live match is selected irrespective of the
+    // opposite provider's state (§8.2 step 7). The decision is asserted on
+    // the resolver because the production runtime's connect handoff
+    // (`gui_cli::resolve_production_connect_query`) reads the process-global
+    // registry, not this scratch owner; `create_or_connect` is still driven
+    // to prove the lookup itself no longer refuses the constraint.
+    assert!(matches!(
+        dmux::resolve::lookup_for_new(Some(Backend::Tmux), false, snapshot.wez, snapshot.tmux),
+        dmux::resolve::NewLookup::Connect { backend: Backend::Tmux, space, .. }
+            if space == reservation.space_uid
+    ));
+    let mut req = request("proj");
+    req.backend_constraint = Some(Backend::Tmux);
+    req.no_connect = true;
+    match create_or_connect(
+        &req,
+        &ConnectClientContext::default(),
+        &NoHistory,
+        &mut runtime,
+    ) {
+        Ok(NewOutcome::Completed { result, .. }) => {
+            assert!(!result.created);
+            assert_eq!(result.space_uid, reservation.space_uid);
+        }
+        Ok(other) => panic!("explicit tmux must select its match: {other:?}"),
+        Err(failure) => assert!(
+            !matches!(
+                failure.error.code,
+                ErrorCode::ProviderUnavailable | ErrorCode::BackendEpochChanged
+            ) && failure.result.is_none(),
+            "the lookup refused an explicit backend's selectable match: {}",
+            failure.error.message
+        ),
+    }
+
+    // Auto, and explicit wez: the indeterminate side refuses; nothing is
+    // created or attached (case 7).
+    for constraint in [None, Some(Backend::Wez)] {
+        let mut req = request("proj");
+        req.backend_constraint = constraint;
+        req.no_connect = true;
+        let failure = create_or_connect(
+            &req,
+            &ConnectClientContext::default(),
+            &NoHistory,
+            &mut runtime,
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.error.code,
+            ErrorCode::ProviderUnavailable,
+            "{constraint:?}: {}",
+            failure.error.message
+        );
+        assert!(
+            failure.error.message.contains("wez inventory unavailable"),
+            "{constraint:?}: {}",
+            failure.error.message
+        );
+        assert!(
+            failure.result.is_none(),
+            "{constraint:?}: nothing was created"
+        );
+    }
+
+    // A name the published side does not hold: the epoch fault, never
+    // "name free" on the unpublished side's behalf.
+    let failure = runtime.lookup_exact(local, "free").unwrap_err();
+    assert_eq!(
+        failure.code,
+        ErrorCode::BackendEpochChanged,
+        "{}",
+        failure.message
+    );
+    assert!(
+        failure.message.contains("published no server epoch")
+            && failure.message.contains(&wez_instance.0.to_string()),
+        "{}",
+        failure.message
+    );
+
+    // The create path: an unpublished opposite still refuses before any
+    // reservation — an explicit backend may return its known live match but
+    // still cannot create.
+    let failure = runtime
+        .create_owner(&OwnerNewRequest {
+            request_uid: Uuid::new_v4(),
+            owner: local,
+            backend: Backend::Tmux,
+            name: "free".into(),
+            cwd: None,
+            program: Vec::new(),
+            allow_name_collision: false,
+            presentation: None,
+        })
+        .unwrap_err();
+    assert_eq!(
+        failure.code,
+        ErrorCode::BackendEpochChanged,
+        "{}",
+        failure.message
+    );
+
+    let registry = owner.registry();
+    assert_eq!(
+        registry.spaces().unwrap().len(),
+        1,
+        "a Space row was minted"
+    );
+    assert_eq!(
+        registry.authority_head().unwrap(),
+        head,
+        "the revision chain moved: something wrote to the registry"
+    );
+    assert_eq!(owner.meta_counter("space_no_counter"), counter);
+    assert_eq!(owner.bootstrap_request_rows(), 0);
+    assert_eq!(owner.sessions(), ["proj"]);
+}

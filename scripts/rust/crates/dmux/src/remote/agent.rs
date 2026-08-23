@@ -41,7 +41,7 @@ use crate::model::{
     SpaceUid,
 };
 use crate::operations::{
-    self as ops, CreateRequest, OpError, OperationEnv, OwnerCreateTarget,
+    self as ops, CreateRequest, LookupInput, OpError, OperationEnv, OwnerCreateTarget,
     create_space_owner_fenced, lookup_new_owner_fenced, remove_space, rename_space,
 };
 use crate::refs::{ChildRefShape, parse_ref};
@@ -1471,12 +1471,13 @@ fn lookup_wire(class: crate::resolve::ClassSummary) -> NewLookupClass {
 /// the scope the registry pinned and the adapter that scans under it. The
 /// server need not be live — a `server_stopped` scan is a determinate
 /// partition — but it must be the registry's: resolution goes through
-/// `backend::scope::resolve_managed`, and an instance whose epoch was never
-/// published is a typed epoch fault for the whole lookup. Nothing can be
-/// scanned on its behalf, so "name free" is never answered on the word of
-/// a server the registry did not vouch for (ADR 012 WS-A.5, review finding
-/// #17). The mutating NEW path separately uses `verified_target` before
-/// creation.
+/// `backend::scope::resolve_managed`. An instance whose epoch was never
+/// published is handed to the seam as `Unpublished` (ADR 012 §10, A5-c's
+/// deviation resolved): nothing can be scanned on its behalf, so its side
+/// is `Indeterminate` — never "name free" on the word of a server the
+/// registry did not vouch for (review finding #17) — and whether that
+/// partition is answered at all is `new_lookup`'s rule. The mutating NEW
+/// path separately uses `verified_target` before creation.
 struct OwnerLookupTarget {
     backend: Backend,
     instance: BackendInstanceUid,
@@ -1484,26 +1485,42 @@ struct OwnerLookupTarget {
     scope: InventoryScope,
 }
 
+/// One backend's owned input to the lookup seam (`operations::LookupInput`).
+enum OwnerLookupInput {
+    Target(OwnerLookupTarget),
+    Unpublished(BackendInstanceUid),
+}
+
+impl OwnerLookupInput {
+    fn borrowed(&self) -> LookupInput<'_> {
+        match self {
+            OwnerLookupInput::Target(lookup) => LookupInput::Target(OwnerCreateTarget {
+                backend: lookup.backend,
+                instance: lookup.instance,
+                provider: lookup.provider.as_ref(),
+                scope: &lookup.scope,
+            }),
+            OwnerLookupInput::Unpublished(instance) => LookupInput::Unpublished(*instance),
+        }
+    }
+}
+
 fn owner_lookup_target(
     registry: &Registry,
     backend: Backend,
-) -> Result<Option<OwnerLookupTarget>, TypedError> {
+) -> Result<Option<OwnerLookupInput>, TypedError> {
     let (instance, scope) = match scope::resolve_managed(registry, backend)
         .map_err(typed_registry)?
     {
         ManagedTarget::Unregistered => return Ok(None),
         ManagedTarget::Managed { instance, scope } => (instance, scope),
-        // Registered and addressable, epoch NULL: indeterminate, never
-        // "name free". The refusal is the epoch fault the client already
-        // maps, so it can neither create nor connect on this answer.
+        // Registered and addressable, epoch NULL: the seam classifies the
+        // side indeterminate under its fence; no provider is built for it.
         ManagedTarget::Unpublished(instance) => {
-            return Err(TypedError::new(
-                ErrorCode::BackendEpochChanged,
-                ManagedTarget::unpublished_detail(backend, instance),
-            ));
+            return Ok(Some(OwnerLookupInput::Unpublished(instance)));
         }
-        // Published but refuted by the host (state F): the same typed
-        // epoch fault; still never "name free".
+        // Published but refuted by the host (state F): the typed epoch
+        // fault for the whole lookup; never "name free".
         ManagedTarget::StaleIncarnation {
             instance,
             published,
@@ -1528,12 +1545,12 @@ fn owner_lookup_target(
             Box::new(WezProvider::new(bin, config))
         }
     };
-    Ok(Some(OwnerLookupTarget {
+    Ok(Some(OwnerLookupInput::Target(OwnerLookupTarget {
         backend,
         instance,
         provider,
         scope,
-    }))
+    })))
 }
 
 fn new_lookup(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply, TypedError> {
@@ -1546,23 +1563,22 @@ fn new_lookup(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Re
     let lookup: NewLookupPayload = parse_payload(payload)?;
     let wez = owner_lookup_target(&cx.registry, Backend::Wez)?;
     let tmux = owner_lookup_target(&cx.registry, Backend::Tmux)?;
-    let result = lookup_new_owner_fenced(
-        &cx.env,
-        wez.as_ref().map(|lookup| OwnerCreateTarget {
-            backend: lookup.backend,
-            instance: lookup.instance,
-            provider: lookup.provider.as_ref(),
-            scope: &lookup.scope,
-        }),
-        tmux.as_ref().map(|lookup| OwnerCreateTarget {
-            backend: lookup.backend,
-            instance: lookup.instance,
-            provider: lookup.provider.as_ref(),
-            scope: &lookup.scope,
-        }),
-        &lookup.name,
-    )
-    .map_err(typed_op)?;
+    let (wez, tmux) = (
+        wez.as_ref().map(OwnerLookupInput::borrowed),
+        tmux.as_ref().map(OwnerLookupInput::borrowed),
+    );
+    let result = lookup_new_owner_fenced(&cx.env, wez, tmux, &lookup.name).map_err(typed_op)?;
+    // An unpublished side is the typed epoch fault the client already maps
+    // unless the opposite side holds a selectable exact match — the one
+    // partition the client's resolver may still answer from (§8.2 step 7);
+    // the rule lives with the seam (`OwnerNewLookup::unpublished_epoch_fault`)
+    // and the local `new` applies the same one.
+    if let Some((backend, instance)) = result.unpublished_epoch_fault(wez.as_ref(), tmux.as_ref()) {
+        return Err(TypedError::new(
+            ErrorCode::BackendEpochChanged,
+            ManagedTarget::unpublished_detail(backend, instance),
+        ));
+    }
     Ok(Reply::plain(
         serde_json::to_value(NewLookupResult {
             wez: lookup_wire(result.wez),
