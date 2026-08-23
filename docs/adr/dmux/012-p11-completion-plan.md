@@ -1101,7 +1101,7 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   state under the release root, sun_path bound), `POLICY_VARS` unset, a live-dir snapshot before and
   after with a `Refusal` naming any growth (`_runtime_dir_entries`/`_runtime_dir_growth`, remote
   variant over ssh for Archie), unit-tested (`test_dmux_suite_seams_are_short_absolute_and_release_scoped`,
-  `test_runtime_dir_growth_names_only_new_entries`); tool suite 62/0. r6's `build.mac.dotfiles`
+  `test_runtime_dir_growth_names_only_new_entries`); tool suite 61/0. r6's `build.mac.dotfiles`
   checkpoint predates the fix; the artifacts are unaffected (the leak is lock-file litter, the
   registry was not written: revision 40 and the instance row were unchanged afterwards).
 - **`deploy-mac`** (owner-approved restart) → phase `mac_deployed`, checkpoints
