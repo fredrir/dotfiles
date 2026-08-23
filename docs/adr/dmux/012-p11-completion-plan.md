@@ -755,4 +755,14 @@ Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `r
   always fails closed" is now claimed against production (`call_instance`,
   `bind_cli_origin_with_heartbeat`). Five manifest entries recorded. Optional follow-up for B's file:
   an fd-based spool walk in `RuntimeHeartbeatSource::live_instances` (text in GUI's return).
+- **RT dispatched 2026-08-23** (base `d74ded5`, worktree `~/packages/dmux-p11/rt`, branch `p11/rt`;
+  owned: `scripts/python/src/tools/dmux_rollout/**`, `scripts/python/tests/dmux_rollout/**`): the
+  WS-G.2 tool changes — validated ordered phases (`migrated`, `canary_mac`, `canary_arch`, `flipped`
+  added; `deployed` kept), durable enablement through `service.env`/`environment.d` with file
+  backup/restore replacing the runtime-only `launchctl setenv`/`set-environment` (and a preflight
+  that names `dotfile link` + `launchctl bootstrap` for the new LaunchAgent, since the tool never
+  links dotfiles), `dmux doctor --format json` captured at every owner snapshot, `plan --archie-ssh`
+  so `two_host` addresses an enrolled route, `canary-start`/`canary-end` with a wall-clock 24 h floor
+  and a journaled in-canary reboot, and `rollback-rehearsal`. The root's read-only survey of the
+  tool (what it does by hand versus through the tool) is the agent's input.
 
