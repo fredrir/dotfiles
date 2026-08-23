@@ -1164,3 +1164,7 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   start, bounded (`f761a88`), the pattern `remote_protocol/attach.rs` already documented for
   Linux tmux. The tool now runs both dmux suites `--no-fail-fast`, so a stage reports every
   failure in one run. Before r8 is frozen, the full Archie suite is run twice at `f761a88`.
+  Archie at `f761a88`, full suite twice back-to-back (seamed, `--no-fail-fast`): **1132/0/1** and
+  **1132/0/1**, live runtime dir unchanged both times. r8 is planned at the commit recording this;
+  its order is `build` → `stage-archie` → owner's pacman → `resume` → `deploy-mac` → `verify`, so
+  the Mac's remaining restart comes once, after Archie is proven.
