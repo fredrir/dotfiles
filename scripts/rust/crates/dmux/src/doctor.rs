@@ -9,13 +9,28 @@
 //! (plan §16.2); the deprecated `--json` emits the same probes as a bare
 //! `name: {ok, detail}` object for scripts; the human report is unchanged.
 
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use dmux::backend::scope::{
+    self, Liveness, ManagedTarget, ObservedIncarnation, PublishedIncarnation,
+};
+use dmux::backend::tmux::TmuxProvider;
+use dmux::backend::wez::WezProvider;
+use dmux::backend::{InventoryOutcome, InventoryScope, Provider};
+use dmux::inventory;
+use dmux::locks::{self, LockMode, LockScope};
+use dmux::ls_cli::{LiveIncarnationProbe, unpublished_state_detail};
+use dmux::model::{Backend, BackendInstanceUid};
 use dmux::output::{self, OutputFormat};
-use dmux::registry::{self, DirExposure};
+use dmux::registry::{
+    self, DirExposure, HolderLiveness, Lease, LeaseScope, Registry, RegistryConfig, probe_pid,
+};
+use dmux::runtime;
+use serde_json::{Value, json};
 use workstation::Style;
 
 use crate::hosts::{self, Context, Host};
@@ -30,6 +45,15 @@ struct Report {
     ssh: bool,
     /// Where `DMUX_WEZ_FIRST` came from, as `(ok, detail)` (ADR 012 WS-F.1).
     wez_first: (bool, String),
+    /// The runtime directory this dmux resolves, and whether the
+    /// `DMUX_RUNTIME_DIR` seam redirected it (ADR 012 WS-E.1 follow-up).
+    runtime_dir: (bool, String),
+    /// The read-only registry snapshot the instance lines were read from.
+    registry_snapshot: (bool, String),
+    /// The snapshot's authority revision (0 when no registry was read).
+    authority_revision: u64,
+    /// One line per backend instance, classified A–F (ADR 012 WS-B.4).
+    instances: Vec<InstanceReport>,
 }
 
 pub fn run(context: &Context, json: bool, format: Option<OutputFormat>) -> ExitCode {
@@ -42,6 +66,30 @@ pub fn run(context: &Context, json: bool, format: Option<OutputFormat>) -> ExitC
     let usb = thread::spawn(|| hosts::usb_latency(hosts::PROBE_TIMEOUT));
     let peer_name = peer.name();
     let ssh = thread::spawn(move || ssh_ok(peer_name));
+    // The registry is read from a read-only snapshot, never opened in
+    // place (`Registry::open` takes locks and may repair); the instance
+    // lines are the same A–F classification `ls` makes, plus what `ls`
+    // never shows — the live descriptor, a fresh `stat` of the socket, and
+    // the sentinel handshake under the published epoch.
+    let snapshot = snapshot_registry();
+    let (registry_snapshot, authority_revision, instances) = match &snapshot {
+        Ok(snapshot) => (
+            (true, snapshot.detail()),
+            snapshot.revision,
+            [Backend::Wez, Backend::Tmux]
+                .into_iter()
+                .map(|backend| probe_instance(&snapshot.registry, backend))
+                .collect(),
+        ),
+        Err(why) => (
+            (false, why.clone()),
+            0,
+            [Backend::Wez, Backend::Tmux]
+                .into_iter()
+                .map(|backend| InstanceReport::unavailable(backend, why))
+                .collect(),
+        ),
+    };
     let report = Report {
         this,
         peer,
@@ -50,6 +98,10 @@ pub fn run(context: &Context, json: bool, format: Option<OutputFormat>) -> ExitC
         usb: usb.join().unwrap_or(None),
         ssh: ssh.join().unwrap_or(false),
         wez_first: wez_first_detail(&wez_first_provenance()),
+        runtime_dir: runtime_dir_detail(),
+        registry_snapshot,
+        authority_revision,
+        instances,
     };
     // The envelope wins over the deprecated flag: it is the shape that
     // survives the release, and asking for both cannot mean two documents.
@@ -133,6 +185,38 @@ fn human(context: &Context, report: &Report) -> ExitCode {
             style.red(wez_first_text)
         },
     );
+    let (runtime_ok, runtime_text) = &report.runtime_dir;
+    line(
+        "runtime dir",
+        if *runtime_ok {
+            style.dim(runtime_text)
+        } else {
+            style.red(runtime_text)
+        },
+    );
+    let (snapshot_ok, snapshot_text) = &report.registry_snapshot;
+    line(
+        "registry",
+        if *snapshot_ok {
+            style.dim(snapshot_text)
+        } else {
+            style.red(snapshot_text)
+        },
+    );
+    for instance in &report.instances {
+        let text = instance.human();
+        line(
+            &format!("{} instance", instance.backend),
+            match instance.state {
+                Some(state) if state.is_healthy() => style.green(&text),
+                Some(InstanceState::A) => style.dim(&text),
+                _ => style.red(&text),
+            },
+        );
+        if let Some(remedy) = instance.remedy.as_deref() {
+            line("", format!("remedy: {remedy}"));
+        }
+    }
     ExitCode::SUCCESS
 }
 
@@ -152,7 +236,7 @@ fn envelope(context: &Context, report: &Report) -> ExitCode {
             true,
             probes(context, report),
             &[],
-            crate::production_authority_revision(),
+            report.authority_revision,
         )
     );
     ExitCode::SUCCESS
@@ -177,6 +261,9 @@ fn probes(context: &Context, report: &Report) -> serde_json::Value {
         "state": probe(state_ok, state_text),
         "registry_dir": probe(registry_ok, registry_text),
         "wez_first": probe(report.wez_first.0, report.wez_first.1.clone()),
+        "runtime_dir": probe(report.runtime_dir.0, report.runtime_dir.1.clone()),
+        "registry_snapshot": probe(report.registry_snapshot.0, report.registry_snapshot.1.clone()),
+        "backend_instances": report.instances.iter().map(InstanceReport::json).collect::<Vec<_>>(),
     })
 }
 
@@ -563,6 +650,636 @@ fn parse_service_env(text: &str) -> Result<Vec<(String, String)>, String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Backend instances: the A–F classification (ADR 012 WS-B.4; plan §5.2)
+//
+// Both operator-facing epoch remedies in the crate end "re-run `dmux
+// doctor`", and until now doctor could not observe an epoch at all (review
+// finding #14). This section reports, per backend instance, what the
+// registry published — epoch, pid, start token, socket dev/ino — against
+// what the host shows: the process (`kill(pid, 0)` and the OS start
+// witness), a fresh `stat` of the socket, the live Wez descriptor, the tmux
+// server's own incarnation probe, and the sentinel handshake of an
+// inventory pinned to the published epoch. The classification is the one
+// `ls` makes (`backend::scope::resolve_managed_with` for A/B/E/F, the fence
+// and recovery lease for C/D), so the two never disagree; doctor only adds
+// the evidence.
+
+/// The six instance states (review report 04; plan §5.2 as amended).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstanceState {
+    /// Not registered.
+    A,
+    /// Registered without an endpoint.
+    B,
+    /// Registered, unpublished, idle.
+    C,
+    /// Registered, unpublished, a bootstrap or recovery in flight.
+    D,
+    /// Published, and the host agrees.
+    E,
+    /// Published, and the host disagrees or the process is dead.
+    F,
+}
+
+impl InstanceState {
+    fn letter(self) -> &'static str {
+        match self {
+            InstanceState::A => "A",
+            InstanceState::B => "B",
+            InstanceState::C => "C",
+            InstanceState::D => "D",
+            InstanceState::E => "E",
+            InstanceState::F => "F",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            InstanceState::A => "not_registered",
+            InstanceState::B => "unaddressable",
+            InstanceState::C => "unpublished_idle",
+            InstanceState::D => "coordinator_in_flight",
+            InstanceState::E => "published_live",
+            InstanceState::F => "stale_incarnation",
+        }
+    }
+
+    /// Green in the human report: a live, agreeing incarnation.
+    fn is_healthy(self) -> bool {
+        self == InstanceState::E
+    }
+}
+
+/// What the host showed for one instance, every part optional because each
+/// is read independently and a missing one is reported as missing.
+#[derive(Debug, Clone, Default)]
+struct HostWitness {
+    /// The liveness verdict for the published row, when one was published.
+    liveness: Option<Liveness>,
+    /// `true` when the non-blocking shared fence was refused (an exclusive
+    /// holder exists); `None` when the lock file does not exist (nobody
+    /// ever held it) or could not be tried.
+    exclusive_held: Option<bool>,
+    recovery_lease: Option<Lease>,
+    /// The live Wez descriptor as a JSON object, or `{"unreadable": ..}`.
+    descriptor: Option<Value>,
+    /// A fresh `stat` of the recorded endpoint.
+    socket: Option<Value>,
+    /// The inventory under the published epoch, when one is published.
+    inventory: Option<Value>,
+    /// The epoch the live side presents, when it presents one: the
+    /// descriptor's (wez) or the inventory's sentinel (either backend).
+    live_epoch: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone)]
+struct InstanceReport {
+    backend: Backend,
+    instance: Option<BackendInstanceUid>,
+    /// `None` only when the registry could not be read at all.
+    state: Option<InstanceState>,
+    published: Option<PublishedIncarnation>,
+    witness: HostWitness,
+    detail: String,
+    remedy: Option<String>,
+}
+
+impl InstanceReport {
+    fn unavailable(backend: Backend, why: &str) -> InstanceReport {
+        InstanceReport {
+            backend,
+            instance: None,
+            state: None,
+            published: None,
+            witness: HostWitness::default(),
+            detail: format!("registry unreadable: {why}"),
+            remedy: None,
+        }
+    }
+
+    fn human(&self) -> String {
+        match self.state {
+            Some(state) => format!("{} ({}) {}", state.letter(), state.name(), self.detail),
+            None => self.detail.clone(),
+        }
+    }
+
+    fn json(&self) -> Value {
+        let published = self.published.as_ref().map(|published| {
+            json!({
+                "epoch": published.epoch.0.to_string(),
+                "pid": published.pid,
+                "start_token": published.start_token,
+                "socket_dev": published.socket_dev,
+                "socket_ino": published.socket_ino,
+            })
+        });
+        let (process, witness) = match &self.witness.liveness {
+            Some(Liveness::Live(observed)) => (Some("alive"), Some(observed.to_string())),
+            Some(Liveness::Stale(ObservedIncarnation::ProcessDead { .. })) => (
+                Some("dead"),
+                self.witness.liveness.as_ref().map(liveness_text),
+            ),
+            Some(Liveness::Stale(observed)) => (Some("alive"), Some(observed.to_string())),
+            Some(Liveness::Unobservable(why)) => {
+                (Some("unobservable"), Some(format!("unobservable: {why}")))
+            }
+            None => (None, None),
+        };
+        json!({
+            "backend": self.backend.as_str(),
+            "instance": self.instance.map(|uid| uid.0.to_string()),
+            "state": self.state.map(InstanceState::letter),
+            "state_name": self.state.map(InstanceState::name),
+            "published": published,
+            "observed": {
+                "process": process,
+                "witness": witness,
+                "exclusive_lock_held": self.witness.exclusive_held,
+                "recovery_lease": self.witness.recovery_lease.as_ref().map(lease_json),
+                "descriptor": self.witness.descriptor,
+                "socket": self.witness.socket,
+                "inventory": self.witness.inventory,
+            },
+            "detail": self.detail,
+            "remedy": self.remedy,
+        })
+    }
+}
+
+fn liveness_text(liveness: &Liveness) -> String {
+    match liveness {
+        Liveness::Live(observed) | Liveness::Stale(observed) => observed.to_string(),
+        Liveness::Unobservable(why) => format!("unobservable: {why}"),
+    }
+}
+
+fn lease_json(lease: &Lease) -> Value {
+    json!({
+        "holder_pid": lease.holder_pid,
+        "holder_alive": lease.holder_pid.map(|pid| probe_pid(pid) == HolderLiveness::Alive),
+        "expires_at": lease.expires_at,
+        "fencing_token": lease.fencing_token,
+    })
+}
+
+/// The pure classification over injected inputs: the resolver's verdict,
+/// the two C/D witnesses, and the live side's epoch. `(state, detail,
+/// remedy)`; the remedies are plan §5.2's as amended and report 04's column
+/// "safe operator advice", and none of them is an unconditional restart.
+fn classify(
+    backend: Backend,
+    target: &ManagedTarget,
+    witness: &HostWitness,
+) -> (InstanceState, String, Option<String>) {
+    match target {
+        ManagedTarget::Unregistered => (
+            InstanceState::A,
+            format!("no {backend} backend instance is registered for this owner"),
+            Some(match backend {
+                Backend::Wez => "nothing is enrolled: a managed (flag-on) service start registers \
+                                 and publishes the Wez instance; `dmux adopt` then brings existing \
+                                 workspaces under it"
+                    .to_string(),
+                Backend::Tmux => "nothing is enrolled: `dmux _tmux-bootstrap --namespace <ns>` \
+                                  against a running managed server registers and publishes the \
+                                  tmux instance; `dmux adopt` then brings existing sessions under \
+                                  it"
+                .to_string(),
+            }),
+        ),
+        ManagedTarget::Unaddressable(instance) => (
+            InstanceState::B,
+            format!("instance {} is registered without an endpoint", instance.0),
+            Some(
+                "re-register the instance with its endpoint (socket path / -L namespace); \
+                 nothing can address it until then"
+                    .to_string(),
+            ),
+        ),
+        ManagedTarget::Unpublished(instance) => {
+            let exclusive = witness.exclusive_held == Some(true);
+            let lease = witness.recovery_lease.as_ref();
+            let detail = unpublished_state_detail(backend, *instance, exclusive, lease);
+            if exclusive || lease.is_some() {
+                (
+                    InstanceState::D,
+                    detail,
+                    Some(
+                        "a bootstrap or recovery is in flight; wait, then re-run `dmux doctor`"
+                            .to_string(),
+                    ),
+                )
+            } else {
+                (
+                    InstanceState::C,
+                    detail,
+                    Some(match backend {
+                        Backend::Wez => {
+                            "wait for the managed mux to coordinate: a managed (flag-on) \
+                                         service start publishes the incarnation; if the service \
+                                         is up and still unpublished it started without \
+                                         DMUX_WEZ_FIRST (see the wez-first flag line), and a \
+                                         flag-on restart is safe only while it holds no user panes"
+                                .to_string()
+                        }
+                        Backend::Tmux => "run `dmux _tmux-bootstrap --namespace <ns>` against a \
+                                          running managed tmux server; it publishes the \
+                                          incarnation"
+                            .to_string(),
+                    }),
+                )
+            }
+        }
+        ManagedTarget::StaleIncarnation {
+            instance,
+            published,
+            observed,
+        } => (
+            InstanceState::F,
+            format!(
+                "instance {} publishes a stale incarnation: the registry records {published}, \
+                 but the host shows {observed}{}",
+                instance.0,
+                live_side_note(witness)
+            ),
+            Some(stale_remedy(backend, published)),
+        ),
+        ManagedTarget::Managed { instance, scope } => {
+            let published_epoch = scope
+                .expected_epoch()
+                .expect("a Managed scope carries its published epoch");
+            if let Some(live) = witness.live_epoch
+                && live != published_epoch.0
+            {
+                return (
+                    InstanceState::F,
+                    format!(
+                        "instance {} publishes epoch {} and its process is alive, but the live \
+                         server presents epoch {live}{}",
+                        instance.0,
+                        published_epoch.0,
+                        live_side_note(witness)
+                    ),
+                    Some(stale_remedy_for_epoch(backend, published_epoch.0)),
+                );
+            }
+            (
+                InstanceState::E,
+                format!(
+                    "instance {} publishes epoch {} and the host agrees{}{}",
+                    instance.0,
+                    published_epoch.0,
+                    witness
+                        .liveness
+                        .as_ref()
+                        .map(|liveness| format!(" ({})", liveness_text(liveness)))
+                        .unwrap_or_default(),
+                    live_side_note(witness)
+                ),
+                None,
+            )
+        }
+    }
+}
+
+fn stale_remedy(backend: Backend, published: &PublishedIncarnation) -> String {
+    stale_remedy_for_epoch(backend, published.epoch.0)
+}
+
+fn stale_remedy_for_epoch(backend: Backend, epoch: uuid::Uuid) -> String {
+    format!(
+        "the published incarnation is stale: if the managed service holds no user panes, a \
+         managed (flag-on) restart republishes it; otherwise, once the published process is \
+         confirmed gone, `dmux repair retire-incarnation --backend {backend} --epoch {epoch}` \
+         clears the row and the next managed start publishes afresh"
+    )
+}
+
+/// What the live side says, for the detail line: the descriptor's state and
+/// epoch (wez) and the inventory's verdict.
+fn live_side_note(witness: &HostWitness) -> String {
+    let mut parts = Vec::new();
+    if let Some(descriptor) = &witness.descriptor {
+        parts.push(match descriptor.get("unreadable").and_then(Value::as_str) {
+            Some(why) => format!("descriptor unreadable ({why})"),
+            None => format!(
+                "descriptor {} epoch {} pid {}",
+                descriptor["state"].as_str().unwrap_or("?"),
+                descriptor["epoch"].as_str().unwrap_or("?"),
+                descriptor["pid"]
+            ),
+        });
+    }
+    if let Some(inventory) = &witness.inventory {
+        parts.push(match inventory["outcome"].as_str() {
+            Some("complete") => format!(
+                "inventory complete under the published epoch ({} user rows)",
+                inventory["rows"]
+            ),
+            Some(outcome) => format!(
+                "inventory {outcome}: {}",
+                inventory["detail"].as_str().unwrap_or("")
+            ),
+            None => "inventory ?".to_string(),
+        });
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("; {}", parts.join("; "))
+    }
+}
+
+/// A read-only snapshot of the production registry: the live file is opened
+/// `SQLITE_OPEN_READ_ONLY` and copied through SQLite's online backup API
+/// (a consistent read transaction, so a concurrent writer cannot tear it)
+/// into a scratch directory, and the `Registry` is opened on the copy with
+/// a scratch lock directory. `Registry::open` is never run on the live path:
+/// it takes the maintenance gate, re-hardens the file mode and may migrate,
+/// and doctor is a report. A WAL database whose `-shm` has not been created
+/// cannot be opened read-only; that reads as "unavailable", not as a reason
+/// to open it read-write.
+struct RegistrySnapshot {
+    registry: Registry,
+    source: PathBuf,
+    revision: u64,
+    _scratch: tempfile::TempDir,
+}
+
+impl RegistrySnapshot {
+    fn detail(&self) -> String {
+        format!(
+            "read-only snapshot of {} (authority revision {})",
+            self.source.display(),
+            self.revision
+        )
+    }
+}
+
+fn snapshot_registry() -> Result<RegistrySnapshot, String> {
+    let source = registry::production_db_path().ok_or_else(|| "no HOME".to_string())?;
+    if !source.exists() {
+        return Err(format!("{} does not exist", source.display()));
+    }
+    let scratch = tempfile::Builder::new()
+        .prefix("dmux-doctor-")
+        .tempdir()
+        .map_err(|e| format!("scratch directory: {e}"))?;
+    let copy = scratch.path().join("registry.sqlite3");
+    {
+        let live = rusqlite::Connection::open_with_flags(
+            &source,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| format!("open {} read-only: {e}", source.display()))?;
+        let mut destination =
+            rusqlite::Connection::open(&copy).map_err(|e| format!("scratch copy: {e}"))?;
+        let backup = rusqlite::backup::Backup::new(&live, &mut destination)
+            .map_err(|e| format!("snapshot {}: {e}", source.display()))?;
+        backup
+            .run_to_completion(64, Duration::from_millis(5), None)
+            .map_err(|e| format!("snapshot {}: {e}", source.display()))?;
+    }
+    let registry = Registry::open(RegistryConfig::new(&copy, scratch.path().join("locks")))
+        .map_err(|e| format!("open snapshot: {e}"))?;
+    let revision = registry
+        .authority_head()
+        .map_err(|e| format!("snapshot authority head: {e}"))?
+        .revision;
+    Ok(RegistrySnapshot {
+        registry,
+        source,
+        revision,
+        _scratch: scratch,
+    })
+}
+
+/// The whole probe for one backend: resolve (the same resolver and the same
+/// server-asking probe `ls` uses), then gather what the host shows, then
+/// classify. Every read here is read-only: the fence is *tried* shared and
+/// released at once, and only when its lock file already exists, so doctor
+/// creates nothing in the runtime directory either.
+fn probe_instance(registry: &Registry, backend: Backend) -> InstanceReport {
+    let target = match scope::resolve_managed_with(registry, backend, &LiveIncarnationProbe) {
+        Ok(target) => target,
+        Err(error) => {
+            return InstanceReport::unavailable(backend, &format!("resolve {backend}: {error}"));
+        }
+    };
+    let mut witness = HostWitness::default();
+    let instance = target.instance();
+    let runtime_dir = runtime::dmux_runtime_dir().ok();
+
+    if let Some(instance) = instance
+        && let Some(runtime_dir) = &runtime_dir
+    {
+        let scope_lock = LockScope::BackendInstance(instance);
+        if runtime_dir.join(scope_lock.file_name()).exists() {
+            witness.exclusive_held = locks::try_acquire(runtime_dir, scope_lock, LockMode::Shared)
+                .ok()
+                .map(|held| held.is_none());
+        } else {
+            witness.exclusive_held = Some(false);
+        }
+        witness.recovery_lease = registry
+            .current_lease(&LeaseScope::Recovery(instance))
+            .ok()
+            .flatten();
+    }
+
+    let endpoint = match &target {
+        ManagedTarget::Managed { scope, .. } => Some(scope.endpoint.clone()),
+        ManagedTarget::StaleIncarnation { instance, .. } | ManagedTarget::Unpublished(instance) => {
+            registry
+                .backend_instance_info(*instance)
+                .ok()
+                .and_then(|info| info.socket_path)
+        }
+        _ => None,
+    };
+    let published = match &target {
+        ManagedTarget::Managed { instance, .. }
+        | ManagedTarget::StaleIncarnation { instance, .. } => registry
+            .backend_server(*instance)
+            .ok()
+            .and_then(|record| PublishedIncarnation::from_record(&record)),
+        _ => None,
+    };
+
+    if let (Some(endpoint), Some(published)) = (&endpoint, &published) {
+        witness.liveness = Some(match &target {
+            ManagedTarget::StaleIncarnation { observed, .. } => Liveness::Stale(observed.clone()),
+            _ => scope::liveness(backend, endpoint, published, &LiveIncarnationProbe),
+        });
+    }
+    if let Some(endpoint) = &endpoint {
+        witness.socket = Some(socket_json(backend, endpoint));
+    }
+    if backend == Backend::Wez
+        && let Some(runtime_dir) = &runtime_dir
+    {
+        let (descriptor, epoch) = descriptor_json(runtime_dir);
+        witness.descriptor = descriptor;
+        witness.live_epoch = epoch;
+    }
+    if let (Some(endpoint), Some(published)) = (&endpoint, &published) {
+        let pinned = InventoryScope::managed(backend, endpoint.clone(), published.epoch);
+        let outcome = match backend {
+            Backend::Wez => {
+                let (bin, config) = runtime::production_wez_paths();
+                WezProvider::new(bin, config).inventory(&pinned)
+            }
+            Backend::Tmux => TmuxProvider::new(endpoint.clone()).inventory(&pinned),
+        };
+        let (value, live_epoch) = inventory_json(&outcome);
+        witness.inventory = Some(value);
+        if let Some(live_epoch) = live_epoch {
+            witness.live_epoch = Some(live_epoch);
+        }
+    }
+
+    let (state, detail, remedy) = classify(backend, &target, &witness);
+    InstanceReport {
+        backend,
+        instance,
+        state: Some(state),
+        published,
+        witness,
+        detail,
+        remedy,
+    }
+}
+
+fn socket_json(backend: Backend, endpoint: &str) -> Value {
+    let path = match backend {
+        Backend::Wez => PathBuf::from(endpoint),
+        Backend::Tmux => scope::tmux_socket_path(endpoint),
+    };
+    match std::fs::metadata(&path) {
+        Ok(meta) => json!({
+            "path": path.display().to_string(),
+            "dev": meta.dev(),
+            "ino": meta.ino(),
+            "is_socket": std::os::unix::fs::FileTypeExt::is_socket(&meta.file_type()),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            json!({ "path": path.display().to_string(), "absent": true })
+        }
+        Err(error) => json!({ "path": path.display().to_string(), "error": error.to_string() }),
+    }
+}
+
+/// The live Wez descriptor in `runtime_dir`: `(json, epoch)`.
+fn descriptor_json(runtime_dir: &Path) -> (Option<Value>, Option<uuid::Uuid>) {
+    match runtime::read_wez_descriptor_in(runtime_dir) {
+        Ok(None) => (None, None),
+        Ok(Some(descriptor)) => {
+            let epoch = uuid::Uuid::parse_str(&descriptor.epoch).ok();
+            (
+                Some(json!({
+                    "state": descriptor.state,
+                    "epoch": descriptor.epoch,
+                    "pid": descriptor.pid,
+                    "start_token": descriptor.start_token,
+                    "socket": descriptor.socket,
+                    "socket_dev": descriptor.socket_dev,
+                    "socket_ino": descriptor.socket_ino,
+                    "backend_instance_uid": descriptor.backend_instance_uid,
+                    "written_at": descriptor.written_at,
+                    "error": descriptor.error,
+                })),
+                epoch,
+            )
+        }
+        Err(error) => (Some(json!({ "unreadable": error.to_string() })), None),
+    }
+}
+
+/// The pinned inventory as `(json, live epoch)`: a complete scan's verified
+/// epoch is the sentinel's (wez) or the server option's (tmux); an epoch
+/// mismatch carries the observed epoch in its detail (`backend_epoch_changed:
+/// expected X observed Y`).
+fn inventory_json(outcome: &InventoryOutcome) -> (Value, Option<uuid::Uuid>) {
+    let (token, detail): (&str, Option<String>) = match outcome {
+        InventoryOutcome::Complete(_) => ("complete", None),
+        InventoryOutcome::ServerStopped { detail } => ("server_stopped", Some(detail.clone())),
+        InventoryOutcome::Unreachable { detail } => ("unreachable", Some(detail.clone())),
+        InventoryOutcome::AuthFailed { detail } => ("auth_failed", Some(detail.clone())),
+        InventoryOutcome::HostKeyIdentityFailed { detail } => {
+            ("host_key_identity_failed", Some(detail.clone()))
+        }
+        InventoryOutcome::CommandMissing { detail } => ("command_missing", Some(detail.clone())),
+        InventoryOutcome::VersionMismatch { detail } => ("version_mismatch", Some(detail.clone())),
+        InventoryOutcome::ProtocolMismatch { detail } => {
+            ("protocol_mismatch", Some(detail.clone()))
+        }
+        InventoryOutcome::Malformed { detail } => ("malformed", Some(detail.clone())),
+        InventoryOutcome::Timeout { detail } => ("timeout", Some(detail.clone())),
+        InventoryOutcome::PermissionFailure { detail } => {
+            ("permission_failure", Some(detail.clone()))
+        }
+    };
+    match outcome {
+        InventoryOutcome::Complete(inventory) => (
+            json!({
+                "outcome": token,
+                "server_epoch": inventory.server_epoch.map(|epoch| epoch.0.to_string()),
+                "rows": inventory.rows.len(),
+                "native_names": inventory.rows.iter().map(|row| row.native_name.clone()).collect::<Vec<_>>(),
+            }),
+            inventory.server_epoch.map(|epoch| epoch.0),
+        ),
+        _ => {
+            let observed = inventory::epoch_changed_detail(outcome).and_then(|detail| {
+                detail
+                    .split_whitespace()
+                    .skip_while(|word| *word != "observed")
+                    .nth(1)
+                    .and_then(|epoch| uuid::Uuid::parse_str(epoch).ok())
+            });
+            (
+                json!({
+                    "outcome": token,
+                    "detail": detail,
+                    "epoch_changed": inventory::epoch_changed_detail(outcome).is_some(),
+                }),
+                observed,
+            )
+        }
+    }
+}
+
+/// The runtime directory this dmux resolves. `DMUX_RUNTIME_DIR` is an
+/// owner-side test seam (ADR 009 §6) that every socket, descriptor, bridge
+/// key and lock path is built from; exported in a production shell it
+/// silently redirects all of them away from the service's directory, so it
+/// is a finding whenever it is set.
+fn runtime_dir_detail() -> (bool, String) {
+    let resolved = match runtime::dmux_runtime_dir() {
+        Ok(dir) => dir.display().to_string(),
+        Err(error) => format!("unresolvable ({error})"),
+    };
+    match std::env::var_os(runtime::RUNTIME_DIR_SEAM_ENV) {
+        Some(seam) if !seam.is_empty() => {
+            let production = runtime::platform_runtime_dir()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_else(|error| format!("unresolvable ({error})"));
+            (
+                false,
+                format!(
+                    "{resolved} ({}={} is set: every socket, descriptor and lock is redirected \
+                     away from the service's {production})",
+                    runtime::RUNTIME_DIR_SEAM_ENV,
+                    seam.to_string_lossy()
+                ),
+            )
+        }
+        _ => (true, resolved),
+    }
+}
+
 fn wezterm_ok() -> bool {
     Command::new("wezterm")
         .args(["cli", "--no-auto-start", "list", "--format", "json"])
@@ -854,6 +1571,192 @@ mod tests {
             value("1")
         );
         assert_eq!(manager_block_layer("PATH=/usr/bin\n"), FlagLayer::Unset);
+    }
+
+    fn uid(n: u128) -> BackendInstanceUid {
+        BackendInstanceUid(uuid::Uuid::from_u128(n))
+    }
+
+    fn published(epoch: u128) -> PublishedIncarnation {
+        PublishedIncarnation {
+            epoch: dmux::model::ServerEpoch(uuid::Uuid::from_u128(epoch)),
+            pid: Some(4242),
+            start_token: Some("macos:1:1".into()),
+            socket_dev: Some(7),
+            socket_ino: Some(9),
+        }
+    }
+
+    fn managed(epoch: u128) -> ManagedTarget {
+        ManagedTarget::Managed {
+            instance: uid(1),
+            scope: InventoryScope::managed(
+                Backend::Wez,
+                "/run/dmux/wez.sock",
+                dmux::model::ServerEpoch(uuid::Uuid::from_u128(epoch)),
+            ),
+        }
+    }
+
+    fn lease(pid: i32) -> Lease {
+        Lease {
+            lease_id: 1,
+            scope: "recovery:x".into(),
+            holder_request_uid: uuid::Uuid::nil(),
+            fencing_token: 3,
+            holder_pid: Some(pid),
+            holder_start_token: None,
+            expires_at: "2026-08-23T00:00:00Z".into(),
+            state: "held".into(),
+        }
+    }
+
+    /// Every one of the six states has its own letter, name and remedy;
+    /// C and D never say restart; F names the clear and the no-user-panes
+    /// condition; the live side's epoch turns an otherwise-live E into F.
+    /// All inputs are injected: no registry, lock, descriptor or server.
+    #[test]
+    fn the_classifier_names_every_instance_state_and_its_safe_remedy() {
+        let free = HostWitness::default();
+
+        let (state, detail, remedy) = classify(Backend::Wez, &ManagedTarget::Unregistered, &free);
+        assert_eq!((state.letter(), state.name()), ("A", "not_registered"));
+        assert!(
+            detail.contains("no wez backend instance is registered"),
+            "{detail}"
+        );
+        assert!(remedy.unwrap().contains("nothing is enrolled"));
+
+        let (state, detail, _) =
+            classify(Backend::Tmux, &ManagedTarget::Unaddressable(uid(1)), &free);
+        assert_eq!((state.letter(), state.name()), ("B", "unaddressable"));
+        assert!(detail.contains("without an endpoint"), "{detail}");
+
+        let (state, detail, remedy) =
+            classify(Backend::Wez, &ManagedTarget::Unpublished(uid(1)), &free);
+        assert_eq!((state.letter(), state.name()), ("C", "unpublished_idle"));
+        assert!(detail.contains("instance state C"), "{detail}");
+        let remedy = remedy.unwrap();
+        assert!(
+            remedy.contains("wait for the managed mux to coordinate"),
+            "{remedy}"
+        );
+        assert!(!remedy.to_lowercase().starts_with("restart"), "{remedy}");
+        assert!(!detail.to_lowercase().contains("restart"), "{detail}");
+
+        let held = HostWitness {
+            exclusive_held: Some(true),
+            ..HostWitness::default()
+        };
+        let (state, detail, remedy) =
+            classify(Backend::Wez, &ManagedTarget::Unpublished(uid(1)), &held);
+        assert_eq!(
+            (state.letter(), state.name()),
+            ("D", "coordinator_in_flight")
+        );
+        assert!(detail.contains("held exclusively"), "{detail}");
+        let remedy = remedy.unwrap();
+        assert!(remedy.contains("in flight") && remedy.contains("re-run `dmux doctor`"));
+        assert!(!remedy.to_lowercase().contains("restart"), "{remedy}");
+
+        let leased = HostWitness {
+            exclusive_held: Some(false),
+            recovery_lease: Some(lease(std::process::id() as i32)),
+            ..HostWitness::default()
+        };
+        let (state, detail, _) =
+            classify(Backend::Tmux, &ManagedTarget::Unpublished(uid(1)), &leased);
+        assert_eq!(state, InstanceState::D);
+        assert!(detail.contains("recovery lease is held by pid"), "{detail}");
+
+        let (state, detail, remedy) = classify(Backend::Wez, &managed(0xe), &free);
+        assert_eq!((state.letter(), state.name()), ("E", "published_live"));
+        assert!(detail.contains("the host agrees"), "{detail}");
+        assert_eq!(remedy, None);
+
+        // The row passed the liveness probe, but the live server presents
+        // another epoch (a descriptor or sentinel from another incarnation).
+        let disagreeing = HostWitness {
+            live_epoch: Some(uuid::Uuid::from_u128(0xf)),
+            descriptor: Some(
+                serde_json::json!({"state": "starting", "epoch": uuid::Uuid::from_u128(0xf).to_string(), "pid": 54528}),
+            ),
+            ..HostWitness::default()
+        };
+        let (state, detail, remedy) = classify(Backend::Wez, &managed(0xe), &disagreeing);
+        assert_eq!((state.letter(), state.name()), ("F", "stale_incarnation"));
+        assert!(detail.contains("live server presents epoch"), "{detail}");
+        assert!(detail.contains("descriptor starting epoch"), "{detail}");
+        let remedy = remedy.unwrap();
+        assert!(
+            remedy.contains("retire-incarnation --backend wez --epoch"),
+            "{remedy}"
+        );
+        assert!(remedy.contains("holds no user panes"), "{remedy}");
+
+        let stale = ManagedTarget::StaleIncarnation {
+            instance: uid(1),
+            published: published(0xe),
+            observed: ObservedIncarnation::ProcessDead { pid: 4242 },
+        };
+        let (state, detail, remedy) = classify(Backend::Wez, &stale, &free);
+        assert_eq!((state.letter(), state.name()), ("F", "stale_incarnation"));
+        assert!(detail.contains("process 4242 is dead"), "{detail}");
+        assert!(remedy.unwrap().contains("retire-incarnation --backend wez"));
+    }
+
+    /// The JSON row carries the letter, the name, both sides and the
+    /// remedy, and a registry that could not be read is a null state with
+    /// the reason rather than a guess.
+    #[test]
+    fn the_instance_row_serialises_both_sides() {
+        let report = InstanceReport {
+            backend: Backend::Tmux,
+            instance: Some(uid(2)),
+            state: Some(InstanceState::F),
+            published: Some(published(0xe)),
+            witness: HostWitness {
+                liveness: Some(Liveness::Stale(ObservedIncarnation::ProcessDead {
+                    pid: 4242,
+                })),
+                exclusive_held: Some(false),
+                ..HostWitness::default()
+            },
+            detail: "d".into(),
+            remedy: Some("r".into()),
+        };
+        let json = report.json();
+        assert_eq!(json["state"], "F");
+        assert_eq!(json["state_name"], "stale_incarnation");
+        assert_eq!(json["backend"], "tmux");
+        assert_eq!(json["published"]["pid"], 4242);
+        assert_eq!(json["observed"]["process"], "dead");
+        assert_eq!(json["observed"]["exclusive_lock_held"], false);
+        assert_eq!(json["remedy"], "r");
+        assert_eq!(report.human(), "F (stale_incarnation) d");
+
+        let unavailable = InstanceReport::unavailable(Backend::Wez, "locked");
+        let json = unavailable.json();
+        assert!(json["state"].is_null());
+        assert_eq!(json["detail"], "registry unreadable: locked");
+    }
+
+    /// The seam is a finding whenever it is set, and the line always names
+    /// the directory this process would actually use.
+    #[test]
+    fn the_runtime_dir_line_reports_the_seam() {
+        let (ok, detail) = runtime_dir_detail();
+        match std::env::var_os(runtime::RUNTIME_DIR_SEAM_ENV) {
+            Some(seam) if !seam.is_empty() => {
+                assert!(!ok);
+                assert!(detail.contains("DMUX_RUNTIME_DIR="), "{detail}");
+                assert!(detail.contains("redirected"), "{detail}");
+            }
+            _ => {
+                assert!(ok);
+                assert!(!detail.contains("redirected"), "{detail}");
+            }
+        }
     }
 
     /// Whatever the environment, the probe answers without panicking and
