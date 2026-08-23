@@ -581,3 +581,170 @@ fn a_stranded_row_on_an_unaddressable_tmux_instance_is_refused() {
         (Lifecycle::Reserved, OperationState::Prepared)
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR 012 WS-D.2: the compensation for a crashed Wez adoption aims its
+// reverse CAS at the SOURCE the journal recorded, not at the logical name.
+// Driven at the operations layer against the scripted mux, since the fork
+// CAS build is not a test dependency; what is provable is the exact argv.
+
+use dmux::backend::InventoryScope;
+use dmux::backend::wez::WezProvider;
+use dmux::operations::{
+    OperationEnv, ReconcileBackend, ReconcileOutcome, reconcile_apply, reconcile_scan,
+};
+
+use super::util::{Cas, FakeMux};
+
+/// A managed Wez instance published as the scripted mux's epoch, the env
+/// that reaches it, and the scope every scan is pinned to.
+fn wez_reconcile_home(
+    scratch: &Scratch,
+    mux: &FakeMux,
+) -> (OperationEnv, BackendInstanceUid, InventoryScope) {
+    let mut registry = util::open(&scratch.config);
+    let instance = registry
+        .register_backend_instance(Backend::Wez, Some("/run/dmux/wez.sock"), None)
+        .unwrap();
+    registry
+        .publish_backend_server(
+            instance,
+            ServerEpoch(mux.epoch),
+            Some(4242),
+            Some("start-token"),
+            None,
+            None,
+        )
+        .unwrap();
+    let env = OperationEnv {
+        db_path: scratch.config.db_path.clone(),
+        lock_dir: scratch.config.lock_dir.clone(),
+    };
+    (
+        env,
+        instance,
+        InventoryScope::managed(Backend::Wez, "/run/dmux/wez.sock", ServerEpoch(mux.epoch)),
+    )
+}
+
+fn opaque_key(scratch: &Scratch, reservation: &SpaceReservation) -> String {
+    let owner = util::open(&scratch.config).identity().unwrap().host_uid;
+    format!("dmux:{}:{}", owner.0, reservation.space_uid.0)
+}
+
+/// The CAS argv of the one compensation: `(--if-workspace, --if-sole-window, NEW)`.
+fn compensation(mux: &FakeMux) -> (String, bool, String) {
+    let calls = mux.cas_calls();
+    assert_eq!(calls.len(), 1, "exactly one compensating CAS: {calls:?}");
+    let argv = &calls[0];
+    let after = |flag: &str| {
+        argv.iter()
+            .position(|a| a == flag)
+            .map(|i| argv[i + 1].clone())
+            .unwrap()
+    };
+    (
+        after("--if-workspace"),
+        argv.iter().any(|a| a == "--if-sole-window"),
+        argv.last().unwrap().clone(),
+    )
+}
+
+/// ADR 011's recorded limitation, closed: `dmux adopt --name other` died
+/// after its CAS rename of workspace `legacy` to the opaque key. The
+/// journal now carries `legacy`, so the reverse rename restores `legacy` —
+/// not `other`, which is a name nothing on the server ever had.
+#[test]
+fn a_crashed_wez_adopt_with_a_name_is_reversed_to_the_source_not_the_logical_name() {
+    let scratch = util::scratch();
+    let mux = FakeMux::new(Cas::Fork, &[]);
+    let (env, instance, scope) = wez_reconcile_home(&scratch, &mux);
+    let reservation = util::open(&scratch.config)
+        .reserve_adoption(
+            "other",
+            instance,
+            Uuid::new_v4(),
+            OperationKind::Adopt,
+            "legacy",
+        )
+        .unwrap();
+    // The CAS had landed: the workspace wears the reservation's key.
+    let key = opaque_key(&scratch, &reservation);
+    mux.add_pane(11, 110, 1100, &key);
+    let provider = WezProvider::with_runner("/opt/homebrew/bin/wezterm", "/etc/dmux/wez.lua", &mux);
+
+    let targets = reconcile_scan(&env).unwrap();
+    assert_eq!(targets.len(), 1, "{targets:?}");
+    let result = reconcile_apply(
+        &env,
+        &targets[0],
+        Some(ReconcileBackend::restorable(&provider, &scope, &provider)),
+    );
+    assert_eq!(
+        result.outcome,
+        ReconcileOutcome::ReservationReleased,
+        "{result:?}"
+    );
+    assert!(
+        result.detail.contains("journaled source token"),
+        "{result:?}"
+    );
+    assert_eq!(
+        compensation(&mux),
+        (key, true, "legacy".to_string()),
+        "the reverse CAS is guarded like the adopt's and aims at the source"
+    );
+    assert_eq!(mux.workspaces(), vec!["legacy".to_string()]);
+    assert_eq!(
+        state_of(&scratch, &reservation),
+        (Lifecycle::Aborted, OperationState::Aborted)
+    );
+}
+
+/// A row journaled before schema v5 carries no source, and reconciles
+/// exactly as it did: the reverse rename aims at the logical name and the
+/// detail says why.
+#[test]
+fn a_pre_v5_wez_adopt_row_is_reversed_to_the_logical_name_as_before() {
+    let scratch = util::scratch();
+    let mux = FakeMux::new(Cas::Fork, &[]);
+    let (env, instance, scope) = wez_reconcile_home(&scratch, &mux);
+    let reservation = util::open(&scratch.config)
+        .reserve_space_kind("legacy", instance, Uuid::new_v4(), OperationKind::Adopt)
+        .unwrap();
+    assert_eq!(
+        util::open(&scratch.config)
+            .operation(reservation.operation_uid)
+            .unwrap()
+            .source_native_token,
+        None,
+        "the fixture models a pre-v5 row"
+    );
+    let key = opaque_key(&scratch, &reservation);
+    mux.add_pane(11, 110, 1100, &key);
+    let provider = WezProvider::with_runner("/opt/homebrew/bin/wezterm", "/etc/dmux/wez.lua", &mux);
+
+    let targets = reconcile_scan(&env).unwrap();
+    let result = reconcile_apply(
+        &env,
+        &targets[0],
+        Some(ReconcileBackend::restorable(&provider, &scope, &provider)),
+    );
+    assert_eq!(
+        result.outcome,
+        ReconcileOutcome::ReservationReleased,
+        "{result:?}"
+    );
+    assert!(
+        result
+            .detail
+            .contains("predates the journaled source token"),
+        "{result:?}"
+    );
+    assert_eq!(compensation(&mux), (key, true, "legacy".to_string()));
+    assert_eq!(mux.workspaces(), vec!["legacy".to_string()]);
+    assert_eq!(
+        state_of(&scratch, &reservation),
+        (Lifecycle::Aborted, OperationState::Aborted)
+    );
+}

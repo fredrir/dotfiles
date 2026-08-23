@@ -1123,3 +1123,317 @@ fn the_registry_rebind_journal_is_two_phase_and_typed() {
         "{err}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A crashed rebind (ADR 012 WS-D.2; plan §10.3 "crash reconciliation by
+// source/destination/epoch yields unmanaged, active-unstamped, healthy, or
+// conflict — never silent success"). The journal row is the operator's
+// confirmed assertion; reconciliation reads the evidence and settles it
+// into rolled back, committed, or conflict — writing nothing native.
+
+use dmux::backend::tmux::{SpaceMarkers, TmuxProvider};
+use dmux::operations::{ReconcileBackend, ReconcileOutcome, reconcile_apply, reconcile_scan};
+
+fn stranded_rebind(home: &Home, space_uid: &str, source: &str, destination: &str) -> Uuid {
+    home.registry()
+        .begin_rebind(
+            dmux::model::SpaceUid(space_uid.parse().unwrap()),
+            Uuid::new_v4(),
+            source,
+            destination,
+        )
+        .unwrap()
+}
+
+fn sole_target(home: &Home) -> dmux::operations::ReconcileTarget {
+    let targets = reconcile_scan(&home.env()).unwrap();
+    assert_eq!(targets.len(), 1, "{targets:?}");
+    assert_eq!(targets[0].kind, OperationKind::Rebind);
+    assert_eq!(targets[0].duty, "adoption_reconcile");
+    assert!(!targets[0].in_flight);
+    targets.into_iter().next().unwrap()
+}
+
+fn op_state(home: &Home, operation_uid: Uuid) -> dmux::model::OperationState {
+    home.registry().operation(operation_uid).unwrap().state
+}
+
+/// tmux: the stamp is the native step. No markers on the named session
+/// means it never ran (rolled back, the Space stays absent); this Space's
+/// markers mean it landed (committed: bound, unstamped); a stranger's
+/// markers are a conflict. Without a marker reader the verdict is
+/// refused, not guessed.
+#[test]
+fn a_crashed_tmux_rebind_is_settled_by_the_markers_on_the_named_session() {
+    let home = Home::new();
+    let tmux = TmuxScratch::start("crash");
+    tmux.tmux(&["new-session", "-d", "-s", "proj"]);
+    let epoch = match tmux_bootstrap(&home.env(), &tmux.ns).unwrap() {
+        TmuxBootstrapOutcome::Bootstrapped { epoch } => epoch,
+        other => panic!("fresh server must bootstrap: {other:?}"),
+    };
+    let old_id = tmux.session_id("proj");
+    let (_, space_uid) = adopt(&home, &old_id);
+    let new_id = tmux.replace_session("proj");
+    let provider = TmuxProvider::new(tmux.ns.clone());
+    let scope = InventoryScope::managed(Backend::Tmux, tmux.ns.clone(), epoch);
+
+    // Died before the stamp: rolled back.
+    let op = stranded_rebind(&home, &space_uid, &new_id, &new_id);
+    let result = reconcile_apply(
+        &home.env(),
+        &sole_target(&home),
+        Some(ReconcileBackend::scan_only(&provider, &scope).with_markers(&provider)),
+    );
+    assert_eq!(
+        result.outcome,
+        ReconcileOutcome::RebindRolledBack,
+        "{result:?}"
+    );
+    assert!(result.ok);
+    assert!(result.detail.contains("stamp never landed"), "{result:?}");
+    assert_eq!(op_state(&home, op), dmux::model::OperationState::Aborted);
+    assert_eq!(
+        home.bindings(&space_uid),
+        vec![(old_id.clone(), "current".to_string())]
+    );
+    assert_eq!(tmux.marker(&new_id, "@dmux_space_uid"), None);
+
+    // Died after the stamp, before the binding: committed.
+    let identity = home.registry().identity().unwrap();
+    let space_no = home
+        .registry()
+        .space(dmux::model::SpaceUid(space_uid.parse().unwrap()))
+        .unwrap()
+        .space_no;
+    provider
+        .stamp_markers(
+            &scope,
+            &new_id,
+            &SpaceMarkers {
+                host_uid: identity.host_uid.0.to_string(),
+                registry_uid: identity.registry_uid.0.to_string(),
+                space_uid: space_uid.clone(),
+                space_no: space_no.to_string(),
+            },
+        )
+        .unwrap();
+    let op = stranded_rebind(&home, &space_uid, &new_id, &new_id);
+
+    // Handed over without its marker reader, the verdict is refused.
+    let blind = reconcile_apply(
+        &home.env(),
+        &sole_target(&home),
+        Some(ReconcileBackend::scan_only(&provider, &scope)),
+    );
+    assert_eq!(blind.outcome, ReconcileOutcome::FailedClosed, "{blind:?}");
+    assert!(blind.detail.contains("no marker reader"), "{blind:?}");
+    assert_eq!(op_state(&home, op), dmux::model::OperationState::Prepared);
+
+    let result = reconcile_apply(
+        &home.env(),
+        &sole_target(&home),
+        Some(ReconcileBackend::scan_only(&provider, &scope).with_markers(&provider)),
+    );
+    assert_eq!(
+        result.outcome,
+        ReconcileOutcome::RebindCommitted,
+        "{result:?}"
+    );
+    assert!(result.ok);
+    assert!(result.detail.starts_with("active-unstamped"), "{result:?}");
+    assert_eq!(op_state(&home, op), dmux::model::OperationState::Completed);
+    assert_eq!(
+        home.bindings(&space_uid),
+        vec![
+            (old_id.clone(), "severed".to_string()),
+            (new_id.clone(), "current".to_string())
+        ]
+    );
+    let registry = home.registry();
+    let space = registry
+        .space(dmux::model::SpaceUid(space_uid.parse().unwrap()))
+        .unwrap();
+    assert_eq!(space.health, Health::Unstamped);
+    assert_eq!(
+        registry.current_binding_epoch(space.space_uid).unwrap(),
+        Some(epoch)
+    );
+    drop(registry);
+    // Idempotent: nothing is left to reconcile, and the Space is listed
+    // live again.
+    assert!(reconcile_scan(&home.env()).unwrap().is_empty());
+    let row = managed_row(&document(&home.json(&["ls"])), space_no.get());
+    assert_eq!(row["observation"], "live", "{row}");
+    assert_eq!(row["health"], "unstamped", "{row}");
+
+    // A stranger's markers on the named session: conflict, nothing bound.
+    let third_id = tmux.replace_session("proj");
+    for (option, value) in [
+        ("@dmux_host_uid", "11111111-1111-4111-8111-111111111111"),
+        ("@dmux_registry_uid", "22222222-2222-4222-8222-222222222222"),
+        ("@dmux_space_uid", "33333333-3333-4333-8333-333333333333"),
+        ("@dmux_space_no", "99"),
+    ] {
+        tmux.tmux(&["set-option", "-t", &third_id, option, value]);
+    }
+    let op = stranded_rebind(&home, &space_uid, &third_id, &third_id);
+    let result = reconcile_apply(
+        &home.env(),
+        &sole_target(&home),
+        Some(ReconcileBackend::scan_only(&provider, &scope).with_markers(&provider)),
+    );
+    assert_eq!(result.outcome, ReconcileOutcome::FailedClosed, "{result:?}");
+    assert!(result.detail.contains("another identity"), "{result:?}");
+    assert_eq!(op_state(&home, op), dmux::model::OperationState::Prepared);
+    assert_eq!(
+        home.registry()
+            .current_binding(dmux::model::SpaceUid(space_uid.parse().unwrap()))
+            .unwrap()
+            .unwrap()
+            .native_token,
+        new_id
+    );
+
+    // The named session is gone altogether: rolled back.
+    tmux.tmux(&["kill-session", "-t", "proj"]);
+    let result = reconcile_apply(
+        &home.env(),
+        &sole_target(&home),
+        Some(ReconcileBackend::scan_only(&provider, &scope).with_markers(&provider)),
+    );
+    assert_eq!(
+        result.outcome,
+        ReconcileOutcome::RebindRolledBack,
+        "{result:?}"
+    );
+    assert!(result.detail.contains("no longer answers"), "{result:?}");
+    assert_eq!(op_state(&home, op), dmux::model::OperationState::Aborted);
+}
+
+/// Wez: the CAS rename is the native step, settled by which of source and
+/// destination answer under the published epoch — old-only, new-only,
+/// both, neither — exactly the rename table's four outcomes, with both and
+/// neither refused.
+#[test]
+fn a_crashed_wez_rebind_is_settled_by_source_and_destination_under_the_epoch() {
+    // Old-only: the rename never landed.
+    {
+        let mux = FakeMux::new(Cas::Fork, &[(1, 10, 100, "alpha2")]);
+        let (wez, reservation, key) = WezHome::new(&mux);
+        let space_uid = reservation.space_uid.0.to_string();
+        let op = stranded_rebind(&wez.home, &space_uid, "alpha2", &key);
+        let provider = wez.provider(&mux);
+        let scope = wez.scope(&mux);
+        let result = reconcile_apply(
+            &wez.home.env(),
+            &sole_target(&wez.home),
+            Some(ReconcileBackend::restorable(&provider, &scope, &provider)),
+        );
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::RebindRolledBack,
+            "{result:?}"
+        );
+        assert!(result.detail.contains("never landed"), "{result:?}");
+        assert_eq!(
+            op_state(&wez.home, op),
+            dmux::model::OperationState::Aborted
+        );
+        assert_eq!(
+            wez.home.bindings(&space_uid),
+            vec![(key, "current".to_string())]
+        );
+        assert!(
+            mux.cas_calls().is_empty(),
+            "nothing native is written: {:?}",
+            mux.commands()
+        );
+        assert_eq!(
+            wez.home
+                .registry()
+                .space(reservation.space_uid)
+                .unwrap()
+                .health,
+            Health::Healthy
+        );
+    }
+    // New-only: the rename landed; the registry half is completed.
+    {
+        let mux = FakeMux::new(Cas::Fork, &[]);
+        let (wez, reservation, key) = WezHome::new(&mux);
+        mux.add_pane(1, 10, 100, &key);
+        let space_uid = reservation.space_uid.0.to_string();
+        let op = stranded_rebind(&wez.home, &space_uid, "alpha2", &key);
+        let provider = wez.provider(&mux);
+        let scope = wez.scope(&mux);
+        let result = reconcile_apply(
+            &wez.home.env(),
+            &sole_target(&wez.home),
+            Some(ReconcileBackend::restorable(&provider, &scope, &provider)),
+        );
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::RebindCommitted,
+            "{result:?}"
+        );
+        assert_eq!(
+            op_state(&wez.home, op),
+            dmux::model::OperationState::Completed
+        );
+        assert_eq!(
+            wez.home.bindings(&space_uid),
+            vec![
+                (key.clone(), "severed".to_string()),
+                (key, "current".to_string())
+            ]
+        );
+        let registry = wez.home.registry();
+        assert_eq!(
+            registry.space(reservation.space_uid).unwrap().health,
+            Health::Unstamped
+        );
+        assert_eq!(
+            registry
+                .current_binding_epoch(reservation.space_uid)
+                .unwrap(),
+            Some(ServerEpoch(mux.epoch))
+        );
+        assert!(mux.cas_calls().is_empty(), "{:?}", mux.commands());
+    }
+    // Both and neither: conflict, the row stays open, nothing moves.
+    for (panes, expect) in [(vec!["alpha2", "KEY"], "both"), (vec![], "neither")] {
+        let mux = FakeMux::new(Cas::Fork, &[]);
+        let (wez, reservation, key) = WezHome::new(&mux);
+        for (i, name) in panes.iter().enumerate() {
+            let name = if *name == "KEY" { key.as_str() } else { name };
+            mux.add_pane(i as u64 + 1, i as u64 + 10, i as u64 + 100, name);
+        }
+        let space_uid = reservation.space_uid.0.to_string();
+        let op = stranded_rebind(&wez.home, &space_uid, "alpha2", &key);
+        let provider = wez.provider(&mux);
+        let scope = wez.scope(&mux);
+        let result = reconcile_apply(
+            &wez.home.env(),
+            &sole_target(&wez.home),
+            Some(ReconcileBackend::restorable(&provider, &scope, &provider)),
+        );
+        assert_eq!(
+            result.outcome,
+            ReconcileOutcome::FailedClosed,
+            "{expect}: {result:?}"
+        );
+        assert!(!result.ok);
+        assert!(result.detail.contains(expect), "{expect}: {result:?}");
+        assert_eq!(
+            op_state(&wez.home, op),
+            dmux::model::OperationState::Prepared
+        );
+        assert_eq!(
+            wez.home.bindings(&space_uid),
+            vec![(key, "current".to_string())],
+            "{expect}"
+        );
+        assert!(mux.cas_calls().is_empty(), "{expect}: {:?}", mux.commands());
+    }
+}

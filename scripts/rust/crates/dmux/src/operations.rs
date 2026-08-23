@@ -1715,11 +1715,12 @@ pub fn adopt_tmux<R: crate::backend::tmux::TmuxRunner>(
     require_no_foreign_stamp(&registry, &identity, session_id, &existing_markers)?;
 
     let reservation = registry
-        .reserve_space_kind(
+        .reserve_adoption(
             &name,
             instance,
             request_uid,
             crate::model::OperationKind::Adopt,
+            session_id,
         )
         .map_err(reg_err)?;
 
@@ -1854,12 +1855,17 @@ pub fn adopt_wez<R: crate::backend::wez::WezRunner>(
         )));
     }
     require_no_cross_backend_name(&registry, Backend::Wez, &name)?;
+    // The source workspace travels on the journal row (schema v5): it is
+    // what `reconcile_apply` aims the reverse CAS at if this holder dies
+    // after the rename below — never the logical name, which is whatever
+    // `--name` said.
     let reservation = registry
-        .reserve_space_kind(
+        .reserve_adoption(
             &name,
             instance,
             request_uid,
             crate::model::OperationKind::Adopt,
+            source_workspace,
         )
         .map_err(reg_err)?;
     // The exact key `reconcile_apply` will look for if this holder dies
@@ -4336,6 +4342,13 @@ pub enum ReconcileOutcome {
     RenameCommitted,
     /// The remove was resumed to a verified tombstone.
     RemoveCompleted,
+    /// A crashed `repair rebind` whose native step never landed: the row is
+    /// closed and the Space keeps the binding it had (still absent).
+    RebindRolledBack,
+    /// A crashed `repair rebind` whose native step had landed: the registry
+    /// half is completed — old binding severed, the destination bound,
+    /// health `unstamped` (plan §10.3's active-unstamped outcome).
+    RebindCommitted,
     /// The row finished between the preview and the apply — a concurrent
     /// reconcile, or a second run of this one. This is what makes running
     /// twice a no-op instead of a double abort.
@@ -4354,6 +4367,8 @@ impl ReconcileOutcome {
             ReconcileOutcome::RenameRolledBack => "rename_rolled_back",
             ReconcileOutcome::RenameCommitted => "rename_committed",
             ReconcileOutcome::RemoveCompleted => "remove_completed",
+            ReconcileOutcome::RebindRolledBack => "rebind_rolled_back",
+            ReconcileOutcome::RebindCommitted => "rebind_committed",
             ReconcileOutcome::AlreadyResolved => "already_resolved",
             ReconcileOutcome::SkippedInFlight => "skipped_in_flight",
             ReconcileOutcome::FailedClosed => "failed_closed",
@@ -4427,9 +4442,31 @@ impl<R: crate::backend::wez::WezRunner> WorkspaceRestore for crate::backend::wez
     }
 }
 
+/// The read a crashed tmux rebind is settled by: whether the named session
+/// already wears this Space's `@dmux_*` markers (the stamp landed) or none
+/// (it never ran). Read-only — reconciliation stamps nothing itself.
+pub trait SessionMarkers {
+    fn read_markers(
+        &self,
+        scope: &InventoryScope,
+        session: &str,
+    ) -> ProviderResult<crate::backend::tmux::SpaceMarkerReadback>;
+}
+
+impl<R: crate::backend::tmux::TmuxRunner> SessionMarkers for crate::backend::tmux::TmuxProvider<R> {
+    fn read_markers(
+        &self,
+        scope: &InventoryScope,
+        session: &str,
+    ) -> ProviderResult<crate::backend::tmux::SpaceMarkerReadback> {
+        crate::backend::tmux::TmuxProvider::read_markers(self, scope, session)
+    }
+}
+
 /// The Space's backend as reconciliation may use it: the scan every duty
 /// reasons from, and — on a backend that has one — the CAS rename a landed
-/// adoption has to be compensated with.
+/// adoption has to be compensated with, or the marker read a crashed tmux
+/// rebind is judged by.
 pub struct ReconcileBackend<'a> {
     pub provider: &'a dyn Provider,
     pub scope: &'a InventoryScope,
@@ -4437,6 +4474,10 @@ pub struct ReconcileBackend<'a> {
     /// obtained: a landed adoption rename then has no compensation and fails
     /// closed rather than being released behind an opaque key.
     pub restore: Option<&'a dyn WorkspaceRestore>,
+    /// `None` on Wez, and on a tmux endpoint handed over without its marker
+    /// reader: a crashed rebind whose session still answers then fails
+    /// closed rather than be bound without knowing whether it was stamped.
+    pub markers: Option<&'a dyn SessionMarkers>,
 }
 
 impl<'a> ReconcileBackend<'a> {
@@ -4446,6 +4487,7 @@ impl<'a> ReconcileBackend<'a> {
             provider,
             scope,
             restore: None,
+            markers: None,
         }
     }
 
@@ -4459,7 +4501,14 @@ impl<'a> ReconcileBackend<'a> {
             provider,
             scope,
             restore: Some(restore),
+            markers: None,
         }
+    }
+
+    /// The same backend, able to read `@dmux_*` markers (tmux).
+    pub fn with_markers(mut self, markers: &'a dyn SessionMarkers) -> Self {
+        self.markers = Some(markers);
+        self
     }
 }
 
@@ -4565,10 +4614,11 @@ pub fn reconcile_apply(
         Ok(registry) => registry,
         Err(e) => return failed(format!("registry: {e}")),
     };
-    let owner = match registry.identity() {
-        Ok(identity) => identity.host_uid,
+    let identity = match registry.identity() {
+        Ok(identity) => identity,
         Err(e) => return failed(format!("registry: {e}")),
     };
+    let owner = identity.host_uid;
 
     // The fence, in §10.1 order. The authority gate is taken *shared*, so it
     // blocks only against an exclusive authority writer (backup/restore),
@@ -4631,6 +4681,190 @@ pub fn reconcile_apply(
     };
 
     match reconcile::resume_duty(row.kind, row.state) {
+        // A crashed `repair rebind` (ADR 012 WS-D.1): an ACTIVE Space with
+        // a current binding and a `rebind` row that never completed. §10.3
+        // settles it by source token (journaled, schema v5), destination key
+        // and epoch, into exactly one of: rolled back (the native step never
+        // landed; the Space keeps its absent binding), active-unstamped (it
+        // landed; the registry half is completed), or conflict. The
+        // operator's confirmed assertion is the journal row itself, so
+        // completing it is not a second judgement — but nothing native is
+        // written here: the evidence is read, never manufactured.
+        ResumeDuty::AdoptionReconcile
+            if row.kind == OperationKind::Rebind && space.lifecycle == Lifecycle::Active =>
+        {
+            let Some(current) = binding.as_ref() else {
+                return failed(
+                    "rebind journal row on an active Space with no current binding — conflict"
+                        .into(),
+                );
+            };
+            let Some(source) = row.source_native_token.clone() else {
+                return failed(
+                    "rebind journal row carries no source token, so there is nothing to \
+                     reconcile by; the row stays open"
+                        .into(),
+                );
+            };
+            let Some(backend) = backend else {
+                return failed(format!(
+                    "the {} server could not be reached, so whether the rebind bound \
+                     {source:?} is unknown; start the managed server and re-run",
+                    target.backend
+                ));
+            };
+            let inventory = match backend.provider.inventory(backend.scope) {
+                InventoryOutcome::Complete(inventory) => inventory,
+                other => {
+                    return failed(format!(
+                        "{} scan: {other:?} — cannot tell whether the rebind bound {source:?}",
+                        target.backend
+                    ));
+                }
+            };
+            let Some(epoch) = inventory.server_epoch else {
+                return failed("the scan answered without an epoch; nothing is bound".into());
+            };
+            let present = |token: &str| inventory.rows.iter().any(|r| r.native_token == token);
+            let commit = |registry: &mut Registry,
+                          token: String,
+                          kind: NativeKind,
+                          evidence: String| {
+                match registry.finalize_rebind(
+                    space.space_uid,
+                    row.operation_uid,
+                    &NativeBindingSpec {
+                        native_token: token,
+                        native_kind: kind,
+                        server_epoch: Some(epoch),
+                    },
+                ) {
+                    Ok(()) => report(
+                        ReconcileOutcome::RebindCommitted,
+                        format!(
+                            "active-unstamped: {evidence}; binding {} severed, health unstamped \
+                             until every pane runs `dmux context stamp`",
+                            current.native_token
+                        ),
+                    ),
+                    Err(e) => failed(format!("registry: {e}")),
+                }
+            };
+            let roll_back = |registry: &mut Registry, evidence: String| match registry
+                .abort_rebind(space.space_uid, row.operation_uid)
+            {
+                Ok(()) => report(
+                    ReconcileOutcome::RebindRolledBack,
+                    format!(
+                        "{evidence}; Space {:?} keeps its binding {} and stays absent",
+                        space.logical_name, current.native_token
+                    ),
+                ),
+                Err(e) => failed(format!("registry: {e}")),
+            };
+            match target.backend {
+                Backend::Wez => {
+                    let destination = adoption_key(owner, space.space_uid);
+                    match (present(&source), present(&destination)) {
+                        (true, false) => roll_back(
+                            &mut registry,
+                            format!(
+                                "the source workspace {source:?} still answers under epoch {} \
+                                 and nothing wears {destination:?}: the atomic rename never \
+                                 landed",
+                                epoch.0
+                            ),
+                        ),
+                        (false, true) => commit(
+                            &mut registry,
+                            destination.clone(),
+                            NativeKind::WezWorkspaceKey,
+                            format!(
+                                "the rename had landed — {source:?} is gone and a workspace \
+                                 wears {destination:?} under epoch {} — so the registry half \
+                                 is completed",
+                                epoch.0
+                            ),
+                        ),
+                        (true, true) => failed(format!(
+                            "both {source:?} and {destination:?} answer under epoch {}; binding \
+                             either could claim a stranger's workspace — rename one of them \
+                             and re-run `dmux repair reconcile`",
+                            epoch.0
+                        )),
+                        (false, false) => failed(format!(
+                            "neither {source:?} nor {destination:?} answers under epoch {}; \
+                             the resource is gone or the scan is wrong — nothing is bound and \
+                             the row stays open",
+                            epoch.0
+                        )),
+                    }
+                }
+                Backend::Tmux => {
+                    if !present(&source) {
+                        return roll_back(
+                            &mut registry,
+                            format!(
+                                "session {source} no longer answers under epoch {}; there is \
+                                 nothing to bind",
+                                epoch.0
+                            ),
+                        );
+                    }
+                    let Some(markers) = backend.markers else {
+                        return failed(format!(
+                            "session {source} answers under epoch {}, but this endpoint offers \
+                             no marker reader to tell whether the rebind's stamp landed; the \
+                             row stays open",
+                            epoch.0
+                        ));
+                    };
+                    let readback = match markers.read_markers(backend.scope, &source) {
+                        Ok(readback) => readback,
+                        Err(e) => {
+                            return failed(format!(
+                                "session {source} answers but its markers could not be read \
+                                 ({e:?}); the row stays open"
+                            ));
+                        }
+                    };
+                    let ours = readback.host_uid.as_deref() == Some(owner.0.to_string().as_str())
+                        && readback.registry_uid.as_deref()
+                            == Some(identity.registry_uid.0.to_string().as_str())
+                        && readback.space_uid.as_deref()
+                            == Some(space.space_uid.0.to_string().as_str());
+                    if ours {
+                        commit(
+                            &mut registry,
+                            source.clone(),
+                            NativeKind::TmuxSessionId,
+                            format!(
+                                "session {source} answers under epoch {} and already wears \
+                                 this Space's @dmux_* markers, so the stamp had landed and the \
+                                 registry half is completed",
+                                epoch.0
+                            ),
+                        )
+                    } else if readback.space_uid.is_none() {
+                        roll_back(
+                            &mut registry,
+                            format!(
+                                "session {source} answers under epoch {} but carries no dmux \
+                                 identity: the stamp never landed",
+                                epoch.0
+                            ),
+                        )
+                    } else {
+                        failed(format!(
+                            "session {source} carries markers for another identity (host \
+                             {:?}, registry {:?}, space {:?}) — conflict; nothing is bound",
+                            readback.host_uid, readback.registry_uid, readback.space_uid
+                        ))
+                    }
+                }
+            }
+        }
+
         // §10.3 reconciles an adoption by source token, destination key and
         // epoch — so the destination key has to be *looked for*, per backend.
         // A reservation that never reached `finalize_adopt` has no binding,
@@ -4716,15 +4950,21 @@ pub fn reconcile_apply(
                              yourself, then re-run `dmux repair reconcile`"
                         ));
                     };
-                    // The source token the reverse CAS should aim at is not
-                    // journaled (§10.3 asks for it; `reserve_space_kind`
-                    // records only name/instance), so the reservation's own
-                    // logical name is the closest recorded truth: identical to
-                    // the source workspace unless the operator passed
-                    // `--name`. Merging into a live workspace of that name
-                    // would be a mutation nobody asked for, so a collision
-                    // fails closed instead.
-                    let restored_to = space.logical_name.clone();
+                    // The reverse CAS aims at the source token the row
+                    // journaled (schema v5, §10.3). A row journaled before v5
+                    // carries none; the reservation's logical name is then the
+                    // closest recorded truth — identical to the source unless
+                    // the operator passed `--name` — and the detail says so.
+                    // Merging into a live workspace of that name would be a
+                    // mutation nobody asked for, so a collision fails closed.
+                    let (restored_to, provenance) = match row.source_native_token.clone() {
+                        Some(source) => (source, "the journaled source token"),
+                        None => (
+                            space.logical_name.clone(),
+                            "the reservation's logical name — the row predates the journaled \
+                             source token",
+                        ),
+                    };
                     if rows.iter().any(|r| r.native_token == restored_to) {
                         return failed(format!(
                             "workspace {opaque_key:?} still wears this reservation's opaque key, \
@@ -4755,8 +4995,7 @@ pub fn reconcile_apply(
                             format!(
                                 "unmanaged: the {} had renamed a workspace to {opaque_key:?}, \
                                  and the compensating atomic rename put it back to \
-                                 {restored_to:?} (the reservation's logical name — the source \
-                                 token itself is not journaled)",
+                                 {restored_to:?} ({provenance})",
                                 row.kind.as_str()
                             ),
                         ),
@@ -4814,18 +5053,20 @@ pub fn reconcile_apply(
                 // named way out the name stays unusable by `new`, `rm`,
                 // `rename` and `adopt` alike, which is the damage this verb
                 // exists to end. §10.3's own remedy for asserting identity
-                // over an unmanaged resource is `repair rebind`, which is not
-                // implemented yet, so the refusal also names the route that
-                // works today and preserves the orphan: move it off the
-                // reserved key, which turns this row into the zero-match case
-                // above, then re-adopt it deliberately.
+                // over an unmanaged resource is `dmux repair rebind` (ADR 012
+                // WS-D.1), which binds an absent ACTIVE Space — a reservation
+                // is not one — so the refusal names the route that frees the
+                // name and preserves the orphan: move it off the reserved
+                // key, which turns this row into the zero-match case above,
+                // then re-adopt it deliberately.
                 CreateDecision::RebindAndFinalize => failed(format!(
                     "{evidence}; repair will not bind a native resource it cannot prove dmux \
-                     created — that assertion is `dmux repair rebind` (plan §10.3), which is \
-                     not implemented yet. Until it is, free the name {name:?} without losing \
-                     the resource: rename it off the reserved key ({hint}), re-run \
-                     `dmux repair reconcile` (the keyed lookup then finds nothing and releases \
-                     the reservation), then `dmux adopt` it back under your own confirmation",
+                     created — that assertion is `dmux repair rebind` (plan §10.3), which \
+                     rebinds an active Space, not a reservation. Free the name {name:?} \
+                     without losing the resource: rename it off the reserved key ({hint}), \
+                     re-run `dmux repair reconcile` (the keyed lookup then finds nothing and \
+                     releases the reservation), then `dmux adopt` it back under your own \
+                     confirmation",
                     name = space.logical_name,
                     hint = orphan_rename_hint(
                         target.backend,

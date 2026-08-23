@@ -214,6 +214,80 @@ fn tmux_adoption_lands_active_unstamped_and_says_so() {
     );
 }
 
+/// ADR 012 WS-D.2: the journal row an adoption opens records the exact
+/// native token it was asked for — with or without `--name` — so a crash
+/// after the native step is reconciled against the source, never against
+/// the operator's chosen name.
+#[test]
+fn the_adoption_journal_records_the_source_token_beside_the_chosen_name() {
+    let scratch = Scratch::new();
+    let tmux = TmuxScratch::start("source");
+    tmux.tmux(&["new-session", "-d", "-s", "legacy"]);
+    tmux.tmux(&["new-session", "-d", "-s", "plain"]);
+    bootstrapped(&scratch, &tmux);
+    let legacy = tmux.session_id("legacy");
+    let plain = tmux.session_id("plain");
+
+    let named_out = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        None,
+        named(native_ref(Backend::Tmux, &legacy), "other"),
+    );
+    assert_eq!(
+        named_out.status,
+        ExitStatus::Success,
+        "{}",
+        named_out.stderr
+    );
+    let plain_out = adopt_in(
+        &scratch.env(),
+        never_wez(),
+        None,
+        args(native_ref(Backend::Tmux, &plain)),
+    );
+    assert_eq!(
+        plain_out.status,
+        ExitStatus::Success,
+        "{}",
+        plain_out.stderr
+    );
+
+    let registry = scratch.registry();
+    for (name, session) in [("other", &legacy), ("plain", &plain)] {
+        let space = registry
+            .spaces()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.logical_name == name)
+            .unwrap_or_else(|| panic!("no Space {name}"));
+        let rows: Vec<(String, String, Option<String>)> = {
+            let mut stmt = registry
+                .raw_connection()
+                .prepare(
+                    "SELECT kind, operation_state, source_native_token FROM operations \
+                     WHERE space_uid = ?1",
+                )
+                .unwrap();
+            stmt.query_map([space.space_uid.0.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+        };
+        assert_eq!(
+            rows,
+            vec![(
+                "adopt".to_string(),
+                "completed".to_string(),
+                Some(session.clone())
+            )],
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn a_second_adopt_of_the_same_native_ref_is_refused() {
     let scratch = Scratch::new();
