@@ -808,4 +808,25 @@ Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `r
   `legacy_con_switches_gui` field. Follow-ups: a machine `durable` field in doctor's `wez_first`
   (the tool's verdict currently matches prose), a doctor line for `DMUX_LEGACY_POLICY`, a
   `set-phase` verb for `migrated`/`flipped`, and the rollout section of docs/scripts.md.
+- **D3 (WS-D.3, E.3 row 12, the connect-side dev/ino reader) — closed 2026-08-23** (`069a9cc`…`26a7721`
+  → `ac3fa86`…`40090f4`; wrapper 1060/0/1 in its worktree). `resolve::resolve_space_ref` is the one
+  §6.2 resolver: host defaulting, the `--host`-versus-encoded-host contradiction, the `--name`
+  escape and the owner lookup live in `resolve.rs`; `space_cli`, `rm`/`rename`, `con`'s preflight and
+  request scope, and both GUI ref sites call it; the fixture-only `"a"` alias is gone; the truth
+  table drives the production entry points and case 44 is asserted once. `BindingRow.server_epoch`
+  is a field (O's follow-up). `present_cold_production` and the `cold_present_explicit` body only it
+  reached are deleted with the no-caller proof. Ratified deviations: (1) the tmux witness comparison
+  at the connect client-context reader runs BEFORE `verify_epoch` so a replaced server is named
+  `stale_incarnation` rather than `wrong_backend_instance`; (2) **a pre-existing defect fixed on the
+  way**: `#{server_pid}` is not a tmux format — `production_connect_client_context` had refused every
+  real tmux client with "TMUX selects a different server" (reproduced by hand on tmux 3.7b); it now
+  uses `#{pid}` like the adapter's `IDENTITY_FORMAT`, so the gated `con` from inside a managed tmux
+  pane works for the first time and is now tested end to end; (3) per §6.2, three site behaviours
+  changed where the site was the defect: `rm`/`rename`'s `--host` contradiction is `invalid_ref`
+  (exit 2 either way, as `con` already said), `space_cli` accepts `a:`-qualified and local UID/URI
+  refs and answers `space_deleted` for a retired number, and the GUI's alias/label errors are the
+  host table's. Two manifest entries recorded. Follow-ups: the three remote-side dev/ino readers
+  (`remote/agent.rs:~820`, `remote/attach.rs:347/643/1666`) can call
+  `connect_cli::require_published_tmux_incarnation` before their `verify_epoch`; two more alias
+  resolvers (`ls_cli.rs:408`, `remote/hosts.rs:56`) could call `resolve_enrolled_host`.
 

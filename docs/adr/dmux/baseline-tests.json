@@ -598,6 +598,23 @@
     "unit::gui::tests::strict_request_unions_reject_unknown_stale_and_unbound_fields"
    ],
    "recorded": "2026-08-23"
+  },
+  {
+   "id": "unit::rm_cli::tests::a_host_flag_contradicting_the_ref_owner_is_a_usage_error",
+   "rationale": "rm_cli::reconcile_owner is deleted: the §6.2 host-defaulting order and the --host-vs-encoded contradiction now live in resolve::scope_space_ref, which refuses the contradiction as invalid_ref (the code con already used; exit 2 either way) rather than usage (ADR 012 WS-D.3, commit 45d1458).",
+   "replacement_tests": [
+    "resolver_truth_table::host_scoping_follows_the_grammar_defaulting_order"
+   ],
+   "recorded": "2026-08-23"
+  },
+  {
+   "id": "resolver_truth_table::ref_resolution_cases (assertion: b:1 answers UnsupportedHostScope)",
+   "rationale": "Same test id, changed assertion: the fixture-only resolver accepted exactly the literal alias \"a\"; `b:1` is now scoped to the enrolled owner the host table names, and an unknown token is that table's error (ADR 012 WS-D.3, commit 20fc9dd).",
+   "replacement_tests": [
+    "resolver_truth_table::host_scoping_follows_the_grammar_defaulting_order",
+    "resolver_truth_table::enrolled_host_resolution_rules"
+   ],
+   "recorded": "2026-08-23"
   }
  ]
 }

@@ -586,9 +586,13 @@
     "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain",
     "operations_flow::retire_incarnation_clears_exactly_the_named_epoch_and_guards_a_live_pid",
     "remote_protocol::mutations::spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_complete",
-    "unit::gui_cli::tests::presentation_routes_must_name_the_validated_authority"
+    "unit::gui_cli::tests::presentation_routes_must_name_the_validated_authority",
+    "connect_client_context::a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_by_the_client_context_reader",
+    "connect_client_context::an_unwitnessed_row_still_refuses_a_replaced_server_by_identity"
    ],
-   "implemented_at": [],
+   "implemented_at": [
+    "src/connect_cli.rs:1609 require_published_tmux_incarnation"
+   ],
    "live_evidence": [],
    "live_evidence_required": [],
    "open_items": [
@@ -972,19 +976,21 @@
     "space_rm_cli::the_prompt_names_the_space_before_it_asks",
     "space_rm_cli::row_refuses_an_unpublished_instance_instead_of_advertising_its_sessions_as_adoptable",
     "gated_dispatch::rm_row_reaches_the_gated_confirmation_and_is_refused_under_legacy",
-    "gated_dispatch::ls_tree_expands_live_children_under_the_gate_and_is_refused_under_legacy"
+    "gated_dispatch::ls_tree_expands_live_children_under_the_gate_and_is_refused_under_legacy",
+    "resolver_truth_table::a_bare_number_is_a_space_no_never_a_listing_index",
+    "resolver_truth_table::the_exact_name_escape_is_literal_and_owner_local"
    ],
    "implemented_at": [
     "src/rm_cli.rs:816 resolve_row",
     "src/rm_cli.rs:1292 confirm_removals",
-    "src/attach.rs:228 note_index_target"
+    "src/attach.rs:228 note_index_target",
+    "src/resolve.rs:536 resolve_locator",
+    "src/resolve.rs:460 scope_space_ref"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
-   "open_items": [
-    "ADR 012 WS-D.3: assert once through resolve::resolve_space_ref, not five times"
-   ],
-   "status": "blocked"
+   "open_items": [],
+   "status": "mapped"
   },
   "45": {
    "title": "Existing resources migrate once through explicit adoption; multi-window Wez normalized or quarantined; wrappers expand to the same plans",

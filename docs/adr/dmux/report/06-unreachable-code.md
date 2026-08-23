@@ -26,3 +26,13 @@ defaults *are* live, because tmux does not override them. Defensible scaffolding
 completeness. And `is_eligible` (`remote/wez_compat.rs:617`) is tautological: the second conjunct
 can never be false given the constructors at `:649-653` and `:714-718`, and it is asserted green at
 `tests/remote_protocol/capability_gate.rs:288`.
+
+---
+
+**Dispositions (ADR 012, 2026-08-23):** rows 6 (wired: `resolve_space_ref` is the one resolver,
+WS-D.3), 7 (deleted preamble, WS-E.3), 8 (four APIs retired with the decision recorded in
+`registry/recovery.rs`), 9 (trait removals — T, in flight), 10, 13, 14 (deleted), 11 (the freshness
+claim was refuted; dead helper deleted), 12 (deleted), 15 (production adopts the stricter check;
+helpers unified or deleted; rotation success path tested), 16 (kept for P12). Manifest entries in
+`docs/adr/dmux/baseline-tests.json`.
+
