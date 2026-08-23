@@ -5352,23 +5352,21 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::backend::{
-        Capabilities, NativeBinding, NativeGroupRow, NativeInventory, NativeSpaceRow,
-        NativeSplitRow, PresentationTarget, ProviderError, ProviderResult, SplitSpec,
+        NativeBinding, NativeInventory, NativeSpaceRow, NativeSplitRow, ProviderError,
+        ProviderResult, SplitSpec,
     };
 
     use super::*;
 
     struct CreateGateProvider {
-        backend: Backend,
         outcome: InventoryOutcome,
         scans: AtomicUsize,
         creates: AtomicUsize,
     }
 
     impl CreateGateProvider {
-        fn new(backend: Backend, outcome: InventoryOutcome) -> Self {
+        fn new(outcome: InventoryOutcome) -> Self {
             Self {
-                backend,
                 outcome,
                 scans: AtomicUsize::new(0),
                 creates: AtomicUsize::new(0),
@@ -5377,14 +5375,6 @@ mod tests {
     }
 
     impl Provider for CreateGateProvider {
-        fn capabilities(&self) -> Capabilities {
-            Capabilities {
-                backend: self.backend,
-                cas_rename: false,
-                probed: Vec::new(),
-            }
-        }
-
         fn inventory(&self, _scope: &InventoryScope) -> InventoryOutcome {
             self.scans.fetch_add(1, Ordering::SeqCst);
             self.outcome.clone()
@@ -5401,17 +5391,6 @@ mod tests {
             })
         }
 
-        fn prepare_presentation(
-            &self,
-            _scope: &InventoryScope,
-            _binding: &NativeBinding,
-            _child: Option<&ProviderHandle>,
-        ) -> ProviderResult<PresentationTarget> {
-            Err(ProviderError::NativeFailure {
-                detail: "unused".into(),
-            })
-        }
-
         fn rename(
             &self,
             _scope: &InventoryScope,
@@ -5424,16 +5403,6 @@ mod tests {
         }
 
         fn remove(&self, _scope: &InventoryScope, _binding: &NativeBinding) -> ProviderResult<()> {
-            Err(ProviderError::NativeFailure {
-                detail: "unused".into(),
-            })
-        }
-
-        fn group_list(
-            &self,
-            _scope: &InventoryScope,
-            _binding: &NativeBinding,
-        ) -> ProviderResult<Vec<NativeGroupRow>> {
             Err(ProviderError::NativeFailure {
                 detail: "unused".into(),
             })
@@ -5583,8 +5552,8 @@ mod tests {
             .unwrap();
         drop(registry);
 
-        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
-        let wez = CreateGateProvider::new(Backend::Wez, empty_inventory(epoch));
+        let tmux = CreateGateProvider::new(empty_inventory(epoch));
+        let wez = CreateGateProvider::new(empty_inventory(epoch));
         let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
         let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let error = create_space_owner_fenced(
@@ -5651,19 +5620,16 @@ mod tests {
             .unwrap();
         drop(registry);
 
-        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
-        let wez = CreateGateProvider::new(
-            Backend::Wez,
-            InventoryOutcome::Complete(NativeInventory {
-                server_epoch: Some(epoch),
-                rows: vec![NativeSpaceRow {
-                    native_token: "managed-opposite".into(),
-                    native_name: "collision".into(),
-                    groups: Vec::new(),
-                    multi_window: false,
-                }],
-            }),
-        );
+        let tmux = CreateGateProvider::new(empty_inventory(epoch));
+        let wez = CreateGateProvider::new(InventoryOutcome::Complete(NativeInventory {
+            server_epoch: Some(epoch),
+            rows: vec![NativeSpaceRow {
+                native_token: "managed-opposite".into(),
+                native_name: "collision".into(),
+                groups: Vec::new(),
+                multi_window: false,
+            }],
+        }));
         let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
         let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let lookup = lookup_new_owner_fenced(
@@ -5692,18 +5658,15 @@ mod tests {
         );
         assert_eq!(lookup.tmux, ClassSummary::NoMatch);
 
-        let unmanaged_tmux = CreateGateProvider::new(
-            Backend::Tmux,
-            InventoryOutcome::Complete(NativeInventory {
-                server_epoch: Some(epoch),
-                rows: vec![NativeSpaceRow {
-                    native_token: "external".into(),
-                    native_name: "collision".into(),
-                    groups: Vec::new(),
-                    multi_window: false,
-                }],
-            }),
-        );
+        let unmanaged_tmux = CreateGateProvider::new(InventoryOutcome::Complete(NativeInventory {
+            server_epoch: Some(epoch),
+            rows: vec![NativeSpaceRow {
+                native_token: "external".into(),
+                native_name: "collision".into(),
+                groups: Vec::new(),
+                multi_window: false,
+            }],
+        }));
         let lookup = lookup_new_owner_fenced(
             &env,
             Some(OwnerCreateTarget {
@@ -5763,19 +5726,16 @@ mod tests {
             )
             .unwrap();
         drop(registry);
-        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
-        let wez = CreateGateProvider::new(
-            Backend::Wez,
-            InventoryOutcome::Complete(NativeInventory {
-                server_epoch: Some(epoch),
-                rows: vec![NativeSpaceRow {
-                    native_token: "managed-opposite".into(),
-                    native_name: "collision".into(),
-                    groups: Vec::new(),
-                    multi_window: false,
-                }],
-            }),
-        );
+        let tmux = CreateGateProvider::new(empty_inventory(epoch));
+        let wez = CreateGateProvider::new(InventoryOutcome::Complete(NativeInventory {
+            server_epoch: Some(epoch),
+            rows: vec![NativeSpaceRow {
+                native_token: "managed-opposite".into(),
+                native_name: "collision".into(),
+                groups: Vec::new(),
+                multi_window: false,
+            }],
+        }));
         let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
         let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
         let refused_request = gate_request("collision");
@@ -5885,8 +5845,8 @@ mod tests {
                 .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
                 .unwrap();
             drop(registry);
-            let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
-            let wez = CreateGateProvider::new(Backend::Wez, opposite_outcome);
+            let tmux = CreateGateProvider::new(empty_inventory(epoch));
+            let wez = CreateGateProvider::new(opposite_outcome);
             let tmux_scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
             let wez_scope = InventoryScope::managed(Backend::Wez, "/tmp/wez-gate.sock", epoch);
             let error = create_space_owner_fenced(
@@ -5944,7 +5904,7 @@ mod tests {
             .publish_backend_server(wez_instance, epoch, Some(4243), Some("start"), None, None)
             .unwrap();
         drop(registry);
-        let tmux = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let tmux = CreateGateProvider::new(empty_inventory(epoch));
         let scope = InventoryScope::managed(Backend::Tmux, "tmux-gate", epoch);
         let error = create_space_owner_fenced(
             &env,
@@ -6168,7 +6128,7 @@ mod tests {
         let (_instance, reservation, key) = stranded_wez_adoption(&env);
 
         // The CAS had landed: the workspace is listed under the opaque key.
-        let provider = CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &[&key]));
+        let provider = CreateGateProvider::new(wez_inventory(epoch, &[&key]));
         let scope = wez_scope(epoch);
         let restore = RestoreSpy::renaming(11);
         let targets = reconcile_scan(&env).unwrap();
@@ -6205,7 +6165,7 @@ mod tests {
         let epoch = ServerEpoch(Uuid::from_u128(97));
         let (_instance, reservation, key) = stranded_wez_adoption(&env);
 
-        let provider = CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &[&key]));
+        let provider = CreateGateProvider::new(wez_inventory(epoch, &[&key]));
         let scope = wez_scope(epoch);
         let restore = RestoreSpy::refusing(
             11,
@@ -6262,7 +6222,7 @@ mod tests {
         let epoch = ServerEpoch(Uuid::from_u128(98));
         let (_instance, reservation, _key) = stranded_wez_adoption(&env);
 
-        let provider = CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &["unrelated"]));
+        let provider = CreateGateProvider::new(wez_inventory(epoch, &["unrelated"]));
         let scope = wez_scope(epoch);
         let restore = RestoreSpy::renaming(11);
         let targets = reconcile_scan(&env).unwrap();
@@ -6293,8 +6253,7 @@ mod tests {
         let epoch = ServerEpoch(Uuid::from_u128(99));
         let (_instance, reservation, key) = stranded_wez_adoption(&env);
 
-        let provider =
-            CreateGateProvider::new(Backend::Wez, wez_inventory(epoch, &[&key, "legacy"]));
+        let provider = CreateGateProvider::new(wez_inventory(epoch, &[&key, "legacy"]));
         let scope = wez_scope(epoch);
         let restore = RestoreSpy::renaming(11);
         let targets = reconcile_scan(&env).unwrap();
@@ -6440,7 +6399,7 @@ mod tests {
         );
         drop(registry);
 
-        let provider = CreateGateProvider::new(Backend::Tmux, empty_inventory(epoch));
+        let provider = CreateGateProvider::new(empty_inventory(epoch));
         let scope = tmux_scope(epoch);
         let freed = reconcile_apply(
             &env,
@@ -6470,8 +6429,7 @@ mod tests {
             .unwrap();
         drop(registry);
 
-        let provider =
-            CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost", "other"]));
+        let provider = CreateGateProvider::new(tmux_inventory(epoch, &["ghost", "other"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
         let result = reconcile_apply(
@@ -6526,7 +6484,7 @@ mod tests {
             &env,
             &targets[0],
             Some(ReconcileBackend::scan_only(
-                &CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost"])),
+                &CreateGateProvider::new(tmux_inventory(epoch, &["ghost"])),
                 &scope,
             )),
         );
@@ -6538,8 +6496,7 @@ mod tests {
 
         // The operator renames the orphan out of the way, exactly as the
         // refusal spelled it, and re-runs the verb.
-        let renamed =
-            CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["ghost.orphan"]));
+        let renamed = CreateGateProvider::new(tmux_inventory(epoch, &["ghost.orphan"]));
         let targets = reconcile_scan(&env).unwrap();
         let freed = reconcile_apply(
             &env,
@@ -6601,7 +6558,7 @@ mod tests {
         let epoch = ServerEpoch(Uuid::from_u128(93));
         let (space_uid, operation_uid) = stranded_rename(&env, epoch);
 
-        let provider = CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["before"]));
+        let provider = CreateGateProvider::new(tmux_inventory(epoch, &["before"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
         assert_eq!(targets[0].duty, "rename_observe_states");
@@ -6630,7 +6587,7 @@ mod tests {
         let epoch = ServerEpoch(Uuid::from_u128(94));
         let (space_uid, operation_uid) = stranded_rename(&env, epoch);
 
-        let provider = CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["after"]));
+        let provider = CreateGateProvider::new(tmux_inventory(epoch, &["after"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
         let result = reconcile_apply(
@@ -6660,8 +6617,7 @@ mod tests {
 
         // Somebody else created `after` while we were dead: committing would
         // silently claim their session (plan §10.2).
-        let provider =
-            CreateGateProvider::new(Backend::Tmux, tmux_inventory(epoch, &["before", "after"]));
+        let provider = CreateGateProvider::new(tmux_inventory(epoch, &["before", "after"]));
         let scope = tmux_scope(epoch);
         let targets = reconcile_scan(&env).unwrap();
         let result = reconcile_apply(

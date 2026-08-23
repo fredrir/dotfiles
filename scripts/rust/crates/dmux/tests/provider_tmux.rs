@@ -13,8 +13,8 @@ use dmux::backend::tmux::{
     TmuxServerIdentity,
 };
 use dmux::backend::{
-    CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, PresentationTarget, Provider,
-    ProviderError, SplitDirection, SplitSpec,
+    CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, Provider, ProviderError,
+    SplitDirection, SplitSpec,
 };
 use dmux::model::{Backend, ProviderHandle, ServerEpoch};
 use uuid::Uuid;
@@ -472,8 +472,9 @@ fn child_create_verifies_epoch_and_rejects_mismatch() {
     assert_ne!(split, binding.root_split);
 
     let groups = provider
-        .group_list(&srv.scope(Some(epoch)), &binding)
-        .expect("group_list");
+        .inspect(&srv.scope(Some(epoch)), &binding)
+        .expect("inspect")
+        .groups;
     let handles: Vec<&ProviderHandle> = groups.iter().map(|g| &g.handle).collect();
     assert!(handles.contains(&&binding.root_group));
     assert!(handles.contains(&&group));
@@ -484,8 +485,10 @@ fn child_create_verifies_epoch_and_rejects_mismatch() {
     assert_eq!(split_handles, vec![&binding.root_split, &split]);
 }
 
-/// ADR 012 WS-A.8 / WS-E.2 (review finding #5; report 08 §7): the five
-/// `binding_epoch`-fenced verbs the review could prove only by call chain,
+/// ADR 012 WS-A.8 / WS-E.2 (review finding #5; report 08 §7): the
+/// `binding_epoch`-fenced verbs the review could prove only by call chain
+/// (`rename`, `remove`, `inspect`; `prepare_presentation` and `group_list`
+/// were driven here too until WS-E.3 row 9 retired them from the trait),
 /// driven against a real server that was RESTARTED behind the binding. The
 /// binding was minted under E1; the namespace is then served by a fresh
 /// incarnation at E2 that recycles the same session name and — ids restart
@@ -538,18 +541,8 @@ fn binding_verbs_refuse_a_binding_from_a_previous_incarnation_on_a_real_server()
 
     let drive = |scope: &InventoryScope| -> Vec<(&'static str, Result<(), ProviderError>)> {
         vec![
-            (
-                "prepare_presentation",
-                provider
-                    .prepare_presentation(scope, &binding, None)
-                    .map(|_| ()),
-            ),
             ("rename", provider.rename(scope, &binding, "renamed")),
             ("remove", provider.remove(scope, &binding)),
-            (
-                "group_list",
-                provider.group_list(scope, &binding).map(|_| ()),
-            ),
             ("inspect", provider.inspect(scope, &binding).map(|_| ())),
         ]
     };
@@ -756,7 +749,7 @@ fn markers_survive_external_rename() {
 }
 
 #[test]
-fn provider_rename_is_verified_and_presentation_argv_is_exact() {
+fn provider_rename_is_verified_by_inspect() {
     if !tmux_available() {
         eprintln!("skipping: tmux not installed");
         return;
@@ -785,56 +778,6 @@ fn provider_rename_is_verified_and_presentation_argv_is_exact() {
         .expect("inspect");
     assert_eq!(row.native_name, "after rename");
     assert_eq!(row.native_token, binding.native_token);
-
-    let target = provider
-        .prepare_presentation(&srv.scope(Some(epoch)), &binding, Some(&binding.root_split))
-        .expect("prepare_presentation");
-    assert_eq!(
-        target,
-        PresentationTarget::Tmux {
-            exact_argv: vec![
-                "tmux".to_string(),
-                "-L".to_string(),
-                srv.ns.clone(),
-                "attach".to_string(),
-                "-t".to_string(),
-                binding.native_token.clone(),
-            ],
-        }
-    );
-}
-
-#[test]
-fn capabilities_are_probed_by_running_against_the_real_server() {
-    if !tmux_available() {
-        eprintln!("skipping: tmux not installed");
-        return;
-    }
-    let srv = ScratchServer::new();
-    srv.start_with_holder();
-
-    let caps = srv.provider().capabilities();
-    assert_eq!(caps.backend, Backend::Tmux);
-    assert!(!caps.cas_rename, "tmux never advertises CAS rename");
-    for probe in [
-        "exact_id_targeting",
-        "session_options",
-        "allow_passthrough_all",
-        "detach_client",
-    ] {
-        assert!(
-            caps.probed.iter().any(|p| p == probe),
-            "missing probed capability {probe}; got {:?}",
-            caps.probed
-        );
-    }
-
-    // The probe session cleaned up after itself.
-    let listing = srv.tmux_ok(&["list-sessions", "-F", "#{session_name}"]);
-    assert!(
-        !listing.contains("dmux-probe-"),
-        "probe session must be removed: {listing}"
-    );
 }
 
 // -- P5 epoch bootstrap primitives (plan §11.2) ------------------------------
@@ -1421,7 +1364,7 @@ fn split_new_targets_the_exact_pane_and_reads_window_numbers_as_panes() {
     provider
         .split_remove(&scope, &ProviderHandle::Tx(w))
         .expect("kill number-twin pane");
-    let groups = provider.group_list(&scope, &binding).expect("group_list");
+    let groups = provider.inspect(&scope, &binding).expect("inspect").groups;
     assert!(
         groups.iter().any(|g| g.handle == group_w),
         "window @{w} must still be alive"
@@ -1524,9 +1467,9 @@ fn stale_child_handles_fail_typed_not_found() {
     // A session killed behind dmux's back: session-scoped child operations
     // are NotFound too.
     srv.tmux_ok(&["kill-session", "-t", &binding.native_token]);
-    match provider.group_list(&scope, &binding) {
+    match provider.inspect(&scope, &binding) {
         Err(ProviderError::NotFound { .. }) => {}
-        other => panic!("group_list on dead session: expected not_found, got {other:?}"),
+        other => panic!("inspect on dead session: expected not_found, got {other:?}"),
     }
     match provider.group_new(
         &scope,
@@ -1628,12 +1571,12 @@ fn markers_and_child_handles_survive_move_window_and_rename() {
 
     // PINNED: `move-window` preserves the window id `@N` and its pane ids;
     // group_list/split_list reflect the post-move parentage exactly.
-    let src_groups = provider.group_list(&scope, &src).expect("src group_list");
+    let src_groups = provider.inspect(&scope, &src).expect("src inspect").groups;
     assert!(
         !src_groups.iter().any(|g| g.handle == moved),
         "moved window must leave the source session"
     );
-    let dst_groups = provider.group_list(&scope, &dst).expect("dst group_list");
+    let dst_groups = provider.inspect(&scope, &dst).expect("dst inspect").groups;
     let moved_row = dst_groups
         .iter()
         .find(|g| g.handle == moved)
@@ -1658,14 +1601,12 @@ fn markers_and_child_handles_survive_move_window_and_rename() {
         renamed_back.space_uid.as_deref(),
         Some(dst_markers.space_uid.as_str())
     );
-    let renamed_groups = provider
-        .group_list(&scope, &dst)
-        .expect("group_list after rename");
-    assert!(renamed_groups.iter().any(|g| g.handle == moved));
     let row = provider
         .inspect(&scope, &dst)
         .expect("inspect after rename");
+    assert!(row.groups.iter().any(|g| g.handle == moved));
     assert_eq!(row.native_name, "renamed dst");
+
     assert_eq!(row.native_token, dst.native_token);
     assert!(
         provider

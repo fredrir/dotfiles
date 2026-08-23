@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Backend, ProviderHandle, ServerEpoch};
+use crate::model::{ProviderHandle, ServerEpoch};
 pub mod scope;
 pub mod tmux;
 pub mod wez;
@@ -223,36 +223,6 @@ pub struct NativeBinding {
     pub root_split: ProviderHandle,
 }
 
-/// What "connect" needs, per backend. A tmux target becomes a locally
-/// validated attach/switch or the dedicated `_attach` streaming channel
-/// (plan §12.1); it is never sent over the bounded JSON mutation RPC. A Wez
-/// target is consumed by GUI orchestration (bridge/`--launch-gui`), never
-/// executed by the owner provider.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PresentationTarget {
-    Wez {
-        /// Stable native domain name from the route registry (plan §12.3).
-        domain: String,
-        opaque_key: String,
-        child: Option<(crate::model::ChildKind, ProviderHandle)>,
-    },
-    Tmux {
-        /// Exact owner-generated argv; the client validates and execs it —
-        /// it never builds or interpolates native target strings itself.
-        exact_argv: Vec<String>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Capabilities {
-    pub backend: Backend,
-    /// ADR 006 fork primitive availability (Wez adoption requires it).
-    pub cas_rename: bool,
-    /// tmux: exact IDs/options, client detach, passthrough all probed
-    /// (plan §17), not inferred from a version string.
-    pub probed: Vec<String>,
-}
-
 /// Typed provider-level failures. Mapped to `crate::error::ErrorCode` above
 /// this layer; providers never render user output.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -291,9 +261,15 @@ pub type ProviderResult<T> = Result<T, ProviderError>;
 
 /// The provider contract (plan §9.3). Object-safe: orchestration holds
 /// `Box<dyn Provider>` per backend instance.
+///
+/// Presentation and capability probing are not provider operations (ADR
+/// 012 WS-E.3 row 9): the tmux attach/switch argv is built by the connect
+/// path (`connect_cli`, `remote::attach`), Wez presentation is GUI
+/// orchestration over the ADR 003 bridge, the one live capability probe is
+/// `WezProvider::probe_cas_rename`, and a Space's Groups are read from the
+/// complete `inventory` (`operations::hierarchy`) — so `prepare_presentation`,
+/// `capabilities` and `group_list` have no place here.
 pub trait Provider {
-    fn capabilities(&self) -> Capabilities;
-
     /// Inventory under `scope`. A managed scope is verified against the live
     /// server and a mismatch is the `backend_epoch_changed` fault; an
     /// unmanaged scope may only discover a server nobody has published — a
@@ -305,15 +281,6 @@ pub trait Provider {
     /// one Split, bootstrap helper running). Never retried blindly: replay
     /// is journal-driven with a complete keyed lookup first (plan §10.2).
     fn create(&self, scope: &InventoryScope, spec: &CreateSpec) -> ProviderResult<NativeBinding>;
-
-    /// Validate the binding (and optional child) and return what the
-    /// presentation layer needs. Read-only; never creates.
-    fn prepare_presentation(
-        &self,
-        scope: &InventoryScope,
-        binding: &NativeBinding,
-        child: Option<&ProviderHandle>,
-    ) -> ProviderResult<PresentationTarget>;
 
     /// Native rename where the backend has one (tmux session name). A Wez
     /// logical rename is registry-only (plan §2.5) and never reaches here;
@@ -330,11 +297,6 @@ pub trait Provider {
     /// error, never a silent partial success.
     fn remove(&self, scope: &InventoryScope, binding: &NativeBinding) -> ProviderResult<()>;
 
-    fn group_list(
-        &self,
-        scope: &InventoryScope,
-        binding: &NativeBinding,
-    ) -> ProviderResult<Vec<NativeGroupRow>>;
     fn group_new(
         &self,
         scope: &InventoryScope,

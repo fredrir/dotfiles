@@ -541,11 +541,12 @@ mod scripted {
     use std::cell::RefCell;
 
     use dmux::backend::{
-        Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
-        NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizePlan, PresentationTarget,
-        Provider, ProviderError, ProviderResult, SplitSpec,
+        CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
+        NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizePlan, Provider, ProviderError,
+        ProviderResult, SplitSpec,
     };
-    use dmux::model::{Backend, ProviderHandle, ServerEpoch};
+
+    use dmux::model::{ProviderHandle, ServerEpoch};
 
     /// One scripted backend. `inventory` answers `Complete` under `epoch`
     /// with `rows`; every mutation records its call and the binding epoch it
@@ -555,7 +556,6 @@ mod scripted {
     /// unpinned scope — the refusal `operations::group_new` used to reach
     /// only after its mutation had landed (ADR 012 §3.4).
     pub struct Script {
-        pub backend: Backend,
         pub epoch: ServerEpoch,
         pub rows: Vec<NativeSpaceRow>,
         pub calls: RefCell<Vec<&'static str>>,
@@ -563,9 +563,8 @@ mod scripted {
     }
 
     impl Script {
-        pub fn new(backend: Backend, epoch: ServerEpoch, rows: Vec<NativeSpaceRow>) -> Script {
+        pub fn new(epoch: ServerEpoch, rows: Vec<NativeSpaceRow>) -> Script {
             Script {
-                backend,
                 epoch,
                 rows,
                 calls: RefCell::new(Vec::new()),
@@ -614,14 +613,6 @@ mod scripted {
     }
 
     impl Provider for Script {
-        fn capabilities(&self) -> Capabilities {
-            Capabilities {
-                backend: self.backend,
-                cas_rename: false,
-                probed: Vec::new(),
-            }
-        }
-
         fn inventory(&self, _scope: &InventoryScope) -> InventoryOutcome {
             self.note("inventory");
             InventoryOutcome::Complete(NativeInventory {
@@ -639,16 +630,6 @@ mod scripted {
             Err(self.refuse("create"))
         }
 
-        fn prepare_presentation(
-            &self,
-            _scope: &InventoryScope,
-            _binding: &NativeBinding,
-            _child: Option<&ProviderHandle>,
-        ) -> ProviderResult<PresentationTarget> {
-            self.note("prepare_presentation");
-            Err(self.refuse("prepare_presentation"))
-        }
-
         fn rename(
             &self,
             _scope: &InventoryScope,
@@ -664,15 +645,6 @@ mod scripted {
             self.note("remove");
             self.handed_epochs.borrow_mut().push(binding.server_epoch);
             Err(self.refuse("remove"))
-        }
-
-        fn group_list(
-            &self,
-            _scope: &InventoryScope,
-            _binding: &NativeBinding,
-        ) -> ProviderResult<Vec<NativeGroupRow>> {
-            self.note("group_list");
-            Err(self.refuse("group_list"))
         }
 
         fn group_new(
@@ -894,7 +866,6 @@ fn group_new_under_an_unpinned_scope_creates_nothing() {
     let (_instance, space_uid) =
         seed_bound_space(env, Backend::Tmux, "tmux-script", epoch, "$1", Some(epoch));
     let provider = Script::new(
-        Backend::Tmux,
         epoch,
         vec![one_window("$1", dmux::model::ProviderHandle::Tx)],
     );
@@ -964,7 +935,6 @@ fn bootstrap_issue_journals_only_the_pinned_epoch() {
     let (_instance, space_uid) =
         seed_bound_space(env, Backend::Tmux, "tmux-script", epoch, "$1", Some(epoch));
     let provider = Script::new(
-        Backend::Tmux,
         epoch,
         vec![one_window("$1", dmux::model::ProviderHandle::Tx)],
     );
@@ -1015,7 +985,7 @@ fn owner_fenced_create_refuses_an_unpinned_selected_scope_before_reserving() {
             .unwrap();
         instance
     };
-    let provider = Script::new(Backend::Tmux, epoch, Vec::new());
+    let provider = Script::new(epoch, Vec::new());
     let request = |name: &str| CreateRequest {
         request_uid: Uuid::new_v4(),
         name: name.into(),
@@ -1086,7 +1056,7 @@ fn repair_scan_refuses_an_endpoint_other_than_the_instances_recorded_socket() {
     let instance = scripted_registry::registry(env)
         .register_backend_instance(Backend::Wez, Some("/run/dmux/a.sock"), None)
         .unwrap();
-    let provider = Script::new(Backend::Wez, epoch, Vec::new());
+    let provider = Script::new(epoch, Vec::new());
 
     let elsewhere = InventoryScope::unmanaged_endpoint(Backend::Wez, "/run/dmux/b.sock");
     let err = dmux::operations::repair_scan_wez(env, &provider, &elsewhere).unwrap_err();
@@ -1124,7 +1094,7 @@ fn repair_scan_refuses_an_endpoint_other_than_the_instances_recorded_socket() {
     scripted_registry::registry(&unaddressable.env)
         .register_backend_instance(Backend::Wez, None, None)
         .unwrap();
-    let provider = Script::new(Backend::Wez, epoch, Vec::new());
+    let provider = Script::new(epoch, Vec::new());
     let err =
         dmux::operations::repair_scan_wez(&unaddressable.env, &provider, &elsewhere).unwrap_err();
     assert!(matches!(err, OpError::Refused(_)), "{err}");
@@ -1155,7 +1125,6 @@ fn a_tmux_binding_recorded_under_another_incarnation_is_refused_before_any_nativ
         Some(recorded),
     );
     let provider = Script::new(
-        Backend::Tmux,
         published,
         vec![one_window("$1", dmux::model::ProviderHandle::Tx)],
     );
@@ -1247,7 +1216,6 @@ fn a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_sca
         Some(recorded),
     );
     let provider = Script::new(
-        Backend::Wez,
         published,
         vec![one_window(key, dmux::model::ProviderHandle::Wz)],
     );
@@ -1291,7 +1259,7 @@ fn a_wez_binding_recorded_under_another_incarnation_is_refreshed_by_a_pinned_sca
         key,
         Some(recorded),
     );
-    let provider = Script::new(Backend::Wez, published, Vec::new());
+    let provider = Script::new(published, Vec::new());
     remove_space(
         env,
         &provider,

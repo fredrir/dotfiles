@@ -887,7 +887,7 @@ fn group_new_and_split_new_verify_parentage() {
         .expect("split listed");
     assert_eq!(split_row.1, new_tab, "split stays in its parent Group");
 
-    let groups = provider.group_list(&scope, &binding).expect("group_list");
+    let groups = provider.inspect(&scope, &binding).expect("inspect").groups;
     assert_eq!(groups.len(), 2);
     let splits = provider.split_list(&scope, &group).expect("split_list");
     assert_eq!(splits.len(), 2, "anchor pane + new split");
@@ -908,7 +908,7 @@ fn group_rename_is_verified_in_relist() {
     provider
         .group_rename(&scope, &binding.root_group, "editor")
         .expect("group_rename");
-    let groups = provider.group_list(&scope, &binding).expect("group_list");
+    let groups = provider.inspect(&scope, &binding).expect("inspect").groups;
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].title.as_deref(), Some("editor"));
 }

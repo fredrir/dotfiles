@@ -112,10 +112,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::backend::{
-    Capabilities, CreateSpec, GroupActivationResult, InventoryOutcome, InventoryScope,
-    NativeBinding, NativeGroupRow, NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizeMove,
-    NormalizePlan, PresentationTarget, Provider, ProviderError, ProviderResult, SplitDirection,
-    SplitDirectionResult, SplitResizeResult, SplitSpec, SplitZoomResult,
+    CreateSpec, GroupActivationResult, InventoryOutcome, InventoryScope, NativeBinding,
+    NativeGroupRow, NativeInventory, NativeSpaceRow, NativeSplitRow, NormalizeMove, NormalizePlan,
+    Provider, ProviderError, ProviderResult, SplitDirection, SplitDirectionResult,
+    SplitResizeResult, SplitSpec, SplitZoomResult,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch, WEZ_SENTINEL_PREFIX};
 
@@ -2034,25 +2034,6 @@ fn assemble_rows(rows: &[&ListRow]) -> Result<Vec<NativeSpaceRow>, String> {
 // ---------------------------------------------------------------------------
 
 impl<R: WezRunner> Provider for WezProvider<R> {
-    /// Static capabilities. `probed` names the checks every inventory
-    /// enforces (dmux-side socket classification and the sentinel-in-list
-    /// handshake). `cas_rename` stays statically `false` HERE by design:
-    /// capability is a property of one live server endpoint, and this
-    /// method receives no scope/endpoint to probe — a cached answer would
-    /// silently survive a server swap. The explicit per-endpoint API is
-    /// [`WezProvider::probe_cas_rename`] (positive probe, ADR 006 amended);
-    /// orchestration calls it under its own fences and carries the result.
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            backend: Backend::Wez,
-            cas_rename: false,
-            probed: vec![
-                "socket_classify".to_string(),
-                "sentinel_handshake".to_string(),
-            ],
-        }
-    }
-
     /// Strict owner-side inventory (plan §11.1): pre-flight probe, one
     /// exact-socket `list --format json` under a dmux deadline, sentinel
     /// handshake in the same response, reserved rows excluded, grouping by
@@ -2149,18 +2130,6 @@ impl<R: WezRunner> Provider for WezProvider<R> {
         })
     }
 
-    /// Wez presentation is GUI orchestration over the bridge/`--launch-gui`
-    /// path (plan §9.3, P9); the owner provider never executes it, and the
-    /// route-registry domain name it needs does not exist before P5/P9.
-    fn prepare_presentation(
-        &self,
-        _: &InventoryScope,
-        _: &NativeBinding,
-        _: Option<&ProviderHandle>,
-    ) -> ProviderResult<PresentationTarget> {
-        Err(Self::gui_orchestration("prepare_presentation"))
-    }
-
     /// Always a typed rejection: a Wez logical rename is registry-only
     /// (plan §2.5) — the opaque native workspace key never changes, so
     /// there is nothing for the provider to rename. Native workspace
@@ -2227,22 +2196,6 @@ impl<R: WezRunner> Provider for WezProvider<R> {
                 binding.native_token, survivors
             ),
         })
-    }
-
-    fn group_list(
-        &self,
-        scope: &InventoryScope,
-        binding: &NativeBinding,
-    ) -> ProviderResult<Vec<NativeGroupRow>> {
-        let expected = Self::binding_epoch(scope, binding)?;
-        let scan = self.verified_scan(scope, expected)?;
-        scan.rows
-            .into_iter()
-            .find(|r| r.native_token == binding.native_token)
-            .map(|r| r.groups)
-            .ok_or_else(|| ProviderError::NotFound {
-                native_ref: binding.native_token.clone(),
-            })
     }
 
     /// Group create (plan §11.1): `spawn --window-id <only-window-id>` into
@@ -3525,7 +3478,6 @@ mod tests {
                     .map(|_| ()),
             ),
             ("remove", p.remove(&unpinned, &matching)),
-            ("group_list", p.group_list(&unpinned, &matching).map(|_| ())),
         ];
         for (verb, result) in results {
             match result {
@@ -3544,7 +3496,6 @@ mod tests {
                 p.group_new(&pinned(), &stale, &spec("alpha")).map(|_| ()),
             ),
             ("remove", p.remove(&pinned(), &stale)),
-            ("group_list", p.group_list(&pinned(), &stale).map(|_| ())),
         ];
         for (verb, result) in results {
             match result {
@@ -3571,19 +3522,12 @@ mod tests {
     }
 
     #[test]
-    fn group_and_split_lists_read_from_the_verified_scan() {
+    fn split_list_reads_from_the_verified_scan() {
         let runner = ScriptedRunner::new(
-            vec![ProbeOutcome::Connectable, ProbeOutcome::Connectable],
-            vec![
-                ok(&fixture("list_two_workspaces.json")),
-                ok(&fixture("list_two_workspaces.json")),
-            ],
+            vec![ProbeOutcome::Connectable],
+            vec![ok(&fixture("list_two_workspaces.json"))],
         );
         let p = provider(&runner);
-        let groups = p
-            .group_list(&scope(Some(ServerEpoch(EPOCH))), &binding("alpha", EPOCH))
-            .expect("group_list");
-        assert_eq!(groups.len(), 2);
         let splits = p
             .split_list(&scope(Some(ServerEpoch(EPOCH))), &ProviderHandle::Wz(10))
             .expect("split_list");
@@ -3602,11 +3546,7 @@ mod tests {
             }
             other => panic!("unpinned split_list must be WrongInstance, got {other:?}"),
         }
-        assert_eq!(
-            runner.probe_calls.borrow().len(),
-            2,
-            "two pinned scans only"
-        );
+        assert_eq!(runner.probe_calls.borrow().len(), 1, "one pinned scan only");
     }
 
     // -- non-provider verbs stay typed ---------------------------------------
@@ -3618,11 +3558,7 @@ mod tests {
         let s = scope(Some(ServerEpoch(EPOCH)));
         let b = binding("alpha", EPOCH);
         let handle = ProviderHandle::Wz(10);
-        for r in [
-            p.prepare_presentation(&s, &b, None).map(|_| ()),
-            p.group_activate(&s, &handle),
-            p.split_activate(&s, &handle),
-        ] {
+        for r in [p.group_activate(&s, &handle), p.split_activate(&s, &handle)] {
             match r {
                 Err(ProviderError::NativeFailure { detail }) => {
                     assert!(detail.contains("GUI orchestration"), "{detail}");
@@ -4824,22 +4760,7 @@ mod tests {
         assert!(err.contains("non-empty opaque key"), "{err}");
     }
 
-    // -- capabilities and CAS probe seam -------------------------------------
-
-    #[test]
-    fn capabilities_report_read_side_probes_and_no_cas() {
-        let runner = ScriptedRunner::new(vec![], vec![]);
-        let caps = provider(&runner).capabilities();
-        assert_eq!(caps.backend, Backend::Wez);
-        assert!(!caps.cas_rename, "cas_rename needs the P6 positive probe");
-        assert_eq!(
-            caps.probed,
-            vec![
-                "socket_classify".to_string(),
-                "sentinel_handshake".to_string()
-            ]
-        );
-    }
+    // -- CAS probe seam -------------------------------------------------------
 
     // Live-captured fork/stock stderr lines (pinned fork build, 2026-08-16).
     const LIVE_MISMATCH: &str = "15:50:23.031  ERROR  wezterm > rename-workspace-if failed: \

@@ -17,9 +17,8 @@
 use std::collections::HashSet;
 
 use dmux::backend::{
-    Capabilities, CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow,
-    NativeInventory, NativeSpaceRow, NativeSplitRow, PresentationTarget, Provider, ProviderError,
-    ProviderResult, SplitSpec,
+    CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, NativeGroupRow, NativeInventory,
+    NativeSpaceRow, NativeSplitRow, Provider, ProviderError, ProviderResult, SplitSpec,
 };
 use dmux::model::{Backend, ProviderHandle, ServerEpoch};
 use uuid::Uuid;
@@ -110,14 +109,6 @@ impl FakeProvider {
 }
 
 impl Provider for FakeProvider {
-    fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            backend: Backend::Wez,
-            cas_rename: true,
-            probed: vec![],
-        }
-    }
-
     fn inventory(&self, scope: &InventoryScope) -> InventoryOutcome {
         match (scope.expected_epoch(), self.epoch) {
             // A pinned read verifies the live server against the pin and
@@ -195,37 +186,11 @@ impl Provider for FakeProvider {
         })
     }
 
-    fn prepare_presentation(
-        &self,
-        _: &InventoryScope,
-        binding: &NativeBinding,
-        _: Option<&ProviderHandle>,
-    ) -> ProviderResult<PresentationTarget> {
-        if Some(binding.server_epoch) != self.epoch {
-            return Err(ProviderError::EpochChanged {
-                expected: binding.server_epoch,
-                observed: self.epoch,
-            });
-        }
-        Ok(PresentationTarget::Wez {
-            domain: "unix".into(),
-            opaque_key: binding.native_token.clone(),
-            child: None,
-        })
-    }
-
     fn rename(&self, _: &InventoryScope, _: &NativeBinding, _: &str) -> ProviderResult<()> {
         Ok(())
     }
     fn remove(&self, _: &InventoryScope, _: &NativeBinding) -> ProviderResult<()> {
         Ok(())
-    }
-    fn group_list(
-        &self,
-        _: &InventoryScope,
-        _: &NativeBinding,
-    ) -> ProviderResult<Vec<NativeGroupRow>> {
-        Ok(vec![])
     }
     fn group_new(
         &self,
@@ -265,9 +230,23 @@ impl Provider for FakeProvider {
     fn split_remove(&self, _: &InventoryScope, _: &ProviderHandle) -> ProviderResult<()> {
         Ok(())
     }
-    fn inspect(&self, _: &InventoryScope, _: &NativeBinding) -> ProviderResult<NativeSpaceRow> {
+    /// The binding fence both adapters apply before any command
+    /// (`binding_epoch`): the caller's pin is required, and a binding
+    /// recorded under another incarnation is `EpochChanged`, never looked up.
+    fn inspect(
+        &self,
+        scope: &InventoryScope,
+        binding: &NativeBinding,
+    ) -> ProviderResult<NativeSpaceRow> {
+        let epoch = Self::required_epoch(scope)?;
+        if binding.server_epoch != epoch {
+            return Err(ProviderError::EpochChanged {
+                expected: epoch,
+                observed: Some(binding.server_epoch),
+            });
+        }
         Err(ProviderError::NotFound {
-            native_ref: "none".into(),
+            native_ref: binding.native_token.clone(),
         })
     }
 }
@@ -281,7 +260,6 @@ fn provider_trait_is_object_safe_and_fake_passes_invariants() {
         InventoryOutcome::Complete(inv) => assert_inventory_invariants(&inv),
         other => panic!("expected complete inventory, got {other:?}"),
     }
-    assert!(provider.capabilities().cas_rename);
 }
 
 #[test]
@@ -311,8 +289,13 @@ fn indeterminate_outcomes_are_classified() {
     );
 }
 
+/// The binding fence on the double — what `stale_epoch_presentation_fails_typed`
+/// asserted through `prepare_presentation` until ADR 012 WS-E.3 row 9 retired
+/// that verb from the trait: a binding recorded under another incarnation is
+/// `EpochChanged` before any lookup for a pinned caller, and an unpinned
+/// caller is refused outright.
 #[test]
-fn stale_epoch_presentation_fails_typed() {
+fn a_binding_from_another_incarnation_fails_typed_on_the_double() {
     let fake = FakeProvider::published(ServerEpoch(Uuid::nil()));
     let scope = fake.scope();
     let stale = NativeBinding {
@@ -321,10 +304,20 @@ fn stale_epoch_presentation_fails_typed() {
         root_group: ProviderHandle::Wz(1),
         root_split: ProviderHandle::Wz(1),
     };
-    match fake.prepare_presentation(&scope, &stale, None) {
-        Err(ProviderError::EpochChanged { .. }) => {}
-        other => panic!("stale epoch must fail typed, got {other:?}"),
+    match fake.inspect(&scope, &stale) {
+        Err(ProviderError::EpochChanged { expected, observed }) => {
+            assert_eq!(expected, ServerEpoch(Uuid::nil()));
+            assert_eq!(observed, Some(ServerEpoch(Uuid::max())));
+        }
+        other => panic!("stale binding must fail typed, got {other:?}"),
     }
+    assert!(matches!(
+        fake.inspect(
+            &InventoryScope::unmanaged_endpoint(Backend::Wez, ENDPOINT),
+            &stale
+        ),
+        Err(ProviderError::WrongInstance { .. })
+    ));
 }
 
 fn create_spec() -> CreateSpec {

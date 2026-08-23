@@ -59,10 +59,10 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::backend::{
-    Capabilities, CreateSpec, GroupActivationResult, InventoryOutcome, InventoryScope,
-    NativeBinding, NativeGroupRow, NativeInventory, NativeSpaceRow, NativeSplitRow,
-    PresentationTarget, Provider, ProviderError, ProviderResult, SplitDirection,
-    SplitDirectionResult, SplitResizeResult, SplitSpec, SplitZoomResult,
+    CreateSpec, GroupActivationResult, InventoryOutcome, InventoryScope, NativeBinding,
+    NativeGroupRow, NativeInventory, NativeSpaceRow, NativeSplitRow, Provider, ProviderError,
+    ProviderResult, SplitDirection, SplitDirectionResult, SplitResizeResult, SplitSpec,
+    SplitZoomResult,
 };
 use crate::model::{Backend, ProviderHandle, ServerEpoch};
 
@@ -239,9 +239,10 @@ impl TmuxRunner for SystemRunner {
 // ---------------------------------------------------------------------------
 
 /// tmux adapter over an injectable runner. One provider instance serves one
-/// managed backend instance; `endpoint` (the `-L` namespace) is held for the
-/// scope-less `capabilities()` probe, while every scoped operation uses
-/// `scope.endpoint` as passed by the caller.
+/// managed backend instance: `endpoint` is that instance's `-L` namespace,
+/// and a scope for any other namespace is refused before its first command
+/// (`scope_check`; ADR 001 strict endpoint selection). Every scoped
+/// operation then runs against `scope.endpoint`, which is the same string.
 pub struct TmuxProvider<R: TmuxRunner> {
     runner: R,
     endpoint: String,
@@ -600,8 +601,8 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         })
     }
 
-    /// The pin for a binding-bearing verb (`prepare_presentation`, `rename`,
-    /// `remove`, `group_list`, `group_new`, `inspect`): the scope's published
+    /// The pin for a binding-bearing verb (`rename`, `remove`, `group_new`,
+    /// `inspect`): the scope's published
     /// epoch, cross-checked against the binding before any command. An
     /// unpinned scope refuses `WrongInstance` exactly like
     /// [`Self::required_epoch`] — the binding's own `server_epoch` is never
@@ -627,10 +628,18 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         Ok(expected)
     }
 
-    fn scope_check(scope: &InventoryScope) -> ProviderResult<()> {
+    fn scope_check(&self, scope: &InventoryScope) -> ProviderResult<()> {
         if scope.backend != Backend::Tmux {
             return Err(ProviderError::WrongInstance {
                 detail: format!("tmux provider handed a {} scope", scope.backend),
+            });
+        }
+        if scope.endpoint != self.endpoint {
+            return Err(ProviderError::WrongInstance {
+                detail: format!(
+                    "tmux provider for namespace {:?} handed a scope for namespace {:?}",
+                    self.endpoint, scope.endpoint
+                ),
             });
         }
         Ok(())
@@ -696,7 +705,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         session: &str,
         markers: &SpaceMarkers,
     ) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         validate_session_token(session)?;
         let expected = Self::required_epoch(scope)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -735,7 +744,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         scope: &InventoryScope,
         session: &str,
     ) -> ProviderResult<SpaceMarkerReadback> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         validate_session_token(session)?;
         match scope.expected_epoch() {
             Some(expected) => self.check_epoch(&scope.endpoint, expected)?,
@@ -839,7 +848,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         scope: &InventoryScope,
         group: &ProviderHandle,
     ) -> ProviderResult<GroupActivationResult> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(group)?;
         let group_id = tmux_handle_id(group)?;
@@ -885,7 +894,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         origin: &ProviderHandle,
         direction: SplitDirection,
     ) -> ProviderResult<SplitDirectionResult> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let origin_target = pane_target(origin)?;
         let origin_id = tmux_handle_id(origin)?;
@@ -963,7 +972,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         direction: SplitDirection,
         amount: u16,
     ) -> ProviderResult<SplitResizeResult> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         if amount == 0 {
             return Err(ProviderError::NativeFailure {
                 detail: "tmux split resize amount must be greater than zero".into(),
@@ -1023,7 +1032,7 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         scope: &InventoryScope,
         split: &ProviderHandle,
     ) -> ProviderResult<SplitZoomResult> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(split)?;
         let split_id = tmux_handle_id(split)?;
@@ -1599,131 +1608,14 @@ fn parse_spawn_return(stdout: &str) -> ProviderResult<(String, u64, u64)> {
 // ---------------------------------------------------------------------------
 
 impl<R: TmuxRunner> Provider for TmuxProvider<R> {
-    /// Capability probing (plan §17): probed by running against the real
-    /// server on this provider's namespace, never by parsing a version
-    /// string. Probes run on a scratch `dmux-probe-<uuid>` session that is
-    /// created and removed here; a dead/absent server yields no probes.
-    /// `cas_rename` is always false: tmux has no compare-and-swap rename and
-    /// does not need one (session id `$N` is the immutable identity).
-    fn capabilities(&self) -> Capabilities {
-        let mut probed = Vec::new();
-        let probe_name = format!("dmux-probe-{}", Uuid::new_v4());
-        let create = self.run(
-            &self.endpoint,
-            &[
-                "new-session",
-                "-d",
-                "-P",
-                "-F",
-                SPAWN_FORMAT,
-                "-s",
-                &probe_name,
-                "--",
-                "/bin/sh",
-                "-c",
-                "sleep 30",
-            ],
-        );
-        let Ok(out) = create else {
-            return Capabilities {
-                backend: Backend::Tmux,
-                cas_rename: false,
-                probed,
-            };
-        };
-        if !out.ok() {
-            return Capabilities {
-                backend: Backend::Tmux,
-                cas_rename: false,
-                probed,
-            };
-        }
-        if let Ok(stdout) = utf8(&out.stdout)
-            && let Ok((sid, wid, _)) = parse_spawn_return(&stdout)
-        {
-            let wid_target = format!("@{wid}");
-
-            if let Ok(echo) = self.run_ok(
-                &self.endpoint,
-                &["display-message", "-p", "-t", &sid, "#{session_id}"],
-            ) && echo.trim_end_matches('\n') == sid
-            {
-                probed.push("exact_id_targeting".to_string());
-            }
-
-            if self
-                .run_ok(
-                    &self.endpoint,
-                    &["set-option", "-t", &sid, "@dmux_probe", "ok"],
-                )
-                .is_ok()
-                && self
-                    .run_ok(
-                        &self.endpoint,
-                        &["show-options", "-t", &sid, "-qv", "@dmux_probe"],
-                    )
-                    .is_ok_and(|v| v.trim_end_matches('\n') == "ok")
-            {
-                probed.push("session_options".to_string());
-            }
-
-            if self
-                .run_ok(
-                    &self.endpoint,
-                    &[
-                        "set-option",
-                        "-w",
-                        "-t",
-                        &wid_target,
-                        "allow-passthrough",
-                        "all",
-                    ],
-                )
-                .is_ok()
-                && self
-                    .run_ok(
-                        &self.endpoint,
-                        &[
-                            "show-options",
-                            "-w",
-                            "-t",
-                            &wid_target,
-                            "-qv",
-                            "allow-passthrough",
-                        ],
-                    )
-                    .is_ok_and(|v| v.trim_end_matches('\n') == "all")
-            {
-                probed.push("allow_passthrough_all".to_string());
-            }
-
-            // With zero attached clients tmux 3.7b answers "no current
-            // client" — which still proves the verb parses and resolves;
-            // an unknown verb would say "unknown command".
-            match self.run(&self.endpoint, &["detach-client", "-s", &sid]) {
-                Ok(out) if out.ok() || lossy(&out.stderr).contains("no current client") => {
-                    probed.push("detach_client".to_string());
-                }
-                _ => {}
-            }
-
-            let _ = self.run(&self.endpoint, &["kill-session", "-t", &sid]);
-        }
-        Capabilities {
-            backend: Backend::Tmux,
-            cas_rename: false,
-            probed,
-        }
-    }
-
     /// Complete owner-side scan of one namespace under one epoch. The epoch
     /// is read before and after the listings; a change mid-scan makes the
     /// scan indeterminate (`Malformed`), never a half-truth. `ls` NEVER
     /// writes the epoch option (plan §11.2).
     fn inventory(&self, scope: &InventoryScope) -> InventoryOutcome {
-        if scope.backend != Backend::Tmux {
+        if let Err(ProviderError::WrongInstance { detail }) = self.scope_check(scope) {
             return InventoryOutcome::Malformed {
-                detail: format!("tmux provider handed a {} scope", scope.backend),
+                detail: format!("wrong_backend_instance: {detail}"),
             };
         }
         let epoch = match self.read_epoch(&scope.endpoint) {
@@ -1851,7 +1743,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
     /// `spec.native_token` is the requested session NAME, the returned
     /// binding's `native_token` is the immutable session ID `$N`.
     fn create(&self, scope: &InventoryScope, spec: &CreateSpec) -> ProviderResult<NativeBinding> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         if spec.native_token.is_empty() {
             return Err(ProviderError::NativeFailure {
@@ -1907,55 +1799,6 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         })
     }
 
-    /// Read-only validation returning the exact attach argv for a detached
-    /// client: `tmux -L <namespace> attach -t '$N'`. The client execs this
-    /// argv verbatim; it never builds native target strings itself.
-    /// A caller already inside a tmux client must be presented via
-    /// `switch-client` instead of nested attach (plan §11.2) — that choice
-    /// is orchestration-layer work above this provider, as is focusing the
-    /// optional child after attach.
-    fn prepare_presentation(
-        &self,
-        scope: &InventoryScope,
-        binding: &NativeBinding,
-        child: Option<&ProviderHandle>,
-    ) -> ProviderResult<PresentationTarget> {
-        Self::scope_check(scope)?;
-        validate_session_token(&binding.native_token)?;
-        let expected = Self::binding_epoch(scope, binding)?;
-        self.check_epoch(&scope.endpoint, expected)?;
-        if !self
-            .list_session_ids(&scope.endpoint)?
-            .iter()
-            .any(|s| *s == binding.native_token)
-        {
-            return Err(ProviderError::NotFound {
-                native_ref: binding.native_token.clone(),
-            });
-        }
-        if let Some(handle) = child {
-            let groups = self.session_rows(&scope.endpoint, &binding.native_token)?;
-            let present = groups
-                .iter()
-                .any(|g| g.handle == *handle || g.splits.iter().any(|s| s.handle == *handle));
-            if !present {
-                return Err(ProviderError::NotFound {
-                    native_ref: handle.to_string(),
-                });
-            }
-        }
-        Ok(PresentationTarget::Tmux {
-            exact_argv: vec![
-                "tmux".to_string(),
-                "-L".to_string(),
-                scope.endpoint.clone(),
-                "attach".to_string(),
-                "-t".to_string(),
-                binding.native_token.clone(),
-            ],
-        })
-    }
-
     /// `rename-session -t '$N' <new name>`, verified by re-listing.
     fn rename(
         &self,
@@ -1963,7 +1806,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         binding: &NativeBinding,
         new_native_name: &str,
     ) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -1999,7 +1842,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
     /// "can't find session" is success (ADR 005); killing the last session
     /// legitimately stops the whole server, which also verifies absence.
     fn remove(&self, scope: &InventoryScope, binding: &NativeBinding) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2018,18 +1861,6 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         )
     }
 
-    fn group_list(
-        &self,
-        scope: &InventoryScope,
-        binding: &NativeBinding,
-    ) -> ProviderResult<Vec<NativeGroupRow>> {
-        Self::scope_check(scope)?;
-        validate_session_token(&binding.native_token)?;
-        let expected = Self::binding_epoch(scope, binding)?;
-        self.check_epoch(&scope.endpoint, expected)?;
-        self.session_rows(&scope.endpoint, &binding.native_token)
-    }
-
     /// `new-window -P -F '$N|@N|%N' -t '$N' [-n name] [-c cwd] -- <argv>` on
     /// the exact session, epoch-verified immediately before mutation.
     /// `spec.native_token`, when non-empty, becomes the window name.
@@ -2039,7 +1870,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         binding: &NativeBinding,
         spec: &CreateSpec,
     ) -> ProviderResult<ProviderHandle> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
         if spec.bootstrap_argv.is_empty() {
@@ -2078,7 +1909,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         scope: &InventoryScope,
         handle: &ProviderHandle,
     ) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(handle)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2093,7 +1924,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         handle: &ProviderHandle,
         title: &str,
     ) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(handle)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2115,7 +1946,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
 
     /// `kill-window -t '@N'` with verified absence (ADR 005 semantics).
     fn group_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(handle)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2138,7 +1969,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         scope: &InventoryScope,
         group: &ProviderHandle,
     ) -> ProviderResult<Vec<NativeSplitRow>> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = window_target(group)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2168,7 +1999,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         split: &SplitSpec,
     ) -> ProviderResult<ProviderHandle> {
         let spec = &split.spec;
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(group)?;
         if spec.bootstrap_argv.is_empty() {
@@ -2220,7 +2051,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         scope: &InventoryScope,
         handle: &ProviderHandle,
     ) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(handle)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2265,7 +2096,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
 
     /// `kill-pane -t '%N'` with verified absence (ADR 005 semantics).
     fn split_remove(&self, scope: &InventoryScope, handle: &ProviderHandle) -> ProviderResult<()> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         let expected = Self::required_epoch(scope)?;
         let target = pane_target(handle)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -2288,7 +2119,7 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
         scope: &InventoryScope,
         binding: &NativeBinding,
     ) -> ProviderResult<NativeSpaceRow> {
-        Self::scope_check(scope)?;
+        self.scope_check(scope)?;
         validate_session_token(&binding.native_token)?;
         let expected = Self::binding_epoch(scope, binding)?;
         self.check_epoch(&scope.endpoint, expected)?;
@@ -3259,37 +3090,7 @@ mod tests {
         assert_eq!(calls[5], argv(&["list-panes", "-a", "-F", "#{pane_id}"]));
     }
 
-    // -- presentation -------------------------------------------------------
-
-    #[test]
-    fn prepare_presentation_returns_exact_attach_argv() {
-        let runner = ScriptedRunner::new(vec![epoch_ok(), ok("$5\n")]);
-        let target = provider(&runner)
-            .prepare_presentation(&epoched_scope(), &binding(), None)
-            .unwrap();
-        assert_eq!(
-            target,
-            PresentationTarget::Tmux {
-                exact_argv: vec![
-                    "tmux".into(),
-                    "-L".into(),
-                    NS.into(),
-                    "attach".into(),
-                    "-t".into(),
-                    "$5".into(),
-                ],
-            }
-        );
-    }
-
-    #[test]
-    fn prepare_presentation_missing_session_is_not_found() {
-        let runner = ScriptedRunner::new(vec![epoch_ok(), ok("$0\n")]);
-        match provider(&runner).prepare_presentation(&epoched_scope(), &binding(), None) {
-            Err(ProviderError::NotFound { native_ref }) => assert_eq!(native_ref, "$5"),
-            other => panic!("expected not_found, got {other:?}"),
-        }
-    }
+    // -- binding fence ------------------------------------------------------
 
     #[test]
     fn stale_binding_epoch_is_rejected_before_any_command() {
@@ -3298,19 +3099,43 @@ mod tests {
             server_epoch: ServerEpoch(Uuid::nil()),
             ..binding()
         };
-        match provider(&runner).prepare_presentation(&epoched_scope(), &stale, None) {
+        match provider(&runner).inspect(&epoched_scope(), &stale) {
             Err(ProviderError::EpochChanged { .. }) => {}
             other => panic!("expected epoch_changed, got {other:?}"),
         }
         assert!(runner.calls.borrow().is_empty());
     }
 
+    /// One provider instance serves one managed backend instance: a scope
+    /// for any other namespace is refused before its first command, and
+    /// `inventory` answers it as the wrong-instance class.
+    #[test]
+    fn a_scope_for_another_namespace_is_refused_before_any_command() {
+        let runner = ScriptedRunner::new(vec![]);
+        let other = InventoryScope::managed(Backend::Tmux, "dmux-other-ns", ServerEpoch(EPOCH));
+        match provider(&runner).inspect(&other, &binding()) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("dmux-other-ns"), "{detail}");
+            }
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+        match provider(&runner).inventory(&other) {
+            InventoryOutcome::Malformed { detail } => {
+                assert!(detail.starts_with("wrong_backend_instance: "), "{detail}");
+            }
+            other => panic!("expected malformed, got {other:?}"),
+        }
+        assert!(runner.calls.borrow().is_empty(), "no tmux command");
+    }
+
     // -- WS-A.8: binding-bearing verbs take the pin, never the binding's word
 
     /// Every verb fenced by `binding_epoch`, driven with one scope and one
     /// binding. `group_new` was the review's live proof of finding #5; the
-    /// other five had call-chain proof only (report 08 §7) and are WS-E.2's
-    /// executable reproductions, inverted.
+    /// others had call-chain proof only (report 08 §7) and are WS-E.2's
+    /// executable reproductions, inverted. (`prepare_presentation` and
+    /// `group_list` were driven here too until ADR 012 WS-E.3 row 9 retired
+    /// them from the trait.)
     fn drive_binding_verbs(
         p: &TmuxProvider<&ScriptedRunner>,
         scope: &InventoryScope,
@@ -3322,13 +3147,8 @@ mod tests {
             bootstrap_argv: vec!["/bin/sh".into(), "-c".into(), "sleep 30".into()],
         };
         vec![
-            (
-                "prepare_presentation",
-                p.prepare_presentation(scope, binding, None).map(|_| ()),
-            ),
             ("rename", p.rename(scope, binding, "renamed")),
             ("remove", p.remove(scope, binding)),
-            ("group_list", p.group_list(scope, binding).map(|_| ())),
             ("group_new", p.group_new(scope, binding, &spec).map(|_| ())),
             ("inspect", p.inspect(scope, binding).map(|_| ())),
         ]
@@ -3338,7 +3158,7 @@ mod tests {
     /// own epoch on an unpinned scope, so a binding synthesised from the live
     /// scan (finding #18) fenced the server against its own word. Now the
     /// unpinned scope is refused as `WrongInstance` with no tmux command,
-    /// for all six verbs.
+    /// for every binding verb.
     #[test]
     fn binding_verbs_refuse_an_unpinned_scope_before_any_command() {
         let runner = ScriptedRunner::new(vec![]);
@@ -3456,56 +3276,6 @@ mod tests {
                 space_no: None,
             }
         );
-    }
-
-    // -- capabilities -------------------------------------------------------
-
-    #[test]
-    fn capabilities_probes_by_running_and_cleans_up() {
-        let runner = ScriptedRunner::new(vec![
-            ok("$8|@8|%8\n"),             // probe session create
-            ok("$8\n"),                   // display-message echo
-            ok(""),                       // set session option
-            ok("ok\n"),                   // show session option
-            ok(""),                       // set allow-passthrough
-            ok("all\n"),                  // show allow-passthrough
-            fail(1, "no current client"), // detach-client with zero clients
-            ok(""),                       // kill probe session
-        ]);
-        let caps = provider(&runner).capabilities();
-        assert_eq!(caps.backend, Backend::Tmux);
-        assert!(
-            !caps.cas_rename,
-            "tmux has no CAS rename (ADR 006 is Wez-only)"
-        );
-        assert_eq!(
-            caps.probed,
-            vec![
-                "exact_id_targeting",
-                "session_options",
-                "allow_passthrough_all",
-                "detach_client",
-            ],
-        );
-        let calls = runner.calls.borrow();
-        assert_eq!(calls[0][3], "new-session");
-        assert_eq!(
-            calls[1],
-            argv(&["display-message", "-p", "-t", "$8", "#{session_id}"])
-        );
-        assert_eq!(calls[6], argv(&["detach-client", "-s", "$8"]),);
-        assert_eq!(calls[7], argv(&["kill-session", "-t", "$8"]));
-    }
-
-    #[test]
-    fn capabilities_with_no_server_probes_nothing() {
-        let runner = ScriptedRunner::new(vec![fail(
-            1,
-            "error connecting to /private/tmp/tmux-501/dmux-x (No such file or directory)",
-        )]);
-        let caps = provider(&runner).capabilities();
-        assert!(caps.probed.is_empty());
-        assert!(!caps.cas_rename);
     }
 
     // -- P5 epoch bootstrap (plan §11.2) -------------------------------------
