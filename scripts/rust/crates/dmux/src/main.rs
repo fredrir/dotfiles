@@ -1800,7 +1800,7 @@ fn wez_first_enabled() -> bool {
 /// today, when it agrees with the default: it is what stops the flip from
 /// re-reading an existing `DMUX_WEZ_FIRST=0` as an opt-*in*. Every other read
 /// site tests `== '1'`, so `0` is already off everywhere else
-/// (`shared/wezterm/mux/dmux-mux-start.sh:55` defaults it to `0`;
+/// (`shared/wezterm/mux/dmux-mux-start.sh:93` defaults it to `0`;
 /// `shared/zsh/conf.d/94-dmux-context.zsh:16` treats `!= 1` as off), and the
 /// resolver would have been the one place it meant the opposite (ADR 010 §5).
 fn resolve_wez_first(legacy_policy: Option<&str>, wez_first: Option<&str>) -> bool {
