@@ -380,9 +380,18 @@ impl TmuxScratch {
             ns: format!("dmux-p8json-{}", std::process::id()),
             locks: tempfile::tempdir().unwrap(),
         };
+        // Window titles are frozen at creation. The Space's pane runs
+        // `pane-bootstrap` and then `sleep`, and tmux's automatic rename
+        // follows the foreground command on its own schedule; the test
+        // below compares four listings against one `hierarchy()` snapshot
+        // byte for byte, and under load the rename landed between two of
+        // them (`title: "tmux"` became `"sleep"`) — a fixture race, not a
+        // shape change (ADR 012 WS-E.4 flake triage).
         let started = Command::new("tmux")
             .args(["-L", &scratch.ns, "-f", "/dev/null"])
             .args(["new-session", "-d", "-s", "seed"])
+            .args([";", "set-option", "-g", "automatic-rename", "off"])
+            .args([";", "set-option", "-g", "allow-rename", "off"])
             .env("DMUX_RUNTIME_DIR", scratch.locks.path())
             .status();
         match started {

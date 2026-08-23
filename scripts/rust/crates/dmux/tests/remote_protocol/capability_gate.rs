@@ -137,7 +137,12 @@ fn wez_new_request() -> dmux::remote::protocol::Envelope {
 fn positive_probe_is_exact_bounded_read_only_argv() {
     let scratch = tempfile::tempdir().unwrap();
     let bin = positive_probe(scratch.path(), "20260816-143635-72f3fd75");
-    let probed = probe_wezterm_capabilities(bin.to_str().unwrap(), Duration::from_secs(5)).unwrap();
+    // The deadline is only the fixture's patience — what is asserted is the
+    // argv and the report. Under concurrent suite/build load a `/bin/sh`
+    // stand-in has taken more than five seconds to run (ADR 012 WS-E.4 flake
+    // triage), so the patience is sized for a loaded host.
+    let probed =
+        probe_wezterm_capabilities(bin.to_str().unwrap(), Duration::from_secs(30)).unwrap();
 
     assert_eq!(probed.build, "20260816-143635-72f3fd75");
     assert_eq!(
@@ -178,16 +183,23 @@ fn probe_bound_includes_descendants_that_inherit_capture_pipes() {
     let bin = scratch.path().join("descendant-wezterm");
     executable(
         &bin,
-        "#!/bin/sh\n(sleep 5) &\ncase \"$*\" in\n  '--version') echo 'wezterm build-a' ;;\n  *) echo '--always-new-process --domain DOMAIN --attach' ;;\nesac\n",
+        "#!/bin/sh\n(sleep 90) &\ncase \"$*\" in\n  '--version') echo 'wezterm build-a' ;;\n  *) echo '--always-new-process --domain DOMAIN --attach' ;;\nesac\n",
     );
     let started = Instant::now();
-    // Leave enough scheduler headroom for the repository-wide parallel test
-    // runner while remaining well below the descendant's five-second sleep.
-    // A leaked inherited pipe still breaches the four-second aggregate bound.
-    let report = probe_wezterm_capabilities(bin.to_str().unwrap(), Duration::from_secs(2)).unwrap();
+    // The property: the descendant that inherited the capture pipes cannot
+    // hold the probe open for its own lifetime. If the group kill did not
+    // close its write end, the reader would see no EOF inside the drain
+    // grace and the probe would answer with empty output, failing the
+    // `unwrap`; if the drain had no bound at all, the probe would last the
+    // descendant's ninety seconds and fail the elapsed bound. Both margins
+    // are sized for a loaded host (the earlier 2 s deadline / 4 s bound /
+    // 5 s sleep timed out on `/bin/sh` alone under concurrent suite load —
+    // ADR 012 WS-E.4 flake triage); nothing about the property changed.
+    let report =
+        probe_wezterm_capabilities(bin.to_str().unwrap(), Duration::from_secs(20)).unwrap();
     assert_eq!(report.build, "build-a");
     assert!(
-        started.elapsed() < Duration::from_secs(4),
+        started.elapsed() < Duration::from_secs(60),
         "inherited capture pipes escaped the bounded probe"
     );
 }
