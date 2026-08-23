@@ -2400,7 +2400,7 @@ impl RecoveryCoordinatorOptions {
             server_pid,
             server_start_token,
             helper_bin,
-            default_program: vec!["/bin/sh".into(), "-l".into()],
+            default_program: bootstrap::login_shell_program(),
             request_uid: Uuid::new_v4(),
             lease_ttl: DEFAULT_LEASE_TTL,
             reply_timeout: DEFAULT_REPLY_TIMEOUT,

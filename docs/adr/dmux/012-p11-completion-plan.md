@@ -1009,3 +1009,36 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   desktop-reachable entry point that survives a Hammerspoon exit (Hammerspoon as a login item, or a
   small launcher `.app` that runs `dmux _gui summon`), and a visible error for the refused direct
   start, which today is a log line only.
+- **GUI up via the broker (owner ran the summon); verified read-only.** `wezterm-gui` pid 3912 runs
+  `start --no-auto-connect --class dmux-c0a…` with the broker's `DMUX_GUI_*` provenance
+  (`DMUX_GUI_INSTANCE=gui-c0aee232…`, launcher pid 3860, launcher start token); its record under
+  `${TMPDIR}dmux/bridge/instances/gui-c0aee232…/` (context, acks, consumed, requests, heartbeat) is
+  live; the mux is unchanged (pid 2544, epoch `e7e18ddb…`, two panes: sentinel + the smoke Space);
+  flag-on `dmux ls` lists `1 w6mac-smoke-20260817 wez … live`. A second instance record
+  (`gui-e20b42e1…`, pid 3501, dead) is an earlier attempt's leftover that `live_instances` correctly
+  ignores. Findings from the first minutes of Wez-first use on Macie:
+  1. **Managed panes ran `/bin/sh -l`, not the owner's login shell — fixed.** The restored smoke
+     pane is `/bin/sh -l` (pid 2597) with launchd's `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which is
+     why its r5 history reads `sh: dmux: command not found`, and why its title never left
+     `dmux-run:` (sh sets none). The cause was not recovery alone: the three creation sites
+     (`operations.rs` `new`/`group new`/`split new`) and the recovery default
+     (`recovery.rs` `RecoveryCoordinatorOptions::new`) all hard-coded `/bin/sh -l` while
+     `new_cli.rs` documented "empty means the owner's login shell". `bootstrap::login_shell_program()`
+     now serves all four: `$SHELL` when absolute and present, else the passwd entry's shell
+     (`getpwuid_r`), else `/bin/sh`; pinned by `bootstrap::tests::{the_login_shell_is_the_first_absolute_existing_candidate,
+     the_default_program_is_a_login_shell_invocation}`. Takes effect for new Spaces and the next
+     cold recovery once the binary is reinstalled; the live smoke pane stays `sh` until re-created.
+  2. **The fork's descriptor publisher leaves one zero-byte `.replace-<uuid>` per replace.**
+     Twenty-one such files dated 05:02 sit in the runtime dir. `lua-api-crates/mux/src/dmux_descriptor.rs:472`
+     quarantines the previous file by `rename_noreplace` to `.replace-<uuid>` and, on success,
+     truncates it to zero and never unlinks it. Frozen fork; harmless (dirhelper purges them after
+     three days); recorded for the fork's next unfreeze.
+  3. **`wezterm-attention` (the owner's plugin) errors on every `update-status` under the attached
+     domain**: `window id 0 not found in mux` at `plugin/init.lua:254` (`mux_win:tabs()`), because
+     the GUI's window proxies a remote mux window. Log noise only; fix belongs in that plugin
+     (`pcall` around the mux-window walk). `resurrect: saved (focus-loss)` lines are its save hook
+     and create nothing.
+  4. **Doctor's `wezterm cli` line reads `unreachable` with the GUI up** — by construction:
+     `doctor.rs:1283` runs `wezterm cli --no-auto-start list` against the ambient default socket,
+     and the managed GUI is no-serve. The managed server's health is the `wez instance` line. A
+     relabel ("legacy gui socket") is a small follow-up.

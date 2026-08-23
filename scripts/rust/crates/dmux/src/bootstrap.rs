@@ -54,6 +54,72 @@ pub fn run_title(uid: Uuid) -> String {
 /// The helper argv: uid token first, requested program after `--`
 /// (plan §11.1 — future native pane IDs are never guessed; the token plus
 /// the reserved title carry identity).
+/// The program a managed pane runs when the caller named none: the owner's
+/// login shell as `[shell, "-l"]`.  Creation (`new`, `group new`, `split
+/// new`) and cold recovery's restore share it, so a managed pane is the
+/// shell the owner logs in with and its profile sets the PATH — not
+/// `/bin/sh` inheriting the service manager's minimal environment.
+pub fn login_shell_program() -> Vec<String> {
+    vec![login_shell(), "-l".to_string()]
+}
+
+/// `$SHELL` when it is an absolute path to an existing file, else the
+/// passwd entry's shell under the same test, else `/bin/sh`.
+pub fn login_shell() -> String {
+    login_shell_from(
+        std::env::var("SHELL").ok().as_deref(),
+        passwd_shell().as_deref(),
+        |candidate| Path::new(candidate).is_file(),
+    )
+}
+
+/// The pure rule behind [`login_shell`]: the first candidate that is an
+/// absolute path `exists` accepts; a relative spelling (`zsh`), an empty
+/// value or a missing file is skipped, never guessed at.
+pub fn login_shell_from(
+    shell_env: Option<&str>,
+    passwd_shell: Option<&str>,
+    exists: impl Fn(&str) -> bool,
+) -> String {
+    [shell_env, passwd_shell]
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate.starts_with('/') && exists(candidate))
+        .map(str::to_string)
+        .unwrap_or_else(|| "/bin/sh".to_string())
+}
+
+#[cfg(unix)]
+fn passwd_shell() -> Option<String> {
+    use std::ffi::CStr;
+    type PwEntry = libc::passwd;
+    let mut entry: PwEntry = unsafe { std::mem::zeroed() };
+    let mut buffer = vec![0u8; 16 * 1024];
+    let mut found: *mut PwEntry = std::ptr::null_mut();
+    // SAFETY: every pointer names a live local for the duration of the
+    // call; `getpwuid_r` writes within `buffer.len()` bytes.
+    let rc = unsafe {
+        libc::getpwuid_r(
+            libc::getuid(),
+            &mut entry,
+            buffer.as_mut_ptr().cast::<libc::c_char>(),
+            buffer.len(),
+            &mut found,
+        )
+    };
+    if rc != 0 || found.is_null() || entry.pw_shell.is_null() {
+        return None;
+    }
+    // SAFETY: `pw_shell` points into `buffer`, which outlives this read.
+    let shell = unsafe { CStr::from_ptr(entry.pw_shell) }.to_str().ok()?;
+    (!shell.is_empty()).then(|| shell.to_string())
+}
+
+#[cfg(not(unix))]
+fn passwd_shell() -> Option<String> {
+    None
+}
+
 pub fn helper_argv(helper_bin: &str, uid: Uuid, program: &[String]) -> Vec<String> {
     let mut argv = Vec::with_capacity(program.len() + 3);
     argv.push(helper_bin.to_string());
@@ -376,6 +442,40 @@ mod tests {
                 split_ref: format!("p{}.wz-4", Uuid::nil()),
             },
         }
+    }
+
+    #[test]
+    fn the_login_shell_is_the_first_absolute_existing_candidate() {
+        let exists = |c: &str| c == "/bin/zsh" || c == "/bin/sh";
+        assert_eq!(
+            login_shell_from(Some("/bin/zsh"), Some("/bin/bash"), exists),
+            "/bin/zsh"
+        );
+        // A relative spelling is not a login shell.
+        assert_eq!(
+            login_shell_from(Some("zsh"), Some("/bin/zsh"), exists),
+            "/bin/zsh"
+        );
+        // A shell that is not installed is skipped, not guessed at.
+        assert_eq!(
+            login_shell_from(Some("/opt/fish"), Some("/bin/zsh"), exists),
+            "/bin/zsh"
+        );
+        assert_eq!(login_shell_from(Some(""), None, exists), "/bin/sh");
+        assert_eq!(login_shell_from(None, None, exists), "/bin/sh");
+        assert_eq!(
+            login_shell_from(None, Some("/usr/bin/nologin"), exists),
+            "/bin/sh"
+        );
+    }
+
+    #[test]
+    fn the_default_program_is_a_login_shell_invocation() {
+        let program = login_shell_program();
+        assert_eq!(program.len(), 2);
+        assert!(program[0].starts_with('/'), "{program:?}");
+        assert!(Path::new(&program[0]).is_file(), "{program:?}");
+        assert_eq!(program[1], "-l");
     }
 
     #[test]

@@ -527,7 +527,7 @@ where
         .map_err(|e| OpError::Bootstrap(e.to_string()))?;
 
     let program = if req.program.is_empty() {
-        vec!["/bin/sh".to_string(), "-l".to_string()]
+        bootstrap::login_shell_program()
     } else {
         req.program.clone()
     };
@@ -3027,7 +3027,7 @@ pub fn group_new(
     };
 
     let program = if req.program.is_empty() {
-        vec!["/bin/sh".to_string(), "-l".to_string()]
+        bootstrap::login_shell_program()
     } else {
         req.program.clone()
     };
@@ -3237,7 +3237,7 @@ pub fn split_new(
     };
 
     let program = if req.program.is_empty() {
-        vec!["/bin/sh".to_string(), "-l".to_string()]
+        bootstrap::login_shell_program()
     } else {
         req.program.clone()
     };
