@@ -1130,7 +1130,10 @@ pub fn peer_listing(owner: HostUid, info: SpacesInfo, route: Option<String>) -> 
             } else {
                 errors.push(ScanFailure {
                     backend: scan.backend,
-                    error: TypedError::new(peer_scan_error_code(&scan.outcome), remark),
+                    error: TypedError::new(
+                        peer_scan_error_code(&scan.outcome, scan.detail.as_deref()),
+                        remark,
+                    ),
                 });
             }
         }
@@ -1189,9 +1192,6 @@ pub fn peer_listing(owner: HostUid, info: SpacesInfo, route: Option<String>) -> 
     }
 }
 
-/// The typed code for an indeterminate owner-local scan. Same mapping as
-/// `gui_lifecycle::inventory_error`, plus the epoch-mismatch case a listing
-/// can reach and a readiness probe cannot.
 /// The detail a refused unpublished-epoch scan reports, with the advice
 /// that is safe for the state the instance is actually in (plan §5.2;
 /// review report 04 rows C/D). `exclusive_held` is the non-blocking shared
@@ -1297,6 +1297,9 @@ impl IncarnationProbe for LiveIncarnationProbe {
     }
 }
 
+/// The typed code for an indeterminate owner-local scan. Same mapping as
+/// `gui_lifecycle::inventory_error`, plus the epoch-mismatch case a listing
+/// can reach and a readiness probe cannot.
 fn scan_error_code(outcome: &InventoryOutcome) -> ErrorCode {
     match outcome {
         _ if inventory::epoch_changed_detail(outcome).is_some() => ErrorCode::BackendEpochChanged,
@@ -1309,9 +1312,22 @@ fn scan_error_code(outcome: &InventoryOutcome) -> ErrorCode {
     }
 }
 
-/// The same mapping over the wire, where the owner sends only the outcome
-/// tag. An outcome this build does not know is still a failed scan.
-fn peer_scan_error_code(outcome: &str) -> ErrorCode {
+/// The same mapping over the wire, where the owner sends the outcome tag
+/// and its detail. The epoch fault travels in the detail, exactly as the
+/// adapters report it locally (`inventory::epoch_changed_detail`'s prefix
+/// on a `malformed` outcome) and as the owner's resolver reports an
+/// unpublished or stale instance (`unreachable` with the shared
+/// `ManagedTarget` text), so a peer's epoch fault is `BackendEpochChanged`
+/// like the local path's, never the generic `provider_unavailable`
+/// (ADR 012 WS-A.5 remote-agent handoff). An outcome this build does not
+/// know is still a failed scan.
+fn peer_scan_error_code(outcome: &str, detail: Option<&str>) -> ErrorCode {
+    if detail.is_some_and(|detail| {
+        detail.starts_with(inventory::EPOCH_CHANGED_PREFIX)
+            || ManagedTarget::is_epoch_fault_detail(detail)
+    }) {
+        return ErrorCode::BackendEpochChanged;
+    }
     match outcome {
         "auth_failed" => ErrorCode::AuthFailed,
         "host_key_identity_failed" => ErrorCode::HostIdentityChanged,

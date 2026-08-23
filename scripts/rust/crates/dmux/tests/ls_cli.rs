@@ -1500,6 +1500,84 @@ fn scan(backend: Backend, outcome: &str) -> protocol::ScanSummary {
     }
 }
 
+/// A peer's epoch fault is the same typed code as a local one (ADR 012
+/// WS-A.5 remote-agent handoff): the adapters' `backend_epoch_changed:`
+/// detail on a `malformed` scan, and the owner resolver's unpublished and
+/// stale-incarnation texts on an `unreachable` one, all map to
+/// `backend_epoch_changed` in `errors[]`, exactly as `inventory::
+/// epoch_changed_detail` maps them for the local listing — while a plain
+/// `unreachable` stays `provider_unavailable`.
+#[test]
+fn a_peer_epoch_fault_maps_to_backend_epoch_changed_like_the_local_one() {
+    let instance = BackendInstanceUid(Uuid::from_u128(3));
+    let stale = dmux::backend::scope::ManagedTarget::stale_incarnation_detail(
+        Backend::Tmux,
+        instance,
+        &dmux::backend::scope::PublishedIncarnation {
+            epoch: ServerEpoch(Uuid::from_u128(0xe)),
+            pid: Some(4242),
+            start_token: None,
+            socket_dev: None,
+            socket_ino: None,
+        },
+        &dmux::backend::scope::ObservedIncarnation::ProcessDead { pid: 4242 },
+    );
+    let cases = [
+        (
+            "malformed",
+            Some(format!(
+                "{}expected {} observed {}",
+                dmux::inventory::EPOCH_CHANGED_PREFIX,
+                Uuid::from_u128(0xe),
+                Uuid::from_u128(0xf)
+            )),
+            "backend_epoch_changed",
+        ),
+        (
+            "unreachable",
+            Some(dmux::backend::scope::ManagedTarget::unpublished_detail(
+                Backend::Tmux,
+                instance,
+            )),
+            "backend_epoch_changed",
+        ),
+        ("unreachable", Some(stale), "backend_epoch_changed"),
+        (
+            "unreachable",
+            Some("ssh: connect to host archie port 22: timed out".to_string()),
+            "provider_unavailable",
+        ),
+        ("malformed", None, "postcondition_failed"),
+    ];
+    for (outcome, detail, code) in cases {
+        let mut summary = scan(Backend::Tmux, outcome);
+        summary.detail = detail.clone();
+        let listing = ls_cli::peer_listing(
+            HostUid(Uuid::from_u128(2)),
+            protocol::SpacesInfo {
+                spaces: vec![space_info(7, "monitoring", Backend::Tmux, true)],
+                scans: vec![summary],
+            },
+            Some("usb".into()),
+        );
+        assert_eq!(listing.errors.len(), 1, "{outcome} {detail:?}");
+        assert_eq!(
+            listing.errors[0].error.code.as_str(),
+            code,
+            "{outcome} {detail:?}: {:?}",
+            listing.errors[0].error
+        );
+        let ReconRow::Managed(row) = &listing.rows[0] else {
+            panic!("a managed row");
+        };
+        assert_eq!(
+            row.observation,
+            Observation::Unreachable,
+            "{outcome} {detail:?}"
+        );
+    }
+}
+
 /// A peer backend whose scan established nothing leaves that peer's rows
 /// unverified, so it is a partial listing exactly as a local rejection is —
 /// while a determinate `server_stopped` stays a remark and keeps exit 0.

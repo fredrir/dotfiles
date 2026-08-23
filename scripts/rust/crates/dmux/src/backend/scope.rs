@@ -445,6 +445,15 @@ impl ManagedTarget {
         )
     }
 
+    /// Whether `detail` is one of this type's two epoch-fault texts — an
+    /// unpublished or a stale incarnation — as a peer sends it over the
+    /// `spaces` wire in a `ScanSummary` whose outcome tag is only
+    /// `unreachable`. Recognised here, beside the texts, so the wire mapping
+    /// (`ls_cli::peer_scan_error_code`) and the texts cannot drift apart.
+    pub fn is_epoch_fault_detail(detail: &str) -> bool {
+        detail.contains("has published no server epoch") || detail.contains("stale_incarnation")
+    }
+
     /// The refusal every verb reports for a stale incarnation (state F), and
     /// the detail `ls` carries on the instance's `unreachable` rows. The
     /// code is `BackendEpochChanged`: the published epoch is the fault. The
