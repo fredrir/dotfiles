@@ -272,6 +272,7 @@ dmux adopt NATIVE_REF [--name NAME] [--host H]
 dmux repair normalize (SPACE_REF | NATIVE_REF) [--host H] [-y|--yes]
 dmux repair rebind SPACE_REF NATIVE_REF [--host H] [-y|--yes]
 dmux repair reconcile [SPACE_REF...] [--host H] [-y|--yes]
+dmux repair retire-incarnation --backend (wez|tmux) --epoch UUID [--allow-live-pid] [-y|--yes]
 dmux context stamp SPACE_REF
 
 dmux inspect SPACE_REF [--format human|json]
@@ -350,6 +351,18 @@ changes nothing; a pipe without `--yes` exits 5. A rebind that dies mid-flight i
 by the journaled source, destination and epoch — the adoption journal records the source native
 token (registry schema v5, WS-D.2), so a crashed Wez adopt is reversed to its source, never to the
 logical name.
+
+`repair retire-incarnation --backend (wez|tmux) --epoch UUID` (ADR 012 WS-B.3) is an expert,
+confirmed, owner-local clear of a published incarnation whose process is gone — the operator's move
+for instance state F (§5.2) when the managed service will not come back managed. It compares-and-sets
+on the published epoch (`--epoch` must equal the row's published epoch, else `backend_epoch_changed`),
+nulls the published incarnation columns, and advances the authority revision chain so the retirement
+is journaled like a publication. It refuses a still-live published pid without `--allow-live-pid`, a
+mismatching epoch, and any unfinished recovery generation, and it never touches the native server.
+Afterwards the instance resolves as Unpublished (state C) until a managed start or bootstrap publishes
+a fresh epoch. A managed start performs the same retirement itself before publishing (ADR 012
+WS-B.3: `recovery::publish_incarnation_if_needed`), so the verb is needed only when no managed
+start will come. `dmux recovery abort` keeps its own meaning.
 
 
 ## 8. Resolution and creation policy

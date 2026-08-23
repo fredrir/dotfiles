@@ -871,3 +871,13 @@ last open item), the before-repair doctor evidence for Macie (`6f4e7f2`), the pr
 (`c95cd62`), and the docs for migrate/`--row`/enablement/legacy path/retire-incarnation/rebind/A–F.
 Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
 
+
+- **reader (WS-G.3) — closed 2026-08-23.** 22/22 correct and traceable; the artifact is
+  `docs/adr/dmux/reader-test-p11.md` (protocol, question set, the reader's answers verbatim, the
+  grading table). The reader — a fresh subagent with no conversation context — worked only from the
+  plan and `docs/adr/dmux/**` (it names the plan, ADRs 003/010/012, report 04 and
+  `evidence/spike3-gui-bridge.md`), 26 tool uses, 372 s. Every phrase it quoted was found at the
+  section it cited (42 of 42). One finding against the docs rather than the reader: the plan's §7.1
+  grammar block never received the `repair retire-incarnation` line this log recorded as the "§7.1
+  grammar addition", and §7.4 had no rule paragraph for it; both are added in the same commit. The
+  §18/§22 fresh-context reader-test gate is met.
