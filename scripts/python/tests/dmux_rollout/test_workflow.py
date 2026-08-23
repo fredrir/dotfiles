@@ -267,6 +267,8 @@ def test_runtime_dir_growth_names_only_new_entries(tmp_path):
     (live / "backend_1.lock").write_text("")
     (live / "bridge" / "key").write_text("k")
     (live / "wez-dmux.json").unlink()
+    # A live GUI's atomic heartbeat rewrite is not the suite's doing.
+    (live / "bridge" / ".tmp-3f1c2d4e-0000-4000-8000-000000000000").write_text("{}")
     after = Workflow._runtime_dir_entries(live)
     assert Workflow._runtime_dir_growth(before, after) == ["backend_1.lock", "bridge/key"]
     assert Workflow._runtime_dir_entries(tmp_path / "absent") == []

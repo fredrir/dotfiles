@@ -425,10 +425,20 @@ class Workflow:
 
     @staticmethod
     def _runtime_dir_entries(root: Path) -> list[str]:
-        """Every path beneath `root`, relative and sorted; empty if absent."""
+        """Every durable path beneath `root`, relative and sorted; empty if absent.
+
+        Atomic-write temporaries (`.tmp-<uuid>`, the shape the bridge and the
+        descriptor publisher use before `rename`) are skipped: a live GUI
+        rewrites its heartbeat every few seconds, and a snapshot taken
+        mid-write would otherwise blame the suite for the GUI's own file.
+        """
         if not root.is_dir():
             return []
-        return sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+        return sorted(
+            str(path.relative_to(root))
+            for path in root.rglob("*")
+            if not path.name.startswith(".tmp-")
+        )
 
     def _remote_runtime_dir_entries(self, host: str, root: Path) -> list[str]:
         """`_runtime_dir_entries` over ssh; an absent directory lists nothing."""

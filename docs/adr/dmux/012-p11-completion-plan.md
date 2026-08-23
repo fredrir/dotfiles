@@ -1204,3 +1204,12 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   activation. Regression case in `tests/presentation.lua` (transient foreign pane presents once
   in-domain; persistent one is refused at the deadline as a mismatch). This changes `shared/wezterm`
   (a managed path), so r9 is planned at the fixing commit and the full sequence runs again.
+- **r9 = `20260823-f11650d-b9d8dfae-r9` — both hosts deployed.** `build`: the first run was stopped
+  by the tool's own live-dir growth guard on a false positive — the one new entry was the resident
+  GUI's heartbeat being written atomically (`bridge/instances/…/.tmp-<uuid>`) at the instant of the
+  snapshot; the guard now ignores `.tmp-*` atomic-write temporaries (unit test extended; tool
+  63/0); resumed build 1131/0/1, live dir unchanged. `stage-archie`: Archie suite 1176/0/1,
+  packages, rollback archives from r5's journal; owner's pacman reinstall; `resume` → Archie ready
+  (pid 525677, epoch `e2775da4…`, sentinel-only). `deploy-mac` → Mac ready (pid 23037, epoch
+  `fdeae141…`, doctor E), the detached GUI r8's verify had left was retired by the tool. Phase
+  `deployed`, 17 checkpoints. `verify` started.
