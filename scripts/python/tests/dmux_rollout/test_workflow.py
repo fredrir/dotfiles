@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tools.dmux_rollout import model as rollout_model
 from tools.dmux_rollout import service_env
 from tools.dmux_rollout.command import Result, Runner, remote_argv
 from tools.dmux_rollout.errors import CommandError, Refusal, StateError
@@ -997,3 +998,187 @@ def test_doctor_verdicts_are_read_from_the_probe_and_states_are_opaque():
     ]
     with pytest.raises(Refusal, match="did not return a doctor document"):
         Workflow._require_doctor_document({"action": "ls", "result": {}}, "Mac")
+
+
+# Canary (plan §21 step 7 as amended) -----------------------------------------
+
+
+def _deployed_mac_release(tmp_path, store, workflow):
+    item = release(tmp_path)
+    with store.exclusive():
+        store.create(item)
+        item.set_phase("verified")
+        workflow._checkpoint(item, "deploy.mac.service", {"pid": 1, "epoch": "e"})
+        store.save(item)
+    return item
+
+
+def _clock(monkeypatch, start="2026-08-23T10:00:00Z"):
+    now = {"at": start}
+    monkeypatch.setattr(rollout_model, "utc_now", lambda: now["at"])
+    return now
+
+
+def test_canary_start_needs_a_durable_flag_and_records_the_wall_clock_floor(tmp_path, monkeypatch):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = _deployed_mac_release(tmp_path, store, workflow)
+    _clock(monkeypatch)
+
+    fake.doctor_ok, fake.doctor_detail = False, RUNTIME_ONLY
+    with store.exclusive(), pytest.raises(Refusal, match="not durably Wez-first.*runtime-only"):
+        workflow.canary_start(item, "mac")
+    assert "canary.mac.start" not in item.checkpoints
+    fake.doctor_ok, fake.doctor_detail = True, NO_PREFERENCE
+    with store.exclusive(), pytest.raises(Refusal, match="no preference stated"):
+        workflow.canary_start(item, "mac")
+
+    fake.doctor_detail = DURABLE_WEZ_FIRST
+    with store.exclusive():
+        workflow.canary_start(item, "mac")
+        workflow.canary_start(item, "mac")  # idempotent
+
+    row = item.checkpoints["canary.mac.start"]["evidence"]
+    assert row["started_at"] == "2026-08-23T10:00:00Z"
+    assert row["floor_at"] == "2026-08-24T10:00:00Z"
+    assert row["owner"]["pid"] == fake.pid
+    assert row["owner"]["doctor"]["artifact"].endswith("doctor/canary.mac.start.owner-mac.json")
+    assert item.phase == "canary_mac"
+    with store.exclusive(), pytest.raises(Refusal, match="needs completed checkpoint"):
+        workflow.canary_start(item, "archie")
+    with pytest.raises(StateError, match="unknown host"):
+        workflow.canary_start(item, "macie")
+
+
+def test_canary_end_refuses_before_the_floor_and_names_the_remaining_time(tmp_path, monkeypatch):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = _deployed_mac_release(tmp_path, store, workflow)
+    now = _clock(monkeypatch)
+    with store.exclusive():
+        workflow.canary_start(item, "mac")
+
+    now["at"] = "2026-08-24T09:30:00Z"
+    with (
+        store.exclusive(),
+        pytest.raises(Refusal, match=r"floor ends at 2026-08-24T10:00:00Z \(0:30:00 remaining"),
+    ):
+        workflow.canary_end(item, "mac")
+    assert "canary.mac.end" not in item.checkpoints
+
+    now["at"] = "2026-08-24T12:00:00Z"
+    with store.exclusive():
+        workflow.canary_end(item, "mac")
+    row = item.checkpoints["canary.mac.end"]["evidence"]
+    assert row["ended_at"] == "2026-08-24T12:00:00Z"
+    assert row["elapsed_hours"] == 26.0
+    assert row["reboots"] == []
+    assert row["start_owner"]["pid"] == row["owner"]["pid"] == fake.pid
+    assert row["owner"]["doctor"]["artifact"].endswith("canary.mac.end.owner-mac.json")
+    assert row["start_owner"]["doctor"]["artifact"].endswith("canary.mac.start.owner-mac.json")
+
+
+def test_canary_end_refuses_an_unrecorded_restart_and_accepts_a_journaled_reboot(
+    tmp_path, monkeypatch
+):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = _deployed_mac_release(tmp_path, store, workflow)
+    now = _clock(monkeypatch)
+    with store.exclusive():
+        workflow.canary_start(item, "mac")
+        with pytest.raises(Refusal, match="has not restarted since canary.mac.start"):
+            workflow.canary_reboot_observed(item, "mac")
+
+    fake.restart()
+    now["at"] = "2026-08-24T12:00:00Z"
+    with store.exclusive(), pytest.raises(Refusal, match="restarted without a recorded reboot"):
+        workflow.canary_end(item, "mac")
+
+    with store.exclusive():
+        assert workflow.canary_reboot_observed(item, "mac") == "canary.mac.reboot.1"
+    reboot = item.checkpoints["canary.mac.reboot.1"]["evidence"]
+    assert reboot["enablement_survived"] is True
+    assert reboot["before_incarnation"]["pid"] == fake.pid - 1
+    assert reboot["owner"]["pid"] == fake.pid
+    assert reboot["owner"]["doctor"]["artifact"].endswith("canary.mac.reboot.1.owner-mac.json")
+
+    # A second restart after the journaled one is again unexplained.
+    fake.restart()
+    with store.exclusive(), pytest.raises(Refusal, match="canary.mac.reboot.1 saw pid"):
+        workflow.canary_end(item, "mac")
+    with store.exclusive():
+        assert workflow.canary_reboot_observed(item, "mac") == "canary.mac.reboot.2"
+        workflow.canary_end(item, "mac")
+    assert item.checkpoints["canary.mac.end"]["evidence"]["reboots"] == [
+        "canary.mac.reboot.1",
+        "canary.mac.reboot.2",
+    ]
+
+
+def test_canary_records_a_reboot_that_lost_enablement_and_then_refuses_to_end(
+    tmp_path, monkeypatch
+):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = _deployed_mac_release(tmp_path, store, workflow)
+    now = _clock(monkeypatch)
+    with store.exclusive():
+        workflow.canary_start(item, "mac")
+    fake.restart()
+    fake.doctor_ok, fake.doctor_detail = False, RUNTIME_ONLY
+    with store.exclusive():
+        workflow.canary_reboot_observed(item, "mac")
+    assert item.checkpoints["canary.mac.reboot.1"]["evidence"]["enablement_survived"] is False
+
+    now["at"] = "2026-08-25T10:00:00Z"
+    with store.exclusive(), pytest.raises(Refusal, match="not durably Wez-first"):
+        workflow.canary_end(item, "mac")
+    fake.doctor_ok, fake.doctor_detail = True, DURABLE_WEZ_FIRST
+    with store.exclusive(), pytest.raises(Refusal, match="did not survive canary.mac.reboot.1"):
+        workflow.canary_end(item, "mac")
+
+
+def test_canary_end_refuses_a_stale_incarnation_named_by_doctor(tmp_path, monkeypatch):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = _deployed_mac_release(tmp_path, store, workflow)
+    now = _clock(monkeypatch)
+    with store.exclusive():
+        workflow.canary_start(item, "mac")
+    now["at"] = "2026-08-25T10:00:00Z"
+    fake.doctor_extra = {"backend_instances": [{"backend": "wez", "state": "F"}]}
+    with store.exclusive(), pytest.raises(Refusal, match=r"stale incarnation.*\['F'\]"):
+        workflow.canary_end(item, "mac")
+    fake.doctor_extra = {"backend_instances": [{"backend": "wez", "state": "E"}]}
+    with store.exclusive():
+        workflow.canary_end(item, "mac")
+    assert item.checkpoints["canary.mac.end"]["evidence"]["backend_instance_states"] == ["E"]
+
+
+def test_archie_canary_uses_the_archie_owner_snapshot_and_phase(tmp_path, monkeypatch):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = _deployed_mac_release(tmp_path, store, workflow)
+    _clock(monkeypatch)
+    calls = []
+
+    def archie_owner(release, *, approved_spaces, require_quiet, **_):
+        calls.append(sorted(approved_spaces))
+        return {
+            "host": "archie",
+            "pid": 957,
+            "epoch": "e",
+            "backend_instance_uid": "28916e16",
+            "doctor": fake.doctor_document(),
+        }
+
+    workflow._archie_owner_snapshot = archie_owner
+    item.data["smoke"]["remote"] = {"space_uid": "33333333-3333-4333-8333-333333333333"}
+    with store.exclusive():
+        workflow._checkpoint(item, "deploy.archie.service", {"pid": 1, "epoch": "e"})
+        workflow.canary_start(
+            item, "archie", approved_spaces={"44444444-4444-4444-8444-444444444444"}
+        )
+
+    assert item.phase == "canary_arch"
+    assert calls == [
+        ["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"]
+    ]
+    assert (
+        item.checkpoints["canary.archie.start"]["evidence"]["owner"]["doctor"]["artifact"]
+    ).endswith("canary.archie.start.owner-archie.json")

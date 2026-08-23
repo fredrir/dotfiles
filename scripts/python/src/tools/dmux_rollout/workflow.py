@@ -11,10 +11,11 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools.dmux_rollout import model as rollout_model
 from tools.dmux_rollout import service_env
 from tools.dmux_rollout.command import Runner, remote_argv, require_ssh_host, sha256_file
 from tools.dmux_rollout.errors import Refusal, RolloutError, StateError
@@ -43,6 +44,12 @@ ARCHIE_MUX_UNIT = "wezterm-mux.service"
 # is tracked; linking and bootstrapping it is the operator's step, never
 # this tool's, which is why deploy-mac refuses when it is absent.
 MAC_ENV_LOADER_LABEL = "com.fredrir.dmux-env"
+HOSTS = ("mac", "archie")
+CANARY_PHASE = {"mac": "canary_mac", "archie": "canary_arch"}
+# Plan §21 step 7: 24-48 h per host, measured on the wall clock from the
+# journaled start (model.utc_now), never from a monotonic clock that a
+# reboot -- itself part of the canary -- would reset.
+CANARY_FLOOR = timedelta(hours=24)
 AMBIENT_MUX_VARS = (
     "TMUX",
     "TMUX_PANE",
@@ -2871,6 +2878,219 @@ class Workflow:
             "verify.two_host",
             {"gui": detached, "owner": final_owner},
         )
+
+    # Canary (plan §21 step 7 as amended; ADR 012 WS-G.4) -----------------
+
+    @staticmethod
+    def _require_host(host: str) -> str:
+        if host not in HOSTS:
+            raise StateError(f"unknown host {host!r}; expected one of {', '.join(HOSTS)}")
+        return host
+
+    @staticmethod
+    def _parse_utc(text: str) -> datetime:
+        try:
+            moment = datetime.fromisoformat(text)
+        except ValueError as error:
+            raise StateError(f"journaled timestamp is not ISO-8601 UTC: {text!r}") from error
+        if moment.tzinfo is None:
+            raise StateError(f"journaled timestamp lacks a zone: {text!r}")
+        return moment.astimezone(UTC)
+
+    @staticmethod
+    def _format_utc(moment: datetime) -> str:
+        return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    def _host_spaces(self, release: Release, host: str) -> set[str]:
+        """The Spaces this release itself created on `host`."""
+        smoke = release.data["smoke"]
+        rows = [smoke, smoke.get("removal", {})] if host == "mac" else [smoke.get("remote", {})]
+        return {row["space_uid"] for row in rows if isinstance(row, dict) and row.get("space_uid")}
+
+    def _owner_snapshot(
+        self, release: Release, host: str, *, approved_spaces: set[str], require_quiet: bool
+    ) -> dict[str, Any]:
+        if host == "mac":
+            return self._mac_owner_snapshot(
+                approved_spaces=approved_spaces, require_quiet=require_quiet
+            )
+        return self._archie_owner_snapshot(
+            release, approved_spaces=approved_spaces, require_quiet=require_quiet
+        )
+
+    def _canary_snapshot(
+        self, release: Release, host: str, approved_spaces: set[str] | None
+    ) -> tuple[dict[str, Any], str]:
+        """A live owner snapshot whose doctor document proves durable Wez-first."""
+        approved = self._host_spaces(release, host) | set(approved_spaces or ())
+        snapshot = self._owner_snapshot(
+            release, host, approved_spaces=approved, require_quiet=False
+        )
+        durable, detail = self._doctor_wez_first(snapshot["doctor"])
+        if not durable:
+            raise Refusal(
+                f"{host} is not durably Wez-first: {detail}. The canary runs under the per-host "
+                "env file (ADR 012 WS-F.1), not a runtime-only export; repair that first"
+            )
+        return snapshot, detail
+
+    @staticmethod
+    def _same_incarnation(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        return left["pid"] == right["pid"] and left["epoch"] == right["epoch"]
+
+    def _canary_reboots(self, release: Release, host: str) -> list[tuple[str, dict[str, Any]]]:
+        prefix = f"canary.{host}.reboot."
+        rows = [
+            (name, row["evidence"])
+            for name, row in release.checkpoints.items()
+            if name.startswith(prefix) and name[len(prefix) :].isdigit()
+        ]
+        return sorted(rows, key=lambda item: int(item[0][len(prefix) :]))
+
+    def canary_start(
+        self, release: Release, host: str, *, approved_spaces: set[str] | None = None
+    ) -> Release:
+        self._require_host(host)
+        name = f"canary.{host}.start"
+        if release.phase == "rolled_back":
+            raise Refusal("a rolled-back release cannot start a canary; plan a new release")
+        if not release.completed(f"deploy.{host}.service"):
+            raise Refusal(f"the {host} canary needs completed checkpoint deploy.{host}.service")
+        if not release.completed(name):
+            snapshot, detail = self._canary_snapshot(release, host, approved_spaces)
+            started = self._parse_utc(rollout_model.utc_now())
+            self._checkpoint(
+                release,
+                name,
+                {
+                    "host": host,
+                    "started_at": self._format_utc(started),
+                    "floor_at": self._format_utc(started + CANARY_FLOOR),
+                    "floor_hours": CANARY_FLOOR.total_seconds() / 3600,
+                    "wez_first": detail,
+                    "owner": snapshot,
+                },
+            )
+        release.advance_phase(CANARY_PHASE[host])
+        self.store.save(release)
+        return release
+
+    def canary_reboot_observed(
+        self, release: Release, host: str, *, approved_spaces: set[str] | None = None
+    ) -> str:
+        """Journal a reboot the operator performed inside the canary window.
+
+        A reboot is part of the canary, not a reset of it: the entry records
+        the new incarnation and whether enablement survived. It is the only
+        way a pid/epoch change is acceptable at canary-end.
+        """
+        self._require_host(host)
+        start = release.checkpoints.get(f"canary.{host}.start")
+        if start is None:
+            raise Refusal(f"no {host} canary has started")
+        if release.completed(f"canary.{host}.end"):
+            raise Refusal(f"the {host} canary has already ended")
+        approved = self._host_spaces(release, host) | set(approved_spaces or ())
+        snapshot = self._owner_snapshot(
+            release, host, approved_spaces=approved, require_quiet=False
+        )
+        reboots = self._canary_reboots(release, host)
+        previous_name, previous = (
+            reboots[-1] if reboots else (f"canary.{host}.start", start["evidence"])
+        )
+        before = previous["owner"]
+        if snapshot["backend_instance_uid"] != before["backend_instance_uid"]:
+            raise Refusal(
+                f"{host} backend instance changed since {previous_name}: "
+                f"{before['backend_instance_uid']} -> {snapshot['backend_instance_uid']}"
+            )
+        if self._same_incarnation(snapshot, before):
+            raise Refusal(
+                f"the {host} mux has not restarted since {previous_name} "
+                f"(pid {before['pid']}, epoch {before['epoch']}); nothing to record"
+            )
+        survived, detail = self._doctor_wez_first(snapshot["doctor"])
+        name = f"canary.{host}.reboot.{len(reboots) + 1}"
+        self._checkpoint(
+            release,
+            name,
+            {
+                "host": host,
+                "observed_at": rollout_model.utc_now(),
+                "after": previous_name,
+                "before_incarnation": {"pid": before["pid"], "epoch": before["epoch"]},
+                "enablement_survived": survived,
+                "wez_first": detail,
+                "owner": snapshot,
+            },
+        )
+        return name
+
+    def canary_end(
+        self, release: Release, host: str, *, approved_spaces: set[str] | None = None
+    ) -> Release:
+        self._require_host(host)
+        start = release.checkpoints.get(f"canary.{host}.start")
+        if start is None:
+            raise Refusal(f"no {host} canary has started")
+        name = f"canary.{host}.end"
+        if release.completed(name):
+            return release
+        evidence = start["evidence"]
+        now = self._parse_utc(rollout_model.utc_now())
+        floor = self._parse_utc(evidence["floor_at"])
+        if now < floor:
+            raise Refusal(
+                f"the {host} canary's {CANARY_FLOOR.total_seconds() / 3600:g} h floor ends at "
+                f"{evidence['floor_at']} ({floor - now} remaining; started "
+                f"{evidence['started_at']})"
+            )
+        snapshot, detail = self._canary_snapshot(release, host, approved_spaces)
+        states = self._doctor_states(snapshot["doctor"])
+        if states is not None and "F" in states:
+            raise Refusal(
+                f"{host} doctor reports a stale incarnation (instance states {states}); the "
+                "registry names a process that is not the live mux (plan §5.2 state F)"
+            )
+        reboots = self._canary_reboots(release, host)
+        last_name, last = reboots[-1] if reboots else (f"canary.{host}.start", evidence)
+        start_owner = evidence["owner"]
+        if snapshot["backend_instance_uid"] != start_owner["backend_instance_uid"]:
+            raise Refusal(
+                f"{host} backend instance changed during the canary: "
+                f"{start_owner['backend_instance_uid']} -> {snapshot['backend_instance_uid']}"
+            )
+        if not self._same_incarnation(snapshot, last["owner"]):
+            raise Refusal(
+                f"the {host} mux restarted without a recorded reboot: {last_name} saw pid "
+                f"{last['owner']['pid']} epoch {last['owner']['epoch']}, now pid "
+                f"{snapshot['pid']} epoch {snapshot['epoch']}. Run "
+                f"`dmux-rollout canary-reboot-observed --host {host}` after an in-canary "
+                "reboot; an unexplained restart ends the canary in rollback, not here"
+            )
+        failed = [reboot_name for reboot_name, row in reboots if not row["enablement_survived"]]
+        if failed:
+            raise Refusal(
+                f"enablement did not survive {', '.join(failed)}; the {host} canary has failed"
+            )
+        ended = {
+            "host": host,
+            "started_at": evidence["started_at"],
+            "floor_at": evidence["floor_at"],
+            "ended_at": self._format_utc(now),
+            "elapsed_hours": round(
+                (now - self._parse_utc(evidence["started_at"])).total_seconds() / 3600, 3
+            ),
+            "reboots": [reboot_name for reboot_name, _ in reboots],
+            "wez_first": detail,
+            "start_owner": start_owner,
+            "owner": snapshot,
+        }
+        if states is not None:
+            ended["backend_instance_states"] = states
+        self._checkpoint(release, name, ended)
+        self.store.save(release)
+        return release
 
     # Rollback -------------------------------------------------------------
 

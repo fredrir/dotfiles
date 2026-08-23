@@ -220,6 +220,89 @@ def rollback(ctx: typer.Context):
     _summary(release)
 
 
+def _host_option() -> str:
+    return typer.Option(..., "--host", help="mac or archie")
+
+
+@app.command(
+    "canary-start",
+    help=(
+        "Start the 24-48 h Wez-first canary on one host: dmux doctor must prove the flag is "
+        "durable (env file loaded into launchd/systemd), the owner snapshot is journaled with "
+        "the wall-clock floor, and the phase becomes canary_<host>."
+    ),
+)
+def canary_start(
+    ctx: typer.Context,
+    host: str = _host_option(),
+    approve_space: list[str] = typer.Option([], "--approve-space"),
+):
+    context: Context = ctx.obj
+    release = _locked(
+        context,
+        lambda: context.workflow.canary_start(
+            _load(context), host, approved_spaces=set(approve_space)
+        ),
+    )
+    _summary(release)
+    row = release.checkpoints[f"canary.{host}.start"]["evidence"]
+    typer.echo(f"canary {host}: started {row['started_at']}, floor ends {row['floor_at']}")
+
+
+@app.command(
+    "canary-reboot-observed",
+    help=(
+        "Journal a reboot performed inside the canary window: records the new incarnation, "
+        "the new dmux doctor document, and whether enablement survived."
+    ),
+)
+def canary_reboot_observed(
+    ctx: typer.Context,
+    host: str = _host_option(),
+    approve_space: list[str] = typer.Option([], "--approve-space"),
+):
+    context: Context = ctx.obj
+
+    def action() -> tuple[Release, str]:
+        release = _load(context)
+        name = context.workflow.canary_reboot_observed(
+            release, host, approved_spaces=set(approve_space)
+        )
+        return release, name
+
+    release, name = _locked(context, action)
+    row = release.checkpoints[name]["evidence"]
+    verdict = "survived" if row["enablement_survived"] else "DID NOT SURVIVE"
+    typer.echo(f"{name}: enablement {verdict} the reboot ({row['wez_first']})")
+
+
+@app.command(
+    "canary-end",
+    help=(
+        "End the canary on one host once the 24 h wall-clock floor has passed: re-snapshots the "
+        "ready owner under the same backend instance (a restart needs a journaled reboot) and "
+        "records canary.<host>.end with both snapshots."
+    ),
+)
+def canary_end(
+    ctx: typer.Context,
+    host: str = _host_option(),
+    approve_space: list[str] = typer.Option([], "--approve-space"),
+):
+    context: Context = ctx.obj
+    release = _locked(
+        context,
+        lambda: context.workflow.canary_end(
+            _load(context), host, approved_spaces=set(approve_space)
+        ),
+    )
+    _summary(release)
+    row = release.checkpoints[f"canary.{host}.end"]["evidence"]
+    typer.echo(
+        f"canary {host}: {row['elapsed_hours']} h, {len(row['reboots'])} journaled reboot(s)"
+    )
+
+
 @app.command(help="Show the active release and completed checkpoints.")
 def status(
     ctx: typer.Context,
