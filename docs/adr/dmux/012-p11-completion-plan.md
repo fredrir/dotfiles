@@ -1213,3 +1213,15 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   (pid 525677, epoch `e2775da4…`, sentinel-only). `deploy-mac` → Mac ready (pid 23037, epoch
   `fdeae141…`, doctor E), the detached GUI r8's verify had left was retired by the tool. Phase
   `deployed`, 17 checkpoints. `verify` started.
+- **r9 `verify` passed → `verified`; Macie canary started → `canary_mac`.** Checkpoints
+  `verify.{smoke_identity,cold_present,reconnect,lifecycle,lifecycle.intent,lifecycle.keybinding,
+  recovery.intent,recovery,removal_created,removal,two_host_identity,two_host}` all at 06:17Z — the
+  keybinding step that refused r8 passed against the bridge fix; recovery restarted the Mac mux
+  (now pid 24048) and restored the smoke Space. `canary-start --host mac` at 06:18:11Z journaled
+  the durable-flag proof and the owner snapshot; the 24 h wall-clock floor clears at 2026-08-24
+  06:18Z. Remaining for WS-G.4/5/7: a reboot inside the window (`canary-reboot-observed --host
+  mac`), `canary-end --host mac` after the floor, `rollback-rehearsal --host mac`, Archie's canary
+  (`canary-start --host archie`, owner's call), WS-G.5 USB→Tailscale with the owner present, then
+  WS-G.7 the flip. Deferred, recorded above: the fork-side descriptor relocation, `LC_CTYPE` for
+  the forced-command environment, `repair reconcile|normalize --host`, the doctor `wezterm cli`
+  relabel, the `wezterm-attention` plugin's remote-window poll.
