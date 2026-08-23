@@ -488,28 +488,41 @@ impl<R: TmuxRunner> TmuxProvider<R> {
 
     /// Managed handle/child operations require the caller-held epoch: an
     /// unepoched server is listable but its children are unaddressable.
+    /// Reads included — a managed read without a pin is equally unverified
+    /// (ADR 012 WS-A.13).
     fn required_epoch(scope: &InventoryScope) -> ProviderResult<ServerEpoch> {
         scope.expected_epoch().ok_or(ProviderError::WrongInstance {
-            detail: "managed tmux mutation requires a managed scope carrying the published server epoch; \
+            detail: "managed tmux operation requires a managed scope carrying the published server epoch; \
                      an unepoched server has no addressable children (plan §11.2)"
                 .into(),
         })
     }
 
-    /// Cross-check a stale binding against the caller's scope before use.
+    /// The pin for a binding-bearing verb (`prepare_presentation`, `rename`,
+    /// `remove`, `group_list`, `group_new`, `inspect`): the scope's published
+    /// epoch, cross-checked against the binding before any command. An
+    /// unpinned scope refuses `WrongInstance` exactly like
+    /// [`Self::required_epoch`] — the binding's own `server_epoch` is never
+    /// the pin, because the caller used to synthesise that binding from the
+    /// live scan and the fence then compared the server against itself
+    /// (ADR 012 WS-A.8, review findings #5/#18). Since the registry half of
+    /// WS-A.8 the binding carries the registry's recorded epoch, so a
+    /// binding whose epoch is not the pin is a session id minted under
+    /// another incarnation: `EpochChanged`, no command (plan §11.2
+    /// "restarted state invalidates prior child refs"). Returns the pin,
+    /// which is what every later `check_epoch` is held to.
     fn binding_epoch(
         scope: &InventoryScope,
         binding: &NativeBinding,
     ) -> ProviderResult<ServerEpoch> {
-        if let Some(expected) = scope.expected_epoch()
-            && expected != binding.server_epoch
-        {
+        let expected = Self::required_epoch(scope)?;
+        if binding.server_epoch != expected {
             return Err(ProviderError::EpochChanged {
                 expected,
                 observed: Some(binding.server_epoch),
             });
         }
-        Ok(binding.server_epoch)
+        Ok(expected)
     }
 
     fn scope_check(scope: &InventoryScope) -> ProviderResult<()> {
@@ -3113,6 +3126,85 @@ mod tests {
             other => panic!("expected epoch_changed, got {other:?}"),
         }
         assert!(runner.calls.borrow().is_empty());
+    }
+
+    // -- WS-A.8: binding-bearing verbs take the pin, never the binding's word
+
+    /// Every verb fenced by `binding_epoch`, driven with one scope and one
+    /// binding. `group_new` was the review's live proof of finding #5; the
+    /// other five had call-chain proof only (report 08 §7) and are WS-E.2's
+    /// executable reproductions, inverted.
+    fn drive_binding_verbs(
+        p: &TmuxProvider<&ScriptedRunner>,
+        scope: &InventoryScope,
+        binding: &NativeBinding,
+    ) -> Vec<(&'static str, ProviderResult<()>)> {
+        let spec = CreateSpec {
+            native_token: "build".into(),
+            cwd: None,
+            bootstrap_argv: vec!["/bin/sh".into(), "-c".into(), "sleep 30".into()],
+        };
+        vec![
+            (
+                "prepare_presentation",
+                p.prepare_presentation(scope, binding, None).map(|_| ()),
+            ),
+            ("rename", p.rename(scope, binding, "renamed")),
+            ("remove", p.remove(scope, binding)),
+            ("group_list", p.group_list(scope, binding).map(|_| ())),
+            ("group_new", p.group_new(scope, binding, &spec).map(|_| ())),
+            ("inspect", p.inspect(scope, binding).map(|_| ())),
+        ]
+    }
+
+    /// Review finding #5 inverted: `binding_epoch` answered the binding's
+    /// own epoch on an unpinned scope, so a binding synthesised from the live
+    /// scan (finding #18) fenced the server against its own word. Now the
+    /// unpinned scope is refused as `WrongInstance` with no tmux command,
+    /// for all six verbs.
+    #[test]
+    fn binding_verbs_refuse_an_unpinned_scope_before_any_command() {
+        let runner = ScriptedRunner::new(vec![]);
+        let p = provider(&runner);
+        for (verb, result) in drive_binding_verbs(&p, &scope(None), &binding()) {
+            match result {
+                Err(ProviderError::WrongInstance { detail }) => {
+                    assert!(detail.contains("managed scope"), "{verb}: {detail}");
+                }
+                other => {
+                    panic!("{verb} on an unpinned scope must be WrongInstance, got {other:?}")
+                }
+            }
+        }
+        assert!(runner.calls.borrow().is_empty(), "no tmux command");
+    }
+
+    /// A binding recorded under E1 (`binding()`), scope pinned to E2: a
+    /// session id from a previous incarnation (plan §11.2). Every verb
+    /// refuses `EpochChanged { expected: E2, observed: E1 }` with no tmux
+    /// command; on the pin, the pin is what the verb is held to.
+    #[test]
+    fn binding_verbs_refuse_a_binding_recorded_under_another_incarnation_before_any_command() {
+        let runner = ScriptedRunner::new(vec![]);
+        let p = provider(&runner);
+        let pin = ServerEpoch(Uuid::from_u128(0xe2));
+        for (verb, result) in drive_binding_verbs(&p, &scope(Some(pin)), &binding()) {
+            match result {
+                Err(ProviderError::EpochChanged { expected, observed }) => {
+                    assert_eq!(expected, pin, "{verb}");
+                    assert_eq!(observed, Some(ServerEpoch(EPOCH)), "{verb}");
+                }
+                other => {
+                    panic!("{verb} with a binding off the pin must be EpochChanged, got {other:?}")
+                }
+            }
+        }
+        assert!(runner.calls.borrow().is_empty(), "no tmux command");
+        assert_eq!(
+            TmuxProvider::<&ScriptedRunner>::binding_epoch(&epoched_scope(), &binding()).unwrap(),
+            ServerEpoch(EPOCH),
+            "on the pin, the pin is returned — never the binding's own word"
+        );
     }
 
     // -- markers ------------------------------------------------------------

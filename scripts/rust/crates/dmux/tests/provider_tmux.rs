@@ -483,6 +483,106 @@ fn child_create_verifies_epoch_and_rejects_mismatch() {
     assert_eq!(split_handles, vec![&binding.root_split, &split]);
 }
 
+/// ADR 012 WS-A.8 / WS-E.2 (review finding #5; report 08 §7): the five
+/// `binding_epoch`-fenced verbs the review could prove only by call chain,
+/// driven against a real server that was RESTARTED behind the binding. The
+/// binding was minted under E1; the namespace is then served by a fresh
+/// incarnation at E2 that recycles the same session name and — ids restart
+/// from `$0` — the same session id. Pinned to E2, every verb refuses
+/// `EpochChanged { expected: E2, observed: E1 }`; unpinned, every verb
+/// refuses `WrongInstance` (the binding's own epoch used to be the pin, so
+/// the server was fenced against its own word). Either way the impostor is
+/// untouched: same sessions, same names, same windows. The same session id
+/// re-recorded under E2 — what `dmux repair rebind` produces — is served.
+#[test]
+fn binding_verbs_refuse_a_binding_from_a_previous_incarnation_on_a_real_server() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::new();
+    srv.start_with_holder();
+    let e1 = fresh_epoch();
+    srv.set_epoch(e1);
+    let provider = srv.provider();
+    let binding = provider
+        .create(
+            &srv.scope(Some(e1)),
+            &CreateSpec {
+                native_token: "proj".into(),
+                cwd: None,
+                bootstrap_argv: bootstrap_argv(),
+            },
+        )
+        .expect("create");
+
+    // Restart the namespace: a fresh incarnation, the same session name,
+    // the same session id.
+    srv.tmux_ok(&["kill-server"]);
+    srv.start_with_holder();
+    let (sid, _, _) = srv.spawn_session("proj");
+    assert_eq!(
+        sid, binding.native_token,
+        "the impostor recycles the session id"
+    );
+    let e2 = fresh_epoch();
+    srv.set_epoch(e2);
+    let snapshot = || {
+        (
+            srv.tmux_ok(&["list-sessions", "-F", "#{session_id}|#{session_name}"]),
+            srv.tmux_ok(&["list-windows", "-a", "-F", "#{window_id}"]),
+        )
+    };
+    let before = snapshot();
+
+    let drive = |scope: &InventoryScope| -> Vec<(&'static str, Result<(), ProviderError>)> {
+        vec![
+            (
+                "prepare_presentation",
+                provider
+                    .prepare_presentation(scope, &binding, None)
+                    .map(|_| ()),
+            ),
+            ("rename", provider.rename(scope, &binding, "renamed")),
+            ("remove", provider.remove(scope, &binding)),
+            (
+                "group_list",
+                provider.group_list(scope, &binding).map(|_| ()),
+            ),
+            ("inspect", provider.inspect(scope, &binding).map(|_| ())),
+        ]
+    };
+    for (verb, result) in drive(&srv.scope(Some(e2))) {
+        match result {
+            Err(ProviderError::EpochChanged { expected, observed }) => {
+                assert_eq!(expected, e2, "{verb}");
+                assert_eq!(observed, Some(e1), "{verb}");
+            }
+            other => panic!("{verb}: expected epoch_changed, got {other:?}"),
+        }
+    }
+    for (verb, result) in drive(&srv.scope(None)) {
+        match result {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.contains("managed scope"), "{verb}: {detail}");
+            }
+            other => panic!("{verb}: expected wrong_instance, got {other:?}"),
+        }
+    }
+    assert_eq!(snapshot(), before, "the impostor was never touched");
+
+    // Positive control: the id re-recorded under the live incarnation.
+    let rebound = NativeBinding {
+        server_epoch: e2,
+        ..binding.clone()
+    };
+    let row = provider
+        .inspect(&srv.scope(Some(e2)), &rebound)
+        .expect("inspect under the live incarnation");
+    assert_eq!(row.native_token, binding.native_token);
+    assert_eq!(row.native_name, "proj");
+}
+
 #[test]
 fn remove_verifies_absence() {
     if !tmux_available() {
