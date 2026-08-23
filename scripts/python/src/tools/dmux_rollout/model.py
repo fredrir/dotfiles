@@ -8,6 +8,25 @@ from typing import Any
 from tools.dmux_rollout.errors import StateError
 
 SCHEMA_VERSION = 1
+# The release lifecycle, in order (ADR 012 §10, WS-G.2). `deployed` is the
+# Archie-complete phase that r5's manifests already carry; the names after
+# `verified` are the §21 steps the tool gained after r5. A phase never moves
+# backwards -- a resumed step that finds the release further along leaves it
+# there -- except that `rolled_back` is reachable from anywhere and is
+# terminal: a rolled-back release is never re-deployed, a new one is planned.
+PHASES = (
+    "planned",
+    "built",
+    "archie_staged",
+    "mac_deployed",
+    "deployed",
+    "verified",
+    "migrated",
+    "canary_mac",
+    "canary_arch",
+    "flipped",
+    "rolled_back",
+)
 RELEASE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SPACE_UID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -33,6 +52,12 @@ def require_space_uid(value: str, field: str = "space_uid") -> str:
     if not SPACE_UID_RE.fullmatch(value):
         raise StateError(f"{field} is not a canonical lowercase UUID")
     return value
+
+
+def phase_index(phase: Any) -> int:
+    if not isinstance(phase, str) or phase not in PHASES:
+        raise StateError(f"unknown release phase {phase!r}; expected one of {', '.join(PHASES)}")
+    return PHASES.index(phase)
 
 
 @dataclass
@@ -115,6 +140,7 @@ class Release:
         if self.data["schema"] != SCHEMA_VERSION:
             raise StateError(f"unsupported release schema {self.data['schema']!r}")
         require_release_id(self.data["release_id"])
+        phase_index(self.data["phase"])
         if not isinstance(self.data["journal_seq"], int) or self.data["journal_seq"] < 0:
             raise StateError("journal_seq must be a non-negative integer")
         for key in ("artifacts", "checkpoints", "rollback", "hosts", "smoke"):
@@ -149,9 +175,36 @@ class Release:
         self.data["updated_at"] = utc_now()
         return True
 
+    @property
+    def phase(self) -> str:
+        return self.data["phase"]
+
     def set_phase(self, phase: str) -> None:
+        """Move to `phase`, refusing to go backwards.
+
+        Re-entering the current phase is allowed; `rolled_back` is allowed
+        from anywhere. Everything else must be at or after the current phase.
+        """
+        target = phase_index(phase)
+        current = phase_index(self.data["phase"])
+        if phase != "rolled_back" and target < current:
+            raise StateError(
+                f"release phase cannot regress from {self.data['phase']!r} to {phase!r}"
+            )
         self.data["phase"] = phase
         self.data["updated_at"] = utc_now()
+
+    def advance_phase(self, phase: str) -> bool:
+        """Reach `phase` if the release is not already at or past it.
+
+        Resumable steps use this: a re-run that only re-verifies its
+        checkpoints must not demote a release that later steps have carried
+        further. Returns whether the phase moved.
+        """
+        if phase_index(phase) <= phase_index(self.data["phase"]):
+            return False
+        self.set_phase(phase)
+        return True
 
     def set_smoke_identity(self, *, space_uid: str, host_uid: str) -> None:
         require_space_uid(space_uid)

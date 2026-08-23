@@ -181,7 +181,7 @@ class Workflow:
         # instead of an installed or historical developer build.
         self._build_mac_wezterm(release, root, dotfiles, wezterm, skip_tests=skip_tests)
         self._build_mac_dotfiles(release, root, dotfiles, skip_tests=skip_tests)
-        release.set_phase("built")
+        release.advance_phase("built")
         self.store.save(release)
         return release
 
@@ -628,7 +628,7 @@ class Workflow:
         if not release.data["rollback"]["archie"].get("packages"):
             release.data["rollback"]["archie"]["packages"] = self._archie_rollback_packages(host)
         release.data["hosts"]["archie"]["stage_root"] = str(remote_root)
-        release.set_phase("archie_staged")
+        release.advance_phase("archie_staged")
         self.store.save(release)
         return release
 
@@ -904,7 +904,7 @@ class Workflow:
             frozen = release.checkpoints["deploy.mac.service"]["evidence"]
             if after["backend_instance_uid"] != frozen["backend_instance_uid"]:
                 raise Refusal("Mac service now belongs to a different backend instance")
-        release.set_phase("mac_deployed")
+        release.advance_phase("mac_deployed")
         self.store.save(release)
         return release
 
@@ -1411,7 +1411,7 @@ class Workflow:
             self.store.checkpoint(release, "deploy.archie.service", after)
         else:
             self._archie_owner_snapshot(release, approved_spaces=approved, require_quiet=True)
-        release.set_phase("deployed")
+        release.advance_phase("deployed")
         self.store.save(release)
         return "deployed"
 
@@ -1868,7 +1868,7 @@ class Workflow:
         self._verify_recovery_cycle(release, approved)
         self._verify_removal(release, approved)
         self._verify_two_host(release)
-        release.set_phase("verified")
+        release.advance_phase("verified")
         self.store.save(release)
         return release
 
