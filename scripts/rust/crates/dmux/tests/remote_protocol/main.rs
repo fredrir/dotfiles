@@ -12,6 +12,7 @@
 mod util;
 
 mod attach;
+mod binding_epoch;
 mod capability_gate;
 mod hierarchy;
 mod local_agent;

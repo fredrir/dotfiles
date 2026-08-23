@@ -2458,7 +2458,7 @@ fn load_bound_space(
 
 /// What the registry's recorded binding epoch says about handing the
 /// binding to an adapter under `scope` (see [`binding_epoch_for_adapter`]).
-enum BindingVerdict {
+pub(crate) enum BindingVerdict {
     /// Hand the adapter a `NativeBinding` carrying this epoch — the
     /// registry's recorded value, which equals the scope's pin.
     Pinned(ServerEpoch),
@@ -2490,7 +2490,11 @@ enum BindingVerdict {
 ///   recorded epoch is then refreshed as observation metadata
 ///   (`Registry::observe_binding_epoch`) and handed. A key the pinned scan
 ///   does not list is [`BindingVerdict::AbsentUnderPin`].
-fn binding_epoch_for_adapter(
+///
+/// `pub(crate)` so the remote agent's `rename` resume arm, `attach_plan`
+/// and the tmux client RPCs hand their adapters a binding through this one
+/// seam too (ADR 012 §10, O's close), never the pin copied across.
+pub(crate) fn binding_epoch_for_adapter(
     registry: &mut Registry,
     scope: &InventoryScope,
     binding: &crate::registry::BindingRow,

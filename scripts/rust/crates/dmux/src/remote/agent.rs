@@ -1121,6 +1121,44 @@ fn space_target(
     Ok((space, target, provider))
 }
 
+/// The binding handed to an adapter by the agent's own verbs — the `rename`
+/// resume arm, `attach_plan` and the tmux client RPCs — carries the
+/// REGISTRY's recorded binding epoch through the one operations seam
+/// (`operations::binding_epoch_for_adapter`, ADR 012 WS-A.8), never the
+/// verified target's pin copied across: a tmux binding recorded under
+/// another incarnation is refused typed (`backend_epoch_changed`) before
+/// any native command, exactly as the local verbs refuse it. These verbs
+/// are tmux-only, so the wez `live_under_pin` proof never runs here and
+/// `AbsentUnderPin` — a wez-only verdict — is answered as the Space being
+/// absent rather than reached for.
+fn adapter_binding(
+    cx: &mut AgentCx,
+    scope: &InventoryScope,
+    binding: &crate::registry::BindingRow,
+) -> Result<crate::backend::NativeBinding, TypedError> {
+    let epoch =
+        match ops::binding_epoch_for_adapter(&mut cx.registry, scope, binding, |_| Ok(false))
+            .map_err(typed_op)?
+        {
+            ops::BindingVerdict::Pinned(epoch) => epoch,
+            ops::BindingVerdict::AbsentUnderPin => {
+                return Err(TypedError::new(
+                    ErrorCode::SpaceAbsent,
+                    format!(
+                        "{} is not live under the published incarnation",
+                        binding.native_token
+                    ),
+                ));
+            }
+        };
+    Ok(crate::backend::NativeBinding {
+        native_token: binding.native_token.clone(),
+        server_epoch: epoch,
+        root_group: ProviderHandle::Tx(0),
+        root_split: ProviderHandle::Tx(0),
+    })
+}
+
 /// The pane-bootstrap helper is installed beside dmux (ADR 009 §4).
 /// `DMUX_HELPER_BIN` is an owner-side TEST seam (like `DMUX_RUNTIME_DIR`):
 /// the wez mux server does not propagate server env into panes, so the wez
@@ -2010,12 +2048,7 @@ fn rename(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<Reply,
                     .ok_or_else(|| {
                         TypedError::new(ErrorCode::SpaceAbsent, "no current native binding")
                     })?;
-                let native = crate::backend::NativeBinding {
-                    native_token: binding.native_token,
-                    server_epoch: target.epoch,
-                    root_group: crate::model::ProviderHandle::Tx(0),
-                    root_split: crate::model::ProviderHandle::Tx(0),
-                };
+                let native = adapter_binding(cx, &scope, &binding)?;
                 provider
                     .rename(&scope, &native, &rename.new_name)
                     .map_err(typed_provider)?;
@@ -2382,14 +2415,11 @@ fn attach_plan(cx: &mut AgentCx, request: &Envelope, payload: Value) -> Result<R
             "space belongs to a different backend instance",
         ));
     }
-    // The binding must still be live on the verified server.
+    // The binding must still be live on the verified server — and it must
+    // be this incarnation's binding at all (WS-A.8): decided before the
+    // token is minted.
     let scope = scope_for(&target);
-    let native = crate::backend::NativeBinding {
-        native_token: binding.native_token.clone(),
-        server_epoch: target.epoch,
-        root_group: crate::model::ProviderHandle::Tx(0),
-        root_split: crate::model::ProviderHandle::Tx(0),
-    };
+    let native = adapter_binding(cx, &scope, &binding)?;
     provider.inspect(&scope, &native).map_err(typed_provider)?;
     let (focus_argv, child) = owner_attach_child_focus(
         &cx.env,
@@ -2617,15 +2647,9 @@ fn tmux_client_target(
                 "tmux client presentation target has no current binding",
             )
         })?;
-    let native = crate::backend::NativeBinding {
-        native_token: binding.native_token.clone(),
-        server_epoch: target.epoch,
-        root_group: ProviderHandle::Tx(0),
-        root_split: ProviderHandle::Tx(0),
-    };
-    let native = provider
-        .inspect(&scope_for(&target), &native)
-        .map_err(typed_provider)?;
+    let scope = scope_for(&target);
+    let native = adapter_binding(cx, &scope, &binding)?;
+    let native = provider.inspect(&scope, &native).map_err(typed_provider)?;
     if native.native_token != binding.native_token {
         return Err(TypedError::new(
             ErrorCode::IdentityConflict,
