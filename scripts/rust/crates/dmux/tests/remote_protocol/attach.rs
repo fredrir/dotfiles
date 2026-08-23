@@ -840,3 +840,107 @@ fn a_restarted_server_refuses_the_token_epoch() {
     assert!(stderr.contains("epoch"), "{stderr}");
     assert_eq!(client_count(&scratch), 0);
 }
+
+/// The `_attach` reader's own witness comparison (ADR 012 WS-A.9 at
+/// `remote/attach.rs::verify`, O's close → R): a replaced server on the
+/// same namespace that presents the OLD epoch — the case the epoch option
+/// alone cannot tell apart, and the one the restart test above does not
+/// exercise because it re-bootstraps a fresh epoch — is refused as a stale
+/// incarnation before the exec, the token stays consumed, and no client is
+/// attached to the impostor. The refusal is the witness comparison's, not
+/// `verify_epoch`'s pid check.
+#[test]
+fn a_replaced_server_presenting_the_old_epoch_refuses_the_token_as_a_stale_incarnation() {
+    let scratch = Scratch::with_tmux("stale-token");
+    let created = create_space(&scratch, "staleee");
+    let (_, plan) = attach_plan(&scratch, &created);
+    let registry = scratch.registry();
+    let instance = registry
+        .backend_instance_for_backend(dmux::model::Backend::Tmux)
+        .unwrap()
+        .expect("bootstrapped tmux instance");
+    let published = registry.backend_server(instance).unwrap();
+    let epoch = published
+        .server_epoch
+        .expect("bootstrap published an epoch");
+    assert!(
+        published.socket_dev.is_some() && published.socket_ino.is_some(),
+        "tmux_bootstrap publishes the socket witnesses the reader compares"
+    );
+    drop(registry);
+
+    assert!(scratch.tmux(&["kill-server"]).status.success());
+    wait_for(
+        "the old scratch tmux server to stop answering",
+        Duration::from_secs(10),
+        || {
+            !scratch
+                .tmux(&["display-message", "-p", "#{pid}"])
+                .status
+                .success()
+        },
+    );
+    let out = Command::new("tmux")
+        .args([
+            "-L",
+            scratch.ns.as_deref().unwrap(),
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            "staleee",
+        ])
+        .env("DMUX_RUNTIME_DIR", scratch.locks.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "replacement scratch tmux failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    // The impostor presents the published epoch; nothing is re-bootstrapped,
+    // so the registry row still names the dead incarnation.
+    assert!(
+        scratch
+            .tmux(&[
+                "set-option",
+                "-g",
+                "@dmux_server_epoch",
+                &epoch.0.to_string()
+            ])
+            .status
+            .success()
+    );
+
+    let out = attach_refused(&scratch, &plan.token);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "backend_epoch_changed maps to 1: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("stale incarnation") && stderr.contains("ADR 012 §3.1 state F"),
+        "the reader's own witness comparison must name the fault: {stderr}"
+    );
+    assert!(
+        !stderr.contains("restarted since the plan was issued"),
+        "verify_epoch's pid comparison must not have fired first: {stderr}"
+    );
+    assert_eq!(
+        client_count(&scratch),
+        0,
+        "a client attached to the impostor"
+    );
+
+    // Single use is not negotiable: the refused token is consumed.
+    let again = attach_refused(&scratch, &plan.token);
+    assert_ne!(again.status.code(), Some(0));
+    assert!(
+        !String::from_utf8_lossy(&again.stderr).contains("stale incarnation"),
+        "a consumed token is refused before any server probe: {}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+}

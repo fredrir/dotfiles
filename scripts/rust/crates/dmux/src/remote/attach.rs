@@ -343,6 +343,13 @@ fn verify(
         ))?,
     };
     let provider: TmuxProvider<_> = TmuxProvider::new(namespace.clone());
+    // ADR 012 WS-A.9 at this reader: the row's socket witnesses are compared
+    // against a fresh probe and `stat` before the epoch option is trusted,
+    // so a replaced server presenting the old epoch is refused as a stale
+    // incarnation (`backend_epoch_changed`) here, before `verify_epoch`'s
+    // pid comparison could name it `wrong_backend_instance`.
+    crate::connect_cli::require_published_tmux_incarnation(&provider, &namespace, &record)
+        .map_err(|error| (error.code, error.message))?;
     provider
         .verify_epoch(&namespace, redeemed.server_epoch, &expected_identity)
         .map_err(|e| match e {
@@ -622,6 +629,15 @@ fn revalidate_local_plan_marker(
             "local tmux server epoch changed before terminal handoff",
         ));
     }
+    let provider = TmuxProvider::new(target.binding.endpoint.clone());
+    // ADR 012 WS-A.9 at this reader: socket witnesses before the epoch
+    // option, so a replaced server is a stale incarnation here, never a
+    // `wrong_backend_instance` from the pid comparison below.
+    crate::connect_cli::require_published_tmux_incarnation(
+        &provider,
+        &target.binding.endpoint,
+        &published,
+    )?;
     let expected_identity = TmuxServerIdentity {
         pid: published
             .server_pid
@@ -639,7 +655,7 @@ fn revalidate_local_plan_marker(
             )
         })?,
     };
-    TmuxProvider::new(target.binding.endpoint.clone())
+    provider
         .verify_epoch(
             &target.binding.endpoint,
             target.server_epoch,
@@ -1645,6 +1661,15 @@ pub fn refresh_controller_context_from_tmux_hook(
             "tmux hook client record belongs to a stale server epoch",
         ));
     }
+    let provider = TmuxProvider::new(claim.namespace.clone());
+    // ADR 012 WS-A.9 at this reader: socket witnesses before the epoch
+    // option, so a replaced server is a stale incarnation here, never a
+    // `wrong_backend_instance` from the pid comparison below.
+    crate::connect_cli::require_published_tmux_incarnation(
+        &provider,
+        &claim.namespace,
+        &published,
+    )?;
     let expected_identity = TmuxServerIdentity {
         pid: published
             .server_pid
@@ -1662,7 +1687,7 @@ pub fn refresh_controller_context_from_tmux_hook(
             )
         })?,
     };
-    TmuxProvider::new(claim.namespace.clone())
+    provider
         .verify_epoch(&claim.namespace, record.server_epoch, &expected_identity)
         .map_err(|error| match error {
             crate::backend::ProviderError::EpochChanged { .. }

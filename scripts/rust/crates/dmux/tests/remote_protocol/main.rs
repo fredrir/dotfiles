@@ -19,5 +19,6 @@ mod mutations;
 mod new_lookup;
 mod recovery_control;
 mod route_matrix;
+mod stale_incarnation;
 mod two_host;
 mod wez_agent;

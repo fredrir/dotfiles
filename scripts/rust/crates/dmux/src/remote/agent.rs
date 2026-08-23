@@ -815,6 +815,18 @@ fn verified_tmux_target(
         })?,
     };
     let provider = TmuxProvider::new(namespace.clone());
+    // ADR 012 WS-A.9 at this reader (O's close handed the remote-side
+    // readers on): the socket witnesses the row carries — pid, start token,
+    // socket dev/ino — are compared against a fresh probe and a fresh
+    // `stat` BEFORE the server's self-reported epoch is consulted, so a
+    // replaced server on the same namespace that merely presents the old
+    // `@dmux_server_epoch` is refused as a stale incarnation
+    // (`backend_epoch_changed`, instance state F) — the name every
+    // operations-layer tmux verification gives that fault — rather than the
+    // `wrong_backend_instance` a pid mismatch alone would draw from
+    // `verify_epoch` below. A row published before WS-A.9 carries no
+    // witnesses and is verified by identity and epoch alone.
+    crate::connect_cli::require_published_tmux_incarnation(&provider, &namespace, &record)?;
     // LIVE re-probe: a restarted/replaced server refuses here.
     provider
         .verify_epoch(&namespace, epoch, &expected_identity)
