@@ -87,6 +87,25 @@ impl ScratchServer {
         String::from_utf8(out.stdout).expect("utf8 tmux output")
     }
 
+    /// `kill-server`, then wait for the socket to vanish before anything
+    /// restarts this namespace: the client returns on acknowledgement while
+    /// the server still unlinks its socket, and a newcomer started in that
+    /// window reports "server exited unexpectedly" (deterministic on Linux
+    /// tmux 3.7 — Archie; ADR 012 §10).
+    fn kill_server_and_wait(&self) {
+        let out = self.tmux(&["display-message", "-p", "#{socket_path}"]);
+        let socket = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        self.tmux_ok(&["kill-server"]);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while out.status.success()
+            && !socket.is_empty()
+            && std::path::Path::new(&socket).exists()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     /// Start the server with a long-lived holder session (a tmux server only
     /// lives while it has at least one session) and return the holder's ids.
     fn start_with_holder(&self) -> (String, u64, u64) {
@@ -522,7 +541,7 @@ fn binding_verbs_refuse_a_binding_from_a_previous_incarnation_on_a_real_server()
 
     // Restart the namespace: a fresh incarnation, the same session name,
     // the same session id.
-    srv.tmux_ok(&["kill-server"]);
+    srv.kill_server_and_wait();
     srv.start_with_holder();
     let (sid, _, _) = srv.spawn_session("proj");
     assert_eq!(
@@ -610,7 +629,7 @@ fn a_restarted_server_on_the_same_socket_path_is_refused_by_its_inode_even_with_
     ));
 
     // Restart on the same namespace; copy the old epoch onto the impostor.
-    srv.tmux_ok(&["kill-server"]);
+    srv.kill_server_and_wait();
     let (holder, _, _) = srv.start_with_holder();
     srv.set_epoch(e1);
     let after = provider
@@ -911,7 +930,7 @@ fn fresh_incarnation_has_no_epoch_and_a_new_identity() {
     // Restart the incarnation on the SAME socket namespace. #{start_time}
     // has whole-second resolution, so cross a second boundary to prove the
     // start token itself changes, independent of the pid.
-    srv.tmux_ok(&["kill-server"]);
+    srv.kill_server_and_wait();
     std::thread::sleep(std::time::Duration::from_millis(1100));
     srv.start_with_holder();
 

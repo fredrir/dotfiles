@@ -87,6 +87,26 @@ impl Scratch {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
+    /// `kill-server`, then wait for the socket to vanish: tmux's client
+    /// returns on the server's acknowledgement while the server unlinks its
+    /// socket as it exits, and a replacement started on the same `-L` name
+    /// in that window loses its socket to the cleanup ("server exited
+    /// unexpectedly" — deterministic on Linux tmux 3.7, ADR 012 §10).
+    fn kill_server_and_wait(&self) {
+        let socket = self
+            .tmux(&["display-message", "-p", "#{socket_path}"])
+            .trim()
+            .to_string();
+        self.tmux(&["kill-server"]);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !socket.is_empty()
+            && std::path::Path::new(&socket).exists()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     fn session_names(&self) -> Vec<String> {
         self.tmux(&["list-sessions", "-F", "#{session_name}"])
             .lines()
@@ -1377,7 +1397,7 @@ fn a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_everywhere() {
     // Replace the server: kill it, start another on the same namespace with
     // the managed Space's session name and id recycled, then copy the old
     // epoch onto it. Nothing the registry recorded survives but the epoch.
-    s.tmux(&["kill-server"]);
+    s.kill_server_and_wait();
     let out = Command::new("tmux")
         .args([
             "-L",
