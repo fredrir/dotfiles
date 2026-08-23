@@ -1042,3 +1042,8 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
      `doctor.rs:1283` runs `wezterm cli --no-auto-start list` against the ambient default socket,
      and the managed GUI is no-serve. The managed server's health is the `wez instance` line. A
      relabel ("legacy gui socket") is a small follow-up.
+- **Gate 2026-08-23 at `793ad8d`** (login-shell default): 1130/0/1 under `run-isolated.sh`, live
+  runtime dir unchanged (122 entries before and after; the growth from 28 is the managed restart,
+  the resident GUI and live lock files, not the suite). The owner reinstalls via `dotfile sync`
+  (workspace `--locked` build + install, the same path as this morning) before the reboot test, so
+  post-reboot recovery restores the smoke Space under the login shell.
