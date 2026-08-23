@@ -1168,3 +1168,22 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   **1132/0/1**, live runtime dir unchanged both times. r8 is planned at the commit recording this;
   its order is `build` → `stage-archie` → owner's pacman → `resume` → `deploy-mac` → `verify`, so
   the Mac's remaining restart comes once, after Archie is proven.
+- **r8 = `20260823-d930c03-b9d8dfae-r8` — both hosts deployed.** `build` 1175/0/1 (live dir
+  114 → 114). `stage-archie`: config preflight, fork gates, the seamed Archie suite **1176/0/1**
+  (`--no-fail-fast`), packages `wezterm-fredrir-git{,-debug} 20260817.233913.b9d8dfae-1`; then a
+  refusal at the rollback step — the tool looked for the installed version's archive only in yay's
+  cache, where only the original `470bd984` AUR build lives, while r5 had installed from its own
+  release `packages/` dir. Fixed in the editable tool: `_archie_rollback_packages` now takes the
+  archive recorded by the newest release that completed `deploy.archie.packages` (r5's, sha-verified
+  over ssh: `2b0d4022…`/`c4f344fa…`), falling back to the yay cache; the filename alone can never
+  identify it, because a release's fresh package carries the same name (same fork commit, same
+  pkgver). `RolloutStore.release_ids()` added; two unit tests; tool suite 63/0. Resumed
+  `stage-archie` → `archie_staged`; the owner ran the printed `sudo pacman -U` (reinstall of the
+  same version). `resume` installed the user binaries (`dmux` `19c1255e…`, `pane-bootstrap`
+  `ed2bd43f…`), wrote `~/.config/environment.d/50-dmux.conf`, restarted the service (pid 419945,
+  epoch `e4dd50a0…`, instance `28916e16…`, doctor `process=1 systemd=1 file=1`, **E**) and then
+  refused its postcondition: cold recovery had restored the orphan `w6mac-smoke-20260817-archie`
+  (`01a01220…`). Per the owner's standing decision it was removed (`dmux rm` by URI on Archie,
+  registry revision 13; sentinel-only afterwards) and `resume` re-run → `deploy.archie.service`,
+  phase `deployed` (WS-F.3 and WS-F.4's Archie orphan step done). `deploy-mac` → Mac mux pid 98783,
+  epoch `90eb4819…`, revision 46, doctor E; 17 checkpoints. `verify` started.

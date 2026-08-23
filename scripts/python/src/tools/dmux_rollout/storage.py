@@ -94,6 +94,13 @@ class RolloutStore:
         _require_private_dir(path, create=create)
         return path
 
+    def release_ids(self) -> list[str]:
+        """Every release with a manifest, oldest first (ids are date-prefixed)."""
+        releases = self.root / "releases"
+        if not releases.is_dir():
+            return []
+        return sorted(entry.name for entry in releases.iterdir() if (entry / MANIFEST).is_file())
+
     def manifest_path(self, release_id: str) -> Path:
         return self.release_dir(release_id) / MANIFEST
 

@@ -30,6 +30,7 @@ from .helpers import (
     mac_workflow,
     pushed_repo,
     release,
+    source,
 )
 
 
@@ -269,6 +270,109 @@ def test_runtime_dir_growth_names_only_new_entries(tmp_path):
     after = Workflow._runtime_dir_entries(live)
     assert Workflow._runtime_dir_growth(before, after) == ["backend_1.lock", "bridge/key"]
     assert Workflow._runtime_dir_entries(tmp_path / "absent") == []
+
+
+class ArchieArchiveFake(Runner):
+    """pacman -Q, test -f, sha256sum and stat over a fake Archie filesystem."""
+
+    def __init__(self, files: dict[str, str]):
+        self.files = files  # path -> sha256
+        self.sent: list[list[str]] = []
+
+    def capture(self, argv, **kwargs):
+        argv = list(argv)
+        self.sent.append(argv)
+        remote = argv[argv.index("--") + 1] if "--" in argv else ""
+        if "pacman -Q wezterm-fredrir-git-debug" in remote:
+            return Result(tuple(argv), 0, "wezterm-fredrir-git-debug 1.0-1\n", "")
+        if "pacman -Q wezterm-fredrir-git" in remote:
+            return Result(tuple(argv), 0, "wezterm-fredrir-git 1.0-1\n", "")
+        if remote.startswith("test -f "):
+            path = remote.split(" ", 2)[2].strip("'")
+            return Result(tuple(argv), 0 if path in self.files else 1, "", "")
+        if remote.startswith("sha256sum"):
+            path = remote.rsplit(" ", 1)[1].strip("'")
+            return Result(tuple(argv), 0, f"{self.files[path]}  {path}\n", "")
+        if remote.startswith("stat"):
+            return Result(tuple(argv), 0, "7\n", "")
+        return Result(tuple(argv), 0, "", "")
+
+
+def _prior_release_with_archie_packages(store: RolloutStore, *, sha: str) -> dict[str, str]:
+    prior = rollout_model.Release.create(
+        release_id="20260817-prior",
+        dotfiles=source(Path("/tmp/d"), "3" * 40),
+        wezterm=source(Path("/tmp/w"), "4" * 40),
+        smoke_name="rollout-smoke",
+        archie_host="archie",
+    )
+    root = "/home/fredrir/packages/dmux-rollouts/20260817-prior/packages"
+    paths = {
+        "main": f"{root}/wezterm-fredrir-git-1.0-1-x86_64.pkg.tar.zst",
+        "debug": f"{root}/wezterm-fredrir-git-debug-1.0-1-x86_64.pkg.tar.zst",
+    }
+    prior.data["artifacts"]["archie_packages"] = {
+        key: {"path": path, "sha256": sha, "bytes": 7} for key, path in paths.items()
+    }
+    prior.checkpoint("deploy.archie.packages", {})
+    store.create(prior)
+    return paths
+
+
+def test_archie_rollback_archives_come_from_the_release_that_installed_them(tmp_path):
+    store = RolloutStore(tmp_path / "state")
+    store.initialize()
+    sha = "a" * 64
+    paths = _prior_release_with_archie_packages(store, sha=sha)
+    current = release(tmp_path)
+    store.create(current)
+    # The current release built packages with the very same filename.
+    same_name = {
+        path.replace("20260817-prior", current.release_id): "b" * 64 for path in paths.values()
+    }
+    runner = ArchieArchiveFake({**{p: sha for p in paths.values()}, **same_name})
+    workflow = Workflow(
+        store, runner, config(tmp_path, Path("/tmp/dotfiles"), Path("/tmp/wezterm"))
+    )
+
+    rows = workflow._archie_rollback_packages("archie", current=current)
+
+    assert rows["wezterm-fredrir-git"]["path"] == paths["main"]
+    assert rows["wezterm-fredrir-git-debug"]["path"] == paths["debug"]
+    assert rows["wezterm-fredrir-git"]["sha256"] == sha
+    assert rows["wezterm-fredrir-git"]["version"] == "1.0-1"
+
+    # A replaced archive is refused, never silently reused.
+    runner.files[paths["main"]] = "c" * 64
+    with pytest.raises(Refusal, match="no longer matches the journal"):
+        workflow._archie_rollback_packages("archie", current=current)
+
+
+def test_archie_rollback_archives_fall_back_to_the_yay_cache_without_a_journal(tmp_path):
+    store = RolloutStore(tmp_path / "state")
+    store.initialize()
+    current = release(tmp_path)
+    store.create(current)
+    cache = "/home/fredrir/.cache/yay/wezterm-fredrir-git"
+    files = {
+        f"{cache}/wezterm-fredrir-git-1.0-1-x86_64.pkg.tar.zst": "d" * 64,
+        f"{cache}/wezterm-fredrir-git-debug-1.0-1-x86_64.pkg.tar.zst": "e" * 64,
+    }
+    workflow = Workflow(
+        store,
+        ArchieArchiveFake(files),
+        config(tmp_path, Path("/tmp/dotfiles"), Path("/tmp/wezterm")),
+    )
+
+    rows = workflow._archie_rollback_packages("archie", current=current)
+    assert rows["wezterm-fredrir-git"]["path"].startswith(cache)
+
+    with pytest.raises(Refusal, match="absent: looked in"):
+        Workflow(
+            store,
+            ArchieArchiveFake({}),
+            config(tmp_path, Path("/tmp/dotfiles"), Path("/tmp/wezterm")),
+        )._archie_rollback_packages("archie", current=current)
 
 
 def test_archie_pacman_pause_is_exact_and_interactive(tmp_path):

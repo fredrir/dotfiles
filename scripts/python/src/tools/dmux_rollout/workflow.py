@@ -784,7 +784,9 @@ class Workflow:
                 "archie_packages",
             )
         if not release.data["rollback"]["archie"].get("packages"):
-            release.data["rollback"]["archie"]["packages"] = self._archie_rollback_packages(host)
+            release.data["rollback"]["archie"]["packages"] = self._archie_rollback_packages(
+                host, current=release
+            )
         release.data["hosts"]["archie"]["stage_root"] = str(remote_root)
         release.advance_phase("archie_staged")
         self.store.save(release)
@@ -957,9 +959,27 @@ class Workflow:
             self.runner.capture(remote_argv(host, ["bsdtar", "-tf", str(path)]))
         return self._remote_artifacts(host, selected)
 
-    def _archie_rollback_packages(self, host: str) -> dict[str, Any]:
+    def _archie_rollback_packages(
+        self, host: str, *, current: Release | None = None
+    ) -> dict[str, Any]:
+        """The archives `rollback` reinstalls: exactly what is installed now.
+
+        The installed version's archive is looked for first where the tool
+        itself put it — the newest release that completed
+        `deploy.archie.packages` recorded its path and sha — and only then in
+        yay's cache (the original AUR install). A release's own freshly built
+        package may carry the very same filename (same fork commit, same
+        pkgver), so the filename alone never identifies the installed one.
+        """
         installed: dict[str, Any] = {}
-        for package in ("wezterm-fredrir-git", "wezterm-fredrir-git-debug"):
+        recorded = self._last_deployed_archie_packages(
+            exclude=current.release_id if current else None
+        )
+        cache = self.config.archie_home / ".cache/yay" / "wezterm-fredrir-git"
+        for package, key in (
+            ("wezterm-fredrir-git", "main"),
+            ("wezterm-fredrir-git-debug", "debug"),
+        ):
             query = self.runner.capture(remote_argv(host, ["pacman", "-Q", package]), check=False)
             if query.returncode != 0:
                 raise Refusal(f"Archie rollback package is not installed: {package}")
@@ -967,16 +987,49 @@ class Workflow:
             if len(words) != 2 or words[0] != package:
                 raise Refusal(f"unexpected pacman query output for {package}")
             version = words[1]
-            cache = self.config.archie_home / ".cache/yay" / "wezterm-fredrir-git"
             name = f"{package}-{version}-x86_64.pkg.tar.zst"
-            path = cache / name
-            test = self.runner.capture(remote_argv(host, ["test", "-f", str(path)]), check=False)
-            if test.returncode != 0:
-                raise Refusal(f"exact Archie rollback archive is absent: {path}")
-            row = self._remote_artifacts(host, {package: path})[package]
-            row["version"] = version
-            installed[package] = row
+            candidates: list[tuple[Path, str | None]] = []
+            row = (recorded or {}).get(key)
+            if isinstance(row, dict) and Path(str(row.get("path", ""))).name == name:
+                candidates.append((Path(row["path"]), row.get("sha256")))
+            candidates.append((cache / name, None))
+            chosen: dict[str, Any] | None = None
+            for path, expected in candidates:
+                test = self.runner.capture(
+                    remote_argv(host, ["test", "-f", str(path)]), check=False
+                )
+                if test.returncode != 0:
+                    continue
+                found = self._remote_artifacts(host, {package: path})[package]
+                if expected and found["sha256"] != expected:
+                    raise Refusal(
+                        f"Archie rollback archive {path} no longer matches the journal of the "
+                        f"release that installed it"
+                    )
+                chosen = found
+                break
+            if chosen is None:
+                looked = ", ".join(str(path) for path, _ in candidates)
+                raise Refusal(f"exact Archie rollback archive is absent: looked in {looked}")
+            chosen["version"] = version
+            installed[package] = chosen
         return installed
+
+    def _last_deployed_archie_packages(self, *, exclude: str | None) -> dict[str, Any] | None:
+        """Archive rows of the newest release that deployed packages on Archie."""
+        for release_id in reversed(self.store.release_ids()):
+            if release_id == exclude:
+                continue
+            try:
+                previous = self.store.load(release_id)
+            except (StateError, RolloutError):
+                continue
+            if not previous.completed("deploy.archie.packages"):
+                continue
+            rows = previous.data.get("artifacts", {}).get("archie_packages")
+            if isinstance(rows, dict):
+                return rows
+        return None
 
     @staticmethod
     def _write_generated(path: Path, content: str) -> None:
