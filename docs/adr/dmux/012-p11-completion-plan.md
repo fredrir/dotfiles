@@ -969,3 +969,29 @@ Ledger: 34 mapped, 12 live-pending, 1 unmapped (case 29, with R), 0 blocked.
   descriptor on a `wezterm.time.call_after` timer (daily; atomic rename, same content), and the
   service wrapper touches its runtime files on the same cadence; or the descriptor moves beside the
   registry (`~/.local/share/dmux`) with only sockets and locks left in `$TMPDIR`.
+- **Steps 4–5 done (owner ran the `launchctl` lines; root verified read-only).**
+  `launchctl kickstart gui/$UID/com.fredrir.dmux-env` → `launchctl getenv DMUX_WEZ_FIRST` = `1`,
+  loader last exit 0; `dmux doctor`: `process=unset launchd=1 file=1; durable Wez-first`. Mux was
+  sentinel-only (one pane); `launchctl kickstart -k gui/$UID/com.fredrir.wezterm-mux` at 05:02 local.
+  Result: descriptor `ready` (pid 2544, `written_by: mux-startup`, `sentinel_fallback: false`,
+  instance `6ef8d4c9…`, epoch `e7e18ddb…`); `authority_revisions` 36 → 37 → 38, both new rows at
+  2026-08-23T03:02:02Z — the retire of `40c99029…` and the publication of `e7e18ddb…` as two
+  hash-linked revisions (WS-B.3's retire-before-publish, live); `backend_instances` publishes epoch
+  `e7e18ddb…` pid 2544 start `macos:1787454122:3034` socket dev/ino `16777233/29469078`, which the
+  descriptor and a fresh `stat` agree with; `dmux doctor` → wez instance **E** (`published_live`),
+  tmux A; mux log `wezterm-mux-server-log-2544.txt`: `all_windows pre-spawn ok=true count=0`,
+  sentinel spawned, `mux-startup END recovery=ready` — no witness refusal. Cold recovery (§15.3) ran
+  on the empty mux: generation `1ddc6cc2…` restored manifest `be4c200b…`, so the r5 smoke Space
+  `1 w6mac-smoke-20260817` (`01a01044…`, wez) is live again beside the sentinel, and a new manifest
+  `manifest-e7e18ddb…-1.json` was written for the new epoch. Flag-on `dmux ls --format json` (the
+  flag set for that one command, never ambiently): `ok: true`, revision 38, the smoke Space
+  `observation: live`, no `stale_incarnation`. Evidence: `evidence/p11/doctor-macie-after.json`
+  (taken flag-off; wez E, flag `launchd=1 file=1`). Doctor's legacy `wezterm cli` line still reads
+  `unreachable`: that probe (`doctor.rs:146`) asks the GUI's default socket, and no GUI is running —
+  the managed mux is the `wez instance` line. Remaining for WS-F.2: relaunch the GUI (it reads the
+  flag at launch) and the owner's reboot test (§21 step 7: after login, `dmux doctor` from a GUI
+  terminal → `launchd=1 file=1`, descriptor ready, state E; save `doctor-macie-after-reboot.json`).
+  Consequence for WS-G.2's r6 sequence: `deploy-mac` re-does exactly what the owner did by hand and
+  restarts the mux — which now holds a user Space — so r6 must either run `deploy-mac` only after
+  the owner accepts a restart (recovery restores the Space) or treat Macie as already deployed
+  (rollout phase `mac_deployed` without the restart); decided at r6 time.
