@@ -972,6 +972,7 @@
    "title": "Every still-valid baseline test stays green; obsolete assertions have approved manifest entries",
    "earliest_owning_phase": "P11 migration/regression",
    "tests": [
+    "baseline_manifest::every_baseline_test_exists_or_is_retired_with_existing_replacements",
     "cli::the_wrapper_verb_allowlist_matches_the_cli",
     "cli::the_legacy_policy_flag_beats_a_wez_first_opt_in",
     "cli::an_explicit_zero_keeps_the_legacy_surface"
@@ -989,8 +990,8 @@
    "open_items": [],
    "status": "mapped",
    "note": "passes when every baseline ID is green at the claimed revision and every retirement has a manifest entry",
-   "confidence": "low",
-   "gap": "No executable check reads baseline-tests.json: nothing asserts every baseline ID still exists and is green at the claimed revision, nor that every retirement names replacement tests. Needs a test (or a script run at the gate) — WS-G.1 follow-up."
+   "confidence": "medium",
+   "gap": "Executable half now held by tests/baseline_manifest.rs (every baseline id exists by fn name or is retired with existing replacements and a rationale). Still manual: that surviving assertions are unchanged (assertion-level retirements are checked by their parent fn only) — reviewed at the gate."
   }
  },
  "note_2026_08_23": "Rows 1–4, 8–10, 12, 14, 15, 23, 29, 30, 32–38, 40, 46 mapped from a read-only sweep of the suite (ADR 012 WS-G.1); each carries a confidence and, where the suite does not prove the whole property, a gap. Honest zeroes: 29 (no test), 32 (related tests prove only attach-only launch), 46 (no executable check of the baseline manifest). Lua IDs are scenario labels cited by file:line in the sweep."
