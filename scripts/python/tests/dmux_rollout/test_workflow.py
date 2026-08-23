@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import shlex
 import subprocess
@@ -18,18 +19,17 @@ from tools.dmux_rollout.workflow import (
     WorkflowConfig,
 )
 
-from .helpers import git, pushed_repo, release
-
-
-def config(tmp_path, dotfiles, wezterm):
-    return WorkflowConfig(
-        dotfiles_repo=dotfiles,
-        wezterm_repo=wezterm,
-        packages_root=tmp_path / "packages",
-        mac_app=tmp_path / "WezTerm.app",
-        mac_dmux=tmp_path / "bin/dmux",
-        mac_pane_bootstrap=tmp_path / "bin/pane-bootstrap",
-    )
+from .helpers import (
+    DURABLE_WEZ_FIRST,
+    NO_PREFERENCE,
+    RUNTIME_ONLY,
+    LaunchdFake,
+    config,
+    git,
+    mac_workflow,
+    pushed_repo,
+    release,
+)
 
 
 def test_plan_freezes_pushed_commits_but_not_the_mutable_dirty_listing(tmp_path):
@@ -701,42 +701,10 @@ def test_service_env_refuses_whole_files_and_keeps_the_last_assignment():
     assert service_env.without("DMUX_LEGACY_POLICY=1\n", {"DMUX_LEGACY_POLICY"}, name="f") == ""
 
 
-class LaunchdFake(Runner):
-    """launchctl with a session environment; the loader applies the file."""
-
-    def __init__(self, service_env_path):
-        self.path = service_env_path
-        self.session = {}
-        self.sent = []
-
-    def capture(self, argv, **kwargs):
-        argv = list(argv)
-        self.sent.append(argv)
-        if argv[:2] == ["launchctl", "kickstart"] and argv[-1].endswith(MAC_ENV_LOADER_LABEL):
-            if self.path.exists():
-                self.session.update(service_env.parse(self.path.read_text(), name="fake"))
-        elif argv[:2] == ["launchctl", "getenv"]:
-            return Result(tuple(argv), 0, self.session.get(argv[2], "") + "\n", "")
-        elif argv[:2] == ["launchctl", "unsetenv"]:
-            self.session.pop(argv[2], None)
-        return Result(tuple(argv), 0, "", "")
-
-
 def _env_workflow(tmp_path):
-    fake = LaunchdFake(tmp_path / "home/.config/dmux/service.env")
-    base = config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm")
-    workflow = Workflow(
-        RolloutStore(tmp_path / "state"),
-        fake,
-        WorkflowConfig(
-            **{
-                **base.__dict__,
-                "mac_service_env": fake.path,
-                "mac_env_loader_plist": tmp_path / "home/Library/LaunchAgents/loader.plist",
-            }
-        ),
-    )
-    return workflow, fake
+    cfg = config(tmp_path, tmp_path / "dotfiles", tmp_path / "wezterm")
+    fake = LaunchdFake(cfg.mac_service_env)
+    return Workflow(RolloutStore(tmp_path / "state"), fake, cfg), fake
 
 
 def test_deploy_mac_refuses_without_the_env_loader_agent_and_names_the_operator_steps(tmp_path):
@@ -917,3 +885,96 @@ def test_rollout_source_never_sets_the_flag_runtime_only():
     assert '"setenv"' not in text
     assert '"set-environment"' not in text
     assert '"import-environment"' not in text
+
+
+# dmux doctor beside every owner snapshot -----------------------------------
+
+
+def test_owner_snapshot_carries_doctor_and_checkpoints_store_it_beside_the_release(tmp_path):
+    workflow, fake, store = mac_workflow(tmp_path)
+    item = release(tmp_path)
+
+    snapshot = workflow._mac_owner_snapshot(approved_spaces=set(), require_quiet=True)
+
+    assert snapshot["host"] == "mac"
+    assert snapshot["doctor"] == fake.doctor_document()
+    assert fake.doctor_calls == 1
+    doctor_argv = next(argv for argv in fake.sent if argv[1:2] == ["doctor"])
+    assert doctor_argv[1:] == ["doctor", "--format", "json"]
+
+    with store.exclusive():
+        store.create(item)
+        assert workflow._checkpoint(item, "deploy.mac.preflight", snapshot) is True
+        after = workflow._mac_owner_snapshot(approved_spaces=set(), require_quiet=True)
+        workflow._checkpoint(item, "verify.recovery", {"before": snapshot, "after": after})
+        # A snapshot without a doctor document (a stubbed one, an old
+        # manifest) stores nothing and breaks nothing.
+        workflow._checkpoint(item, "plain", {"owner": {"pid": 1}})
+
+    root = workflow._artifact_root(item) / "doctor"
+    assert sorted(path.name for path in root.iterdir()) == [
+        "deploy.mac.preflight-mac.json",
+        "verify.recovery.after-mac.json",
+        "verify.recovery.before-mac.json",
+    ]
+    stored = root / "deploy.mac.preflight-mac.json"
+    assert (stored.stat().st_mode & 0o777) == 0o600
+    assert json.loads(stored.read_text()) == fake.doctor_document()
+    evidence = item.checkpoints["deploy.mac.preflight"]["evidence"]
+    assert evidence["doctor"]["artifact"] == str(stored)
+    assert evidence["doctor"]["wez_first"] == DURABLE_WEZ_FIRST
+    assert "result" not in evidence["doctor"], "the manifest references the document, not a copy"
+    # The caller's snapshot is left whole, so a later checkpoint of the same
+    # snapshot stores its own copy of the document.
+    assert snapshot["doctor"] == fake.doctor_document()
+    listing = item.data["artifacts"]["doctor"]
+    assert listing["deploy.mac.preflight-mac"] == {
+        "path": str(stored),
+        "sha256": evidence["doctor"]["sha256"],
+        "checkpoint": "deploy.mac.preflight",
+        "host": "mac",
+    }
+    assert set(listing) == {
+        "deploy.mac.preflight-mac",
+        "verify.recovery.before-mac",
+        "verify.recovery.after-mac",
+    }
+    # The manifest with the listing still validates and reloads.
+    assert store.load(item.release_id).data["artifacts"]["doctor"] == listing
+
+
+def test_wait_for_the_owner_takes_doctor_once_after_the_postcondition_holds(tmp_path):
+    workflow, fake, _ = mac_workflow(tmp_path)
+
+    row = workflow._wait_mac_owner(
+        lambda row: True, approved_spaces=set(), require_quiet=True, timeout=5
+    )
+
+    assert row["doctor"] == fake.doctor_document()
+    assert fake.doctor_calls == 1
+
+
+def test_doctor_verdicts_are_read_from_the_probe_and_states_are_opaque():
+    def document(ok, detail, **extra):
+        return {"action": "doctor", "result": {"wez_first": {"ok": ok, "detail": detail}, **extra}}
+
+    assert Workflow._doctor_wez_first(document(True, DURABLE_WEZ_FIRST)) == (
+        True,
+        DURABLE_WEZ_FIRST,
+    )
+    assert Workflow._doctor_wez_first(document(True, NO_PREFERENCE))[0] is False
+    assert Workflow._doctor_wez_first(document(False, RUNTIME_ONLY))[0] is False
+    legacy = DURABLE_WEZ_FIRST.replace("Wez-first", "legacy")
+    assert Workflow._doctor_wez_first(document(True, legacy))[0] is False
+    with pytest.raises(Refusal, match="no wez_first probe"):
+        Workflow._doctor_wez_first({"action": "doctor", "result": {}})
+
+    # backend_instances is the B agent's field; absent today, opaque later.
+    assert Workflow._doctor_states(document(True, DURABLE_WEZ_FIRST)) is None
+    rows = [{"backend": "wez", "state": "E"}, {"backend": "tmux", "state": "F"}]
+    assert Workflow._doctor_states(document(True, DURABLE_WEZ_FIRST, backend_instances=rows)) == [
+        "E",
+        "F",
+    ]
+    with pytest.raises(Refusal, match="did not return a doctor document"):
+        Workflow._require_doctor_document({"action": "ls", "result": {}}, "Mac")

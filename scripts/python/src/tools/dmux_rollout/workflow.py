@@ -286,7 +286,7 @@ class Workflow:
             raise Refusal(f"built WezTerm version does not contain frozen commit: {version}")
         release.data["artifacts"]["mac_wezterm"] = artifacts
         release.data["artifacts"]["mac_wezterm_version"] = version
-        self.store.checkpoint(
+        self._checkpoint(
             release,
             "build.mac.wezterm",
             {"artifacts": artifacts, "version": version},
@@ -340,7 +340,7 @@ class Workflow:
             },
         )
         release.data["artifacts"]["mac_dotfiles"] = artifacts
-        self.store.checkpoint(release, "build.mac.dotfiles", {"artifacts": artifacts})
+        self._checkpoint(release, "build.mac.dotfiles", {"artifacts": artifacts})
 
     @staticmethod
     def _mac_dmux_test_environment(release: Release, target: Path) -> dict[str, str]:
@@ -449,7 +449,7 @@ class Workflow:
         if not release.completed("stage.archie.config_preflight"):
             config_evidence = self._archie_config_preflight(release)
             release.data["rollback"]["archie"]["config"] = config_evidence
-            self.store.checkpoint(release, "stage.archie.config_preflight", config_evidence)
+            self._checkpoint(release, "stage.archie.config_preflight", config_evidence)
 
         dotfiles = self._ensure_remote_worktree(
             host,
@@ -509,7 +509,7 @@ class Workflow:
             ).stdout.strip()
             if dirty:
                 raise Refusal("Archie maintained-fork gate dirtied the frozen worktree")
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "stage.archie.wezterm_gates",
                 {
@@ -572,7 +572,7 @@ class Workflow:
                 },
             )
             release.data["artifacts"]["archie_dotfiles"] = artifacts
-            self.store.checkpoint(release, "stage.archie.dotfiles", {"artifacts": artifacts})
+            self._checkpoint(release, "stage.archie.dotfiles", {"artifacts": artifacts})
         else:
             self._verify_remote_artifacts(
                 host,
@@ -643,7 +643,7 @@ class Workflow:
             ).stdout.splitlines()
             packages = self._classify_arch_packages(host, found, frozen_commit)
             release.data["artifacts"]["archie_packages"] = packages
-            self.store.checkpoint(release, "stage.archie.packages", {"packages": packages})
+            self._checkpoint(release, "stage.archie.packages", {"packages": packages})
         else:
             self._verify_remote_artifacts(
                 host,
@@ -872,7 +872,7 @@ class Workflow:
         if retired:
             before["retired_empty_gui_processes"] = retired
         if not release.completed("deploy.mac.preflight"):
-            self.store.checkpoint(release, "deploy.mac.preflight", before)
+            self._checkpoint(release, "deploy.mac.preflight", before)
         else:
             frozen = release.checkpoints["deploy.mac.preflight"]["evidence"]
             if frozen.get("backend_instance_uid") != before["backend_instance_uid"]:
@@ -885,7 +885,7 @@ class Workflow:
             # restores: its exact bytes, or its absence.
             env_backup = self._env_file_backup(self.config.mac_service_env)
             release.data["rollback"]["mac"]["service_env"] = env_backup
-            self.store.checkpoint(
+            self._checkpoint(
                 release, "deploy.mac.backup", {"files": backups, "service_env": env_backup}
             )
         else:
@@ -904,13 +904,13 @@ class Workflow:
                 raise
             evidence = self._installed_mac_hashes(release)
             release.data["artifacts"]["mac_installed"] = evidence
-            self.store.checkpoint(release, "deploy.mac.install", evidence)
+            self._checkpoint(release, "deploy.mac.install", evidence)
         else:
             self._verify_installed_mac_hashes(release)
 
         if not release.completed("deploy.mac.service"):
             if not release.completed("deploy.mac.service.intent"):
-                self.store.checkpoint(release, "deploy.mac.service.intent", before)
+                self._checkpoint(release, "deploy.mac.service.intent", before)
             intent = release.checkpoints["deploy.mac.service.intent"]["evidence"]
             current = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=True)
             if current["pid"] != intent["pid"] and current["epoch"] != intent["epoch"]:
@@ -929,7 +929,7 @@ class Workflow:
                     timeout=90,
                 )
                 after["service_env"] = enabled
-            self.store.checkpoint(release, "deploy.mac.service", after)
+            self._checkpoint(release, "deploy.mac.service", after)
         else:
             after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=True)
             frozen = release.checkpoints["deploy.mac.service"]["evidence"]
@@ -1332,7 +1332,7 @@ class Workflow:
         return Path(base) / "dmux"
 
     def _mac_owner_snapshot(
-        self, *, approved_spaces: set[str], require_quiet: bool
+        self, *, approved_spaces: set[str], require_quiet: bool, capture_doctor: bool = True
     ) -> dict[str, Any]:
         runtime = self._mac_runtime_dir()
         descriptor = self._load_bounded_json(runtime / "wez-dmux.json", maximum=65536)
@@ -1379,7 +1379,8 @@ class Workflow:
             or status.get("backend_instance_uid") != descriptor["backend_instance_uid"]
         ):
             raise Refusal("Mac recovery status does not match the live ready owner")
-        return {
+        snapshot = {
+            "host": "mac",
             "pid": descriptor["pid"],
             "process": process.stdout.strip(),
             "epoch": descriptor["epoch"],
@@ -1394,6 +1395,109 @@ class Workflow:
             "recovery_generation": status.get("generation_uid"),
             "recovery_manifest": status.get("manifest_id"),
         }
+        if capture_doctor:
+            snapshot["doctor"] = self._mac_doctor()
+        return snapshot
+
+    # `dmux doctor --format json` beside every owner snapshot ---------------
+    #
+    # The doctor document is the canary's witness (plan §21 step 7 as
+    # amended): `result.wez_first` says which layer the flag came from and
+    # whether a reboot reproduces it, and, once WS-B.4 lands, `backend_instances`
+    # carries the A-F instance state. The tool stores the document whole and
+    # reads exactly two things from it (`_doctor_wez_first`, `_doctor_states`);
+    # everything else is opaque evidence for the ledger.
+
+    def _mac_doctor(self) -> dict[str, Any]:
+        return self._require_doctor_document(
+            self._dmux_json(["doctor", "--format", "json"], timeout=60), "Mac"
+        )
+
+    @staticmethod
+    def _require_doctor_document(document: Any, host: str) -> dict[str, Any]:
+        if (
+            not isinstance(document, dict)
+            or document.get("action") != "doctor"
+            or not isinstance(document.get("result"), dict)
+        ):
+            raise Refusal(f"{host} dmux doctor did not return a doctor document")
+        return document
+
+    @staticmethod
+    def _doctor_wez_first(document: dict[str, Any]) -> tuple[bool, str]:
+        """The flag's durable verdict: (durable Wez-first, doctor's detail).
+
+        doctor's `wez_first` probe is `ok` both when the file and the service
+        manager agree on 1 and when nothing states a preference; only the
+        former is a canary. Its detail names the case (`doctor.rs`,
+        `wez_first_detail`), so the verdict is the `ok` bit plus that name.
+        """
+        probe = document.get("result", {}).get("wez_first")
+        if not isinstance(probe, dict) or not isinstance(probe.get("detail"), str):
+            raise Refusal("doctor document has no wez_first probe")
+        detail = probe["detail"]
+        return (probe.get("ok") is True and "durable Wez-first" in detail, detail)
+
+    @staticmethod
+    def _doctor_states(document: dict[str, Any]) -> list[str] | None:
+        """Instance states from `result.backend_instances`, or None when absent."""
+        rows = document.get("result", {}).get("backend_instances")
+        if rows is None:
+            return None
+        if isinstance(rows, dict):
+            rows = list(rows.values())
+        if not isinstance(rows, list):
+            return None
+        states = []
+        for row in rows:
+            if isinstance(row, dict) and isinstance(row.get("state"), str):
+                states.append(row["state"])
+        return states
+
+    def _doctor_artifact_dir(self, release: Release) -> Path:
+        path = self._artifact_root(release) / "doctor"
+        self._require_artifact_dir(path, create=True)
+        return path
+
+    def _store_doctor(
+        self, release: Release, checkpoint: str, snapshot: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Write a snapshot's doctor document beside the release; return the
+        snapshot with the document replaced by a reference to the file."""
+        document = snapshot.get("doctor")
+        host = snapshot.get("host")
+        if not isinstance(document, dict) or "artifact" in document or not isinstance(host, str):
+            return snapshot
+        name = f"{checkpoint}-{host}"
+        path = self._doctor_artifact_dir(release) / f"{name}.json"
+        text = json.dumps(document, indent=2, sort_keys=True) + "\n"
+        self._write_generated(path, text)
+        reference = {
+            "artifact": str(path),
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "wez_first": self._doctor_wez_first(document)[1],
+        }
+        states = self._doctor_states(document)
+        if states is not None:
+            reference["backend_instance_states"] = states
+        release.data["artifacts"].setdefault("doctor", {})[name] = {
+            "path": str(path),
+            "sha256": reference["sha256"],
+            "checkpoint": checkpoint,
+            "host": host,
+        }
+        return {**snapshot, "doctor": reference}
+
+    def _checkpoint(self, release: Release, name: str, evidence: dict[str, Any]) -> bool:
+        """store.checkpoint, with every owner snapshot's doctor document
+        written under <artifact root>/doctor/<checkpoint>[.<key>]-<host>.json."""
+        if release.completed(name):
+            return False
+        stored = self._store_doctor(release, name, evidence)
+        for key, value in list(stored.items()):
+            if isinstance(value, dict) and "doctor" in value:
+                stored[key] = self._store_doctor(release, f"{name}.{key}", value)
+        return self.store.checkpoint(release, name, stored)
 
     def _wait_mac_owner(
         self,
@@ -1408,9 +1512,13 @@ class Workflow:
         while time.monotonic() < deadline:
             try:
                 row = self._mac_owner_snapshot(
-                    approved_spaces=approved_spaces, require_quiet=require_quiet
+                    approved_spaces=approved_spaces,
+                    require_quiet=require_quiet,
+                    capture_doctor=False,
                 )
                 if predicate(row):
+                    # doctor probes the peer over ssh; take it once, after.
+                    row["doctor"] = self._mac_doctor()
                     return row
             except RolloutError as error:
                 last = error
@@ -1430,12 +1538,12 @@ class Workflow:
         except json.JSONDecodeError as error:
             raise Refusal(f"WezTerm {command} returned malformed JSON") from error
 
-    def _dmux_json(self, argv: Sequence[str]) -> Any:
+    def _dmux_json(self, argv: Sequence[str], *, timeout: float = 40) -> Any:
         output = self.runner.capture(
             [str(self.config.mac_dmux), *argv],
             env={"DMUX_WEZ_FIRST": "1"},
             unset_env=AMBIENT_MUX_VARS,
-            timeout=40,
+            timeout=timeout,
         ).stdout
         try:
             return json.loads(output)
@@ -1524,18 +1632,18 @@ class Workflow:
                 name: self.runner.capture(remote_argv(host, ["pacman", "-Q", name])).stdout.strip()
                 for name in ("wezterm-fredrir-git", "wezterm-fredrir-git-debug")
             }
-            self.store.checkpoint(release, "deploy.archie.packages", packages)
+            self._checkpoint(release, "deploy.archie.packages", packages)
 
         if not release.completed("deploy.archie.config"):
             evidence = self._deploy_archie_config(release)
-            self.store.checkpoint(release, "deploy.archie.config", evidence)
+            self._checkpoint(release, "deploy.archie.config", evidence)
 
         if not release.completed("deploy.archie.user_backup"):
             backups = self._backup_archie_user_binaries(release)
             release.data["rollback"]["archie"]["user_files"] = backups
             env_backup = self._remote_env_file_backup(host, self.config.archie_env_file)
             release.data["rollback"]["archie"]["service_env"] = env_backup
-            self.store.checkpoint(
+            self._checkpoint(
                 release, "deploy.archie.user_backup", {"files": backups, "service_env": env_backup}
             )
         else:
@@ -1563,7 +1671,7 @@ class Workflow:
         if not release.completed("deploy.archie.user_install"):
             installed = self._install_archie_user_binaries(release)
             release.data["artifacts"]["archie_user_installed"] = installed
-            self.store.checkpoint(release, "deploy.archie.user_install", installed)
+            self._checkpoint(release, "deploy.archie.user_install", installed)
         else:
             self._verify_remote_artifacts(
                 host,
@@ -1573,7 +1681,7 @@ class Workflow:
 
         if not release.completed("deploy.archie.service"):
             if not release.completed("deploy.archie.service.intent"):
-                self.store.checkpoint(
+                self._checkpoint(
                     release, "deploy.archie.service.intent", before or {"pid": None, "epoch": None}
                 )
             intent = release.checkpoints["deploy.archie.service.intent"]["evidence"]
@@ -1605,7 +1713,7 @@ class Workflow:
                     timeout=90,
                 )
                 after["service_env"] = enabled
-            self.store.checkpoint(release, "deploy.archie.service", after)
+            self._checkpoint(release, "deploy.archie.service", after)
         else:
             self._archie_owner_snapshot(release, approved_spaces=approved, require_quiet=True)
         release.advance_phase("deployed")
@@ -1947,7 +2055,12 @@ class Workflow:
         return {"path": str(path), "absent": backup["absent"], "assignments": restored}
 
     def _archie_owner_snapshot(
-        self, release: Release, *, approved_spaces: set[str], require_quiet: bool
+        self,
+        release: Release,
+        *,
+        approved_spaces: set[str],
+        require_quiet: bool,
+        capture_doctor: bool = True,
     ) -> dict[str, Any]:
         host = release.data["hosts"]["archie"]["ssh"]
         runtime = Path("/run/user/1000/dmux")
@@ -2021,7 +2134,8 @@ class Workflow:
             or status.get("server_epoch") != descriptor.get("epoch")
         ):
             raise Refusal("Archie recovery status does not match the ready owner")
-        return {
+        snapshot = {
+            "host": "archie",
             "pid": descriptor["pid"],
             "process": process.stdout.strip(),
             "epoch": descriptor["epoch"],
@@ -2036,6 +2150,24 @@ class Workflow:
             "recovery_generation": status.get("generation_uid"),
             "recovery_manifest": status.get("manifest_id"),
         }
+        if capture_doctor:
+            snapshot["doctor"] = self._archie_doctor(release)
+        return snapshot
+
+    def _archie_doctor(self, release: Release) -> dict[str, Any]:
+        host = release.data["hosts"]["archie"]["ssh"]
+        document = self._remote_json(
+            host,
+            [
+                *scrubbed_env("DMUX_WEZ_FIRST=1"),
+                str(self.config.archie_home / ".local/bin/dmux"),
+                "doctor",
+                "--format",
+                "json",
+            ],
+            timeout=60,
+        )
+        return self._require_doctor_document(document, "Archie")
 
     def _wait_archie_owner(
         self,
@@ -2051,17 +2183,21 @@ class Workflow:
         while time.monotonic() < deadline:
             try:
                 row = self._archie_owner_snapshot(
-                    release, approved_spaces=approved_spaces, require_quiet=require_quiet
+                    release,
+                    approved_spaces=approved_spaces,
+                    require_quiet=require_quiet,
+                    capture_doctor=False,
                 )
                 if predicate(row):
+                    row["doctor"] = self._archie_doctor(release)
                     return row
             except RolloutError as error:
                 last = error
             time.sleep(0.5)
         raise Refusal(f"Archie service did not reach the requested postcondition: {last}")
 
-    def _remote_json(self, host: str, argv: Sequence[str]) -> Any:
-        output = self.runner.capture(remote_argv(host, argv), timeout=40).stdout
+    def _remote_json(self, host: str, argv: Sequence[str], *, timeout: float = 40) -> Any:
+        output = self.runner.capture(remote_argv(host, argv), timeout=timeout).stdout
         try:
             return json.loads(output)
         except json.JSONDecodeError as error:
@@ -2100,7 +2236,7 @@ class Workflow:
             stable = self._live_gui_for_space(primary["host_uid"], primary["space_uid"])
             after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
             self._require_same_owner_space(before, after, primary["space_uid"])
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "verify.cold_present",
                 {"gui": stable, "owner": after, "initial_gui": gui},
@@ -2125,7 +2261,7 @@ class Workflow:
                 raise Refusal(
                     "reconnect created a second GUI/pane rather than focusing the existing one"
                 )
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "verify.reconnect",
                 {"gui": second_gui, "owner": after},
@@ -2135,9 +2271,7 @@ class Workflow:
             if not release.completed("verify.lifecycle.intent"):
                 before = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
                 gui = self._live_gui_for_space(primary["host_uid"], primary["space_uid"])
-                self.store.checkpoint(
-                    release, "verify.lifecycle.intent", {"owner": before, "gui": gui}
-                )
+                self._checkpoint(release, "verify.lifecycle.intent", {"owner": before, "gui": gui})
             intent = release.checkpoints["verify.lifecycle.intent"]["evidence"]
             before = intent["owner"]
             gui = intent["gui"]
@@ -2155,7 +2289,7 @@ class Workflow:
                 detached = self._require_gui_detached(gui)
             after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
             self._require_same_owner_space(before, after, primary["space_uid"])
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "verify.lifecycle",
                 {
@@ -2193,13 +2327,13 @@ class Workflow:
             host_uid, space_uid = self._parse_new_receipt(receipt, backend="wez")
             release.set_smoke_identity(space_uid=space_uid, host_uid=host_uid)
             self.store.save(release)
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "verify.smoke_identity",
                 {"host_uid": host_uid, "space_uid": space_uid, "receipt": receipt},
             )
         elif not release.completed("verify.smoke_identity"):
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "verify.smoke_identity",
                 {
@@ -2546,7 +2680,7 @@ class Workflow:
                 detached = self._require_gui_detached(live)
         after = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
         self._require_same_owner_space(before, after, primary["space_uid"])
-        self.store.checkpoint(
+        self._checkpoint(
             release,
             "verify.lifecycle.keybinding",
             {
@@ -2566,7 +2700,7 @@ class Workflow:
             return
         if not release.completed("verify.recovery.intent"):
             before = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
-            self.store.checkpoint(release, "verify.recovery.intent", before)
+            self._checkpoint(release, "verify.recovery.intent", before)
         before = release.checkpoints["verify.recovery.intent"]["evidence"]
         current = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
         if current["pid"] != before["pid"] and current["epoch"] != before["epoch"]:
@@ -2587,7 +2721,7 @@ class Workflow:
         for uid, panes in before["spaces"].items():
             if len(panes) != len(after["spaces"].get(uid, [])):
                 raise Refusal(f"recovery changed the pane count for Space {uid}")
-        self.store.checkpoint(release, "verify.recovery", {"before": before, "after": after})
+        self._checkpoint(release, "verify.recovery", {"before": before, "after": after})
 
     def _verify_removal(self, release: Release, approved: set[str]) -> None:
         smoke = release.data["smoke"]
@@ -2620,7 +2754,7 @@ class Workflow:
                 }
             )
             self.store.save(release)
-            self.store.checkpoint(release, "verify.removal_created", dict(removal))
+            self._checkpoint(release, "verify.removal_created", dict(removal))
         removal_uid = removal["space_uid"]
         if release.completed("verify.removal"):
             snapshot = self._mac_owner_snapshot(approved_spaces=approved, require_quiet=False)
@@ -2630,7 +2764,7 @@ class Workflow:
         allowed = approved | {removal_uid}
         before = self._mac_owner_snapshot(approved_spaces=allowed, require_quiet=False)
         if removal_uid not in before["spaces"]:
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "verify.removal",
                 {"space_uid": removal_uid, "owner_epoch": before["epoch"], "resumed": True},
@@ -2655,7 +2789,7 @@ class Workflow:
             time.sleep(0.1)
         if after is None or removal_uid in after["spaces"]:
             raise Refusal("removed Space remained in the owner inventory")
-        self.store.checkpoint(
+        self._checkpoint(
             release,
             "verify.removal",
             {"space_uid": removal_uid, "owner_epoch": after["epoch"]},
@@ -2687,7 +2821,7 @@ class Workflow:
             host_uid, space_uid = self._parse_new_receipt(receipt, backend="wez")
             remote.update({"host_uid": host_uid, "space_uid": space_uid})
             self.store.save(release)
-            self.store.checkpoint(release, "verify.two_host_identity", dict(remote))
+            self._checkpoint(release, "verify.two_host_identity", dict(remote))
         approved = {remote["space_uid"]}
         owner = self._archie_owner_snapshot(release, approved_spaces=approved, require_quiet=False)
         if remote["space_uid"] not in owner["spaces"]:
@@ -2714,7 +2848,7 @@ class Workflow:
         )
         if final_owner["spaces"] != stable_owner["spaces"]:
             raise Refusal("two-host lifecycle did not preserve Archie owner panes")
-        self.store.checkpoint(
+        self._checkpoint(
             release,
             "verify.two_host",
             {"gui": detached, "owner": final_owner},
@@ -2747,7 +2881,7 @@ class Workflow:
                 }
                 for row in release.data["rollback"]["mac"]["files"]
             }
-            self.store.checkpoint(
+            self._checkpoint(
                 release,
                 "rollback.mac",
                 {"files": hashes, "service_env": restored_env, "durable_state_preserved": True},
@@ -2772,7 +2906,7 @@ class Workflow:
                     remote_argv(host, ["systemctl", "--user", "restart", ARCHIE_MUX_UNIT]),
                     timeout=60,
                 )
-                self.store.checkpoint(
+                self._checkpoint(
                     release,
                     "rollback.archie",
                     {"service_env": restored_env, "durable_state_preserved": True},

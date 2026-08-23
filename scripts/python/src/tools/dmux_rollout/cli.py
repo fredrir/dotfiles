@@ -224,6 +224,11 @@ def status(
         _summary(release)
         for name, row in sorted(release.checkpoints.items()):
             typer.echo(f"  {row['at']}  {name}")
+        doctor = release.data["artifacts"].get("doctor", {})
+        if doctor:
+            typer.echo("doctor artifacts:")
+            for name, row in sorted(doctor.items()):
+                typer.echo(f"  {name}: {row['path']}")
 
 
 if __name__ == "__main__":
