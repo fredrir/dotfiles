@@ -9,7 +9,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use dmux::backend::tmux::{
-    EpochSetOutcome, SpaceMarkers, SystemRunner, TmuxProvider, TmuxServerIdentity,
+    EpochSetOutcome, ExpectedIncarnation, SpaceMarkers, SystemRunner, TmuxProvider,
+    TmuxServerIdentity,
 };
 use dmux::backend::{
     CreateSpec, InventoryOutcome, InventoryScope, NativeBinding, PresentationTarget, Provider,
@@ -581,6 +582,93 @@ fn binding_verbs_refuse_a_binding_from_a_previous_incarnation_on_a_real_server()
         .expect("inspect under the live incarnation");
     assert_eq!(row.native_token, binding.native_token);
     assert_eq!(row.native_name, "proj");
+}
+
+/// ADR 012 WS-A.9 at the adapter (review finding #11): a server restarted
+/// on the same namespace re-binds the same socket PATH with a fresh inode.
+/// With the published incarnation handed in, the adapter refuses the
+/// impostor even when the old `@dmux_server_epoch` was copied onto it — by
+/// the socket witness alone when pid/start token are made to agree, and on
+/// every read: `verify_incarnation`, `inventory` (`unreachable` with a
+/// `stale_incarnation` detail) and `read_markers`. The live incarnation's
+/// own witnesses verify.
+#[test]
+fn a_restarted_server_on_the_same_socket_path_is_refused_by_its_inode_even_with_the_copied_epoch() {
+    if !tmux_available() {
+        eprintln!("skipping: tmux not installed");
+        return;
+    }
+    let srv = ScratchServer::new();
+    srv.start_with_holder();
+    let e1 = fresh_epoch();
+    srv.set_epoch(e1);
+    let provider = srv.provider();
+    let before = provider
+        .server_incarnation(&srv.ns)
+        .expect("live incarnation");
+    let published = ExpectedIncarnation::from_live(&before);
+    provider
+        .verify_incarnation(&srv.ns, e1, &published)
+        .expect("the live incarnation verifies");
+    let pinned = srv.provider().with_expected_incarnation(published.clone());
+    assert!(matches!(
+        pinned.inventory(&srv.scope(Some(e1))),
+        InventoryOutcome::Complete(_)
+    ));
+
+    // Restart on the same namespace; copy the old epoch onto the impostor.
+    srv.tmux_ok(&["kill-server"]);
+    let (holder, _, _) = srv.start_with_holder();
+    srv.set_epoch(e1);
+    let after = provider
+        .server_incarnation(&srv.ns)
+        .expect("impostor incarnation");
+    assert_eq!(after.socket_path, before.socket_path, "same path");
+    assert_ne!(after.socket_ino, before.socket_ino, "fresh inode");
+
+    // The socket witness alone: identity made to agree, only dev/ino stale.
+    let socket_only = ExpectedIncarnation {
+        identity: after.identity.clone(),
+        socket: published.socket,
+    };
+    match provider.verify_incarnation(&srv.ns, e1, &socket_only) {
+        Err(ProviderError::WrongInstance { detail }) => {
+            assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+            assert!(detail.contains("re-bound"), "{detail}");
+        }
+        other => panic!("socket witness: expected wrong_instance, got {other:?}"),
+    }
+    // The published row as a whole: refused on identity first.
+    match provider.verify_incarnation(&srv.ns, e1, &published) {
+        Err(ProviderError::WrongInstance { detail }) => {
+            assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+        }
+        other => panic!("published row: expected wrong_instance, got {other:?}"),
+    }
+    // Reads with the published incarnation installed.
+    match pinned.inventory(&srv.scope(Some(e1))) {
+        InventoryOutcome::Unreachable { detail } => {
+            assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+        }
+        other => panic!("inventory: expected unreachable, got {other:?}"),
+    }
+    match pinned.read_markers(&srv.scope(Some(e1)), &holder) {
+        Err(ProviderError::WrongInstance { detail }) => {
+            assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+        }
+        other => panic!("read_markers: expected wrong_instance, got {other:?}"),
+    }
+
+    // The live incarnation's witnesses verify.
+    let relive = ExpectedIncarnation::from_live(&after);
+    provider
+        .verify_incarnation(&srv.ns, e1, &relive)
+        .expect("the impostor verifies as itself");
+    let repinned = srv.provider().with_expected_incarnation(relive);
+    assert!(matches!(
+        repinned.inventory(&srv.scope(Some(e1))),
+        InventoryOutcome::Complete(_)
+    ));
 }
 
 #[test]

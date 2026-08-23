@@ -246,6 +246,10 @@ pub struct TmuxProvider<R: TmuxRunner> {
     runner: R,
     endpoint: String,
     deadline: Duration,
+    /// The registry-published incarnation every verb holds the namespace
+    /// to once installed (ADR 012 WS-A.9); see
+    /// [`Self::with_expected_incarnation`].
+    expected: Option<ExpectedIncarnation>,
 }
 
 impl TmuxProvider<SystemRunner> {
@@ -260,11 +264,30 @@ impl<R: TmuxRunner> TmuxProvider<R> {
             runner,
             endpoint: endpoint.into(),
             deadline: DEFAULT_DEADLINE,
+            expected: None,
         }
     }
 
     pub fn with_deadline(mut self, deadline: Duration) -> Self {
         self.deadline = deadline;
+        self
+    }
+
+    /// Install the incarnation the registry publishes for this namespace
+    /// (ADR 012 WS-A.9, review finding #11). With it installed, every
+    /// epoch-fenced verb, `inventory` and `read_markers` compare a fresh
+    /// identity probe and a fresh `stat` of the server's socket against it
+    /// BEFORE the `@dmux_server_epoch` option is trusted — a replaced server
+    /// that re-bound the same socket path and had the old option copied onto
+    /// it is refused with a `stale_incarnation` detail (`WrongInstance`;
+    /// `inventory` answers `Unreachable`, plan §8.1 / instance state F),
+    /// never served. The caller builds the expectation from the registry row
+    /// ([`ExpectedIncarnation::from_published`]); the adapter never reads the
+    /// registry (plan §9.3). Without it the adapter verifies by epoch alone,
+    /// as it always has, and the operations layer's
+    /// `verify_published_incarnation` remains the only witness comparison.
+    pub fn with_expected_incarnation(mut self, expected: ExpectedIncarnation) -> Self {
+        self.expected = Some(expected);
         self
     }
 
@@ -332,14 +355,72 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         Ok(Some(ServerEpoch(uuid)))
     }
 
-    /// Re-read the epoch immediately before a native-ID mutation and require
-    /// it to equal `expected` (plan §11.2; mismatch discards native IDs).
-    /// (Internal helper; the public [`Self::verify_epoch`] additionally
-    /// rechecks the server incarnation identity.)
+    /// Re-check the incarnation (when one is installed) and re-read the
+    /// epoch immediately before a native-ID action, requiring the epoch to
+    /// equal `expected` (plan §11.2 "rechecks socket, PID/start token, and
+    /// epoch immediately before mutation"; mismatch discards native IDs).
+    /// (Internal helper; the public [`Self::verify_epoch`] /
+    /// [`Self::verify_incarnation`] take the identity from the caller.)
     fn check_epoch(&self, endpoint: &str, expected: ServerEpoch) -> ProviderResult<()> {
+        self.check_incarnation(endpoint)?;
+        self.compare_epoch(endpoint, expected)
+    }
+
+    fn compare_epoch(&self, endpoint: &str, expected: ServerEpoch) -> ProviderResult<()> {
         let observed = self.read_epoch(endpoint).map_err(map_epoch_failure)?;
         if observed != Some(expected) {
             return Err(ProviderError::EpochChanged { expected, observed });
+        }
+        Ok(())
+    }
+
+    /// ADR 012 WS-A.9: when the caller installed the published incarnation,
+    /// hold the namespace to it — one identity probe plus a `stat` of the
+    /// socket the server reports, compared before the server's self-reported
+    /// epoch is read. A no-op until [`Self::with_expected_incarnation`] is
+    /// called.
+    fn check_incarnation(&self, endpoint: &str) -> ProviderResult<()> {
+        let Some(expected) = &self.expected else {
+            return Ok(());
+        };
+        let live = self.server_incarnation(endpoint)?;
+        Self::compare_incarnation(endpoint, expected, &live)
+    }
+
+    /// Identity first (a different pid/start token is a different server
+    /// entirely), then the socket witness when the published row carries
+    /// one: a restarted server unlinks and re-binds its socket, so the inode
+    /// changes even when the path and the copied option do not (ADR 002
+    /// §64–73). Both refusals are `WrongInstance` with a `stale_incarnation`
+    /// detail (plan §8.1 as amended; instance state F).
+    fn compare_incarnation(
+        endpoint: &str,
+        expected: &ExpectedIncarnation,
+        live: &TmuxServerIncarnation,
+    ) -> ProviderResult<()> {
+        if live.identity != expected.identity {
+            return Err(ProviderError::WrongInstance {
+                detail: format!(
+                    "stale_incarnation: tmux server incarnation changed on {endpoint}: \
+                     published pid {} start {:?}, live pid {} start {:?} (ADR 012 §3.1 state F)",
+                    expected.identity.pid,
+                    expected.identity.start_token,
+                    live.identity.pid,
+                    live.identity.start_token
+                ),
+            });
+        }
+        if let Some((dev, ino)) = expected.socket
+            && (live.socket_dev, live.socket_ino) != (dev, ino)
+        {
+            return Err(ProviderError::WrongInstance {
+                detail: format!(
+                    "stale_incarnation: tmux socket {:?} on {endpoint} was re-bound: \
+                     published dev/ino {dev}/{ino}, live {}/{} (ADR 002 §64–73; \
+                     ADR 012 §3.1 state F)",
+                    live.socket_path, live.socket_dev, live.socket_ino
+                ),
+            });
         }
         Ok(())
     }
@@ -486,6 +567,27 @@ impl<R: TmuxRunner> TmuxProvider<R> {
         self.check_epoch(endpoint, expected)
     }
 
+    /// [`Self::verify_epoch`] with the socket witness (ADR 012 WS-A.9,
+    /// review finding #11): one identity probe plus a `stat` of the socket
+    /// the server reports must agree with `expected` on pid, start token
+    /// and — when the row published them — device/inode, and only then is
+    /// the epoch option read and held to `expected_epoch`. A restarted
+    /// server re-binds the same path with a fresh inode, so copying the old
+    /// `@dmux_server_epoch` onto it is `WrongInstance` here, never `Ok`.
+    /// Read-only. The identity-only [`Self::verify_epoch`] stays for rows
+    /// that predate the witness columns; readers that hold a published row
+    /// take this one.
+    pub fn verify_incarnation(
+        &self,
+        endpoint: &str,
+        expected_epoch: ServerEpoch,
+        expected: &ExpectedIncarnation,
+    ) -> ProviderResult<()> {
+        let live = self.server_incarnation(endpoint)?;
+        Self::compare_incarnation(endpoint, expected, &live)?;
+        self.compare_epoch(endpoint, expected_epoch)
+    }
+
     /// Managed handle/child operations require the caller-held epoch: an
     /// unepoched server is listable but its children are unaddressable.
     /// Reads included — a managed read without a pin is equally unverified
@@ -626,7 +728,8 @@ impl<R: TmuxRunner> TmuxProvider<R> {
 
     /// Read the four markers from one exact session; absent → None per
     /// marker. Epoch is verified only when the caller holds one, so
-    /// adoption-time discovery of unmanaged sessions can still read stamps.
+    /// adoption-time discovery of unmanaged sessions can still read stamps;
+    /// an installed incarnation (WS-A.9) is held to either way.
     pub fn read_markers(
         &self,
         scope: &InventoryScope,
@@ -634,8 +737,9 @@ impl<R: TmuxRunner> TmuxProvider<R> {
     ) -> ProviderResult<SpaceMarkerReadback> {
         Self::scope_check(scope)?;
         validate_session_token(session)?;
-        if let Some(expected) = scope.expected_epoch() {
-            self.check_epoch(&scope.endpoint, expected)?;
+        match scope.expected_epoch() {
+            Some(expected) => self.check_epoch(&scope.endpoint, expected)?,
+            None => self.check_incarnation(&scope.endpoint)?,
         }
         let mut values = [const { None }; 4];
         for (slot, option) in [
@@ -989,6 +1093,61 @@ pub struct TmuxServerIncarnation {
     pub socket_path: String,
     pub socket_dev: u64,
     pub socket_ino: u64,
+}
+
+/// The incarnation the registry published for a namespace, handed to the
+/// adapter by the caller (providers never read the registry, plan §9.3):
+/// the pid and start token, and — for a row published since ADR 012
+/// WS-A.9 — the socket's device and inode. `tmux_bootstrap` records all
+/// four from one [`TmuxServerIncarnation`] probe; a reader hands them back
+/// here and the adapter compares a fresh probe and a fresh `stat` against
+/// them before it trusts the server's self-reported epoch
+/// ([`TmuxProvider::verify_incarnation`],
+/// [`TmuxProvider::with_expected_incarnation`]). A row published before the
+/// witness columns carries no socket pair and is verified by identity and
+/// epoch alone, as the operations layer does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpectedIncarnation {
+    pub identity: TmuxServerIdentity,
+    /// `(dev, ino)` of the socket as published; `None` for a row that
+    /// predates the witness columns.
+    pub socket: Option<(u64, u64)>,
+}
+
+impl ExpectedIncarnation {
+    /// From a published row's columns as the registry stores them
+    /// (`server_pid`, `server_start_token`, `socket_dev`, `socket_ino`).
+    /// `None` when the row names no pid or start token — nothing to hold a
+    /// probe to. A half-published or unrepresentable socket pair is no
+    /// witness, not a mismatch.
+    pub fn from_published(
+        pid: Option<i64>,
+        start_token: Option<&str>,
+        socket_dev: Option<i64>,
+        socket_ino: Option<i64>,
+    ) -> Option<Self> {
+        let pid = u32::try_from(pid?).ok()?;
+        let start_token = start_token?.to_string();
+        let socket = match (socket_dev, socket_ino) {
+            (Some(dev), Some(ino)) => match (u64::try_from(dev), u64::try_from(ino)) {
+                (Ok(dev), Ok(ino)) => Some((dev, ino)),
+                _ => None,
+            },
+            _ => None,
+        };
+        Some(ExpectedIncarnation {
+            identity: TmuxServerIdentity { pid, start_token },
+            socket,
+        })
+    }
+
+    /// What a row published from `live` would reconstruct to.
+    pub fn from_live(live: &TmuxServerIncarnation) -> Self {
+        ExpectedIncarnation {
+            identity: live.identity.clone(),
+            socket: Some((live.socket_dev, live.socket_ino)),
+        }
+    }
 }
 
 /// `stat` of a tmux server's socket as `(dev, ino)`.
@@ -1580,6 +1739,24 @@ impl<R: TmuxRunner> Provider for TmuxProvider<R> {
             Err(EpochFailure::Timeout(detail)) => return InventoryOutcome::Timeout { detail },
             Err(EpochFailure::Malformed(detail)) => return InventoryOutcome::Malformed { detail },
         };
+        // WS-A.9: with the published incarnation installed, the registry's
+        // witnesses are compared against a fresh probe and `stat` before the
+        // server's self-reported epoch is trusted. A replaced server
+        // presenting the copied option is `unreachable` with a
+        // `stale_incarnation` detail (plan §8.1; instance state F) — never a
+        // complete inventory, never owner-proven stopped.
+        match self.check_incarnation(&scope.endpoint) {
+            Ok(()) => {}
+            Err(ProviderError::WrongInstance { detail }) => {
+                return InventoryOutcome::Unreachable { detail };
+            }
+            Err(ProviderError::Timeout { detail }) => return InventoryOutcome::Timeout { detail },
+            Err(other) => {
+                return InventoryOutcome::Malformed {
+                    detail: format!("incarnation probe on {:?}: {other:?}", scope.endpoint),
+                };
+            }
+        }
         if let Some(expected) = scope.expected_epoch()
             && epoch != Some(expected)
         {
@@ -3546,6 +3723,212 @@ mod tests {
             }
             other => panic!("expected epoch_changed, got {other:?}"),
         }
+    }
+
+    // -- WS-A.9: the socket witness at the adapter -----------------------------
+
+    /// A stat-able stand-in for the server's socket, with its `(dev, ino)`.
+    fn fake_socket() -> (tempfile::NamedTempFile, (u64, u64)) {
+        use std::os::unix::fs::MetadataExt;
+        let file = tempfile::NamedTempFile::new().expect("fake socket");
+        let meta = file.as_file().metadata().expect("stat fake socket");
+        (file, (meta.dev(), meta.ino()))
+    }
+
+    /// The identity row naming `sock` as the server's resolved socket.
+    fn identity_ok_at(sock: &std::path::Path) -> Result<RunOutput, RunError> {
+        ok(&format!("{PID}{SEP}{START}{SEP}{}\n", sock.display()))
+    }
+
+    fn expected_at(socket: (u64, u64)) -> ExpectedIncarnation {
+        ExpectedIncarnation {
+            identity: identity(),
+            socket: Some(socket),
+        }
+    }
+
+    #[test]
+    fn verify_incarnation_holds_identity_then_socket_then_epoch_read_only() {
+        let (sock, witness) = fake_socket();
+        let runner = ScriptedRunner::new(vec![identity_ok_at(sock.path()), epoch_ok()]);
+        provider(&runner)
+            .verify_incarnation(NS, ServerEpoch(EPOCH), &expected_at(witness))
+            .unwrap();
+        assert_eq!(
+            *runner.calls.borrow(),
+            vec![identity_read_argv(), epoch_read_argv()],
+        );
+        assert_read_only(&runner);
+    }
+
+    /// Review finding #11 inverted at the adapter: the same path, a fresh
+    /// inode. Refused before the epoch option is read at all.
+    #[test]
+    fn verify_incarnation_rebound_socket_is_wrong_instance_before_the_epoch_read() {
+        let (sock, (dev, ino)) = fake_socket();
+        let runner = ScriptedRunner::new(vec![identity_ok_at(sock.path())]);
+        match provider(&runner).verify_incarnation(
+            NS,
+            ServerEpoch(EPOCH),
+            &expected_at((dev, ino + 1)),
+        ) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+                assert!(detail.contains("re-bound"), "{detail}");
+            }
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+        assert_eq!(
+            runner.calls.borrow().len(),
+            1,
+            "must stop before the epoch read"
+        );
+        assert_read_only(&runner);
+    }
+
+    #[test]
+    fn verify_incarnation_identity_mismatch_is_wrong_instance_and_a_witnessless_row_verifies_by_identity()
+     {
+        let (sock, witness) = fake_socket();
+        let runner = ScriptedRunner::new(vec![identity_ok_at(sock.path())]);
+        let mut expected = expected_at(witness);
+        expected.identity.pid += 1;
+        match provider(&runner).verify_incarnation(NS, ServerEpoch(EPOCH), &expected) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+                assert!(detail.contains("incarnation changed"), "{detail}");
+            }
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+        assert_eq!(runner.calls.borrow().len(), 1);
+
+        // A row published before the witness columns: identity and epoch.
+        let runner = ScriptedRunner::new(vec![identity_ok_at(sock.path()), epoch_ok()]);
+        let pre_witness = ExpectedIncarnation {
+            identity: identity(),
+            socket: None,
+        };
+        provider(&runner)
+            .verify_incarnation(NS, ServerEpoch(EPOCH), &pre_witness)
+            .unwrap();
+    }
+
+    #[test]
+    fn inventory_with_an_installed_incarnation_refuses_a_replaced_server_as_unreachable() {
+        let (sock, (dev, ino)) = fake_socket();
+        let runner = ScriptedRunner::new(vec![epoch_ok(), identity_ok_at(sock.path())]);
+        let p = provider(&runner).with_expected_incarnation(expected_at((dev, ino + 1)));
+        let outcome = p.inventory(&epoched_scope());
+        match &outcome {
+            InventoryOutcome::Unreachable { detail } => {
+                assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+            }
+            other => panic!("expected unreachable, got {other:?}"),
+        }
+        assert!(
+            !outcome.is_determinate(),
+            "a stale incarnation is never owner-proven stopped (plan §8.1)"
+        );
+        assert_eq!(runner.calls.borrow().len(), 2, "no listing was issued");
+        assert_read_only(&runner);
+    }
+
+    #[test]
+    fn inventory_with_a_matching_installed_incarnation_is_complete() {
+        let (sock, witness) = fake_socket();
+        let runner = ScriptedRunner::new(vec![
+            epoch_ok(),
+            identity_ok_at(sock.path()),
+            ok(&fixture("list-sessions.txt")),
+            ok(&fixture("list-windows.txt")),
+            ok(&fixture("list-panes.txt")),
+            epoch_ok(),
+        ]);
+        let p = provider(&runner).with_expected_incarnation(expected_at(witness));
+        let InventoryOutcome::Complete(inv) = p.inventory(&epoched_scope()) else {
+            panic!("expected complete inventory");
+        };
+        assert_eq!(inv.server_epoch, Some(ServerEpoch(EPOCH)));
+        assert_eq!(runner.calls.borrow()[1], identity_read_argv());
+        assert_eq!(runner.calls.borrow().len(), 6);
+    }
+
+    /// The installed incarnation fences `read_markers` (pinned or not) and
+    /// every `check_epoch`-fenced verb before its epoch read and its command.
+    #[test]
+    fn read_markers_and_every_epoch_fenced_verb_hold_the_namespace_to_the_installed_incarnation() {
+        let (sock, (dev, ino)) = fake_socket();
+        let stale = expected_at((dev, ino + 1));
+
+        let runner = ScriptedRunner::new(vec![identity_ok_at(sock.path())]);
+        let p = provider(&runner).with_expected_incarnation(stale.clone());
+        match p.read_markers(&scope(None), "$5") {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+            }
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+        assert_eq!(runner.calls.borrow().len(), 1, "no show-options");
+
+        let runner = ScriptedRunner::new(vec![identity_ok_at(sock.path())]);
+        let p = provider(&runner).with_expected_incarnation(stale);
+        match p.group_activate(&epoched_scope(), &ProviderHandle::Tx(7)) {
+            Err(ProviderError::WrongInstance { detail }) => {
+                assert!(detail.starts_with("stale_incarnation: "), "{detail}");
+            }
+            other => panic!("expected wrong_instance, got {other:?}"),
+        }
+        assert_eq!(
+            runner.calls.borrow().len(),
+            1,
+            "neither the epoch read nor select-window ran"
+        );
+
+        // Matching: one probe, then the epoch read, then the verb as before.
+        let runner = ScriptedRunner::new(vec![
+            identity_ok_at(sock.path()),
+            epoch_ok(),
+            ok("host-uid\n"),
+            ok(""),
+            ok(""),
+            ok(""),
+        ]);
+        let p = provider(&runner).with_expected_incarnation(expected_at((dev, ino)));
+        let back = p.read_markers(&epoched_scope(), "$5").unwrap();
+        assert_eq!(back.host_uid.as_deref(), Some("host-uid"));
+        assert_eq!(runner.calls.borrow()[0], identity_read_argv());
+        assert_eq!(runner.calls.borrow()[1], epoch_read_argv());
+    }
+
+    #[test]
+    fn expected_incarnation_is_built_from_the_published_row_columns() {
+        let pid = Some(i64::from(PID));
+        assert_eq!(
+            ExpectedIncarnation::from_published(None, Some(START), Some(1), Some(2)),
+            None
+        );
+        assert_eq!(
+            ExpectedIncarnation::from_published(pid, None, Some(1), Some(2)),
+            None
+        );
+        assert_eq!(
+            ExpectedIncarnation::from_published(pid, Some(START), Some(1), Some(2)),
+            Some(expected_at((1, 2)))
+        );
+        assert_eq!(
+            ExpectedIncarnation::from_published(pid, Some(START), None, None)
+                .unwrap()
+                .socket,
+            None,
+            "a row that predates the witness columns"
+        );
+        assert_eq!(
+            ExpectedIncarnation::from_published(pid, Some(START), Some(1), None)
+                .unwrap()
+                .socket,
+            None,
+            "a half-published pair is no witness"
+        );
     }
 
     #[test]

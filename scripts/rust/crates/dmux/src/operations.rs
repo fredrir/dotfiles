@@ -129,6 +129,61 @@ pub fn tmux_bootstrap(
                     .map_err(|e| BootstrapError::Provider(format!("{e:?}")))?;
                 return Ok(TmuxBootstrapOutcome::AlreadyBound { epoch: existing });
             }
+            // ADR 012 §10 (O close; root decision): the registry publishes
+            // an incarnation — pid, start token, socket dev/ino — that is
+            // not this server, and this server presents exactly the epoch
+            // that row published. That is a replaced server carrying a
+            // copied option (ADR 002 §64–73: tmux is the easiest backend
+            // to spoof), not a continuation; plan §11.2 says restarted
+            // state invalidates prior child refs, and `set_epoch_if_absent`
+            // never overwrites a present option, so nothing here can make
+            // the option true again. Refuse as `backend_epoch_changed` and
+            // leave the row as it was; the operator's move is `dmux repair
+            // retire-incarnation` (WS-B.3), after which a re-run takes the
+            // first-contact arm below. "Not this server" means any
+            // published witness disagrees: a restart always changes the
+            // start token and the socket inode, while the device is shared
+            // by every socket on the filesystem and a pid may be recycled,
+            // so a per-field "all differ" test could never fire.
+            let identity_published =
+                record.server_pid.is_some() && record.server_start_token.is_some();
+            let identity_differs = identity_published
+                && (record.server_pid != Some(identity.pid as i64)
+                    || record.server_start_token.as_deref() != Some(identity.start_token.as_str()));
+            let socket_published = record.socket_dev.is_some() && record.socket_ino.is_some();
+            let socket_differs = socket_published
+                && (record.socket_dev != socket_dev || record.socket_ino != socket_ino);
+            if record.server_epoch == Some(existing) && (identity_differs || socket_differs) {
+                return Err(BootstrapError::Provider(format!(
+                    "backend_epoch_changed: the tmux server on namespace {namespace:?} presents \
+                     the published epoch {} but is not the published incarnation (registry pid \
+                     {:?} start {:?} socket dev/ino {:?}/{:?}; live pid {} start {:?} socket \
+                     dev/ino {:?}/{:?}); a restarted server invalidates prior child refs (plan \
+                     §11.2) and the option is never overwritten — run `dmux repair \
+                     retire-incarnation --backend tmux --epoch {}` and then `dmux \
+                     _tmux-bootstrap` again",
+                    existing.0,
+                    record.server_pid,
+                    record.server_start_token,
+                    record.socket_dev,
+                    record.socket_ino,
+                    identity.pid,
+                    identity.start_token,
+                    socket_dev,
+                    socket_ino,
+                    existing.0
+                )));
+            }
+            // Otherwise today's behaviour. Either no incarnation is
+            // published (`server_epoch` NULL: never published, or retired by
+            // the operator) and the option is already present — first
+            // contact under the exclusive kernel lock, case 27's explicit,
+            // serialised bootstrap: the option's value is adopted as this
+            // incarnation's epoch and the live witnesses are published
+            // beside it (trust-on-first-contact, `previous: None`). Or the
+            // published epoch differs from the option — a rebind, which
+            // publishes the observed binding and thereby invalidates every
+            // child ref minted under the old epoch.
             (existing, record.server_epoch)
         }
     };

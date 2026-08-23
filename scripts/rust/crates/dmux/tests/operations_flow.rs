@@ -13,10 +13,10 @@ use dmux::backend::{InventoryScope, Provider, SplitDirection};
 use dmux::bootstrap::MarkerContext;
 use dmux::model::{Backend, ServerEpoch};
 use dmux::operations::{
-    CreateRequest, GroupNewRequest, OpError, OperationEnv, OwnerCreateTarget, SplitNewRequest,
-    context_read, create_space_owner_fenced, group_activate_exact, group_new, hierarchy,
-    remove_space, rename_space, resume_remove_space, split_direction, split_new, split_resize,
-    split_zoom, tmux_bootstrap, validate_marker_context,
+    BootstrapError, CreateRequest, GroupNewRequest, OpError, OperationEnv, OwnerCreateTarget,
+    SplitNewRequest, context_read, create_space_owner_fenced, group_activate_exact, group_new,
+    hierarchy, remove_space, rename_space, resume_remove_space, retire_incarnation,
+    split_direction, split_new, split_resize, split_zoom, tmux_bootstrap, validate_marker_context,
 };
 use dmux::refs::{ChildRefShape, parse_ref};
 use dmux::registry::{Registry, RegistryConfig};
@@ -1484,10 +1484,93 @@ fn a_replaced_tmux_socket_presenting_the_old_epoch_is_refused_everywhere() {
         "only the original create's row"
     );
 
-    // The hook re-running on the impostor republishes its witnesses; the
-    // same verbs then verify again.
-    s.epoch();
+    // The hook re-running on the impostor REFUSES (ADR 012 §10, O close):
+    // the registry publishes an incarnation that is not this server, and
+    // this server presents that row's epoch. The row is left as it was, so
+    // every verb above still refuses and nothing bootstraps on the
+    // impostor's word.
+    let err = tmux_bootstrap(&s.env(), &s.ns).unwrap_err();
+    assert!(matches!(err, BootstrapError::Provider(_)), "{err}");
+    let text = err.to_string();
+    assert!(text.contains("backend_epoch_changed"), "{text}");
+    assert!(text.contains("repair retire-incarnation"), "{text}");
+    let registry = s.registry();
+    let instance = registry
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("the instance bootstrap registered");
+    let published = registry.backend_server(instance).unwrap();
+    assert_eq!(
+        published.server_pid,
+        Some(old_pid),
+        "the stale row is untouched"
+    );
+    assert_eq!(published.server_epoch, Some(epoch));
+    drop(registry);
+    let err = hierarchy(&s.env(), &provider, &scope, created.space_uid).unwrap_err();
+    assert!(matches!(err, OpError::StaleRef(_)), "still refused: {err}");
+
+    // The remedy: retire the dead incarnation, then the hook takes the
+    // first-contact arm — the option's value is adopted and the live
+    // witnesses are published beside it — and the same verbs verify again.
+    // (`allow_live_pid`: the old pid is dead here, but a recycled pid must
+    // not make this test flaky; the live-pid guard has its own test.)
+    retire_incarnation(&s.env(), Backend::Tmux, epoch, true).unwrap();
+    assert!(matches!(
+        tmux_bootstrap(&s.env(), &s.ns).unwrap(),
+        dmux::operations::TmuxBootstrapOutcome::Rebound {
+            epoch: again,
+            previous: None,
+        } if again == epoch
+    ));
+    let published = s.registry().backend_server(instance).unwrap();
+    assert_eq!(published.server_pid, Some(new_pid));
     assert!(hierarchy(&s.env(), &provider, &scope, created.space_uid).is_ok());
+}
+
+/// The first-contact arm is unchanged by the refusal above (ADR 012 §10;
+/// case 27's explicit, serialised bootstrap): an option already present on
+/// a server the registry has never published — here set by an external
+/// writer before the hook ran — is adopted as the incarnation's epoch and
+/// the live witnesses are published beside it (`Rebound { previous: None }`),
+/// never refused and never overwritten.
+#[test]
+fn tmux_bootstrap_on_first_contact_adopts_a_present_option_and_publishes_the_live_witnesses() {
+    let s = Scratch::new("first-contact");
+    let preset = ServerEpoch(Uuid::new_v4());
+    s.tmux(&[
+        "set-option",
+        "-g",
+        "@dmux_server_epoch",
+        &preset.0.to_string(),
+    ]);
+    let outcome = tmux_bootstrap(&s.env(), &s.ns).unwrap();
+    assert!(
+        matches!(
+            outcome,
+            dmux::operations::TmuxBootstrapOutcome::Rebound {
+                epoch,
+                previous: None,
+            } if epoch == preset
+        ),
+        "{outcome:?}"
+    );
+    let registry = s.registry();
+    let instance = registry
+        .backend_instance_for_backend(Backend::Tmux)
+        .unwrap()
+        .expect("registered");
+    let published = registry.backend_server(instance).unwrap();
+    let (pid, _) = live_tmux_identity(&s);
+    assert_eq!(published.server_epoch, Some(preset));
+    assert_eq!(published.server_pid, Some(pid));
+    assert!(published.socket_dev.is_some() && published.socket_ino.is_some());
+    assert_eq!(
+        s.tmux(&["show-options", "-gqv", "@dmux_server_epoch"])
+            .trim(),
+        preset.0.to_string(),
+        "never overwritten"
+    );
 }
 
 // ---------------------------------------------------------------------------
