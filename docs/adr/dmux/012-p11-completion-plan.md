@@ -738,4 +738,21 @@ amended). `dmux recovery abort` keeps its existing meaning.
 | GUI | WS-E.3 rows 11 and 15 (five `gui.rs` helpers; `select_compatible_domain`'s identity check adopted; rotation success-path test), stale texts | `gui`, `p11/gui` (base `9634c72`) | `gui.rs`, `gui_cli.rs` rows 11/15 sites |
 
 Root after this wave: the remote-side dev/ino readers (`remote/agent.rs:813`, `remote/attach.rs` ×3) and routing the remote `rename`/`inspect`/`attach_plan` binding epochs through `binding_epoch_for_adapter` (a seventh, "R", once a slot frees); the coordinator-path retire→publish test; `lookup_new_owner_fenced`'s Unpublished-partition seam (A5-c's deviation); then WS-G.1 fill, WS-G.3 reader test, WS-G.6 docs, and wave 4.
+- **GUI (WS-E.3 rows 11, 15; §3.5) — closed 2026-08-23** (`f797c6a`…`7d9031d` → `1f37f3a`…`b568d81`).
+  The one real gap — `choose_compatible_presentation_row` compared candidates only to each other —
+  is closed: it now takes the validated HostUid/backend instance and refuses any candidate that does
+  not name it (`identity_conflict`) and any incompatible row with its reason, at all four call sites.
+  The other four `gui.rs` helpers were each compared with their production analogue and deleted:
+  production already carried the stricter semantics (`decode_and_validate_ack` on the exact spool
+  bytes after the request/time/origin-incarnation checks; `bind_cli_origin_with_heartbeat` with
+  owner revalidation; `validate_request_for_instance` with consumer binding), and their tests now
+  vouch for the production functions; `rotate_bridge_key_if_idle` shares one `replace_bridge_key`
+  with `ensure_bridge_key` and its success path is tested (no production caller by design: ADR 003
+  §3's key is per boot). Row 11: report 06's claim that the live `HeartbeatSource::live_instances`
+  lacks a freshness check is REFUTED by code at 493e92c (`gui_lifecycle.rs:652` →
+  `validate_heartbeat` enforces `HEARTBEAT_MAX_AGE`); the dead `discover_single_live_instance` is
+  deleted and the stale-heartbeat refusal is proven on the production reader. P9's "invalid context
+  always fails closed" is now claimed against production (`call_instance`,
+  `bind_cli_origin_with_heartbeat`). Five manifest entries recorded. Optional follow-up for B's file:
+  an fd-based spool walk in `RuntimeHeartbeatSource::live_instances` (text in GUI's return).
 

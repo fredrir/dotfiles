@@ -568,7 +568,8 @@
     "registry::bindings::the_recorded_binding_epoch_is_readable_and_refreshed_only_on_the_current_row",
     "registry::bootstrap::retiring_an_incarnation_is_a_cas_on_its_epoch_that_clears_the_row_and_advances_the_chain",
     "operations_flow::retire_incarnation_clears_exactly_the_named_epoch_and_guards_a_live_pid",
-    "remote_protocol::mutations::spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_complete"
+    "remote_protocol::mutations::spaces_pins_the_tmux_scan_to_the_published_epoch_so_a_replaced_server_is_not_complete",
+    "unit::gui_cli::tests::presentation_routes_must_name_the_validated_authority"
    ],
    "implemented_at": [],
    "live_evidence": [],
@@ -583,10 +584,13 @@
    "title": "Every logical key follows the active marker; invalid markers change nothing",
    "earliest_owning_phase": "P9 GUI/presentation",
    "tests": [
-    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one"
+    "context_cli::context_refuses_every_way_the_review_minted_a_marker_and_still_mints_the_real_one",
+    "unit::gui::tests::production_bridge_call_fails_closed_on_invalid_origin_ack_and_context",
+    "unit::gui_cli::tests::invalid_or_authority_refused_origin_reaches_no_action"
    ],
    "implemented_at": [
-    "src/main.rs context_cmd (tmux arm resolves the Space's instance from the registry and pins to its published epoch)"
+    "src/main.rs context_cmd (tmux arm resolves the Space's instance from the registry and pins to its published epoch)",
+    "src/gui.rs call_instance / bind_cli_origin_with_heartbeat (P9 'invalid context fails closed' now claimed against production)"
    ],
    "live_evidence": [],
    "live_evidence_required": [],
@@ -657,7 +661,9 @@
   "32": {
    "title": "Closing/reopening the GUI leaves owner pane/process IDs unchanged and restores no snapshots",
    "earliest_owning_phase": "P9 GUI/presentation",
-   "tests": [],
+   "tests": [
+    "gui_lifecycle::stale_or_unprivate_heartbeats_are_not_live_instances"
+   ],
    "implemented_at": [
     "src/gui_lifecycle.rs launch_attach_only_gui_with",
     "shared/wezterm/wez/domains/init.lua:231 default_gui_startup_args = {connect, dmux}",
@@ -671,13 +677,13 @@
     "two-host / GUI / service live evidence (rollout checkpoint or doctor artifact) — to be named in WS-G"
    ],
    "open_items": [],
-   "status": "unmapped",
+   "status": "mapped",
    "related_tests": [
     "gui_lifecycle::attach_launcher_uses_only_the_frozen_argv_and_sanitized_endpoint_env",
     "lua::domains::managed_gui_startup_args_are_connect_dmux"
    ],
    "confidence": "low",
-   "gap": "The related tests prove attach-only launch argv and the startup args, not the property: nothing asserts owner pane/process IDs unchanged across a GUI close/reopen, and nothing tests resurrect.lua's startup_restore=false (no Lua test file covers it). Proof rests on the spike3 live run; wave-4 GUI evidence required."
+   "gap": "Reopen-path half now held (a dead GUI's heartbeat is never reused by summon/cold launch); owner pane/process-ID survival across close/reopen and 'restores no snapshots' remain live evidence (spike3; wave-4 GUI check). resurrect.lua's startup_restore=false is still untested."
   },
   "33": {
    "title": "Command+Q and disconnect leave owner pane counts unchanged for both backends",

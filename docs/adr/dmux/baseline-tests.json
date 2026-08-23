@@ -554,6 +554,50 @@
     "recovery::coordinator::snapshot_capture_publishes_the_exact_fenced_plan_atomically"
    ],
    "recorded": "2026-08-23"
+  },
+  {
+   "id": "unit::gui::tests::domain_manifest_derives_alternates_and_refuses_incompatible_selection (assertions: select_compatible_domain accepts dmux-b-usb / refuses dmux-b-ts)",
+   "rationale": "ADR 012 WS-E.3 row 15: gui::select_compatible_domain had no production caller; selection is gui_cli::choose_compatible_presentation_row, which now carries the identity check and the incompatible-row refusal. The manifest-building assertions remain under the renamed test.",
+   "replacement_tests": [
+    "unit::gui::tests::domain_manifest_derives_alternates_and_refuses_unsafe_sources",
+    "unit::gui_cli::tests::presentation_routes_must_name_the_validated_authority",
+    "unit::gui_cli::tests::freshly_proven_route_wins_over_a_stale_attached_route"
+   ],
+   "recorded": "2026-08-23"
+  },
+  {
+   "id": "unit::gui_cli::tests::presentation_routes_conflict_only_on_a_different_identity",
+   "rationale": "Renamed and widened: the chooser is now checked against the caller's validated identity, not only between candidates (report 06 row 15).",
+   "replacement_tests": [
+    "unit::gui_cli::tests::presentation_routes_must_name_the_validated_authority"
+   ],
+   "recorded": "2026-08-23"
+  },
+  {
+   "id": "unit::gui::tests::group_only_presentation_ack_reports_the_selected_split (assertions via validate_acknowledgement)",
+   "rationale": "WS-E.3 row 15: validate_acknowledgement deleted; the same case now runs through call_instance's decode_and_validate_ack, adding the duplicated-member refusal.",
+   "replacement_tests": [
+    "unit::gui::tests::group_only_presentation_ack_reports_the_selected_split",
+    "unit::gui::tests::production_bridge_call_fails_closed_on_invalid_origin_ack_and_context"
+   ],
+   "recorded": "2026-08-23"
+  },
+  {
+   "id": "unit::gui::tests::cli_origin_is_distinct_exact_and_marker_bound (assertion: bind_cli_origin == bind_cli_origin_with_heartbeat)",
+   "rationale": "WS-E.3 row 15: the wrapper is deleted; the binder's refusals are asserted on the production function.",
+   "replacement_tests": [
+    "unit::gui::tests::cli_origin_is_distinct_exact_and_marker_bound",
+    "unit::gui::tests::production_bridge_call_fails_closed_on_invalid_origin_ack_and_context"
+   ],
+   "recorded": "2026-08-23"
+  },
+  {
+   "id": "unit::gui::tests::strict_request_unions_reject_unknown_stale_and_unbound_fields (assertions via parse_signed_origin_json)",
+   "rationale": "WS-E.3 row 15: parse_signed_origin_json deleted; the canonical-UUID refusal now runs through validate_request_for_instance, plus the consumer-binding refusal the helper lacked.",
+   "replacement_tests": [
+    "unit::gui::tests::strict_request_unions_reject_unknown_stale_and_unbound_fields"
+   ],
+   "recorded": "2026-08-23"
   }
  ]
 }
