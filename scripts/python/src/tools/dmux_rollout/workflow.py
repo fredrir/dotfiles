@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from tools.dmux_rollout.command import Runner, remote_argv, sha256_file
+from tools.dmux_rollout.command import Runner, remote_argv, require_ssh_host, sha256_file
 from tools.dmux_rollout.errors import Refusal, RolloutError, StateError
 from tools.dmux_rollout.model import Release, require_commit, require_space_uid
 from tools.dmux_rollout.storage import RolloutStore
@@ -102,7 +102,14 @@ class Workflow:
         smoke_name: str,
         smoke_space_uid: str | None = None,
         smoke_host_uid: str | None = None,
+        archie_ssh: str | None = None,
     ) -> Release:
+        # The Archie route is frozen into the manifest with the sources: every
+        # later ssh, scp and `dmux --host` call reads hosts.archie.ssh, never
+        # the config default, so a release addresses one enrolled route for
+        # its whole life. The bare `archie` alias is a disabled route since
+        # the route split (r5.md); r6 names `fredrir@10.77.77.2` explicitly.
+        archie_host = require_ssh_host(archie_ssh) if archie_ssh else self.config.archie_host
         dotfiles = self._git_source(self.config.dotfiles_repo, dotfiles_ref)
         wezterm = self._git_source(self.config.wezterm_repo, wezterm_ref)
         chosen = release_id or self._default_release_id(dotfiles["commit"], wezterm["commit"])
@@ -115,13 +122,18 @@ class Workflow:
                         raise Refusal(f"release {chosen} already freezes different source facts")
             if existing.data["smoke"]["name"] != smoke_name:
                 raise Refusal(f"release {chosen} already owns another smoke Space name")
+            recorded = existing.data["hosts"]["archie"]["ssh"]
+            if archie_ssh is not None and recorded != archie_host:
+                raise Refusal(
+                    f"release {chosen} already addresses Archie as {recorded!r}, not {archie_host!r}"
+                )
             return existing
         release = Release.create(
             release_id=chosen,
             dotfiles=dotfiles,
             wezterm=wezterm,
             smoke_name=smoke_name,
-            archie_host=self.config.archie_host,
+            archie_host=archie_host,
         )
         if (smoke_space_uid is None) != (smoke_host_uid is None):
             raise StateError("smoke SpaceUid and HostUid must be supplied together")

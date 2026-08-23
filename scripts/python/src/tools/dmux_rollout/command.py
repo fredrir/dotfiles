@@ -13,6 +13,11 @@ from pathlib import Path
 
 from tools.dmux_rollout.errors import CommandError
 
+# One SSH destination token: an ssh-config alias or `user@host`, never a
+# shell word. `fredrir@10.77.77.2` (usb) and `fredrir@100.126.231.24`
+# (tailscale) are the enrolled forms after the route split (r5.md).
+SSH_HOST_RE = re.compile(r"[A-Za-z0-9_.@:-]+")
+
 
 @dataclass(frozen=True)
 class Result:
@@ -122,7 +127,12 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def require_ssh_host(host: str) -> str:
+    if not isinstance(host, str) or not SSH_HOST_RE.fullmatch(host) or host.startswith("-"):
+        raise CommandError("SSH host must be a nonempty token such as user@host")
+    return host
+
+
 def remote_argv(host: str, argv: Sequence[str]) -> list[str]:
-    if not re.fullmatch(r"[A-Za-z0-9_.@:-]+", host):
-        raise CommandError("SSH host must be a nonempty token")
+    require_ssh_host(host)
     return ["ssh", "-o", "BatchMode=yes", host, "--", shlex.join([str(part) for part in argv])]

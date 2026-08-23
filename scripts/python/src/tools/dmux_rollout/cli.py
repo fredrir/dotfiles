@@ -82,6 +82,7 @@ def _summary(release: Release) -> None:
     typer.echo(f"phase:     {release.data['phase']}")
     typer.echo(f"dotfiles:  {frozen['dotfiles']['commit']}")
     typer.echo(f"wezterm:   {frozen['wezterm']['commit']}")
+    typer.echo(f"archie:    {release.data['hosts']['archie']['ssh']}")
     typer.echo(f"smoke:     {release.data['smoke']['name']}")
     typer.echo(f"SpaceUid:  {release.data['smoke'].get('space_uid') or '-'}")
     typer.echo(f"checkpoints: {len(release.checkpoints)}")
@@ -93,6 +94,15 @@ def plan(
     dotfiles_ref: str = typer.Option("HEAD", "--dotfiles-ref"),
     wezterm_ref: str = typer.Option("HEAD", "--wezterm-ref"),
     release_id: str | None = typer.Option(None, "--release-id"),
+    archie_ssh: str | None = typer.Option(
+        None,
+        "--archie-ssh",
+        help=(
+            "SSH destination for Archie (user@host), frozen into the manifest for every later "
+            "ssh/scp/`dmux --host` call. Name an enrolled route, e.g. fredrir@10.77.77.2 (usb); "
+            "the bare 'archie' alias is a disabled route. Default: archie."
+        ),
+    ),
     smoke_name: str | None = typer.Option(None, "--smoke-name"),
     smoke_space_uid: str | None = typer.Option(None, "--smoke-space-uid"),
     smoke_host_uid: str | None = typer.Option(None, "--smoke-host-uid"),
@@ -108,6 +118,7 @@ def plan(
             smoke_name=name,
             smoke_space_uid=smoke_space_uid,
             smoke_host_uid=smoke_host_uid,
+            archie_ssh=archie_ssh,
         ),
     )
     _summary(release)

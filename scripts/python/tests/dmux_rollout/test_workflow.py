@@ -527,3 +527,82 @@ def test_managed_quit_reads_the_heartbeat_before_giving_up(tmp_path):
         workflow._safe_quit_gui(gui, timeout=0)
 
     assert reads == [Path(gui["heartbeat"])]
+
+
+def test_plan_freezes_an_explicit_archie_route_and_refuses_changing_it(tmp_path):
+    dotfiles = pushed_repo(tmp_path, "dotfiles")
+    wezterm = pushed_repo(tmp_path, "wezterm")
+    store = RolloutStore(tmp_path / "state")
+    workflow = Workflow(store, Runner(), config(tmp_path, dotfiles, wezterm))
+
+    with store.exclusive():
+        first = workflow.plan(release_id="r6", smoke_name="smoke", archie_ssh="fredrir@10.77.77.2")
+    assert first.data["hosts"]["archie"]["ssh"] == "fredrir@10.77.77.2"
+
+    # Re-planning without the flag reuses the frozen route; naming another
+    # route for the same release is a different release.
+    with store.exclusive():
+        again = workflow.plan(release_id="r6", smoke_name="smoke")
+    assert again.data["hosts"]["archie"]["ssh"] == "fredrir@10.77.77.2"
+    with store.exclusive(), pytest.raises(Refusal, match="already addresses Archie as"):
+        workflow.plan(release_id="r6", smoke_name="smoke", archie_ssh="archie")
+
+    # The route is one ssh destination token, validated like every remote argv.
+    with store.exclusive(), pytest.raises(CommandError, match="SSH host"):
+        workflow.plan(release_id="r7", smoke_name="smoke", archie_ssh="fredrir@10.77.77.2;id")
+    with store.exclusive(), pytest.raises(CommandError, match="SSH host"):
+        workflow.plan(release_id="r7", smoke_name="smoke", archie_ssh="-oProxyCommand=id")
+
+    # Old manifests and flag-less plans keep the historical default.
+    with store.exclusive():
+        default = workflow.plan(release_id="r7", smoke_name="smoke")
+    assert default.data["hosts"]["archie"]["ssh"] == "archie"
+
+
+def test_archie_steps_address_the_route_frozen_in_the_manifest(tmp_path):
+    item = release(tmp_path)
+    item.data["hosts"]["archie"]["ssh"] = "fredrir@10.77.77.2"
+    item.data["artifacts"]["archie_packages"] = {
+        "main": {"path": "/pkgs/wezterm-fredrir-git-1.11111111-1-x86_64.pkg.tar.zst"},
+        "debug": {"path": "/pkgs/wezterm-fredrir-git-debug-1.11111111-1-x86_64.pkg.tar.zst"},
+    }
+    host_uid = "11111111-1111-4111-8111-111111111111"
+    space_uid = "22222222-2222-4222-8222-222222222222"
+    sent = []
+
+    class Recorder(Runner):
+        def capture(self, argv, **kwargs):
+            sent.append(list(argv))
+            if "new" in argv:
+                receipt = (
+                    f"dmux://{host_uid}/spaces/{space_uid}\tbackend=wez\tcreated=true"
+                    "\tconnected=false\treplayed=false\n"
+                )
+                return Result(tuple(argv), 0, receipt, "")
+            if "pacman" in argv[-1]:
+                return Result(tuple(argv), 0, "wezterm-fredrir-git 1.11111111-1\n", "")
+            return Result(tuple(argv), 0, "", "")
+
+    store = RolloutStore(tmp_path / "state")
+    workflow = Workflow(store, Recorder(), config(tmp_path, tmp_path / "d", tmp_path / "w"))
+    snapshots = []
+
+    def archie_owner(release, **kwargs):
+        snapshots.append(release.data["hosts"]["archie"]["ssh"])
+        return {"spaces": {space_uid: [3]}}
+
+    workflow._archie_owner_snapshot = archie_owner
+
+    assert workflow.archie_install_command(item).startswith("ssh -t fredrir@10.77.77.2 ")
+    assert workflow._archie_packages_installed(item) is False
+    assert sent[-1][:4] == ["ssh", "-o", "BatchMode=yes", "fredrir@10.77.77.2"]
+
+    with store.exclusive():
+        store.create(item)
+        item.checkpoints["verify.two_host"] = {"at": "2026-08-23T00:00:00Z", "evidence": {}}
+        workflow._verify_two_host(item)
+
+    new_call = next(argv for argv in sent if "new" in argv)
+    assert new_call[new_call.index("--host") + 1] == "fredrir@10.77.77.2"
+    assert item.data["smoke"]["remote"]["space_uid"] == space_uid
+    assert snapshots == ["fredrir@10.77.77.2"]
