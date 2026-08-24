@@ -19,6 +19,8 @@ alias la="ls -a"
 alias l="ls"
 alias ll="ls -l"
 
+alias c="clear"
+
 alias untar="tar -xzf"
 
 (( $+commands[bat] )) && alias cat='bat -pp'

@@ -23,7 +23,7 @@ codex() {
 }
 
 opencode() {
-  _run_agent opencode "$@"
+  _run_agent opencode --auto "$@"
 }
 
 pi () {
