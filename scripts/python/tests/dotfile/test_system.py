@@ -1,8 +1,12 @@
 import os
 import shutil
+import stat
+from types import SimpleNamespace
 
 import pytest
 from gitrepo import run_git
+from tools.dotfile.secret.vault import PLAIN, SEALED, TMPL
+from tools.dotfile.system import UNREADABLE, installed, mode_for, needs_install
 
 needs_sops = pytest.mark.skipif(
     not (shutil.which("sops") and shutil.which("age-keygen")),
@@ -75,6 +79,50 @@ def test_drifted_when_the_destination_differs(systemd):
     result = system("status")
     assert result.returncode == 1
     assert "drifted" in result.stdout
+
+
+def test_drifted_when_the_destination_mode_differs(systemd):
+    _root, fake, pkg, _env, system = systemd
+    source = place(pkg, "widget.conf", "one\n")
+    source.chmod(0o755)
+    (fake / "widget.conf").write_text("one\n")
+    result = system("status")
+    assert result.returncode == 1
+    assert "mode 0644, want 0755" in result.stdout
+
+
+def test_rendered_templates_are_private(tmp_path):
+    source = tmp_path / "secret.conf.tmpl"
+    source.write_text("password={{ password }}\n")
+    entry = SimpleNamespace(kind=TMPL, src=str(source))
+    assert mode_for(entry) == 0o600
+
+
+def test_root_owned_private_file_is_sealed_when_permission_denied(tmp_path, monkeypatch):
+    target = tmp_path / "secret.conf"
+    target.write_text("private\n")
+    entry = SimpleNamespace(kind=TMPL, dst=str(target))
+    metadata = SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=0, st_gid=0)
+    monkeypatch.setattr(os, "stat", lambda _path: metadata)
+
+    def permission_denied(*_args, **_kwargs):
+        raise PermissionError
+
+    monkeypatch.setattr("builtins.open", permission_denied)
+    assert installed(entry) == (None, SEALED)
+    assert needs_install(SEALED)
+
+
+def test_permission_denied_plain_file_remains_unreadable(tmp_path, monkeypatch):
+    target = tmp_path / "plain.conf"
+    target.write_text("plain\n")
+    entry = SimpleNamespace(kind=PLAIN, dst=str(target))
+
+    def permission_denied(*_args, **_kwargs):
+        raise PermissionError
+
+    monkeypatch.setattr("builtins.open", permission_denied)
+    assert installed(entry) == (None, UNREADABLE)
 
 
 def test_diff_shows_the_change(systemd):
@@ -174,6 +222,15 @@ def test_a_template_renders_from_vars(tool, systemd, writer):
     assert tool("dotfile", "secret", "edit", "vars.enc.yaml", env=seed).returncode == 0
     place(pkg, "link.conf.tmpl", "MACAddress={{ net.mac }}\n")
     (fake / "link.conf").write_text("MACAddress=aa:bb:cc:dd:ee:ff\n")
+    (fake / "link.conf").chmod(0o600)
     result = system("status")
     assert result.returncode == 0, result.stdout
     assert "current" in result.stdout
+
+    (fake / "link.conf").write_text("MACAddress=private-old-value\n")
+    (fake / "link.conf").chmod(0o600)
+    result = system("diff")
+    assert result.returncode == 0
+    assert "private rendered content differs" in result.stdout
+    assert "aa:bb:cc:dd:ee:ff" not in result.stdout
+    assert "private-old-value" not in result.stdout

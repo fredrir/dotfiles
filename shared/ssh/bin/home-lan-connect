@@ -1,0 +1,82 @@
+#!/bin/sh
+# Resolve one mDNS peer but only accept a path whose peer and chosen source
+# are both on the home subnet. This is used as an OpenSSH ProxyCommand so a
+# LAN-labelled route cannot quietly traverse archie-direct or Tailscale.
+
+set -eu
+
+PROGRAM=home-lan-connect
+HOME_PREFIX=192.168.1.
+
+fail() {
+  printf '%s: %s\n' "$PROGRAM" "$*" >&2
+  exit 1
+}
+
+resolve_peer() {
+  name=$1
+  case $(uname -s) in
+    Darwin)
+      dscacheutil -q host -a name "$name" 2>/dev/null |
+        sed -n 's/^ip_address: //p'
+      ;;
+    Linux)
+      avahi-resolve-host-name -4 "$name" 2>/dev/null |
+        awk '{ print $2 }'
+      ;;
+    *) fail "unsupported operating system" ;;
+  esac | awk -v prefix="$HOME_PREFIX" 'index($0, prefix) == 1 { print; exit }'
+}
+
+source_for() {
+  peer=$1
+  case $(uname -s) in
+    Darwin)
+      interface=$(route -n get "$peer" 2>/dev/null | awk '$1 == "interface:" { print $2; exit }')
+      [ -n "$interface" ] || return 1
+      ipconfig getifaddr "$interface" 2>/dev/null
+      ;;
+    Linux)
+      ip -4 route get "$peer" 2>/dev/null |
+        awk '{ for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit } }'
+      ;;
+  esac
+}
+
+resolve_pair() {
+  peer=$(resolve_peer "$1")
+  [ -n "$peer" ] || fail "$1 has no IPv4 address in ${HOME_PREFIX}0/24"
+  source=$(source_for "$peer")
+  case "$source" in
+    "$HOME_PREFIX"*) ;;
+    *) fail "route to $peer selects non-LAN source ${source:-none}" ;;
+  esac
+  printf '%s %s\n' "$source" "$peer"
+}
+
+mode=connect
+case ${1:-} in
+  --probe|--resolve) mode=${1#--}; shift ;;
+esac
+[ "$#" -ge 1 ] || fail "usage: $PROGRAM [--resolve | --probe] host [port]"
+host=$1
+port=${2:-22}
+set -- $(resolve_pair "$host")
+source=$1
+peer=$2
+
+[ "$mode" = resolve ] && {
+  printf '%s %s\n' "$source" "$peer"
+  exit 0
+}
+
+case $(uname -s) in
+  Darwin)
+    [ "$mode" = probe ] && exec nc -4 -z -G 1 -s "$source" "$peer" "$port"
+    exec nc -4 -s "$source" "$peer" "$port"
+    ;;
+  Linux)
+    [ "$mode" = probe ] && exec nc -4 -z -w 1 -s "$source" "$peer" "$port"
+    exec nc -4 -s "$source" "$peer" "$port"
+    ;;
+esac

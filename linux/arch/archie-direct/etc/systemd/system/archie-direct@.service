@@ -1,0 +1,15 @@
+[Unit]
+Description=Archie direct Wi-Fi prototype (%i)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/archie-direct-host start %i
+ExecStop=/usr/local/libexec/archie-direct-host stop
+TimeoutStartSec=45
+TimeoutStopSec=30
+
+# A prototype is always an explicit choice. Do not add an Install section:
+# neither mode may be enabled at boot.

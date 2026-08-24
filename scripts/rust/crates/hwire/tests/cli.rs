@@ -206,6 +206,8 @@ fn the_settings_have_to_make_sense() {
         hwire(&["--both", "--route", "cable"]).status.code(),
         Some(2)
     );
+    assert_eq!(hwire(&["--all", "--route", "cable"]).status.code(), Some(2));
+    assert_eq!(hwire(&["--all", "--both"]).status.code(), Some(2));
     assert_eq!(hwire(&["--up", "--down"]).status.code(), Some(2));
     assert_eq!(hwire(&["--token", &"a".repeat(32)]).status.code(), Some(2));
 }

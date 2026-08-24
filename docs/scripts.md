@@ -1514,7 +1514,7 @@ dry run that does either is not one.
 
 ## hwire
 
-`hwire` answers what the cable is worth. It measures the link between macie and
+`hwire` answers what each path is worth. It measures the link between macie and
 archie — round-trip latency, then a transfer in each direction — and it
 measures the link rather than a program that happens to use it: no ssh cipher
 in the middle, nothing on the connection but zeros, and the count taken by
@@ -1528,14 +1528,14 @@ peer's half is told to exit when the run ends and holds an idle timeout for
 the runs that end some other way — a client killed mid-transfer, or a terminal
 closed on top of one, would otherwise leave a listener behind.
 
-Both routes are usually up at once, so naming a destination does not say which
-one was measured: the routing table decides. Each side binds its own address
+Several routes are usually up at once, so naming a destination does not say
+which one was measured: the routing table decides. Each side binds its own address
 for the route under test, the way the ssh configs use `BindAddress`, which
 forces the packets onto it — an answer from 10.77.77.2 is the cable and
-nothing else. With no argument `hwire` measures the cable when it answers and
-Tailscale when it does not, the order `ssh archie` resolves in; `--both`
-measures each in turn, which is the only way to see the difference in one
-place.
+nothing else. Direct Wi-Fi is pinned the same way; LAN uses the shared
+192.168.1.0/24-filtered mDNS resolver. With no argument `hwire` follows the
+OpenSSH order cable → Wi-Fi → LAN → Tailscale; `--all` measures every route
+that passes its bound probe. `--both` remains an alias for compatibility.
 
 The transfer numbers are the receiver's. A sender can only report the rate it
 filled a socket buffer at, which on a stalling link is fiction, so the side
@@ -1565,11 +1565,10 @@ measurement is handed a fresh token over ssh and answers only the client that
 repeats it, so two overlapping runs cannot be counted as one.
 
 Rates print in decimal bits per second beside binary bytes per second — the
-unit the interface is sold in, and the unit a file copy is felt in. The four
-addresses are a copy of the ones in `dmux::hosts`, kept rather than shared
-because that crate's bundled SQLite is a long build to depend on for two pairs
-of numbers; a unit test reads this repository's ssh configs and fails if the
-cable's pair drifts.
+unit the interface is sold in, and the unit a file copy is felt in. Fixed
+addresses remain local to this small crate rather than pulling in dmux's
+bundled SQLite; tests read the SSH configuration and fail if the route
+contract drifts.
 
 ---
 

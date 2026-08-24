@@ -217,14 +217,15 @@ hpath() {
   local help="$usage
 
 Report the route ssh would take for a host without connecting to it. The
-Match exec probe in ~/.ssh/config.d/05-* runs during config resolution, so
-this is the same decision the next \`ssh <host>\` will make.
+ordered Match exec probes in ~/.ssh/config.d/05-* through 07-* run during
+config resolution, so this is the same decision the next \`ssh <host>\` will
+make: cable, direct Wi-Fi, regular LAN, then Tailscale.
 
 With no host, reports the other machine: archie from macie, macie from archie.
 
-The route column reads whether ssh will bind the cabled interface for this
-host, which is what separates the two routes to archie and macie. A host with
-no cabled variant always reports tailscale.
+The route column names the resolved transport and the source binding or
+filtered LAN proxy that proves it. A host outside the archie/macie pair is
+reported as Tailscale unless its resolved config identifies another route.
 
 Options:
       --json  Machine-readable
@@ -279,7 +280,7 @@ See also: hwire, which measures what a route is actually worth."
   # loop makes zsh print the parameter instead of quietly redeclaring it.
   local exit_status=0
   local -a resolved names targets routes masters
-  local host line key value hostname bound master route route_id master_json
+  local host line key value hostname bound proxy master route route_id master_json
 
   for host in "${hosts[@]}"; do
     resolved=(${(f)"$(ssh -G "$host" 2>/dev/null)"})
@@ -291,6 +292,7 @@ See also: hwire, which measures what a route is actually worth."
 
     hostname=
     bound=
+    proxy=
     for line in "${resolved[@]}"; do
       key=${line%% *}
       value=${line#* }
@@ -298,18 +300,29 @@ See also: hwire, which measures what a route is actually worth."
         hostname) hostname=$value ;;
         bindinterface) bound=$value ;;
         bindaddress) [[ -n "$bound" ]] || bound=$value ;;
+        proxycommand) proxy=$value ;;
       esac
     done
 
-    # BindInterface and BindAddress are only ever set on the cabled routes,
-    # so their presence is what separates the two paths in this config.
-    if [[ -n "$bound" ]]; then
-      route="cabled via $bound"
-      route_id=cable
-    else
-      route=tailscale
-      route_id=tailscale
-    fi
+    case "$hostname" in
+      10.77.77.*)
+        route="cable via ${bound:-unknown}"
+        route_id=cable
+        ;;
+      10.77.78.*)
+        route="wifi via ${bound:-unknown}"
+        route_id=wifi
+        ;;
+      *)
+        if [[ "$proxy" == *home-lan-connect* ]]; then
+          route="lan via filtered mDNS"
+          route_id=lan
+        else
+          route=tailscale
+          route_id=tailscale
+        fi
+        ;;
+    esac
 
     if ssh -O check "$host" >/dev/null 2>&1; then
       master=up

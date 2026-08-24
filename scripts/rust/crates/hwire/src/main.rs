@@ -6,11 +6,10 @@
 //! cipher, one more copy of every byte — is left out of the numbers, and the
 //! only thing on the link during a transfer is zeros.
 //!
-//! There are two routes between these machines and both are usually up: a
-//! USB-C cable on a private /30, and the tailnet. With no argument `hwire`
-//! measures the cable when it is there and Tailscale when it is not, which is
-//! the order `ssh archie` resolves in; `--both` measures each in turn, which
-//! is the only way to see what the cable is actually buying.
+//! There are four ordered routes between these machines: USB-C, Archie's
+//! private Wi-Fi AP, the regular home LAN, and Tailscale. With no argument
+//! `hwire` measures the first one that answers, matching OpenSSH; `--all`
+//! measures every route that is currently and honestly reachable.
 //!
 //! The peer's half is `hwire serve`. It is normally invisible — started for
 //! one measurement, told to exit at the end, and holding an idle timeout in
@@ -63,6 +62,10 @@ struct Cli {
     route: Option<Route>,
 
     /// Measure every route that is up, one after the other
+    #[arg(short = 'a', long = "all", conflicts_with_all = ["route", "both"])]
+    all: bool,
+
+    /// Compatibility spelling for --all
     #[arg(short = 'b', long = "both", conflicts_with = "route")]
     both: bool,
 
@@ -208,17 +211,19 @@ fn measure(cli: &Cli) -> Result<(), String> {
     for route in routes(cli, this)? {
         let token = proto::token().map_err(|error| format!("/dev/urandom: {error}"))?;
         let remote = start(this.peer(), route, &token, window)?;
+        let local_address = this.address(route)?;
+        let peer_address = this.peer().address(route)?;
         let peer = Peer {
             address: remote.address,
-            local: Some(this.address(route)),
+            local: Some(local_address),
             token,
         };
         let measured = run(
             cli,
             &peer,
             Some(route),
-            Some(this.address(route).to_string()),
-            &this.peer().address(route).to_string(),
+            Some(local_address.to_string()),
+            &peer_address.to_string(),
             window,
             &directions,
         );
@@ -232,7 +237,7 @@ fn measure(cli: &Cli) -> Result<(), String> {
 
 /// Which routes to measure, and the reason when there are none.
 fn routes(cli: &Cli, this: Host) -> Result<Vec<Route>, String> {
-    if cli.both {
+    if cli.all || cli.both {
         let up: Vec<Route> = Route::every()
             .into_iter()
             .filter(|route| route.up(this))
@@ -259,7 +264,7 @@ fn routes(cli: &Cli, this: Host) -> Result<Vec<Route>, String> {
 
 fn unreachable(this: Host) -> String {
     format!(
-        "{} is not reachable over the cable or Tailscale",
+        "{} is not reachable over cable, direct Wi-Fi, regular LAN, or Tailscale",
         this.peer().name()
     )
 }
@@ -330,9 +335,10 @@ fn start(peer: Host, route: Route, token: &[u8; 16], window: Duration) -> Result
     // Every phase resets the timer, so this only has to outlast the longest
     // gap between two of them, which is one transfer plus its warmup.
     let idle = 10 + 2 * window.as_secs();
+    let bind = peer.address(route)?;
     let command = format!(
         "{REMOTE_PATH}hwire serve --bind {} --token {} --idle {idle}",
-        peer.address(route),
+        bind,
         proto::hex(token),
     );
     let mut child = Command::new("ssh")

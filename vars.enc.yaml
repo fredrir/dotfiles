@@ -1,3 +1,4 @@
+archie_direct_sae_password: ENC[AES256_GCM,data:qWuPqMMYVp6s7lSOrP+umbUUBYTPmr+1nWqDuXc9fMwvy+BbZd9cXmSo9dk=,iv:wtj3wlBqSHY7Q9RpwbUYsDZychruy2LvVKS6lgIiCb0=,tag:6rqTI/j6jmzLH5n/g1PAtQ==,type:str]
 sops:
     age:
         - enc: |
@@ -27,7 +28,7 @@ sops:
             nNq0Jq60E11IxT5oEYC0ZX+4gV3dMl58ii3o/CjG63ujuy0+qDoMdA==
             -----END AGE ENCRYPTED FILE-----
           recipient: age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm
-    lastmodified: "2026-08-18T15:24:11Z"
-    mac: ENC[AES256_GCM,data:6Vw1e74a6ZJLZ86pheVkE2oBa41ekZOOD90UThx5OUGReDIOcUmGJHiEV1xiLbbkJQPEtV6K6oVreLIfeCBOggrFFnqzVmSBV8KCrqIldaOUmttcKKa4e3KWV9ggVJ53uqVuQkli0/lYV2/oDFawL4Ar/Or7PfuSVLzRef2HMfs=,iv:7b8BkNqPylDHPbVDKiIon6yWtaG2/bFE339rTR1Pb7M=,tag:ZPPEZMfj+aR8wtVO0ljVqQ==,type:str]
+    lastmodified: "2026-08-23T23:45:26Z"
+    mac: ENC[AES256_GCM,data:DD9Jjf/XsIN3eI+tN1gxr6V4aUvum+G0yLalAboAzONYEgwtlJGk0pM2CrnufV8ksEqw+yqClbrXpucg8clIRyamTOvNBGzf5zLWHgG7TnwwVM33Tl2GMAZVK6ToL4FpbkKt+ZTZnMzmh5yRrEFqGrKCor9eC8cLUC5LtEhKcjo=,iv:2EsvqBjToLr4DTVbmMXQRNnwXnt7J7vFTYkwz2NKRZY=,tag:iX7zpy9GFI+UXlwZkltwlg==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.13.3

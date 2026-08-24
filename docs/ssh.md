@@ -1,26 +1,31 @@
 ## ssh archie / ssh macie
 
-ARCH:
-NetworkManager → 10.77.77.2/30
-dnsmasq DHCP  → gives Mac 10.77.77.1
-no gateway / no DNS / no NAT
+OpenSSH resolves the peer through four honest, ordered routes:
 
-MAC:
-zero persistent network hacks
-built-in DHCP client on whatever enN the cable lands as
-SSH Match exec chooses USB if reachable
-
+```
 ssh archie
-   ├── USB available → 10.77.77.2, bound to 10.77.77.1
-   └── USB absent    → archie via Tailscale
+   ├── USB          10.77.77.1 → 10.77.77.2
+   ├── direct Wi-Fi 10.77.78.1 → 10.77.78.2
+   ├── regular LAN  filtered mDNS on 192.168.1.0/24
+   └── Tailscale    100.75.71.79 → 100.126.231.24
+```
+
+USB and direct Wi-Fi bind their source addresses. The LAN ProxyCommand accepts
+`archpc.local`/`macie-2.local` only when both the resolved peer and the source
+chosen by the kernel are in `192.168.1.0/24`. Tailscale uses numeric tailnet
+addresses. A route label therefore cannot answer over a different transport.
+
+SSH only selects among networks that already exist. It never associates
+Macie's Wi-Fi with `archie-direct`; that global transition belongs to the
+explicit `archie-direct` controller below.
 
 
 ## Behavior
 
 ```
-Start ssh archie with cable absent
+Start ssh archie with cable and archie-direct absent
     ↓
-SSH connects via Tailscale
+SSH connects via regular LAN (or Tailscale when away from home)
     ↓
 plug cable in
     ↓
@@ -34,12 +39,67 @@ new session uses USB
 ```
 
 
-| Event                          | Existing SSH                  | Next `ssh archie` |
-| ------------------------------ | ----------------------------- | ----------------- |
-| Cable absent                   | Tailscale continues           | Tailscale         |
-| Plug cable in                  | Existing connection unchanged | **USB**           |
-| USB session open, unplug cable | USB session eventually dies   | **Tailscale**     |
-| Plug cable back in             | Dead session stays dead       | **USB**           |
+| Event                              | Existing SSH                  | Next `ssh archie` |
+| ---------------------------------- | ----------------------------- | ----------------- |
+| Home Wi-Fi, no cable/direct AP     | Current connection continues  | **LAN**           |
+| Join `archie-direct`, cable absent | Current connection continues  | **direct Wi-Fi**  |
+| Plug cable in                      | Existing connection unchanged | **USB**           |
+| Leave home and direct AP           | Dead session stays dead       | **Tailscale**     |
+
+## Direct Wi-Fi prototypes
+
+Nothing starts at boot. On Macie, use:
+
+```
+archie-direct enroll                 # one-time WPA3/Keychain enrollment
+archie-direct start shared           # AP + routed Internet via Archie
+archie-direct start isolated         # 6 GHz/160 MHz; no Internet
+archie-direct status [--json]
+archie-direct benchmark baseline|shared|isolated
+archie-direct stop
+```
+
+A complete comparison is intentionally manual and leaves the decision to the
+results:
+
+```
+archie-direct enroll
+archie-direct stop
+archie-direct benchmark baseline
+archie-direct start shared
+archie-direct benchmark shared
+archie-direct stop
+archie-direct start isolated
+archie-direct benchmark isolated
+archie-direct stop
+```
+
+Each benchmark performs five one-stream and five four-stream transfers in
+both directions, a 200-packet ping run, radio/PHY capture, and DNS/Internet
+checks. It writes raw JSON plus `summary.{json,md}` below
+`~/.local/state/archie-direct/benchmarks/`; it does not select or enable a
+winning mode.
+
+The Archie-side prerequisite is installed with the rest of the Arch profile.
+After changing its tracked root-owned files, apply them and reload their
+consumers:
+
+```
+dotfile system install --yes
+sudo systemctl daemon-reload
+sudo systemctl reload NetworkManager
+```
+
+Shared mode creates `archie0` on the live non-DFS 5 GHz home channel. Macie
+gets `10.77.78.1/30`, Archie is its IPv4 gateway/DNS at `10.77.78.2`, and a
+dedicated nftables table forwards only through `wlp9s0`. Isolated mode drops
+Archie's home association, runs WPA3/EHT on 6 GHz PSC channel 37 at 160 MHz,
+and advertises no router or DNS. Its systemd timer restores the saved
+NetworkManager connection after 20 minutes even if Macie never joins.
+
+The password is a SOPS variable rendered only to Archie's root-readable
+hostapd configuration. Enrollment puts it on Macie's clipboard only long
+enough for the manual first join, then restores the previous clipboard.
 
 ## Connections
 
@@ -76,21 +136,23 @@ When it does break, `udevadm test-builtin net_setup_link
 /sys/class/net/<device>` says which `.link` file won on archie, and `hpath`
 says which route the next ssh will take from either end.
 
-## Addressing the two routes
+## Addressing the routes
 
 `ssh archie` is an answer to "get me to archie", and it is deliberately
 evasive about which wire it used. That is right for a person and wrong for
-anything that has to record what it did. So both routes now have a spelling
+anything that has to record what it did. So every route has a spelling
 that cannot change its mind:
 
 ```
-ssh archie                 whichever route the probe in 05- likes
+ssh archie                 first reachable route in the four-path order
 ssh 10.77.77.2             the cable, or nothing
+ssh wifi-archie            direct Wi-Fi, or nothing
+ssh lan-archie             filtered regular LAN, or nothing
 ssh 100.126.231.24         tailscale, or nothing
 ```
 
-and the same three from archie, pointing the other way: `macie`,
-`10.77.77.1`, `100.75.71.79`.
+and the mirrored spellings from Archie: `macie`, `10.77.77.1`, `wifi-macie`,
+`lan-macie`, and `100.75.71.79`.
 
 Two things wanted this. dmux enrolls one route per address and labels each
 one, and a route it has labelled `usb` must not answer over tailscale when
@@ -101,14 +163,9 @@ The other is wezterm, whose built-in ssh client gets the route's address
 verbatim and does not implement `Match exec` at all; `wez/remote/mux.lua`
 has named these addresses outright for exactly that reason since before dmux.
 
-The alias is untouched. `05-` still probes and still wins when the cable
-answers, so interactive `ssh archie` behaves as the table above describes.
-The addresses are additions, and they inherit the discipline of the routes
-they name: the cable's entry binds `10.77.77.1`, so it fails to bind rather
-than falling through when the cable is out, and keeps the tight keepalives —
-ten seconds of silence on a 1.7 ms link means the cable is gone. The
-tailscale entry keeps the slack ones, because that is the route in use while
-the laptop roams.
+The `05-*`, `06-*`, and `07-*` probes populate the alias in order. Cable and
+direct Wi-Fi use tight keepalives and bound addresses; LAN uses the filtered
+mDNS connector; Tailscale keeps the slack roaming keepalives.
 
 Every one of these carries `HostKeyAlias archie` (or `macie`). Without it,
 each new spelling would mint its own `known_hosts` entry, and archie would be
@@ -131,22 +188,25 @@ macos
 ├── ssh
 │   └── config.d
 │       ├── 05-archie-cabled-first
+│       ├── 06-archie-wifi-first
+│       ├── 07-archie-lan-first
 │       ├── 10-archie-tailscale
-│       ├── 30-distro-lab-remote
-│       └── 40-cabled
-├── sunshine
-│   ├── apps.json
-│   └── sunshine.conf
+│       ├── 40-cabled
+│       ├── 41-wifi
+│       └── 42-lan
 └── zsh
     └── conf.d
-        ├── 11-env.macos.zsh
-        ├── 21-paths.macos.zsh
-        ├── 41-aliases.mac.zsh
-        └── 80-plugins.macos.zsh
+        └── 92-archie-direct.zsh
 
 
 # Archie
 /home/fredrir/dotfiles/linux/arch
+├── archie-direct
+│   ├── etc
+│   │   ├── archie-direct
+│   │   ├── NetworkManager/conf.d
+│   │   └── systemd/system
+│   └── usr/local/libexec/archie-direct-host
 ├── macie-usb
 │   └── etc
 │       ├── dnsmasq-macie-usb.conf
@@ -162,8 +222,12 @@ macos
 ├── ssh
 │   └── config.d
 │       ├── 05-macie-cabled-first
+│       ├── 06-macie-wifi-first
+│       ├── 07-macie-lan-first
 │       ├── 10-macie-tailscale
-│       └── 40-cabled
+│       ├── 40-cabled
+│       ├── 41-wifi
+│       └── 42-lan
 ├── wezterm-mux
 │   └── wezterm-mux.service
 └── zsh
@@ -171,16 +235,30 @@ macos
         └── 21-paths.arch.zsh
 ```
 
-## Measuring the two routes
+## Measuring the routes
 
-`hwire` reports what either route is worth right now: round-trip latency and a
-transfer each way, `--both` for the two side by side. It starts its own half
+`hwire` reports what each route is worth right now: round-trip latency and a
+transfer each way, `--all` for every reachable route. It starts its own half
 on the peer over ssh and binds this side's address for the route it is
-measuring, so the numbers describe the cable or the tailnet rather than
-whichever one the routing table preferred.
+measuring, so the numbers describe the selected cable, Wi-Fi, LAN, or tailnet
+route rather than whichever one the routing table preferred.
 
 ```
-hwire            the cable when it is up, Tailscale when it is not
-hwire --both     both, one after the other
-hwire -l         round trips only
+hwire                 first reachable route in SSH order
+hwire --all           every reachable route, one after the other
+hwire -r wifi         direct Wi-Fi only, or fail
+hwire -r lan          filtered regular LAN only, or fail
+hwire -l              round trips only
 ```
+
+`--both`/`-b` remains a compatibility alias for `--all`.
+
+## Mosh
+
+Mosh is an optional interactive client, not a selector. Archie already has
+the server; Macie's requirements install the client. Start it with an explicit
+route alias when route identity matters, for example `mosh wifi-archie` or
+`mosh lan-archie`. It uses SSH for authentication and then UDP 60000–61000.
+It can improve typing under jitter and survive client roaming, but it does not
+carry SCP/rsync, SSH forwarding, or WezTerm's native mux transport. dmux and
+WezTerm deliberately keep their existing USB/Tailscale policy in this phase.

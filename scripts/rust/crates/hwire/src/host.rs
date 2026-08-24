@@ -1,4 +1,4 @@
-//! The two machines, and the two ways between them.
+//! The two machines, and the four ways between them.
 //!
 //! Hardcoded for the same reason `dmux::hosts` hardcodes them: this is
 //! personal infrastructure for exactly two hosts, and the addresses already
@@ -8,6 +8,8 @@
 //! reads the ssh configs in this repository and fails if they drift.
 
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::Duration;
 
 use clap::ValueEnum;
@@ -53,12 +55,26 @@ impl Host {
         }
     }
 
-    pub fn address(self, route: Route) -> Ipv4Addr {
+    pub fn address(self, route: Route) -> Result<Ipv4Addr, String> {
         match (route, self) {
-            (Route::Cable, Host::Macie) => Ipv4Addr::new(10, 77, 77, 1),
-            (Route::Cable, Host::Archie) => Ipv4Addr::new(10, 77, 77, 2),
-            (Route::Tailscale, Host::Macie) => Ipv4Addr::new(100, 75, 71, 79),
-            (Route::Tailscale, Host::Archie) => Ipv4Addr::new(100, 126, 231, 24),
+            (Route::Cable, Host::Macie) => Ok(Ipv4Addr::new(10, 77, 77, 1)),
+            (Route::Cable, Host::Archie) => Ok(Ipv4Addr::new(10, 77, 77, 2)),
+            (Route::Wifi, Host::Macie) => Ok(Ipv4Addr::new(10, 77, 78, 1)),
+            (Route::Wifi, Host::Archie) => Ok(Ipv4Addr::new(10, 77, 78, 2)),
+            (Route::Tailscale, Host::Macie) => Ok(Ipv4Addr::new(100, 75, 71, 79)),
+            (Route::Tailscale, Host::Archie) => Ok(Ipv4Addr::new(100, 126, 231, 24)),
+            (Route::Lan, host) => {
+                let this = Host::this()?;
+                let (local, peer) = lan_pair(this)?;
+                Ok(if host == this { local } else { peer })
+            }
+        }
+    }
+
+    fn lan_name(self) -> &'static str {
+        match self {
+            Host::Macie => "macie-2.local",
+            Host::Archie => "archpc.local",
         }
     }
 }
@@ -68,6 +84,11 @@ pub enum Route {
     /// The USB-C cable: a private /30 with no gateway, DNS or NAT on it.
     #[value(alias = "usb")]
     Cable,
+    /// Macie associated directly to Archie's private Wi-Fi AP.
+    #[value(alias = "direct", alias = "wireless")]
+    Wifi,
+    /// The home 192.168.1.0/24, resolved through filtered mDNS.
+    Lan,
     /// The tailnet, which is what ssh falls back to when the cable is out.
     #[value(alias = "ts")]
     Tailscale,
@@ -77,25 +98,70 @@ impl Route {
     pub fn name(self) -> &'static str {
         match self {
             Route::Cable => "cable",
+            Route::Wifi => "wifi",
+            Route::Lan => "lan",
             Route::Tailscale => "tailscale",
         }
     }
 
-    pub fn every() -> [Route; 2] {
-        [Route::Cable, Route::Tailscale]
+    pub fn every() -> [Route; 4] {
+        [Route::Cable, Route::Wifi, Route::Lan, Route::Tailscale]
     }
 
     /// Whether the peer answers over this route from this machine. The local
     /// bind is the point: an answer proves the route, not just that the peer
     /// is reachable somehow.
     pub fn up(self, this: Host) -> bool {
+        let (Ok(local), Ok(peer)) = (this.address(self), this.peer().address(self)) else {
+            return false;
+        };
         socket::connect(
-            Some(this.address(self)),
-            std::net::SocketAddrV4::new(this.peer().address(self), PROBE_PORT),
+            Some(local),
+            std::net::SocketAddrV4::new(peer, PROBE_PORT),
             PROBE,
         )
         .is_ok()
     }
+}
+
+/// Ask the same route-pinning helper OpenSSH uses for the local and peer LAN
+/// addresses. It rejects a result unless both are on 192.168.1.0/24.
+fn lan_pair(this: Host) -> Result<(Ipv4Addr, Ipv4Addr), String> {
+    let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
+    let helper = PathBuf::from(home).join(".ssh/bin/home-lan-connect");
+    let output = Command::new(&helper)
+        .args(["--resolve", this.peer().lan_name()])
+        .output()
+        .map_err(|error| format!("{}: {error}", helper.display()))?;
+    if !output.status.success() {
+        let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if reason.is_empty() {
+            "regular LAN is not resolvable on 192.168.1.0/24".into()
+        } else {
+            reason
+        });
+    }
+    let text = String::from_utf8(output.stdout)
+        .map_err(|_| "home-lan-connect returned non-UTF-8 output".to_string())?;
+    parse_lan_pair(&text)
+}
+
+fn parse_lan_pair(text: &str) -> Result<(Ipv4Addr, Ipv4Addr), String> {
+    let mut fields = text.split_whitespace();
+    let local = fields
+        .next()
+        .ok_or_else(|| "home-lan-connect returned no local address".to_string())?
+        .parse()
+        .map_err(|_| "home-lan-connect returned an invalid local address".to_string())?;
+    let peer = fields
+        .next()
+        .ok_or_else(|| "home-lan-connect returned no peer address".to_string())?
+        .parse()
+        .map_err(|_| "home-lan-connect returned an invalid peer address".to_string())?;
+    if fields.next().is_some() {
+        return Err("home-lan-connect returned too many fields".into());
+    }
+    Ok((local, peer))
 }
 
 /// Which route to measure when none was named: the cable when it is there,
@@ -119,11 +185,18 @@ mod tests {
     #[test]
     fn a_route_gives_each_machine_its_own_address() {
         for route in Route::every() {
-            assert_ne!(Host::Macie.address(route), Host::Archie.address(route));
+            // LAN discovery is deliberately live and may be absent in a
+            // hermetic test; its parser is covered by the connector tests.
+            if route != Route::Lan {
+                assert_ne!(
+                    Host::Macie.address(route).unwrap(),
+                    Host::Archie.address(route).unwrap()
+                );
+            }
         }
         assert_ne!(
-            Host::Macie.address(Route::Cable),
-            Host::Macie.address(Route::Tailscale)
+            Host::Macie.address(Route::Cable).unwrap(),
+            Host::Macie.address(Route::Tailscale).unwrap()
         );
     }
 
@@ -137,11 +210,16 @@ mod tests {
     /// Every file outside this crate that hard-codes the cable's addresses:
     /// the four ssh files that route the two names, and the wezterm config
     /// that probes the same link.
-    const ROUTED: [&str; 5] = [
+    const ROUTED: [&str; 10] = [
         "macos/ssh/config.d/05-archie-cabled-first",
+        "macos/ssh/config.d/06-archie-wifi-first",
+        "macos/ssh/config.d/07-archie-lan-first",
         "macos/ssh/config.d/40-cabled",
         "linux/arch/ssh/config.d/05-macie-cabled-first",
+        "linux/arch/ssh/config.d/06-macie-wifi-first",
+        "linux/arch/ssh/config.d/07-macie-lan-first",
         "linux/arch/ssh/config.d/40-cabled",
+        "shared/ssh/bin/home-lan-connect",
         "shared/wezterm/wez/remote/mux.lua",
     ];
 
@@ -168,12 +246,34 @@ mod tests {
             .join("\n");
 
         for host in [Host::Macie, Host::Archie] {
-            let cable = host.address(Route::Cable).to_string();
+            let cable = host.address(Route::Cable).unwrap().to_string();
             assert!(
                 configs.contains(&cable),
                 "{cable} is not in the ssh configs any more"
             );
         }
+    }
+
+    #[test]
+    fn route_order_matches_ssh_policy() {
+        assert_eq!(
+            Route::every(),
+            [Route::Cable, Route::Wifi, Route::Lan, Route::Tailscale]
+        );
+    }
+
+    #[test]
+    fn filtered_lan_pair_has_exactly_two_ipv4_addresses() {
+        assert_eq!(
+            parse_lan_pair("192.168.1.178 192.168.1.162\n").unwrap(),
+            (
+                Ipv4Addr::new(192, 168, 1, 178),
+                Ipv4Addr::new(192, 168, 1, 162)
+            )
+        );
+        assert!(parse_lan_pair("").is_err());
+        assert!(parse_lan_pair("192.168.1.178 nope").is_err());
+        assert!(parse_lan_pair("192.168.1.178 192.168.1.162 extra").is_err());
     }
 
     /// Neither end of the cable has a stable interface name -- macOS renumbers

@@ -6,7 +6,7 @@
 # seconds. HostKeyAlias keeps every route to archie on one known_hosts entry.
 
 Host archie
-    HostName archie
+    HostName 100.126.231.24
     User fredrir
     HostKeyAlias archie
     ServerAliveInterval 15

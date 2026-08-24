@@ -1,5 +1,6 @@
 import difflib
 import os
+import stat
 import tempfile
 
 import typer
@@ -18,6 +19,7 @@ from tools.dotfile.secret.vault import (
     PLAIN,
     SEALED,
     SYSTEM_MARKER,
+    TMPL,
     UNRESOLVED,
     WROTE,
     package_entries,
@@ -84,11 +86,28 @@ def refusal(ctx, dst):
 
 
 def mode_for(entry):
-    if entry.kind == ENC:
+    if entry.kind in (ENC, TMPL):
         return SECRET_MODE
     if os.access(entry.src, os.X_OK):
         return EXEC_MODE
     return FILE_MODE
+
+
+def is_sealed(entry):
+    try:
+        metadata = os.stat(entry.dst)
+    except OSError:
+        return False
+    return (
+        entry.kind in (ENC, TMPL)
+        and stat.S_IMODE(metadata.st_mode) == SECRET_MODE
+        and metadata.st_uid == 0
+        and metadata.st_gid == 0
+    )
+
+
+def needs_install(state):
+    return state in (ABSENT, DRIFTED, SEALED)
 
 
 def produce(ctx, entry, declared):
@@ -104,6 +123,8 @@ def installed(entry):
     try:
         with open(entry.dst, "rb") as handle:
             return handle.read(), ""
+    except PermissionError:
+        return (None, SEALED) if is_sealed(entry) else (None, UNREADABLE)
     except OSError:
         return None, UNREADABLE
 
@@ -119,7 +140,14 @@ def inspect(ctx, entry, declared):
     current, problem = installed(entry)
     if problem:
         return problem
-    return CURRENT if current == wanted else DRIFTED
+    if current != wanted:
+        return DRIFTED
+    actual_mode = stat.S_IMODE(os.stat(entry.dst).st_mode)
+    wanted_mode = mode_for(entry)
+    if actual_mode != wanted_mode:
+        entry.detail = f"mode {actual_mode:04o}, want {wanted_mode:04o}"
+        return DRIFTED
+    return CURRENT
 
 
 def install_one(entry, data, dry):
@@ -224,9 +252,16 @@ def diff(path: str | None = typer.Argument(None)):
         if problem == UNREADABLE:
             log(f"{entry.dst}: unreadable")
             continue
+        if problem == SEALED:
+            shown += 1
+            log(f"{entry.dst}: sealed; private content is not readable without root")
+            continue
         if current == wanted:
             continue
         shown += 1
+        if entry.kind in (ENC, TMPL):
+            log(f"{entry.dst}: private rendered content differs")
+            continue
         before = (current or b"").decode("utf-8", errors="replace").splitlines(keepends=True)
         after = wanted.decode("utf-8", errors="replace").splitlines(keepends=True)
         log("".join(difflib.unified_diff(before, after, entry.dst, entry.src)).rstrip())
@@ -253,7 +288,7 @@ def install(
     for entry in entries:
         state = inspect(ctx, entry, declared)
         results.append((state, entry))
-        if state in (ABSENT, DRIFTED):
+        if needs_install(state):
             pending.append(entry)
 
     blocked = [state for state in tally(results) if state in BLOCKING and state != DRIFTED]

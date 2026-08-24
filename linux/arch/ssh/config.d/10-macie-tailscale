@@ -2,7 +2,7 @@
 # keepalives than the cable on purpose; see the mirror of this file on macie.
 
 Host macie
-    HostName macie
+    HostName 100.75.71.79
     User fredrir
     HostKeyAlias macie
     ServerAliveInterval 15

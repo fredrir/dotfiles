@@ -48,6 +48,7 @@ shared {
 
 macos {
   brew = homebrew
+  mosh
 }
 
 linux/common {
@@ -63,6 +64,11 @@ linux/common {
 
 linux/arch {
   dnsmasq
+  hostapd
+  iw
+  nmcli = networkmanager
+  nft = nftables
+  mosh
 }
 
 linux/kde {

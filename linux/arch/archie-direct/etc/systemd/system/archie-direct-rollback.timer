@@ -1,0 +1,9 @@
+[Unit]
+Description=Failsafe for Archie's isolated direct Wi-Fi prototype
+
+[Timer]
+OnActiveSec=20min
+AccuracySec=5s
+Unit=archie-direct-rollback.service
+
+# Deliberately not installable: isolated-mode startup arms it at runtime.
