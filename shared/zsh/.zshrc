@@ -1,5 +1,6 @@
-ZCONF="$HOME/.config/zsh/conf.d"
+# zmodload zsh/zprof
 
+ZCONF="$HOME/.config/zsh/conf.d"
 
 if [[ -n ${AGENT_SHELL:-} || -n ${CLAUDECODE:-} || -n ${AI_AGENT:-} ]]; then
 
@@ -23,3 +24,5 @@ for file in "$ZCONF"/*.zsh; do
 done
 
 [[ -f "$HOME/.local/bin/env" ]] && source "$HOME/.local/bin/env"
+
+# zprof
