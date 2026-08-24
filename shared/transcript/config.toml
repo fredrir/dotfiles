@@ -9,6 +9,7 @@ projects = [
     "llunde-pyparser",
     "sndbx",
     "rif",
+    "Elvfast",
 ]
 
 min_rounds = 1
@@ -32,7 +33,7 @@ other = ["sndbx"]
 dotfiles = ["dotfiles"]
 distro-lab = ["distro-lab"]
 rif = ["rif"]
-
+elvfast = ["Elvfast"]
 # Replace Transcripts/<group> 
 # Relative to the vault root.
 [destinations]
@@ -41,3 +42,4 @@ distro-lab = "Dotfiles/Distro Lab/Agents"
 ArchTeX = "ArchTeX/Agents"
 llunde = "llunde/Agents"
 rif = "rif/Agents"
+elvfast = "Projects/Elvfast/Agents"

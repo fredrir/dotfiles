@@ -46,16 +46,15 @@ new session uses USB
 | Plug cable in                      | Existing connection unchanged | **USB**           |
 | Leave home and direct AP           | Dead session stays dead       | **Tailscale**     |
 
-## Direct Wi-Fi prototypes
+## Direct Wi-Fi AP
 
 Nothing starts at boot. On Macie, use:
 
 ```
 archie-direct enroll                 # one-time WPA3/Keychain enrollment
 archie-direct start shared           # AP + routed Internet via Archie
-archie-direct start isolated         # 6 GHz/160 MHz; no Internet
 archie-direct status [--json]
-archie-direct benchmark baseline|shared|isolated
+archie-direct benchmark baseline|shared
 archie-direct stop
 ```
 
@@ -68,9 +67,6 @@ archie-direct stop
 archie-direct benchmark baseline
 archie-direct start shared
 archie-direct benchmark shared
-archie-direct stop
-archie-direct start isolated
-archie-direct benchmark isolated
 archie-direct stop
 ```
 
@@ -92,10 +88,14 @@ sudo systemctl reload NetworkManager
 
 Shared mode creates `archie0` on the live non-DFS 5 GHz home channel. Macie
 gets `10.77.78.1/30`, Archie is its IPv4 gateway/DNS at `10.77.78.2`, and a
-dedicated nftables table forwards only through `wlp9s0`. Isolated mode drops
-Archie's home association, runs WPA3/EHT on 6 GHz PSC channel 37 at 160 MHz,
-and advertises no router or DNS. Its systemd timer restores the saved
-NetworkManager connection after 20 minutes even if Macie never joins.
+dedicated nftables table forwards and masquerades only through `wlp9s0`.
+When Docker's iptables backend owns a later `FORWARD` chain, two scoped
+`DOCKER-USER` rules admit only `archie0` outbound traffic and its established
+replies; stop and failure cleanup remove them.
+
+An isolated same-radio AP is intentionally not exposed. The tested 6 GHz/160
+MHz and 5 GHz/80 MHz variants associated, but did not provide a reliable IP
+data path between the MT7925 and macOS. Shared mode is the supported mode.
 
 The password is a SOPS variable rendered only to Archie's root-readable
 hostapd configuration. Enrollment puts it on Macie's clipboard only long

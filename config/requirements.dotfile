@@ -68,6 +68,7 @@ linux/arch {
   iw
   nmcli = networkmanager
   nft = nftables
+  iptables
   mosh
 }
 

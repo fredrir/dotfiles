@@ -34,15 +34,18 @@ alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdd="cd $HOME/dotfiles"
 alias cdn="cd $NVIM"
-alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate"
 alias cdz="cd $CONFIG/zsh/conf.d"
 alias cds="cd $HOME/.ssh/config.d"
 
 alias sshmux="ssh -O check"    
 alias sshmux-exit="ssh -O exit" 
 
+alias cdp="cd $HOME/projects"
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"
+
+alias cdo="cd $HOME/Documents/main/.obsidian"
+
 
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
 

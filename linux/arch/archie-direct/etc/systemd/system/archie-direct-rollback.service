@@ -1,8 +1,0 @@
-[Unit]
-Description=Restore Archie's home Wi-Fi after an isolated direct-link test
-
-[Service]
-Type=oneshot
-# Queue the owning unit's stop so RemainAfterExit state and network state
-# converge together; calling the helper directly would leave the unit active.
-ExecStart=/usr/bin/systemctl --no-block stop archie-direct@isolated.service

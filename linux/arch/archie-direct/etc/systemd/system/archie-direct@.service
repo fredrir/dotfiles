@@ -1,5 +1,5 @@
 [Unit]
-Description=Archie direct Wi-Fi prototype (%i)
+Description=Archie shared direct Wi-Fi AP (%i)
 After=NetworkManager.service
 Wants=NetworkManager.service
 
@@ -11,5 +11,5 @@ ExecStop=/usr/local/libexec/archie-direct-host stop
 TimeoutStartSec=45
 TimeoutStopSec=30
 
-# A prototype is always an explicit choice. Do not add an Install section:
-# neither mode may be enabled at boot.
+# The AP is always an explicit choice. Do not add an Install section: it may
+# not be enabled at boot.

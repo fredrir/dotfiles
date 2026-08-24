@@ -1,14 +1,14 @@
-# Explicit controller for Archie's disabled-by-default AP prototypes. SSH
+# Explicit controller for Archie's disabled-by-default shared AP. SSH
 # route selection never calls this: changing Macie's Wi-Fi remains a visible
 # user action through `archie-direct start`.
 
 _archie_direct_usage() {
   cat <<'EOF'
 usage: archie-direct enroll
-       archie-direct start shared|isolated
+       archie-direct start shared
        archie-direct status [--json]
        archie-direct stop
-       archie-direct benchmark baseline|shared|isolated
+       archie-direct benchmark baseline|shared
 EOF
 }
 
@@ -17,19 +17,40 @@ _archie_direct_profile_saved() {
     tail -n +2 | sed 's/^[[:space:]]*//' | grep -qxF archie-direct
 }
 
+_archie_direct_set_network() {
+  local limit=${1:-20} pid tick
+  [[ $(ipconfig getifaddr en0 2>/dev/null) == 10.77.78.1 ]] && return 0
+
+  # Tahoe can leave networksetup alive after the association has completed.
+  # Watch the actual DHCP address instead of treating process exit as success,
+  # and disown the helper so an interactive zsh prints no job notifications.
+  networksetup -setairportnetwork en0 archie-direct >/dev/null 2>&1 &!
+  pid=$!
+  for (( tick = 1; tick <= limit; tick++ )); do
+    sleep 1
+    if [[ $(ipconfig getifaddr en0 2>/dev/null) == 10.77.78.1 ]]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 0
+    fi
+  done
+  kill "$pid" 2>/dev/null || true
+  sleep 1
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  return 1
+}
+
 _archie_direct_remote_start() {
-  local mode=$1
-  ssh -tt archie "sudo systemctl --no-block start archie-direct@${mode}.service"
+  ssh -tt archie 'sudo systemctl --no-block start archie-direct@shared.service'
 }
 
 _archie_direct_join() {
   local attempt
-  for attempt in {1..45}; do
-    [[ $(ipconfig getifaddr en0 2>/dev/null) == 10.77.78.1 ]] && return 0
-    if (( attempt == 1 || attempt % 5 == 0 )); then
-      networksetup -setairportnetwork en0 archie-direct >/dev/null 2>&1 || true
-    fi
-    sleep 1
+  # Two bounded attempts leave room for one transient association failure
+  # without returning to the old multi-minute nested retry behavior.
+  for attempt in 1 2; do
+    _archie_direct_set_network 20 && return 0
   done
   print -u2 -- 'archie-direct: Macie did not acquire 10.77.78.1'
   return 1
@@ -76,7 +97,7 @@ _archie_direct_enroll() {
     print -u2 -- "archie-direct: $secret_file is missing"
     return 1
   }
-  _archie_direct_remote_start shared || return
+  _archie_direct_remote_start || return
 
   old_clipboard=$(pbpaste 2>/dev/null || true)
   if ! sops -d --extract '["archie_direct_sae_password"]' "$secret_file" 2>/dev/null |
@@ -99,12 +120,12 @@ _archie_direct_enroll() {
 }
 
 _archie_direct_start() {
-  local mode=$1 link_status
+  local link_status
   _archie_direct_profile_saved || {
     print -u2 -- 'archie-direct: run `archie-direct enroll` first'
     return 1
   }
-  _archie_direct_remote_start "$mode" || true
+  _archie_direct_remote_start || true
   _archie_direct_join || return
   ssh -o BatchMode=yes -o ConnectTimeout=4 -T wifi-archie true || {
     print -u2 -- 'archie-direct: DHCP succeeded but direct SSH did not'
@@ -112,19 +133,20 @@ _archie_direct_start() {
   }
   link_status=$(ssh -o BatchMode=yes -o ConnectTimeout=4 -T wifi-archie \
     '/usr/local/libexec/archie-direct-host status json' 2>/dev/null) || return
-  print -r -- "$link_status" | jq -e --arg mode "$mode" \
-    '.active == true and .mode == $mode' >/dev/null || {
-    print -u2 -- "archie-direct: requested $mode mode, got ${link_status:-no status}"
+  print -r -- "$link_status" | jq -e \
+    '.active == true and .mode == "shared"' >/dev/null || {
+    print -u2 -- "archie-direct: requested shared mode, got ${link_status:-no status}"
     return 1
   }
-  _archie_direct_status text
+  print -r -- "$link_status" | jq -r \
+    '"\(.mode)  \(.address)  channel \(.channel)  \(.width_mhz) MHz  \(.clients) client(s)"'
 }
 
 _archie_direct_stop() {
   local target
   for target in wifi-archie archie; do
     if ssh -tt -o ConnectTimeout=3 "$target" \
-      'sudo systemctl --no-block stop archie-direct@shared.service archie-direct@isolated.service archie-direct-rollback.timer'; then
+      'sudo systemctl --no-block stop archie-direct@shared.service'; then
       break
     fi
   done
@@ -164,7 +186,7 @@ _archie_direct_benchmark() {
     print -u2 -- 'archie-direct: stop the direct AP before the baseline benchmark'
     return 1
   fi
-  if [[ "$label" == shared || "$label" == isolated ]]; then
+  if [[ "$label" == shared ]]; then
     link_state=$(_archie_direct_status json) || return
     print -r -- "$link_state" | jq -e --arg mode "$label" \
       '.active == true and .mode == $mode' >/dev/null || {
@@ -177,7 +199,7 @@ _archie_direct_benchmark() {
   mkdir -p "$directory"
   case "$label" in
     baseline) routes=(cable lan tailscale); target=archie ;;
-    shared|isolated) routes=(wifi); target=wifi-archie ;;
+    shared) routes=(wifi); target=wifi-archie ;;
     *) _archie_direct_usage; return 2 ;;
   esac
 
@@ -218,15 +240,6 @@ _archie_direct_benchmark() {
     else
       print -r -- unavailable >"$directory/internet-result.txt"
     fi
-  elif [[ "$label" == isolated ]]; then
-    route -n get default >"$directory/default-route.txt" 2>&1 || true
-    scutil --dns >"$directory/dns.txt" 2>&1
-    dscacheutil -q host -a name example.com >"$directory/dns-resolution.txt" 2>&1 || true
-    if curl -fsSIL --max-time 5 https://example.com >"$directory/internet.txt" 2>&1; then
-      print -r -- unexpected-available >"$directory/internet-result.txt"
-    else
-      print -r -- unavailable-as-designed >"$directory/internet-result.txt"
-    fi
   fi
   _archie_direct_summary "$directory"
   print -r -- "$directory"
@@ -238,11 +251,11 @@ archie-direct() {
   case "$command" in
     enroll) (( $# == 1 )) || { _archie_direct_usage; return 2; }; _archie_direct_enroll ;;
     start)
-      (( $# == 2 )) && [[ "$argument" == shared || "$argument" == isolated ]] || {
+      (( $# == 2 )) && [[ "$argument" == shared ]] || {
         _archie_direct_usage
         return 2
       }
-      _archie_direct_start "$argument"
+      _archie_direct_start
       ;;
     status)
       (( $# <= 2 )) || { _archie_direct_usage; return 2; }
@@ -251,7 +264,10 @@ archie-direct() {
       ;;
     stop) (( $# == 1 )) || { _archie_direct_usage; return 2; }; _archie_direct_stop ;;
     benchmark)
-      (( $# == 2 )) || { _archie_direct_usage; return 2; }
+      (( $# == 2 )) && [[ "$argument" == baseline || "$argument" == shared ]] || {
+        _archie_direct_usage
+        return 2
+      }
       _archie_direct_benchmark "$argument"
       ;;
     -h|--help|help) _archie_direct_usage ;;
