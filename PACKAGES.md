@@ -35,7 +35,6 @@
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
 - `ssh` — Cable, direct Wi-Fi, LAN, then Tailscale routing to macie
 - `vscode` — Arch-specific settings overlay merged into the shared VS Code settings
-- `wezterm-mux` — Persistent wezterm-mux-server user service; panes survive disconnects and path changes
 - `zsh`
 
 ## `linux/ubuntu`
@@ -70,7 +69,6 @@
 
 ## `macos`
 
-- `applications`
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
 - `hammerspoon`

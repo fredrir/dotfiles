@@ -73,44 +73,6 @@ test_git_root_walks_to_dot_git() {
   ' || fail "_git_root walk misbehaved"
 }
 
-# The ssa/ssm wrappers are narrow create-or-connect shortcuts (plan §17): a
-# lone bare word that is not a dmux verb is a Space name, everything else --
-# verbs, their aliases, flags, multi-word invocations -- forwards verbatim, so
-# `ssa ls` lists. The allowlist that draws that line cannot drift: cli.rs's
-# `the_wrapper_verb_allowlist_matches_the_cli` derives it from the binary.
-test_ssa_wrapper_creates_a_space_only_for_a_lone_non_verb() {
-  command -v zsh >/dev/null 2>&1 || fail "zsh is required"
-
-  mkdir -p "$SANDBOX/bin"
-  printf '%s\n' '#!/bin/sh' 'echo "dmux $*"' > "$SANDBOX/bin/dmux"
-  chmod +x "$SANDBOX/bin/dmux"
-
-  local trace="$SANDBOX/wrapper-trace"
-  STUBBIN="$SANDBOX/bin" TRACE="$trace" \
-    WRAPPERS="$SOURCE_ROOT/shared/zsh/conf.d/91-tmux-attach.zsh" \
-    zsh -f -c '
-      path=($STUBBIN $path)
-      source $WRAPPERS
-      {
-        ssa dev; ssm dev
-        ssa ls; ssa list; ssa detach
-        ssa con dev; ssa rm dev; ssa new dev
-        ssa; ssa -
-      } > $TRACE
-    ' || fail "wrapper run failed"
-
-  assert_file_is "$trace" 'dmux --host archie new dev
-dmux --host macie new dev
-dmux --host archie ls
-dmux --host archie list
-dmux --host archie detach
-dmux --host archie con dev
-dmux --host archie rm dev
-dmux --host archie new dev
-dmux --host archie
-dmux --host archie -'
-}
-
 test_git_from_root_p_escape_hatch() {
   setup_hooks_fixtures
 

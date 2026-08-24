@@ -20,8 +20,6 @@ which skill loads.
 | Prompt | Expected owner | Failure mode if this skill wins |
 |---|---|---|
 | "add a new bridge action" | `dmux-bridge-actions` | agent misses the `ACK_KEYS` latch and ships a bridge that dies on first crash-recovery |
-| "the mux service won't start" | `dmux-mux-lifecycle` | agent debugs Lua style instead of the runtime descriptor |
-| "restore my workspaces after reboot" | `dmux-mux-lifecycle` | agent edits resurrect opts without the empty-server guard |
 
 ## Known acceptable co-fire
 

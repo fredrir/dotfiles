@@ -8,8 +8,7 @@ description: Conventions, module contract, and the shared validation loop for th
   the DMUX_WEZ_FIRST gate, stylua and luacheck house style, and the exact test commands. Also
   fires on "run the wezterm tests", "add a test for this Lua module", "why did my keybinding
   disappear", or "format this config". For the signed bridge protocol under wez/dmux_bridge use
-  dmux-bridge-actions; for mux/dmux-mux.lua, wez/domains/init.lua, wez/plugins/resurrect.lua and
-  the service units use dmux-mux-lifecycle.
+  dmux-bridge-actions.
 compatibility: Needs a Lua 5.4-compatible interpreter on PATH for the test suite, plus stylua
   and luacheck for the static checks. Two suite cases stay skipped without a WezTerm fork
   checkout.
@@ -44,7 +43,7 @@ Exits 1 on one pre-existing diff, `wez/design.lua`. Your files must not add a se
 `types/`.
 
 ```bash
-cd shared/wezterm && luacheck wezterm.lua wez mux
+cd shared/wezterm && luacheck wezterm.lua wez
 ```
 
 There is a standing backlog of warnings and zero errors. Don't add warnings; don't try to reach
@@ -138,16 +137,16 @@ convention. Optional fields are written `T|nil`, not `T?`.
   useful, because each is a fresh unprotected entry from Rust. Every handler re-establishes its own
   `pcall` inside the callback body.
 - There are no coroutines anywhere in this config. Deferred work is `wezterm.time.call_after`
-  rescheduling itself; blocking `wezterm.sleep_ms` spins exist only in `mux/dmux-mux.lua`.
+  rescheduling itself.
 - `wezterm.GLOBAL` is process-shared across config generations and is deliberately *not* the
   authority for handing state from config evaluation to `gui-startup`. Use it for diagnostics and
   idempotence latches (`wezterm.GLOBAL.dmux_bridge_events_registered`), not as a source of truth.
 - Managed configs pin `automatically_reload_config = false`, so editing a Lua file does not
   hot-reload a running managed GUI. Restart it to see a change.
 - `io`, `os.execute`, and `os.getenv` are all available — WezTerm does not strip the stdlib. But
-  `io.popen` is never used, and it is explicitly banned in `mux/dmux-mux.lua`.
+  `io.popen` is never used.
 
-The normative product spec for anything dmux-related is `docs/dmux-wezterm-first-plan.md`.
+The normative product spec for anything dmux-related is `docs/wezterm-first-plan.md` in the dmux repo.
 
 ## Reference files
 

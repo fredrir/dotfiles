@@ -1,6 +1,0 @@
-{
-  "capability": "attach_no_create",
-  "source": "stock",
-  "mechanism": "wezterm start --always-new-process --domain <domain> --attach (and plain connect) is owner-diff-zero on a sentinel-bearing domain; dmux verifies the dmux:system:<epoch> sentinel via exact-socket list before any attach and bans start --domain without --attach",
-  "evidence": "docs/adr/dmux/003-gui-attach-activate-bridge.md"
-}

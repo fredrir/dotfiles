@@ -21,7 +21,6 @@ which skill loads.
 |---|---|---|
 | "run the wezterm tests" | `wezterm-lua-config` | loads 5k tokens of protocol detail for a one-line command |
 | "format this lua file" | `wezterm-lua-config` | same |
-| "the mux server was replaced" | `dmux-mux-lifecycle` | agent looks for a protocol bug instead of an epoch/descriptor mismatch |
 
 ## Regression guard
 

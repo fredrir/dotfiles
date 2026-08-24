@@ -81,6 +81,29 @@ run_managed() {
   rm -rf "$runtime"
 }
 
+# The owner mux config left this repository with dmux, so the test that drives
+# it needs dmux's integration files installed. Resolved exactly as dmux
+# resolves them, and skipped with a reason rather than silently when absent:
+# dmux is opt-in, and a machine without it must not fail this suite.
+integrations_dir() {
+  if [ -n "${DMUX_INTEGRATIONS_DIR:-}" ]; then
+    printf '%s' "$DMUX_INTEGRATIONS_DIR"
+    return
+  fi
+  case "${XDG_DATA_HOME:-}" in
+  /*) printf '%s/dmux/integrations' "$XDG_DATA_HOME" ;;
+  *) printf '%s/.local/share/dmux/integrations' "$HOME" ;;
+  esac
+}
+
+run_installed() {
+  if [ ! -r "$(integrations_dir)/wezterm-mux/dmux-mux.lua" ]; then
+    report skip "$1" 'dmux integrations are not installed'
+    return
+  fi
+  run_unit "$1"
+}
+
 run_hammerspoon() {
   state=$1
   managed=$2
@@ -101,10 +124,12 @@ run_hammerspoon() {
 # managed   DMUX_WEZ_FIRST=1 and a private DMUX_RUNTIME_DIR
 # flag-off  asserts the managed flag is absent
 # matrix    parameterised, run once per combination
+# installed needs dmux's integration files on this machine
 # fixture   not a standalone test
 mode_for() {
   case $1 in
-  actions | actions_mac_keys | consumer | controller | instance | mux_startup_witness | presentation | run) echo unit ;;
+  actions | actions_mac_keys | consumer | controller | instance | presentation | run) echo unit ;;
+  mux_startup_witness) echo installed ;;
   config | config_linux | domains | picker | remote | resident_ingress | status) echo managed ;;
   top_level | top_level_missing_descriptor | top_level_missing_key) echo managed ;;
   config_off | top_level_off) echo flag-off ;;
@@ -119,6 +144,7 @@ for file in "$tests_dir"/*.lua; do
   name=$(basename "$file" .lua)
   case $(mode_for "$name") in
   unit | flag-off) run_unit "$name" ;;
+  installed) run_installed "$name" ;;
   managed) run_managed "$name" ;;
   matrix) : ;;
   fixture) report skip "$name" 'config fixture for managed_show_keys.sh' ;;

@@ -16,6 +16,24 @@ os.getenv = function(name) -- luacheck: ignore 122
   return env[name]
 end
 
+-- The owner mux config left this repository with dmux and is resolved where
+-- dmux resolves it: DMUX_INTEGRATIONS_DIR for a checkout, otherwise the XDG
+-- data directory install.sh writes to. Read through `real_getenv` — the stub
+-- above answers only for the variables the service wrapper injects.
+local function integrations_dir()
+  local seam = real_getenv 'DMUX_INTEGRATIONS_DIR'
+  if seam and seam ~= '' then
+    return seam
+  end
+  local data = real_getenv 'XDG_DATA_HOME'
+  if not data or data == '' or data:sub(1, 1) ~= '/' then
+    data = (real_getenv 'HOME' or '') .. '/.local/share'
+  end
+  return data .. '/dmux/integrations'
+end
+
+local MUX_LUA = integrations_dir() .. '/wezterm-mux/dmux-mux.lua'
+
 local SOCK = '/var/folders/xg/l7zk7hdd3f50h289ypshmp9m0000gn/T/dmux/wez-dmux.sock'
 local RUNTIME = '/var/folders/xg/l7zk7hdd3f50h289ypshmp9m0000gn/T/dmux'
 local PID = 54528
@@ -174,7 +192,15 @@ local function start(variables, scenario_publisher)
   end
   logs, publishes, handlers, spawned = {}, {}, {}, nil
   publisher = scenario_publisher
-  local config = dofile 'shared/wezterm/mux/dmux-mux.lua'
+  local readable = io.open(MUX_LUA, 'r')
+  assert(
+    readable,
+    'the owner mux config is not installed at '
+      .. MUX_LUA
+      .. '; run install.sh in the dmux repo, or set DMUX_INTEGRATIONS_DIR to a checkout'
+  )
+  readable:close()
+  local config = dofile(MUX_LUA)
   assert(config.unix_domains[1].socket_path == SOCK, 'bootstrap must agree with the fixed socket')
   assert(type(handlers['mux-startup']) == 'function', 'config must register mux-startup')
   handlers['mux-startup']()

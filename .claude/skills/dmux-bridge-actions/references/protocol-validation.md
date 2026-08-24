@@ -59,7 +59,7 @@ single fail-open path in the subsystem: an action registered in `M.ACTIONS` but 
 
 ## Origin kinds
 
-`docs/dmux-wezterm-first-plan.md` §13.2 defines two; the code has three. `resident_gui` is local
+`docs/wezterm-first-plan.md` §13.2 in the dmux repo defines two; the code has three. `resident_gui` is local
 and exists because
 `dmux-managed-application-quit-requested` fires with zero arguments — no window, no pane, hence no
 marker.

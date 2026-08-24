@@ -8,8 +8,7 @@ description: Extending and maintaining the dmux GUI bridge in shared/wezterm/wez
   is refused with unknown_action, malformed_request, unauthorized, invalid_origin,
   ambiguous_group, or a latched bridge. Also fires on "add a bridge action", "why is the bridge
   rejecting this", "the HMAC doesn't match", "make Command+W do X", or "focus the right pane
-  after attach". For general Lua style, tests, and static checks use wezterm-lua-config; for the
-  owner mux server, sentinel, and cold recovery use dmux-mux-lifecycle.
+  after attach". For general Lua style, tests, and static checks use wezterm-lua-config.
 compatibility: Needs a Lua 5.4-compatible interpreter on PATH to run the bridge test suite.
   Protocol changes must be matched on the Rust signing side before they take effect.
 metadata:
@@ -21,9 +20,9 @@ metadata:
 Paths are relative to the repo root; the subsystem is `shared/wezterm/wez/dmux_bridge/`.
 
 The bridge is a fail-closed security boundary, not a feature module. Its whole job is to refuse
-anything it cannot prove. Read `docs/adr/dmux/003-gui-attach-activate-bridge.md` and
-`docs/dmux-wezterm-first-plan.md` §13.2 before changing the protocol surface — they are the
-normative contract this code implements.
+anything it cannot prove. Read `docs/adr/003-gui-attach-activate-bridge.md` and
+`docs/wezterm-first-plan.md` §13.2 in the dmux repo before changing the protocol surface — they
+are the normative contract this code implements.
 
 ## Two planes, opposite directions
 
@@ -37,7 +36,7 @@ Conflating these is the easiest way to get this wrong. They share no vocabulary.
 | Validated by | a file-local `decode_response` in `controller.lua` | `protocol.validate_and_authenticate` |
 | Spec | plan §13.3 | plan §13.2 |
 
-Plan sections cite `docs/dmux-wezterm-first-plan.md`. The poll loop and `decode_response` are
+Plan sections cite `docs/wezterm-first-plan.md` in the dmux repo. The poll loop and `decode_response` are
 file-locals, not module members — you cannot call or unit-test them from outside their file.
 
 `safe_quit` and `safe-quit` are different objects. `present`, `focus_pane`, `activate`, `toast`,

@@ -24,7 +24,7 @@ violate con-never-creates.
 
 ## The marker schema
 
-`context.FIELD_MAP` maps the nine user variables of `docs/dmux-wezterm-first-plan.md` §13.1 1:1:
+`context.FIELD_MAP` maps the nine user variables of `docs/wezterm-first-plan.md` §13.1 in the dmux repo, 1:1:
 `dmux_context_version`,
 `dmux_host_uid`, `dmux_space_uid`, `dmux_space_no`, `dmux_backend`, `dmux_domain`,
 `dmux_server_epoch`, `dmux_group_ref`, `dmux_split_ref`.

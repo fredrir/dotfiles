@@ -1,6 +1,0 @@
-{
-  "capability": "activate_existing",
-  "source": "stock",
-  "mechanism": "in-GUI pcall'd wezterm.mux.set_active_workspace(name) raises on a missing workspace and never creates (fail-closed even when the pre-check is stale); SwitchToWorkspace is banned because it silently creates on miss",
-  "evidence": "docs/adr/dmux/003-gui-attach-activate-bridge.md"
-}
