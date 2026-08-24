@@ -15,7 +15,7 @@ shared {
   sops
   nvim = neovim
   kitty
-  wezterm
+  ?wezterm
   yazi
   starship
   fastfetch
