@@ -215,17 +215,19 @@ run_agent_wrapper() {
     "$ZSH_BIN" -f -c "source '$SOURCE_ROOT/shared/zsh/conf.d/42-agents.zsh'; $1"
 }
 
-test_agent_wrappers_mark_the_command_and_keep_their_flags() {
+test_agent_wrappers_preserve_subcommands_and_their_flags() {
   setup_agent_commands
 
   run_agent_wrapper 'claude -p hello' || fail "claude wrapper failed"
   run_agent_wrapper 'codex exec build' || fail "codex wrapper failed"
-  run_agent_wrapper 'opencode run' || fail "opencode wrapper failed"
+  run_agent_wrapper 'opencode debug' || fail "opencode wrapper failed"
+  run_agent_wrapper 'opencode run hello' || fail "opencode run wrapper failed"
   run_agent_wrapper 'pi run' || fail "pi wrapper failed"
 
   assert_file_is "$TRACE" 'claude 1 --dangerously-skip-permissions -p hello
 codex 1 --yolo exec build
-opencode 1 run
+opencode 1 debug
+opencode 1 run hello --auto
 pi 1 run'
 }
 

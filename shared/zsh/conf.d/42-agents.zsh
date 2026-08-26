@@ -22,10 +22,16 @@ codex() {
   _run_agent codex --yolo "$@"
 }
 
-opencode() {
-  _run_agent opencode --auto "$@"
+
+opencode-max() {
+  _run_agent OMO_PROFILE=hybrid-max opencode "$@" --auto
 }
 
-pi () {
+opencode-light() {
+  _run_agent OMO_PROFILE=hybrid-light opencode "$@" --auto
+}
+
+pi() {
   _run_agent pi "$@"
 }
+

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from gitrepo import run_git
+
 from tools.dotfile.secret.vault import PLAIN, SEALED, TMPL
 from tools.dotfile.system import UNREADABLE, installed, mode_for, needs_install
 

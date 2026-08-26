@@ -1,15 +1,15 @@
 vault = "~/Documents/main"
 projects = [
-    "dotfiles",
-    "distro-lab",
-    "ArchTeX",
-    "llunde-infra",
-    "llunde-backend",
-    "llunde-frontend",
-    "llunde-pyparser",
-    "sndbx",
-    "rif",
-    "Elvfast",
+  "dotfiles",
+  "distro-lab",
+  "ArchTeX",
+  "llunde-infra",
+  "llunde-backend",
+  "llunde-frontend",
+  "llunde-pyparser",
+  "sndbx",
+  "rif",
+  "Elvfast",
 ]
 
 min_rounds = 1
@@ -24,10 +24,10 @@ nested_groups = ["llunde"]
 
 [groups]
 llunde = [
-    "llunde-infra",
-    "llunde-backend",
-    "llunde-frontend",
-    "llunde-pyparser",
+  "llunde-infra",
+  "llunde-backend",
+  "llunde-frontend",
+  "llunde-pyparser",
 ]
 other = ["sndbx"]
 dotfiles = ["dotfiles"]
@@ -42,4 +42,4 @@ distro-lab = "Dotfiles/Distro Lab/Agents"
 ArchTeX = "ArchTeX/Agents"
 llunde = "llunde/Agents"
 rif = "rif/Agents"
-elvfast = "Projects/Elvfast/Agents"
+elvfast = "Elvfast/Agents"
