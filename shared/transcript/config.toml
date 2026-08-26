@@ -34,12 +34,11 @@ dotfiles = ["dotfiles"]
 distro-lab = ["distro-lab"]
 rif = ["rif"]
 elvfast = ["Elvfast"]
-# Replace Transcripts/<group> 
-# Relative to the vault root.
+
 [destinations]
-dotfiles = "Dotfiles/Agents"
-distro-lab = "Dotfiles/Distro Lab/Agents"
-ArchTeX = "ArchTeX/Agents"
-llunde = "llunde/Agents"
-rif = "rif/Agents"
-elvfast = "Elvfast/Agents"
+dotfiles = "Dotfiles/_Agents"
+distro-lab = "Dotfiles/Distro Lab/_Agents"
+ArchTeX = "ArchTeX/_Agents"
+llunde = "llunde/_Agents"
+rif = "rif/_Agents"
+elvfast = "Elvfast/_Agents"
