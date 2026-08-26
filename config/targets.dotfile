@@ -29,3 +29,4 @@ linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
 linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
 linux:shared/vscode/snippets = ~/.config/Code/User/snippets
 linux/arch/vscode = ~/.config/Code/User
+shared/formatters/biome.json = ~/biome.json

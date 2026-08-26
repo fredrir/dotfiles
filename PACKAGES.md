@@ -3,6 +3,7 @@
 
 - `atuin`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
+- `formatters`
 - `git` — Git configuration and global ignore rules
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from the active theme profile

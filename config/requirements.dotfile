@@ -41,6 +41,7 @@ shared {
   ?openssl
   ?shfmt
   ?dmux
+  ?biome
   font Hack Nerd Font Mono
   font JetBrains Mono
   font Noto Sans
