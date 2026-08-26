@@ -13,7 +13,6 @@
 - `tmux`
 - `transcript`
 - `vscode` — VS Code user settings: shared base with platform overlays merged on link
-- `wezterm` — Terminal emulator with a modular Lua configuration
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
 
