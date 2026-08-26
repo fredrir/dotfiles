@@ -7,6 +7,7 @@ members = [
   "crates/count",
   "crates/flatten",
   "crates/git/gdd",
+  "crates/git/gget",
   "crates/git/gitkit",
   "crates/git/gpp",
   "crates/hwire",

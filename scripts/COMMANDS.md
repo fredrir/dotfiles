@@ -11,6 +11,7 @@ All Python commands accept `--help`.
 | `count <DIRECTORY>` | Count direct entries. `-r`, `--recursive`: include all descendants; `-d`, `--no-hidden`: exclude hidden entries and subtrees. |
 | `flatten <DIRECTORY...>` | Undo redundant nesting: while the directory holds exactly one entry and that entry is a directory, empty it into the target and remove it. Silent, and nothing can be overwritten. `-d`, `--deep`: bring every entry underneath up to the top and remove every directory under it, after printing the plan and asking; `-n`, `--dry-run`: show the plan and stop; `-y`, `--yes`: do not ask, which answers each name two entries want with the later one; `-v`, `--verbose`: name every move; `-a`, `--all`: list every row instead of the first 12 of a section. Symlinks are moved, never followed. `--deep` refuses `/` and the home directory. |
 | `gdd [PATH...]` | Discard every change: tracked files back to `HEAD`, untracked files deleted. Prints the plan and asks first. `-n`, `--dry-run`: show the plan and stop; `-a`, `--all`: list every entry instead of the first 12 of a section; `-y`, `--yes`: do not ask. Ignored files and nested repositories are kept. The shell alias is backed by the `git-discard` executable. |
+| `gget <TARGET>` | Download a file or folder out of a GitHub repository into the current directory: the files themselves, with no repository around them and no `.git`. The target is the URL the browser is showing, with or without its `tree/` or `blob/` part, the `git@` clone address, or the `owner/repo/path` they shorten to; with no path the whole repository lands under its own name. `-f`, `--fredrir`: the owner is `fredrir`, so the target starts at the repository; `-b`, `--branch <BRANCH>`: take the files from that branch or tag rather than the default one, in preference to a branch named in the URL; `-y`, `--yes`: do not ask. A path segment is never read as a branch. An existing file or directory of the same name is replaced whole, after a question. |
 | `gpp <MESSAGE...>` | Stage everything from the repository root (`git add :/`), commit with the joined message, then push. |
 | `path [TARGET=.]` | Print a repo-relative, home-relative, or absolute path. `-f`, `--full`: always print the absolute path. |
 | `size [TARGET]` | Measure bytes; with no target, list the current directory. `-r`: list direct children; `-R`: list recursively; `-l`, `--lines`: count lines; `-L`, `--limit <DEPTH>`: limit `-R`; `-a`, `--all`: show hidden rows. |
@@ -25,7 +26,7 @@ All Python commands accept `--help`.
 | `confirm-exit` | Confirm, then exit Hyprland. |
 | `update-readme-fastfetch` | Refresh the Fastfetch block in `README.md`. |
 
-`count`, `flatten`, `gdd`, `gpp`, `hwire`, `path`, and `size` also accept `-h`/`--help`,
+`count`, `flatten`, `gdd`, `gget`, `gpp`, `hwire`, `path`, and `size` also accept `-h`/`--help`,
 `-V`/`--version`, and `--completions <bash|elvish|fish|powershell|zsh>`.
 
 ## `dmux`

@@ -1,0 +1,11 @@
+[package]
+name = "gget"
+version = "0.1.0"
+description = "Download a file or folder out of a GitHub repository"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace = true
+tempfile.workspace = true
+workstation.workspace = true

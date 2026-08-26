@@ -146,6 +146,7 @@ scripts/rust/
     flatten/                 undo nesting, or bring a whole subtree up
     git/
       gdd/                   discard every change in the working tree
+      gget/                  download a file or folder out of a repository
       gitkit/                shared repository access, survey, plan and discard
       gpp/                   git add + commit + push
     hwire/                   latency and throughput between macie and archie
@@ -1171,12 +1172,13 @@ collapse move a wrapper out of the way and still lift entries up through it.
 
 ---
 
-## gdd and gpp
+## gdd, gget and gpp
 
-The two git commands live in `scripts/rust/crates/git` and share `gitkit`,
-which is the only crate that talks to gitoxide: it opens the repository,
-surveys the working tree, renders the plan, and carries it out. Each binary is
-the command-line shape around that.
+The git commands live in `scripts/rust/crates/git`. `gdd` and `gpp` share
+`gitkit`, which is the only crate that talks to gitoxide: it opens the
+repository, surveys the working tree, renders the plan, and carries it out,
+and each binary is the command-line shape around that. `gget` shares only the
+conventions, because the repository it works on is not here yet.
 
 `gdd` discards every change: tracked files go back to `HEAD`, untracked files
 are deleted. It prints what that means before doing it, because half of it
@@ -1236,6 +1238,51 @@ would write in the index itself, so the answer is usually one comparison of two
 hashes; only a missing or stale cache-tree falls back to comparing the whole
 tree against `HEAD`. Message words are joined with spaces, and a word may start
 with `-`. `gff` is a shell alias for `gpp .`.
+
+`gget` downloads a file or folder out of a GitHub repository into the current
+directory: `gget https://github.com/user/repo/tree/dev/folder_8/folder_10`
+leaves `folder_10` here and nothing else — not the repository around it, not
+the folders above it, and no `.git` tying it to where it came from. It is the
+answer to having found one thing on GitHub and wanting it here, so the URL the
+browser is showing is pasted back at the shell as it is, with or without the
+`tree/` or `blob/` part. `git@github.com:user/repo.git` and the
+`owner/repo/path` shorthand name the same places, `-f` fixes the owner at
+`fredrir` so the target starts at the repository, and with no path at all the
+repository itself arrives, under its own name, as files.
+
+The fetching is git's, which is what makes a private repository behave like
+any other: the credentials are already arranged, no token has to be found for
+this one tool, and no API budget is spent on it. A partial, shallow clone with
+nothing checked out costs one round trip and carries no blobs; the
+sparse-checkout pattern that follows says which path's blobs are worth having,
+and the checkout fetches those and writes them. The patterns are the non-cone
+kind on purpose — cone mode is faster to match and only understands
+directories, and half of what this tool is asked for is one file — with the
+path anchored at the repository root, so it is that one place rather than
+every path that ends the same way, and with the characters gitignore syntax
+would otherwise read as wildcards spelled out. A pattern that matches nothing
+is a checkout of nothing and git calls that a success, so whether the path was
+really there is a question about the working tree, asked here afterwards.
+
+A branch is named with `-b`, never guessed. `owner/repo/dev/README.md` is a
+branch called `dev` to whoever typed it and a folder called `dev` to everybody
+else, and nothing in the text says which: only the repository knows, and asking
+it would make what a command means depend on what happens to exist that day.
+`tree/` and `blob/` are believed because GitHub put them there, and exactly one
+segment behind them is taken, since a branch name may hold slashes and only the
+repository could say where such a name ends — which is what `-b` is for. It
+wins over a branch in the URL, being the one typed just now.
+
+An existing file or directory of the same name is replaced whole, so what lands
+is what is in the repository rather than the two of them mixed, and `-y`
+answers the question in advance. The question comes before the download,
+because a refused overwrite should not have cost a clone and the name a target
+lands under is knowable from the target alone. The clone goes into a temporary
+directory beside the destination rather than in `/tmp`, since the last step is
+a rename and a rename is only a rename within one filesystem. Nothing is
+removed until the files replacing it are already on the disk, and everything
+else that can go wrong — a branch that is not there, a path that is not there,
+an answer of no — leaves the directory exactly as it was.
 
 ---
 
