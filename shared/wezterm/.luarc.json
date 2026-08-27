@@ -1,0 +1,19 @@
+{
+	"$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+	"runtime.version": "Lua 5.4",
+	"runtime.path": ["?.lua", "?/init.lua"],
+	"runtime.pathStrict": true,
+	"workspace.library": ["${workspaceFolder}/types"],
+	"workspace.ignoreDir": [".luarocks", "lua_modules"],
+	"workspace.checkThirdParty": false,
+	"diagnostics.unusedLocalExclude": ["_*"],
+	"format.enable": false,
+	"telemetry.enable": false,
+	"diagnostics.groupFileStatus": {
+		"strong": "Any",
+		"type-check": "Any"
+	},
+
+	"type.checkTableShape": true,
+	"type.inferParamType": true
+}
