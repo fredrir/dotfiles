@@ -10,6 +10,7 @@ from tools.dotfile import link as link_command
 from tools.dotfile import merge as merge_command
 from tools.dotfile import packages as packages_command
 from tools.dotfile import profiles as profiles_command
+from tools.dotfile import push as push_command
 from tools.dotfile import remove as remove_command
 from tools.dotfile import system as system_cli
 from tools.dotfile.secret import cli as secret_cli
@@ -59,7 +60,9 @@ def checked_resolution(value):
     return value
 
 
-@app.command(hidden=True, help="Link and merge the profile. Use 'dotfile sync'; setup.sh calls this.")
+@app.command(
+    hidden=True, help="Link and merge the profile. Use 'dotfile sync'; setup.sh calls this."
+)
 def link(
     profile: str | None = typer.Argument(None),
     dry_run: bool = typer.Option(
@@ -71,9 +74,7 @@ def link(
     force: bool = typer.Option(False, "--force", help="alias for --resolve repo"),
     resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
 ):
-    link_command.cmd_link(
-        Context(), profile, dry_run, override, force, checked_resolution(resolve)
-    )
+    link_command.cmd_link(Context(), profile, dry_run, override, force, checked_resolution(resolve))
 
 
 @app.command(help="Move a live config into the repo and symlink it back.")
@@ -143,14 +144,25 @@ def sync(
     override: list[str] = typer.Option(
         [], "--override", help="pick a machine override set: <group>=<name|none>"
     ),
-    force: bool = typer.Option(False, "--force", help="alias for --resolve repo"),
+    force: bool = typer.Option(
+        False, "--force", help="alias for --resolve repo; with --push, discard without asking"
+    ),
     resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
+    push: bool = typer.Option(
+        False, "-p", "--push", help="then push, and pull and sync the other machine"
+    ),
+    to: str = typer.Option(
+        "", "--to", help="which machine --push targets; the only other one by default"
+    ),
 ):
     ctx = Context()
     script = os.path.join(ctx.root, "setup.sh")
     if not os.access(script, os.X_OK):
         die("setup.sh is missing from the repository root")
     checked_resolution(resolve)
+    # Resolved before the local sync so an unreachable or misspelled target
+    # fails now, rather than after the machine has already been relinked.
+    host = push_command.choose_host(ctx, to) if push or to else ""
     command = [script, "--sync"]
     if profile:
         command.append(profile)
@@ -167,7 +179,10 @@ def sync(
         passthrough += ["--resolve", resolve]
     if passthrough:
         command += ["--", *passthrough]
-    raise typer.Exit(subprocess.call(command))
+    code = subprocess.call(command)
+    if code or not host:
+        raise typer.Exit(code)
+    push_command.cmd_push(ctx, host, force, merge_command.REPO if force else resolve, dry_run)
 
 
 @app.command(help="Show link state for every file in the profile.")
