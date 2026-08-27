@@ -1,4 +1,3 @@
 {
-  "rust-analyzer.linkedProjects": [
-    "scripts/rust/Cargo.toml"
-  ]}
+	"rust-analyzer.linkedProjects": ["scripts/rust/Cargo.toml"]
+}

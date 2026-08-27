@@ -1,65 +1,74 @@
 {
-  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
+	"$schema": "https://github.com/fastfetch-cli/fastfetch/raw/master/doc/json_schema.json",
 
-  "display": {
-    "constants": [
-      // theme:constants
-      "\u001b[1;38;2;61;174;233m", // blue #3daee9
-      "\u001b[1;38;2;250;179;135m", // peach #fab387
-      "\u001b[1;38;2;203;166;247m", // mauve #cba6f7
-      "\u001b[1;38;2;124;255;107m", // green #7cff6b
-      "\u001b[38;2;108;112;134m" // overlay #6c7086
-      // theme:constants:end
-    ],
-    "separator": "  ",
-    "key": { "width": 14 },
-    "color": { "separator": "#6c7086" }, // theme:separator
-    "size": { "binaryPrefix": "jedec", "ndigits": 0 },
-    "percent": { "type": 9, "green": 50, "yellow": 80 }
-  },
+	"display": {
+		"constants": [
+			// theme:constants
+			"\u001b[1;38;2;61;174;233m", // blue #3daee9
+			"\u001b[1;38;2;250;179;135m", // peach #fab387
+			"\u001b[1;38;2;203;166;247m", // mauve #cba6f7
+			"\u001b[1;38;2;124;255;107m", // green #7cff6b
+			"\u001b[38;2;108;112;134m" // overlay #6c7086
+			// theme:constants:end
+		],
+		"separator": "  ",
+		"key": { "width": 14 },
+		"color": { "separator": "#6c7086" }, // theme:separator
+		"size": { "binaryPrefix": "jedec", "ndigits": 0 },
+		"percent": { "type": 9, "green": 50, "yellow": 80 }
+	},
 
-  // No logo of our own: a platform group that styles fastfetch ships its own
-  // config, so this one only ever runs on a platform we have not styled. Let
-  // fastfetch draw whatever it detects rather than mislabel the machine.
-  "logo": {
-    "type": "builtin",
-    "padding": { "top": 6, "left": 3, "right": 5 }
-  },
+	// No logo of our own: a platform group that styles fastfetch ships its own
+	// config, so this one only ever runs on a platform we have not styled. Let
+	// fastfetch draw whatever it detects rather than mislabel the machine.
+	"logo": {
+		"type": "builtin",
+		"padding": { "top": 6, "left": 3, "right": 5 }
+	},
 
-  "modules": [
-    "break",
+	"modules": [
+		"break",
 
-    { "type": "title", "format": "{$1}{user-name}{$4} @ {$3}{host-name}" },
-    { "type": "custom", "format": "{$5}───────────────────────────────" },
-    "break",
+		{ "type": "title", "format": "{$1}{user-name}{$4} @ {$3}{host-name}" },
+		{ "type": "custom", "format": "{$5}───────────────────────────────" },
+		"break",
 
-    { "type": "custom", "format": "{$1}  SYSTEM" },
-    { "type": "os", "key": "{$1}󰌽  OS" },
-    { "type": "kernel", "key": "{$1}󰒓  Kernel" },
-    { "type": "uptime", "key": "{$1}󰅐  Uptime" },
-    { "type": "packages", "key": "{$1}󰏗  Packages" },
-    { "type": "shell", "key": "{$1}󰆍  Shell" },
-    "break",
+		{ "type": "custom", "format": "{$1}  SYSTEM" },
+		{ "type": "os", "key": "{$1}󰌽  OS" },
+		{ "type": "kernel", "key": "{$1}󰒓  Kernel" },
+		{ "type": "uptime", "key": "{$1}󰅐  Uptime" },
+		{ "type": "packages", "key": "{$1}󰏗  Packages" },
+		{ "type": "shell", "key": "{$1}󰆍  Shell" },
+		"break",
 
-    { "type": "custom", "format": "{$2}  HARDWARE" },
-    { "type": "cpu", "key": "{$2}󰻠  CPU" },
-    { "type": "gpu", "key": "{$2}󰢮  GPU" },
-    { "type": "memory", "key": "{$2}󰍛  Memory", "format": "{used} / {total} [{percentage}]" },
-    { "type": "disk", "key": "{$2}󰋊  Disk", "folders": "/:/home", "format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]" },
-    "break",
+		{ "type": "custom", "format": "{$2}  HARDWARE" },
+		{ "type": "cpu", "key": "{$2}󰻠  CPU" },
+		{ "type": "gpu", "key": "{$2}󰢮  GPU" },
+		{
+			"type": "memory",
+			"key": "{$2}󰍛  Memory",
+			"format": "{used} / {total} [{percentage}]"
+		},
+		{
+			"type": "disk",
+			"key": "{$2}󰋊  Disk",
+			"folders": "/:/home",
+			"format": "{mountpoint}  {size-used} / {size-total} [{size-percentage}]"
+		},
+		"break",
 
-    { "type": "custom", "format": "{$3}  DESKTOP" },
-    { "type": "de", "key": "{$3}󰧨  DE" },
-    { "type": "wm", "key": "{$3}󰖯  WM" },
-    { "type": "terminal", "key": "{$3}󰆌  Terminal" },
-    { "type": "theme", "key": "{$3}󰏘  Theme", "format": "{theme1}" },
-    { "type": "display", "key": "{$3}󰍹  Display" },
-    "break",
+		{ "type": "custom", "format": "{$3}  DESKTOP" },
+		{ "type": "de", "key": "{$3}󰧨  DE" },
+		{ "type": "wm", "key": "{$3}󰖯  WM" },
+		{ "type": "terminal", "key": "{$3}󰆌  Terminal" },
+		{ "type": "theme", "key": "{$3}󰏘  Theme", "format": "{theme1}" },
+		{ "type": "display", "key": "{$3}󰍹  Display" },
+		"break",
 
-    { "type": "custom", "format": "{$4}  NETWORK" },
-    { "type": "locale", "key": "{$4}󰗊  Locale" },
-    "break",
+		{ "type": "custom", "format": "{$4}  NETWORK" },
+		{ "type": "locale", "key": "{$4}󰗊  Locale" },
+		"break",
 
-    { "type": "colors", "symbol": "circle", "paddingLeft": 2 }
-  ]
+		{ "type": "colors", "symbol": "circle", "paddingLeft": 2 }
+	]
 }
