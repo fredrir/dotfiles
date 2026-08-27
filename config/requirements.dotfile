@@ -13,7 +13,7 @@ shared {
   uv
   age
   sops
-  nvim = neovim
+  nvim  = neovim
   kitty
   ?wezterm
   yazi
@@ -24,18 +24,18 @@ shared {
   eza
   bat
   fd
-  rg = ripgrep
+  rg    = ripgrep
   rsync
   zoxide
   direnv
   ?ncdu
-  ?gh = github-cli
+  ?gh   = github-cli
   ?docker
   ?fio
   ?sysbench
   ?hyperfine
   ?stress-ng
-  ?7z = 7zip
+  ?7z   = 7zip
   ?portview
   ?kondo
   ?openssl
@@ -55,7 +55,7 @@ shared {
 }
 
 macos {
-  brew = homebrew
+  brew  = homebrew
   mosh
 }
 
@@ -64,31 +64,31 @@ linux/common {
   xremap
   ?glmark2
   ?vkmark
-  ?sensors = lm_sensors
-  fc-cache = fontconfig
-  wl-copy = wl-clipboard
-  wl-paste = wl-clipboard
+  ?sensors  = lm_sensors
+  fc-cache  = fontconfig
+  wl-copy   = wl-clipboard
+  wl-paste  = wl-clipboard
 }
 
 linux/arch {
   dnsmasq
   hostapd
   iw
-  nmcli = networkmanager
-  nft = nftables
+  nmcli  = networkmanager
+  nft    = nftables
   iptables
   mosh
 }
 
 linux/kde {
-  plasmashell = plasma-desktop
+  plasmashell  = plasma-desktop
   konsole
   kate
   ?dolphin
 }
 
 linux/hyprland {
-  Hyprland = hyprland
+  Hyprland  = hyprland
   hyprlock
   hypridle
   waybar

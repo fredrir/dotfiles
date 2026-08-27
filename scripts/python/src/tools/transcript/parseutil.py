@@ -49,9 +49,7 @@ def tool_title(name, input_value):
 
 
 def tag_strippers(tags):
-    return [
-        re.compile(rf"<{tag}>.*?(?:</{tag}>|\Z)", re.DOTALL | re.IGNORECASE) for tag in tags
-    ]
+    return [re.compile(rf"<{tag}>.*?(?:</{tag}>|\Z)", re.DOTALL | re.IGNORECASE) for tag in tags]
 
 
 def strip_tags(text, patterns):

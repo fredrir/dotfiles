@@ -75,7 +75,10 @@ class Theme:
             raise SystemExit(f"dotfile theme: unknown profile '{name}' (available: {available})")
         overrides = load_toml(target)
         data = merge(load_toml(ROLES_FILE), overrides)
-        fonts = merge(load_toml(FONTS_FILE), {key: overrides[key] for key in ("fonts", "sizes", "applications") if key in overrides})
+        fonts = merge(
+            load_toml(FONTS_FILE),
+            {key: overrides[key] for key in ("fonts", "sizes", "applications") if key in overrides},
+        )
         return cls(name, data, fonts)
 
     @property

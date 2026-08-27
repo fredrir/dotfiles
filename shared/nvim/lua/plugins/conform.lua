@@ -14,9 +14,7 @@ return {
   -- Nothing detects these otherwise: neovim has no `dotfile` filetype, and
   -- `.config` reads as plain text. `.conf` keeps its own filetype and is
   -- pointed at dotfmt below.
-  init = function()
-    vim.filetype.add { extension = { config = 'dotfile', dotfile = 'dotfile' } }
-  end,
+  init = function() vim.filetype.add { extension = { config = 'dotfile', dotfile = 'dotfile' } } end,
   ---@module 'conform'
   ---@type conform.setupOpts
   opts = {

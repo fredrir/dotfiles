@@ -7,5 +7,5 @@ export PATH=/home/fredrir/.opencode/bin:$PATH
 export PATH="/home/fredrir/.bun/bin:$PATH"
 
 sudo() {
-	command sudo -p "${THEME_SUDO}SUDO${THEME_CHAR}\$${THEME_RESET} " "$@"
+  command sudo -p "${THEME_SUDO}SUDO${THEME_CHAR}\$${THEME_RESET} " "$@"
 }

@@ -51,7 +51,9 @@ def _context():
     from tools.dotfile.targets import load_targets
 
     ctx = Context()
-    ctx.link_groups = [group for group in GROUP_DIRS if os.path.isdir(os.path.join(ctx.root, group))]
+    ctx.link_groups = [
+        group for group in GROUP_DIRS if os.path.isdir(os.path.join(ctx.root, group))
+    ]
     load_targets(ctx)
     return ctx
 

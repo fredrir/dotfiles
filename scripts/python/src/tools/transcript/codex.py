@@ -74,7 +74,9 @@ def _tool_call(payload):
 
 def parse(path):
     path = Path(path)
-    session = Session(provider="codex", session_id=session_id_from_name(path), source_path=str(path))
+    session = Session(
+        provider="codex", session_id=session_id_from_name(path), source_path=str(path)
+    )
     try:
         raw = path.read_text(errors="replace")
     except OSError:
@@ -106,7 +108,9 @@ def parse(path):
         stamp = parseutil.parse_time(entry.get("timestamp") or payload.get("timestamp"))
 
         if kind == "session_meta":
-            session.session_id = str(payload.get("id") or payload.get("session_id") or session.session_id)
+            session.session_id = str(
+                payload.get("id") or payload.get("session_id") or session.session_id
+            )
             session.cwd = payload.get("cwd") or session.cwd
             session.started = parseutil.parse_time(payload.get("timestamp")) or session.started
             continue
@@ -119,7 +123,9 @@ def parse(path):
             if event_kind == "user_message":
                 fallback_events.append(("me", parseutil.block_text(payload.get("message")), stamp))
             elif event_kind == "agent_message":
-                fallback_events.append(("turn", parseutil.block_text(payload.get("message")), stamp))
+                fallback_events.append(
+                    ("turn", parseutil.block_text(payload.get("message")), stamp)
+                )
             continue
         if kind != "response_item":
             if kind not in SKIP_TYPES:

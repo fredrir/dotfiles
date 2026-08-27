@@ -15,13 +15,13 @@ zstyle ':omz:plugins:eza' icons yes
 
 # Shell-only plugins — no external tool to check for.
 plugins=(
-	git
-	gitignore
+  git
+  gitignore
 
-	alias-finder
-	colored-man-pages
-	copyfile
-	copypath
+  alias-finder
+  colored-man-pages
+  copyfile
+  copypath
 )
 
 (($+commands[gh])) && plugins+=(gh)
@@ -37,11 +37,11 @@ plugins=(
 (($+commands[eza])) && plugins+=(eza)
 
 if (($+commands[fzf])) && [[ -d "$ZSH/custom/plugins/fzf-tab" ]]; then
-	plugins+=(fzf-tab)
+  plugins+=(fzf-tab)
 elif (($+commands[fzf])) && [[ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/share/fzf-tab/fzf-tab.zsh" ]]; then
-	: # sourced by 80-plugins.macos.zsh, after compinit
+  : # sourced by 80-plugins.macos.zsh, after compinit
 else
-	COMPLETION_WAITING_DOTS="true"
+  COMPLETION_WAITING_DOTS="true"
 fi
 
 [[ -d "$ZSH/custom/plugins/zsh-autosuggestions" ]] && plugins+=(zsh-autosuggestions)

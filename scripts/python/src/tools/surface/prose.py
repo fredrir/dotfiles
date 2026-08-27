@@ -72,9 +72,7 @@ COMMANDS = {
         "Discards tracked and untracked working-tree changes while preserving ignored "
         "files and nested repositories."
     ),
-    "gget": (
-        "Downloads a file or directory from a GitHub repository into the current directory."
-    ),
+    "gget": ("Downloads a file or directory from a GitHub repository into the current directory."),
     "gpp": "Stages everything, commits with the supplied message, and pushes the commit.",
     "hwire": "Measures latency and throughput between two machines.",
     "hwire serve": "Answers measurements until told to stop.",
@@ -126,8 +124,7 @@ FLAGS = {
     ("dotfile", "--dry-run"): "Reports actions without changing files.",
     ("dotfile", "--override"): "Selects a machine override with `<group>=<name|none>`.",
     ("dotfile", "--force"): (
-        "Forces repository resolution during sync or overwrites locally edited "
-        "secret destinations."
+        "Forces repository resolution during sync or overwrites locally edited secret destinations."
     ),
     ("dotfile", "--resolve"): (
         "Selects `skip`, `repo`, or `live` resolution for locally changed configs."

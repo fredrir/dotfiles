@@ -1,5 +1,5 @@
-local wezterm = require "wezterm"
-local config = wezterm.config_builder()
+local wezterm = require "wezterm" ---@type Wezterm
+local config = wezterm.config_builder() ---@type Config
 
 config:set_strict_mode(true)
 

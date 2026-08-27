@@ -164,9 +164,7 @@ class TestDiskJobFile:
 
     def test_write_stages_are_size_bounded_and_reads_stay_time_based(self):
         spec = disk.job_file("1g", "/tmp", "libaio", {"seq-write": "6g", "rand-write": "2g"})
-        stages = {
-            block.splitlines()[0]: block for block in spec.split("[")[2:] if block.strip()
-        }
+        stages = {block.splitlines()[0]: block for block in spec.split("[")[2:] if block.strip()}
 
         assert "io_size=6g" in stages["seq-write]"]
         assert "time_based" not in stages["seq-write]"]
@@ -211,8 +209,10 @@ class TestDiskJobFile:
 
 class TestMemorySuite:
     def test_cache_and_dram_are_measured_separately(self):
-        with mock.patch.object(memory, "tool_path", lambda *_n: "/usr/bin/sysbench"), \
-             mock.patch.object(memory, "version_of", lambda *a, **k: "1.0.20"):
+        with (
+            mock.patch.object(memory, "tool_path", lambda *_n: "/usr/bin/sysbench"),
+            mock.patch.object(memory, "version_of", lambda *a, **k: "1.0.20"),
+        ):
             jobs = {job.name: job for job in memory.jobs(None)}
 
         assert set(jobs) == {"mem.bandwidth", "mem.random", "cache.bandwidth"}
@@ -222,8 +222,10 @@ class TestMemorySuite:
         assert memory.parse_size(memory.DRAM_BLOCK) > memory.parse_size(memory.CACHE_BLOCK) * 64
 
     def test_the_dram_job_is_world_comparable_and_the_cache_job_is_not(self):
-        with mock.patch.object(memory, "tool_path", lambda *_n: "/usr/bin/sysbench"), \
-             mock.patch.object(memory, "version_of", lambda *a, **k: "1.0.20"):
+        with (
+            mock.patch.object(memory, "tool_path", lambda *_n: "/usr/bin/sysbench"),
+            mock.patch.object(memory, "version_of", lambda *a, **k: "1.0.20"),
+        ):
             jobs = {job.name: job for job in memory.jobs(None)}
 
         assert {out.comparable for out in jobs["mem.bandwidth"].outputs} == {"world"}
@@ -345,7 +347,9 @@ class TestPrivacy:
     def test_the_repository_root_is_not_recorded_in_a_workload_command(self):
         from tools.utils.sysinfo.bench.suites.workload import displayed
 
-        recorded = displayed(["git", "-C", "/home/someone/dotfiles", "status"], "/home/someone/dotfiles")
+        recorded = displayed(
+            ["git", "-C", "/home/someone/dotfiles", "status"], "/home/someone/dotfiles"
+        )
 
         assert recorded == "git -C . status"
         assert "someone" not in recorded

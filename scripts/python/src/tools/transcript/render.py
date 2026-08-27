@@ -82,7 +82,9 @@ def _round_turns(round_, include_tools):
     if include_tools:
         return round_.turns
     turns = [turn for turn in round_.turns if turn.kind == "me"]
-    responses = [turn.body.strip() for turn in round_.turns if turn.kind == "turn" and turn.body.strip()]
+    responses = [
+        turn.body.strip() for turn in round_.turns if turn.kind == "turn" and turn.body.strip()
+    ]
     if responses:
         turns.append(Turn("turn", "Response", "\n\n".join(responses)))
     return turns
@@ -91,9 +93,8 @@ def _round_turns(round_, include_tools):
 def render_session(session, include_tools=False):
     if session.degraded and not session.rounds:
         fence = fence_for(session.raw_text)
-        return (
-            "> [!agent]- Degraded import — format not recognized\n"
-            + prefix_quote(f"{fence}\n{session.raw_text.strip()}\n{fence}")
+        return "> [!agent]- Degraded import — format not recognized\n" + prefix_quote(
+            f"{fence}\n{session.raw_text.strip()}\n{fence}"
         )
     headings = []
     blocks = []

@@ -37,7 +37,9 @@ def _check_palette_names(theme, problems):
     for key, name in load_map("gtk")["colors"].items():
         if name in kde:
             if kde[name] not in theme.palette:
-                problems.append(f"maps/gtk.toml {key} -> [kde] {name} -> unknown color '{kde[name]}'")
+                problems.append(
+                    f"maps/gtk.toml {key} -> [kde] {name} -> unknown color '{kde[name]}'"
+                )
         elif name not in theme.palette:
             problems.append(f"maps/gtk.toml {key} -> unknown palette color or kde role '{name}'")
 

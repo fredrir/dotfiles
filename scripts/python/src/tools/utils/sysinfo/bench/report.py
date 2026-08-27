@@ -39,7 +39,9 @@ def sparkline(values):
     if high == low:
         return SPARKS[len(SPARKS) // 2] * len(usable)
     span = high - low
-    return "".join(SPARKS[min(int((value - low) / span * len(SPARKS)), len(SPARKS) - 1)] for value in usable)
+    return "".join(
+        SPARKS[min(int((value - low) / span * len(SPARKS)), len(SPARKS) - 1)] for value in usable
+    )
 
 
 def describe_run(run):

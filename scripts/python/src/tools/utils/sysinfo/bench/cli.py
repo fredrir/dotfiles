@@ -147,8 +147,18 @@ def main(ctx: typer.Context):
         return
     name = MENU[choice][0]
     if name == "run":
-        run(tier="quick", only="", note="", tag=[], host="", workdir="", force=False,
-            no_save=False, baseline=False, as_json=False)
+        run(
+            tier="quick",
+            only="",
+            note="",
+            tag=[],
+            host="",
+            workdir="",
+            force=False,
+            no_save=False,
+            baseline=False,
+            as_json=False,
+        )
     elif name == "show":
         show(target="")
     elif name == "health":
@@ -169,7 +179,9 @@ def main(ctx: typer.Context):
 
 def interactive_compare():
     require_terminal("compare without both selectors")
-    choice = menu.pick("compare what?", [name for name, _ in COMPARISONS], [t for _, t in COMPARISONS])
+    choice = menu.pick(
+        "compare what?", [name for name, _ in COMPARISONS], [t for _, t in COMPARISONS]
+    )
     if choice is None:
         return
     if choice == 0:
@@ -246,12 +258,17 @@ def interactive_baseline():
 def emit_comparison(left, right, as_json=False):
     deltas, changes, only_left, only_right = compare_runs(left, right)
     if as_json:
-        out(json.dumps({
-            "left": left.run_id,
-            "right": right.run_id,
-            "changes": [list(change) for change in changes],
-            "deltas": [delta.__dict__ for delta in deltas],
-        }, indent=2))
+        out(
+            json.dumps(
+                {
+                    "left": left.run_id,
+                    "right": right.run_id,
+                    "changes": [list(change) for change in changes],
+                    "deltas": [delta.__dict__ for delta in deltas],
+                },
+                indent=2,
+            )
+        )
         return
     report.render_comparison(left, right, deltas, changes, only_left, only_right)
 
@@ -263,10 +280,16 @@ def run(
     note: Annotated[str, typer.Option("--note", help="Why this run was taken.")] = "",
     tag: Annotated[list[str] | None, typer.Option("--tag", help="Label for this run.")] = None,
     host: Annotated[str, typer.Option("--host", help="Record against this host.")] = "",
-    workdir: Annotated[str, typer.Option("--workdir", help="Directory the disk tier writes in.")] = "",
-    force: Annotated[bool, typer.Option("--force", help="Measure despite poor conditions.")] = False,
+    workdir: Annotated[
+        str, typer.Option("--workdir", help="Directory the disk tier writes in.")
+    ] = "",
+    force: Annotated[
+        bool, typer.Option("--force", help="Measure despite poor conditions.")
+    ] = False,
     no_save: Annotated[bool, typer.Option("--no-save", help="Print without storing.")] = False,
-    baseline: Annotated[bool, typer.Option("--baseline", help="Pin this run as the baseline.")] = False,
+    baseline: Annotated[
+        bool, typer.Option("--baseline", help="Pin this run as the baseline.")
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Emit the run as JSON.")] = False,
 ):
     if tier not in TIERS:
@@ -278,6 +301,7 @@ def run(
     tags = tuple(tag or ())
     name, persist = resolve_host(host)
     persist = persist and not no_save
+
     def progress(kind, job, detail):
         if as_json:
             return
@@ -289,6 +313,7 @@ def run(
             err(f"  {job} done in {detail}")
         elif kind == "skip":
             err(f"  {job} skipped: {detail}")
+
     # Everything that writes to the store stays inside the lock. Storing the run
     # and pinning the baseline used to happen after it was released, so a second
     # benchmark could interleave with either.
@@ -356,7 +381,9 @@ def show(
 def list_(
     host: Annotated[str, typer.Option("--host", help="Only this machine.")] = "",
     limit: Annotated[int, typer.Option("--limit", help="Rows to print.")] = 20,
-    all_grades: Annotated[bool, typer.Option("--all", help="Include noisy and aborted runs.")] = False,
+    all_grades: Annotated[
+        bool, typer.Option("--all", help="Include noisy and aborted runs.")
+    ] = False,
 ):
     grades = select.ANY if all_grades else select.CLEAN
     runs = store.list_runs(host or None, grades=grades)
@@ -406,8 +433,11 @@ def trend(
         interactive_trend()
         return
     selector = select.parse(target)
-    runs = [run for run in store.list_runs(selector.host or None, grades=select.CLEAN)
-            if select.matches(run, selector)]
+    runs = [
+        run
+        for run in store.list_runs(selector.host or None, grades=select.CLEAN)
+        if select.matches(run, selector)
+    ]
     report.render_trend(runs, metric)
 
 

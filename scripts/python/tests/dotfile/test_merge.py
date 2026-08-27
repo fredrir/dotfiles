@@ -85,7 +85,7 @@ def outcome(ours, theirs, base, ignores=(), decisions=None):
 
 
 def test_jsonc_strips_comments_and_trailing_commas():
-    text = "{\n // note\n \"a\": 1, /* block */ \"b\": [1, 2,],\n \"c\": {\"d\": 2,},\n}\n"
+    text = '{\n // note\n "a": 1, /* block */ "b": [1, 2,],\n "c": {"d": 2,},\n}\n'
     assert jsonc.loads(text) == {"a": 1, "b": [1, 2], "c": {"d": 2}}
 
 
@@ -214,9 +214,7 @@ def test_chained_overlays_merge_in_group_order(tool, sandbox):
     (repo / "linux" / "arch" / "vscode" / "settings.arch.json").write_text(
         '{"shellformat.path": "/usr/bin/shfmt"}\n'
     )
-    (repo / "environment" / "test" / "manifest").write_text(
-        "shared\nlinux/common\nlinux/arch\n"
-    )
+    (repo / "environment" / "test" / "manifest").write_text("shared\nlinux/common\nlinux/arch\n")
     (repo / "config" / "targets.dotfile").write_text(
         "linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json\n"
         "linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json\n"
@@ -399,12 +397,12 @@ def test_a_repo_change_lands_without_a_decision(tool, sandbox):
     tool("dotfile", "link", "test", env=env)
     reformat(settings)
     (repo / "shared" / "vscode" / "settings.json").write_text(
-        '{\n'
+        "{\n"
         '    "git.autofetch": false,\n'
         '    "explorer.confirmDelete": false,\n'
         '    "[lua]": {"editor.tabCompletion": "on"},\n'
         '    "editor.fontSize": 13\n'
-        '}\n'
+        "}\n"
     )
     result = tool("dotfile", "link", "test", env=env)
     assert result.returncode == 0

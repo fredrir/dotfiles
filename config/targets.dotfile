@@ -30,7 +30,6 @@ linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
 linux:shared/vscode/snippets = ~/.config/Code/User/snippets
 linux/arch/vscode = ~/.config/Code/User
 
-
 shared/tools/biome.global.json = ~/biome.json
 shared/tools/.editorconfig = ~/.editorconfig
 shared/tools/.sqlfluff = ~/.sqlfluff

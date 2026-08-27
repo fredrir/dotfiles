@@ -59,5 +59,6 @@
 				"allowTrailingCommas": true
 			}
 		}
-	]
+	],
+	"diffEditor.ignoreTrimWhitespace": false
 }

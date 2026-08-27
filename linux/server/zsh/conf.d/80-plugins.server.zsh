@@ -8,28 +8,28 @@
 ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 
 _srv_source_first() {
-	local f
-	for f in "$@"; do
-		if [[ -r "$f" ]]; then
-			source "$f"
-			return 0
-		fi
-	done
-	return 1
+  local f
+  for f in "$@"; do
+    if [[ -r "$f" ]]; then
+      source "$f"
+      return 0
+    fi
+  done
+  return 1
 }
 
 # autosuggestions first...
 _srv_source_first \
-	/usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh \
-	/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
-	/usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
-	"$ZSH/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+  /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  "$ZSH/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
 
 # ...syntax-highlighting must be sourced last (it wraps the ZLE widgets).
 _srv_source_first \
-	/usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
-	/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
-	/usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
-	"$ZSH/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+  /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  "$ZSH/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 
 unfunction _srv_source_first

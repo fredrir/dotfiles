@@ -63,7 +63,9 @@ def test_a_tool_that_is_not_built_leaves_its_page_alone(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("page", pages.PAGES, ids=lambda page: page.name)
 def test_the_repository_pages_are_up_to_date(page):
-    roots = [(program, entry.trees().get(program) or rust.tree(program)) for program in page.programs]
+    roots = [
+        (program, entry.trees().get(program) or rust.tree(program)) for program in page.programs
+    ]
     if any(tree is None for _program, tree in roots):
         pytest.skip(f"{page.name} needs a tool this checkout has not built")
     path = os.path.join(str(dotfiles_root()), docs.DOCS_DIR, f"{page.name}.md")

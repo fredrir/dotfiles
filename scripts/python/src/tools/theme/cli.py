@@ -236,9 +236,7 @@ def _pick_profile(title, default):
         die(PROG, "no profiles in theme/profiles")
     details = [_describe(name) for name in names]
     start = names.index(default) if default in names else 0
-    choice = menu.pick(
-        title, names, details, default=start, preview=view.picker_preview(names)
-    )
+    choice = menu.pick(title, names, details, default=start, preview=view.picker_preview(names))
     return None if choice is None else names[choice]
 
 

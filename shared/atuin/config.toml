@@ -6,9 +6,9 @@ style = "compact" # auto | full | compact
 
 
 history_filter = [
-    "^ls",
-    "^cd ",
-    "--password", # exclude anything with a password flag
+  "^ls",
+  "^cd ",
+  "--password", # exclude anything with a password flag
 ]
 
 
@@ -337,12 +337,12 @@ workspaces = true
 
 
 filters = [
-    "global",
-    "host",
-    "session",
-    "workspace",
-    "directory",
-    "session-preload",
+  "global",
+  "host",
+  "session",
+  "workspace",
+  "directory",
+  "session-preload",
 ]
 
 ## Filter interactive search results by the shell used to run the command:

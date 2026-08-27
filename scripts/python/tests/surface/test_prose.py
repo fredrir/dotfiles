@@ -41,9 +41,13 @@ def test_every_documented_flag_has_a_description(page):
 
 
 def test_no_description_outlives_the_command_it_describes():
-    labels = {command.label for page in pages.PAGES for command in docs.commands_of(
-        [(program, TREES.get(program)) for program in page.programs]
-    )}
+    labels = {
+        command.label
+        for page in pages.PAGES
+        for command in docs.commands_of(
+            [(program, TREES.get(program)) for program in page.programs]
+        )
+    }
     unbuilt = {program for program in pages.RUST if TREES.get(program) is None}
     for label in prose.COMMANDS:
         if label.split(" ")[0] in unbuilt:
@@ -58,8 +62,11 @@ def test_no_description_outlives_the_flag_it_describes():
         if any(tree is None for _program, tree in roots):
             continue
         known.update((page.name, flag) for flag, _param in docs.flags_of(roots))
-    unbuilt = {page.name for page in pages.PAGES
-               if any(TREES.get(program) is None for program in page.programs)}
+    unbuilt = {
+        page.name
+        for page in pages.PAGES
+        if any(TREES.get(program) is None for program in page.programs)
+    }
     for key in prose.FLAGS:
         if key[0] in unbuilt:
             continue

@@ -125,9 +125,7 @@ def read_selection(owned):
         for key in keys:
             if key != THEME_KEY and key not in packages[group]:
                 listed = ", ".join(sorted(packages[group]))
-                problems.append(
-                    f"group '{group}' has no '{key}' output to theme (owns: {listed})"
-                )
+                problems.append(f"group '{group}' has no '{key}' output to theme (owns: {listed})")
 
     if not problems and THEME_KEY not in groups.get(DEFAULT_GROUP, {}):
         problems.append(f"'{DEFAULT_GROUP}' must set a '{THEME_KEY}', it is the fallback")

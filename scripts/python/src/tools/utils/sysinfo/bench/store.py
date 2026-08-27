@@ -16,6 +16,7 @@ BASELINES = "baselines.dotfile"
 DOCUMENT = "BENCHMARKS.md"
 LOCK = ".lock"
 
+
 class LockedError(Exception):
     pass
 
@@ -212,7 +213,7 @@ def prunable(host=None, keep=12):
         for run_id in pinned.values():
             protected.add((name, run_id))
     dropped = []
-    for name in ([host] if host else known_hosts()):
+    for name in [host] if host else known_hosts():
         by_epoch = {}
         for run in list_runs(name):
             by_epoch.setdefault(run.epoch, []).append(run)

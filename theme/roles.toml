@@ -1,116 +1,116 @@
 [roles]
 
 # fastfetch
-section_system   = "blue"
+section_system = "blue"
 section_hardware = "peach"
-section_desktop  = "mauve"
-section_network  = "green"
-separator        = "overlay"
+section_desktop = "mauve"
+section_network = "green"
+separator = "overlay"
 
 # starship
-prompt_python   = "orange"
-prompt_git      = "green"
-prompt_dir      = "teal"
+prompt_python = "orange"
+prompt_git = "green"
+prompt_dir = "teal"
 prompt_duration = "yellow"
-prompt_char     = "blue"
+prompt_char = "blue"
 
-sudo = "red"  # shell
+sudo = "red" # shell
 
 [terminal]
-foreground           = "text"
-background           = "base"
-cursor               = "flamingo"
-cursor_text          = "base"
+foreground = "text"
+background = "base"
+cursor = "flamingo"
+cursor_text = "base"
 selection_foreground = "base"
 selection_background = "flamingo"
-url                  = "flamingo"
+url = "flamingo"
 
 [terminal.ansi]
-black          = "surface1"
-red            = "red"
-green          = "green"
-yellow         = "yellow"
-blue           = "blue"
-magenta        = "pink"
-cyan           = "teal"
-white          = "subtext"
-bright_black   = "surface2"
-bright_red     = "red"
-bright_green   = "green"
-bright_yellow  = "yellow"
-bright_blue    = "blue"
+black = "surface1"
+red = "red"
+green = "green"
+yellow = "yellow"
+blue = "blue"
+magenta = "pink"
+cyan = "teal"
+white = "subtext"
+bright_black = "surface2"
+bright_red = "red"
+bright_green = "green"
+bright_yellow = "yellow"
+bright_blue = "blue"
 bright_magenta = "pink"
-bright_cyan    = "teal"
-bright_white   = "subtext"
+bright_cyan = "teal"
+bright_white = "subtext"
 
 [terminal.tabs]
-active_foreground   = "base"
-active_background   = "mauve"
+active_foreground = "base"
+active_background = "mauve"
 inactive_foreground = "subtext"
 inactive_background = "surface0"
-bar_background      = "mantle"
+bar_background = "mantle"
 
 [eza]
-fi       = "subtext"   # fallback
-di       = "blue"      # directories
-ex       = "green"     # executables
-ln       = "teal"      # symlinks
+fi = "subtext" # fallback
+di = "blue"    # directories
+ex = "green"   # executables
+ln = "teal"    # symlinks
 
 "*.toml" = "orange"
 "*.json" = "yellow"
 "*.lock" = "overlay"
-"*.sh"   = "green"
+"*.sh" = "green"
 
 [eza.categories]
-image    = "mauve"
-video    = "pink"
-audio    = "teal"
-archive  = "red"
+image = "mauve"
+video = "pink"
+audio = "teal"
+archive = "red"
 document = "orange"
-source   = "yellow"
-config   = "peach"
-markup   = "orange"
-data     = "flamingo"
-web      = "peach"
-temp     = "overlay"
+source = "yellow"
+config = "peach"
+markup = "orange"
+data = "flamingo"
+web = "peach"
+temp = "overlay"
 compiled = "overlay"
 
 [kde]
 accent = "lavender"
 
-window_bg   = "base"
-window_alt  = "mantle"
-button_bg   = "surface0"
-button_alt  = "surface1"
-view_bg     = "base"
-view_alt    = "mantle"
-tooltip_bg  = "surface0"
+window_bg = "base"
+window_alt = "mantle"
+button_bg = "surface0"
+button_alt = "surface1"
+view_bg = "base"
+view_alt = "mantle"
+tooltip_bg = "surface0"
 tooltip_alt = "surface1"
-header_bg   = "mantle"
-header_alt  = "base"
+header_bg = "mantle"
+header_alt = "base"
 
 selection_bg = "mauve"
 selection_fg = "base"
 
 foreground = "text"
-inactive   = "overlay2"
-active     = "lavender"
-link       = "blue"
-visited    = "mauve"
-negative   = "red"
-neutral    = "peach"
-positive   = "green"
+inactive = "overlay2"
+active = "lavender"
+link = "blue"
+visited = "mauve"
+negative = "red"
+neutral = "peach"
+positive = "green"
 decoration = "lavender"
 
 # window manager titlebar
-wm_active_bg      = "base"
-wm_active_fg      = "text"
-wm_active_blend   = "text"
-wm_inactive_bg    = "mantle"
-wm_inactive_fg    = "overlay2"
+wm_active_bg = "base"
+wm_active_fg = "text"
+wm_active_blend = "text"
+wm_inactive_bg = "mantle"
+wm_inactive_fg = "overlay2"
 wm_inactive_blend = "overlay2"
 
 [konsole]
-tab              = "base"
-focus_border     = "crust"
-tab_activity     = "text"
+tab = "base"
+focus_border = "crust"
+tab_activity = "text"

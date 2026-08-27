@@ -234,9 +234,7 @@ def roles_grid(theme, columns):
     if not roles:
         return None
     label_width = max(len(name) for name in roles)
-    cells = [
-        _entry(theme.hex(color), name, label_width, color) for name, color in roles.items()
-    ]
+    cells = [_entry(theme.hex(color), name, label_width, color) for name, color in roles.items()]
     return _grid(cells, columns)
 
 

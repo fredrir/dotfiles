@@ -1,24 +1,24 @@
 [groups]
-"Colors:Window"           = ["window_bg", "window_alt"]
-"Colors:Button"           = ["button_bg", "button_alt"]
-"Colors:View"             = ["view_bg", "view_alt"]
-"Colors:Tooltip"          = ["tooltip_bg", "tooltip_alt"]
-"Colors:Complementary"    = ["window_bg", "window_alt"]
-"Colors:Header"           = ["header_bg", "header_alt"]
+"Colors:Window" = ["window_bg", "window_alt"]
+"Colors:Button" = ["button_bg", "button_alt"]
+"Colors:View" = ["view_bg", "view_alt"]
+"Colors:Tooltip" = ["tooltip_bg", "tooltip_alt"]
+"Colors:Complementary" = ["window_bg", "window_alt"]
+"Colors:Header" = ["header_bg", "header_alt"]
 "Colors:Header][Inactive" = ["window_bg", "window_alt"]
-"Colors:Selection"        = ["selection_bg", "selection_bg"]
+"Colors:Selection" = ["selection_bg", "selection_bg"]
 
 [foregrounds]
-"ForegroundActive"   = "active"
+"ForegroundActive" = "active"
 "ForegroundInactive" = "inactive"
-"ForegroundLink"     = "link"
+"ForegroundLink" = "link"
 "ForegroundNegative" = "negative"
-"ForegroundNeutral"  = "neutral"
-"ForegroundNormal"   = "foreground"
+"ForegroundNeutral" = "neutral"
+"ForegroundNormal" = "foreground"
 "ForegroundPositive" = "positive"
-"ForegroundVisited"  = "visited"
+"ForegroundVisited" = "visited"
 
 [selection_foregrounds]
-"ForegroundActive"   = "selection_fg"
+"ForegroundActive" = "selection_fg"
 "ForegroundInactive" = "selection_fg"
-"ForegroundNormal"   = "selection_fg"
+"ForegroundNormal" = "selection_fg"

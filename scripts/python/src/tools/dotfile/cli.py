@@ -155,9 +155,7 @@ def remove(path: str = typer.Argument(...)):
     remove_command.cmd_remove(Context(), path)
 
 
-@app.command(
-    hidden=True, help="Write every tool's completion script; setup.sh keeps it current."
-)
+@app.command(hidden=True, help="Write every tool's completion script; setup.sh keeps it current.")
 def completions(
     directory: str = typer.Option(..., "--dir", help="directory to write the script into"),
 ):

@@ -28,7 +28,9 @@ def parse(text):
     rest, _, run_id = text.strip().partition(":")
     rest, _, epoch = rest.partition("@")
     host, _, os_id = rest.partition("/")
-    return Selector(host=host.strip(), os_id=os_id.strip(), epoch=epoch.strip(), run_id=run_id.strip())
+    return Selector(
+        host=host.strip(), os_id=os_id.strip(), epoch=epoch.strip(), run_id=run_id.strip()
+    )
 
 
 def matches(run, selector):

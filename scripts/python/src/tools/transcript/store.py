@@ -14,11 +14,13 @@ def all_sessions():
     codex_root = config.codex_store()
     if codex_root.is_dir():
         sessions.extend(("codex", path) for path in codex_root.rglob("*.jsonl"))
+
     def mtime(item):
         try:
             return item[1].stat().st_mtime
         except OSError:
             return 0.0
+
     return sorted(sessions, key=mtime, reverse=True)
 
 

@@ -156,10 +156,12 @@ VALUES = {
 
 # Flags that rule each other out, so completing one drops the rest.
 EXCLUSIVE = {
-    "dotfile add": (("--shared", "--linux", "--arch", "--ubuntu", "--kde", "--hyprland",
-                     "--server", "--macos"),),
-    "dotfile secret add": (("--shared", "--linux", "--arch", "--ubuntu", "--kde",
-                            "--hyprland", "--macos"),),
+    "dotfile add": (
+        ("--shared", "--linux", "--arch", "--ubuntu", "--kde", "--hyprland", "--server", "--macos"),
+    ),
+    "dotfile secret add": (
+        ("--shared", "--linux", "--arch", "--ubuntu", "--kde", "--hyprland", "--macos"),
+    ),
     "dotfile secret scan": (("--staged", "--commits"),),
     "dotfile sync": (("--force", "--resolve"),),
     "dotfile link": (("--force", "--resolve"),),

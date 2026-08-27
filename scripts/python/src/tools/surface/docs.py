@@ -109,7 +109,9 @@ def table(headers, rows):
     lines.append("| " + " | ".join("-" * width for width in widths) + " |")
     for row in rows:
         lines.append(
-            "| " + " | ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)) + " |"
+            "| "
+            + " | ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True))
+            + " |"
         )
     return "\n".join(lines)
 

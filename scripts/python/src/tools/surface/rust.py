@@ -34,9 +34,7 @@ def tree(program):
     path = binary(program)
     if not path:
         return None
-    result = subprocess.run(
-        [path, "--command-dump"], capture_output=True, text=True, check=False
-    )
+    result = subprocess.run([path, "--command-dump"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         return None
     return from_dump(result.stdout, program)
@@ -61,7 +59,9 @@ def from_dump(text, program):
 
 
 def _param(fields):
-    _kind, _path, kind, name, spellings, metavar, multiple, required, hidden, help_text = fields[:10]
+    _kind, _path, kind, name, spellings, metavar, multiple, required, hidden, help_text = fields[
+        :10
+    ]
     opts = tuple(spelling for spelling in spellings.split(",") if spelling)
     return Param(
         kind=kind,

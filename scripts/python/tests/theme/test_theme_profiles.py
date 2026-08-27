@@ -58,7 +58,9 @@ def test_duplicate_palette_colors_are_rejected():
 
 def test_kde_role_shadowing_a_palette_color_is_rejected():
     problems = []
-    _check_palette_shape(fake(palette={"overlay": "#111111"}, data={"kde": {"overlay": "overlay"}}), problems)
+    _check_palette_shape(
+        fake(palette={"overlay": "#111111"}, data={"kde": {"overlay": "overlay"}}), problems
+    )
     assert any("shadows the palette color" in problem for problem in problems)
 
 
@@ -158,7 +160,9 @@ def selection_file(tmp_path, monkeypatch):
 def test_switching_a_profile_keeps_the_surrounding_file(selection_file):
     target = selection_file("# which profile goes where\nshared {\n  theme = mocha  # base\n}\n")
     assert profiles_module.assign("shared", "theme", "latte")
-    assert target.read_text() == "# which profile goes where\nshared {\n  theme = latte  # base\n}\n"
+    assert (
+        target.read_text() == "# which profile goes where\nshared {\n  theme = latte  # base\n}\n"
+    )
 
 
 def test_switching_to_the_same_profile_rewrites_nothing(selection_file):
@@ -210,5 +214,7 @@ def test_dropping_a_key_that_is_not_there_changes_nothing(selection_file):
 
 
 def test_overrides_exclude_the_shared_fallback():
-    selection = Selection({"shared": {"theme": "mocha", "obsidian": "latte"}, "macos": {"theme": "latte"}})
+    selection = Selection(
+        {"shared": {"theme": "mocha", "obsidian": "latte"}, "macos": {"theme": "latte"}}
+    )
     assert selection.overrides() == [("macos", "theme"), ("shared", "obsidian")]

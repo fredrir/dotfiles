@@ -187,8 +187,10 @@ def _helper(source, program, helpers):
         character if character.isalnum() else "_" for character in stem
     )
     if name not in helpers:
-        helpers[name] = _pair_helper(name, source, program) if source.kind == "pair" else (
-            _call_helper(name, source, program)
+        helpers[name] = (
+            _pair_helper(name, source, program)
+            if source.kind == "pair"
+            else (_call_helper(name, source, program))
         )
     return name
 
@@ -197,8 +199,8 @@ def _call_helper(name, source, program):
     return (
         f"{name}() {{\n"
         "    local -a items\n"
-        f"    items=(${{(f)\"$(_call_program {program}-values"
-        f" {program} __complete {source.values[0]} 2>/dev/null)\"}})\n"
+        f'    items=(${{(f)"$(_call_program {program}-values'
+        f' {program} __complete {source.values[0]} 2>/dev/null)"}})\n'
         "    (( $#items )) || return 1\n"
         f"    _describe -t values {_quote(source.tag)} items\n"
         "}\n"
@@ -211,12 +213,12 @@ def _pair_helper(name, source, program):
         f"{name}() {{\n"
         "    local -a items\n"
         "    if compset -P '*='; then\n"
-        f"        items=(${{(f)\"$(_call_program {program}-values"
-        f" {program} __complete {names} ${{IPREFIX%=}} 2>/dev/null)\"}})\n"
+        f'        items=(${{(f)"$(_call_program {program}-values'
+        f' {program} __complete {names} ${{IPREFIX%=}} 2>/dev/null)"}})\n'
         f"        _describe -t values {_quote(source.tag)} items\n"
         "    else\n"
-        f"        items=(${{(f)\"$(_call_program {program}-values"
-        f" {program} __complete {groups} 2>/dev/null)\"}})\n"
+        f'        items=(${{(f)"$(_call_program {program}-values'
+        f' {program} __complete {groups} 2>/dev/null)"}})\n'
         "        _describe -t values 'group' items -S '=' -q\n"
         "    fi\n"
         "}\n"

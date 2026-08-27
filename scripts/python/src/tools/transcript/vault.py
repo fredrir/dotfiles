@@ -167,7 +167,9 @@ def save_session(session, source, redactor, index=None, include_tools=False):
     path = existing if existing is not None else note_path_for(session, project)
     old = read_frontmatter(path) if path.exists() else {}
     try:
-        updated_stamp = datetime.fromtimestamp(Path(session.source_path).stat().st_mtime).astimezone()
+        updated_stamp = datetime.fromtimestamp(
+            Path(session.source_path).stat().st_mtime
+        ).astimezone()
     except OSError:
         updated_stamp = datetime.now().astimezone()
     fields = {

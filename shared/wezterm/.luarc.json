@@ -1,10 +1,12 @@
 {
-	"$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+	"$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
 	"runtime.version": "Lua 5.4",
 	"runtime.path": ["?.lua", "?/init.lua"],
 	"runtime.pathStrict": true,
-	"workspace.library": ["${workspaceFolder}/types"],
-	"workspace.ignoreDir": [".luarocks", "lua_modules"],
+	"workspace.library": [
+		"${workspaceFolder}/lua_modules/share/lua/5.5/wezterm/types"
+	],
+	"workspace.ignoreDir": [".luarocks"],
 	"workspace.checkThirdParty": false,
 	"diagnostics.unusedLocalExclude": ["_*"],
 	"format.enable": false,
