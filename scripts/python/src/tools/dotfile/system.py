@@ -78,7 +78,7 @@ def refusal(ctx, dst):
     if dst.rstrip("/") == "":
         return "destination is the filesystem root"
     if dst == ctx.home or dst.startswith(ctx.home + "/"):
-        return "destination is under $HOME; use dotfile link"
+        return "destination is under $HOME; use dotfile sync"
     top = "/" + dst.strip("/").split("/")[0]
     if not os.path.isdir(top):
         return f"{top} does not exist"

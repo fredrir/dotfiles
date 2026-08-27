@@ -1,5 +1,7 @@
 import os
+import shutil
 
+from tools.dotfile import adoption, mergeconf
 from tools.dotfile import merge as merge_state
 from tools.dotfile.secret.apply import run_apply
 from tools.dotfile.secret.vault import vault_owned
@@ -24,6 +26,8 @@ from tools.dotfile.state import (
 from tools.dotfile.targets import has_target_under, load_targets, map_dst, never_fold
 
 PRUNE_DEPTH = 6
+
+UNLINKED = (".nolink", ".secret", ".system", mergeconf.NAME)
 
 
 def conflict(ctx, path):
@@ -101,7 +105,7 @@ def link_dir(ctx, src, dst, full, pkg, rel):
 
 
 def walk_node(ctx, pkg, rel, src, full):
-    if os.path.basename(src) in (".nolink", ".secret", ".system"):
+    if os.path.basename(src) in UNLINKED:
         return
     if vault_owned(src):
         return
@@ -180,11 +184,11 @@ def report_conflicts(ctx, profile):
     log("conflicts (existing files not owned by dotfiles):")
     for path in ctx.conflicts:
         log(f"  {path}")
-    log(f"move each aside and re-run: mv <file> <file>.bak && dotfile link {profile}")
+    log(f"move each aside and re-run: mv <file> <file>.bak && dotfile sync {profile}")
     raise SystemExit(1)
 
 
-def cmd_link(ctx, profile, dry_run, override_specs):
+def cmd_link(ctx, profile, dry_run, override_specs, force=False, resolution=merge_state.SKIP):
     ctx.dry = dry_run
     profile = resolve_profile(ctx, profile or "")
     manifest = require_manifest(ctx, profile)
@@ -209,9 +213,13 @@ def cmd_link(ctx, profile, dry_run, override_specs):
         elif state == "no-group":
             log(f"  skip missing group: {name}")
 
-    blocked = run_apply(ctx, dry_run, False, True) or merge_state.apply_entries(
-        ctx, dry_run, False
-    )
+    secrets_blocked = run_apply(ctx, dry_run, force, True)
+    # A terminal gets to answer for itself, unless --force/--resolve already did.
+    undecided = resolution == merge_state.SKIP and not force
+    ask = adoption.resolver if undecided and adoption.interactive() else None
+    merges_blocked = merge_state.apply_entries(ctx, dry_run, force, resolution, ask)
+    adoption.write_back(ctx)
+    blocked = secrets_blocked or merges_blocked
 
     save_profile(ctx, profile)
     save_overrides(ctx)
@@ -251,7 +259,7 @@ def claimed_destinations(ctx):
             continue
         pkg = os.path.basename(pkgdir)
         for file in status_files(pkgdir):
-            if os.path.basename(file) in (".nolink", ".secret", ".system") or vault_owned(file):
+            if os.path.basename(file) in UNLINKED or vault_owned(file):
                 continue
             if file in ctx.merge_paths:
                 continue
@@ -264,16 +272,38 @@ def scan_links(ctx):
     found = []
     for dst, file in claimed_destinations(ctx).items():
         if not os.path.exists(dst) and not os.path.islink(dst):
-            found.append(("missing", dst, ""))
+            found.append(("missing", dst, "", []))
         elif resolve_path(dst) == file:
-            found.append(("ok", dst, ""))
+            found.append(("ok", dst, "", []))
         else:
-            found.append(("differs", dst, link_detail(ctx, dst)))
+            found.append(("differs", dst, link_detail(ctx, dst), []))
     for entry in ctx.merge_entries:
-        state, detail = merge_state.inspect(ctx, entry)
-        label = "ok" if state == "ok" else state
-        found.append((label, entry.dst, detail))
+        seen = merge_state.review(ctx, entry)
+        found.append((seen.state, entry.dst, seen.detail, seen.changes))
     return found
+
+
+GLYPHS = {
+    merge_state.ADD: "+",
+    merge_state.MODIFY: "~",
+    merge_state.DELETE: "-",
+    merge_state.CONFLICT: "!",
+}
+
+STATE_WIDTH = 10
+KEY_INDENT = " " * (STATE_WIDTH + 3)
+
+
+def key_lines(changes):
+    """One line per changed key, so a status tells you what actually moved."""
+    width = max(shutil.get_terminal_size().columns - len(KEY_INDENT) - 4, 20)
+    for change in changes[: merge_state.DETAIL_KEYS]:
+        glyph = GLYPHS.get(change.kind, "·")
+        detail = adoption.render_change(change, width)
+        log(f"{KEY_INDENT}{glyph} {change.key() or '(document)'}{'  ' + detail if detail else ''}")
+    rest = len(changes) - merge_state.DETAIL_KEYS
+    if rest > 0:
+        log(f"{KEY_INDENT}… and {rest} more")
 
 
 def cmd_status(ctx, profile):
@@ -285,13 +315,18 @@ def cmd_status(ctx, profile):
     merge_state.load(ctx)
 
     ok = missing = differing = 0
-    for state, dst, _detail in scan_links(ctx):
-        if state == "ok":
+    for state, dst, detail, changes in scan_links(ctx):
+        if state in ("ok", merge_state.CURRENT):
             ok += 1
             continue
-        log(f"{state:8} {shorten(ctx, dst)}")
+        # the summary names the same keys the lines below spell out, so pick one
+        suffix = "  " + detail if detail and not changes else ""
+        log(f"{state:<{STATE_WIDTH}} {shorten(ctx, dst)}{suffix}")
+        key_lines(changes)
         if state == "missing":
             missing += 1
+        elif state == merge_state.FORMATTING:
+            ok += 1  # the file says the same thing in its own layout
         else:
             differing += 1
 

@@ -9,11 +9,22 @@ TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
 COMMANDS_ONLY=0
 SYNC=0
+ARG_PROFILE=""
+LINK_ARGS=()
 
-case "${1:-}" in
-  --commands-only) COMMANDS_ONLY=1 ;;
-  --sync) SYNC=1 ;;
-esac
+# Everything after `--` is handed to `dotfile link` verbatim, which is how
+# `dotfile sync` forwards --resolve/--force/--override/-n without this script
+# having to know about them.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --commands-only) COMMANDS_ONLY=1 ;;
+    --sync) SYNC=1 ;;
+    --) shift; LINK_ARGS=("$@"); break ;;
+    --?*) ARG_PROFILE="${1#--}" ;;
+    ?*) ARG_PROFILE="$1" ;;
+  esac
+  shift
+done
 
 # Steps that are expensive (tool reinstall, cargo build) are skipped when their
 # inputs are unchanged since the last run, so `dotfile sync` after a pull only
@@ -200,11 +211,7 @@ if [ "$COMMANDS_ONLY" = 1 ]; then
   exit 0
 fi
 
-PROFILE="${1:-}"
-case "$PROFILE" in
-  --sync) PROFILE="" ;;
-  --?*) PROFILE="${PROFILE#--}" ;;
-esac
+PROFILE="$ARG_PROFILE"
 
 list_profiles() { "$DOTFILE_BIN" profiles; }
 
@@ -281,7 +288,7 @@ fi
 
 echo
 link_failed=0
-"$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} || link_failed=1
+"$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} ${LINK_ARGS[@]+"${LINK_ARGS[@]}"} || link_failed=1
 
 if command -v systemctl >/dev/null 2>&1; then
   UNIT_DIR="$HOME/.config/systemd/user"

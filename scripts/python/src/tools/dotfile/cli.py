@@ -45,7 +45,21 @@ GROUP_FLAGS = (
 )
 
 
-@app.command(help="Symlink every package in the profile manifest into $HOME.")
+RESOLUTIONS = (merge_command.SKIP, merge_command.REPO, merge_command.LIVE)
+
+RESOLVE_HELP = (
+    "how to settle a config the live machine changed: "
+    "skip leaves it and reports, repo discards the local change, live adopts it back"
+)
+
+
+def checked_resolution(value):
+    if value not in RESOLUTIONS:
+        die(f"--resolve must be one of: {', '.join(RESOLUTIONS)}")
+    return value
+
+
+@app.command(hidden=True, help="Link and merge the profile. Use 'dotfile sync'; setup.sh calls this.")
 def link(
     profile: str | None = typer.Argument(None),
     dry_run: bool = typer.Option(
@@ -54,21 +68,12 @@ def link(
     override: list[str] = typer.Option(
         [], "--override", help="pick a machine override set: <group>=<name|none>"
     ),
+    force: bool = typer.Option(False, "--force", help="alias for --resolve repo"),
+    resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
 ):
-    link_command.cmd_link(Context(), profile, dry_run, override)
-
-
-@app.command(help="Materialise overlay-merged files, e.g. shared settings.json plus a platform overlay.")
-def merge(
-    profile: str | None = typer.Argument(None),
-    dry_run: bool = typer.Option(
-        False, "-n", "--dry-run", help="print actions without changing anything"
-    ),
-    force: bool = typer.Option(
-        False, "--force", help="overwrite local edits with the merged result"
-    ),
-):
-    merge_command.cmd_merge(Context(), profile, dry_run, force)
+    link_command.cmd_link(
+        Context(), profile, dry_run, override, force, checked_resolution(resolve)
+    )
 
 
 @app.command(help="Move a live config into the repo and symlink it back.")
@@ -129,13 +134,40 @@ def format_conf(
     format_command.cmd_format(Context(), paths or [], stdin_name)
 
 
-@app.command(help="Re-run setup non-interactively, skipping steps whose inputs are unchanged.")
-def sync():
+@app.command(help="Reconcile $HOME with the profile: link, merge, and apply secrets.")
+def sync(
+    profile: str | None = typer.Argument(None),
+    dry_run: bool = typer.Option(
+        False, "-n", "--dry-run", help="print actions without changing anything"
+    ),
+    override: list[str] = typer.Option(
+        [], "--override", help="pick a machine override set: <group>=<name|none>"
+    ),
+    force: bool = typer.Option(False, "--force", help="alias for --resolve repo"),
+    resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
+):
     ctx = Context()
     script = os.path.join(ctx.root, "setup.sh")
     if not os.access(script, os.X_OK):
         die("setup.sh is missing from the repository root")
-    raise typer.Exit(subprocess.call([script, "--sync"]))
+    checked_resolution(resolve)
+    command = [script, "--sync"]
+    if profile:
+        command.append(profile)
+    # setup.sh owns the profile and override prompts, so everything the linker
+    # alone cares about rides after `--`.
+    passthrough = []
+    for spec in override:
+        passthrough += ["--override", spec]
+    if dry_run:
+        passthrough.append("-n")
+    if force:
+        passthrough.append("--force")
+    if resolve != merge_command.SKIP:
+        passthrough += ["--resolve", resolve]
+    if passthrough:
+        command += ["--", *passthrough]
+    raise typer.Exit(subprocess.call(command))
 
 
 @app.command(help="Show link state for every file in the profile.")

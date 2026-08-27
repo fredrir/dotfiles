@@ -100,7 +100,7 @@ def warn_if_group_unlinked(ctx, group):
     if group not in manifest_groups(manifest):
         log(
             f"note: group '{group}' is not in environment/{profile}/manifest, "
-            "it will not be linked by 'dotfile link' on this machine"
+            "it will not be linked by 'dotfile sync' on this machine"
         )
 
 

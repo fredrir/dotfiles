@@ -210,7 +210,7 @@ def collect_groups(ctx, manifest, notes=True):
                 log(
                     f"  note: '{group}' has machine overrides ({available_overrides(ctx, group)}), none selected"
                 )
-                log(f"        select one: dotfile link --override {group}=<name>  (or =none)")
+                log(f"        select one: dotfile sync --override {group}=<name>  (or =none)")
             continue
         if name == "none":
             continue
