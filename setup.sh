@@ -16,14 +16,18 @@ LINK_ARGS=()
 # `dotfile sync` forwards --resolve/--force/--override/-n without this script
 # having to know about them.
 while [ $# -gt 0 ]; do
-  case "$1" in
-    --commands-only) COMMANDS_ONLY=1 ;;
-    --sync) SYNC=1 ;;
-    --) shift; LINK_ARGS=("$@"); break ;;
-    --?*) ARG_PROFILE="${1#--}" ;;
-    ?*) ARG_PROFILE="$1" ;;
-  esac
-  shift
+	case "$1" in
+	--commands-only) COMMANDS_ONLY=1 ;;
+	--sync) SYNC=1 ;;
+	--)
+		shift
+		LINK_ARGS=("$@")
+		break
+		;;
+	--?*) ARG_PROFILE="${1#--}" ;;
+	?*) ARG_PROFILE="$1" ;;
+	esac
+	shift
 done
 
 # Steps that are expensive (tool reinstall, cargo build) are skipped when their
@@ -32,9 +36,9 @@ done
 STAMP_DIR="$STATE_DIR/sync"
 
 if command -v sha256sum >/dev/null 2>&1; then
-  HASHER="sha256sum"
+	HASHER="sha256sum"
 else
-  HASHER="shasum -a 256"
+	HASHER="shasum -a 256"
 fi
 
 content_hash() { cat "$@" 2>/dev/null | $HASHER | cut -d' ' -f1; }
@@ -42,8 +46,8 @@ content_hash() { cat "$@" 2>/dev/null | $HASHER | cut -d' ' -f1; }
 unchanged() { [ "$(cat "$STAMP_DIR/$1" 2>/dev/null)" = "$2" ]; }
 
 stamp() {
-  mkdir -p "$STAMP_DIR"
-  printf '%s\n' "$2" > "$STAMP_DIR/$1"
+	mkdir -p "$STAMP_DIR"
+	printf '%s\n' "$2" >"$STAMP_DIR/$1"
 }
 
 BOLD=$'\033[1m'
@@ -55,87 +59,87 @@ PICKED=""
 interactive() { [ -t 0 ] && [ -t 1 ]; }
 
 saved_profile() {
-  if [ -f "$STATE_DIR/profile" ]; then
-    cat "$STATE_DIR/profile"
-  fi
+	if [ -f "$STATE_DIR/profile" ]; then
+		cat "$STATE_DIR/profile"
+	fi
 }
 
 saved_override() {
-  [ -f "$STATE_DIR/overrides" ] || return 0
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      "$1="*)
-        printf '%s\n' "${line#*=}"
-        return 0
-        ;;
-    esac
-  done < "$STATE_DIR/overrides"
+	[ -f "$STATE_DIR/overrides" ] || return 0
+	local line
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+		"$1="*)
+			printf '%s\n' "${line#*=}"
+			return 0
+			;;
+		esac
+	done <"$STATE_DIR/overrides"
 }
 
 pick() {
-  local title="$1" default="$2"
-  shift 2
-  local opts=("$@") count=$# idx=0 first=1 i key rest
-  for i in "${!opts[@]}"; do
-    [ "${opts[$i]}" = "$default" ] && idx="$i"
-  done
-  printf '\n  %s%s%s\n' "$BOLD" "$title" "$RESET"
-  printf '  %s↑/↓ move · enter select · q quit%s\n\n' "$DIM" "$RESET"
-  printf '\033[?25l'
-  while :; do
-    if [ "$first" = 0 ]; then
-      printf '\033[%dA' "$count"
-    fi
-    first=0
-    for i in "${!opts[@]}"; do
-      if [ "$i" -eq "$idx" ]; then
-        printf '  %s%s❯ %s%s\033[K\n' "$CYAN" "$BOLD" "${opts[$i]}" "$RESET"
-      else
-        printf '    %s\033[K\n' "${opts[$i]}"
-      fi
-    done
-    IFS= read -rsn1 key < /dev/tty || key=""
-    case "$key" in
-      $'\033')
-        IFS= read -rsn2 -t 1 rest < /dev/tty || rest=""
-        case "$rest" in
-          '[A') idx=$(( (idx + count - 1) % count )) ;;
-          '[B') idx=$(( (idx + 1) % count )) ;;
-        esac
-        ;;
-      k) idx=$(( (idx + count - 1) % count )) ;;
-      j) idx=$(( (idx + 1) % count )) ;;
-      [1-9])
-        if [ "$key" -le "$count" ]; then
-          idx=$((key - 1))
-        fi
-        ;;
-      ''|$'\n'|$'\r') break ;;
-      q)
-        printf '\033[?25h\n'
-        exit 130
-        ;;
-    esac
-  done
-  printf '\033[?25h'
-  PICKED="${opts[$idx]}"
+	local title="$1" default="$2"
+	shift 2
+	local opts=("$@") count=$# idx=0 first=1 i key rest
+	for i in "${!opts[@]}"; do
+		[ "${opts[$i]}" = "$default" ] && idx="$i"
+	done
+	printf '\n  %s%s%s\n' "$BOLD" "$title" "$RESET"
+	printf '  %s↑/↓ move · enter select · q quit%s\n\n' "$DIM" "$RESET"
+	printf '\033[?25l'
+	while :; do
+		if [ "$first" = 0 ]; then
+			printf '\033[%dA' "$count"
+		fi
+		first=0
+		for i in "${!opts[@]}"; do
+			if [ "$i" -eq "$idx" ]; then
+				printf '  %s%s❯ %s%s\033[K\n' "$CYAN" "$BOLD" "${opts[$i]}" "$RESET"
+			else
+				printf '    %s\033[K\n' "${opts[$i]}"
+			fi
+		done
+		IFS= read -rsn1 key </dev/tty || key=""
+		case "$key" in
+		$'\033')
+			IFS= read -rsn2 -t 1 rest </dev/tty || rest=""
+			case "$rest" in
+			'[A') idx=$(((idx + count - 1) % count)) ;;
+			'[B') idx=$(((idx + 1) % count)) ;;
+			esac
+			;;
+		k) idx=$(((idx + count - 1) % count)) ;;
+		j) idx=$(((idx + 1) % count)) ;;
+		[1-9])
+			if [ "$key" -le "$count" ]; then
+				idx=$((key - 1))
+			fi
+			;;
+		'' | $'\n' | $'\r') break ;;
+		q)
+			printf '\033[?25h\n'
+			exit 130
+			;;
+		esac
+	done
+	printf '\033[?25h'
+	PICKED="${opts[$idx]}"
 }
 
 if interactive; then
-  trap 'printf "\033[?25h"' EXIT
+	trap 'printf "\033[?25h"' EXIT
 fi
 
 git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || true
 
 AGE_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/age/keys.txt"
 git -C "$DOTFILES" config diff.sops.textconv \
-  "SOPS_AGE_KEY_FILE=$AGE_KEY_FILE sops -d" 2>/dev/null || true
+	"SOPS_AGE_KEY_FILE=$AGE_KEY_FILE sops -d" 2>/dev/null || true
 git -C "$DOTFILES" config diff.sops.cachetextconv false 2>/dev/null || true
 
 if ! command -v uv >/dev/null 2>&1; then
-  echo "setup: uv is required (https://docs.astral.sh/uv/) to install the workstation tools" >&2
-  exit 1
+	echo "setup: uv is required (https://docs.astral.sh/uv/) to install the workstation tools" >&2
+	exit 1
 fi
 
 # The commands are an editable install, so source edits need no reinstall;
@@ -143,72 +147,72 @@ fi
 PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
 
 python_current() {
-  [ -x "$DOTFILE_BIN" ] || return 1
-  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile" ]; then
-    return 1
-  fi
-  unchanged python "$PYTHON_HASH"
+	[ -x "$DOTFILE_BIN" ] || return 1
+	if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile" ]; then
+		return 1
+	fi
+	unchanged python "$PYTHON_HASH"
 }
 
 if python_current; then
-  echo "workstation commands are current"
+	echo "workstation commands are current"
 else
-  if [ "$COMMANDS_ONLY" = 0 ]; then
-    echo "syncing workstation tools (scripts/python/.venv)"
-    uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
-  fi
-  echo "installing workstation commands (~/.local/bin)"
-  mkdir -p "$TOOL_BIN_DIR"
-  UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
-    uv tool install \
-      --compile-bytecode \
-      --constraints <(
-        uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
-          --no-header --no-annotate --no-hashes --quiet
-      ) \
-      --editable --reinstall --quiet "$DOTFILES/scripts/python"
-  stamp python "$PYTHON_HASH"
+	if [ "$COMMANDS_ONLY" = 0 ]; then
+		echo "syncing workstation tools (scripts/python/.venv)"
+		uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
+	fi
+	echo "installing workstation commands (~/.local/bin)"
+	mkdir -p "$TOOL_BIN_DIR"
+	UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
+		uv tool install \
+		--compile-bytecode \
+		--constraints <(
+			uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
+				--no-header --no-annotate --no-hashes --quiet
+		) \
+		--editable --reinstall --quiet "$DOTFILES/scripts/python"
+	stamp python "$PYTHON_HASH"
 fi
 
 RUST_BINARIES="bench-workloads count flatten gget git-discard gpp hwire path size sysinfo-collect"
 RUST_HASH="$(
-  find "$DOTFILES/scripts/rust" -type f -not -path '*/target/*' -print0 2>/dev/null |
-    sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1
+	find "$DOTFILES/scripts/rust" -type f -not -path '*/target/*' -print0 2>/dev/null |
+		sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1
 )"
 
 rust_current() {
-  local name
-  for name in $RUST_BINARIES; do
-    [ -x "$TOOL_BIN_DIR/$name" ] || return 1
-  done
-  unchanged rust "$RUST_HASH"
+	local name
+	for name in $RUST_BINARIES; do
+		[ -x "$TOOL_BIN_DIR/$name" ] || return 1
+	done
+	unchanged rust "$RUST_HASH"
 }
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "setup: cargo not found; skipping native tools (install rust to enable)"
+	echo "setup: cargo not found; skipping native tools (install rust to enable)"
 elif rust_current; then
-  echo "native tools are current"
+	echo "native tools are current"
 else
-  echo "building native tools (scripts/rust)"
-  if cargo build --release --locked --quiet --manifest-path "$DOTFILES/scripts/rust/Cargo.toml"; then
-    for name in $RUST_BINARIES; do
-      install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$TOOL_BIN_DIR/$name"
-    done
-    "$TOOL_BIN_DIR/sysinfo-collect" --version >/dev/null
-    stamp rust "$RUST_HASH"
-  else
-    echo "setup: cargo build failed; native tools skipped" >&2
-  fi
+	echo "building native tools (scripts/rust)"
+	if cargo build --release --locked --quiet --manifest-path "$DOTFILES/scripts/rust/Cargo.toml"; then
+		for name in $RUST_BINARIES; do
+			install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$TOOL_BIN_DIR/$name"
+		done
+		"$TOOL_BIN_DIR/sysinfo-collect" --version >/dev/null
+		stamp rust "$RUST_HASH"
+	else
+		echo "setup: cargo build failed; native tools skipped" >&2
+	fi
 fi
 
 # `gdd` is GNU dd's conventional macOS name, and fzf-tab probes for it.
 # Keep the user-facing shorthand as a shell alias, not an executable.
 if [ -x "$TOOL_BIN_DIR/git-discard" ] && { [ -f "$TOOL_BIN_DIR/gdd" ] || [ -L "$TOOL_BIN_DIR/gdd" ]; }; then
-  rm -f -- "$TOOL_BIN_DIR/gdd"
+	rm -f -- "$TOOL_BIN_DIR/gdd"
 fi
 
 if [ "$COMMANDS_ONLY" = 1 ]; then
-  exit 0
+	exit 0
 fi
 
 PROFILE="$ARG_PROFILE"
@@ -216,74 +220,74 @@ PROFILE="$ARG_PROFILE"
 list_profiles() { "$DOTFILE_BIN" profiles; }
 
 if [ -z "$PROFILE" ] && [ "$SYNC" = 1 ]; then
-  PROFILE="$(saved_profile)"
-  if [ -z "$PROFILE" ]; then
-    echo "setup: no saved environment to sync; run ./setup.sh once first" >&2
-    exit 1
-  fi
+	PROFILE="$(saved_profile)"
+	if [ -z "$PROFILE" ]; then
+		echo "setup: no saved environment to sync; run ./setup.sh once first" >&2
+		exit 1
+	fi
 fi
 
 if [ -z "$PROFILE" ]; then
-  if interactive; then
-    profiles=()
-    while IFS= read -r p; do
-      profiles+=("$p")
-    done < <("$DOTFILE_BIN" profiles --relevant)
-    if [ "${#profiles[@]}" -eq 0 ]; then
-      echo "setup: no relevant installed environment found" >&2
-      echo "override detection with ./setup.sh --<environment>" >&2
-      echo "available environments:" >&2
-      list_profiles | sed 's/^/  --/' >&2
-      exit 1
-    fi
-    default="$(saved_profile)"
-    if [ -z "$default" ]; then
-      case "$(uname -s)" in
-        Darwin) default="macos" ;;
-      esac
-    fi
-    pick "select environment" "$default" "${profiles[@]}"
-    PROFILE="$PICKED"
-  else
-    PROFILE="$(saved_profile)"
-    if [ -z "$PROFILE" ]; then
-      echo "usage: ./setup.sh [--<environment>]" >&2
-      echo "available profiles:" >&2
-      list_profiles | sed 's/^/  /' >&2
-      exit 1
-    fi
-  fi
+	if interactive; then
+		profiles=()
+		while IFS= read -r p; do
+			profiles+=("$p")
+		done < <("$DOTFILE_BIN" profiles --relevant)
+		if [ "${#profiles[@]}" -eq 0 ]; then
+			echo "setup: no relevant installed environment found" >&2
+			echo "override detection with ./setup.sh --<environment>" >&2
+			echo "available environments:" >&2
+			list_profiles | sed 's/^/  --/' >&2
+			exit 1
+		fi
+		default="$(saved_profile)"
+		if [ -z "$default" ]; then
+			case "$(uname -s)" in
+			Darwin) default="macos" ;;
+			esac
+		fi
+		pick "select environment" "$default" "${profiles[@]}"
+		PROFILE="$PICKED"
+	else
+		PROFILE="$(saved_profile)"
+		if [ -z "$PROFILE" ]; then
+			echo "usage: ./setup.sh [--<environment>]" >&2
+			echo "available profiles:" >&2
+			list_profiles | sed 's/^/  /' >&2
+			exit 1
+		fi
+	fi
 fi
 
 MANIFEST="$DOTFILES/environment/$PROFILE/manifest"
 if [ ! -f "$MANIFEST" ]; then
-  echo "setup: no manifest for profile '$PROFILE'" >&2
-  echo "available profiles:" >&2
-  list_profiles | sed 's/^/  /' >&2
-  exit 1
+	echo "setup: no manifest for profile '$PROFILE'" >&2
+	echo "available profiles:" >&2
+	list_profiles | sed 's/^/  /' >&2
+	exit 1
 fi
 
 OVERRIDE_ARGS=()
 if interactive && [ "$SYNC" = 0 ]; then
-  while IFS= read -r group; do
-    group="${group%%#*}"
-    group="${group#"${group%%[![:space:]]*}"}"
-    group="${group%"${group##*[![:space:]]}"}"
-    [ -n "$group" ] || continue
-    [ -d "$DOTFILES/$group/overrides" ] || continue
-    names=()
-    for d in "$DOTFILES/$group/overrides"/*/; do
-      names+=("$(basename "${d%/}")")
-    done
-    [ "${#names[@]}" -gt 0 ] || continue
-    pick "select machine override for $group" "$(saved_override "$group")" "${names[@]}" none
-    OVERRIDE_ARGS+=(--override "$group=$PICKED")
-  done < "$MANIFEST"
+	while IFS= read -r group; do
+		group="${group%%#*}"
+		group="${group#"${group%%[![:space:]]*}"}"
+		group="${group%"${group##*[![:space:]]}"}"
+		[ -n "$group" ] || continue
+		[ -d "$DOTFILES/$group/overrides" ] || continue
+		names=()
+		for d in "$DOTFILES/$group/overrides"/*/; do
+			names+=("$(basename "${d%/}")")
+		done
+		[ "${#names[@]}" -gt 0 ] || continue
+		pick "select machine override for $group" "$(saved_override "$group")" "${names[@]}" none
+		OVERRIDE_ARGS+=(--override "$group=$PICKED")
+	done <"$MANIFEST"
 fi
 
 if [ ! -f "$AGE_KEY_FILE" ]; then
-  echo
-  "$DOTFILE_BIN" secret init || true
+	echo
+	"$DOTFILE_BIN" secret init || true
 fi
 
 echo
@@ -291,40 +295,40 @@ link_failed=0
 "$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} ${LINK_ARGS[@]+"${LINK_ARGS[@]}"} || link_failed=1
 
 if command -v systemctl >/dev/null 2>&1; then
-  UNIT_DIR="$HOME/.config/systemd/user"
-  if [ -L "$UNIT_DIR/generate-theme.path" ] ||
-     [ -L "$UNIT_DIR/default.target.wants/generate-theme.path" ]; then
-    systemctl --user disable generate-theme.path 2>/dev/null || true
-    rm -f "$UNIT_DIR/generate-theme.path" "$UNIT_DIR/generate-theme.service" \
-          "$UNIT_DIR/default.target.wants/generate-theme.path"
-    systemctl --user daemon-reload 2>/dev/null || true
-  fi
-  if [ -f "$UNIT_DIR/theme-watch.path" ]; then
-    systemctl --user daemon-reload 2>/dev/null || true
-    if systemctl --user enable --now theme-watch.path 2>/dev/null; then
-      echo "  enabled theme auto-regenerate watcher"
-    fi
-  fi
+	UNIT_DIR="$HOME/.config/systemd/user"
+	if [ -L "$UNIT_DIR/generate-theme.path" ] ||
+		[ -L "$UNIT_DIR/default.target.wants/generate-theme.path" ]; then
+		systemctl --user disable generate-theme.path 2>/dev/null || true
+		rm -f "$UNIT_DIR/generate-theme.path" "$UNIT_DIR/generate-theme.service" \
+			"$UNIT_DIR/default.target.wants/generate-theme.path"
+		systemctl --user daemon-reload 2>/dev/null || true
+	fi
+	if [ -f "$UNIT_DIR/theme-watch.path" ]; then
+		systemctl --user daemon-reload 2>/dev/null || true
+		if systemctl --user enable --now theme-watch.path 2>/dev/null; then
+			echo "  enabled theme auto-regenerate watcher"
+		fi
+	fi
 fi
 
 if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
-  ELEPHANT_SRC="$DOTFILES/linux/hyprland/elephant/files.toml"
-  if [ -f "$ELEPHANT_SRC" ]; then
-    mkdir -p "$HOME/.config/elephant"
-    sed "s|\$HOME|$HOME|g" "$ELEPHANT_SRC" > "$HOME/.config/elephant/files.toml"
-    echo "  generated ~/.config/elephant/files.toml"
-  fi
+	ELEPHANT_SRC="$DOTFILES/linux/hyprland/elephant/files.toml"
+	if [ -f "$ELEPHANT_SRC" ]; then
+		mkdir -p "$HOME/.config/elephant"
+		sed "s|\$HOME|$HOME|g" "$ELEPHANT_SRC" >"$HOME/.config/elephant/files.toml"
+		echo "  generated ~/.config/elephant/files.toml"
+	fi
 
-  STALE_LOCAL="$DOTFILES/linux/hyprland/hypr/conf.d/local.conf"
-  if [ -L "$STALE_LOCAL" ] && [ ! -e "$STALE_LOCAL" ]; then
-    rm "$STALE_LOCAL"
-  fi
+	STALE_LOCAL="$DOTFILES/linux/hyprland/hypr/conf.d/local.conf"
+	if [ -L "$STALE_LOCAL" ] && [ ! -e "$STALE_LOCAL" ]; then
+		rm "$STALE_LOCAL"
+	fi
 
-  if [ ! -f "$HOME/.config/hypr/wallpaper.png" ]; then
-    echo "  note: place your wallpaper at ~/.config/hypr/wallpaper.png"
-  fi
+	if [ ! -f "$HOME/.config/hypr/wallpaper.png" ]; then
+		echo "  note: place your wallpaper at ~/.config/hypr/wallpaper.png"
+	fi
 
-  command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
+	command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
 fi
 
 echo

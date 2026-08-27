@@ -2,9 +2,9 @@ typeset -U path PATH
 path=("${(@)path:#$HOME/dotfiles/scripts/.venv/bin}")
 
 path=(
-  "$HOME/.local/bin"
-  "$HOME/.cargo/bin"
-  $path
+	"$HOME/.local/bin"
+	"$HOME/.cargo/bin"
+	$path
 )
 
 export PATH
@@ -22,6 +22,6 @@ export PATH="/opt/homebrew/lib/ruby/gems/4.0.0/bin:$PATH"
 # pnpm
 export PNPM_HOME="/Users/fredrir/Library/pnpm"
 case ":$PATH:" in
-  *":$PNPM_HOME/bin:"*) ;;
-  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+*":$PNPM_HOME/bin:"*) ;;
+*) export PATH="$PNPM_HOME/bin:$PATH" ;;
 esac

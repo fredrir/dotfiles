@@ -4,10 +4,10 @@ typeset -U path PATH
 path=("${(@)path:#$HOME/dotfiles/scripts/.venv/bin}")
 
 path=(
-  "$HOME/.local/nvim/bin"
-  "$HOME/.local/bin"
-  "$HOME/.cargo/bin"
-  $path
+	"$HOME/.local/nvim/bin"
+	"$HOME/.local/bin"
+	"$HOME/.cargo/bin"
+	$path
 )
 
 export PATH

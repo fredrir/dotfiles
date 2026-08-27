@@ -23,7 +23,7 @@ alias c="clear"
 
 alias untar="tar -xzf"
 
-(( $+commands[bat] )) && alias cat='bat -pp'
+(($+commands[bat])) && alias cat='bat -pp'
 
 # Navigation
 alias ..='cd ..'
@@ -39,15 +39,14 @@ alias cdn="cd $NVIM"
 alias cdz="cd $CONFIG/zsh/conf.d"
 alias cds="cd $HOME/.ssh/config.d"
 
-alias sshmux="ssh -O check"    
-alias sshmux-exit="ssh -O exit" 
+alias sshmux="ssh -O check"
+alias sshmux-exit="ssh -O exit"
 
 alias cdp="cd $HOME/projects"
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"
 
 alias cdo="cd $HOME/Documents/main/.obsidian"
-
 
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
 
@@ -57,15 +56,12 @@ alias u="uname -mrs"
 
 alias cleanup="kondo" # Cleanup build output
 
-
 # Git
 
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
 alias gdd='git-discard'
 
 # Projects
-
-
 
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"
