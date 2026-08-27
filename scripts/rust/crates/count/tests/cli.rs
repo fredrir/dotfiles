@@ -74,6 +74,18 @@ fn completions_need_no_directory() {
     assert!(stdout(&output).contains("#compdef count"));
 }
 
+/// `dotfile docs` reads this to build the tables in docs/cli, so a tool
+/// describes itself in one place: the parser.
+#[test]
+fn the_command_dump_describes_the_parser() {
+    let output = count(&["--command-dump"]);
+    assert!(output.status.success());
+    let text = stdout(&output);
+    assert!(text.starts_with("C\tcount\t0\tCount items inside a directory"));
+    assert!(text.contains("\toption\trecursive\t-r,--recursive\t"));
+    assert!(text.contains("\targument\tdirectory\t\tDIRECTORY\t"));
+}
+
 /// The shared `--completions` flag is flattened in, and clap will hand a
 /// flattened struct's documentation to the command it lands in.
 #[test]

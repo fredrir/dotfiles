@@ -15,6 +15,7 @@ from tools.dotfile import remove as remove_command
 from tools.dotfile import system as system_cli
 from tools.dotfile.secret import cli as secret_cli
 from tools.dotfile.state import Context, die, log
+from tools.surface import entry as surface
 from tools.theme import cli as theme_cli
 
 app = typer.Typer(
@@ -25,10 +26,11 @@ app = typer.Typer(
 app.add_typer(secret_cli.app, name="secret")
 app.add_typer(system_cli.app, name="system")
 app.add_typer(theme_cli.app, name="theme")
+surface.register(app)
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(ctx: typer.Context, completions: str = surface.COMPLETIONS):
     if ctx.invoked_subcommand is None:
         log(ctx.get_help())
         raise typer.Exit(0)
@@ -118,6 +120,36 @@ def add(
 @app.command(help="Move a tracked path out of the repo and keep it live.")
 def remove(path: str = typer.Argument(...)):
     remove_command.cmd_remove(Context(), path)
+
+
+@app.command(
+    hidden=True, help="Write every tool's completion script; setup.sh keeps it current."
+)
+def completions(
+    directory: str = typer.Option(..., "--dir", help="directory to write the script into"),
+):
+    path, count = surface.write_all(os.path.expanduser(directory))
+    log(f"  {count} tools completed by {path}")
+
+
+@app.command(help="Regenerate the command tables in docs/cli from the tools themselves.")
+def docs(
+    check: bool = typer.Option(False, "--check", help="report drift instead of writing"),
+):
+    # Imported here because it reads every tool's parser, and the rust ones by
+    # running them: work no other `dotfile` command should pay for.
+    from tools.surface import docs as docs_module
+
+    changed, missing = docs_module.write(surface.trees(), check)
+    for program in sorted(set(missing)):
+        log(f"  {program} is not built here, so its page was left alone")
+    if not changed:
+        log("  docs/cli is current")
+        return
+    for path in changed:
+        log(f"  {'drifted' if check else 'updated'} {path}")
+    if check:
+        raise typer.Exit(1)
 
 
 @app.command(help="Regenerate config/packages.dotfile and PACKAGES.md.")

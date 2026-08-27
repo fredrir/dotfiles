@@ -12,9 +12,11 @@ from tools.core.console import die, err, out, stdout
 from tools.desktop.clean_copy import clean_text
 from tools.dotfile.secret.canaries import private_values
 from tools.dotfile.state import Context
+from tools.surface import entry as surface
 from tools.transcript import config, detect, manage, migration, redact, store, vault
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
+surface.register(app)
 
 MENU = (
     ("capture", "wrap the clipboard into a transcript note"),
@@ -28,7 +30,7 @@ MENU = (
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(ctx: typer.Context, completions: str = surface.COMPLETIONS):
     if ctx.invoked_subcommand is not None:
         return
     if not sys.stdin.isatty() or not sys.stdout.isatty():

@@ -6,6 +6,7 @@ import typer
 from tools.core import clipboard
 from tools.core.console import die, out
 from tools.core.process import run
+from tools.surface import entry as surface
 
 ARCHIE = "archie"
 SSH_COMMAND = ["ssh", "-T", "-o", "ConnectTimeout=5", ARCHIE]
@@ -114,15 +115,16 @@ def cpa(
         bool,
         typer.Option("-s", "--sensitive", help="Keep the copy out of clipboard history."),
     ] = False,
+    completions: str = surface.COMPLETIONS,
 ):
     send_to_archie(sensitive=sensitive, prog="cpa")
 
 
 @cpas_app.command(help="Copy the local text clipboard to Archie as sensitive.")
-def cpas():
+def cpas(completions: str = surface.COMPLETIONS):
     send_to_archie(sensitive=True, prog="cpas")
 
 
 @acp_app.command(help="Copy Archie's text clipboard to the local clipboard.")
-def acp():
+def acp(completions: str = surface.COMPLETIONS):
     receive_from_archie()

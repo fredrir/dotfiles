@@ -2,13 +2,16 @@
 
 ## Commands
 
+<!-- cli:commands:start -->
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
 | `hwire`       | Measures latency and throughput between two machines. |
 | `hwire serve` | Answers measurements until told to stop.              |
+<!-- cli:commands:end -->
 
 ## Flags
 
+<!-- cli:flags:start -->
 | Flag                     | Description                                                       |
 | ------------------------ | ----------------------------------------------------------------- |
 | `-r`, `--route <ROUTE>`  | Selects the cable, Wi-Fi, LAN, or Tailscale route to measure.     |
@@ -26,6 +29,7 @@
 | `--bind <ADDRESS>`       | Sets the address on which `hwire serve` listens.                  |
 | `--port <PORT>`          | Sets the server port, with zero selecting an available port.      |
 | `--idle <SECONDS>`       | Sets how long an idle server waits before exiting.                |
-| `--completions <SHELL>`  | Prints shell completions for the selected shell and exits.        |
-| `-h`, `--help`           | Prints command help and exits.                                    |
-| `-V`, `--version`        | Prints the command version and exits.                             |
+| `-h`, `--help`           | Shows help for the selected command and exits.                    |
+| `--completions <SHELL>`  | Prints a shell completion script for the named shell and exits.   |
+| `-V`, `--version`        | Prints the version and exits.                                     |
+<!-- cli:flags:end -->

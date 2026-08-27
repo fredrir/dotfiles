@@ -33,6 +33,14 @@ if staged benchmarks scripts/python/src/tools/utils/sysinfo/bench; then
 	fi
 fi
 
+if staged docs/cli scripts/python/src scripts/rust; then
+    if "$bin/dotfile" docs; then
+        git add -A -- "$root/docs/cli"
+    else
+        echo "pre-commit: cli documentation generation failed (continuing)" >&2
+    fi
+fi
+
 if staged config/keys.dotfile; then
 	"$bin/dotfile" secret sync
 	if [ -e "$root/.sops.yaml" ]; then

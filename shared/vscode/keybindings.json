@@ -7,5 +7,9 @@
     {
         "key": "ctrl+w",
         "command": "-workbench.action.switchWindow"
-    }
+    },
+    {
+        "key": "cmd+'",
+        "command": "workbench.action.splitEditor"
+    },
 ]

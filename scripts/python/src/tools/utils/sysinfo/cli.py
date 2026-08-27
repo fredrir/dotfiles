@@ -4,6 +4,7 @@ import typer
 
 from tools.core import blocks
 from tools.core.console import die
+from tools.surface import entry as surface
 from tools.utils.sysinfo import hosts
 from tools.utils.sysinfo.bench.cli import app as bench_app
 from tools.utils.sysinfo.bench.health import benchmark_issues
@@ -18,6 +19,7 @@ PROG = "sysinfo"
 
 app = typer.Typer(add_completion=False)
 app.add_typer(bench_app, name="bench")
+surface.register(app)
 
 
 def current_host():
@@ -36,6 +38,7 @@ def current_host():
 )
 def sysinfo(
     ctx: typer.Context,
+    completions: str = surface.COMPLETIONS,
     pretty: Annotated[
         bool,
         typer.Option("-p", "--pretty", help="show the complete branded hardware presentation"),

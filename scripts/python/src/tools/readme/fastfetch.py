@@ -9,6 +9,7 @@ import unicodedata
 import typer
 
 from tools.core.paths import repo_root
+from tools.surface import entry as surface
 
 app = typer.Typer(add_completion=False)
 
@@ -139,7 +140,7 @@ def render():
 
 
 @app.command(help="Refresh the fastfetch preview block in README.md.")
-def update():
+def update(completions: str = surface.COMPLETIONS):
     if not shutil.which("fastfetch"):
         print("fastfetch not found; skipping README update")
         return

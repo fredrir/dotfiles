@@ -4,6 +4,7 @@ import tarfile
 import typer
 
 from tools.core.console import colors_enabled, err, out
+from tools.surface import entry as surface
 
 app = typer.Typer(add_completion=False)
 
@@ -98,6 +99,7 @@ def render_tree(children, counts, styled):
 def tardirs(
     archive: str = typer.Argument(...),
     max_depth: int | None = typer.Argument(None),
+    completions: str = surface.COMPLETIONS,
 ):
     if not os.path.isfile(archive):
         err(f"File not found: {archive}")

@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from tools.core import clipboard
+from tools.surface import entry as surface
 
 app = typer.Typer(add_completion=False)
 
@@ -45,6 +46,7 @@ def write_clipboard(text):
 @app.command(help="Clean selected text and write it to the clipboard.")
 def clean_copy(
     stdin: Annotated[bool, typer.Option("--stdin", help="Read selected text from stdin.")] = False,
+    completions: str = surface.COMPLETIONS,
 ):
     text = sys.stdin.read() if stdin else read_clipboard()
     if text is None:

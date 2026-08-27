@@ -1,6 +1,7 @@
 import typer
 
 from tools.core.process import capture, run
+from tools.surface import entry as surface
 
 app = typer.Typer(add_completion=False)
 
@@ -34,7 +35,7 @@ WOFI = [
 
 
 @app.command(help="Show the Hyprland power menu.")
-def power_menu():
+def power_menu(completions: str = surface.COMPLETIONS):
     result = capture(WOFI, input="\n".join(ENTRIES) + "\n")
     fields = result.stdout.split()
     if not fields:

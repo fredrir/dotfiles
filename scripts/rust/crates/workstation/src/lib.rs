@@ -7,6 +7,10 @@
 //! including the shell wiring in `shared/zsh/conf.d/55-completions.zsh`,
 //! which assumes every tool answers the same flag.
 //!
+//! `--command-dump` is the same idea aimed at `docs/cli`: it prints the
+//! parser as lines rather than prose, so the tables in those pages are
+//! generated from the parser instead of transcribed from `--help`.
+//!
 //! The terminal itself is the third thing they share: the same palette, the
 //! same rule for when to use it, and the same question when something is
 //! about to happen that cannot be taken back.
@@ -30,16 +34,95 @@ pub struct Completions {
     /// Print shell completions and exit
     #[arg(long = "completions", value_name = "SHELL", exclusive = true)]
     pub shell: Option<Shell>,
+
+    /// Print the parser as lines, for `dotfile docs`
+    #[arg(long = "command-dump", exclusive = true, hide = true)]
+    pub dump: bool,
 }
 
 impl Completions {
-    /// `Some(status)` when the flag was given, for `main` to return straight
+    /// `Some(status)` when either flag was given, for `main` to return straight
     /// away; `None` when the tool should get on with its actual work.
     pub fn emit<C: CommandFactory>(&self, program: &str) -> Option<ExitCode> {
+        if self.dump {
+            let mut command = C::command();
+            command.build();
+            dump(&command, program);
+            return Some(ExitCode::SUCCESS);
+        }
         let shell = self.shell?;
         clap_complete::generate(shell, &mut C::command(), program, &mut io::stdout());
         Some(ExitCode::SUCCESS)
     }
+}
+
+/// One tab-separated line per command and per argument, parents first.
+///
+/// Tabs and newlines are the only characters the reader splits on, so help
+/// text is flattened rather than quoted: a description that wrapped in the
+/// source should read as one sentence in a table anyway.
+fn dump(command: &clap::Command, path: &str) {
+    println!(
+        "C\t{path}\t{}\t{}",
+        usize::from(command.is_hide_set()),
+        flatten(command.get_about().map(|about| about.to_string()))
+    );
+    for argument in command.get_arguments() {
+        let takes_value = argument.get_action().takes_values();
+        let repeats = matches!(argument.get_action(), clap::ArgAction::Append)
+            || argument
+                .get_num_args()
+                .is_some_and(|range| range.max_values() > 1);
+        println!(
+            "A\t{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            if argument.is_positional() {
+                "argument"
+            } else {
+                "option"
+            },
+            argument.get_id(),
+            spellings(argument),
+            if takes_value {
+                metavar(argument)
+            } else {
+                String::new()
+            },
+            usize::from(repeats),
+            usize::from(argument.is_required_set()),
+            usize::from(argument.is_hide_set()),
+            flatten(argument.get_help().map(|help| help.to_string())),
+        );
+    }
+    for child in command.get_subcommands() {
+        dump(child, &format!("{path} {}", child.get_name()));
+    }
+}
+
+fn spellings(argument: &clap::Arg) -> String {
+    let mut found = Vec::new();
+    if let Some(short) = argument.get_short() {
+        found.push(format!("-{short}"));
+    }
+    if let Some(long) = argument.get_long() {
+        found.push(format!("--{long}"));
+    }
+    found.join(",")
+}
+
+fn metavar(argument: &clap::Arg) -> String {
+    if let Some(names) = argument.get_value_names() {
+        if let Some(first) = names.first() {
+            return first.to_string();
+        }
+    }
+    argument.get_id().to_string().to_uppercase()
+}
+
+fn flatten(text: Option<String>) -> String {
+    text.unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Report a failure the way every tool here reports one.

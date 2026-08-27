@@ -40,6 +40,10 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tools/readme/fastfetch.py" = ["BLE001"]
+# A completion that raises would print a traceback into the line being typed,
+# and a tool this machine cannot import simply has no completions.
+"src/tools/surface/values.py" = ["BLE001"]
+"src/tools/surface/entry.py" = ["BLE001", "S112"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,11 +2,13 @@
 
 ## Commands
 
+<!-- cli:commands:start -->
 | Command                  | Description                                                                      |
 | ------------------------ | -------------------------------------------------------------------------------- |
 | `dotfile`                | Manages this repository's symlinks, packages, themes, secrets, and system files. |
 | `dotfile add`            | Moves a live config into the repository and symlinks it back.                    |
 | `dotfile remove`         | Moves a tracked path out of the repository and keeps it live.                    |
+| `dotfile docs`           | Regenerates the command tables in `docs/cli` from the tools themselves.          |
 | `dotfile packages`       | Regenerates `config/packages.dotfile` and `PACKAGES.md`.                         |
 | `dotfile format`         | Formats tracked `.conf` files or selected files.                                 |
 | `dotfile sync`           | Reconciles `$HOME` with a profile by linking, merging, and applying secrets.     |
@@ -40,9 +42,11 @@
 | `dotfile theme show`     | Previews a profile's palette, roles, fonts, and terminal colors.                 |
 | `dotfile theme switch`   | Assigns a profile globally, to a group, or to a package.                         |
 | `dotfile theme outputs`  | Prints the files owned by the theme generator.                                   |
+<!-- cli:commands:end -->
 
 ## Flags
 
+<!-- cli:flags:start -->
 | Flag                             | Description                                                                                |
 | -------------------------------- | ------------------------------------------------------------------------------------------ |
 | `--shared`                       | Places an added file in the shared package group.                                          |
@@ -55,6 +59,7 @@
 | `--macos`                        | Places an added file in the `macos` package group.                                         |
 | `--pkg <TEXT>`                   | Selects the package name when adding a config, secret, or system file.                     |
 | `--description`, `--desc <TEXT>` | Adds a package description to `PACKAGES.md`.                                               |
+| `--check`                        | Reports documentation drift instead of writing the tables.                                 |
 | `--stdin <TEXT>`                 | Formats standard input as the named file.                                                  |
 | `-n`, `--dry-run`                | Reports actions without changing files.                                                    |
 | `--override <TEXT>`              | Selects a machine override with `<group>=<name\|none>`.                                    |
@@ -74,3 +79,5 @@
 | `--group <TEXT>`                 | Selects the package group for an added system file.                                        |
 | `--stageable`                    | Prints only generated theme files that are safe to stage.                                  |
 | `--help`                         | Shows help for the selected command and exits.                                             |
+| `--completions <SHELL>`          | Prints a shell completion script for the named shell and exits.                            |
+<!-- cli:flags:end -->
