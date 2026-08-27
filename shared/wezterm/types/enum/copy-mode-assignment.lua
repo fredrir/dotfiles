@@ -1,0 +1,58 @@
+---@meta
+
+---Mirrors `SelectionMode` and `CopyModeAssignment` in wezterm upstream:
+---https://github.com/wezterm/wezterm/blob/main/config/src/keyassignment.rs
+---
+
+---@alias SelectionMode
+---|"Block" Selection expands to define a rectangular block using the starting point and current cursor position as the corners
+---|"Cell" Selection expands a single cell at a time
+---|"Line" Selection expands by a line at a time
+---|"Word" Selection expands by a word at a time
+---|"SemanticZone" Selection expands to the current semantic zone
+
+---Represents a pre-defined function that can be applied to control `CopyMode`
+---and [Search Mode](https://wezterm.org/scrollback.html#enabledisable-scrollbar)
+---@alias CopyModeAssignment
+---|"AcceptPattern" Takes `CopyMode` / `SearchMode` out of editing mode: keyboard input will no longer be directed to the search pattern editor
+---|"ClearPattern" Clear the `CopyMode` / `SearchMode` search pattern
+---|"ClearSelectionMode" Clears the current `CopyMode` selection mode without leaving `CopyMode`
+---|"Close" Closes the copy mode
+---|"CycleMatchType" Move the `CopyMode` / `SearchMode` cycle between `case-sensitive`, `case-insensitive` and `regular expression match types`
+---|"EditPattern" Put `CopyMode` / `SearchMode` into editing mode: keyboard input will be directed to the search pattern editor
+---|"JumpAgain" Repeat the last `JumpForward` or `JumpBackward` movement
+---|"JumpReverse" Repeat the last jump in the opposite direction
+---|"MoveBackwardSemanticZone" Moves the `CopyMode` cursor position one semantic zone to the left
+---|"MoveBackwardWord" Moves the `CopyMode` cursor position one word to the left
+---|"MoveDown" Moves the `CopyMode` cursor position one cell down
+---|"MoveForwardSemanticZone" Moves the `CopyMode` cursor position one semantic zone to the right
+---|"MoveForwardWord" Moves the `CopyMode` cursor position one word to the right
+---|"MoveForwardWordEnd" Moves the `CopyMode` cursor position forward to the end of word
+---|"MoveLeft" Moves the `CopyMode` cursor position one cell to the left
+---|"MoveRight" Moves the `CopyMode` cursor position one cell to the right
+---|"MoveToEndOfLineContent" Moves the `CopyMode` cursor position to the last non-space cell in the current line
+---|"MoveToScrollbackBottom" Moves the `CopyMode` cursor position to the bottom of the scrollback
+---|"MoveToScrollbackTop" Moves the `CopyMode` cursor position to the top of the scrollback
+---|"MoveToSelectionOtherEnd" Moves the `CopyMode` cursor position to the other end of the selection; if the cursor is at the top left corner and the starting point is the bottom right corner, then the cursor and starting point are swapped, with the cursor now positioned at the bottom right corner
+---|"MoveToSelectionOtherEndHoriz" Moves the `CopyMode` cursor position to the other horizontal end of the selection without changing the y-coordinate; if the cursor at the left end and the starting point at the right end, then the cursor and starting point are swapped, with the cursor now positioned at the right end
+---|"MoveToStartOfLine" Moves the `CopyMode` cursor position to the first cell in the current line
+---|"MoveToStartOfLineContent" Moves the `CopyMode` cursor position to the first non-space cell in the current line
+---|"MoveToStartOfNextLine" Moves the `CopyMode` cursor position to the first cell in the next line
+---|"MoveToViewportBottom" Moves the `CopyMode` cursor position to the bottom of the viewport
+---|"MoveToViewportMiddle" Moves the `CopyMode` cursor position to the middle of the viewport
+---|"MoveToViewportTop" Moves the `CopyMode` cursor position to the top of the viewport
+---|"MoveUp" Moves the `CopyMode` cursor position one cell up
+---|"NextMatch" Move the `CopyMode` / `SearchMode` selection to the next matching text, if any
+---|"NextMatchPage" Move the `CopyMode` / `SearchMode` selection to the next matching text on the next page of the screen, if any
+---|"PageDown" Move down by one page
+---|"PageUp" Move up by one page
+---|"PriorMatch" Move the `CopyMode` / `SearchMode` selection to the previous matching text, if any
+---|"PriorMatchPage" Move the `CopyMode` / `SearchMode` selection to the previous matching text on the previous page of the screen, if any
+---|{ JumpBackward: { prev_char: boolean } }
+---|{ JumpForward: { prev_char: boolean } }
+---|{ MoveBackwardZoneOfType: "Input"|"Output"|"Prompt" }
+---|{ MoveByPage: integer }
+---|{ MoveForwardZoneOfType: "Input"|"Output"|"Prompt" }
+---|{ SetSelectionMode: SelectionMode }
+
+-- vim: set ts=2 sts=2 sw=2 et ai si sta:
