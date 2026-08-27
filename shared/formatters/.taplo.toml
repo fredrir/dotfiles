@@ -1,0 +1,4 @@
+[formatting]
+array_trailing_comma = false
+column_width = 100
+allowed_blank_lines = 1

@@ -29,7 +29,14 @@ linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
 linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
 linux:shared/vscode/snippets = ~/.config/Code/User/snippets
 linux/arch/vscode = ~/.config/Code/User
+
+
 shared/formatters/biome.global.json = ~/biome.json
-shared/formatters/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
-shared/formatters/ruff.toml = ~/.config/ruff/ruff.toml
 shared/formatters/.editorconfig = ~/.editorconfig
+shared/formatters/.sqlfluff = ~/.sqlfluff
+
+shared/formatters/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
+shared/formatters/stylua.toml = ~/.config/stylua/stylua.toml
+shared/formatters/ruff.toml = ~/.config/ruff/ruff.toml
+
+shared/formatters/.taplo.toml = ~/dotfiles/shared/formatters/.taplo.tomlshared/formatters/.yamllint.yaml = ~/.yamllint.yaml
