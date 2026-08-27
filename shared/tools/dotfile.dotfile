@@ -1,0 +1,22 @@
+# Formats: `.conf`, `.config` and `.dotfile`.
+#   dotfmt    the .dotfile block formatter
+#   modes     glob = mode, first match wins, `plain` when nothing matches
+
+dotfmt {
+  indent         = 2
+  align          = true
+  align_max      = 24
+  blank_lines    = 1
+  final_newline  = true
+}
+
+modes {
+  */hypr/*                  = hypr
+  */hypr-local.conf         = hypr
+  hypr*.conf                = hypr
+  */kitty/colors*.conf      = plain
+  */colors*.conf            = plain
+  */kitty/conf.d/fonts.conf = plain
+  */kitty/*.conf            = kitty
+  */kitty.conf              = kitty
+}

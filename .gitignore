@@ -63,3 +63,9 @@ benchmarks/.lock
 **/environment.d/50-dmux.conf
 
 **/.claude/worktrees/
+
+**/luarocks
+**/lua_modules
+**/.luarocks
+
+/shared/wezterm/lua

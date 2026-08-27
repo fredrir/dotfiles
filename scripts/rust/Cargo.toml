@@ -5,6 +5,8 @@ resolver = "2"
 members = [
   "crates/bench-workloads",
   "crates/count",
+  "crates/dotfile-format",
+  "crates/dotfmt",
   "crates/flatten",
   "crates/git/gdd",
   "crates/git/gget",

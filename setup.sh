@@ -178,9 +178,13 @@ if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
   echo "setup: could not write shell completions (continuing)" >&2
 fi
 
-RUST_BINARIES="bench-workloads count flatten gget git-discard gpp hwire path size sysinfo-collect"
+RUST_BINARIES="bench-workloads count dotfile-format dotfmt flatten gget git-discard gpp hwire path size sysinfo-collect"
+# shared/tools counts too: dotfile-format carries an include_str! copy of every
+# config there for the trees it cannot find this repository from, so editing one
+# has to rebuild the binary that embeds it.
 RUST_HASH="$(
-  find "$DOTFILES/scripts/rust" -type f -not -path '*/target/*' -print0 2>/dev/null |
+  find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
+    -type f -not -path '*/target/*' -print0 2>/dev/null |
     sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1
 )"
 

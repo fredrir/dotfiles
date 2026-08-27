@@ -1,6 +1,7 @@
 import os
 
 from tools.core import blocks
+from tools.core.dotfmt import formatted
 from tools.theme.model import ROOT, list_profiles
 from tools.theme.render import write_atomic
 
@@ -207,15 +208,6 @@ def _retarget(line, value):
     return f"{head}{separator}{lead}{value}{trail}{comment}"
 
 
-def _realigned(lines, span, indent):
-    entries = _entry_lines(lines, span)
-    width = max((len(_key_of(lines[index])) for index in entries), default=0)
-    for index in entries:
-        body, comment = _comment_of(lines[index])
-        key, _separator, tail = body.partition("=")
-        lines[index] = f"{indent}{blocks.trim(key).ljust(width)} = {blocks.trim(tail)}{comment}"
-
-
 def _indent_of(lines, span):
     for index in _entry_lines(lines, span):
         raw = lines[index]
@@ -224,7 +216,9 @@ def _indent_of(lines, span):
 
 
 def _save(lines):
-    write_atomic(SELECTION_FILE, "\n".join(lines) + "\n")
+    # The only write to this file, and so the only place the `=` column can
+    # be settled -- by `dotfmt`, the way every other generated `.dotfile` is.
+    write_atomic(SELECTION_FILE, formatted("\n".join(lines) + "\n", SELECTION_FILE))
 
 
 def assign(block, key, value):
@@ -244,9 +238,7 @@ def assign(block, key, value):
         lines[index] = updated
         _save(lines)
         return True
-    indent = _indent_of(lines, span)
-    lines.insert(span[1], f"{indent}{key} = {value}")
-    _realigned(lines, (span[0], span[1] + 1), indent)
+    lines.insert(span[1], f"{_indent_of(lines, span)}{key} = {value}")
     _save(lines)
     return True
 

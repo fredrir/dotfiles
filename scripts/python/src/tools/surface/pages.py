@@ -16,6 +16,9 @@ PAGES = (
          "scripts/python/src/tools/utils/remote_clipboard.py"),
     Page("count", "count", ("count",), "scripts/rust/crates/count/"),
     Page("dotfile", "dotfile", ("dotfile",), "scripts/python/src/tools/dotfile/"),
+    Page("dotfile-format", "dotfile format", ("dotfile-format",),
+         "scripts/rust/crates/dotfile-format/"),
+    Page("dotfmt", "dotfmt", ("dotfmt",), "scripts/rust/crates/dotfmt/"),
     Page("flatten", "flatten", ("flatten",), "scripts/rust/crates/flatten/"),
     Page("git", "Git CLI", ("gdd", "gget", "gpp"), "scripts/rust/crates/git/"),
     Page("hwire", "hwire", ("hwire",), "scripts/rust/crates/hwire/"),
@@ -31,7 +34,8 @@ PAGES = (
 # hook's helper. They still get completions.
 UNDOCUMENTED = ("power-menu", "confirm-exit", "clean-copy", "update-readme-fastfetch")
 
-RUST = ("count", "flatten", "gdd", "gget", "gpp", "hwire", "path", "size")
+RUST = ("count", "dotfile-format", "dotfmt", "flatten", "gdd", "gget", "gpp", "hwire",
+        "path", "size")
 
 
 def page_for(program):

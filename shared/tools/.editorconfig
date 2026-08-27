@@ -1,0 +1,10 @@
+root = true
+
+# shfmt reads .editorconfig rather than a flag file of its own. The header is a
+# glob, so `[[shell]]` matched the one-character names s, h, e and l and shfmt
+# was running unconfigured.
+[*.{sh,bash,zsh}]
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true

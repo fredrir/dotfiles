@@ -1,6 +1,7 @@
 import os
 
 from tools.core import blocks
+from tools.core.dotfmt import formatted
 from tools.dotfile.state import die, log, manifest_groups, sorted_entries
 
 DEFAULT_GROUPS = [
@@ -109,7 +110,8 @@ def render_packages(ctx):
                 doc_parts.append(f"- `{pkg}`\n")
         config_parts.append("}\n")
         wrote_group = True
-    return "".join(config_parts), "".join(doc_parts)
+    # `dotfmt` owns the `=` column, so this only has to emit the entries.
+    return formatted("".join(config_parts), ctx.packages_config), "".join(doc_parts)
 
 
 def replace_package_file(content, destination, label):

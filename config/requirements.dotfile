@@ -42,6 +42,12 @@ shared {
   ?shfmt
   ?dmux
   ?biome
+  ?ruff
+  ?stylua
+  ?taplo
+  ?yamlfmt
+  ?yamllint
+  ?sqlfluff
   font Hack Nerd Font Mono
   font JetBrains Mono
   font Noto Sans

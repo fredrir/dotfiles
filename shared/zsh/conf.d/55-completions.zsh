@@ -15,7 +15,7 @@ if ! (($+functions[compdef])); then
 	compinit
 fi
 
-for _tool in count flatten gdd gget gpp hwire path size; do
+for _tool in count dotfile-format dotfmt flatten gdd gget gpp hwire path size; do
 	# GNU dd by fzf-tab on macOS.
 	if [[ "$_tool" == gdd ]]; then
 		_tool_bin="$HOME/.local/bin/git-discard"

@@ -3,7 +3,6 @@
 
 - `atuin`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
-- `formatters`
 - `gh`
 - `git` — Git configuration and global ignore rules
 - `nvim` — Neovim editor configuration
@@ -12,6 +11,7 @@
 - `ssh` — OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
 - `starship` — Cross-shell prompt configuration
 - `tmux`
+- `tools`
 - `transcript`
 - `vscode` — VS Code user settings: shared base with platform overlays merged on link
 - `wezterm`

@@ -31,12 +31,13 @@ linux:shared/vscode/snippets = ~/.config/Code/User/snippets
 linux/arch/vscode = ~/.config/Code/User
 
 
-shared/formatters/biome.global.json = ~/biome.json
-shared/formatters/.editorconfig = ~/.editorconfig
-shared/formatters/.sqlfluff = ~/.sqlfluff
+shared/tools/biome.global.json = ~/biome.json
+shared/tools/.editorconfig = ~/.editorconfig
+shared/tools/.sqlfluff = ~/.sqlfluff
+shared/tools/.yamllint.yaml = ~/.yamllint.yaml
 
-shared/formatters/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
-shared/formatters/stylua.toml = ~/.config/stylua/stylua.toml
-shared/formatters/ruff.toml = ~/.config/ruff/ruff.toml
-
-shared/formatters/.taplo.toml = ~/dotfiles/shared/formatters/.taplo.tomlshared/formatters/.yamllint.yaml = ~/.yamllint.yaml
+shared/tools/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
+shared/tools/stylua.toml = ~/.config/stylua/stylua.toml
+shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
+shared/tools/.taplo.toml = ~/.config/taplo/taplo.toml
+shared/tools/dotfile.dotfile = ~/.config/dotfmt/dotfile.dotfile

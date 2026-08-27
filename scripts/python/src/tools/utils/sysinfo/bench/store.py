@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tools.core import blocks
 from tools.core.console import die
+from tools.core.dotfmt import formatted
 from tools.core.paths import repo_root
 from tools.utils.sysinfo.bench.record import Run
 
@@ -119,7 +120,8 @@ def render_baselines(baselines):
         for epoch in sorted(pinned):
             parts.append(f"  {epoch} = {pinned[epoch]}\n")
         parts.append("}\n")
-    return "".join(parts)
+    # `dotfmt` owns the `=` column, so this only has to emit the pins.
+    return formatted("".join(parts), baselines_path())
 
 
 def save_baselines(baselines):

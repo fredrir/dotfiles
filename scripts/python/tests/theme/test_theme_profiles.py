@@ -142,6 +142,10 @@ def test_inventory_lists_the_packages_each_group_owns():
 @pytest.fixture
 def selection_file(tmp_path, monkeypatch):
     target = tmp_path / "profiles.dotfile"
+    # `_save` writes through dotfmt when it finds one, so these tests own the
+    # whole PATH: the `=` column is dotfmt's answer and not this module's, and
+    # a test asserting bytes has to say which of the two it is asking about.
+    monkeypatch.setenv("PATH", str(tmp_path))
 
     def write(text):
         target.write_text(text, encoding="utf-8")
@@ -164,10 +168,21 @@ def test_switching_to_the_same_profile_rewrites_nothing(selection_file):
     assert target.stat().st_mtime_ns == before
 
 
-def test_a_new_package_key_realigns_the_block_it_joins(selection_file):
+def test_a_new_package_key_joins_the_block_at_its_indent(selection_file):
     target = selection_file("shared {\n  theme = mocha\n}\n")
     assert profiles_module.assign("shared", "obsidian", "latte")
-    assert target.read_text() == "shared {\n  theme    = mocha\n  obsidian = latte\n}\n"
+    assert target.read_text() == "shared {\n  theme = mocha\n  obsidian = latte\n}\n"
+
+
+def test_the_file_is_written_through_dotfmt(selection_file, tmp_path):
+    # Where the `=` column comes from now: this file used to align it itself,
+    # by a rule one space narrower than every other `.dotfile` in the tree.
+    stub = tmp_path / "dotfmt"
+    stub.write_text("#!/bin/sh\ncat >/dev/null\nprintf 'formatted\\n'\n")
+    stub.chmod(0o755)
+    target = selection_file("shared {\n  theme = mocha\n}\n")
+    assert profiles_module.assign("shared", "obsidian", "latte")
+    assert target.read_text() == "formatted\n"
 
 
 def test_a_new_group_is_appended_as_its_own_block(selection_file):

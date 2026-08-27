@@ -10,7 +10,6 @@
 | `dotfile remove`         | Moves a tracked path out of the repository and keeps it live.                    |
 | `dotfile docs`           | Regenerates the command tables in `docs/cli` from the tools themselves.          |
 | `dotfile packages`       | Regenerates `config/packages.dotfile` and `PACKAGES.md`.                         |
-| `dotfile format`         | Formats tracked `.conf` files or selected files.                                 |
 | `dotfile sync`           | Reconciles `$HOME` with a profile by linking, merging, and applying secrets.     |
 | `dotfile status`         | Shows link state for every file in a profile.                                    |
 | `dotfile check`          | Checks a profile's links, required tools, and packages.                          |
@@ -60,7 +59,6 @@
 | `--pkg <TEXT>`                   | Selects the package name when adding a config, secret, or system file.                     |
 | `--description`, `--desc <TEXT>` | Adds a package description to `PACKAGES.md`.                                               |
 | `--check`                        | Reports documentation drift instead of writing the tables.                                 |
-| `--stdin <TEXT>`                 | Formats standard input as the named file.                                                  |
 | `-n`, `--dry-run`                | Reports actions without changing files.                                                    |
 | `--override <TEXT>`              | Selects a machine override with `<group>=<name\|none>`.                                    |
 | `--force`                        | Forces repository resolution during sync or overwrites locally edited secret destinations. |

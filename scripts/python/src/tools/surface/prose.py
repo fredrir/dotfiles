@@ -32,7 +32,6 @@ COMMANDS = {
     "dotfile remove": "Moves a tracked path out of the repository and keeps it live.",
     "dotfile docs": "Regenerates the command tables in `docs/cli` from the tools themselves.",
     "dotfile packages": "Regenerates `config/packages.dotfile` and `PACKAGES.md`.",
-    "dotfile format": "Formats tracked `.conf` files or selected files.",
     "dotfile sync": "Reconciles `$HOME` with a profile by linking, merging, and applying secrets.",
     "dotfile status": "Shows link state for every file in a profile.",
     "dotfile check": "Checks a profile's links, required tools, and packages.",
@@ -66,6 +65,8 @@ COMMANDS = {
     "dotfile theme show": "Previews a profile's palette, roles, fonts, and terminal colors.",
     "dotfile theme switch": "Assigns a profile globally, to a group, or to a package.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
+    "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
+    "dotfmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
     "flatten": "Lifts a directory's contents out of the directories holding them.",
     "gdd": (
         "Discards tracked and untracked working-tree changes while preserving ignored "
@@ -122,7 +123,6 @@ FLAGS = {
     ("dotfile", "--pkg"): "Selects the package name when adding a config, secret, or system file.",
     ("dotfile", "--description"): "Adds a package description to `PACKAGES.md`.",
     ("dotfile", "--check"): "Reports documentation drift instead of writing the tables.",
-    ("dotfile", "--stdin"): "Formats standard input as the named file.",
     ("dotfile", "--dry-run"): "Reports actions without changing files.",
     ("dotfile", "--override"): "Selects a machine override with `<group>=<name|none>`.",
     ("dotfile", "--force"): (
@@ -147,6 +147,23 @@ FLAGS = {
     ("dotfile", "--yes"): "Installs system files without asking for confirmation.",
     ("dotfile", "--group"): "Selects the package group for an added system file.",
     ("dotfile", "--stageable"): "Prints only generated theme files that are safe to stage.",
+    ("dotfile-format", "--check"): (
+        "Verifies formatting and runs each language's linter instead of writing anything."
+    ),
+    ("dotfile-format", "--add"): (
+        "Offers this repository's tool configuration to the target, asking per file."
+    ),
+    ("dotfile-format", "--sync"): (
+        "Replaces the tool configuration the target already has, without asking."
+    ),
+    ("dotfile-format", "--verbose"): "Names every file as it is formatted.",
+    ("dotfile-format", "--quiet"): "Reports nothing but failures.",
+    ("dotfmt", "--check"): "Reports files that are not formatted instead of rewriting them.",
+    ("dotfmt", "--stdin"): (
+        "Formats standard input as the named file and writes the result to standard output."
+    ),
+    ("dotfmt", "--verbose"): "Names every file as it is formatted.",
+    ("dotfmt", "--quiet"): "Reports nothing but failures.",
     ("flatten", "--deep"): (
         "Brings every nested entry to the top instead of removing only wrappers."
     ),

@@ -106,7 +106,6 @@ VALUES = {
     "dotfile check": {"profile": PROFILE},
     "dotfile add": {"path": files(), "--pkg": PACKAGE, "--description": NONE},
     "dotfile remove": {"path": call("tracked", "tracked path")},
-    "dotfile format": {"paths": files(), "--stdin": NONE},
     "dotfile secret scan": {"paths": files(), "--commits": NONE},
     "dotfile secret enroll": {
         "label": call("recipients", "recipient"),

@@ -96,16 +96,27 @@ def test_status_after_link(tool, sandbox):
     assert "1 linked, 0 missing, 0 differing" in result.stdout
 
 
-def test_format_stdin_formats_hypr_syntax(tool):
+def test_an_unregistered_name_runs_the_binary_behind_it(tool, tmp_path):
+    stub = tmp_path / "dotfile-nonesuch"
+    stub.write_text('#!/bin/sh\nprintf "stub %s" "$*"\nexit 7\n')
+    stub.chmod(0o755)
     result = tool(
         "dotfile",
-        "format",
-        "--stdin",
-        "hyprland.conf",
-        input_text="general {\nkey=value\n}\n",
+        "nonesuch",
+        "--check",
+        "x",
+        env={"PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}"},
     )
-    assert result.returncode == 0
-    assert result.stdout == "general {\n    key = value\n}\n"
+    # execvp, so the arguments and the exit status are the tool's own.
+    assert result.stdout == "stub --check x"
+    assert result.returncode == 7
+
+
+def test_a_name_with_no_binary_behind_it_is_still_an_error(tool, tmp_path):
+    result = tool("dotfile", "nonesuch", env={"PATH": str(tmp_path), "COLUMNS": "200"})
+    assert result.returncode == 2
+    assert "No such command 'nonesuch'." in result.stderr
+    assert "setup.sh" in result.stderr
 
 
 def test_profiles_lists_every_manifest(tool, sandbox):

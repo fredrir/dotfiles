@@ -350,6 +350,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotfile-format"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rayon",
+ "tempfile",
+ "workstation",
+]
+
+[[package]]
+name = "dotfmt"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rayon",
+ "tempfile",
+ "workstation",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

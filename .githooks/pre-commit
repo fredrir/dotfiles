@@ -50,8 +50,17 @@ fi
 
 if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
 	if "$bin/dotfile" theme apply; then
+		# The theme generator writes a .lua, a .toml, .json, .css and .zsh that
+		# stylua, taplo, biome and shfmt each own, so settle the formatting here.
+		# Otherwise every themed commit stages files the next format run rewrites,
+		# which is the fight `dotfile packages` used to have over packages.dotfile.
+		# One path per call: `dotfile format` takes a single target.
+		formatter="$(command -v dotfile-format || true)"
 		while IFS= read -r path; do
 			if [ -e "$root/$path" ]; then
+				if [ -n "$formatter" ] && ! "$formatter" --quiet "$root/$path"; then
+					echo "pre-commit: could not format $path (continuing)" >&2
+				fi
 				git add "$root/$path"
 			fi
 		done < <("$bin/dotfile" theme outputs --stageable)

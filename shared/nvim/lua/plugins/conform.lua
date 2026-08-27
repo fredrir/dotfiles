@@ -11,6 +11,12 @@ return {
       desc = '[F]ormat buffer',
     },
   },
+  -- Nothing detects these otherwise: neovim has no `dotfile` filetype, and
+  -- `.config` reads as plain text. `.conf` keeps its own filetype and is
+  -- pointed at dotfmt below.
+  init = function()
+    vim.filetype.add { extension = { config = 'dotfile', dotfile = 'dotfile' } }
+  end,
   ---@module 'conform'
   ---@type conform.setupOpts
   opts = {
@@ -35,6 +41,18 @@ return {
       yaml = { 'yamlfmt' },
       sql = { 'sqlfluff' },
       toml = { 'taplo' },
+      conf = { 'dotfmt' },
+      dotfile = { 'dotfmt' },
+    },
+    formatters = {
+      -- Every diagnostic dotfmt has goes to stderr, so stdout is the buffer
+      -- and nothing else; on a parse error it writes none of it and exits
+      -- non-zero, which notify_on_error = false above turns into a no-op.
+      dotfmt = {
+        command = 'dotfmt',
+        args = { '--stdin', '$FILENAME' },
+        stdin = true,
+      },
     },
   },
 }

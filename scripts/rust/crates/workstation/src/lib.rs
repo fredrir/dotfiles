@@ -110,10 +110,10 @@ fn spellings(argument: &clap::Arg) -> String {
 }
 
 fn metavar(argument: &clap::Arg) -> String {
-    if let Some(names) = argument.get_value_names() {
-        if let Some(first) = names.first() {
-            return first.to_string();
-        }
+    if let Some(names) = argument.get_value_names()
+        && let Some(first) = names.first()
+    {
+        return first.to_string();
     }
     argument.get_id().to_string().to_uppercase()
 }
@@ -133,10 +133,11 @@ pub fn fail(program: &str, message: impl Display) -> ExitCode {
 
 /// The palette `dotfile theme` exports, and the decision to use it.
 ///
-/// Colour is for a person reading a terminal, so it is left out when stdout is
-/// a pipe or when `NO_COLOR` asks. Each method takes the finished text and
-/// hands it back either painted or untouched, which keeps padding — always
-/// measured on the text, never on the escapes — at the call site.
+/// Colour is for a person reading a terminal, so it is left out when the stream
+/// being written to is a pipe or when `NO_COLOR` asks. Each method takes the
+/// finished text and hands it back either painted or untouched, which keeps
+/// padding — always measured on the text, never on the escapes — at the call
+/// site.
 pub struct Style {
     colored: bool,
     green: String,
@@ -147,8 +148,21 @@ pub struct Style {
 impl Style {
     /// The style for writing to stdout right now.
     pub fn for_stdout() -> Style {
+        Style::for_stream(io::stdout().is_terminal())
+    }
+
+    /// The style for writing to stderr right now.
+    ///
+    /// A tool whose stdout carries data rather than prose — `dotfmt --stdin`
+    /// hands its result to an editor — says everything a person reads on
+    /// stderr, so that is the stream whose terminal-ness decides the colour.
+    pub fn for_stderr() -> Style {
+        Style::for_stream(io::stderr().is_terminal())
+    }
+
+    fn for_stream(terminal: bool) -> Style {
         Style {
-            colored: io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
+            colored: terminal && std::env::var_os("NO_COLOR").is_none(),
             green: theme("THEME_GIT", "\x1b[32m"),
             red: theme("THEME_SUDO", "\x1b[31m"),
             teal: theme("THEME_DIR", "\x1b[36m"),

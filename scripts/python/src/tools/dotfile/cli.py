@@ -1,11 +1,16 @@
 import os
+import shutil
 import subprocess
 
 import typer
 
+# typer vendors click, so this is where its exception types live; `typer.core`
+# reaches for the same module to add its "did you mean" suggestions.
+from typer._click.exceptions import UsageError
+from typer.core import TyperGroup
+
 from tools.dotfile import add as add_command
 from tools.dotfile import check as check_command
-from tools.dotfile import format as format_command
 from tools.dotfile import link as link_command
 from tools.dotfile import merge as merge_command
 from tools.dotfile import packages as packages_command
@@ -18,7 +23,35 @@ from tools.dotfile.state import Context, die, log
 from tools.surface import entry as surface
 from tools.theme import cli as theme_cli
 
+
+class Dispatch(TyperGroup):
+    """git's fallback rule: `dotfile <name>` runs `dotfile-<name>` off PATH.
+
+    A native subcommand then needs no python at all -- a new `dotfile-X` binary
+    answers to `dotfile X` the moment setup.sh installs it -- and `execvp`
+    replaces this process rather than wrapping one, so the tool owns the exit
+    status and all three streams instead of having them relayed.
+    """
+
+    def resolve_command(self, ctx, args):
+        name = args[0] if args else ""
+        external = bool(name) and not name.startswith("-") and self.get_command(ctx, name) is None
+        # Never while completing: click resolves speculatively there, and an
+        # exec would hand the shell's completion process to the tool.
+        if external and not ctx.resilient_parsing:
+            program = f"dotfile-{name}"
+            if shutil.which(program):
+                os.execvp(program, [program, *args[1:]])
+        try:
+            return super().resolve_command(ctx, args)
+        except UsageError as error:
+            if external:
+                error.message += " Run ./setup.sh if it should be one of the native tools."
+            raise
+
+
 app = typer.Typer(
+    cls=Dispatch,
     add_completion=False,
     help="Manage dotfile symlinks, packages, themes, and formatting for this repository.",
 )
@@ -155,16 +188,6 @@ def docs(
 @app.command(help="Regenerate config/packages.dotfile and PACKAGES.md.")
 def packages():
     packages_command.cmd_packages(Context())
-
-
-@app.command("format", help="Format tracked .conf files or the selected files.")
-def format_conf(
-    paths: list[str] | None = typer.Argument(None),
-    stdin_name: str | None = typer.Option(
-        None, "--stdin", help="format standard input as the named file"
-    ),
-):
-    format_command.cmd_format(Context(), paths or [], stdin_name)
 
 
 @app.command(help="Reconcile $HOME with the profile: link, merge, and apply secrets.")
