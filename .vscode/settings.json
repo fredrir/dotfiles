@@ -1,5 +1,4 @@
 {
   "rust-analyzer.linkedProjects": [
-    "/Users/fredrir/dotfiles/scripts/rust/Cargo.toml"
-  ]
-}
+    "scripts/rust/Cargo.toml"
+  ]}
