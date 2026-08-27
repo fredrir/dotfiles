@@ -1,55 +1,63 @@
 {
-  "workbench.secondarySideBar.defaultVisibility": "hidden",
-  "editor.formatOnSave": true,
-  "explorer.confirmDelete": false,
-  "explorer.confirmDragAndDrop": false,
-  "git.enableSmartCommit": true,
-  "git.autofetch": true,
-  "git.confirmSync": false,
-  "git.openRepositoryInParentFolders": "always",
-  "[lua]": {
-    "editor.quickSuggestions": {
-      "other": true,
-      "comments": true,
-      "strings": true
-    },
-    "editor.tabCompletion": "on",
-    "editor.quickSuggestionsDelay": 1,
-    "editor.suggest.snippetsPreventQuickSuggestions": false,
-    "editor.formatOnSave": true
-  },
-  "[nix]": {
-    "editor.insertSpaces": true,
-    "editor.tabSize": 2
-  },
-  "files.associations": {
-    "*.zsh": "shellscript",
-    "*.hujson": "jsonc"
-  },
-  "[shellscript]": {
-    "files.eol": "\n",
-    "editor.defaultColorDecorators": "never"
-  },
-  "[json]": {
-    "editor.defaultFormatter": "biomejs.biome"
-  },
-  "json.schemaDownload.trustedDomains": {
-    "https://schemastore.azurewebsites.net/": true,
-    "https://raw.githubusercontent.com/microsoft/vscode/": true,
-    "https://raw.githubusercontent.com/devcontainers/spec/": true,
-    "https://www.schemastore.org/": true,
-    "https://json.schemastore.org/": true,
-    "https://json-schema.org/": true,
-    "https://developer.microsoft.com/json-schemas/": true,
-    "https://biomejs.dev": true
-  },
-  "js/ts.updateImportsOnFileMove.enabled": "always",
-  "json.schemas": [
-    {
-      "fileMatch": ["*.hujson"],
-      "schema": {
-        "allowTrailingCommas": true
-      }
-    }
-  ]
+	"workbench.secondarySideBar.defaultVisibility": "hidden",
+	"editor.formatOnSave": true,
+	"explorer.confirmDelete": false,
+	"explorer.confirmDragAndDrop": false,
+	"git.enableSmartCommit": true,
+	"git.autofetch": true,
+	"git.confirmSync": false,
+	"git.openRepositoryInParentFolders": "always",
+	"[lua]": {
+		"editor.quickSuggestions": {
+			"other": true,
+			"comments": true,
+			"strings": true
+		},
+		"editor.tabCompletion": "on",
+		"editor.quickSuggestionsDelay": 1,
+		"editor.suggest.snippetsPreventQuickSuggestions": false,
+		"editor.formatOnSave": true,
+		"editor.defaultFormatter": "JohnnyMorganz.stylua"
+	},
+	"[markdown]": {
+		"editor.defaultFormatter": "yzhang.markdown-all-in-one"
+	},
+	"[nix]": {
+		"editor.insertSpaces": true,
+		"editor.tabSize": 2
+	},
+	"files.associations": {
+		"*.zsh": "shellscript",
+		"*.hujson": "jsonc",
+		"*.lua": "lua"
+	},
+	"[shellscript]": {
+		"files.eol": "\n",
+		"editor.defaultColorDecorators": "never"
+	},
+	"[json]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[jsonc]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"js/ts.updateImportsOnFileMove.enabled": "always",
+	"json.schemaDownload.trustedDomains": {
+		"https://schemastore.azurewebsites.net/": true,
+		"https://raw.githubusercontent.com/microsoft/vscode/": true,
+		"https://raw.githubusercontent.com/devcontainers/spec/": true,
+		"https://www.schemastore.org/": true,
+		"https://json.schemastore.org/": true,
+		"https://json-schema.org/": true,
+		"https://developer.microsoft.com/json-schemas/": true,
+		"https://biomejs.dev": true
+	},
+	"json.schemas": [
+		{
+			"fileMatch": ["*.hujson"],
+			"schema": {
+				"allowTrailingCommas": true
+			}
+		}
+	]
 }

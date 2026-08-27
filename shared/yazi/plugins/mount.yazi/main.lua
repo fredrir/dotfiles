@@ -12,7 +12,9 @@ end)
 
 local subscribe = ya.sync(function(self)
 	ps.unsub("mount")
-	ps.sub("mount", function() ya.emit("plugin", { self._id, "refresh" }) end)
+	ps.sub("mount", function()
+		ya.emit("plugin", { self._id, "refresh" })
+	end)
 end)
 
 local update_partitions = ya.sync(function(self, partitions)
@@ -21,7 +23,9 @@ local update_partitions = ya.sync(function(self, partitions)
 	ui.render()
 end)
 
-local active_partition = ya.sync(function(self) return self.partitions[self.cursor + 1] end)
+local active_partition = ya.sync(function(self)
+	return self.partitions[self.cursor + 1]
+end)
 
 local update_cursor = ya.sync(function(self, cursor)
 	if #self.partitions == 0 then
@@ -91,7 +95,7 @@ function M:entry(job)
 	local tx2, rx2 = ya.chan("mpsc")
 	function producer()
 		while true do
-			local cand = self.keys[ya.which { cands = self.keys, silent = true }] or { run = {} }
+			local cand = self.keys[ya.which({ cands = self.keys, silent = true })] or { run = {} }
 			for _, r in ipairs(type(cand.run) == "table" and cand.run or { cand.run }) do
 				tx1:send(r)
 				if r == "quit" then
@@ -141,17 +145,19 @@ function M:entry(job)
 	ya.join(producer, consumer1, consumer2)
 end
 
-function M:reflow() return { self } end
+function M:reflow()
+	return { self }
+end
 
 function M:redraw()
 	local rows = {}
 	for _, p in ipairs(self.partitions or {}) do
 		if not p.sub then
-			rows[#rows + 1] = ui.Row { p.main }
+			rows[#rows + 1] = ui.Row({ p.main })
 		elseif p.sub == "" then
-			rows[#rows + 1] = ui.Row { p.main, p.label or "", p.dist or "", p.fstype or "" }
+			rows[#rows + 1] = ui.Row({ p.main, p.label or "", p.dist or "", p.fstype or "" })
 		else
-			rows[#rows + 1] = ui.Row { "  " .. p.sub, p.label or "", p.dist or "", p.fstype or "" }
+			rows[#rows + 1] = ui.Row({ "  " .. p.sub, p.label or "", p.dist or "", p.fstype or "" })
 		end
 	end
 
@@ -167,12 +173,12 @@ function M:redraw()
 			:header(ui.Row({ "Src", "Label", "Dist", "FSType" }):style(ui.Style():bold()))
 			:row(self.cursor)
 			:row_style(ui.Style():fg("blue"):underline())
-			:widths {
+			:widths({
 				ui.Constraint.Length(20),
 				ui.Constraint.Length(20),
 				ui.Constraint.Percentage(70),
 				ui.Constraint.Length(10),
-			},
+			}),
 	}
 end
 
@@ -259,17 +265,17 @@ function M.operate(type)
 
 	local cmd
 	if ya.target_os() == "macos" then
-		cmd = Command("diskutil"):arg { type, active.src }
+		cmd = Command("diskutil"):arg({ type, active.src })
 	end
 	if ya.target_os() == "linux" then
 		if type == "eject" and active.src:match("^/dev/sr%d+") then
 			Command("udisksctl"):arg({ "unmount", "-b", active.src }):status()
-			cmd = Command("eject"):arg { "--traytoggle", active.src }
+			cmd = Command("eject"):arg({ "--traytoggle", active.src })
 		elseif type == "eject" then
 			Command("udisksctl"):arg({ "unmount", "-b", active.src }):status()
-			cmd = Command("udisksctl"):arg { "power-off", "-b", active.src }
+			cmd = Command("udisksctl"):arg({ "power-off", "-b", active.src })
 		else
-			cmd = Command("udisksctl"):arg { type, "-b", active.src }
+			cmd = Command("udisksctl"):arg({ type, "-b", active.src })
 		end
 	end
 
@@ -289,7 +295,9 @@ function M.operate(type)
 	end
 end
 
-function M.fail(...) ya.notify { title = "Mount", content = string.format(...), timeout = 10, level = "error" } end
+function M.fail(...)
+	ya.notify({ title = "Mount", content = string.format(...), timeout = 10, level = "error" })
+end
 
 function M:click() end
 

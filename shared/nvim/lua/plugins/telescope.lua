@@ -60,9 +60,7 @@ return {
           end
 
           vim.schedule(function()
-            if vim.api.nvim_win_is_valid(picker.prompt_win) then
-              vim.api.nvim_set_current_win(picker.prompt_win)
-            end
+            if vim.api.nvim_win_is_valid(picker.prompt_win) then vim.api.nvim_set_current_win(picker.prompt_win) end
           end)
         end
 
@@ -80,13 +78,9 @@ return {
       return options
     end
 
-    search_files = function(opts)
-      builtin.find_files(picker_options(opts, 'Files  <C-g> Grep'))
-    end
+    search_files = function(opts) builtin.find_files(picker_options(opts, 'Files  <C-g> Grep')) end
 
-    search_grep = function(opts)
-      builtin.live_grep(picker_options(opts, 'Grep  <C-f> Files'))
-    end
+    search_grep = function(opts) builtin.live_grep(picker_options(opts, 'Grep  <C-f> Files')) end
 
     vim.api.nvim_create_user_command('TerminalSearch', function()
       vim.schedule(function() search_files { terminal = true } end)
@@ -116,19 +110,29 @@ return {
       end,
     })
 
-    vim.keymap.set('n', '<leader>/', function()
-      builtin.current_buffer_fuzzy_find(require('telescope.themes').get_dropdown {
-        winblend = 10,
-        previewer = false,
-      })
-    end, { desc = '[/] Fuzzily search in current buffer' })
+    vim.keymap.set(
+      'n',
+      '<leader>/',
+      function()
+        builtin.current_buffer_fuzzy_find(require('telescope.themes').get_dropdown {
+          winblend = 10,
+          previewer = false,
+        })
+      end,
+      { desc = '[/] Fuzzily search in current buffer' }
+    )
 
-    vim.keymap.set('n', '<leader>s/', function()
-      builtin.live_grep {
-        grep_open_files = true,
-        prompt_title = 'Live Grep in Open Files',
-      }
-    end, { desc = '[S]earch [/] in Open Files' })
+    vim.keymap.set(
+      'n',
+      '<leader>s/',
+      function()
+        builtin.live_grep {
+          grep_open_files = true,
+          prompt_title = 'Live Grep in Open Files',
+        }
+      end,
+      { desc = '[S]earch [/] in Open Files' }
+    )
 
     vim.keymap.set('n', '<leader>sn', function() builtin.find_files { cwd = vim.fn.stdpath 'config' } end, { desc = '[S]earch [N]eovim files' })
   end,
