@@ -56,10 +56,11 @@ alias u="uname -mrs"
 
 alias cleanup="kondo" # Cleanup build output
 
+alias dpp="dotfile sync -p"
+
 # Git
 
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
-alias gcd="dotfile sync -p"
 alias gdd='git-discard'
 
 # Projects
