@@ -12,7 +12,7 @@ Host archie
     ServerAliveInterval 15
     ServerAliveCountMax 4
 
-# The same route by address, for callers that have to name it. 
+# The same route by address, for callers that have to name it.
 
 Host 100.126.231.24
     HostName 100.126.231.24
