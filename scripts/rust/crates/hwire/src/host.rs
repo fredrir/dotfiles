@@ -200,9 +200,6 @@ mod tests {
             .then(|| root.to_path_buf())
     }
 
-    /// Every file outside this crate that hard-codes the cable's addresses:
-    /// the four ssh files that route the two names, and the wezterm config
-    /// that probes the same link.
     const ROUTED: [&str; 10] = [
         "macos/ssh/config.d/05-archie-cabled-first",
         "macos/ssh/config.d/06-archie-wifi-first",
@@ -213,15 +210,14 @@ mod tests {
         "linux/arch/ssh/config.d/07-macie-lan-first",
         "linux/arch/ssh/config.d/40-cabled",
         "shared/ssh/bin/home-lan-connect",
-        "shared/wezterm/wez/remote/mux.lua",
+        "shared/wezterm/domain/hosts.lua",
     ];
 
     fn routed(root: &Path) -> impl Iterator<Item = (&'static str, String)> + '_ {
         ROUTED.into_iter().map(|path| {
-            (
-                path,
-                std::fs::read_to_string(root.join(path)).unwrap_or_default(),
-            )
+            let text = std::fs::read_to_string(root.join(path))
+                .unwrap_or_else(|error| panic!("{path} is in ROUTED but unreadable: {error}"));
+            (path, text)
         })
     }
 
@@ -269,12 +265,6 @@ mod tests {
         assert!(parse_lan_pair("192.168.1.178 192.168.1.162 extra").is_err());
     }
 
-    /// Neither end of the cable has a stable interface name -- macOS renumbers
-    /// `enN` whenever the NCM MAC changes, and archie's `macie0` exists only
-    /// because a .link file mints it. Binding a name instead of an address
-    /// fails the probe rather than the cable, so every connection falls back
-    /// to Tailscale without saying so. The addresses cannot drift that way,
-    /// which is why the check above is worth having and this one keeps it so.
     #[test]
     fn nothing_binds_an_interface_name() {
         let Some(root) = repository() else {

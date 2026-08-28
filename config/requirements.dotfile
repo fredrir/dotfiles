@@ -38,7 +38,7 @@ shared {
   ?7z   = 7zip
   ?portview
   ?kondo
-  ?openssl
+  openssl
   ?shfmt
   ?biome
   ?ruff
@@ -55,6 +55,7 @@ shared {
 macos {
   brew  = homebrew
   mosh
+  socat
 }
 
 linux/common {
@@ -72,10 +73,11 @@ linux/arch {
   dnsmasq
   hostapd
   iw
-  nmcli  = networkmanager
-  nft    = nftables
+  nmcli               = networkmanager
+  nft                 = nftables
   iptables
   mosh
+  wezterm-mux-server  = wezterm-nightly-bin
 }
 
 linux/kde {

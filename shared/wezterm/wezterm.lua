@@ -6,7 +6,7 @@ local modules = {
 }
 
 for _, module in ipairs(modules) do
-  module.apply_to_config(config)
+  require(module).apply_to_config(config)
 end
 
 return config

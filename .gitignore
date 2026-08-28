@@ -22,6 +22,12 @@ linux/hyprland/hypr/conf.d/local.conf
 **/raycast/
 **/allowed_signers
 **/.ssh/
+
+**/wezterm/mtls/
+**/private_key*
+*.pem
+*.csr
+
 **/*.db
 **/*.db-shm
 **/*.db-wal

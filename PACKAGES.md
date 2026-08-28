@@ -37,6 +37,8 @@
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
 - `ssh` — Cable, direct Wi-Fi, LAN, then Tailscale routing to macie
 - `vscode` — Arch-specific settings overlay merged into the shared VS Code settings
+- `wezterm-mux` — Mutual-TLS mux server for the link to macie
+- `wezterm-mux-sysctl` — Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up
 - `zsh`
 
 ## `linux/ubuntu`

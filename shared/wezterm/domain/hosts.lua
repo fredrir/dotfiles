@@ -1,45 +1,48 @@
 local wezterm = require "wezterm"
 
---@alias Hostname "macie" | "archie"
---@alias InterfaceName "cable" | "wifi" | "tailscale"
+---@alias Hostname "macie" | "archie"
+---@alias InterfaceName "cable" | "wifi" | "tailscale"
 
---@alias Pem {
---  pem_private_key: string,
---  pem_cert: string,
---  pem_ca: string,
---}
+---@alias Pem {
+---  key: string,
+---  cert: string,
+---  ca: string,
+---}
 
---@alias IpAddress {
---  name: InterfaceName,
---  address: string,
---}
+---@alias IpAddress {
+---  name: InterfaceName,
+---  address: string,
+---  bind: string,
+---}
 
---@alias Host {
---  hostname: Hostname,
---  target: Hostname,
---  pem: Pem,
---  ip: IpAddress[],
---}
+---@alias Host {
+---  hostname: Hostname,
+---  target: Hostname,
+---  pem: Pem,
+---  ip: IpAddress[],
+---}
 
-local pki_dir = wezterm.home_dir .. "/.local/share/wezterm/pki/"
+local pki_dir = wezterm.home_dir .. "/.local/share/wezterm/mtls/"
 
---@type Pem
+---@type Pem
 local pem = {
-  pem_private_key = pki_dir .. "private_key.pem",
-  pem_cert = pki_dir .. "cert.pem",
-  pem_ca = pki_dir .. "ca.pem",
+  key = pki_dir .. "private_key.pem",
+  cert = pki_dir .. "cert.pem",
+  ca = pki_dir .. "ca.pem",
 }
 
---@type table<string, Host>
+local port = 8443
+
+---@type table<string, Host>
 local hosts = {
   macie = {
     hostname = "macie",
     target = "archie",
     pem = pem,
     ip = {
-      { name = "cable", address = "10.77.77.1" },
-      { name = "wifi", address = "10.77.78.1" },
-      { name = "tailscale", address = "100.75.71.79" },
+      { name = "cable", address = "10.77.77.1", bind = "127.0.0.1:8443" },
+      { name = "wifi", address = "10.77.78.1", bind = "127.0.0.1:8444" },
+      { name = "tailscale", address = "100.75.71.79", bind = "127.0.0.1:8445" },
     },
   },
 
@@ -48,9 +51,9 @@ local hosts = {
     target = "macie",
     pem = pem,
     ip = {
-      { name = "cable", address = "10.77.77.2" },
-      { name = "wifi", address = "10.77.78.2" },
-      { name = "tailscale", address = "100.126.231.24" },
+      { name = "cable", address = "10.77.77.2", bind = "10.77.77.2:8443" },
+      { name = "wifi", address = "10.77.78.2", bind = "10.77.78.2:8443" },
+      { name = "tailscale", address = "100.126.231.24", bind = "100.126.231.24:8443" },
     },
   },
 }
@@ -64,4 +67,5 @@ local target = assert(hosts[origin.target], ("Unknown target host: %s"):format(o
 return {
   origin = origin,
   target = target,
+  port = port,
 }

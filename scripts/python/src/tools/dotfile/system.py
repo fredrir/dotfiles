@@ -56,6 +56,7 @@ HINTS = (
         "sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=net",
     ),
     ("/etc/NetworkManager/", "sudo systemctl reload NetworkManager"),
+    ("/etc/sysctl.d/", "sudo sysctl --system"),
 )
 
 app = typer.Typer(

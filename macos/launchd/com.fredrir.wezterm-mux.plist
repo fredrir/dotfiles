@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fredrir.wezterm-mux</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/wezterm-mux-server</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>USER</key>
+    <string>fredrir</string>
+    <key>HOME</key>
+    <string>/Users/fredrir</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/fredrir/Library/Logs/wezterm-mux.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/fredrir/Library/Logs/wezterm-mux.log</string>
+</dict>
+</plist>

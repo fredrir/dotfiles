@@ -242,6 +242,10 @@
 	],
 	"diffEditor.ignoreTrimWhitespace": false,
 	"github.copilot.enable": {
-		"lua": false
+		"lua": false,
+		"*": false,
+		"plaintext": false,
+		"markdown": false,
+		"scminput": false
 	}
 }
