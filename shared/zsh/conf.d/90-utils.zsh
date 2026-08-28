@@ -1,8 +1,8 @@
 git() {
-  case "$1:$#" in
-    diff:1) command lazygit ;;
-    log:1) command lazygit log ;;
-    *) command git "$@" ;;
+  case "$1:$" in
+  diff:1) command lazygit ;;
+  log:1) command lazygit log ;;
+  *) command git "$@" ;;
   esac
 }
 
@@ -17,20 +17,20 @@ _home_copy() {
 
   local local_name remote_host remote_home
   case "$OSTYPE" in
-    darwin*)
-      local_name=macie
-      remote_host=archie
-      remote_home=/home/fredrir
-      ;;
-    linux*)
-      local_name=archie
-      remote_host=macie
-      remote_home=/Users/fredrir
-      ;;
-    *)
-      print -u2 -r -- "$command_name: unsupported operating system: $OSTYPE"
-      return 1
-      ;;
+  darwin*)
+    local_name=macie
+    remote_host=archie
+    remote_home=/home/fredrir
+    ;;
+  linux*)
+    local_name=archie
+    remote_host=macie
+    remote_home=/Users/fredrir
+    ;;
+  *)
+    print -u2 -r -- "$command_name: unsupported operating system: $OSTYPE"
+    return 1
+    ;;
   esac
 
   local preview=0
@@ -66,39 +66,39 @@ Examples:
 
 Run the command to see the exact FROM and TO paths before confirming."
 
-  while (( $# )); do
+  while (($#)); do
     case "$1" in
-      -n|--dry-run)
-        preview=1
-        rsync_args+=(-n)
-        ;;
-      -c|--checksum)
-        rsync_args+=(-c)
-        ;;
-      --all|--no-excludes)
-        use_excludes=0
-        ;;
-      -h|--help)
-        print -r -- "$help"
-        return 0
-        ;;
-      --)
-        shift
-        break
-        ;;
-      -*)
-        print -u2 -r -- "$command_name: unknown option: $1"
-        print -u2 -r -- "$usage"
-        return 2
-        ;;
-      *)
-        break
-        ;;
+    -n | --dry-run)
+      preview=1
+      rsync_args+=(-n)
+      ;;
+    -c | --checksum)
+      rsync_args+=(-c)
+      ;;
+    --all | --no-excludes)
+      use_excludes=0
+      ;;
+    -h | --help)
+      print -r -- "$help"
+      return 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      print -u2 -r -- "$command_name: unknown option: $1"
+      print -u2 -r -- "$usage"
+      return 2
+      ;;
+    *)
+      break
+      ;;
     esac
     shift
   done
 
-  (( $# == 1 )) || {
+  (($# == 1)) || {
     print -u2 -r -- "$usage"
     return 2
   }
@@ -106,15 +106,15 @@ Run the command to see the exact FROM and TO paths before confirming."
   local input_path=$1
   local local_path
   case "$input_path" in
-    '~')
-      local_path=$HOME
-      ;;
-    '~/'*)
-      local_path="$HOME/${input_path#\~/}"
-      ;;
-    *)
-      local_path=$input_path
-      ;;
+  '~')
+    local_path=$HOME
+    ;;
+  '~/'*)
+    local_path="$HOME/${input_path#\~/}"
+    ;;
+  *)
+    local_path=$input_path
+    ;;
   esac
 
   local home_path=${HOME:A}
@@ -125,23 +125,23 @@ Run the command to see the exact FROM and TO paths before confirming."
   fi
   local rel_path=${local_path#"$home_path"/}
 
-  (( $+commands[rsync] )) || {
+  (($+commands[rsync])) || {
     print -u2 -r -- "$command_name: rsync is not installed"
     return 127
   }
-  (( $+commands[ssh] )) || {
+  (($+commands[ssh])) || {
     print -u2 -r -- "$command_name: ssh is not installed"
     return 127
   }
 
   local config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}
   local exclude_file="$config_home/rsync/excludes"
-  if (( use_excludes )) && [[ -r "$exclude_file" ]]; then
+  if ((use_excludes)) && [[ -r "$exclude_file" ]]; then
     rsync_args+=(--exclude-from="$exclude_file")
   fi
 
   local suffix=''
-  (( preview )) && suffix=' (dry run)'
+  ((preview)) && suffix=' (dry run)'
 
   if [[ "$direction" == pull ]]; then
     print -u2 -r -- "$command_name$suffix"
@@ -158,7 +158,7 @@ Run the command to see the exact FROM and TO paths before confirming."
     print -u2 -r -- "  TO    $remote_host:$remote_home/$rel_path"
   fi
 
-  if (( ! preview )); then
+  if ((!preview)); then
     local reply
     while true; do
       if ! read -r "reply?Continue? [Y/n] "; then
@@ -166,16 +166,16 @@ Run the command to see the exact FROM and TO paths before confirming."
         return 1
       fi
       case "${reply:l}" in
-        ''|y|yes)
-          break
-          ;;
-        n|no)
-          print -r -- "$command_name: cancelled"
-          return 0
-          ;;
-        *)
-          print -u2 -r -- 'Please answer y or n.'
-          ;;
+      '' | y | yes)
+        break
+        ;;
+      n | no)
+        print -r -- "$command_name: cancelled"
+        return 0
+        ;;
+      *)
+        print -u2 -r -- 'Please answer y or n.'
+        ;;
       esac
     done
   fi
@@ -234,45 +234,45 @@ Options:
 See also: hwire, which measures what a route is actually worth."
 
   local json=0
-  while (( $# )); do
+  while (($#)); do
     case "$1" in
-      --json)
-        json=1
-        ;;
-      -h|--help)
-        print -r -- "$help"
-        return 0
-        ;;
-      --)
-        shift
-        break
-        ;;
-      -*)
-        print -u2 -r -- "hpath: unknown option: $1"
-        print -u2 -r -- "$usage"
-        return 2
-        ;;
-      *)
-        break
-        ;;
+    --json)
+      json=1
+      ;;
+    -h | --help)
+      print -r -- "$help"
+      return 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      print -u2 -r -- "hpath: unknown option: $1"
+      print -u2 -r -- "$usage"
+      return 2
+      ;;
+    *)
+      break
+      ;;
     esac
     shift
   done
 
-  (( $+commands[ssh] )) || {
+  (($+commands[ssh])) || {
     print -u2 -r -- "hpath: ssh is not installed"
     return 127
   }
 
   local -a hosts=("$@")
-  if (( ! $#hosts )); then
+  if ((!$#hosts)); then
     case "$OSTYPE" in
-      darwin*) hosts=(archie) ;;
-      linux*) hosts=(macie) ;;
-      *)
-        print -u2 -r -- "hpath: unsupported operating system: $OSTYPE"
-        return 1
-        ;;
+    darwin*) hosts=(archie) ;;
+    linux*) hosts=(macie) ;;
+    *)
+      print -u2 -r -- "hpath: unsupported operating system: $OSTYPE"
+      return 1
+      ;;
     esac
   fi
 
@@ -284,7 +284,7 @@ See also: hwire, which measures what a route is actually worth."
 
   for host in "${hosts[@]}"; do
     resolved=(${(f)"$(ssh -G "$host" 2>/dev/null)"})
-    if (( ! $#resolved )); then
+    if ((!$#resolved)); then
       print -u2 -r -- "hpath: no config resolved for $host"
       exit_status=1
       continue
@@ -297,31 +297,31 @@ See also: hwire, which measures what a route is actually worth."
       key=${line%% *}
       value=${line#* }
       case "$key" in
-        hostname) hostname=$value ;;
-        bindinterface) bound=$value ;;
-        bindaddress) [[ -n "$bound" ]] || bound=$value ;;
-        proxycommand) proxy=$value ;;
+      hostname) hostname=$value ;;
+      bindinterface) bound=$value ;;
+      bindaddress) [[ -n "$bound" ]] || bound=$value ;;
+      proxycommand) proxy=$value ;;
       esac
     done
 
     case "$hostname" in
-      10.77.77.*)
-        route="cable via ${bound:-unknown}"
-        route_id=cable
-        ;;
-      10.77.78.*)
-        route="wifi via ${bound:-unknown}"
-        route_id=wifi
-        ;;
-      *)
-        if [[ "$proxy" == *home-lan-connect* ]]; then
-          route="lan via filtered mDNS"
-          route_id=lan
-        else
-          route=tailscale
-          route_id=tailscale
-        fi
-        ;;
+    10.77.77.*)
+      route="cable via ${bound:-unknown}"
+      route_id=cable
+      ;;
+    10.77.78.*)
+      route="wifi via ${bound:-unknown}"
+      route_id=wifi
+      ;;
+    *)
+      if [[ "$proxy" == *home-lan-connect* ]]; then
+        route="lan via filtered mDNS"
+        route_id=lan
+      else
+        route=tailscale
+        route_id=tailscale
+      fi
+      ;;
     esac
 
     if ssh -O check "$host" >/dev/null 2>&1; then
@@ -332,7 +332,7 @@ See also: hwire, which measures what a route is actually worth."
       master_json=false
     fi
 
-    if (( json )); then
+    if ((json)); then
       printf '{"host":"%s","hostname":"%s","route":"%s","bound":"%s","master":%s}\n' \
         "$host" "$hostname" "$route_id" "$bound" "$master_json"
     else
@@ -343,15 +343,15 @@ See also: hwire, which measures what a route is actually worth."
     fi
   done
 
-  if (( ! json )) && (( $#names )); then
+  if ((!json)) && (($#names)); then
     local -i name_width=0 target_width=0 route_width=0
     local field
-    for field in "${names[@]}"; do (( $#field > name_width )) && name_width=$#field; done
-    for field in "${targets[@]}"; do (( $#field > target_width )) && target_width=$#field; done
-    for field in "${routes[@]}"; do (( $#field > route_width )) && route_width=$#field; done
+    for field in "${names[@]}"; do (($#field > name_width)) && name_width=$#field; done
+    for field in "${targets[@]}"; do (($#field > target_width)) && target_width=$#field; done
+    for field in "${routes[@]}"; do (($#field > route_width)) && route_width=$#field; done
 
     local -i i
-    for (( i = 1; i <= $#names; i++ )); do
+    for ((i = 1; i <= $#names; i++)); do
       printf '%-*s  %-*s  %-*s  master %s\n' \
         "$name_width" "$names[i]" \
         "$target_width" "$targets[i]" \
@@ -365,7 +365,7 @@ See also: hwire, which measures what a route is actually worth."
 
 unalias cd 2>/dev/null
 cd() {
-  if (( $# != 1 )) || [[ "$1" == -* ]] || [[ -d "$1" ]]; then
+  if (($# != 1)) || [[ "$1" == -* ]] || [[ -d "$1" ]]; then
     builtin cd "$@"
     return
   fi
@@ -373,19 +373,19 @@ cd() {
   setopt localoptions extendedglob
 
   local pattern="(#i)${(b)1}"
-  local -a matches=( ${~pattern}(N-/) )
+  local -a matches=(${(~)pattern}(N-/))
 
   case $#matches in
-    1)
-      builtin cd -- "$matches[1]"
-      ;;
-    0)
-      builtin cd -- "$1"
-      ;;
-    *)
-      print -ru2 -- "cd: ambiguous case-insensitive match: ${matches[*]}"
-      return 1
-      ;;
+  1)
+    builtin cd -- "$matches[1]"
+    ;;
+  0)
+    builtin cd -- "$1"
+    ;;
+  *)
+    print -ru2 -- "cd: ambiguous case-insensitive match: ${matches[*]}"
+    return 1
+    ;;
   esac
 }
 
