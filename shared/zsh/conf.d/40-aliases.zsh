@@ -59,6 +59,7 @@ alias cleanup="kondo" # Cleanup build output
 
 alias dpp="dotfile sync -p"
 
+alias mtls="~/.config/wezterm/bin/wezterm-mtls"
 # Git
 
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
