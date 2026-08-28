@@ -28,6 +28,7 @@ for _tool in count dotfile-format dotfmt flatten gdd gget gpp hwire mux-route pa
   fi
   source "$_tool_comp_cache"
   [[ "$_tool" == gdd ]] && compdef _gdd git-discard
+  [[ "$_tool" == mux-route ]] && compdef _mux-route mux
 done
 unset _tool _tool_bin _tool_comp_cache
 

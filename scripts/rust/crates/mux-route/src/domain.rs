@@ -7,14 +7,14 @@ pub fn name(peer: Host, route: Route) -> String {
     format!("{}-{}", peer.name(), route.name())
 }
 
-pub fn target(named: Option<&str>, this: Host) -> Result<Host, String> {
-    let Some(named) = named else {
+pub fn target(named: Option<Host>, this: Host) -> Result<Host, String> {
+    let Some(host) = named else {
         return Ok(this.peer());
     };
-    let host = Host::from_name(named)?;
     if host == this {
         return Err(format!(
-            "{named} is this machine; its panes are already in localmux"
+            "{} is this machine; its panes are already in localmux",
+            host.name()
         ));
     }
     Ok(host)
@@ -54,13 +54,13 @@ mod tests {
     fn nothing_named_means_the_peer() {
         assert_eq!(target(None, Host::Macie).unwrap(), Host::Archie);
         assert_eq!(target(None, Host::Archie).unwrap(), Host::Macie);
-        assert_eq!(target(Some("archie"), Host::Macie).unwrap(), Host::Archie);
+        assert_eq!(target(Some(Host::Archie), Host::Macie).unwrap(), Host::Archie);
     }
 
     #[test]
     fn this_machine_has_no_domain_pointing_at_itself() {
-        let refused = target(Some("macie"), Host::Macie).unwrap_err();
+        let refused = target(Some(Host::Macie), Host::Macie).unwrap_err();
+        assert!(refused.contains("macie"), "{refused}");
         assert!(refused.contains("this machine"), "{refused}");
-        assert!(target(Some("nowhere"), Host::Macie).is_err());
     }
 }

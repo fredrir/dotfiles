@@ -14,7 +14,7 @@ const PROBE_PORT: u16 = 22;
 
 pub const MUX_PORT: u16 = 8443;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Host {
     Macie,
     Archie,

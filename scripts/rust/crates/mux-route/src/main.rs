@@ -19,7 +19,7 @@ const PROGRAM: &str = "mux-route";
 )]
 struct Cli {
     #[arg(value_name = "HOST")]
-    host: Option<String>,
+    host: Option<Host>,
 
     #[arg(short = 'l', long = "list")]
     list: bool,
@@ -41,7 +41,7 @@ fn main() -> ExitCode {
 
 fn route(cli: &Cli) -> Result<(), String> {
     let this = Host::this()?;
-    let peer = domain::target(cli.host.as_deref(), this)?;
+    let peer = domain::target(cli.host, this)?;
     let answers = probe::probe(this, peer)?;
     if cli.list {
         println!("{}", render::list(&Style::for_stdout(), peer, &answers));
