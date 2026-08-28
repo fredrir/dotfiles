@@ -1,4 +1,3 @@
-
 use std::path::Path;
 
 use bstr::{BStr, ByteSlice};
@@ -130,8 +129,6 @@ impl Selection {
 
     pub fn owns(&self, relative: &Path) -> Option<Token> {
         let found = Token::of(relative)?;
-        // A name that is not UTF-8 cannot be written as a pattern either, so
-        // there is no entry that could have picked it up.
         let path = relative.to_str()?.as_bytes().as_bstr();
         let mut taken = false;
         for rule in &self.include {
@@ -175,16 +172,20 @@ impl Rule {
 fn placement(before: &str) -> Option<Where> {
     let mut before = before;
     let mut spanned = false;
-    while let Some(rest) = before.strip_suffix("<token>` spans everything below the config; `/<token>` is the
-        // config's own directory and nothing below it.
+    while let Some(rest) = before.strip_suffix("/**") {
+        before = rest;
+        spanned = true;
+    }
+    if before == "**" {
+        return Some(Where::Anywhere);
+    }
+    if before.is_empty() {
         return Some(if spanned {
             Where::Anywhere
         } else {
             Where::Root
         });
     }
-    // The `!` was taken off the whole entry already, so any `!` left in the
-    // directory part is a character somebody meant literally.
     Pattern::from_bytes_without_negation(before.as_bytes()).map(Where::Under)
 }
 
