@@ -37,7 +37,8 @@ and goes and `archie-direct` is only up on demand.
 
 
 ```
-mtls ca                  # macie only, once
+mtls ca                  # macie only, once -- the key was destroyed after signing,
+                         # so re-issuing anything means a new CA on both hosts (~10 min)
 mtls csr                 # on each host; its key never leaves it
 mtls issue <host> <csr>  # on macie, against the CSR it sent
 mtls install             # on each host
@@ -53,7 +54,7 @@ lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 # Shared
 shared/wezterm/domain/hosts.lua        addresses, binds, PEM paths
 shared/wezterm/domain/tls.lua          tls_servers and tls_clients
-shared/wezterm/domain/local.lua        localmux, default_domain, no_serve_automatically
+shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
 
 # Macie
@@ -62,5 +63,5 @@ macos/launchd/com.fredrir.wezterm-mux-route.{cable,wifi,tailscale}.plist
 
 # Archie
 linux/arch/wezterm-mux/wezterm-mux.service
-linux/arch/wezterm-mux/etc/sysctl.d/30-wezterm-mux.conf
+linux/arch/wezterm-mux-sysctl/etc/sysctl.d/30-wezterm-mux.conf
 ```
