@@ -1,14 +1,7 @@
-//! Pure parsing used by the Linux collector, kept platform-neutral so the
-//! logic is unit-tested on every platform — the Linux boxes this must be
-//! right on are exactly the machines this crate is not developed on.
 #![cfg_attr(target_os = "macos", allow(dead_code))]
 
 use std::collections::HashSet;
 
-/// fastfetch prunes marketing noise from /proc/cpuinfo model names; the bench
-/// epoch stores the pruned form ("AMD Ryzen 7 9800X3D", not
-/// "AMD Ryzen 7 9800X3D 8-Core Processor"), so the same pruning must happen
-/// here.
 pub fn pruned_cpu_name(raw: &str) -> String {
     let mut name = raw.to_string();
     for junk in ["(R)", "(TM)", "(tm)", "®", "™"] {
@@ -40,7 +33,6 @@ pub fn pruned_cpu_name(raw: &str) -> String {
     kept.join(" ")
 }
 
-/// psABI micro-architecture level from /proc/cpuinfo flags.
 pub fn x86_march(flags: &str) -> &'static str {
     let held: HashSet<&str> = flags.split_whitespace().collect();
     let has = |names: &[&str]| names.iter().all(|name| held.contains(name));
@@ -77,7 +69,6 @@ pub fn cpuinfo_value(body: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Marketing name from libdrm's amdgpu.ids ("did, rid, name" rows).
 pub fn amdgpu_name_in(body: &str, device_id: &str, revision: &str) -> Option<String> {
     let device = device_id.trim_start_matches("0x").to_uppercase();
     let revision = revision.trim_start_matches("0x").to_uppercase();
@@ -90,8 +81,6 @@ pub fn amdgpu_name_in(body: &str, device_id: &str, revision: &str) -> Option<Str
     None
 }
 
-/// Device name from pci.ids; the bracketed marketing name wins when present,
-/// which is how "GB203 [GeForce RTX 5070 Ti]" becomes "GeForce RTX 5070 Ti".
 pub fn pci_device_name_in(body: &str, vendor_id: &str, device_id: &str) -> Option<String> {
     let vendor = vendor_id.trim_start_matches("0x").to_lowercase();
     let device = device_id.trim_start_matches("0x").to_lowercase();

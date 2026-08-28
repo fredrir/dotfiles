@@ -1,8 +1,3 @@
-//! What a run looks like once it is finished.
-//!
-//! Everything here is written to stderr. stdout carries data — the completion
-//! script, the command dump, the help — and the prompts, which are the one
-//! thing a person answers rather than reads.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +7,6 @@ use crate::configs::{Placement, Source};
 use crate::lang::Mode;
 use crate::run::Ran;
 
-/// The name of the run, and what it is being run over.
 pub fn heading(program: &str, root: &Path, what: &str, style: &Style) -> Vec<String> {
     let mut line = format!("  {}  {}", style.bold(program), style.teal(&shorten(root)));
     if !what.is_empty() {
@@ -81,8 +75,6 @@ pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
     lines
 }
 
-/// Which files a provider fell over on, so a failure is actionable without a
-/// second run at a louder setting.
 fn culprits(ran: &Ran, style: &Style) -> Vec<String> {
     if ran.blamed.is_empty() {
         // Nothing in the output looked like one of the files this row was
@@ -112,8 +104,6 @@ fn culprits(ran: &Ran, style: &Style) -> Vec<String> {
     lines
 }
 
-/// Nothing ran, so the tools nobody installed are not a footnote to the run —
-/// they are the run.
 fn absent(done: &[Ran], style: &Style) -> Option<String> {
     let mut named: Vec<&str> = Vec::new();
     for program in done.iter().flat_map(|ran| &ran.missing) {
@@ -131,7 +121,6 @@ fn clip(line: &str) -> String {
     format!("{}…", line.chars().take(CLIP - 1).collect::<String>())
 }
 
-/// One row per language, then whatever the tools had to say.
 pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
     let name = done
         .iter()
@@ -164,7 +153,6 @@ pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
     lines
 }
 
-/// What became of one language, in as few words as it takes.
 fn status(ran: &Ran, mode: Mode, style: &Style) -> String {
     let missing = ran
         .missing
@@ -200,7 +188,6 @@ fn with(word: &str, missing: &str, style: &Style) -> String {
     format!("{word}  {}", style.dim(missing))
 }
 
-/// What the whole run came to, in one line.
 pub fn tally(done: &[Ran], mode: Mode) -> String {
     let total: usize = done.iter().map(|ran| ran.files).sum();
     let verb = match mode {
@@ -223,10 +210,6 @@ pub fn tally(done: &[Ran], mode: Mode) -> String {
     parts.join(", ")
 }
 
-/// What `--add` or `--sync` did, one line per file.
-///
-/// `.editorconfig` is the one file in the set a project plausibly already has
-/// with unrelated content in it, so replacing that one is worth seeing.
 pub fn placed(done: &[&Placement], style: &Style) -> Vec<String> {
     done.iter()
         .map(|placement| {
@@ -245,9 +228,6 @@ pub fn placed(done: &[&Placement], style: &Style) -> Vec<String> {
         .collect()
 }
 
-/// Where the configs came from, named only when it is not the repository —
-/// copies compiled into a binary can be older than the repository they came
-/// from, and a person deserves to know which they just took.
 pub fn provenance(source: &Source, style: &Style) -> Option<String> {
     match source {
         Source::Repo(_) => None,
@@ -258,7 +238,6 @@ pub fn provenance(source: &Source, style: &Style) -> Option<String> {
     }
 }
 
-/// A path as a person would write it.
 pub fn shorten(path: &Path) -> String {
     let shown = path.display().to_string();
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {

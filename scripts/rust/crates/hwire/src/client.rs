@@ -154,9 +154,6 @@ impl Latency {
         self.round_trips.iter().sum::<Duration>() / self.round_trips.len() as u32
     }
 
-    /// Nearest-rank: the value at least `percent` of the samples are at or
-    /// below. With a hundred-odd samples the interpolating definitions are
-    /// splitting hairs, and this one always returns a sample that happened.
     pub fn percentile(&self, percent: f64) -> Duration {
         if self.round_trips.is_empty() {
             return Duration::ZERO;

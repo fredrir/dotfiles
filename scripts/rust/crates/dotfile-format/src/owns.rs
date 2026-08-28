@@ -3,20 +3,11 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// The program that answers, which is also the one that does the work.
 pub const PROGRAM: &str = "dotfmt";
 
-/// What dotfmt had to say about the candidates.
 pub enum Owned {
-    /// The subset it claims, in the order the candidates were offered.
     Claimed(Vec<PathBuf>),
-    /// dotfmt is not on `PATH`. A fact about this machine, never a failure —
-    /// the same answer every other provider gets.
     Missing,
-    /// dotfmt is installed and could not answer. This one is a failure: a
-    /// dotfmt too old to know `--owns` would otherwise silently own nothing,
-    /// and a run that formats none of the `.conf` files while reporting
-    /// success is exactly the shape of bug this call exists to close.
     Failed(String),
 }
 

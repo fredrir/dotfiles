@@ -1,9 +1,3 @@
-//! Carrying out a plan.
-//!
-//! Every move is a rename between two open directories, which is why nothing
-//! here can half-move a file: a rename either happened or did not, and the
-//! entry is in exactly one place either way. Directories are removed only
-//! after every move, and only from the inside out.
 
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
@@ -13,7 +7,6 @@ use std::path::Path;
 use crate::dir::{Dir, directory_not_empty};
 use crate::plan::{Collapse, Deep, Spot, show};
 
-/// What a run actually managed to do.
 #[derive(Default)]
 pub struct Done {
     pub moved: usize,
@@ -21,17 +14,13 @@ pub struct Done {
     pub failures: Vec<Failure>,
 }
 
-/// One thing that did not happen, named the way the plan named it.
 pub struct Failure {
     pub path: String,
     pub error: io::Error,
 }
 
-/// Told about each move as it is made, for `--verbose`.
 pub type Narrate<'a> = &'a mut dyn FnMut(&str, &str);
 
-/// Lift the innermost wrapper's contents into the target and remove the
-/// wrappers.
 pub fn collapse(target: &Path, plan: &Collapse, narrate: Narrate) -> io::Result<Done> {
     let root = Dir::open(target)?;
     // One component at a time, so no step of the chain can be a symlink
@@ -85,8 +74,6 @@ pub fn collapse(target: &Path, plan: &Collapse, narrate: Narrate) -> io::Result<
     Ok(done)
 }
 
-/// Move every entry the plan settled on up into the target, then remove the
-/// directories left with nothing in them.
 pub fn deep(target: &Path, plan: &Deep, narrate: Narrate) -> io::Result<Done> {
     let root = Dir::open(target)?;
     let mut done = Done::default();
@@ -130,9 +117,6 @@ pub fn deep(target: &Path, plan: &Deep, narrate: Narrate) -> io::Result<Done> {
     Ok(done)
 }
 
-/// Move the directories whose name an entry is about to take out of the way.
-/// They are all on their way out; this only decides what they are called on
-/// the way.
 fn move_aside(root: &Dir, plan: &Deep, names: &mut [OsString], done: &mut Done) -> Vec<usize> {
     let shadowed = plan.shadowed();
     if shadowed.is_empty() {
@@ -170,9 +154,6 @@ fn move_aside(root: &Dir, plan: &Deep, names: &mut [OsString], done: &mut Done) 
     aside
 }
 
-/// Walk the tree, moving what this directory holds before opening the ones
-/// below it, so a directory's descriptor is opened once and used for
-/// everything in it.
 #[allow(clippy::too_many_arguments)]
 fn descend(
     dir: &Dir,
@@ -209,8 +190,6 @@ fn descend(
     }
 }
 
-/// Move one entry with its directory opened from the target down, for the few
-/// that cannot be done on the way past.
 fn move_one(
     root: &Dir,
     plan: &Deep,
@@ -249,8 +228,6 @@ fn move_one(
     }
 }
 
-/// Remove what the plan said would be empty, from the inside out. A directory
-/// keeping something the plan left alone is walked into but not removed.
 fn remove(
     dir: &Dir,
     index: usize,
@@ -299,9 +276,6 @@ fn wrapper(plan: &Collapse, step: usize) -> String {
         .join("/")
 }
 
-/// A name nothing in the target has or is about to have. Hidden, so a run
-/// that dies between the two renames leaves nothing in the way of the next
-/// one — which will collapse it back out anyway.
 fn spare(taken: &HashSet<&OsStr>) -> OsString {
     let mut nth = 0;
     loop {

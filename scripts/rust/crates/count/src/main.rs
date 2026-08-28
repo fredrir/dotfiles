@@ -1,13 +1,3 @@
-//! Count the entries inside a directory.
-//!
-//! `count <dir>` reports how many entries the directory holds, `-r` counts
-//! everything underneath it instead, and `-d` leaves hidden entries out. The
-//! two combine the way a listing would: under `-r` a hidden directory takes
-//! its whole subtree out of the count, so a subtree is either counted whole
-//! or skipped whole.
-//!
-//! Symlinked directories count as one entry and are not descended into, which
-//! keeps a link loop from turning the count into a hang.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -24,15 +14,12 @@ const PROGRAM: &str = "count";
 #[derive(Parser)]
 #[command(version, about = "Count items inside a directory")]
 struct Cli {
-    /// Directory whose entries are counted
     #[arg(value_hint = ValueHint::DirPath, required_unless_present = "shell")]
     directory: Option<PathBuf>,
 
-    /// Count every entry underneath the directory, not just its children
     #[arg(short = 'r', long = "recursive")]
     recursive: bool,
 
-    /// Leave out hidden entries, and everything inside a hidden directory
     #[arg(short = 'd', long = "no-hidden")]
     no_hidden: bool,
 
@@ -40,7 +27,6 @@ struct Cli {
     completions: Completions,
 }
 
-/// What a walk found: entries counted, and directories it could not read.
 #[derive(Default, Clone, Copy)]
 struct Tally {
     entries: u64,
@@ -89,8 +75,6 @@ fn main() -> ExitCode {
     }
 }
 
-/// Symlinks are followed here, so a link to a directory is a valid target
-/// even though the walk itself does not descend into one.
 fn require_directory(directory: &Path) -> Result<(), String> {
     match fs::metadata(directory) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
@@ -118,8 +102,6 @@ fn count_children(directory: &Path, no_hidden: bool) -> io::Result<u64> {
     Ok(entries)
 }
 
-/// Each directory's children are counted in parallel: the walk waits on
-/// directory reads, and a thread per core hides most of that on a large tree.
 fn count_recursive(directory: &Path, no_hidden: bool) -> Tally {
     let Ok(listing) = fs::read_dir(directory) else {
         return Tally {
@@ -169,7 +151,6 @@ fn count_recursive(directory: &Path, no_hidden: bool) -> Tally {
 mod tests {
     use super::*;
 
-    /// Two visible entries and two hidden ones at the top, one of each below.
     fn tree() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
         let path = |name: &str| root.path().join(name);

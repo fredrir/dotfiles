@@ -1,4 +1,3 @@
-//! What the plan says, and what carrying it out leaves behind.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -6,8 +5,6 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 
-/// Build a tree from `path/to/file=contents` lines; a line ending in `/` is
-/// an empty directory.
 fn tree(lines: &[&str]) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     for line in lines {
@@ -23,8 +20,6 @@ fn tree(lines: &[&str]) -> tempfile::TempDir {
     root
 }
 
-/// Every path under `root`, relative and sorted, so a whole tree is one
-/// assertion.
 fn listing(root: &Path) -> Vec<String> {
     let mut found = BTreeSet::new();
     let mut pending = vec![PathBuf::from(root)];
@@ -190,8 +185,6 @@ fn accepting_replaces_what_was_there_and_empties_the_directory() {
     );
 }
 
-/// Two entries accepted for one name have to land in the order they were
-/// settled in, or the answer that stands is not the last one given.
 #[test]
 fn the_last_answer_is_the_one_left_there() {
     let root = tree(&["notes.txt=top", "a/notes.txt=from-a", "b/notes.txt=from-b"]);
@@ -226,8 +219,6 @@ fn an_entry_inside_the_directory_it_is_named_after_still_gets_the_name() {
     );
 }
 
-/// A name cannot be a file and a directory that is staying. The directory was
-/// there first, so the move is the thing given up — and said out loud.
 #[test]
 fn an_entry_named_after_a_directory_that_stays_is_refused() {
     let root = tree(&["keep.txt=top", "sub/keep.txt=buried", "z/sub=iam-a-file"]);

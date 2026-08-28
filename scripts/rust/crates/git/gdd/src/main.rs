@@ -1,14 +1,3 @@
-//! Throw away every change: tracked files back to `HEAD`, untracked files
-//! deleted.
-//!
-//! The plan is printed first, because half of it cannot be undone: a restored
-//! file is still in `HEAD`, while a deleted untracked file is nowhere. Then
-//! the question, and only then the discard.
-//!
-//! Nothing here shells out. The survey, the counts, the restore and the
-//! deletions are all gitoxide, which is what makes the plan cheap enough to
-//! always print — the old shell version spent a `git diff` process on every
-//! untracked file just to fill in the line counts.
 
 use std::process::ExitCode;
 
@@ -19,10 +8,8 @@ use workstation::{Completions, Style};
 
 const PROGRAM: &str = "gdd";
 
-/// Rows of a section to show before the rest are summed up.
 const ROWS: usize = 12;
 
-/// How wide to assume the terminal is when there is nobody to ask.
 const WIDTH: usize = 100;
 
 #[derive(Parser)]
@@ -43,19 +30,15 @@ restored file is still in HEAD; a deleted untracked file is nowhere.",
   gdd docs shared     Discard only what those paths match"
 )]
 struct Cli {
-    /// Paths to discard; without one, the whole repository
     #[arg(value_name = "PATH", value_hint = ValueHint::AnyPath)]
     paths: Vec<String>,
 
-    /// Show what would be discarded and stop
     #[arg(short = 'n', long = "dry-run")]
     dry_run: bool,
 
-    /// List every entry instead of the first 12 of a section
     #[arg(short, long)]
     all: bool,
 
-    /// Discard without asking
     #[arg(short, long)]
     yes: bool,
 

@@ -1,27 +1,3 @@
-//! Format `.conf`, `.config` and `.dotfile` files, and nothing else.
-//!
-//! One provider, a peer of stylua and shfmt rather than a driver of them.
-//! `dotfmt <target>` formats a file or a tree, `--check` reports what is not
-//! formatted and writes nothing, `--stdin <filename>` lays out a body read on
-//! stdin and hands the result back on stdout, which is how an editor asks, and
-//! `--owns` answers which of the paths it is handed it would format, which is
-//! how `dotfile format` builds its dotfmt row rather than guessing at it.
-//!
-//! Which files those are is the `include` and `exclude` blocks of the nearest
-//! `dotfmt.dotfile`, in .gitignore syntax; see `select.rs`. Every route in
-//! goes through the same answer, so `dotfmt a.conf`, `dotfmt .` and
-//! `dotfmt --owns` cannot disagree about what dotfmt owns.
-//!
-//! **stdout carries data and nothing else.** Every human-readable line goes to
-//! stderr, in every mode, `--quiet` or not: conform.nvim replaces the buffer
-//! with whatever stdout said, so a progress line there is a line in somebody's
-//! file. On any `--stdin` failure nothing at all is written to stdout and the
-//! status is 1, because conform discards the output of a run that failed and
-//! the buffer is then left exactly as it was. Partial output is never emitted.
-//!
-//! Run with no arguments at all it prints its help and stops. A formatter that
-//! rewrote the current directory when somebody typed its name to see what it
-//! did would be a formatter people ran by accident.
 
 mod block;
 mod conf;
@@ -81,15 +57,12 @@ then the defaults built in.",
   dotfmt --owns < paths          Answer with the paths it would format"
 )]
 struct Cli {
-    /// Files or directories to format
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     targets: Vec<PathBuf>,
 
-    /// Report what is not formatted and write nothing
     #[arg(long)]
     check: bool,
 
-    /// Format a body read on stdin as if it were this file, onto stdout
     #[arg(
         long,
         value_name = "FILENAME",
@@ -98,15 +71,12 @@ struct Cli {
     )]
     stdin: Option<PathBuf>,
 
-    /// Read NUL-separated paths on stdin and answer with the ones it owns
     #[arg(long, conflicts_with_all = ["targets", "check", "stdin"])]
     owns: bool,
 
-    /// Name every file, formatted or not
     #[arg(short, long, conflicts_with = "quiet")]
     verbose: bool,
 
-    /// Say nothing that is not a failure
     #[arg(short, long)]
     quiet: bool,
 
@@ -133,11 +103,6 @@ fn main() -> ExitCode {
     run(&cli)
 }
 
-/// `--stdin`: a body in, the formatted bytes out, and nothing on stdout at all
-/// if any part of that failed.
-///
-/// The whole result is written in one call after every check has passed, so
-/// there is no run that puts half a file on stdout and then reports a problem.
 fn through(name: &Path) -> ExitCode {
     let mut raw = Vec::new();
     if let Err(error) = io::stdin().read_to_end(&mut raw) {
@@ -161,17 +126,6 @@ fn through(name: &Path) -> ExitCode {
     }
 }
 
-/// `--owns`: NUL-separated candidate paths in, the ones dotfmt owns out.
-///
-/// Stdin rather than argv because a repository's worth of paths does not fit
-/// in ARG_MAX, and NUL because that is the one byte a path cannot hold. The
-/// answer is data, so it goes on stdout and every word about it goes to
-/// stderr, exactly as under `--stdin`.
-///
-/// A config that will not parse fails the whole query and writes nothing.
-/// A half-answered question about ownership is worse than an unanswered one:
-/// the caller cannot tell the files dotfmt declined from the ones it never
-/// managed to consider.
 fn owned() -> ExitCode {
     let mut raw = Vec::new();
     if let Err(error) = io::stdin().read_to_end(&mut raw) {
@@ -212,11 +166,6 @@ fn owned() -> ExitCode {
     }
 }
 
-/// Format or check every target, and add up what happened.
-///
-/// A target that fails is reported and the rest still run. `format.py` aborts
-/// the whole batch on the first odd path, which means one bad argument hides
-/// every other file's answer.
 fn run(cli: &Cli) -> ExitCode {
     let report = Report::new(cli.verbose, cli.quiet, cli.check);
     let mut tally = Tally::default();
@@ -292,7 +241,6 @@ fn format_target(target: &Path, cli: &Cli, configs: &Configs, report: &Report, t
     }
 }
 
-/// The directory whose `dotfmt.dotfile` governs a target.
 fn beside_target(target: &Path) -> PathBuf {
     if target.is_dir() {
         return target.to_path_buf();

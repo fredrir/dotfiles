@@ -1,25 +1,13 @@
-//! Black-box checks on the flags, the streams and the exit codes callers
-//! depend on.
-//!
-//! Mostly the streams. conform.nvim replaces a buffer with whatever stdout
-//! carried and only throws it away when the status is non-zero, so "stdout is
-//! empty" and "the status is 1" are not stylistic preferences here — they are
-//! the difference between a saved file and a mangled one.
 
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-/// A run with `HOME` and `XDG_CONFIG_HOME` pointed at an empty directory, so
-/// the machine's own `~/.config/dotfmt/dotfmt.dotfile` cannot decide a test.
 fn dotfmt(root: &Path, args: &[&str], body: &str) -> Output {
     dotfmt_from(root, root, args, body)
 }
 
-/// The same, with `HOME` somewhere other than the directory the run happens
-/// in — the only way to reach `~/dotfmt.dotfile` by the rule that names it,
-/// since anywhere below `$HOME` finds it on the way up instead.
 fn dotfmt_from(root: &Path, home: &Path, args: &[&str], body: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dotfmt"))
         .args(args)
@@ -57,7 +45,6 @@ fn code(output: &Output) -> i32 {
         .expect("dotfmt exits rather than signals")
 }
 
-/// A tree from `path=contents` lines.
 fn tree(lines: &[(&str, &str)]) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     for (path, contents) in lines {
@@ -68,7 +55,6 @@ fn tree(lines: &[(&str, &str)]) -> tempfile::TempDir {
     root
 }
 
-/// A `.dotfile` whose entries are not yet in a column.
 const RAGGED: &str = "host {\n  a = 1\n  longer = 2\n}\n";
 const LAID_OUT: &str = "host {\n  a       = 1\n  longer  = 2\n}\n";
 

@@ -1,16 +1,3 @@
-//! Bulk directory reads, on the platform that offers them.
-//!
-//! `getattrlistbulk` hands back the names, types, permissions and sizes of a
-//! whole batch of entries per call, where `read_dir` plus a `stat` each spends
-//! a syscall per entry. That difference does not parallelise away: concurrent
-//! metadata lookups inside one directory serialise in the kernel, so throwing
-//! threads at the `stat` walk buys wall clock at several times the CPU. On a
-//! 285k-entry tree this is around 2,900 calls rather than 285k, and one thread
-//! finishes roughly four times sooner than the pooled `stat` walk did.
-//!
-//! Not every filesystem implements it. A directory that will not answer falls
-//! back to the portable walk on its own, so an unsupporting mount costs only
-//! its own subtree.
 
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::File;
@@ -27,11 +14,8 @@ const VREG: u32 = 1;
 const VDIR: u32 = 2;
 const VLNK: u32 = 5;
 
-/// Big enough that a directory of any ordinary size comes back in a handful of
-/// calls, small enough to sit on the heap once per walk.
 const BATCH: usize = 256 * 1024;
 
-/// An owned directory descriptor.
 struct Dir(libc::c_int);
 
 impl Dir {
@@ -47,8 +31,6 @@ impl Dir {
         (fd >= 0).then_some(Dir(fd))
     }
 
-    /// A subdirectory, opened relative to this one: no path to rebuild, and
-    /// `O_NOFOLLOW` so a symlink swapped in mid-walk cannot redirect us.
     fn open_child(&self, name: &CStr) -> Option<Dir> {
         // SAFETY: `self.0` is an open directory and `name` is NUL-terminated.
         let fd = unsafe {
@@ -61,11 +43,6 @@ impl Dir {
         (fd >= 0).then_some(Dir(fd))
     }
 
-    /// What this directory says about itself once it is open. A mount point is
-    /// an ordinary directory of the parent filesystem in the batch reply that
-    /// names it — the reply describes the entry, not what is mounted over it —
-    /// so both the device `-x` compares and the blocks the directory itself
-    /// costs have to be read from the open descriptor.
     fn status(&self) -> Option<Status> {
         // SAFETY: `stat` is plain data, `self.0` is an open descriptor, and
         // the fields are only read once the call reports success.
@@ -98,14 +75,11 @@ impl Drop for Dir {
     }
 }
 
-/// What an open directory says about itself, as against what the entry naming
-/// it said.
 struct Status {
     device: u64,
     bytes: u64,
 }
 
-/// What one entry of a batch says about itself.
 struct Entry<'a> {
     name: &'a CStr,
     devid: i32,
@@ -113,10 +87,7 @@ struct Entry<'a> {
     accessmask: u32,
     fileid: u64,
     linkcount: u32,
-    /// The space it occupies, and what every mode but `-A` measures.
     allocated: u64,
-    /// The length it reports, which `-A` measures and which a sparse file can
-    /// inflate without limit.
     bytes: u64,
 }
 
@@ -139,14 +110,6 @@ fn attributes() -> libc::attrlist {
     list
 }
 
-/// Walks one entry of the reply. Fields arrive by attribute group — common,
-/// then directory, then file — and by bit within a group, each present only if
-/// `ATTR_CMN_RETURNED_ATTRS` says so, and packed without padding — hence the
-/// unaligned reads.
-///
-/// # Safety
-///
-/// `entry` must point at the start of an entry the kernel wrote.
 unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
     let mut field = entry;
     let length = unsafe { (field as *const u32).read_unaligned() } as usize;
@@ -219,21 +182,15 @@ unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
     (entry, length)
 }
 
-/// The whole tree under `target`, or `None` if this filesystem will not answer
-/// bulk requests and the portable walk should take it instead.
 pub fn walk(options: &Options, target: &Path) -> Option<Walked> {
     let dir = Dir::open(target)?;
     read(options, &dir, target, Path::new(""), 0)
 }
 
-/// A subdirectory, held back until the whole directory has been read: its own
-/// name is all we need to open it again relative to the descriptor we have.
 struct Child {
     name: CString,
     visible: bool,
     depth: usize,
-    /// Its own blocks as the batch reported them — what a directory that will
-    /// not open leaves us to go on.
     bytes: u64,
 }
 
@@ -435,8 +392,6 @@ fn read(
     Some(walked)
 }
 
-/// `counted` is `None` outside line mode, and `Some(None)` for a file that
-/// would not open — the same thing the portable walk calls unreadable.
 fn measure_entry(entry: &Entry, options: &Options, counted: Option<Option<u64>>) -> Measure {
     let mut measure = Measure {
         bytes: if options.apparent {
@@ -468,18 +423,12 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// One row, reduced to the fields both walks must agree on.
     type Shape = (String, &'static str, bool, u64, u64);
 
-    /// One link: which file it is, where it sits, and what it measures.
     type Linked = ((u64, u64), String, u64, u64);
 
-    /// A whole walk, reduced the same way.
     type Answer = (u64, u64, usize, Vec<Shape>, Vec<Linked>);
 
-    /// Everything the two walks have to agree about, in a comparable shape —
-    /// including the links, since the bulk walk reads device, inode and link
-    /// count out of a packed reply rather than out of a `stat`.
     fn shape(walked: Walked) -> Answer {
         let mut rows: Vec<Shape> = walked
             .rows
@@ -536,8 +485,6 @@ mod tests {
         root
     }
 
-    /// The bulk walk is an optimisation, so it has to answer exactly what the
-    /// portable walk answers — down to the unreadable count.
     #[test]
     fn the_bulk_walk_agrees_with_the_portable_one() {
         let root = fixture();
@@ -590,8 +537,6 @@ mod tests {
         assert_eq!(trimmed.measure.bytes, portable.measure.bytes);
     }
 
-    /// The device comes out of the packed reply rather than a `stat`, so `-x`
-    /// has to agree with the portable walk about which entries it drops.
     #[test]
     fn one_file_system_agrees_with_the_portable_walk() {
         let root = fixture();

@@ -1,15 +1,3 @@
-//! Native system probing that emits fastfetch-shaped module JSON.
-//!
-//! The Python sysinfo tool historically shelled out to fastfetch and consumed
-//! its `[{type, result}, ...]` JSON. This binary produces the same shape for
-//! the modules that decide machine identity and benchmark gating, so those
-//! paths work with no external tool. Purely cosmetic modules (Host, Packages,
-//! Theme, Display, ...) are left to fastfetch, which the Python side merges
-//! in when it is installed.
-//!
-//! Field values follow what fastfetch reports on the same hardware, because
-//! the benchmark epoch (machine identity) is derived from them: a renamed CPU
-//! or disk would orphan every pinned baseline.
 
 mod common;
 #[cfg(target_os = "linux")]

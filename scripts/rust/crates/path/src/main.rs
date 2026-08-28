@@ -1,15 +1,3 @@
-//! Where a target sits: relative to its git repository, or to the home
-//! directory when it is outside one, or absolute when it is outside both.
-//!
-//! The repository root is found by walking up for a `.git` entry instead of
-//! asking `git rev-parse --show-toplevel`. This runs inside prompts and
-//! loops, where a process spawn is most of the cost, and the two answers
-//! agree everywhere except inside `.git` itself: git declines to answer
-//! there, while this prints `/.git/...`.
-//!
-//! Targets need not exist. The part that does is resolved through symlinks
-//! and the rest is appended, so a path that is about to be created still
-//! describes itself the way it will read once it is there.
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -26,11 +14,9 @@ const PROGRAM: &str = "path";
     about = "Print the repository-relative or home-relative path of a target"
 )]
 struct Cli {
-    /// File or directory to describe
     #[arg(value_hint = ValueHint::AnyPath, default_value = ".")]
     target: PathBuf,
 
-    /// Print the full path instead
     #[arg(short = 'f', long = "full")]
     full: bool,
 
@@ -54,8 +40,6 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// A repository root reads as `/`, so a path inside one looks like the same
-/// path on another checkout of it; a home directory reads as `~`.
 fn describe(resolved: &Path, root: Option<&Path>, home: Option<&Path>) -> String {
     if let Some(inside) = root.and_then(|root| relative(resolved, root)) {
         return format!("/{inside}");
@@ -67,25 +51,17 @@ fn describe(resolved: &Path, root: Option<&Path>, home: Option<&Path>) -> String
     }
 }
 
-/// Empty when the target is the base itself, `None` when it is elsewhere.
-/// Whole components have to match, so `/repository` is not inside `/repo`.
 fn relative(target: &Path, base: &Path) -> Option<String> {
     let inside = target.strip_prefix(base).ok()?;
     Some(inside.to_string_lossy().into_owned())
 }
 
-/// The nearest ancestor holding a `.git` entry: a directory in a plain
-/// clone, a file in a worktree or a submodule.
 fn repository_root(from: &Path) -> Option<PathBuf> {
     from.ancestors()
         .find(|ancestor| fs::symlink_metadata(ancestor.join(".git")).is_ok())
         .map(Path::to_path_buf)
 }
 
-/// `realpath` for a target that need not exist: the longest existing prefix
-/// is resolved through symlinks, and whatever is left is appended with `.`
-/// and `..` folded in — a part of the path that does not exist has no
-/// symlinks left to honour.
 fn real_path(target: &Path) -> PathBuf {
     let absolute = if target.is_absolute() {
         target.to_path_buf()

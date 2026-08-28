@@ -1,19 +1,9 @@
-//! Black-box checks against real repositories.
-//!
-//! The tool only ever builds `https://github.com/<owner>/<repo>`, so the
-//! repositories here are reached the way git reaches anything it has been
-//! told to rewrite: `url.<local>.insteadOf` in the sandbox's own
-//! configuration. Nothing in `gget` knows the difference, which is the point
-//! — what is under test is the same address it would use in earnest.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-/// A pair of repositories on `github.com`, an empty directory to run in, and
-/// git reading no configuration and no identity from the machine running the
-/// tests.
 struct Sandbox {
     home: tempfile::TempDir,
 }
@@ -70,8 +60,6 @@ impl Sandbox {
         sandbox
     }
 
-    /// The directory a run happens in, which starts out holding the two
-    /// folders that were already there.
     fn work(&self) -> PathBuf {
         self.home.path().join("work")
     }
@@ -108,7 +96,6 @@ impl Sandbox {
         output
     }
 
-    /// Run `gget` in the work directory, with `answers` waiting on stdin.
     fn gget(&self, arguments: &[&str], answers: &str) -> Output {
         let mut child = self
             .command(env!("CARGO_BIN_EXE_gget"), &self.work())
@@ -192,7 +179,6 @@ fn the_owner_flag_stands_in_for_the_account() {
     assert_eq!(sandbox.read("README.md"), "main\n");
 }
 
-/// The branch is named, never guessed: `-b dev` is what makes it dev's.
 #[test]
 fn a_branch_flag_chooses_the_version() {
     let sandbox = Sandbox::new();
@@ -205,7 +191,6 @@ fn a_branch_flag_chooses_the_version() {
     );
 }
 
-/// And it wins over the one the URL carries, since it was typed later.
 #[test]
 fn a_branch_flag_overrules_the_url() {
     let sandbox = Sandbox::new();
@@ -277,7 +262,6 @@ fn the_yes_flag_answers_in_advance() {
     assert_eq!(sandbox.read("README.md"), "main\n");
 }
 
-/// A question with nobody to answer it is a cancellation, not a yes.
 #[test]
 fn no_answer_leaves_it_alone() {
     let sandbox = Sandbox::new();
@@ -287,8 +271,6 @@ fn no_answer_leaves_it_alone() {
     assert_eq!(sandbox.read("README.md"), "mine\n");
 }
 
-/// A sparse pattern that matches nothing is a checkout of nothing, which git
-/// reports as a success; the answer to "is it there" is this tool's to give.
 #[test]
 fn a_path_that_is_not_there_says_so() {
     let sandbox = Sandbox::new();
@@ -335,8 +317,6 @@ fn completions_need_no_target() {
     assert!(stdout(&output).contains("#compdef gget"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     let sandbox = Sandbox::new();

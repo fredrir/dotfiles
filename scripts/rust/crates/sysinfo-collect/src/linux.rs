@@ -1,4 +1,3 @@
-//! Linux probing via /proc, /sys, and the hwdata/libdrm ID databases.
 
 use std::collections::HashSet;
 use std::env;
@@ -360,7 +359,6 @@ fn power_modules() -> (Value, Value) {
     (json!(batteries), json!(adapters))
 }
 
-/// Session env vars vanish over ssh; the compositor process is still there.
 fn running_process(names: &[&str]) -> Option<(String, u32)> {
     let entries = fs::read_dir("/proc").ok()?;
     for entry in entries.flatten() {
@@ -426,8 +424,6 @@ fn de_module() -> Option<Value> {
     json!({"prettyName": pretty, "processName": current, "version": de_version(pretty)}).into()
 }
 
-/// The desktop's version is only advertised by its own binaries, but the
-/// package database names it: /var/lib/pacman/local/plasma-workspace-6.7.4-1.
 fn de_version(pretty: &str) -> String {
     let package = match pretty {
         "KDE Plasma" => "plasma-workspace",

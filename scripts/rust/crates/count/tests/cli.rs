@@ -1,4 +1,3 @@
-//! Black-box checks on the flags, output and exit codes callers depend on.
 
 use std::fs;
 use std::process::{Command, Output};
@@ -74,8 +73,6 @@ fn completions_need_no_directory() {
     assert!(stdout(&output).contains("#compdef count"));
 }
 
-/// `dotfile docs` reads this to build the tables in docs/cli, so a tool
-/// describes itself in one place: the parser.
 #[test]
 fn the_command_dump_describes_the_parser() {
     let output = count(&["--command-dump"]);
@@ -86,8 +83,6 @@ fn the_command_dump_describes_the_parser() {
     assert!(text.contains("\targument\tdirectory\t\tDIRECTORY\t"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     assert!(stdout(&count(&["--help"])).starts_with("Count items inside a directory"));

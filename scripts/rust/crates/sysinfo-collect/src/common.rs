@@ -1,4 +1,3 @@
-//! Modules the sysinfo crate covers on every platform.
 
 use serde_json::json;
 use sysinfo::{Disks, MemoryRefreshKind, RefreshKind, System};

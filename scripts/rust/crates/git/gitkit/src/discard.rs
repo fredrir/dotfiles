@@ -1,15 +1,3 @@
-//! Carrying out a survey: what goes back, and what goes away.
-//!
-//! This is `git restore --source=HEAD --staged --worktree` and `git clean -fd`
-//! in one pass, without either process. The restore is gitoxide's own
-//! checkout, so `.gitattributes` filters, the executable bit and symlinks are
-//! handled the way a checkout handles them, and the index is rewritten once at
-//! the end rather than twice.
-//!
-//! Deletions come first. A path on its way out can be standing where a path on
-//! its way back belongs — a file that took a tracked directory's name, say —
-//! and doing it in this order means the last word belongs to what is being
-//! restored.
 
 use std::collections::HashSet;
 use std::fs;
@@ -25,7 +13,6 @@ use crate::survey::{Fate, Kind, Survey};
 use crate::{Repo, Result};
 
 impl Repo {
-    /// Throw away everything the survey found.
     pub fn discard(&self, survey: &Survey) -> Result<()> {
         for entry in survey.with(Fate::Delete) {
             let path = crate::on_disk(&survey.root, entry.path.as_ref());
@@ -107,7 +94,6 @@ impl Repo {
     }
 }
 
-/// The index mode a tree entry becomes.
 fn mode(kind: EntryKind) -> Mode {
     match kind {
         EntryKind::Blob => Mode::FILE,
@@ -118,8 +104,6 @@ fn mode(kind: EntryKind) -> Mode {
     }
 }
 
-/// Remove whatever is at `path`, letting the disk rather than the plan say
-/// what kind of thing that is; a path that is already gone is done.
 fn remove(path: &Path) -> Result<()> {
     let Ok(found) = fs::symlink_metadata(path) else {
         return Ok(());
@@ -132,9 +116,6 @@ fn remove(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Remove a directory and everything in it, except a repository, which is
-/// left where it is along with the directories above it — the same promise
-/// `git clean` makes. Returns whether the directory itself is gone.
 fn remove_directory(path: &Path) -> Result<bool> {
     if is_repository(path) {
         return Ok(false);
@@ -156,8 +137,6 @@ fn remove_directory(path: &Path) -> Result<bool> {
     Ok(emptied)
 }
 
-/// Take the directories a removed file left empty, up to but not including
-/// the working tree's root.
 fn prune(root: &Path, path: &Path) {
     let mut directory = path.parent();
     while let Some(empty) = directory {

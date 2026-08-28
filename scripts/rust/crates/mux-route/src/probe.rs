@@ -1,4 +1,3 @@
-//! Asking every route at once whether the peer's mux is on the other end.
 
 use std::net::SocketAddrV4;
 
@@ -6,15 +5,12 @@ use hostkit::{Host, MUX_PORT, Route};
 
 use crate::domain::{self, ROUTES};
 
-/// What one route had to say, whether or not it said yes.
 pub struct Answer {
     pub route: Route,
     pub peer: SocketAddrV4,
     pub up: bool,
 }
 
-/// Probe every mux route in parallel, because a dead one costs the whole
-/// timeout and there is no reason to spend it three times over.
 pub fn probe(this: Host, peer: Host) -> Result<Vec<Answer>, String> {
     let mut targets = Vec::with_capacity(ROUTES.len());
     for route in ROUTES {
@@ -40,7 +36,6 @@ pub fn probe(this: Host, peer: Host) -> Result<Vec<Answer>, String> {
     }))
 }
 
-/// The domain for the first route that answered, or why there is none to name.
 pub fn pick(peer: Host, answers: &[Answer]) -> Result<String, String> {
     answers
         .iter()

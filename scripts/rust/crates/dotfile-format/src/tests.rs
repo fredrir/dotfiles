@@ -1,7 +1,3 @@
-//! What the table says, what the walk finds, and where the configs come from.
-//!
-//! The parts that talk to other programs are checked in `tests/cli.rs`, where
-//! there is a `PATH` to control; what is here is settled without one.
 
 use std::collections::HashMap;
 use std::fs;
@@ -14,7 +10,6 @@ use configs::Source;
 use lang::{Drift, Feed, LANGS, Lang, Mode};
 use run::{Plan, Ran};
 
-/// A run of nothing in particular: no config to inject, no `--verbose`.
 fn plan(mode: Mode) -> Plan<'static> {
     Plan {
         mode,
@@ -23,8 +18,6 @@ fn plan(mode: Mode) -> Plan<'static> {
     }
 }
 
-/// One finished row, for the parts of the report that are about rendering
-/// rather than about running.
 fn row(lang: Lang, files: usize) -> Ran {
     Ran {
         lang,
@@ -62,8 +55,6 @@ fn shown(files: &[std::path::PathBuf]) -> Vec<String> {
 
 // ---------------------------------------------------------------- the table
 
-/// The whole walk rests on this: a file is sorted into a row by its extension
-/// alone, so an extension in two rows would make that sorting a coin toss.
 #[test]
 fn every_extension_belongs_to_exactly_one_language() {
     let mut owner: HashMap<&str, Lang> = HashMap::new();
@@ -87,14 +78,11 @@ fn every_extension_belongs_to_exactly_one_language() {
     assert_eq!(Lang::of(Path::new(".editorconfig")), None);
 }
 
-/// An extension written by another machine still reaches its tool.
 #[test]
 fn the_extension_is_read_without_regard_to_case() {
     assert_eq!(Lang::of(Path::new("Data.JSON")), Some(Lang::Web));
 }
 
-/// Both rewrite the same file, so the order is the whole point of modelling
-/// languages rather than tools.
 #[test]
 fn go_runs_goimports_before_gofmt_in_one_sequence() {
     let steps = Lang::Go.steps(Mode::Write);
@@ -117,8 +105,6 @@ fn checking_python_verifies_the_formatter_and_then_lints() {
     assert_eq!(steps[1].args, ["check"]);
 }
 
-/// A write run formats. Verifying and linting are what `--check` is for, and
-/// a linter in a write run would report on a tree it had just rewritten.
 #[test]
 fn a_write_run_never_verifies_and_never_lints() {
     for lang in LANGS {
@@ -140,7 +126,6 @@ fn a_write_run_never_verifies_and_never_lints() {
     }
 }
 
-/// clippy is a question about the code, not about whether it is formatted.
 #[test]
 fn no_row_ever_runs_clippy() {
     for lang in LANGS {
@@ -153,8 +138,6 @@ fn no_row_ever_runs_clippy() {
     }
 }
 
-/// `gofmt -l` and `goimports -l` exit 0 whether or not the files are
-/// formatted, so reading their status would call every Go tree clean.
 #[test]
 fn only_gofmt_and_goimports_report_drift_by_listing() {
     for lang in LANGS {
@@ -171,8 +154,6 @@ fn only_gofmt_and_goimports_report_drift_by_listing() {
     }
 }
 
-/// taplo drowns its own findings in an INFO line naming every file it
-/// resolved. Nothing else installed here does, so nothing else is touched.
 #[test]
 fn taplo_is_the_one_row_whose_logging_is_turned_down() {
     for lang in LANGS {
@@ -193,8 +174,6 @@ fn taplo_is_the_one_row_whose_logging_is_turned_down() {
     }
 }
 
-/// A tool turned down past the level it reports at has been silenced, not
-/// quietened. taplo writes its findings at ERROR, so `warn` is the floor.
 #[test]
 fn no_row_is_turned_down_below_the_level_its_findings_are_written_at() {
     for lang in LANGS {
@@ -215,8 +194,6 @@ fn no_row_is_turned_down_below_the_level_its_findings_are_written_at() {
     }
 }
 
-/// `cargo fmt` takes a manifest rather than a file list; every other row
-/// takes the files.
 #[test]
 fn rust_is_the_only_row_that_is_not_handed_files() {
     for lang in LANGS {
@@ -228,9 +205,6 @@ fn rust_is_the_only_row_that_is_not_handed_files() {
     }
 }
 
-/// The repository keeps biome's copy under a name that will not shadow a
-/// project's own when it is linked into `$HOME`; `biome.json` is the only
-/// name biome itself reads.
 #[test]
 fn biome_is_the_only_config_that_lands_under_a_different_name() {
     for lang in LANGS {
@@ -247,10 +221,6 @@ fn biome_is_the_only_config_that_lands_under_a_different_name() {
 
 // ----------------------------------------------------------------- the walk
 
-/// Every file is a candidate, whatever it is called. dotfmt owns files by
-/// path as well as by extension — `_empty_` under `**ssh/` has no extension at
-/// all — so a walk that kept only the extensions this table knows could never
-/// offer it one.
 #[test]
 fn the_walk_offers_every_file_it_reaches() {
     let root = tree(&["a.py", "b.rs", "notes.md", "sub/c.lua", "LICENSE"]);
@@ -274,8 +244,6 @@ fn the_skip_list_is_not_walked() {
     assert_eq!(shown(&walk::walk(root.path()).files), ["keep.py"]);
 }
 
-/// Never following one is what keeps a link loop from being a hang, and what
-/// keeps a run aimed at this tree from rewriting another one.
 #[test]
 fn a_symlinked_directory_is_not_followed() {
     let root = tree(&["here/a.py", "elsewhere/b.py"]);
@@ -285,7 +253,6 @@ fn a_symlinked_directory_is_not_followed() {
     assert_eq!(shown(&found.files), ["a.py"]);
 }
 
-/// A file named outright still reaches through a link; a walk does not.
 #[test]
 fn a_symlinked_file_is_not_picked_up_by_the_walk() {
     let root = tree(&["here/a.py", "elsewhere/b.py"]);
@@ -300,9 +267,6 @@ fn a_symlinked_file_is_not_picked_up_by_the_walk() {
     );
 }
 
-/// A lockfile is written by a resolver, not by a person. Reformatting one
-/// picks a fight with whatever wrote it: the next install puts it back, and
-/// every run in between reports drift nobody introduced.
 #[test]
 fn a_generated_lockfile_is_left_where_it_is() {
     let root = tree(&[
@@ -320,7 +284,6 @@ fn a_generated_lockfile_is_left_where_it_is() {
     );
 }
 
-/// By name wherever it sits, the same way the skip list works.
 #[test]
 fn a_lockfile_is_left_alone_however_deep_it_is() {
     let root = tree(&["apps/web/deep/package-lock.json", "apps/web/deep/app.json"]);
@@ -329,9 +292,6 @@ fn a_lockfile_is_left_alone_however_deep_it_is() {
     assert_eq!(shown(&found.lockfiles), ["apps/web/deep/package-lock.json"]);
 }
 
-/// Ten of the thirteen end in an extension no row owns, so they were never
-/// candidates to begin with; the list names them anyway, against the day a
-/// row grows one.
 #[test]
 fn no_name_in_the_lockfile_list_ever_reaches_a_tool() {
     let root = tree(&walk::LOCKFILES);
@@ -373,10 +333,6 @@ fn a_directory_that_cannot_be_read_is_counted_rather_than_ignored() {
     assert_eq!(found.unreadable, 1);
 }
 
-/// The reason this crate shells out to git instead of reading `.gitignore`
-/// itself: ignore rules do not apply to paths git already tracks, and a
-/// reader without the index cannot know that. This repository's own
-/// `.gitignore` has `**/lua` in it and forty tracked `.lua` files under it.
 #[test]
 fn a_tracked_file_survives_an_ignore_rule_that_matches_it() {
     let root = tree(&["lua/tracked.lua", "other/lua/untracked.lua", "kept.py"]);
@@ -406,7 +362,6 @@ fn outside_a_work_tree_nothing_is_dropped() {
 
 // ------------------------------------------------- files encrypted at rest
 
-/// One encrypted value as SOPS really writes it.
 const SEALED_VALUE: &str =
     "password: ENC[AES256_GCM,data:qWuPqA==,iv:wtj3wg=,tag:6rqTIQ==,type:str]";
 
@@ -421,8 +376,6 @@ fn sealed(body: &str) -> bool {
     !walk::encrypted(root.path(), &["f".into()]).is_empty()
 }
 
-/// The file this whole rule exists for: reformatting it is a diff the size of
-/// the file at best, and breaks the MAC that guards it at worst.
 #[test]
 fn a_sops_document_is_recognised() {
     assert!(sealed(&format!(
@@ -430,8 +383,6 @@ fn a_sops_document_is_recognised() {
     )));
 }
 
-/// Detection is by content, so the file that follows the naming convention
-/// and the file that does not are both read rather than guessed at.
 #[test]
 fn the_configuration_that_says_what_to_encrypt_is_not_itself_encrypted() {
     // `.sops.yaml`: the recipients to encrypt *for*, and nothing encrypted.
@@ -440,10 +391,6 @@ fn the_configuration_that_says_what_to_encrypt_is_not_itself_encrypted() {
     ));
 }
 
-/// The regression this rule nearly caused. Four files in this repository name
-/// the marker without holding a secret — the secret scanner's own pattern
-/// table, two of its tests, and `walk.rs` itself. Skipping them would have
-/// quietly stopped formatting them.
 #[test]
 fn source_that_merely_names_the_marker_is_not_a_secret() {
     assert!(!sealed("SOPS_MARKER = \"ENC[AES256_GCM\"\n"));
@@ -455,8 +402,6 @@ fn source_that_merely_names_the_marker_is_not_a_secret() {
     ));
 }
 
-/// The same file could arrive as JSON, as a dotenv, or as an INI in another
-/// project, and none of those is a `.yaml`.
 #[test]
 fn the_metadata_block_is_recognised_in_every_format_sops_writes() {
     assert!(sealed(
@@ -466,14 +411,11 @@ fn the_metadata_block_is_recognised_in_every_format_sops_writes() {
     assert!(sealed("[a]\nb=x\n[sops]\nversion=3.13.3\n"));
 }
 
-/// An indented one belongs to something else.
 #[test]
 fn a_nested_sops_key_is_not_the_metadata_block() {
     assert!(!sealed("tools:\n  sops:\n    enabled: true\n"));
 }
 
-/// In YAML the block is appended, so on any file worth the name it is at the
-/// far end — which is why both ends are read.
 #[test]
 fn a_block_past_the_head_of_a_long_file_is_still_found() {
     let mut body = String::new();
@@ -485,16 +427,12 @@ fn a_block_past_the_head_of_a_long_file_is_still_found() {
     assert!(sealed(&body));
 }
 
-/// Reading two windows of a file is not reading the file, so a plaintext
-/// document far larger than both is still formatted.
 #[test]
 fn a_long_plaintext_file_is_left_alone_by_the_sniff() {
     let body: String = (0..2000).map(|nth| format!("key_{nth}: {nth}\n")).collect();
     assert!(!sealed(&body));
 }
 
-/// Whichever row it landed in, and the row goes with it when it was the only
-/// file in it.
 #[test]
 fn an_encrypted_file_is_taken_out_of_whatever_row_it_was_in() {
     let root = tempfile::tempdir().unwrap();
@@ -519,9 +457,6 @@ fn an_encrypted_file_is_taken_out_of_whatever_row_it_was_in() {
 
 // -------------------------------------------------------------- the driver
 
-/// The extension list still describes dotfmt, but it no longer decides for
-/// it: which files dotfmt owns depends on per-directory `include`/`exclude`
-/// patterns that only dotfmt reads, so its row comes from its own answer.
 #[test]
 fn sorting_never_builds_the_dotfmt_row() {
     let work = run::sort(vec![
@@ -534,9 +469,6 @@ fn sorting_never_builds_the_dotfmt_row() {
     assert_eq!(work[0].0, Lang::Python);
 }
 
-/// When dotfmt cannot be asked, the guess is the row. An empty row would stop
-/// formatting every `.conf` in the tree and read as a clean run, which is a
-/// worse failure than a guess that is occasionally wide.
 #[test]
 fn the_fallback_row_is_the_three_extensions_dotfmt_has_always_had() {
     let files: Vec<std::path::PathBuf> = ["a.conf", "b.config", "c.dotfile", "d.py", "LICENSE"]
@@ -564,8 +496,6 @@ fn dotfmts_answer_becomes_the_first_row_and_an_empty_answer_becomes_none() {
 
 // -------------------------------------------------- what a tool pointed at
 
-/// Every tool writes a path the way it was handed the path, so the run's own
-/// file list is all that is needed to read any of them.
 #[test]
 fn the_files_a_tool_named_are_recognised_however_it_decorated_them() {
     let files: Vec<std::path::PathBuf> = [
@@ -590,8 +520,6 @@ fn the_files_a_tool_named_are_recognised_however_it_decorated_them() {
     );
 }
 
-/// taplo names a file as one field of a structured log line, so the path is
-/// not a word of its own.
 #[test]
 fn a_tool_that_names_a_file_inside_a_field_is_read_the_same_way() {
     let files: Vec<std::path::PathBuf> = vec!["theme/roles.toml".into()];
@@ -606,9 +534,6 @@ fn a_tool_that_names_a_file_inside_a_field_is_read_the_same_way() {
     );
 }
 
-/// `cargo fmt` is handed a manifest rather than a file list and answers in
-/// absolute paths, so the row that cannot name its own files is the one that
-/// most needs them named.
 #[test]
 fn a_tool_that_answers_in_absolute_paths_is_read_the_same_way() {
     let files: Vec<std::path::PathBuf> = vec!["crates/dotfmt/src/select.rs".into()];
@@ -622,7 +547,6 @@ fn a_tool_that_answers_in_absolute_paths_is_read_the_same_way() {
     );
 }
 
-/// A path that only ends the same way is a different file.
 #[test]
 fn a_file_is_only_named_when_the_whole_path_matches() {
     let files: Vec<std::path::PathBuf> = vec!["src/a.py".into()];
@@ -651,8 +575,6 @@ fn a_language_with_no_files_gets_no_row() {
     assert_eq!(work[1].0, Lang::Lua);
 }
 
-/// Rows come back in table order however the threads finished, so two runs
-/// over one tree read the same.
 #[test]
 fn the_rows_are_reported_in_table_order() {
     let work = run::sort(vec!["z.lua".into(), "a.py".into(), "m.toml".into()]);
@@ -688,8 +610,6 @@ fn chunking_splits_at_512_and_keeps_the_order() {
     assert_eq!(batches[1][0], format!("f{}.py", run::CHUNK).as_str());
 }
 
-/// The shallowest ancestor is the workspace root, which is what makes
-/// `--all` format every crate in the workspace whatever the target was.
 #[test]
 fn the_shallowest_cargo_toml_above_a_file_is_the_one_used() {
     let root = tree(&[
@@ -739,7 +659,6 @@ fn checkout() -> tempfile::TempDir {
     root
 }
 
-/// Probing for `.git` would name whatever repository the run is standing in.
 #[test]
 fn the_marker_predicate_wants_both_environment_and_the_targets_file() {
     let root = tempfile::tempdir().unwrap();
@@ -753,7 +672,6 @@ fn the_marker_predicate_wants_both_environment_and_the_targets_file() {
     assert!(configs::is_root(root.path()));
 }
 
-/// A typo in the variable must not quietly become somebody else's checkout.
 #[test]
 fn a_dotfile_root_that_is_not_this_repository_is_an_error_and_not_a_fallthrough() {
     let elsewhere = tempfile::tempdir().unwrap();
@@ -798,8 +716,6 @@ fn the_working_directory_is_climbed_before_the_binary_is_asked() {
     assert_eq!(found, near.path());
 }
 
-/// `cargo test` runs the binary out of `scripts/rust/target`, which is inside
-/// the checkout even when the working directory is not.
 #[test]
 fn the_binary_is_climbed_when_the_working_directory_is_not_in_a_checkout() {
     let real = checkout();
@@ -849,7 +765,6 @@ fn a_checkout_is_read_live_rather_than_from_the_copies() {
     );
 }
 
-/// A project can be a Rust project before it has a single `.rs` file.
 #[test]
 fn a_marker_file_settles_a_language_the_walk_found_nothing_of() {
     let root = tree(&["Cargo.toml", "go.mod"]);
@@ -899,8 +814,6 @@ fn add_asks_about_each_file_and_copies_what_was_agreed_to() {
     assert!(!project.path().join("stylua.toml").exists());
 }
 
-/// The wording says which of the two things is about to happen, so `a` is
-/// never a blind overwrite.
 #[test]
 fn a_file_that_is_already_there_is_offered_as_a_replacement() {
     let repo = checkout();
@@ -943,7 +856,6 @@ fn answering_all_copies_the_rest_without_asking_again() {
     assert_eq!(done.len(), 3);
 }
 
-/// A non-interactive `--add` copies nothing rather than everything.
 #[test]
 fn add_stops_when_the_answers_run_out() {
     let repo = checkout();
@@ -959,8 +871,6 @@ fn add_stops_when_the_answers_run_out() {
     assert!(!project.path().join("ruff.toml").exists());
 }
 
-/// The whole difference between the two: `--sync` refreshes and never
-/// introduces.
 #[test]
 fn sync_replaces_what_is_there_and_introduces_nothing() {
     let repo = checkout();
@@ -976,9 +886,6 @@ fn sync_replaces_what_is_there_and_introduces_nothing() {
     assert!(!project.path().join("ruff.toml").exists());
 }
 
-/// The regression that started all of this: this repository keeps none of
-/// these where the tool that wants it looks, so each of them ran at its own
-/// defaults over the whole tree and called it clean.
 #[test]
 fn a_target_with_no_config_of_its_own_is_pointed_at_this_repositorys() {
     let repo = checkout();
@@ -1042,8 +949,6 @@ fn injected_programs(repo: &tempfile::TempDir, root: &Path) -> Vec<&'static str>
         .collect()
 }
 
-/// A project's own settings win, and per program: a target with a
-/// `.taplo.toml` and nothing else keeps the one and is given the other three.
 #[test]
 fn a_config_the_target_already_has_is_never_replaced() {
     let repo = checkout();
@@ -1055,8 +960,6 @@ fn a_config_the_target_already_has_is_never_replaced() {
     );
 }
 
-/// The programs search upward from the directory they are run in, so a config
-/// over the target is one they would find and one this must not override.
 #[test]
 fn a_config_above_the_target_counts_as_the_targets_own() {
     let repo = checkout();
@@ -1070,18 +973,12 @@ fn a_config_above_the_target_counts_as_the_targets_own() {
     );
 }
 
-/// With no checkout there is no file on disk to name, so nothing is injected
-/// rather than a path that is not there being passed.
 #[test]
 fn the_copies_compiled_in_are_never_named_on_a_command_line() {
     let project = tempfile::tempdir().unwrap();
     assert!(configs::injections(&Source::Embedded, project.path()).is_empty());
 }
 
-/// The YAML row runs two programs and only one of them takes a config here.
-/// `yamlfmt -c` is not a flag — it exits printing the usage text, exactly the
-/// way `yamlfmt -w` did — so keying this by language rather than by program
-/// would have broken the row that was only just fixed.
 #[test]
 fn injection_is_keyed_by_program_and_not_by_language() {
     let repo = checkout();
@@ -1094,10 +991,6 @@ fn injection_is_keyed_by_program_and_not_by_language() {
     assert!(!injected.iter().any(|one| one.program == "yamlfmt"));
 }
 
-/// stylua and biome resolve per file, and a config named on the command line
-/// outranks a nearer one, so the files that have their own must be run
-/// without the flag. taplo and yamllint resolve once from the working
-/// directory, where a nearer config is one they would never have read.
 #[test]
 fn only_the_programs_that_resolve_per_file_split_a_row() {
     for injection in configs::INJECTED {
@@ -1111,9 +1004,6 @@ fn only_the_programs_that_resolve_per_file_split_a_row() {
     }
 }
 
-/// The file `shared/nvim/.stylua.toml` and `shared/wezterm/.stylua.toml` case:
-/// their subtrees keep their own settings, and everything else gets this
-/// repository's.
 #[test]
 fn a_config_below_the_root_wins_for_its_own_subtree_only() {
     let root = tree(&[
@@ -1142,10 +1032,6 @@ fn a_config_below_the_root_wins_for_its_own_subtree_only() {
 
 // ------------------------------------- where every program's config comes from
 
-/// The guard. Four programs searched upward, found nothing, and ran at their
-/// own defaults over this whole tree — taplo, then biome, then stylua and
-/// yamllint, each found by hand after the last. A fifth has to be a red test
-/// instead.
 #[test]
 fn every_program_says_where_its_configuration_comes_from() {
     for program in lang::programs() {
@@ -1171,7 +1057,6 @@ fn every_program_says_where_its_configuration_comes_from() {
     }
 }
 
-/// And nothing is injected for a program no row ever runs.
 #[test]
 fn every_injection_is_for_a_program_the_table_runs() {
     let programs = lang::programs();
@@ -1187,7 +1072,6 @@ fn every_injection_is_for_a_program_the_table_runs() {
 
 // ---------------------------------------------------------------- the report
 
-/// A row where nothing ran must not read as a row where everything passed.
 #[test]
 fn a_row_whose_every_tool_is_missing_does_not_claim_success() {
     let ran = Ran {
@@ -1241,8 +1125,6 @@ fn summary(done: &[Ran], mode: Mode) -> Vec<String> {
     render::summary(done, mode, &workstation::Style::plain())
 }
 
-/// The whole point of the reduced output: a tree that is already formatted
-/// says so in one line and says nothing else.
 #[test]
 fn a_run_with_nothing_to_report_is_one_line() {
     let done = vec![row(Lang::Python, 120), row(Lang::Lua, 48)];
@@ -1257,8 +1139,6 @@ fn a_check_run_says_clean_rather_than_formatted() {
     );
 }
 
-/// One line per provider that has something to report, then the count. The
-/// files of a failed row are the difference between the two numbers.
 #[test]
 fn a_failed_provider_gets_a_line_and_its_files_leave_the_count() {
     let done = vec![
@@ -1282,8 +1162,6 @@ fn a_failed_provider_gets_a_line_and_its_files_leave_the_count() {
     );
 }
 
-/// Drift in `--check` is a finding rather than a failure, and it reads the
-/// same way: the provider is named and its files are not counted as clean.
 #[test]
 fn drift_names_the_provider_in_the_same_shape() {
     let done = vec![
@@ -1299,8 +1177,6 @@ fn drift_names_the_provider_in_the_same_shape() {
     );
 }
 
-/// A failure nobody can act on is a failure that needs a second run, which is
-/// the thing this output is trying to avoid.
 #[test]
 fn a_failed_provider_names_the_files_it_fell_over_on() {
     let done = vec![Ran {
@@ -1333,8 +1209,6 @@ fn the_files_named_under_a_provider_are_capped() {
     assert_eq!(lines[7], "0 / 9 files formatted");
 }
 
-/// A tool that fell over before it opened a file names none, so its own first
-/// word stands in for the list.
 #[test]
 fn a_failure_that_names_no_file_shows_what_the_tool_said() {
     let done = vec![Ran {
@@ -1352,8 +1226,6 @@ fn a_failure_that_names_no_file_shows_what_the_tool_said() {
     );
 }
 
-/// Nothing formatted those files and nothing could have, so they are in
-/// neither half of the count rather than being reported as a failure.
 #[test]
 fn a_row_whose_every_tool_is_missing_is_left_out_of_the_count() {
     let done = vec![
@@ -1367,8 +1239,6 @@ fn a_row_whose_every_tool_is_missing_is_left_out_of_the_count() {
     assert_eq!(summary(&done, Mode::Write), ["10 / 10 files formatted"]);
 }
 
-/// Unless that is the whole story, in which case a bare `0 / 0` would be a
-/// riddle rather than an answer.
 #[test]
 fn when_nothing_ran_at_all_the_missing_tools_are_the_report() {
     let done = vec![

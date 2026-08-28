@@ -1,18 +1,15 @@
-//! Opening a repository, and the one thing that is still git's job.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::Result;
 
-/// A repository with a working tree, found from the current directory.
 pub struct Repo {
     pub(crate) git: gix::Repository,
     root: PathBuf,
 }
 
 impl Repo {
-    /// The repository the current directory is in.
     pub fn here() -> Result<Repo> {
         let mut git = match gix::discover(".") {
             Ok(git) => git,
@@ -35,18 +32,10 @@ impl Repo {
         Ok(Repo { git, root })
     }
 
-    /// The working tree's root.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    /// Whether the index holds anything `HEAD` does not, which is the question
-    /// `git diff --cached --quiet` answers.
-    ///
-    /// git leaves the tree its index would write in the index itself, so the
-    /// usual answer is one comparison of two hashes. Only when that cache is
-    /// missing or stale — after a merge, or after this crate wrote the index —
-    /// does the whole tree have to be compared.
     pub fn index_matches_head(&self) -> Result<bool> {
         let head = self.git.head_tree_id_or_empty()?.detach();
         let index = self.git.index_or_empty()?;
@@ -70,13 +59,6 @@ impl Repo {
     }
 }
 
-/// Hand a step to `git` and wait for it.
-///
-/// Steps that run hooks, sign, or reach the network stay with git: it is the
-/// one that knows the user's configuration and credentials. Its output goes
-/// straight to the terminal and its status comes back untouched, so a failing
-/// step reports itself and keeps git's vocabulary — 128 for "not a
-/// repository", and so on — for whatever is chained after it.
 pub fn git(arguments: &[&str]) -> Result<i32> {
     let status = Command::new("git")
         .args(arguments)

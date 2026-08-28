@@ -1,22 +1,14 @@
-//! Black-box checks against real repositories, because what `gdd` does is
-//! decide what a working tree holds and then change it. Every check that
-//! discards asks git afterwards what is left, so the two never drift apart.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-/// A repository under a temporary home, with git reading no configuration and
-/// no identity from the machine running the tests.
 struct Sandbox {
     home: tempfile::TempDir,
 }
 
 impl Sandbox {
-    /// A repository with one commit: a file to modify, a file to delete, a
-    /// file to stage over, and two ignore rules — one for a name, one for a
-    /// directory, since the walk reaches those two by different routes.
     fn new() -> Sandbox {
         let sandbox = Sandbox::bare();
         let work = sandbox.work();
@@ -31,7 +23,6 @@ impl Sandbox {
         sandbox
     }
 
-    /// A home with no repository in it yet.
     fn bare() -> Sandbox {
         let home = tempfile::tempdir().unwrap();
         fs::write(home.path().join("gitconfig"), "").unwrap();
@@ -95,7 +86,6 @@ impl Sandbox {
         self.git(&self.work(), &["status", "--porcelain"])
     }
 
-    /// Run `gdd` with nothing to answer with.
     fn gdd(&self, arguments: &[&str]) -> Output {
         self.gdd_in(&self.work(), arguments)
     }
@@ -108,7 +98,6 @@ impl Sandbox {
             .expect("gdd runs")
     }
 
-    /// Run `gdd` and answer its question with `answer`.
     fn answer(&self, arguments: &[&str], answer: &str) -> Output {
         let mut child = self
             .command(env!("CARGO_BIN_EXE_git-discard"), &self.work())
@@ -183,11 +172,6 @@ fn ignored_files_are_neither_listed_nor_touched() {
     assert!(!sandbox.exists("untracked.txt"));
 }
 
-/// And the same inside an untracked directory, which is the harder half: the
-/// walk would rather hand over the whole directory as one entry, and removing
-/// that entry is one recursive delete that never consults an ignore rule. So
-/// the directory has to stay open all the way down to the untracked files, as
-/// it does for `git clean -d`.
 #[test]
 fn ignored_files_inside_an_untracked_directory_are_kept_too() {
     let sandbox = Sandbox::new();
@@ -213,8 +197,6 @@ fn ignored_files_inside_an_untracked_directory_are_kept_too() {
     assert_eq!(sandbox.read("loose/ignored_dir/deep.txt"), "deep\n");
 }
 
-/// The collapse has to stop at the directory that holds the ignored file and
-/// no higher: a sibling with nothing ignored in it is still one entry.
 #[test]
 fn a_sibling_with_nothing_ignored_still_collapses() {
     let sandbox = Sandbox::new();
@@ -260,8 +242,6 @@ fn a_repository_inside_an_untracked_directory_survives_with_its_parents() {
     assert!(!sandbox.exists("loose/other.txt"));
 }
 
-/// The deletions have to happen before the restore, or the file standing in
-/// the directory's place would be removed after the directory came back.
 #[test]
 fn a_file_that_took_a_tracked_directorys_name_gives_it_back() {
     let sandbox = Sandbox::new();
@@ -277,8 +257,6 @@ fn a_file_that_took_a_tracked_directorys_name_gives_it_back() {
     assert_eq!(sandbox.status(), "");
 }
 
-/// And the other way around: a directory of untracked files standing where a
-/// tracked file belongs.
 #[test]
 fn a_directory_that_took_a_tracked_files_name_gives_it_back() {
     let sandbox = Sandbox::new();
@@ -490,8 +468,6 @@ fn the_executable_bit_and_symlinks_come_back() {
     );
 }
 
-/// The index is rewritten here rather than by git, so what it says has to
-/// still be true afterwards — including the tree it would commit.
 #[test]
 fn the_index_still_describes_the_working_tree_afterwards() {
     let sandbox = Sandbox::new();
@@ -546,8 +522,6 @@ fn completions_need_no_repository() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("#compdef gdd"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     let sandbox = Sandbox::new();

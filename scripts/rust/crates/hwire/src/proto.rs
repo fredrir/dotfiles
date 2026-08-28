@@ -1,17 +1,3 @@
-//! What the two halves say to each other.
-//!
-//! One connection carries one phase: the client dials, writes a fixed 32-byte
-//! header naming the phase, and both sides then do that phase's work until the
-//! sender shuts its half down. Nothing is multiplexed, so a phase needs no
-//! framing beyond its header, and parallel streams are just several
-//! connections carrying the same phase at the same time.
-//!
-//! The token is the whole of the access control. A server is started for one
-//! measurement, listens on one route address, and is handed a fresh token over
-//! ssh; anything that dials it without repeating that token gets its
-//! connection closed. This keeps a stray or overlapping run from being
-//! measured as part of this one — it is not protecting a secret, since the
-//! only thing on the connection after it is a stream of zeros.
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream};
@@ -22,33 +8,19 @@ pub const VERSION: u8 = 1;
 pub const HEADER: usize = 32;
 pub const RESULT: usize = 16;
 
-/// The payload bounced back and forth in the latency phase: a sequence
-/// number, so a reply that belongs to an earlier round trip is caught.
 pub const PING: usize = 8;
 
-/// One write's worth of zeros. Large enough that the per-call cost is noise
-/// at cable speed, small enough to stay well inside a socket buffer.
 pub const CHUNK: usize = 256 * 1024;
 
-/// Time the receiver throws away before it starts counting, and the sender
-/// adds to what it was asked for. TCP opens a connection with a small
-/// congestion window and doubles it once per round trip, so the first
-/// milliseconds of any transfer measure the ramp rather than the link;
-/// discarding them is what `iperf3 -O` does by hand.
 pub const WARMUP: Duration = Duration::from_millis(150);
 
-/// How long either side waits on a peer that has stopped saying anything.
 pub const STALL: Duration = Duration::from_secs(20);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
-    /// Bounce small payloads back to the client until it stops.
     Ping,
-    /// The client sends, the server counts what arrives.
     Send,
-    /// The server sends, the client counts what arrives.
     Recv,
-    /// Nothing to measure: the server is done and should exit.
     Bye,
 }
 
@@ -77,7 +49,6 @@ impl Mode {
 pub struct Header {
     pub mode: Mode,
     pub token: [u8; 16],
-    /// The measurement window the receiver should end up reporting.
     pub window: Duration,
 }
 
@@ -93,8 +64,6 @@ impl Header {
         bytes
     }
 
-    /// `Err` describes what is wrong with the header for the log; the server
-    /// answers every one of them the same way, by hanging up.
     pub fn decode(bytes: &[u8; HEADER]) -> Result<Header, String> {
         if bytes[..4] != MAGIC {
             return Err("the other end of this connection is not hwire".into());
@@ -119,9 +88,6 @@ impl Header {
     }
 }
 
-/// What a receiver counted, in its own time. Whoever received reports it, so
-/// throughput is always the rate the bytes actually landed at rather than the
-/// rate they were handed to the kernel at.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Counted {
     pub bytes: u64,
@@ -154,8 +120,6 @@ impl Counted {
     }
 }
 
-/// Send zeros for `window` plus the warmup, then shut the sending half down,
-/// which is the end of the transfer the other side is timing.
 pub fn blast(stream: &mut TcpStream, window: Duration) -> io::Result<()> {
     let zeros = [0u8; CHUNK];
     let until = Instant::now() + window + WARMUP;
@@ -165,9 +129,6 @@ pub fn blast(stream: &mut TcpStream, window: Duration) -> io::Result<()> {
     stream.shutdown(Shutdown::Write)
 }
 
-/// Read until the sender is done, counting only what arrives after the
-/// warmup. Timing starts at the first byte counted and ends at the last, so
-/// the answer describes the transfer and not the connection setup around it.
 pub fn drain(stream: &mut TcpStream) -> io::Result<Counted> {
     let mut buffer = vec![0u8; CHUNK];
     let mut counted = Counted::default();
@@ -197,7 +158,6 @@ pub fn read_exactly<const N: usize>(stream: &mut TcpStream) -> io::Result<[u8; N
     Ok(bytes)
 }
 
-/// A fresh token for one measurement.
 pub fn token() -> io::Result<[u8; 16]> {
     let mut token = [0u8; 16];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut token)?;

@@ -1,5 +1,3 @@
-//! Black-box checks on what the shell sees; the measuring itself is covered
-//! by the unit tests next to it.
 
 use std::process::{Command, Output};
 
@@ -21,8 +19,6 @@ fn completions_are_available() {
     assert!(stdout(&output).contains("#compdef size"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     assert!(

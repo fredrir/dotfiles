@@ -1,4 +1,3 @@
-//! The flags, exit codes and refusals a caller depends on.
 
 use std::process::{Command, Output};
 

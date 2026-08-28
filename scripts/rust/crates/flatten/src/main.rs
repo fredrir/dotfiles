@@ -1,20 +1,3 @@
-//! Lift a directory's contents up out of the directories holding them.
-//!
-//! `flatten <dir>` undoes redundant nesting and nothing else: while the
-//! directory holds exactly one entry and that entry is a directory, the
-//! wrapper is emptied into the target and removed. That can never land two
-//! entries on one name, so it does not ask and it says nothing — the archive
-//! that unpacked one folder too deep is simply the right shape afterwards.
-//!
-//! `-d` means the whole subtree instead: every entry that is not a directory
-//! comes up to the top and every directory underneath goes away. That can
-//! land two entries on one name, and it removes directories, so it prints
-//! what it is about to do, asks about each collision, and asks once more
-//! before starting.
-//!
-//! Nothing is worked out while the moves are happening. The survey, the
-//! names, and the answers are all settled first, which is what makes `-n` a
-//! true account of the run it is standing in for.
 
 mod apply;
 mod dir;
@@ -32,10 +15,8 @@ use plan::{Deep, Plan, show};
 
 const PROGRAM: &str = "flatten";
 
-/// Rows of a section to show before the rest are summed up.
 const ROWS: usize = 12;
 
-/// How wide to assume the terminal is when there is nobody to ask.
 const WIDTH: usize = 100;
 
 const ARROW: &str = " -> ";
@@ -63,7 +44,6 @@ itself and a loop is not a hang.",
   flatten -d -y pack       Flatten the whole subtree without being asked"
 )]
 struct Cli {
-    /// Directories to flatten
     #[arg(
         value_name = "DIRECTORY",
         value_hint = ValueHint::DirPath,
@@ -71,23 +51,18 @@ struct Cli {
     )]
     directories: Vec<PathBuf>,
 
-    /// Bring up everything underneath, not just the wrappers around it
     #[arg(short = 'd', long)]
     deep: bool,
 
-    /// Show what would happen and stop
     #[arg(short = 'n', long = "dry-run")]
     dry_run: bool,
 
-    /// Do not ask
     #[arg(short, long)]
     yes: bool,
 
-    /// Name every move as it is made
     #[arg(short, long)]
     verbose: bool,
 
-    /// List every row instead of the first 12 of a section
     #[arg(short, long)]
     all: bool,
 
@@ -119,7 +94,6 @@ fn main() -> ExitCode {
     status
 }
 
-/// `Ok(false)` for a run that reported a failure of its own.
 fn flatten(
     target: &Path,
     cli: &Cli,
@@ -259,7 +233,6 @@ fn run_deep(
     report(&done, cli, style, true)
 }
 
-/// The plan's heading: what is about to happen, and to what.
 fn heading(target: &Path, cli: &Cli, style: &Style) {
     println!();
     let mut line = format!(
@@ -273,8 +246,6 @@ fn heading(target: &Path, cli: &Cli, style: &Style) {
     println!("{line}");
 }
 
-/// One section of the plan, with the source column measured over the rows
-/// that are actually shown.
 fn section(header: &str, rows: &[(String, String)], cli: &Cli, style: &Style) {
     if rows.is_empty() {
         return;
@@ -311,7 +282,6 @@ fn section(header: &str, rows: &[(String, String)], cli: &Cli, style: &Style) {
     }
 }
 
-/// What the plan adds up to, in one line.
 fn tally(plan: &Deep, asking: usize) -> String {
     let moved = plan.moves().count();
     let below: usize = plan.dirs[1..]
@@ -352,7 +322,6 @@ fn refuse(refusals: &[plan::Refusal]) {
     }
 }
 
-/// What to do about each move as it is made.
 fn narrator<'a>(cli: &'a Cli, style: &'a Style) -> impl FnMut(&str, &str) + use<'a> {
     move |from: &str, to: &str| {
         if cli.verbose {
@@ -373,8 +342,6 @@ fn report(done: &apply::Done, cli: &Cli, style: &Style, spoke: bool) -> Result<b
     Ok(done.failures.is_empty())
 }
 
-/// Symlinks are followed here, so a link to a directory is a target even
-/// though nothing found inside the tree is followed.
 fn require_directory(directory: &Path) -> Result<(), String> {
     match fs::metadata(directory) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
@@ -387,8 +354,6 @@ fn require_directory(directory: &Path) -> Result<(), String> {
     }
 }
 
-/// The two directories a deep flatten is never what somebody meant. There is
-/// no flag to insist, because there is no version of this that ends well.
 fn protected(target: &Path) -> Option<&'static str> {
     let real = fs::canonicalize(target).ok()?;
     if real.parent().is_none() {

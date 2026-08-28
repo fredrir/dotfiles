@@ -1,4 +1,3 @@
-//! Download a file or folder out of a GitHub repository.
 
 mod fetch;
 mod target;
@@ -14,7 +13,6 @@ use target::Target;
 
 const PROGRAM: &str = "gget";
 
-/// The account `--fredrir` stands for.
 const OWNER: &str = "fredrir";
 
 const ARROW: &str = " -> ";
@@ -32,19 +30,15 @@ const ARROW: &str = " -> ";
   gget user/repo                                         The whole repository, as files"
 )]
 struct Cli {
-    /// A GitHub URL, or owner/repo and a path in it
     #[arg(value_name = "TARGET", required_unless_present = "shell")]
     target: Option<String>,
 
-    /// Read the target as one of fredrir's own repositories
     #[arg(short, long)]
     fredrir: bool,
 
-    /// Take the files from this branch or tag instead of the default one
     #[arg(short, long, value_name = "BRANCH")]
     branch: Option<String>,
 
-    /// Replace what is already there without asking
     #[arg(short, long)]
     yes: bool,
 
@@ -114,8 +108,6 @@ fn get(cli: &Cli) -> Result<ExitCode, String> {
     }
 }
 
-/// Where the files came from, as one phrase: the repository, the branch once
-/// it is known, and where in it.
 fn describe(target: &Target, branch: Option<&str>) -> String {
     let source = fetch::reported(target, branch);
     if target.path.is_empty() {
@@ -125,8 +117,6 @@ fn describe(target: &Target, branch: Option<&str>) -> String {
     }
 }
 
-/// A process status is a byte on the platforms this runs on; anything that is
-/// not one came from somewhere unexpected and counts as a failure.
 fn byte(code: i32) -> u8 {
     u8::try_from(code).unwrap_or(1)
 }

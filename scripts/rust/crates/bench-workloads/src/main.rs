@@ -1,9 +1,3 @@
-//! Native workloads for `sysinfo bench`.
-//!
-//! Each invocation runs one fixed, deterministic workload and prints a single
-//! JSON object on stdout. Sampling, convergence, and record keeping stay in
-//! the Python bench runner; this binary only does the measured work, so the
-//! number it reports never includes interpreter or subprocess overhead.
 
 use std::env;
 use std::hint::black_box;
@@ -52,10 +46,6 @@ impl Measurement {
     }
 }
 
-/// xorshift64* with the results folded into a running sum. The multiply and
-/// the fold keep every iteration data-dependent on the previous one, so the
-/// chain measures sustained scalar throughput rather than how many independent
-/// streams the out-of-order window can overlap.
 fn xorshift_chain(seed: u64, iterations: u64) -> u64 {
     let mut state = seed | 1;
     let mut sum = 0u64;
@@ -108,10 +98,6 @@ enum MemoryOp {
     Write,
 }
 
-/// Sequential single-thread bandwidth over a buffer far larger than any L3.
-/// Single-threaded to match the mem.* metrics: threaded reads over untouched
-/// pages can exceed what the bus physically carries (every page maps to the
-/// shared zero page), so the buffer is pattern-filled before timing starts.
 fn memory_workload(op: MemoryOp, mib: usize, passes: u32) -> Measurement {
     let words = mib * 1024 * 1024 / 8;
     let mut buffer: Vec<u64> = vec![0u64; words];

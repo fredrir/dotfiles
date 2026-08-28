@@ -1,10 +1,3 @@
-//! Showing a survey before anything is done about it.
-//!
-//! Three sections, because there are three fates, and the destructive one is
-//! the one to read: a restored file is still in `HEAD`, while a deleted
-//! untracked file is nowhere. Columns are measured over the rows that are
-//! actually shown, so a long path in the tail of a long section does not
-//! stretch the ones above it.
 
 use std::path::Path;
 
@@ -13,8 +6,6 @@ use workstation::Style;
 
 use crate::survey::{Counts, Entry, Fate, Survey};
 
-/// How a plan is shown: the palette, how many rows a section gets, and how
-/// much width there is to spend on paths.
 pub struct View {
     pub program: &'static str,
     pub style: Style,
@@ -22,7 +13,6 @@ pub struct View {
     pub width: usize,
 }
 
-/// A row's five columns, already turned into text.
 struct Row {
     label: &'static str,
     path: String,
@@ -45,7 +35,6 @@ enum Align {
 }
 
 impl View {
-    /// Print what would be discarded, and what that would cost.
     pub fn plan(&self, survey: &Survey, paths: &[BString]) {
         let sections = [
             (Fate::Restore, "restore to HEAD".to_string()),
@@ -152,8 +141,6 @@ impl View {
     }
 }
 
-/// A column, padded outside its colour so that the escapes never count as
-/// width and an empty column is plain spaces the line can shed.
 fn cell(text: &str, width: usize, align: Align, paint: impl Fn(&str) -> String) -> String {
     let padding = " ".repeat(width.saturating_sub(text.chars().count()));
     if text.is_empty() {

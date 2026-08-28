@@ -1,12 +1,8 @@
-//! Black-box checks against a real repository, since what `gpp` does is
-//! decide what to make of git's own statuses.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// A work repository with a bare origin to push to, run with git reading no
-/// configuration and no identity from the machine running the tests.
 struct Sandbox {
     home: tempfile::TempDir,
 }
@@ -147,8 +143,6 @@ fn nothing_to_commit_stops_before_committing() {
     assert_eq!(sandbox.read(&work, &["rev-parse", "HEAD"]), before);
 }
 
-/// Staging starts at the repository root, wherever `gpp` runs: a change at
-/// the top level is committed even when the command runs in a subdirectory.
 #[test]
 fn staging_starts_at_the_repository_root() {
     let sandbox = Sandbox::new();
@@ -165,8 +159,6 @@ fn staging_starts_at_the_repository_root() {
     );
 }
 
-/// "Nothing to commit" is a question about the index, not about the working
-/// tree: something staged earlier still has to be committed.
 #[test]
 fn something_staged_earlier_is_still_committed() {
     let sandbox = Sandbox::new();
@@ -182,10 +174,6 @@ fn something_staged_earlier_is_still_committed() {
     );
 }
 
-/// Staging from the root during a merge takes each conflicted file as the
-/// working tree has it — the same resolution `git add` offers — so wherever
-/// `gpp` runs, the commit that follows is the merge commit, with both
-/// parents.
 #[test]
 fn a_conflicted_merge_is_committed_as_it_stands() {
     let sandbox = Sandbox::new();
@@ -239,8 +227,6 @@ fn completions_need_no_message() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("#compdef gpp"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     let sandbox = Sandbox::new();

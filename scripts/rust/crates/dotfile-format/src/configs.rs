@@ -1,11 +1,3 @@
-//! Where this repository's tool configuration comes from, and how it is put
-//! into another project.
-//!
-//! `--add` offers one config per language the project appears to use and asks
-//! about each; `--sync` refreshes the ones already there and introduces
-//! nothing. The asymmetry is the point: `--add` is how a project gets these
-//! settings, `--sync` is how a project that already agreed to them keeps up,
-//! and neither should ever be the other by accident.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -16,10 +8,6 @@ use workstation::Answer;
 
 use crate::lang::{LANGS, Lang};
 
-/// The files `--add` copies, compiled in so that a binary which cannot find
-/// the repository still has something true to say. `setup.sh` rebuilds on a
-/// change under `shared/tools`, so these are the same bytes as the repository
-/// held when this binary was built.
 pub const EMBEDDED: [(&str, &str); 9] = [
     (
         "dotfmt.dotfile",
@@ -59,29 +47,20 @@ pub const EMBEDDED: [(&str, &str); 9] = [
     ),
 ];
 
-/// Where the live copies live, under whichever root was found.
 const TOOLS: &str = "shared/tools";
 
-/// The environment variable that names the repository outright.
 pub const OVERRIDE: &str = "DOTFILE_ROOT";
 
-/// Where the configs are being read from.
 #[derive(Debug)]
 pub enum Source {
-    /// A checkout of this repository, read live.
     Repo(PathBuf),
-    /// No checkout was found, so the copies inside this binary are it.
     Embedded,
 }
 
-/// A directory is this repository when it holds both of these — the same
-/// predicate `core/paths.py:repo_root` uses. Probing for `.git` instead would
-/// happily name whatever repository the run happens to be standing in.
 pub fn is_root(directory: &Path) -> bool {
     directory.join("environment").is_dir() && directory.join("config/targets.dotfile").is_file()
 }
 
-/// Find the source of truth.
 pub fn source() -> Result<Source, String> {
     resolve(
         std::env::var_os(OVERRIDE).map(PathBuf::from),
@@ -93,17 +72,6 @@ pub fn source() -> Result<Source, String> {
     )
 }
 
-/// The order the four places are tried in, taking each as an argument so that
-/// it can be settled without an environment to set.
-///
-/// `DOTFILE_ROOT` is first and is a hard error when it does not hold the
-/// repository: a typo there must not quietly fall through to some other
-/// checkout and copy the wrong settings into a project.
-///
-/// Then the working directory, because a run inside a checkout means that
-/// checkout; then the directory the binary is in, which is what finds the root
-/// under `cargo run` and `cargo test`; then the conventional place. Only when
-/// all four come up empty are the compiled-in copies used.
 pub fn resolve(
     named: Option<PathBuf>,
     cwd: Option<PathBuf>,
@@ -144,7 +112,6 @@ fn climb(from: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The text of one source-of-truth config.
 pub fn read(source: &Source, name: &str) -> Result<String, String> {
     match source {
         Source::Repo(root) => {
@@ -159,12 +126,6 @@ pub fn read(source: &Source, name: &str) -> Result<String, String> {
     }
 }
 
-/// Which languages a project uses.
-///
-/// A marker file at the top settles it on its own, because a project can be a
-/// Rust project on the strength of its `Cargo.toml` before it has a single
-/// `.rs` file. Otherwise the same walk a format run does answers it: one file
-/// of a language is enough, and a false positive costs one `n`.
 pub fn detect(root: &Path, files: &[PathBuf]) -> Vec<Lang> {
     LANGS
         .into_iter()
@@ -177,14 +138,10 @@ pub fn detect(root: &Path, files: &[PathBuf]) -> Vec<Lang> {
         .collect()
 }
 
-/// One config, and where it would land.
 pub struct Placement {
-    /// Its name in `shared/tools/`.
     pub from: &'static str,
-    /// The name it has to land under, which is only different for biome.
     pub name: &'static str,
     pub to: PathBuf,
-    /// Whether the project already has a file by that name.
     pub exists: bool,
 }
 
@@ -204,11 +161,6 @@ pub fn placements(root: &Path, langs: &[Lang]) -> Vec<Placement> {
         .collect()
 }
 
-/// Ask about each config and copy the ones agreed to.
-///
-/// The wording says which of the two things is about to happen, so answering
-/// `a` is never a blind overwrite. Answers running out is a cancellation:
-/// a non-interactive `--add` copies nothing and is not a failure.
 pub fn add<'a>(
     source: &Source,
     placements: &'a [Placement],
@@ -232,7 +184,6 @@ pub fn add<'a>(
     Ok(done)
 }
 
-/// Replace the configs a project already has, and introduce none.
 pub fn sync<'a>(
     source: &Source,
     placements: &'a [Placement],
@@ -252,53 +203,20 @@ fn place(source: &Source, placement: &Placement) -> Result<(), String> {
 
 // ------------------------------------------------- pointing a tool at a config
 
-/// Which of a row's files a set of arguments applies to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Scope {
-    /// All of them. The program resolves once, from the directory it is run
-    /// in, so a config deeper in the tree is one it would never have found and
-    /// naming this one takes nothing away.
     Row,
-    /// Only the files with no config of their own between them and the root.
-    ///
-    /// The program resolves per file, and a config named on the command line
-    /// outranks a nearer one — measured: `stylua --config-path` overrides a
-    /// `.stylua.toml` one directory down, and `biome --config-path` turns off
-    /// the nested resolution it would otherwise do. So the files that have
-    /// their own are run in a second invocation without the flag, and
-    /// `shared/nvim/.stylua.toml` and `shared/wezterm/.stylua.toml` keep
-    /// winning inside their subtrees.
     Unclaimed(&'static [&'static str]),
 }
 
-/// A program that has to be told where this repository's config is, and the
-/// names it would look for on its own.
-///
-/// Keyed by program rather than by language, which is not a detail: the YAML
-/// row runs two of them, and `yamlfmt -c` is not a flag — it exits printing
-/// the usage text, exactly the way `yamlfmt -w` did. A config belongs to a
-/// tool, not to a language.
-///
-/// Every one of these searches for a config and would find nothing of this
-/// repository's, because the configs live under `shared/tools/` rather than at
-/// the root. Two of them — taplo and stylua — really did format this whole
-/// tree at their own defaults and report it clean. The other two are saved on
-/// this machine only by a symlink in `$HOME` that a fresh checkout, a CI
-/// runner, or a target outside `$HOME` would not have; naming the config is
-/// what stops the settings depending on where the run happens to stand.
 pub struct Injection {
     pub program: &'static str,
-    /// The flag that names a config outright.
     pub flag: &'static str,
-    /// Its name in `shared/tools/`.
     pub file: &'static str,
-    /// What the program finds by itself. A target that has one keeps it.
     pub own: &'static [&'static str],
     pub scope: Scope,
 }
 
-/// The names each of them looks for, written once so the guard and the scope
-/// cannot drift apart.
 const OWN_TAPLO: &[&str] = &[".taplo.toml", "taplo.toml"];
 const OWN_BIOME: &[&str] = &["biome.json", "biome.jsonc"];
 const OWN_STYLUA: &[&str] = &[".stylua.toml", "stylua.toml"];
@@ -350,7 +268,6 @@ pub const INJECTED: [Injection; 4] = [
     },
 ];
 
-/// One program's arguments, and which of a row's files they are for.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Injected {
     pub program: &'static str,
@@ -358,13 +275,6 @@ pub struct Injected {
     pub scope: Scope,
 }
 
-/// The extra arguments each program needs to run with this repository's
-/// settings, for the programs that would otherwise use their own defaults.
-///
-/// Nothing is injected when the target already has a config the program would
-/// find for itself: a project's own settings always win. Nothing is injected
-/// either when no checkout was found, because the copies compiled into this
-/// binary have no path to name.
 pub fn injections(source: &Source, root: &Path) -> Vec<Injected> {
     let Source::Repo(repo) = source else {
         return Vec::new();
@@ -383,9 +293,6 @@ pub fn injections(source: &Source, root: &Path) -> Vec<Injected> {
         .collect()
 }
 
-/// The same upward search the programs themselves do from the directory every
-/// child is run in, so the answer to "would it find one?" is theirs and not a
-/// second opinion.
 fn brings_its_own(root: &Path, names: &[&str]) -> bool {
     let mut at = Some(root);
     while let Some(directory) = at {
@@ -397,16 +304,6 @@ fn brings_its_own(root: &Path, names: &[&str]) -> bool {
     false
 }
 
-/// Split a row's files by whether the program would find a config of its own
-/// above them, for the programs that resolve per file.
-///
-/// Only the directories below the root are looked at. Root and above have
-/// already been searched — finding nothing there is why there is anything to
-/// inject — so a second walk up to the filesystem root would ask a question
-/// that has been answered.
-///
-/// Memoised per directory: walking up from each of forty `.lua` files under
-/// `shared/nvim/lua/plugins/` reads the same chain forty times otherwise.
 pub fn partition(root: &Path, own: &[&str], files: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let mut known: HashMap<PathBuf, bool> = HashMap::new();
     let mut theirs = Vec::new();

@@ -1,10 +1,3 @@
-//! Black-box checks on the flags, output, prompts and exit codes callers
-//! depend on.
-//!
-//! The tools themselves are stood in for by shell scripts on a `PATH` this
-//! harness controls, so what is checked here is what this binary does — which
-//! programs it runs, in which directory, with which arguments — and not
-//! whether ruff happens to be installed on the machine running the tests.
 
 use std::fs;
 use std::io::Write;
@@ -12,9 +5,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-/// A run of the binary. `DOTFILE_ROOT` is always cleared first: the test
-/// binary lives inside this repository, so a run that did not clear it would
-/// find the real checkout by climbing out of `target/debug`.
 fn format(args: &[&str], answers: &str, environment: &[(&str, &str)]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile-format"));
     command
@@ -63,16 +53,12 @@ fn at(root: &tempfile::TempDir, path: &str) -> String {
     root.path().join(path).display().to_string()
 }
 
-/// A stand-in for one of the providers, written into a directory that is
-/// about to become the whole of `PATH`.
 fn stub(bin: &Path, name: &str, body: &str) {
     let path = bin.join(name);
     fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// A stand-in that records the directory it ran in and the arguments it was
-/// given, one line per invocation.
 fn recorder(bin: &Path, name: &str) {
     stub(
         bin,
@@ -81,12 +67,6 @@ fn recorder(bin: &Path, name: &str) {
     );
 }
 
-/// A stand-in for dotfmt that answers `--owns` by pattern and records every
-/// other invocation the way the rest of the providers are recorded.
-///
-/// The protocol is the whole of what this crate knows about dotfmt's
-/// selection rules: NUL-separated paths in, the owned subset NUL-separated
-/// out.
 fn owner(bin: &Path, pattern: &str) {
     stub(
         bin,
@@ -131,8 +111,6 @@ fn log(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// A directory that satisfies the marker predicate, holding its own copies of
-/// the configs so an assertion can tell them from the real ones.
 fn checkout() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     fs::create_dir_all(root.path().join("environment")).unwrap();
@@ -166,8 +144,6 @@ fn no_arguments_prints_the_help_on_stdout_and_succeeds() {
     assert_eq!(stderr(&output), "");
 }
 
-/// clap hands a flattened struct's documentation to the command it lands in,
-/// so the shared `--completions` flag can quietly become this tool's `about`.
 #[test]
 fn the_help_describes_this_tool_and_not_the_flags_it_shares() {
     let output = format(&["--help"], "", &[]);
@@ -206,8 +182,6 @@ fn a_target_that_is_not_there_is_an_error() {
 
 // ------------------------------------------------------------------ the run
 
-/// The one that matters most on a machine with none of these tools installed:
-/// a missing program is a fact in the report and never an exit code.
 #[test]
 fn with_only_git_on_the_path_a_python_tree_succeeds_and_names_ruff() {
     let root = tree(&["a.py=x = 1\n"]);
@@ -244,9 +218,6 @@ fn a_check_run_writes_nothing_to_stdout() {
     assert!(!stderr(&output).is_empty());
 }
 
-/// Every child runs in the root and is handed paths relative to it, which is
-/// how the programs that resolve for themselves — shfmt's `.editorconfig`,
-/// dotfmt's per-directory rules — find what they are looking for.
 #[test]
 fn each_tool_runs_in_the_root_and_is_given_relative_paths() {
     let repo = checkout();
@@ -278,7 +249,6 @@ fn each_tool_runs_in_the_root_and_is_given_relative_paths() {
     );
 }
 
-/// Both rewrite the same file, so the order is not an implementation detail.
 #[test]
 fn the_programs_of_one_language_run_in_the_order_the_table_gives() {
     let root = tree(&["m.go=package main\n"]);
@@ -359,7 +329,6 @@ fn a_tool_reporting_drift_makes_a_check_run_exit_one() {
     assert!(loud.contains("would reformat a.py"), "{loud}");
 }
 
-/// The same drift in a write run is the run doing its job.
 #[test]
 fn a_write_run_succeeds_whatever_it_changed() {
     let root = tree(&["a.py=x\n"]);
@@ -387,8 +356,6 @@ fn a_tool_that_cannot_do_its_job_makes_a_write_run_exit_one() {
     assert!(stderr(&output).contains("failed"), "{}", stderr(&output));
 }
 
-/// `gofmt -l` exits 0 whether or not the files are formatted, so its silence
-/// is the only thing that says they are.
 #[test]
 fn gofmt_naming_a_file_is_drift_even_though_it_exits_zero() {
     let root = tree(&["m.go=package main\n"]);
@@ -404,7 +371,6 @@ fn gofmt_naming_a_file_is_drift_even_though_it_exits_zero() {
     assert!(stderr(&output).contains("findings"), "{}", stderr(&output));
 }
 
-/// The environment has to reach the child, and only that child.
 #[test]
 fn taplo_is_run_with_its_logging_turned_down_and_other_tools_are_not() {
     let root = tree(&["a.toml=x\n", "b.py=x\n"]);
@@ -434,8 +400,6 @@ fn taplo_is_run_with_its_logging_turned_down_and_other_tools_are_not() {
     assert_eq!(lines, ["ruff=debug", "taplo=warn"]);
 }
 
-/// The findings are what a person opened the report for. Echoing the command
-/// and the file list first buries them under thousands of characters.
 #[test]
 fn a_check_run_reports_the_provider_and_not_the_command() {
     let files: Vec<String> = (0..40).map(|nth| format!("src/f{nth}.py=x\n")).collect();
@@ -471,9 +435,6 @@ fn a_check_run_reports_the_provider_and_not_the_command() {
     assert!(some.contains("would reformat"), "{some}");
 }
 
-/// Chunking is an `ARG_MAX` detail, not something a reader needs to see: 513
-/// files is two command lines per step, and the report is the same three
-/// words either way.
 #[test]
 fn a_step_that_took_several_command_lines_reads_as_one() {
     let files: Vec<String> = (0..513).map(|nth| format!("f{nth}.py=x\n")).collect();
@@ -542,8 +503,6 @@ fn a_tree_holding_nothing_any_provider_owns_succeeds_and_runs_nothing() {
     assert!(log(&logged).is_empty());
 }
 
-/// A lockfile is machine-written; leaving it alone is the rule, and `-v` is
-/// where the rule is visible rather than silent.
 #[test]
 fn a_lockfile_is_never_handed_to_a_tool_and_verbose_names_it() {
     let repo = checkout();
@@ -600,10 +559,6 @@ fn files_git_ignores_are_left_out() {
 
 // ------------------------------------------------------------ dotfmt's row
 
-/// The row is dotfmt's answer, not this crate's guess. `.conf` here is opted
-/// in and `.dotfile` is not, which no extension list in this crate could have
-/// produced — and that is the point: `dotfile format .` and `dotfmt .` cannot
-/// disagree if only one of them decides.
 #[test]
 fn the_dotfmt_row_is_whatever_dotfmt_says_it_owns() {
     let root = tree(&["a.conf=x\n", "b.dotfile=x\n", "c.py=x\n"]);
@@ -631,8 +586,6 @@ fn the_dotfmt_row_is_whatever_dotfmt_says_it_owns() {
     );
 }
 
-/// dotfmt owns files by path as well as by extension, and a file with no
-/// extension at all is the case the walk has to be able to offer.
 #[test]
 fn a_file_with_no_extension_reaches_dotfmt_when_dotfmt_claims_it() {
     let root = tree(&["ssh/config.d/10-work=x\n", "notes.md=x\n"]);
@@ -657,8 +610,6 @@ fn a_file_with_no_extension_reaches_dotfmt_when_dotfmt_claims_it() {
     );
 }
 
-/// Two providers rewriting one file is the race the whole design exists to
-/// avoid, so a file dotfmt claims is a file no other row is handed.
 #[test]
 fn a_file_dotfmt_claims_is_given_to_nobody_else() {
     let root = tree(&["app.json=x\n"]);
@@ -682,8 +633,6 @@ fn a_file_dotfmt_claims_is_given_to_nobody_else() {
     );
 }
 
-/// The same answer every other provider gets: a fact about this machine, not
-/// an exit code, and nothing in the report to read past.
 #[test]
 fn dotfmt_missing_is_never_an_error_and_is_named_only_under_verbose() {
     let root = tree(&["a.conf=x\n", "b.py=x\n"]);
@@ -710,9 +659,6 @@ fn dotfmt_missing_is_never_an_error_and_is_named_only_under_verbose() {
     );
 }
 
-/// A dotfmt that cannot answer is a failure rather than a row that quietly
-/// owns nothing: a run that formatted none of the `.conf` files while
-/// reporting success is the bug this call was added to close.
 #[test]
 fn a_dotfmt_that_cannot_answer_owns_fails_the_run() {
     let root = tree(&["a.conf=x\n"]);
@@ -734,9 +680,6 @@ fn a_dotfmt_that_cannot_answer_owns_fails_the_run() {
     );
 }
 
-/// A dotfmt too old to know `--owns` still formats, so the row falls back to
-/// the three extensions this crate has always used. An empty row would stop
-/// formatting every `.conf` in the tree and read as a clean run.
 #[test]
 fn a_dotfmt_that_cannot_answer_owns_still_formats_by_extension() {
     let root = tree(&["a.conf=x\n", "b.config=x\n", "c.dotfile=x\n", "d.md=x\n"]);
@@ -775,16 +718,12 @@ printf '%s|%s|%s\n' "dotfmt" "$PWD" "$*" >> "$DFF_LOG""#,
 
 // ------------------------------------------------- files encrypted at rest
 
-/// A document shaped the way SOPS really writes one.
 fn sealed() -> String {
     "password: ENC[AES256_GCM,data:qWuPqA==,iv:wtj3wg=,tag:6rqTIQ==,type:str]\n\
      sops:\n    version: 3.13.3\n"
         .to_string()
 }
 
-/// The one that would have rewritten a secrets file. yamlfmt re-indents the
-/// whole metadata block, which is a diff the size of the file at best and a
-/// broken MAC at worst.
 #[test]
 fn no_provider_is_ever_handed_an_encrypted_file() {
     let root = tree(&["ci.yaml=a: 1\n", "app.json={}\n"]);
@@ -819,8 +758,6 @@ fn no_provider_is_ever_handed_an_encrypted_file() {
     }
 }
 
-/// Leaving one alone is the tool working as intended, so it reads like a
-/// lockfile: a `--verbose` line rather than a warning.
 #[test]
 fn a_skipped_secret_is_named_under_verbose() {
     let root = tree(&["ci.yaml=a: 1\n"]);
@@ -845,8 +782,6 @@ fn a_skipped_secret_is_named_under_verbose() {
     );
 }
 
-/// Naming one outright does not get past the rule either, and a run that
-/// found nothing else to do says why rather than going quiet.
 #[test]
 fn naming_an_encrypted_file_outright_is_a_no_op_that_says_so() {
     let root = tree(&["ci.yaml=a: 1\n"]);
@@ -870,9 +805,6 @@ fn naming_an_encrypted_file_outright_is_a_no_op_that_says_so() {
     );
 }
 
-/// `.sops.yaml` is the configuration naming the keys to encrypt *with*. It is
-/// not encrypted, it follows the naming convention anyway, and it must still
-/// be formatted — which is why the rule reads the file rather than the name.
 #[test]
 fn the_sops_configuration_file_is_still_formatted() {
     let root = tree(&[".sops.yaml=creation_rules:\n  - age: age1qqq\n"]);
@@ -897,9 +829,6 @@ fn the_sops_configuration_file_is_still_formatted() {
 
 // ------------------------------------------------------ the repo's settings
 
-/// The regression that started this: nothing in this repository is called
-/// `.taplo.toml` or `biome.json` where taplo and biome look, so both ran at
-/// their own defaults over the whole tree and reported it clean.
 #[test]
 fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
     let repo = checkout();
@@ -939,8 +868,6 @@ fn taplo_and_biome_are_pointed_at_this_repositorys_config() {
     );
 }
 
-/// A project's own settings win, and per provider: this target keeps its
-/// `.taplo.toml` and is still given biome's.
 #[test]
 fn a_target_with_its_own_config_keeps_it() {
     let repo = checkout();
@@ -970,10 +897,6 @@ fn a_target_with_its_own_config_keeps_it() {
     );
 }
 
-/// The case the plan said must keep working: `shared/nvim/.stylua.toml` and
-/// `shared/wezterm/.stylua.toml` win inside their subtrees, and everything
-/// else gets this repository's. `--config-path` outranks a nearer file, so
-/// the two sets have to be two invocations.
 #[test]
 fn a_subtree_with_its_own_stylua_config_is_run_without_the_injected_one() {
     let repo = checkout();
@@ -1012,9 +935,6 @@ fn a_subtree_with_its_own_stylua_config_is_run_without_the_injected_one() {
     );
 }
 
-/// The YAML row runs two programs and `-c` is a flag for only one of them.
-/// yamlfmt exits printing its usage when handed one it does not know, which
-/// is how `-w` went unnoticed for so long.
 #[test]
 fn yamllint_is_given_the_config_and_yamlfmt_is_not() {
     let repo = checkout();
@@ -1049,8 +969,6 @@ fn yamllint_is_given_the_config_and_yamlfmt_is_not() {
     );
 }
 
-/// `-w` is not one of yamlfmt's flags. It exited 2 printing the usage text,
-/// which is why no YAML in this repository had ever been formatted.
 #[test]
 fn yamlfmt_is_run_the_way_yamlfmt_writes_in_place() {
     let root = tree(&["ci.yaml=x\n"]);
@@ -1075,8 +993,6 @@ fn yamlfmt_is_run_the_way_yamlfmt_writes_in_place() {
 
 // --------------------------------------------------------------- the report
 
-/// The headline: a tree that is already formatted says so and says nothing
-/// else.
 #[test]
 fn a_run_with_nothing_to_report_is_one_line() {
     let root = tree(&["a.py=x\n", "b.lua=x\n"]);
@@ -1094,8 +1010,6 @@ fn a_run_with_nothing_to_report_is_one_line() {
     assert_eq!(stderr(&output), "2 / 2 files formatted\n");
 }
 
-/// shfmt cannot parse `${{~var}}`, which one file in this repository uses. The
-/// row failing is not actionable; the row naming the file is.
 #[test]
 fn a_provider_that_fell_over_on_one_file_names_that_file() {
     let root = tree(&["a.sh=x\n", "deep/b.sh=x\n", "deep/odd.bash=x\n"]);
@@ -1153,8 +1067,6 @@ fn add_answering_yes_copies_the_config_and_answering_no_copies_nothing() {
     assert!(!other.path().join("ruff.toml").exists());
 }
 
-/// A non-interactive `--add` copies nothing rather than everything, and that
-/// is not a failure.
 #[test]
 fn add_with_no_answers_at_all_copies_nothing_and_succeeds() {
     let repo = checkout();
@@ -1188,7 +1100,6 @@ fn add_offers_a_config_only_for_a_language_the_project_uses() {
     assert!(!project.path().join(".sqlfluff").exists());
 }
 
-/// A typo in the variable must not quietly become somebody else's checkout.
 #[test]
 fn add_with_a_dotfile_root_that_is_not_the_repository_exits_one_naming_the_variable() {
     let elsewhere = tempfile::tempdir().unwrap();
@@ -1246,9 +1157,6 @@ fn a_marker_file_offers_a_config_the_walk_found_no_files_for() {
     assert!(project.path().join(".taplo.toml").exists());
 }
 
-/// Run from outside any checkout, with a home that has no `dotfiles` in it,
-/// every place to look comes up empty and the copies compiled in are all
-/// there is — which is also what proves they are the repository's own bytes.
 #[test]
 fn with_no_checkout_to_be_found_the_copies_in_the_binary_are_the_source() {
     let away = tempfile::tempdir().unwrap();

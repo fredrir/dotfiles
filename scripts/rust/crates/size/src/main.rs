@@ -1,20 +1,3 @@
-//! Sizes and line counts for files and directories.
-//!
-//! `size` on its own lists the current directory. A directory target prints
-//! its total, `-r` lists a directory's immediate contents, `-R` recurses
-//! (`-L` limits how deep the listing goes), and `-l` swaps bytes for line
-//! counts everywhere. Totals always include hidden files; `-a` only decides
-//! whether hidden entries get their own rows. `-i` is the other way round: a
-//! matching entry leaves the walk entirely, taking its bytes and — if it is a
-//! directory — everything underneath it; `-x` does the same to anything on a
-//! filesystem other than the target's. A file reachable under more than one
-//! name inside the tree counts once, the way `du` counts it. Bytes are the
-//! space the tree occupies, blocks and all, so a sparse disk image measures
-//! what it holds rather than what it claims and a directory of tiny files
-//! measures the blocks they round up to; `-A` asks for the logical lengths
-//! instead. Listings run smallest to biggest, so the largest entries sit next
-//! to the total. On a terminal, names get the same colors and Nerd Font icons
-//! eza-flavoured `ls` shows.
 
 use std::collections::HashMap;
 use std::fs;
@@ -31,37 +14,26 @@ use workstation::Completions;
 
 const PROGRAM: &str = "size";
 
-/// Directory metadata lookups contend inside the kernel: on APFS, concurrent
-/// stats in one directory serialise, and the contention grows with the thread
-/// count rather than the work. Measured on a 285k-entry tree, wall clock
-/// bottoms out near four threads while total CPU keeps climbing — a pool one
-/// thread per core wide is both slower and five times dearer than this.
 const WALK_THREADS: usize = 4;
 
 #[derive(Parser)]
 #[command(version, about = "Sizes and line counts for files and directories")]
 struct Cli {
-    /// File or directory to measure (no target: list the current directory)
     #[arg(value_hint = ValueHint::AnyPath)]
     target: Option<PathBuf>,
 
-    /// List the immediate contents of the directory
     #[arg(short = 'r')]
     list: bool,
 
-    /// List contents recursively
     #[arg(short = 'R')]
     recursive: bool,
 
-    /// Count lines instead of bytes
     #[arg(short = 'l', long = "lines")]
     lines: bool,
 
-    /// Measure logical lengths rather than the space actually taken up
     #[arg(short = 'A', long = "apparent", conflicts_with = "lines")]
     apparent: bool,
 
-    /// Limit how deep the recursive listing goes
     #[arg(
         short = 'L',
         long = "limit",
@@ -70,15 +42,12 @@ struct Cli {
     )]
     limit: Option<usize>,
 
-    /// Include hidden entries in listings (totals always include them)
     #[arg(short = 'a', long = "all")]
     all: bool,
 
-    /// Leave matching entries out of the listing and the totals (repeatable)
     #[arg(short = 'i', long = "ignore", value_name = "PATTERN")]
     ignore: Vec<String>,
 
-    /// Stay on the filesystem the target sits on, leaving other mounts out
     #[arg(short = 'x', long = "one-file-system")]
     one_file_system: bool,
 
@@ -115,24 +84,15 @@ struct Options {
     apparent: bool,
     display_depth: usize,
     ignore: Ignore,
-    /// `-x`: the device the target sits on, once nothing on another one is
-    /// wanted. `None` lets the walk cross mounts, which is what it does by
-    /// default.
     device: Option<u64>,
 }
 
 impl Options {
-    /// An entry on another filesystem leaves the walk exactly the way an
-    /// ignored one does: no row, no bytes, and nothing underneath it either.
     fn skips_device(&self, device: u64) -> bool {
         self.device.is_some_and(|target| target != device)
     }
 }
 
-/// What a walk found: the totals, the rows worth showing, and every file that
-/// turned out to have more than one name. The links ride along with the rest
-/// rather than through a shared collection, because a tree of build output can
-/// be almost entirely hardlinks and a lock per file is a lock too many.
 #[derive(Default)]
 struct Walked {
     measure: Measure,
@@ -162,7 +122,6 @@ impl Walked {
     }
 }
 
-/// One name of a file that has several.
 struct Link {
     file: (u64, u64),
     path: String,
@@ -170,13 +129,6 @@ struct Link {
     lines: u64,
 }
 
-/// Patterns whose matches never enter the walk: no row, no bytes, and for a
-/// directory, nothing underneath it either.
-///
-/// A pattern holding a `/` is matched against the path relative to the target,
-/// anything else against the entry's own name. `*` stands for any run of
-/// characters, `?` for exactly one. A trailing slash is dropped, so `-i bin/`
-/// and `-i bin` mean the same thing — completion tends to supply the slash.
 #[derive(Default)]
 struct Ignore {
     names: Vec<String>,
@@ -217,8 +169,6 @@ impl Ignore {
     }
 }
 
-/// Glob matching: `*` for any run of characters, `?` for one. Backtracking is
-/// bounded — a `*` only ever gives back a single character at a time.
 fn matches(pattern: &str, text: &str) -> bool {
     let pattern: Vec<char> = pattern.chars().collect();
     let text: Vec<char> = text.chars().collect();
@@ -309,8 +259,6 @@ fn main() -> ExitCode {
     done(total.unreadable)
 }
 
-/// The walk: in bulk where the platform allows it, otherwise a pool sized for
-/// contention rather than for cores.
 fn walk(options: &Options, target: &Path) -> Walked {
     let walk = || {
         #[cfg(target_vendor = "apple")]
@@ -327,12 +275,6 @@ fn walk(options: &Options, target: &Path) -> Walked {
     }
 }
 
-/// A file reachable under several names is still one file, so count it for the
-/// first of those names and not again for the rest — what `du` does with
-/// hardlinks. "First" is the lowest path rather than whichever name the walk
-/// happened to reach first, so a parallel walk still answers the same thing
-/// twice running. Every directory the repeat sat under loses those bytes too,
-/// which keeps each row agreeing with the total below it.
 fn dedupe(total: &mut Measure, rows: &mut [Row], mut links: Vec<Link>) {
     if links.is_empty() {
         return;
@@ -389,8 +331,6 @@ fn done(unreadable: usize) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// A target like `document_1` resolves to `document_1.txt` when exactly one
-/// directory entry starts with the given name.
 fn resolve(target: PathBuf) -> Result<PathBuf, String> {
     if fs::symlink_metadata(&target).is_ok() {
         return Ok(target);
@@ -450,16 +390,12 @@ fn nlink(metadata: &fs::Metadata) -> u64 {
     std::os::unix::fs::MetadataExt::nlink(metadata)
 }
 
-/// What makes a file the same file under any of its names.
 #[cfg(unix)]
 fn file_id(metadata: &fs::Metadata) -> (u64, u64) {
     use std::os::unix::fs::MetadataExt;
     (metadata.dev(), metadata.ino())
 }
 
-/// Which filesystem an entry lives on. A mount point reports the filesystem
-/// mounted over it rather than the directory underneath, which is what makes
-/// this enough to spot one.
 #[cfg(unix)]
 fn device(metadata: &fs::Metadata) -> u64 {
     std::os::unix::fs::MetadataExt::dev(metadata)
@@ -492,11 +428,6 @@ fn kind_of(metadata: &fs::Metadata) -> &'static str {
     }
 }
 
-/// What a file costs the filesystem, which is what `du` reports and what
-/// deleting it hands back. It is not the length: a sparse file — a disk image,
-/// a database, anything under `/proc` — claims a length it has never written,
-/// and a tree of small files costs the block each one rounds up to. Both gaps
-/// run to orders of magnitude, in opposite directions.
 #[cfg(unix)]
 fn allocated(metadata: &fs::Metadata) -> u64 {
     // POSIX fixes `st_blocks` at 512 bytes a block, whatever the filesystem
@@ -509,10 +440,6 @@ fn allocated(metadata: &fs::Metadata) -> u64 {
     metadata.len()
 }
 
-/// A directory's own entry blocks, which `du` counts and a tree of many small
-/// directories pays for. In apparent mode there is nothing to count: the
-/// length a directory reports is a filesystem's bookkeeping rather than
-/// anything the tree holds.
 fn directory_bytes(metadata: &fs::Metadata, options: &Options) -> u64 {
     if options.apparent {
         0
@@ -540,8 +467,6 @@ fn measure_file(path: &Path, metadata: &fs::Metadata, options: &Options) -> Meas
 }
 
 thread_local! {
-    /// One scratch buffer per worker: a fresh 256 KiB allocation per file was
-    /// costing more than the reads it served.
     static BUFFER: std::cell::RefCell<Vec<u8>> =
         std::cell::RefCell::new(vec![0u8; 256 * 1024]);
 }
@@ -571,11 +496,6 @@ fn count_lines_in(file: &mut fs::File) -> Option<u64> {
     })
 }
 
-/// Depth-first aggregate of everything under `directory`, hidden included,
-/// with every directory's entries processed in parallel. Rows are only
-/// recorded down to the display depth and, unless `-a`, only for visible
-/// entries — an invisible directory hides its whole subtree from the listing
-/// while still counting toward every total.
 fn walk_directory(options: &Options, directory: &Path, relative: &Path, depth: usize) -> Walked {
     let entries: Vec<fs::DirEntry> = match fs::read_dir(directory) {
         Ok(entries) => entries.flatten().collect(),
@@ -644,8 +564,6 @@ fn walk_directory(options: &Options, directory: &Path, relative: &Path, depth: u
         })
 }
 
-/// Smallest first, biggest last — the largest entries land next to the total,
-/// where the eye already is when the listing scrolls.
 fn sort_rows(rows: &mut [Row], lines: bool) {
     rows.sort_unstable_by(|a, b| {
         let metric = |row: &Row| {
@@ -700,8 +618,6 @@ fn grouped(value: u64) -> String {
     out
 }
 
-/// The colors ls would use, resolved once for the whole table rather than
-/// re-parsed per row.
 struct Palette {
     directory: String,
     link: String,
@@ -711,8 +627,6 @@ struct Palette {
 }
 
 impl Palette {
-    /// The theme unsets LS_COLORS and ships the same entries as EZA_COLORS, so
-    /// read that first and fall back to LS_COLORS, then to the GNU defaults.
     fn from_env() -> Palette {
         let table = std::env::var("EZA_COLORS")
             .ok()
@@ -722,8 +636,6 @@ impl Palette {
         Palette::parse(&table)
     }
 
-    /// Later entries win, the way both `ls` and eza read these tables: the
-    /// theme states a category and then overrides single extensions after it.
     fn parse(table: &str) -> Palette {
         let mut palette = Palette {
             directory: "01;34".to_string(),
@@ -753,9 +665,6 @@ impl Palette {
         palette
     }
 
-    /// Kind first, the way `ls` orders it: a directory, link or executable is
-    /// coloured for what it is, and only a plain file is coloured for what it
-    /// is named.
     fn color(&self, row: &Row, base: &str) -> Option<&str> {
         match row.kind {
             "directory" => Some(&self.directory),
@@ -769,8 +678,6 @@ impl Palette {
     }
 }
 
-/// The final path component, lowercased: what the colour table and the icon
-/// table both match against.
 fn basename(name: &str) -> String {
     name.rsplit('/').next().unwrap_or(name).to_lowercase()
 }
@@ -782,7 +689,6 @@ fn extension_of(base: &str) -> Option<&str> {
     }
 }
 
-/// The Nerd Font glyph eza would show for this entry.
 fn icon_for(row: &Row, base: &str) -> char {
     if row.kind == "directory" {
         return '\u{f115}';
@@ -903,9 +809,6 @@ mod tests {
         root
     }
 
-    /// Options that measure logical lengths, so a test can assert the bytes it
-    /// wrote rather than whatever the filesystem rounded them up to. The
-    /// default — space on disk — gets its own tests below.
     fn logical() -> Options {
         Options {
             apparent: true,
@@ -938,9 +841,6 @@ mod tests {
         assert_eq!(assets.measure.bytes, 2500);
     }
 
-    /// A file that claims a length it never wrote costs the blocks it holds
-    /// and nothing more — the disk image, the database, everything under
-    /// `/proc`. Only `-A` should believe the claim.
     #[test]
     fn a_sparse_file_measures_what_it_holds() {
         let root = tempfile::tempdir().unwrap();
@@ -957,9 +857,6 @@ mod tests {
         );
     }
 
-    /// Disk mode has to account for every entry in the tree, directories
-    /// included. The aggregation is the part that can drift, so add the same
-    /// tree up a second way and compare.
     #[test]
     fn disk_mode_counts_every_entry_the_tree_holds() {
         fn by_hand(directory: &Path) -> u64 {
@@ -987,10 +884,6 @@ mod tests {
         assert_eq!(walked.measure.bytes, by_hand(root.path()));
     }
 
-    /// A mount inside a temporary directory is not something a test can
-    /// arrange, so drive `-x` from both ends instead: the device the tree
-    /// really sits on changes nothing, and a device nothing sits on empties
-    /// the walk.
     #[test]
     fn one_file_system_keeps_the_targets_device_and_drops_the_rest() {
         let root = tree();
@@ -1127,7 +1020,6 @@ mod tests {
         assert_eq!(palette.color(&row("notes.txt", "file"), "notes.txt"), None);
     }
 
-    /// `di` must not match `dirty=`; only a whole key followed by `=` counts.
     #[test]
     fn a_longer_key_is_not_mistaken_for_a_shorter_one() {
         let palette = Palette::parse("dirty=1:link=2");
@@ -1138,8 +1030,6 @@ mod tests {
         assert_eq!(palette.color(&row("l", "link"), "l"), Some("01;36"));
     }
 
-    /// A tree where one file is reachable under two names, plus a name that
-    /// sorts before both so the walk has to pick rather than take the first.
     fn linked() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
         fs::create_dir(root.path().join("apples")).unwrap();
@@ -1176,8 +1066,6 @@ mod tests {
         assert_eq!(total.bytes, 6 + 3);
     }
 
-    /// The lowest path keeps the bytes, so a parallel walk cannot change which
-    /// of the names is the one that counts.
     #[test]
     fn the_lowest_path_is_the_one_that_counts() {
         let root = linked();
@@ -1203,8 +1091,6 @@ mod tests {
         }
     }
 
-    /// Only one of the names is inside the tree, so there is nothing to
-    /// discount — the same answer `du` gives.
     #[test]
     fn a_link_from_outside_the_tree_still_counts() {
         let root = linked();
@@ -1261,8 +1147,6 @@ mod tests {
         }
     }
 
-    /// A pattern with a slash in it is about where the entry sits, not what it
-    /// is called.
     #[test]
     fn a_pattern_with_a_slash_matches_the_relative_path() {
         let root = tree();
@@ -1303,7 +1187,6 @@ mod tests {
         );
     }
 
-    /// What an entry *is* outranks what it is named, the way `ls` orders it.
     #[test]
     fn kind_outranks_extension() {
         let palette = Palette::parse("di=dir:ex=exec:ln=link:*.rs=rust");
@@ -1317,8 +1200,6 @@ mod tests {
         assert_eq!(palette.color(&runnable, "build.rs"), Some("exec"));
     }
 
-    /// The theme names a category and then overrides single extensions after
-    /// it, so the later entry has to be the one that sticks.
     #[test]
     fn a_later_entry_overrides_an_earlier_one() {
         let palette = Palette::parse("*.toml=first:*.toml=second:fi=one:fi=two");

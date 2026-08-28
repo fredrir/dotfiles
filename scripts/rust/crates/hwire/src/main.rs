@@ -1,4 +1,3 @@
-//! Latency and throughput between macie and archie.
 
 #![forbid(unsafe_code)]
 
@@ -23,8 +22,6 @@ use report::Run;
 
 const PROGRAM: &str = "hwire";
 
-/// Sampling round trips stops here even when `--samples` asks for more, so a
-/// slow route cannot turn the quickest phase into the longest one.
 const LATENCY_BUDGET: Duration = Duration::from_millis(500);
 
 const REMOTE_PATH: &str = r#"PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" "#;
@@ -38,19 +35,15 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Half>,
 
-    /// Route to measure, rather than the cable when it is up
     #[arg(short = 'r', long = "route", value_name = "ROUTE")]
     route: Option<Route>,
 
-    /// Measure every route that is up, one after the other
     #[arg(short = 'a', long = "all", conflicts_with_all = ["route", "both"])]
     all: bool,
 
-    /// Compatibility spelling for --all
     #[arg(short = 'b', long = "both", conflicts_with = "route")]
     both: bool,
 
-    /// Seconds of transfer per direction
     #[arg(
         short = 't',
         long = "time",
@@ -59,36 +52,27 @@ struct Cli {
     )]
     time: f64,
 
-    /// Connections to transfer over at once
     #[arg(short = 'P', long = "streams", value_name = "N", default_value_t = 1)]
     streams: usize,
 
-    /// Round trips to time, at most
     #[arg(short = 'n', long = "samples", value_name = "N", default_value_t = 200)]
     samples: usize,
 
-    /// Time round trips and skip the transfers
     #[arg(short = 'l', long = "latency", conflicts_with_all = ["up", "down"])]
     latency: bool,
 
-    /// Transfer only from this machine to the peer
     #[arg(short = 'u', long = "up", conflicts_with = "down")]
     up: bool,
 
-    /// Transfer only from the peer to this machine
     #[arg(short = 'd', long = "down")]
     down: bool,
 
-    /// Measure against a `hwire serve` already listening there, and start
-    /// nothing over ssh
     #[arg(long = "at", value_name = "ADDRESS:PORT", conflicts_with_all = ["route", "both"])]
     at: Option<SocketAddrV4>,
 
-    /// Token that server was given, when it was given one
     #[arg(long = "token", value_name = "HEX", requires = "at")]
     token: Option<String>,
 
-    /// Print the measurement as JSON
     #[arg(long = "json")]
     json: bool,
 
@@ -98,21 +82,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Half {
-    /// Answer measurements until told to stop
     Serve {
-        /// Address to listen on
         #[arg(long = "bind", value_name = "ADDRESS", default_value = "0.0.0.0")]
         bind: Ipv4Addr,
 
-        /// Port to listen on; 0 picks a free one and prints it
         #[arg(long = "port", value_name = "PORT", default_value_t = 0)]
         port: u16,
 
-        /// Only answer a client that presents this token
         #[arg(long = "token", value_name = "HEX")]
         token: Option<String>,
 
-        /// Exit after this long with nothing connecting; 0 waits forever
         #[arg(long = "idle", value_name = "SECONDS", default_value_t = 15)]
         idle: u64,
     },
@@ -212,7 +191,6 @@ fn measure(cli: &Cli) -> Result<(), String> {
     present(cli, &style, this.name(), this.peer().name(), &runs)
 }
 
-/// Which routes to measure, and the reason when there are none.
 fn routes(cli: &Cli, this: Host) -> Result<Vec<Route>, String> {
     if cli.all || cli.both {
         let up: Vec<Route> = Route::every()
@@ -246,10 +224,6 @@ fn unreachable(this: Host) -> String {
     )
 }
 
-/// Round trips first, then a transfer in each direction asked for. Latency
-/// is measured whichever transfers were asked for: it costs a fraction of a
-/// second, and a throughput number with nothing beside it does not say
-/// whether the link was quick or merely wide.
 fn run(
     cli: &Cli,
     peer: &Peer,
@@ -297,7 +271,6 @@ fn present(cli: &Cli, style: &Style, this: &str, peer: &str, runs: &[Run]) -> Re
     Ok(())
 }
 
-/// The peer's half, and the ssh that is holding it open.
 struct Remote {
     child: Child,
     address: SocketAddrV4,
@@ -335,7 +308,6 @@ fn start(peer: Host, route: Route, token: &[u8; 16], window: Duration) -> Result
     }
 }
 
-/// `hwire serve 10.77.77.2 54321` -> where to connect.
 fn address_of(banner: &str) -> Option<SocketAddrV4> {
     let rest = banner.trim().strip_prefix(serve::BANNER)?;
     let (address, port) = rest.trim().split_once(' ')?;
@@ -345,8 +317,6 @@ fn address_of(banner: &str) -> Option<SocketAddrV4> {
     ))
 }
 
-/// Why the peer's half never came up. Its stderr is the ssh session's, so it
-/// carries both ssh's own failures and the remote shell's.
 fn explain(child: &mut Child, peer: Host) -> String {
     let _ = child.kill();
     let _ = child.wait();

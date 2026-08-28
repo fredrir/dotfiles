@@ -1,15 +1,3 @@
-//! Read, lay out, check the result against itself, and only then write.
-//!
-//! All three modes come through here — a tree walk, `--check`, and `--stdin` —
-//! so none of them can drift into formatting a file differently from the
-//! others. The formatters themselves are text in and text out; this is the
-//! only module that knows a file exists.
-//!
-//! Writing is a sibling temp file, an fsync and a rename, with the original's
-//! mode carried over. `format.py` truncates the file and then writes into it,
-//! so a crash between the two leaves a truncated `hyprland.conf` — and a
-//! formatter that runs on save is exactly the program that must never be able
-//! to do that.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -20,37 +8,23 @@ use crate::conf::{self, Mode};
 use crate::config::Config;
 use crate::select::Token;
 
-/// Which formatter owns a file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
-    /// `.conf` and `.config`.
     Conf,
-    /// `.dotfile`.
     Block,
 }
 
-/// What formatting one file came to.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Done {
     Unchanged,
     Changed,
 }
 
-/// What happened to one file, and the one thing worth saying about how.
 pub struct Outcome {
     pub done: Done,
-    /// Which `.conf` mode was chosen, for `--verbose`. The pattern that picked
-    /// it is the thing people get wrong, and this is where they find out.
     pub mode: Option<Mode>,
 }
 
-/// Which formatter a path's extension belongs to. `None` is a name no
-/// extension claims, which under `--stdin` is a body to hand straight back.
-///
-/// This is deliberately not the selection rule. `--stdin` names one file the
-/// caller chose on purpose and there is no tree to filter, so an editor asking
-/// dotfmt to lay out a `.conf` buffer gets one laid out whether or not the
-/// `include` block would have picked that file up during a walk.
 pub fn kind(path: &Path) -> Option<Kind> {
     match path.extension()?.to_str()? {
         "conf" | "config" => Some(Kind::Conf),
@@ -59,12 +33,6 @@ pub fn kind(path: &Path) -> Option<Kind> {
     }
 }
 
-/// Which formatter a selected file belongs to.
-///
-/// A name carrying no extension is laid out as a `.conf` file. Those are ssh
-/// configs and the KDE `rc` files, and the `.dotfile` formatter would read an
-/// ssh `SetEnv FOO=bar` as a key and a value and write it back out as
-/// `SetEnv FOO = bar`, which ssh does not accept.
 pub fn formatter(token: Token) -> Kind {
     match token {
         Token::Conf | Token::Config | Token::Empty => Kind::Conf,
@@ -72,8 +40,6 @@ pub fn formatter(token: Token) -> Kind {
     }
 }
 
-/// Lay out a body, guarded. A file no extension claims comes back untouched,
-/// which is what makes `--stdin` safe to point at anything.
 pub fn format(path: &Path, label: &str, text: &str, config: &Config) -> Result<String, String> {
     let Some(kind) = kind(path) else {
         return Ok(text.to_string());
@@ -81,7 +47,6 @@ pub fn format(path: &Path, label: &str, text: &str, config: &Config) -> Result<S
     format_as(path, label, text, kind, config)
 }
 
-/// Lay out a body that is already known to belong to `kind`.
 pub fn format_as(
     path: &Path,
     label: &str,
@@ -94,8 +59,6 @@ pub fn format_as(
     Ok(formatted)
 }
 
-/// Format one file in place, or under `--check` only work out whether it
-/// would change.
 pub fn apply(
     path: &Path,
     label: &str,
@@ -136,15 +99,6 @@ fn shape(
     }
 }
 
-/// Check the output against itself before it is allowed anywhere near the disk.
-///
-/// Two questions. Does laying the output out again produce the same bytes —
-/// which catches a rule that grows a line a little on every run, as an
-/// unbalanced quote in kitty mode does. And, for a `.dotfile`, does the output
-/// still parse into the same entries in the same blocks — which catches a rule
-/// that moved data rather than moving whitespace. A formatter that fails
-/// either has a bug, and the only safe thing a buggy formatter can do is
-/// refuse to write.
 fn guard(
     path: &Path,
     label: &str,
@@ -168,9 +122,6 @@ fn guard(
     Ok(())
 }
 
-/// The path a glob is matched against: the one that was given, the way
-/// `fnmatch` saw it, so `*/hypr/*` still recognises a file named from the walk
-/// root down.
 fn shown(path: &Path) -> String {
     path.display().to_string()
 }
@@ -179,18 +130,6 @@ fn broken(label: &str, why: &str) -> String {
     format!("{label}: internal error: {why}, so nothing was written")
 }
 
-/// Put `text` where `path` is, atomically.
-///
-/// The temp file is a sibling so the rename stays on one filesystem, is
-/// created exclusively so two dotfmts on one tree cannot share it, and is
-/// removed again if anything at all goes wrong. The rename itself either
-/// happened or did not; there is no state in between for a crash to find.
-///
-/// It renames over the file the path *resolves* to, which is the one thing a
-/// rename gets wrong that a truncating write does not: half the configs this
-/// repository owns are reached through a symlink in `~/.config`, and renaming
-/// over the link would replace it with a regular file and quietly strand the
-/// copy under version control.
 fn replace(path: &Path, text: &str) -> io::Result<()> {
     let path = &fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let permissions = fs::metadata(path)?.permissions();
@@ -206,7 +145,6 @@ fn replace(path: &Path, text: &str) -> io::Result<()> {
     written
 }
 
-/// An empty file next to `path` that nothing else is holding.
 fn sibling(path: &Path) -> io::Result<(File, PathBuf)> {
     let parent = path.parent().filter(|at| !at.as_os_str().is_empty());
     let parent = parent.unwrap_or(Path::new("."));

@@ -1,17 +1,12 @@
-//! Which routes the mux has a domain for, and what those domains are called.
 
 use hostkit::{Host, Route};
 
-/// The routes `tls.lua` builds a client domain for, in the order `ssh` prefers
-/// and without the `Route::Lan` that no wezterm config defines a domain for.
 pub const ROUTES: [Route; 3] = [Route::Cable, Route::Wifi, Route::Tailscale];
 
-/// The client domain `tls.lua` names for this peer and route.
 pub fn name(peer: Host, route: Route) -> String {
     format!("{}-{}", peer.name(), route.name())
 }
 
-/// The machine to probe, which is this one's peer unless another was named.
 pub fn target(named: Option<&str>, this: Host) -> Result<Host, String> {
     let Some(named) = named else {
         return Ok(this.peer());

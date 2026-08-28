@@ -9,7 +9,6 @@ use hostkit::Route;
 
 pub struct Run {
     pub route: Option<Route>,
-    /// The address this side bound, when a route pinned one.
     pub from: Option<String>,
     pub to: String,
     pub latency: Latency,
@@ -100,8 +99,6 @@ impl Run {
     }
 }
 
-/// Right-align a value before it is painted: colour is escape bytes, and a
-/// width applied to those pads the wrong thing.
 fn column(value: &str) -> String {
     format!("{value:>12}")
 }
@@ -110,9 +107,6 @@ fn millis(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
 }
 
-/// Two decimals once past a millisecond, three below it: on the cable a round
-/// trip is fractions of a millisecond, and rounding those to two decimals
-/// throws away the difference between one run and the next.
 pub fn milliseconds(duration: Duration) -> String {
     let value = millis(duration);
     if value < 1.0 {

@@ -1,4 +1,3 @@
-//! The two machines, and the four ways between them.
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -77,15 +76,11 @@ impl Host {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Route {
-    /// The USB-C cable: a private /30 with no gateway, DNS or NAT on it.
     #[value(alias = "usb")]
     Cable,
-    /// Macie associated directly to Archie's private Wi-Fi AP.
     #[value(alias = "direct", alias = "wireless")]
     Wifi,
-    /// The home 192.168.1.0/24, resolved through filtered mDNS.
     Lan,
-    /// The tailnet, which is what ssh falls back to when the cable is out.
     #[value(alias = "ts")]
     Tailscale,
 }
@@ -217,8 +212,6 @@ mod tests {
         "shared/wezterm/domain/hosts.lua",
     ];
 
-    /// Every guard below returns early when the repository is not found, so an
-    /// unresolved anchor would leave them all passing while reading nothing.
     #[test]
     fn the_repository_anchor_resolves() {
         assert!(
@@ -236,9 +229,6 @@ mod tests {
         })
     }
 
-    /// The addresses here are a copy. This is the check that the original
-    /// did not move without it: every one of them has to appear in the
-    /// configuration that routes the same two names.
     #[test]
     fn the_addresses_match_the_ssh_configs() {
         let Some(root) = repository() else {
@@ -258,8 +248,6 @@ mod tests {
         }
     }
 
-    /// The wezterm mux copies the port and the route names as well as the
-    /// addresses, and its domain names are built out of both.
     #[test]
     fn the_mux_port_and_route_names_match_hosts_lua() {
         let Some(root) = repository() else {

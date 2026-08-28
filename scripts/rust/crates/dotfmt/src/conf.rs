@@ -1,22 +1,4 @@
-//! The `.conf` and `.config` formatter, ported from `format.py` function for
-//! function so the two can be read side by side.
-//!
-//! Three modes. **plain** takes trailing whitespace off, drops the blank
-//! lines above the first real line, collapses a run of blanks to one, and ends
-//! the file with a single newline; it is what the XML `fonts.conf` and the
-//! INI-shaped `qt5ct.conf` want, which is to be left structurally alone.
-//! **hypr** adds four-space brace indentation and `key = value` normalisation.
-//! **kitty** compacts value lines and lays out two independent columns.
-//!
-//! Nothing here touches a path or a file. The port is reviewable against the
-//! Python only because both sides are a function from text to text.
-//!
-//! Seven things are deliberately not ported; four of them are here. Comments
-//! are no longer compacted (3), a `{` inside a value no longer opens a block
-//! (4), a `\r` no longer survives into the comparisons that decide layout (5),
-//! and a file of nothing but whitespace no longer formats to zero bytes (6).
 
-/// Which set of rules a file is laid out by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     Plain,
@@ -25,7 +7,6 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// The one thing `--verbose` says about how a `.conf` file was read.
     pub fn name(self) -> &'static str {
         match self {
             Mode::Plain => "plain",
@@ -35,12 +16,6 @@ impl Mode {
     }
 }
 
-/// The patterns `format.py` hardcoded, in the order it tested them.
-///
-/// Compiled in and not configurable. Which files are formatted is a question
-/// for the `include` and `exclude` blocks; *how* a `.conf` file is laid out is
-/// a property of the program that reads it, and a config that could remap
-/// these could only ever get hyprland's own syntax wrong.
 const MODES: &[(&str, Mode)] = &[
     ("*/hypr/*", Mode::Hypr),
     ("*/hypr-local.conf", Mode::Hypr),
@@ -52,15 +27,6 @@ const MODES: &[(&str, Mode)] = &[
     ("*/kitty.conf", Mode::Kitty),
 ];
 
-/// A file's lines, the way both formatters in this crate read one: split on
-/// `\n`, one trailing empty element dropped so a file that ends in a newline
-/// does not gain a blank line, and one trailing `\r` stripped.
-///
-/// The `\r` is deviation 5. `format.py` strips only spaces and tabs, which
-/// leaves the carriage return in place, after which `line == "}"` never
-/// matches and a CRLF hypr config re-indents from its first brace onwards.
-/// Reading every line through here is what makes that unrepresentable, and
-/// both formatters write `\n` whatever they were given.
 pub fn lines(text: &str) -> Vec<&str> {
     let mut found: Vec<&str> = text.split('\n').collect();
     if found.last() == Some(&"") {
@@ -72,11 +38,6 @@ pub fn lines(text: &str) -> Vec<&str> {
     found
 }
 
-/// Lay out a whole file.
-///
-/// A file with no line worth keeping comes back exactly as it was, which is
-/// deviation 6: `format.py` returns the empty string here, so a config that
-/// happened to hold only blank lines was formatted into nothing at all.
 pub fn format(text: &str, mode: Mode) -> String {
     let raw = lines(text);
     let formatted = format_lines(&raw, mode);
@@ -88,13 +49,6 @@ pub fn format(text: &str, mode: Mode) -> String {
     out
 }
 
-/// Which mode a path is laid out in: the first pattern that matches, taken in
-/// mode order rather than in the order the patterns are written down.
-///
-/// `format.py` tested three separate lists — hypr, then plain, then kitty —
-/// and that order carries meaning. `plain` is the opt-out, so
-/// `*/kitty/colors*.conf` has to beat `*/kitty/*.conf`; making the priority
-/// the mode rather than the line is what keeps reordering the table harmless.
 pub fn mode(path: &str) -> Mode {
     for wanted in [Mode::Hypr, Mode::Plain, Mode::Kitty] {
         let matched = MODES
@@ -107,13 +61,6 @@ pub fn mode(path: &str) -> Mode {
     Mode::Plain
 }
 
-/// `fnmatch.fnmatchcase`, hand-written because `*` has to cross `/`.
-///
-/// Python translates `*` to `.*` over the whole path, so `*/kitty/*.conf`
-/// matches `~/.config/kitty/conf.d/fonts.conf`. Every glob crate treats `/` as
-/// a boundary `*` cannot cross, which would quietly stop matching the files
-/// this repository actually has. Two cursors and one remembered `*`, so a
-/// pattern of nothing but stars cannot recurse its way into a stack overflow.
 pub fn matches(pattern: &str, path: &str) -> bool {
     let pattern: Vec<char> = pattern.chars().collect();
     let text: Vec<char> = path.chars().collect();
@@ -145,8 +92,6 @@ pub fn matches(pattern: &str, path: &str) -> bool {
     pattern[at..].iter().all(|ch| *ch == '*')
 }
 
-/// Where the pattern continues when its element at `at` matches `ch`, or
-/// `None` when it does not.
 fn step(pattern: &[char], at: usize, ch: char) -> Option<usize> {
     match pattern[at] {
         '?' => Some(at + 1),
@@ -160,8 +105,6 @@ fn step(pattern: &[char], at: usize, ch: char) -> Option<usize> {
     }
 }
 
-/// A `[abc]`, `[a-z]` or `[!abc]` class: where it ends, and whether `ch` is in
-/// it. `None` when there is no closing `]`, which makes it not a class at all.
 fn class(pattern: &[char], at: usize, ch: char) -> Option<(usize, bool)> {
     let mut here = at + 1;
     let negated = pattern.get(here) == Some(&'!');
@@ -190,8 +133,6 @@ fn class(pattern: &[char], at: usize, ch: char) -> Option<(usize, bool)> {
     None
 }
 
-/// Collapse the whitespace outside quotes to one space each, and leave what
-/// is inside a quote exactly as it was found.
 fn compact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut quote: Option<char> = None;
@@ -264,8 +205,6 @@ fn format_lines(lines: &[&str], mode: Mode) -> Vec<String> {
     out
 }
 
-/// Whether a left-hand side is a key hypr would recognise, rather than the
-/// first half of a rule that happens to hold an `=`.
 fn hypr_key(text: &str) -> bool {
     !text.is_empty()
         && text
@@ -273,7 +212,6 @@ fn hypr_key(text: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '$' | '_' | '.' | ':' | '-'))
 }
 
-/// One hypr line: how it is written, and how deep the line after it sits.
 fn hypr_line(line: &str, indent: usize) -> (String, usize) {
     let line = line.trim_start_matches([' ', '\t']);
     let mut indent = if line == "}" {
@@ -302,12 +240,6 @@ fn hypr_line(line: &str, indent: usize) -> (String, usize) {
     (text, indent)
 }
 
-/// Whether a hypr line opens a block.
-///
-/// Deviation 4. `format.py` asks only whether the line ends in `{`, which a
-/// `windowrulev2 = ...,class:^(x){` also does — and one of those re-indents
-/// every line after it to the end of the file. A block header has no `=` in
-/// it, and requiring that is what tells the two apart.
 fn opens(line: &str) -> bool {
     let body = line.trim_start_matches([' ', '\t']);
     if body.starts_with('#') {
@@ -317,8 +249,6 @@ fn opens(line: &str) -> bool {
         .is_some_and(|before| !before.contains('='))
 }
 
-/// Two columns, measured independently: the one every `key value` line shares,
-/// and the one the `map <shortcut> <action>` lines share between themselves.
 fn format_kitty(lines: &[&str]) -> Vec<String> {
     let mut stored: Vec<String> = Vec::new();
     let mut blank_pending = false;

@@ -1,10 +1,3 @@
-//! What the working tree holds that `HEAD` does not.
-//!
-//! One status walk answers three questions at once — what is staged, what is
-//! modified, and what is untracked — and gitoxide runs all three in parallel.
-//! Each path is then looked up once in `HEAD`'s tree, which settles both how
-//! it is labelled and what discarding it would mean: a path `HEAD` knows can
-//! be put back, and a path it does not know cannot.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -16,78 +9,51 @@ use gix::status::plumbing::index_as_worktree::{Change as WorktreeChange, EntrySt
 
 use crate::{Repo, Result, measure};
 
-/// Everything in the working tree that differs from `HEAD`, in path order.
 pub struct Survey {
-    /// The working tree's root, which every path is relative to.
     pub root: PathBuf,
     pub entries: Vec<Entry>,
 }
 
-/// One such path.
 pub struct Entry {
-    /// Repository-relative and slash-separated, the way git records it.
     pub path: BString,
-    /// How it differs, in `git status`'s vocabulary.
     pub label: &'static str,
     pub kind: Kind,
     pub fate: Fate,
     pub counts: Counts,
-    /// The `HEAD` side, when `HEAD` has this path; `None` means discarding it
-    /// is a deletion.
     pub(crate) head: Option<Source>,
-    /// What to read the working-tree side as, which decides whether a symlink
-    /// is diffed as the path it points at or followed. `None` for a path with
-    /// no content to read, such as a submodule or a device.
     pub(crate) worktree: Option<EntryKind>,
 }
 
-/// What the path is, which decides how it is discarded.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
-    /// In the index or in `HEAD`: the index decides its fate.
     Tracked,
-    /// An untracked file, symlink, or anything else with a name.
     File,
-    /// An untracked directory, discarded whole.
     Directory,
-    /// An untracked directory that is a repository of its own.
     Repository,
 }
 
-/// What discarding does to it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Fate {
-    /// Tracked, and in `HEAD`: it goes back to what `HEAD` says.
     Restore,
-    /// Untracked, or tracked but absent from `HEAD`: it is gone for good.
     Delete,
-    /// Reported and then left alone.
     Keep,
 }
 
-/// What the diff against `HEAD` amounts to.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum Counts {
-    /// Nothing to count.
     #[default]
     None,
-    /// A directory is counted in files rather than diffed.
     Files(usize),
-    /// git will not diff this one.
     Binary,
-    /// Lines, as `git diff --numstat` counts them.
     Lines { added: u32, removed: u32 },
 }
 
-/// A blob in `HEAD`, and how to read it.
 pub(crate) struct Source {
     pub(crate) id: gix::ObjectId,
     pub(crate) kind: EntryKind,
 }
 
 impl Entry {
-    /// The path as it should be shown: a directory wears its trailing slash,
-    /// the way `git status` writes one.
     pub fn shown(&self) -> String {
         let mut shown = visible(&self.path);
         if self.kind == Kind::Directory || self.kind == Kind::Repository {
@@ -96,7 +62,6 @@ impl Entry {
         shown
     }
 
-    /// The aside after the counts, where there is one.
     pub fn note(&self) -> Option<String> {
         match self.counts {
             Counts::Files(1) => Some("1 file".to_string()),
@@ -113,12 +78,10 @@ impl Survey {
         self.entries.is_empty()
     }
 
-    /// The entries that share a fate, in path order.
     pub fn with(&self, fate: Fate) -> impl Iterator<Item = &Entry> {
         self.entries.iter().filter(move |entry| entry.fate == fate)
     }
 
-    /// Every line that would be thrown away, added and removed.
     pub fn totals(&self) -> (u32, u32) {
         self.entries
             .iter()
@@ -132,16 +95,13 @@ impl Survey {
     }
 }
 
-/// What the status walk said about a path before `HEAD` was consulted.
 #[derive(Default)]
 struct Change {
     conflict: bool,
     added: bool,
     deleted: bool,
     typechange: bool,
-    /// The kind recorded in the index, when the walk mentioned it.
     index: Option<EntryKind>,
-    /// The kind found on disk, when the walk looked.
     worktree: Option<EntryKind>,
 }
 
@@ -164,10 +124,6 @@ impl Change {
 }
 
 impl Repo {
-    /// Survey the working tree, limited to `patterns` when there are any.
-    ///
-    /// Pathspecs are read the way git reads them, relative to the current
-    /// directory and with the same magic.
     pub fn survey(&self, patterns: &[BString]) -> Result<Survey> {
         let mut changes: BTreeMap<BString, Change> = BTreeMap::new();
         let mut untracked: BTreeMap<BString, (Kind, Option<EntryKind>)> = BTreeMap::new();
@@ -318,7 +274,6 @@ impl Repo {
     }
 }
 
-/// What a difference between `HEAD`'s tree and the index says about a path.
 fn staged_change(staged: gix::diff::index::Change) -> (BString, Change) {
     use gix::diff::index::ChangeRef;
     let mut change = Change::default();
@@ -356,7 +311,6 @@ fn staged_change(staged: gix::diff::index::Change) -> (BString, Change) {
     (path.into_owned(), change)
 }
 
-/// What a difference between the index and the working tree says about a path.
 fn worktree_change(
     status: &EntryStatus<(), gix::submodule::Status>,
     entry: &gix::index::Entry,
@@ -383,7 +337,6 @@ fn worktree_change(
     Some(change)
 }
 
-/// What the directory walk found, as something to discard.
 fn found(disk: Option<gix::dir::entry::Kind>) -> (Kind, Option<EntryKind>) {
     match disk {
         Some(gix::dir::entry::Kind::Repository) => (Kind::Repository, None),
@@ -395,8 +348,6 @@ fn found(disk: Option<gix::dir::entry::Kind>) -> (Kind, Option<EntryKind>) {
     }
 }
 
-/// The blob a tree entry points at, or nothing for a directory, which is not
-/// a path that can be put back on its own.
 fn source(entry: &gix::object::tree::Entry<'_>) -> Option<Source> {
     match entry.mode().kind() {
         kind @ (EntryKind::Blob | EntryKind::BlobExecutable | EntryKind::Link) => Some(Source {
@@ -407,7 +358,6 @@ fn source(entry: &gix::object::tree::Entry<'_>) -> Option<Source> {
     }
 }
 
-/// The kind of content behind an index mode, where there is content to read.
 fn kind(mode: gix::index::entry::Mode) -> Option<EntryKind> {
     match mode.bits() {
         0o100644 => Some(EntryKind::Blob),
@@ -417,14 +367,10 @@ fn kind(mode: gix::index::entry::Mode) -> Option<EntryKind> {
     }
 }
 
-/// The file type an index mode records, ignoring permissions: gaining or
-/// losing the executable bit is a modification, not a change of kind.
 fn family(mode: gix::index::entry::Mode) -> u32 {
     mode.bits() & 0o170000
 }
 
-/// A path with anything unprintable spelled out, so that a crafted file name
-/// cannot forge a line of the plan.
 fn visible(path: &BString) -> String {
     let mut shown = String::with_capacity(path.len());
     for character in path.to_str_lossy().chars() {

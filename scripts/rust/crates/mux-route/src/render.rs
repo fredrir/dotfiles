@@ -1,4 +1,3 @@
-//! One line per route for `--list`, in the order they were tried.
 
 use hostkit::Host;
 use workstation::Style;
@@ -6,10 +5,8 @@ use workstation::Style;
 use crate::domain;
 use crate::probe::Answer;
 
-/// Widest address and port a route can have, so the domain column lines up.
 const ADDRESS: usize = 19;
 
-/// Report every route, naming the domain only for the ones that answered.
 pub fn list(style: &Style, peer: Host, answers: &[Answer]) -> String {
     answers
         .iter()

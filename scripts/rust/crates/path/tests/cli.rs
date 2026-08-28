@@ -1,4 +1,3 @@
-//! Black-box checks on the output and exit codes callers depend on.
 
 use std::fs;
 use std::path::Path;
@@ -89,8 +88,6 @@ fn completions_are_available() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("#compdef path"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     let home = tempfile::tempdir().unwrap();

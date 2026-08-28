@@ -1,10 +1,3 @@
-//! The peer's half: accept a connection, do what its header says, repeat.
-//!
-//! Normally nobody starts this by hand — the measuring side runs it over ssh
-//! and stops it when it is done. It still has to survive the other endings:
-//! the client dying mid-transfer, or its ssh being killed, would otherwise
-//! leave a process listening on the peer forever. Hence the idle timeout,
-//! which is the only thing standing between a stray run and a stray daemon.
 
 use std::io::{self, Write};
 use std::net::{SocketAddrV4, TcpListener, TcpStream};
@@ -13,13 +6,8 @@ use std::time::{Duration, Instant};
 
 use crate::proto::{self, Header, Mode};
 
-/// Printed on stdout as soon as the listener is up, and parsed by the side
-/// that started this over ssh: with `--port 0` the port is not known until
-/// the bind, and the address confirms which route the peer is listening on.
 pub const BANNER: &str = "hwire serve";
 
-/// How long a listener with a deadline sleeps between asking for a connection,
-/// which is the most an accept can be late by.
 const TICK: Duration = Duration::from_millis(5);
 
 pub fn serve(
@@ -34,8 +22,6 @@ pub fn serve(
     answer(listener, token, idle)
 }
 
-/// Take one connection at a time until a client says to stop or `idle` passes
-/// with nobody there.
 fn answer(
     listener: TcpListener,
     token: Option<[u8; 16]>,
@@ -84,7 +70,6 @@ fn answer(
     Ok(())
 }
 
-/// The next connection, or `None` once `deadline` has passed without one.
 fn accept(listener: &TcpListener, deadline: Option<Instant>) -> io::Result<Option<TcpStream>> {
     loop {
         match listener.accept() {
@@ -128,8 +113,6 @@ fn phase(stream: &mut TcpStream, header: Header) -> io::Result<()> {
     }
 }
 
-/// Bounce every payload straight back until the client hangs up, which is
-/// how the latency phase ends.
 fn echo(stream: &mut TcpStream) -> io::Result<()> {
     loop {
         match proto::read_exactly::<{ proto::PING }>(stream) {
@@ -169,8 +152,6 @@ mod tests {
         stream
     }
 
-    /// The idle timeout is what keeps a stray run from leaving a daemon, so it
-    /// has to fire with nothing connecting to wake the loop up.
     #[test]
     fn nobody_connecting_ends_the_server_when_the_idle_time_is_up() {
         let (listener, _) = listener();
@@ -181,9 +162,6 @@ mod tests {
         assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
     }
 
-    /// A listener that polls for its deadline is a non-blocking one and BSD
-    /// hands that flag to every socket it accepts, so the header read has to
-    /// wait for a client that has not written yet rather than give up on it.
     #[test]
     fn a_phase_is_answered_on_a_listener_that_is_watching_its_deadline() {
         let (listener, port) = listener();
@@ -205,8 +183,6 @@ mod tests {
         served.join().unwrap().unwrap();
     }
 
-    /// A connection carrying the wrong token is discarded rather than answered,
-    /// and the server is still there for the one after it.
     #[test]
     fn a_connection_without_the_token_is_dropped_and_the_server_stays_up() {
         let (listener, port) = listener();

@@ -1,13 +1,3 @@
-//! How many lines a discard would throw away.
-//!
-//! This is `git diff --numstat` against `HEAD`, computed here rather than
-//! asked for: git needs one process for the tracked side and another for
-//! every untracked file, and each of those processes re-reads the index
-//! before it can answer. gitoxide's resource cache reads each side once,
-//! applies the same filters git would, and calls the same binary-or-text
-//! judgement, so the numbers match while the walk stays in one process — and
-//! since no two paths depend on each other, the files are measured in
-//! parallel.
 
 use std::fs;
 use std::path::Path;
@@ -19,7 +9,6 @@ use rayon::prelude::*;
 use crate::survey::{Counts, Entry, Kind};
 use crate::{Repo, Result};
 
-/// Fill in every entry's counts.
 pub(crate) fn lines(repo: &Repo, index: &gix::index::File, entries: &mut [Entry]) -> Result<()> {
     let repos = repo.git.clone().into_sync();
     let root = repo.root();
@@ -41,9 +30,6 @@ pub(crate) fn lines(repo: &Repo, index: &gix::index::File, entries: &mut [Entry]
     Ok(())
 }
 
-/// One thread's diff machinery: a repository handle of its own, since a
-/// repository is not shared between threads, and the resource cache that
-/// holds on to its buffers between files.
 struct Scales {
     repo: gix::Repository,
     cache: gix::diff::blob::Platform,
@@ -150,9 +136,6 @@ impl Scales {
         }
     }
 
-    /// The `HEAD` side by itself, for a path with nothing readable opposite
-    /// it. The blob is the git-side content already, so there is nothing to
-    /// filter — only lines to count.
     fn head_only(&self, entry: &Entry) -> Result<Counts> {
         let Some(source) = &entry.head else {
             return Ok(Counts::Lines {
@@ -171,15 +154,11 @@ impl Scales {
     }
 }
 
-/// git's own rule: a NUL among the first few thousand bytes means this is not
-/// text, whatever the rest of it looks like.
 fn is_binary(content: &[u8]) -> bool {
     const PROBE: usize = 8000;
     content.iter().take(PROBE).any(|byte| *byte == 0)
 }
 
-/// Lines the way a diff counts them: a last line without a newline still is
-/// one.
 fn count_lines(content: &[u8]) -> u32 {
     if content.is_empty() {
         return 0;
@@ -189,11 +168,6 @@ fn count_lines(content: &[u8]) -> u32 {
     u32::try_from(breaks + unterminated).unwrap_or(u32::MAX)
 }
 
-/// Every file under `directory`, hidden ones included, since a discard of the
-/// directory takes all of them.
-///
-/// A repository nested inside is left out, because `git clean` leaves it
-/// alone and so does the discard.
 fn files_in(directory: &Path) -> usize {
     let Ok(entries) = fs::read_dir(directory) else {
         return 0;

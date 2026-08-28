@@ -1,10 +1,3 @@
-//! Handing the files to the tools that own them.
-//!
-//! Languages run in parallel and the steps within one language run in order.
-//! That split is not an optimisation, it is a correctness rule: `goimports`
-//! and `gofmt` both rewrite the same `.go` file, so letting the two `-w`
-//! passes overlap is a race on the file itself. Two different languages can
-//! never be handed the same path, so there is nothing to race between them.
 
 use std::collections::{BTreeSet, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -17,33 +10,17 @@ use rayon::prelude::*;
 use crate::configs::{self, Injected, Scope};
 use crate::lang::{Drift, Feed, LANGS, Lang, Mode, Step};
 
-/// How many paths go on one command line. Well under any `ARG_MAX`, and a
-/// tree big enough to need several chunks is rare enough that the extra
-/// process launches cost nothing worth measuring.
 pub const CHUNK: usize = 512;
 
-/// What one language's share of a run came to.
 pub struct Ran {
     pub lang: Lang,
-    /// How many files this language owned.
     pub files: usize,
-    /// Programs that are not on `PATH`. Never a failure, only a fact.
     pub missing: Vec<&'static str>,
-    /// A tool reported drift or a lint violation.
     pub findings: bool,
-    /// A tool could not do its job at all.
     pub failed: bool,
-    /// How many programs actually ran, so a row where every program is
-    /// missing can say so rather than claim success.
     pub ran: usize,
-    /// Something worth saying that no tool said.
     pub note: Option<String>,
-    /// What the tools themselves said, verbatim.
     pub output: String,
-    /// The files a tool pointed at in what it said, so a failure names a file
-    /// without the whole of the tool's output having to be shown. Filled in
-    /// only when there is something to report and only when the output is not
-    /// being shown anyway.
     pub blamed: Vec<String>,
 }
 
@@ -62,8 +39,6 @@ impl Ran {
         }
     }
 
-    /// A row for a provider that is installed and could not answer, over a
-    /// tree it would have had nothing to do in anyway.
     pub fn broken(lang: Lang, said: String) -> Ran {
         Ran {
             failed: true,
@@ -72,13 +47,6 @@ impl Ran {
         }
     }
 
-    /// Record that dotfmt could not be asked which files it owns.
-    ///
-    /// The row still ran, over the files this crate guessed at, so what is
-    /// added is the reason the guess was needed. It replaces the shortlist
-    /// rather than joining it: a run whose selection rule could not be read
-    /// needs to say so before it says which files came of it, and the files
-    /// are one `--verbose` away.
     pub fn unasked(&mut self, said: &str) {
         self.failed = true;
         self.output.insert_str(0, said);
@@ -86,23 +54,13 @@ impl Ran {
     }
 }
 
-/// What a run is, apart from the files it is over.
 pub struct Plan<'a> {
     pub mode: Mode,
     pub verbose: bool,
-    /// Extra arguments for the programs that have to be pointed at this
-    /// repository's config, because they would not find it themselves.
     pub injected: &'a [Injected],
 }
 
 impl Plan<'_> {
-    /// A step's files, split into the sets that take different arguments.
-    ///
-    /// One group for a program with nothing to inject, one for a program that
-    /// resolves from its working directory, and two for a program that
-    /// resolves per file — because naming a config on the command line
-    /// outranks a nearer one, so the files that have their own have to be run
-    /// without it.
     fn groups(&self, root: &Path, program: &str, files: &[PathBuf]) -> Vec<Grouped> {
         let Some(injected) = self
             .injected
@@ -128,16 +86,8 @@ impl Plan<'_> {
     }
 }
 
-/// The arguments one set of files is run with, and the files.
 type Grouped = (Vec<OsString>, Vec<PathBuf>);
 
-/// Sort the candidates into their rows, dropping the rows with nothing in
-/// them.
-///
-/// dotfmt's row is not built here. Which files it owns depends on
-/// `include`/`exclude` patterns resolved per directory, so the extension list
-/// in the table is a description of dotfmt rather than a decision about it;
-/// `owns::ask` gets the real answer and `with_dotfmt` splices it in.
 pub fn sort(files: Vec<PathBuf>) -> Vec<(Lang, Vec<PathBuf>)> {
     let mut work: Vec<(Lang, Vec<PathBuf>)> =
         LANGS.into_iter().map(|lang| (lang, Vec::new())).collect();
@@ -157,12 +107,6 @@ pub fn sort(files: Vec<PathBuf>) -> Vec<(Lang, Vec<PathBuf>)> {
     work
 }
 
-/// The files this crate would guess dotfmt owns, for the two cases where it
-/// cannot be asked.
-///
-/// A guess is worse than an answer — it is the whole reason `--owns` exists —
-/// but it is far better than an empty row, which would quietly stop formatting
-/// every `.conf` in the tree and look like a clean run.
 pub fn by_extension(files: &[PathBuf]) -> Vec<PathBuf> {
     files
         .iter()
@@ -171,7 +115,6 @@ pub fn by_extension(files: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Put dotfmt's answer back at the front of the table, where its row belongs.
 pub fn with_dotfmt(
     mut work: Vec<(Lang, Vec<PathBuf>)>,
     owned: Vec<PathBuf>,
@@ -182,8 +125,6 @@ pub fn with_dotfmt(
     work
 }
 
-/// `root` must be absolute: it is both the working directory every child is
-/// given and the base the relative paths are resolved against.
 pub fn run(root: &Path, work: Vec<(Lang, Vec<PathBuf>)>, plan: &Plan) -> Vec<Ran> {
     let mut done: Vec<Ran> = work
         .into_par_iter()
@@ -193,8 +134,6 @@ pub fn run(root: &Path, work: Vec<(Lang, Vec<PathBuf>)>, plan: &Plan) -> Vec<Ran
     done
 }
 
-/// Back into table order, so two runs over the same tree read the same
-/// however the threads finished.
 pub fn order(done: &mut [Ran]) {
     done.sort_by_key(|ran| LANGS.iter().position(|lang| *lang == ran.lang));
 }
@@ -262,14 +201,6 @@ fn one(root: &Path, lang: Lang, files: &[PathBuf], plan: &Plan) -> Ran {
     ran
 }
 
-/// Which of the files handed to a row were named in what its tools said.
-///
-/// Every one of them writes a path the way it was given the path, so no
-/// per-tool parsing is needed: recognising the run's own paths is enough, and
-/// a tool this crate has never heard of is read the same way as the ten it
-/// has. `path:12:3:`, `path:` and taplo's `path="…"` are the decorations
-/// worth undoing, and the root is worth undoing too — `cargo fmt` is handed a
-/// manifest rather than a file list and answers in absolute paths.
 pub fn blamed(output: &str, root: &Path, files: &[PathBuf]) -> Vec<String> {
     let known: HashSet<&OsStr> = files.iter().map(|path| path.as_os_str()).collect();
     let inside = format!("{}/", root.display());
@@ -308,9 +239,6 @@ pub fn blamed(output: &str, root: &Path, files: &[PathBuf]) -> Vec<String> {
     found
 }
 
-/// The file list, split into command lines. Chunks of one step run in order
-/// rather than at once: they are disjoint, but two of them writing at once is
-/// a shape this driver deliberately never takes.
 pub fn batches(files: &[PathBuf]) -> Vec<Vec<OsString>> {
     files
         .chunks(CHUNK)
@@ -318,11 +246,6 @@ pub fn batches(files: &[PathBuf]) -> Vec<Vec<OsString>> {
         .collect()
 }
 
-/// Every child runs in the root with relative paths, so stylua finds
-/// `.stylua.toml` by the upward search it already does — and so that the two
-/// tools whose config this run names outright are given a path relative to the
-/// same directory. `stdin` is closed because a tool that decided to read from
-/// the terminal would hang a run that has no business being interactive.
 pub fn invoke(
     root: &Path,
     step: &Step,
@@ -339,12 +262,9 @@ pub fn invoke(
         .output()
 }
 
-/// Whether to write down what was run, and what was added to it.
 #[derive(Clone, Copy)]
 struct Told<'a> {
     verbose: bool,
-    /// The arguments this run added to the table's own, which are part of
-    /// what ran and so part of what `--verbose` has to show.
     extra: &'a [OsString],
 }
 
@@ -384,7 +304,6 @@ fn absorb(ran: &mut Ran, step: &Step, batch: &[OsString], output: &Output, mode:
     ran.output.push_str(&said(output));
 }
 
-/// The command exactly as it was run, argument for argument.
 fn full(step: &Step, extra: &[OsString], batch: &[OsString]) -> String {
     format!(
         "$ {} {}\n",
@@ -409,8 +328,6 @@ fn words(step: &Step, extra: &[OsString]) -> Vec<String> {
         .collect()
 }
 
-/// Whatever the tool had to say, verbatim. This is the part a finding is
-/// actionable from, so nothing here is abbreviated.
 fn said(output: &Output) -> String {
     let mut text = String::new();
     for stream in [&output.stdout, &output.stderr] {
@@ -423,12 +340,6 @@ fn said(output: &Output) -> String {
     text
 }
 
-/// `cargo fmt` takes a manifest rather than a file list, so the Rust row asks
-/// a different question of the same files: which workspaces do they live in?
-///
-/// The shallowest ancestor holding a `Cargo.toml` is the workspace root, which
-/// is why `--all` there formats the whole workspace whatever the target was —
-/// a run aimed at one crate of this repository formats every crate in it.
 pub fn manifest_arguments(root: &Path, files: &[PathBuf]) -> Vec<Vec<OsString>> {
     workspaces(root, files)
         .into_iter()

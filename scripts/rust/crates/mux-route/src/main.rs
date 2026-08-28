@@ -1,6 +1,3 @@
-//! The wezterm mux domain for the first route to the peer that answers, probed
-//! rather than attached because wezterm's TLS client has no connect timeout and
-//! a dead address costs the full SYN timeout.
 #![forbid(unsafe_code)]
 
 mod domain;
@@ -21,11 +18,9 @@ const PROGRAM: &str = "mux-route";
     about = "Print the wezterm mux domain for the best route to the peer"
 )]
 struct Cli {
-    /// Machine to reach, rather than this one's peer
     #[arg(value_name = "HOST")]
     host: Option<String>,
 
-    /// Report every route and whether it answers, then exit
     #[arg(short = 'l', long = "list")]
     list: bool,
 

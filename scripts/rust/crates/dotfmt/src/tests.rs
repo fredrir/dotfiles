@@ -1,9 +1,3 @@
-//! What each formatter does to text, and what it refuses to do to it.
-//!
-//! The `.dotfile` half carries ten of the thirteen tests in
-//! `scripts/python/tests/core/test_blocks.py`, three of them inverted. The
-//! inverted three are named for what they now assert and say why, because the
-//! whole risk with an inverted test is somebody later reading it as a bug.
 
 use super::*;
 
@@ -16,14 +10,12 @@ fn config() -> Config {
     Config::default()
 }
 
-/// The `.dotfile` formatter, for the cases that cannot fail.
 fn laid_out(text: &str) -> String {
     block::format(text, &config()).unwrap_or_else(|problem| {
         panic!("{}: {}", problem.line, problem.message);
     })
 }
 
-/// The diagnostic a body produces, as `line: message`.
 fn refused(text: &str) -> String {
     match block::format(text, &config()) {
         Ok(out) => panic!("expected a refusal, got:\n{out}"),
@@ -31,8 +23,6 @@ fn refused(text: &str) -> String {
     }
 }
 
-/// Every classified line as `(class, block, key, value)`, blanks left out —
-/// what `blocks.scan` returns, and what the round-trip guard compares.
 fn entries(text: &str) -> Vec<(Class, String, String, String)> {
     block::signature(text).expect("the body parses")
 }
@@ -324,7 +314,6 @@ fn every_tracked_dotfile_survives_a_round_trip() {
 
 // ------------------------------------------------------------------- modes
 
-/// The mode a path is formatted in under the compiled-in patterns.
 fn mode_of(path: &str) -> Mode {
     conf::mode(path)
 }
@@ -512,8 +501,6 @@ fn kitty_keeps_a_map_line_that_has_no_action_as_it_found_it() {
 
 // --------------------------------------------------------------- selection
 
-/// A selection from an `include` block and an `exclude` block, both written
-/// the way a config writes them.
 fn picks(include: &[&str], exclude: &[&str]) -> Selection {
     let mut selection = Selection::default();
     for entry in include {
@@ -529,7 +516,6 @@ fn picks(include: &[&str], exclude: &[&str]) -> Selection {
     selection
 }
 
-/// Which of `paths` a selection picks up.
 fn taken(selection: &Selection, paths: &[&str]) -> Vec<String> {
     paths
         .iter()
@@ -770,7 +756,6 @@ fn a_config_reads_its_include_and_exclude_blocks() {
 
 // ------------------------------------------------------------------ config
 
-/// Write a `dotfmt.dotfile` into a fresh directory and read it back.
 fn settings(body: &str) -> Result<Config, String> {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(config::NAME);
@@ -1044,7 +1029,6 @@ fn a_selected_file_with_no_extension_is_laid_out_as_a_conf_file() {
 
 // -------------------------------------------------------------------- walk
 
-/// Build a tree, then name every file a walk of it picks up.
 fn walked(files: &[&str]) -> (tempfile::TempDir, Vec<String>) {
     let root = tempfile::tempdir().unwrap();
     for path in files {

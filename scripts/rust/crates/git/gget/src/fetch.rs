@@ -1,4 +1,3 @@
-//! Getting the files out of the repository, which is git's own work.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,32 +5,22 @@ use std::process::Command;
 
 use crate::target::Target;
 
-/// What became of the attempt.
 pub enum Outcome {
     Ready(Fetched),
     Refused(i32),
 }
 
-/// A checkout holding the wanted path and nothing else.
 pub struct Fetched {
-    /// Removed when this is dropped, which is what cleans up after a failure.
     temp: tempfile::TempDir,
     source: PathBuf,
     branch: Option<String>,
 }
 
 impl Fetched {
-    /// The branch the clone ended up on, when it is written plainly enough in
-    /// `HEAD` to be worth reporting.
     pub fn branch(&self) -> Option<&str> {
         self.branch.as_deref()
     }
 
-    /// Put the files where they were asked for, replacing whatever is there.
-    ///
-    /// The replacement happens only now, with the new copy already on the
-    /// same filesystem: whatever is being replaced survives every way this
-    /// can fail except the rename itself.
     pub fn install(self, destination: &Path) -> Result<(), String> {
         if let Ok(existing) = fs::symlink_metadata(destination) {
             let removed = if existing.is_dir() {
@@ -49,7 +38,6 @@ impl Fetched {
     }
 }
 
-/// Bring the target down into a temporary directory next to `beside`.
 pub fn fetch(target: &Target, beside: &Path) -> Result<Outcome, String> {
     let temp = tempfile::Builder::new()
         .prefix(".gget-")
@@ -115,7 +103,6 @@ pub fn fetch(target: &Target, beside: &Path) -> Result<Outcome, String> {
     }))
 }
 
-/// `owner/repo@branch`, or `owner/repo` when the branch never got a name.
 pub fn reported(target: &Target, branch: Option<&str>) -> String {
     match branch.or(target.reference.as_deref()) {
         Some(branch) => format!("{}@{branch}", target.slug()),
@@ -123,7 +110,6 @@ pub fn reported(target: &Target, branch: Option<&str>) -> String {
     }
 }
 
-/// Hand a step to git and wait for it.
 fn run(arguments: &[&str]) -> Result<Option<Outcome>, String> {
     let status = Command::new("git")
         .args(arguments)
@@ -137,11 +123,6 @@ fn run(arguments: &[&str]) -> Result<Option<Outcome>, String> {
     })
 }
 
-/// The path as a sparse-checkout pattern: anchored at the repository root, so
-/// it is that one place rather than every path that ends the same way, and
-/// with the characters gitignore syntax would otherwise read as wildcards
-/// spelled out. A pattern that matches a directory takes everything under it,
-/// which is what makes one pattern enough for a file and a folder alike.
 fn pattern(path: &str) -> String {
     let mut pattern = String::with_capacity(path.len() + 1);
     pattern.push('/');
@@ -154,15 +135,12 @@ fn pattern(path: &str) -> String {
     pattern
 }
 
-/// The branch `HEAD` names, read from the file rather than asked for: it is
-/// one line, and the alternative is another process.
 fn branch(clone: &Path) -> Option<String> {
     let head = fs::read_to_string(clone.join(".git/HEAD")).ok()?;
     let branch = head.trim().strip_prefix("ref: refs/heads/")?;
     (!branch.is_empty()).then(|| branch.to_string())
 }
 
-/// A path as an argument to git, which takes text.
 fn text(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("{}: not valid UTF-8", path.display()))

@@ -1,13 +1,7 @@
-//! End to end over the loopback: a real `hwire serve`, a real measurement
-//! against it, and the flags and exit codes callers depend on.
-//!
-//! `--at` is what makes this possible without a second machine — the same
-//! client and server the cable runs, with the ssh in between left out.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Output, Stdio};
 
-/// A server for one test, stopped when the test ends however it ends.
 struct Server {
     child: Child,
     address: String,
@@ -64,7 +58,6 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// The value of a `"name": number` field, without a JSON parser in the way.
 fn number(document: &str, name: &str) -> f64 {
     let after = document
         .split_once(&format!("\"{name}\":"))

@@ -1,4 +1,3 @@
-//! macOS probing via sysctl and IOKit, matching fastfetch's field values.
 
 use std::ffi::{CString, c_void};
 use std::fs;
@@ -292,9 +291,6 @@ fn kernel_module() -> Value {
 
 // --- CPU ---------------------------------------------------------------------
 
-/// The pmgr device-tree node lists the performance-cluster frequency states.
-/// Units have varied across chip generations (Hz, then kHz), so normalize by
-/// magnitude.
 fn max_frequency_mhz() -> u64 {
     let services = matching_services("AppleARMIODevice");
     let mut best = 0u64;
@@ -370,9 +366,6 @@ unsafe extern "C" {
     fn IOHIDEventGetFloatValue(event: *mut c_void, field: i32) -> f64;
 }
 
-/// Average of the performance- and efficiency-cluster temperature sensors,
-/// mirroring how fastfetch summarizes the Apple Silicon SMC readings. Returns
-/// null when the private HID interface yields nothing.
 fn cpu_temperature() -> Option<f64> {
     let mut readings: Vec<f64> = Vec::new();
     unsafe {

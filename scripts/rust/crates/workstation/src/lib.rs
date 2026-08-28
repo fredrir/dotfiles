@@ -1,19 +1,3 @@
-//! Shared command-line plumbing for the workstation tools.
-//!
-//! Every binary in this workspace agrees on two things: a failure is one
-//! `program: message` line on stderr and a non-zero status, and
-//! `--completions <shell>` prints a completion script instead of doing the
-//! tool's work. Both live here so a new tool inherits the conventions —
-//! including the shell wiring in `shared/zsh/conf.d/55-completions.zsh`,
-//! which assumes every tool answers the same flag.
-//!
-//! `--command-dump` is the same idea aimed at `docs/cli`: it prints the
-//! parser as lines rather than prose, so the tables in those pages are
-//! generated from the parser instead of transcribed from `--help`.
-//!
-//! The terminal itself is the third thing they share: the same palette, the
-//! same rule for when to use it, and the same question when something is
-//! about to happen that cannot be taken back.
 
 use std::fmt::Display;
 use std::io::{self, IsTerminal, Write};
@@ -31,18 +15,14 @@ use clap_complete::Shell;
 // `about` in `--help` with this.
 #[derive(Args)]
 pub struct Completions {
-    /// Print shell completions and exit
     #[arg(long = "completions", value_name = "SHELL", exclusive = true)]
     pub shell: Option<Shell>,
 
-    /// Print the parser as lines, for `dotfile docs`
     #[arg(long = "command-dump", exclusive = true, hide = true)]
     pub dump: bool,
 }
 
 impl Completions {
-    /// `Some(status)` when either flag was given, for `main` to return straight
-    /// away; `None` when the tool should get on with its actual work.
     pub fn emit<C: CommandFactory>(&self, program: &str) -> Option<ExitCode> {
         if self.dump {
             let mut command = C::command();
@@ -56,11 +36,6 @@ impl Completions {
     }
 }
 
-/// One tab-separated line per command and per argument, parents first.
-///
-/// Tabs and newlines are the only characters the reader splits on, so help
-/// text is flattened rather than quoted: a description that wrapped in the
-/// source should read as one sentence in a table anyway.
 fn dump(command: &clap::Command, path: &str) {
     println!(
         "C\t{path}\t{}\t{}",
@@ -125,19 +100,11 @@ fn flatten(text: Option<String>) -> String {
         .join(" ")
 }
 
-/// Report a failure the way every tool here reports one.
 pub fn fail(program: &str, message: impl Display) -> ExitCode {
     eprintln!("{program}: {message}");
     ExitCode::FAILURE
 }
 
-/// The palette `dotfile theme` exports, and the decision to use it.
-///
-/// Colour is for a person reading a terminal, so it is left out when the stream
-/// being written to is a pipe or when `NO_COLOR` asks. Each method takes the
-/// finished text and hands it back either painted or untouched, which keeps
-/// padding — always measured on the text, never on the escapes — at the call
-/// site.
 pub struct Style {
     colored: bool,
     green: String,
@@ -146,16 +113,10 @@ pub struct Style {
 }
 
 impl Style {
-    /// The style for writing to stdout right now.
     pub fn for_stdout() -> Style {
         Style::for_stream(io::stdout().is_terminal())
     }
 
-    /// The style for writing to stderr right now.
-    ///
-    /// A tool whose stdout carries data rather than prose — `dotfmt --stdin`
-    /// hands its result to an editor — says everything a person reads on
-    /// stderr, so that is the stream whose terminal-ness decides the colour.
     pub fn for_stderr() -> Style {
         Style::for_stream(io::stderr().is_terminal())
     }
@@ -169,7 +130,6 @@ impl Style {
         }
     }
 
-    /// A style that paints nothing, for tests and for output that is data.
     pub fn plain() -> Style {
         Style {
             colored: false,
@@ -214,9 +174,6 @@ fn theme(name: &str, fallback: &str) -> String {
     }
 }
 
-/// Ask `question` and read the answer: empty or `y` is yes, `n` is no, and
-/// anything else asks again. `None` when the answers ran out before there was
-/// one, which is a cancellation rather than a yes.
 pub fn confirm(question: &str) -> Option<bool> {
     let mut answer = String::new();
     loop {
@@ -234,19 +191,13 @@ pub fn confirm(question: &str) -> Option<bool> {
     }
 }
 
-/// One of the three answers to a question asked once per thing.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
     Yes,
     No,
-    /// Yes to this one and to everything still to be asked about.
     All,
 }
 
-/// Ask `question` about one of several things: empty or `y` is yes, `n` is
-/// no, `a` is yes to this and the rest, and anything else asks again. `None`
-/// when the answers ran out before there was one, which is a cancellation
-/// rather than a yes.
 pub fn confirm_each(question: &str) -> Option<Answer> {
     let mut answer = String::new();
     loop {
@@ -265,11 +216,6 @@ pub fn confirm_each(question: &str) -> Option<Answer> {
     }
 }
 
-/// How wide the terminal is, when there is one to ask.
-///
-/// `COLUMNS` wins where it is set, which is both what a shell exports for its
-/// children and how a test pins the width; otherwise the terminal is asked
-/// directly, since a program is not told when it is resized.
 pub fn terminal_width() -> Option<usize> {
     if let Some(columns) = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok()) {
         return Some(columns);

@@ -1,5 +1,3 @@
-//! Black-box checks on the flags, output, prompts and exit codes callers
-//! depend on.
 
 use std::fs;
 use std::io::Write;
@@ -33,7 +31,6 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// The example: a folder holding one folder of the same name.
 fn nested() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     let inner = root.path().join("documents/documents");
@@ -246,8 +243,6 @@ fn completions_need_no_directory() {
     assert!(stdout(&output).contains("#compdef flatten"));
 }
 
-/// The shared `--completions` flag is flattened in, and clap will hand a
-/// flattened struct's documentation to the command it lands in.
 #[test]
 fn help_describes_this_tool() {
     let output = flatten(&["--help"], "");

@@ -1,17 +1,6 @@
-//! The provider table: which tool owns which language, and in what order its
-//! programs run.
-//!
-//! Languages are modelled rather than tools, because two of the rows need
-//! more than one program — `.go` is `goimports` and then `gofmt`, `.yaml` in
-//! `--check` is `yamlfmt` and then `yamllint` — and because `--add` seeds one
-//! config per language rather than one per program.
-//!
-//! Every extension belongs to exactly one language, which is what lets the
-//! walk sort a file into its row by looking at nothing but the name.
 
 use std::path::Path;
 
-/// One row of the table.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lang {
     Dotfmt,
@@ -26,7 +15,6 @@ pub enum Lang {
     Go,
 }
 
-/// Every row, in the order a report lists them.
 pub const LANGS: [Lang; 10] = [
     Lang::Dotfmt,
     Lang::Python,
@@ -40,69 +28,38 @@ pub const LANGS: [Lang; 10] = [
     Lang::Go,
 ];
 
-/// What a run is for: rewriting the files, or reporting on them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
-    /// Run the formatters and let them write.
     Write,
-    /// Run the formatters in verify mode and the linters as well, writing
-    /// nothing.
     Check,
 }
 
-/// What a step is handed to work on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Feed {
-    /// The file list, relative to the run root, in chunks.
     Files,
-    /// One `--manifest-path` per Cargo workspace found under the root. Only
-    /// `cargo fmt` wants this: it takes a manifest and formats what the
-    /// manifest says, not a list of files.
     Manifests,
 }
 
-/// How a step in `--check` says the files are not formatted.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Drift {
-    /// A non-zero exit, which is what all but two of them do.
     Status,
-    /// Success either way, with the offending files named on stdout.
-    /// `gofmt -l` and `goimports -l` are the two, and reading their status
-    /// instead would report a whole Go tree as clean.
     Listing,
 }
 
-/// Environment for a tool whose own logging is louder than its findings.
-///
-/// taplo writes its entire resolved file list at `INFO` on every invocation —
-/// 2600 characters for this repository's 43 TOML files, ahead of anything it
-/// found. `warn` drops that line and keeps every `ERROR`, which is where its
-/// findings are, and leaves both exit codes alone: clean is still 0 and drift
-/// is still 1, so `Drift::Status` reads the row the same way.
 const QUIET_RUST_LOG: &[(&str, &str)] = &[("RUST_LOG", "warn")];
 
-/// Let biome parse a `.json` file that is really JSONC.
-///
-/// The value is written out because the flag is `--flag=<true|false>` rather
-/// than a bare switch: without it biome reads the first path as the value and
-/// fails before it has looked at a single file.
 const ALLOW_COMMENTS: &str = "--json-parse-allow-comments=true";
 
-/// One program invocation, before the files it is given.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Step {
     pub program: &'static str,
     pub args: &'static [&'static str],
-    /// Set on the child. Empty for every tool that is quiet by default.
     pub env: &'static [(&'static str, &'static str)],
     pub feed: Feed,
     pub drift: Drift,
 }
 
 impl Step {
-    /// Turn a tool's logging down to the level its findings are written at.
-    /// Never below it — a quieter tool that has stopped reporting is worse
-    /// than a loud one.
     fn quiet(mut self, env: &'static [(&'static str, &'static str)]) -> Step {
         self.env = env;
         self
@@ -140,7 +97,6 @@ fn by_listing(program: &'static str, args: &'static [&'static str]) -> Step {
 }
 
 impl Lang {
-    /// What the report calls this row.
     pub fn name(self) -> &'static str {
         match self {
             Lang::Dotfmt => "dotfmt",
@@ -156,7 +112,6 @@ impl Lang {
         }
     }
 
-    /// The extensions this row owns, without the dot.
     pub fn extensions(self) -> &'static [&'static str] {
         match self {
             Lang::Dotfmt => &["conf", "config", "dotfile"],
@@ -180,10 +135,6 @@ impl Lang {
         }
     }
 
-    /// Which row a path belongs to, or `None` for a file no tool here owns.
-    ///
-    /// The extension is lowercased first, so a `.JSON` written by some other
-    /// machine still reaches biome.
     pub fn of(path: &Path) -> Option<Lang> {
         let extension = path.extension()?.to_str()?.to_ascii_lowercase();
         LANGS
@@ -191,11 +142,6 @@ impl Lang {
             .find(|lang| lang.extensions().contains(&extension.as_str()))
     }
 
-    /// The programs to run, in the order they must run in.
-    ///
-    /// Within one language this is a sequence rather than a set: `goimports`
-    /// rewrites imports and `gofmt` rewrites layout, and running both `-w`
-    /// passes over the same file at once is a race on the file itself.
     pub fn steps(self, mode: Mode) -> Vec<Step> {
         match (self, mode) {
             (Lang::Dotfmt, Mode::Write) => vec![on_files("dotfmt", &[])],
@@ -263,12 +209,6 @@ impl Lang {
         }
     }
 
-    /// The file in `shared/tools/` that seeds a project for this language,
-    /// and the name it has to land under.
-    ///
-    /// Only biome differs between the two: the repository keeps its copy as
-    /// `biome.global.json` so that linking it into `$HOME` does not shadow a
-    /// project's own, but `biome.json` is the only name biome reads.
     pub fn config(self) -> Option<(&'static str, &'static str)> {
         match self {
             Lang::Dotfmt => Some(("dotfmt.dotfile", "dotfmt.dotfile")),
@@ -285,8 +225,6 @@ impl Lang {
         }
     }
 
-    /// Files whose presence at the top of a project says the language is used
-    /// even when the walk happens to find none of its sources.
     pub fn markers(self) -> &'static [&'static str] {
         match self {
             Lang::Python => &["pyproject.toml", "uv.lock"],
@@ -299,33 +237,15 @@ impl Lang {
     }
 }
 
-/// Where a program's configuration comes from.
-///
-/// Four of the twelve look for a config where this repository keeps none —
-/// the configs live under `shared/tools/`, not at the root. taplo and stylua
-/// formatted the whole tree at their own defaults and reported it clean;
-/// biome and yamllint are saved here only by a symlink in `$HOME` that a
-/// fresh checkout would not have. Each was found by hand, one after another,
-/// which is three times too many.
-///
-/// So every program in the table has to say which case it is, and
-/// `every_program_says_where_its_configuration_comes_from` fails a row that
-/// has not. A fifth one is a red test rather than a silent wrong-settings run.
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Configured {
-    /// The run names the config on the command line, because the program
-    /// would find nothing where it looks. Must be in `configs::INJECTED`.
     Named,
-    /// Left to the program, with the reason that is safe.
     Found(&'static str),
-    /// Nothing here configures it.
     Nothing,
-    /// A gap that is known, is not closed here, and says why.
     Gap(&'static str),
 }
 
-/// Every program the table can run, once each, in the order the rows give.
 #[cfg(test)]
 pub fn programs() -> Vec<&'static str> {
     let mut named = Vec::new();
@@ -341,12 +261,6 @@ pub fn programs() -> Vec<&'static str> {
     named
 }
 
-/// What settles this program's configuration, and why that is the right
-/// answer for it.
-///
-/// `None` for a program that has not been asked the question. That is the
-/// whole mechanism: a new row whose author did not think about where its
-/// config comes from fails the test rather than quietly running at defaults.
 #[cfg(test)]
 pub fn configured(program: &str) -> Option<Configured> {
     Some(match program {

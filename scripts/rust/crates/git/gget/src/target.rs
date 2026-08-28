@@ -1,41 +1,23 @@
-//! Reading a target: the several ways of naming one place in a repository.
-//!
-//! The same folder can arrive as the URL the browser is showing, as the
-//! address `git clone` would be handed, or as the `owner/repo/path` that is
-//! left once the parts every GitHub URL has are dropped. They are all read
-//! into the same four answers — whose repository, which one, which commit's
-//! version of it, and where in it — before anything reaches the network.
 
-/// The one host these targets can be on.
 const HOST: &str = "github.com";
 
-/// A place in a repository, and which version of it to take.
 #[derive(Debug)]
 pub struct Target {
     pub owner: String,
     pub repo: String,
-    /// The branch or tag that was asked for, if one was.
     pub reference: Option<String>,
-    /// Repository-relative, and empty for the repository itself.
     pub path: String,
 }
 
 impl Target {
-    /// Where to clone from. Always the https address, whichever form the
-    /// target arrived in: git rewrites it from there if the user's
-    /// configuration says to, which is also how the tests reach a local
-    /// repository without the tool knowing anything about them.
     pub fn url(&self) -> String {
         format!("https://{HOST}/{}/{}", self.owner, self.repo)
     }
 
-    /// `owner/repo`, the way a repository is named in conversation.
     pub fn slug(&self) -> String {
         format!("{}/{}", self.owner, self.repo)
     }
 
-    /// What the fetched thing is called once it is here: the last part of the
-    /// path, or the repository's own name when the target is the repository.
     pub fn name(&self) -> &str {
         match self.path.rsplit('/').next() {
             Some(name) if !name.is_empty() => name,
@@ -44,8 +26,6 @@ impl Target {
     }
 }
 
-/// Read a target. `owner` is the one `--fredrir` fixes, and its presence is
-/// also what makes a URL the wrong thing to have been given.
 pub fn parse(input: &str, owner: Option<&str>) -> Result<Target, String> {
     // A browser hands over the lines it is scrolled to and the file view adds
     // `?plain=1`; neither says anything about which file it is.
@@ -98,8 +78,6 @@ pub fn parse(input: &str, owner: Option<&str>) -> Result<Target, String> {
     })
 }
 
-/// Whether the target names a host at all, which is the one thing
-/// `--fredrir` cannot be combined with.
 fn addressed(text: &str) -> bool {
     text.contains("://")
         || text.starts_with("git@")
@@ -107,8 +85,6 @@ fn addressed(text: &str) -> bool {
         || text.to_ascii_lowercase().starts_with("www.")
 }
 
-/// The part of a target that follows the host, or `None` when there was no
-/// host and what is left is the `owner/repo/...` shorthand.
 fn locate(text: &str) -> Result<Option<&str>, String> {
     // The scp-like form a clone box offers for ssh, with a colon where the
     // path would otherwise start.
@@ -136,9 +112,6 @@ fn locate(text: &str) -> Result<Option<&str>, String> {
     github(authority, path, text).map(Some)
 }
 
-/// The path, once the authority in front of it has been confirmed to be
-/// GitHub's. Credentials in front of the host and a port behind it are part
-/// of the address rather than part of the name.
 fn github<'a>(authority: &str, path: &'a str, text: &str) -> Result<&'a str, String> {
     let host = authority.rsplit('@').next().unwrap_or(authority);
     let host = host.split(':').next().unwrap_or(host);
@@ -229,8 +202,6 @@ mod tests {
         );
     }
 
-    /// The branch is not guessed: `dev` here is a folder, and a branch called
-    /// `dev` is `-b dev`.
     #[test]
     fn a_middle_segment_is_part_of_the_path() {
         let target = mine("nsql/dev/README.md");

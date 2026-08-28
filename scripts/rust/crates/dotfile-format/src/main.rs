@@ -1,39 +1,3 @@
-//! Format a tree with the tool that owns each language.
-//!
-//! One orchestrator over ten providers. The tree is walked once, every file
-//! is sorted into the row of the provider table that owns its extension, and
-//! each row's programs are handed the list. `dotfmt` sits in that table next
-//! to stylua and shfmt: a subprocess with a file list, not a special case —
-//! except that its row is built from its own answer to `--owns` rather than
-//! from an extension list here, because its selection rules are per directory
-//! and only it reads them.
-//!
-//! Two of the providers are handed this repository's config outright. taplo
-//! and biome both search upward from the directory they are run in and would
-//! find nothing here, so both of them formatted this tree at their own
-//! defaults and called it clean. A target that has a config of its own keeps
-//! it.
-//!
-//! `--check` runs the same formatters in verify mode and the linters as well,
-//! and writes nothing. It never runs clippy — that is a different question
-//! than whether this tree is formatted.
-//!
-//! `--add` and `--sync` are the other half: this repository keeps one config
-//! per language under `shared/tools/`, and these two put them into another
-//! project. `--add` asks about each and can introduce a config a project does
-//! not have; `--sync` refreshes the ones already there and never introduces
-//! one.
-//!
-//! A tool nobody installed is named in the report and changes nothing else.
-//! Four of the ten providers are missing on the machine this was written on,
-//! and a run there is still a success.
-//!
-//! What a run says is a count, and one line for each provider that has
-//! something to report with the files it fell over on under it. The table,
-//! the commands and everything the tools said are behind `--verbose`.
-//!
-//! stdout carries data — the completion script, the command dump, the help —
-//! and the prompts. Everything a person reads is on stderr.
 
 mod configs;
 mod lang;
@@ -96,27 +60,21 @@ walked, and symlinked directories are not followed.",
   dotfile format -s ~/code/thing   Refresh the configs that project already has"
 )]
 struct Cli {
-    /// File or directory to format
     #[arg(value_name = "TARGET", value_hint = ValueHint::AnyPath)]
     target: Option<PathBuf>,
 
-    /// Verify formatting and run the linters, writing nothing
     #[arg(long, conflicts_with_all = ["add", "sync"])]
     check: bool,
 
-    /// Offer this repository's tool configs, asking about each
     #[arg(short = 'a', long, conflicts_with = "sync")]
     add: bool,
 
-    /// Replace the tool configs the target already has, without asking
     #[arg(short = 's', long)]
     sync: bool,
 
-    /// Show each command as it is run, and what it said
     #[arg(short, long, conflicts_with = "quiet")]
     verbose: bool,
 
-    /// Say nothing; the exit code is the whole report
     #[arg(short, long)]
     quiet: bool,
 
@@ -254,7 +212,6 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
     })
 }
 
-/// The encrypted files this run passed over.
 fn note(sealed: &[PathBuf], say: bool) {
     if !say {
         return;
@@ -271,9 +228,6 @@ fn note(sealed: &[PathBuf], say: bool) {
     );
 }
 
-/// The whole of what a run says, which by default is a count and nothing
-/// else. `--verbose` is where the table, the commands and the tools' own
-/// words live.
 fn report(done: &[run::Ran], mode: Mode, verbose: bool, root: &Path, check: bool, style: &Style) {
     if !verbose {
         for line in render::summary(done, mode, style) {
@@ -292,8 +246,6 @@ fn report(done: &[run::Ran], mode: Mode, verbose: bool, root: &Path, check: bool
     eprintln!("  {}", render::tally(done, mode));
 }
 
-/// `--add` and `--sync`: this repository's tool configuration, put into
-/// another project.
 fn manage(cli: &Cli, root: &Path, files: &[PathBuf], style: &Style) -> Result<ExitCode, String> {
     let source = configs::source()?;
     let placements = configs::placements(root, &configs::detect(root, files));
@@ -336,11 +288,6 @@ fn manage(cli: &Cli, root: &Path, files: &[PathBuf], style: &Style) -> Result<Ex
     Ok(ExitCode::SUCCESS)
 }
 
-/// The run root, and the one file to work on when the target named a file.
-///
-/// `metadata` follows symlinks, so a link to a directory is a target and a
-/// link to a file is that file — which is the only way a run reaches a file
-/// outside the tree it is standing in.
 fn resolve(target: &Path) -> Result<(PathBuf, Option<PathBuf>), String> {
     let metadata = fs::metadata(target).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound => format!("no such file or directory: {}", target.display()),
@@ -366,12 +313,6 @@ fn real(directory: &Path) -> Result<PathBuf, String> {
     fs::canonicalize(directory).map_err(|error| format!("{}: {error}", directory.display()))
 }
 
-/// What the walk could not see, and what it deliberately passed over.
-///
-/// The first three are the tree being an incomplete account of itself, so they
-/// are always said out loud. A lockfile left alone is the tool working as
-/// intended rather than a warning, so it is named under `--verbose` — which is
-/// still the difference between a documented rule and a silent one.
 fn warn(found: &walk::Found, verbose: bool) {
     if verbose && !found.lockfiles.is_empty() {
         let names: Vec<String> = found
