@@ -99,8 +99,6 @@ printf '%s|%s|%s\n' "dotfmt" "$PWD" "$*" >> "$DFF_LOG""#
     );
 }
 
-/// A `PATH` holding only what a test put in it, plus git — which the walk
-/// asks about ignored files and which nothing else here needs.
 fn only(names: &[&str]) -> tempfile::TempDir {
     let bin = tempfile::tempdir().unwrap();
     let real = String::from_utf8(
@@ -111,7 +109,14 @@ fn only(names: &[&str]) -> tempfile::TempDir {
             .stdout,
     )
     .unwrap();
-    stub(bin.path(), "git", &format!(r#"exec {} "$@""#, real.trim()));
+    let path = std::env::var("PATH")
+        .unwrap_or_default()
+        .replace('\'', "'\\''");
+    stub(
+        bin.path(),
+        "git",
+        &format!(r#"PATH='{}' exec {} "$@""#, path, real.trim()),
+    );
     for name in names {
         recorder(bin.path(), name);
     }
