@@ -1,22 +1,26 @@
-if vim.g.minimal then return {} end -- skipped in minimal (server) mode
+if vim.g.minimal then
+	return {}
+end -- skipped in minimal (server) mode
 return {
-  'mfussenegger/nvim-lint',
-  event = { 'BufReadPre', 'BufNewFile' },
-  config = function()
-    local lint = require 'lint'
-    lint.linters_by_ft = {
-      javascript = { 'eslint_d' },
-      typescript = { 'eslint_d' },
-      javascriptreact = { 'eslint_d' },
-      typescriptreact = { 'eslint_d' },
-    }
+	"mfussenegger/nvim-lint",
+	event = { "BufReadPre", "BufNewFile" },
+	config = function()
+		local lint = require("lint")
+		lint.linters_by_ft = {
+			javascript = { "eslint_d" },
+			typescript = { "eslint_d" },
+			javascriptreact = { "eslint_d" },
+			typescriptreact = { "eslint_d" },
+		}
 
-    local lint_augroup = vim.api.nvim_create_augroup('lint', { clear = true })
-    vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWritePost', 'InsertLeave' }, {
-      group = lint_augroup,
-      callback = function()
-        if vim.bo.modifiable then lint.try_lint() end
-      end,
-    })
-  end,
+		local lint_augroup = vim.api.nvim_create_augroup("lint", { clear = true })
+		vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "InsertLeave" }, {
+			group = lint_augroup,
+			callback = function()
+				if vim.bo.modifiable then
+					lint.try_lint()
+				end
+			end,
+		})
+	end,
 }
