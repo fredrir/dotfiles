@@ -3,7 +3,7 @@ local config = wezterm.config_builder() ---@type Config
 
 local modules = {
   "domain",
-  "keymap",
+  "config",
 }
 
 for _, module in ipairs(modules) do

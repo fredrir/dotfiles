@@ -1,33 +1,32 @@
-local wezterm = require "wezterm" ---@type Wezterm
-local platform = require "utils.platform"
+local wezterm = require('wezterm')
 
-local M = {}
+---@class WeztermConfigBuilder
+---@field options Config
+local Config = {}
+Config.__index = Config
 
-if platform.is_mac then
-  M.SUPER = "SUPER"
-  M.SUPER_REV = "SUPER|CTRL"
-elseif platform.is_win or platform.is_linux then
-  M.SUPER = "Ctrl"
-  M.SUPER_REV = "ALT|CTRL"
+---Initialize Config
+---@return WeztermConfigBuilder
+function Config:init()
+   local config = setmetatable({ options = {} }, self)
+   return config
 end
 
----@type Key[]
-local keys = {
-  { key = "c", mods = "CTRL|SHIFT", action = act.CopyTo "Clipboard" },
-  { key = ".", mods = "ALT" },
-}
-
-M.attach = wezterm.action_callback(function(_, pane)
-  pane:send_text "mux\n"
-end)
-
-function M.apply_to_config(config)
-  local platform = wezterm.target_triple:find "darwin" and "keymap.macos" or "keymap.linux"
-  local chord = require(platform)
-
-  config.keys = {
-    { key = chord.key, mods = chord.mods, action = M.attach },
-  }
+---@param new_options table 
+---@return WeztermConfigBuilder
+function Config:append(new_options)
+   for k, v in pairs(new_options) do
+      if self.options[k] ~= nil then
+         wezterm.log_warn(
+            'Duplicate config option detected: ',
+            { old = self.options[k], new = new_options[k] }
+         )
+         goto continue
+      end
+      self.options[k] = v
+      ::continue::
+   end
+   return self
 end
 
-return M
+return Config
