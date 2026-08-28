@@ -40,7 +40,6 @@ shared {
   ?kondo
   ?openssl
   ?shfmt
-  ?dmux
   ?biome
   ?ruff
   ?stylua

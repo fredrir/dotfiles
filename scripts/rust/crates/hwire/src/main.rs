@@ -43,9 +43,6 @@ const PROGRAM: &str = "hwire";
 /// slow route cannot turn the quickest phase into the longest one.
 const LATENCY_BUDGET: Duration = Duration::from_millis(500);
 
-/// macOS's sshd hands a non-interactive command a minimal PATH that has no
-/// `~/.local/bin` in it, so a bare `ssh macie hwire` dies with exit 127. Same
-/// prefix, and the same reason, as `dmux::hosts::REMOTE_PATH_PREFIX`.
 const REMOTE_PATH: &str = r#"PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" "#;
 
 #[derive(Parser)]

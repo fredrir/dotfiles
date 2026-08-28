@@ -1,20 +1,4 @@
-# The cable, spelled two ways: `cabled-archie` for a person who wants that
-# route and no other, and 10.77.77.2 for anything that has to name the route
-# it is taking. dmux enrolls the address rather than `archie`, because the
-# alias in 05- picks the cable or tailscale by probe and never says which --
-# a route dmux has labelled usb, answering over tailscale, would license
-# remote Wez on a path §8.3 has no row for. wezterm's built-in ssh client has
-# the same problem from its own side: it hands the route's address to a
-# client that does not implement `Match exec` at all. See docs/ssh.md,
-# "Addressing the two routes".
-#
-# BindAddress is what keeps the spelling honest. 10.77.77.1 exists only while
-# the cable does, so with the cable out this fails to bind rather than
-# quietly resolving somewhere else -- the same reason 05- binds an address
-# and not an interface name.
-#
-# Keepalives as tight as 05-, and for the same reason: the cable runs at
-# ~1.7 ms with ±0.13 ms of jitter, so ten seconds of silence means it is gone
+# Cable runs at ~1.7 ms with ±0.13 ms of jitter, so ten seconds of silence means it is gone
 # and the session should say so rather than hang.
 
 Host cabled-archie 10.77.77.2

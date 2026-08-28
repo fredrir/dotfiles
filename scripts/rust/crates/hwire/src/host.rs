@@ -1,11 +1,4 @@
 //! The two machines, and the four ways between them.
-//!
-//! Hardcoded for the same reason `dmux::hosts` hardcodes them: this is
-//! personal infrastructure for exactly two hosts, and the addresses already
-//! live in the ssh configs and `wez/remote/mux.lua`. The pair is mirrored
-//! rather than shared because the only other copy sits inside `dmux`, whose
-//! bundled SQLite is a long build to depend on for four addresses; a test
-//! reads the ssh configs in this repository and fails if they drift.
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;

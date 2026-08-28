@@ -57,11 +57,6 @@ scripts/rust/target/
 # Benchmark run lock: process state, never tracked.
 benchmarks/.lock
 
-# dmux per-host policy (ADR 012 WS-F.1): written by the operator on each host,
-# read by the service units and dmux doctor, never tracked.
-**/dmux/service.env
-**/environment.d/50-dmux.conf
-
 **/.claude/worktrees/
 
 **/luarocks

@@ -41,19 +41,4 @@ _tools_comp_cache="$HOME/.cache/zsh/tools-completion.zsh"
 [[ -r "$_tools_comp_cache" ]] && source "$_tools_comp_cache"
 unset _tools_comp_cache
 
-# _dmux_bin="${commands[dmux]:-$HOME/.local/bin/dmux}"
-# if [[ -x "$_dmux_bin" ]]; then
-#   _dmux_comp_cache="$HOME/.cache/zsh/dmux-completion.zsh"
-#   _dmux_comp_src=""
-#   [[ -f "$_dmux_comp_cache" ]] && IFS= read -r _dmux_comp_src < "$_dmux_comp_cache"
-#   if [[ "$_dmux_comp_src" != "# $_dmux_bin" || "$_dmux_bin" -nt "$_dmux_comp_cache" ]]; then
-#     mkdir -p "${_dmux_comp_cache:h}"
-#     { print -r -- "# $_dmux_bin" &&
-#       COMPLETE=zsh "$_dmux_bin" 2>/dev/null } > "$_dmux_comp_cache" \
-#       || print -r -- "# $_dmux_bin" > "$_dmux_comp_cache"
-#   fi
-#   source "$_dmux_comp_cache"
-# fi
-# unset _dmux_bin _dmux_comp_cache _dmux_comp_src
-
 zstyle ':completion:*' matcher-list '' 'm:{a-zA-Z}={A-Za-z}'
