@@ -110,7 +110,7 @@ pub fn reported(target: &Target, branch: Option<&str>) -> String {
     }
 }
 
-fn run(arguments: &[&str]) -> Result<Option<Outcome>, String> {
+pub fn run(arguments: &[&str]) -> Result<Option<Outcome>, String> {
     let status = Command::new("git")
         .args(arguments)
         .status()
@@ -135,13 +135,13 @@ fn pattern(path: &str) -> String {
     pattern
 }
 
-fn branch(clone: &Path) -> Option<String> {
+pub fn branch(clone: &Path) -> Option<String> {
     let head = fs::read_to_string(clone.join(".git/HEAD")).ok()?;
     let branch = head.trim().strip_prefix("ref: refs/heads/")?;
     (!branch.is_empty()).then(|| branch.to_string())
 }
 
-fn text(path: &Path) -> Result<&str, String> {
+pub fn text(path: &Path) -> Result<&str, String> {
     path.to_str()
         .ok_or_else(|| format!("{}: not valid UTF-8", path.display()))
 }

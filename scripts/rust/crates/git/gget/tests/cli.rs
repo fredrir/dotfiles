@@ -34,6 +34,7 @@ impl Sandbox {
         fs::create_dir(&source).unwrap();
         sandbox.git(&source, &["init", "--quiet", "-b", "main"]);
         sandbox.write(&source, "README.md", "main\n");
+        sandbox.write(&source, ".hidden", "hidden\n");
         sandbox.write(&source, "folder_8/folder_9/a.txt", "nine\n");
         sandbox.write(&source, "folder_8/keep.txt", "keep\n");
         sandbox.git(&source, &["add", "."]);
@@ -322,4 +323,67 @@ fn help_describes_this_tool() {
     let sandbox = Sandbox::new();
     let output = sandbox.gget(&["--help"], "");
     assert!(stdout(&output).starts_with("Download a file or folder out of"));
+}
+
+#[test]
+fn a_listing_shows_what_the_directory_holds() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.gget(&["-l", "https://github.com/user/repo/folder_8"], "");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let listed = stdout(&output);
+    assert!(listed.contains("folder_9"), "{listed}");
+    assert!(listed.contains("keep.txt"), "{listed}");
+    assert!(sandbox.names().is_empty());
+}
+
+#[test]
+fn a_listing_hides_dotfiles_until_it_is_asked() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.gget(&["-l", "user/repo"], "");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let listed = stdout(&output);
+    assert!(listed.contains("README.md"), "{listed}");
+    assert!(!listed.contains(".hidden"), "{listed}");
+
+    let output = sandbox.gget(&["-la", "user/repo"], "");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains(".hidden"), "{}", stdout(&output));
+}
+
+#[test]
+fn a_listing_reads_the_branch_out_of_the_url() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.gget(&["-l", "https://github.com/user/repo/tree/dev/folder_8"], "");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("folder_10"), "{}", stdout(&output));
+}
+
+#[test]
+fn listing_a_file_names_that_file() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.gget(&["-l", "user/repo/blob/main/README.md"], "");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("README.md"), "{}", stdout(&output));
+    assert!(sandbox.names().is_empty());
+}
+
+#[test]
+fn listing_a_path_that_is_not_there_says_so() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.gget(&["-l", "user/repo/folder_8/nope"], "");
+    assert!(!output.status.success());
+    assert_eq!(
+        stderr(&output).trim(),
+        "gget: no folder_8/nope in user/repo@main"
+    );
+    assert!(sandbox.names().is_empty());
+}
+
+#[test]
+fn the_dotfile_flag_is_only_for_a_listing() {
+    let sandbox = Sandbox::new();
+    let output = sandbox.gget(&["-a", "user/repo"], "");
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--list"), "{}", stderr(&output));
+    assert!(sandbox.names().is_empty());
 }

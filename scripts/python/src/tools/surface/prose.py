@@ -172,7 +172,11 @@ FLAGS = {
     ("flatten", "--verbose"): "Names every move as it is made.",
     ("flatten", "--all"): "Lists every row instead of truncating sections after 12 rows.",
     ("git", "--dry-run"): "Shows what `gdd` would discard without changing the working tree.",
-    ("git", "--all"): "Makes `gdd` list every entry instead of truncating its sections.",
+    ("git", "--all"): (
+        "Makes `gdd` list every entry instead of truncating its sections, and includes "
+        "dotfiles in a `gget` listing."
+    ),
+    ("git", "--list"): "Prints the contents of the `gget` target instead of downloading it.",
     ("git", "--yes"): "Skips confirmation before discarding changes or replacing a download.",
     ("git", "--fredrir"): "Reads the `gget` target as a repository owned by `fredrir`.",
     ("git", "--branch"): "Selects the branch or tag from which `gget` downloads.",

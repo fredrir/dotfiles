@@ -1,5 +1,6 @@
 
 mod fetch;
+mod list;
 mod target;
 
 use std::env;
@@ -27,7 +28,9 @@ const ARROW: &str = " -> ";
   gget https://github.com/user/repo/tree/dev/src         From the branch in the URL
   gget -f nsql/README.md                                 From github.com/fredrir
   gget -f -b dev nsql/README.md                          From that repository's dev
-  gget user/repo                                         The whole repository, as files"
+  gget user/repo                                         The whole repository, as files
+  gget -l user/repo/tree/main/src                        List it instead of downloading
+  gget -la user/repo                                     List it, dotfiles and all"
 )]
 struct Cli {
     #[arg(value_name = "TARGET", required_unless_present = "shell")]
@@ -41,6 +44,12 @@ struct Cli {
 
     #[arg(short, long)]
     yes: bool,
+
+    #[arg(short, long)]
+    list: bool,
+
+    #[arg(short, long, requires = "list")]
+    all: bool,
 
     #[command(flatten)]
     completions: Completions,
@@ -65,6 +74,10 @@ fn get(cli: &Cli) -> Result<ExitCode, String> {
     // one that was typed just now wins.
     if cli.branch.is_some() {
         target.reference = cli.branch.clone();
+    }
+
+    if cli.list {
+        return list::list(&target, cli.all);
     }
 
     let here = env::current_dir().map_err(|error| format!("the current directory: {error}"))?;

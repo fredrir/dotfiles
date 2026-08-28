@@ -1,13 +1,22 @@
 local wezterm = require "wezterm" ---@type Wezterm
+local platform = require "utils.platform"
 
 local M = {}
 
--- The chord types the `mux` shell function rather than reaching for the peer
--- itself. The gui's lua runs against its own mux, whose pane ids are not the
--- ones `wezterm cli` and $WEZTERM_PANE speak, so a tab spawned from here
--- lands outside localmux and a close cannot be aimed at this pane -- it takes
--- whichever pane is active instead. The shell function holds the ids that
--- work, and its errors land in the shell that asked rather than in a toast.
+if platform.is_mac then
+  M.SUPER = "SUPER"
+  M.SUPER_REV = "SUPER|CTRL"
+elseif platform.is_win or platform.is_linux then
+  M.SUPER = "Ctrl"
+  M.SUPER_REV = "ALT|CTRL"
+end
+
+---@type Key[]
+local keys = {
+  { key = "c", mods = "CTRL|SHIFT", action = act.CopyTo "Clipboard" },
+  { key = ".", mods = "ALT" },
+}
+
 M.attach = wezterm.action_callback(function(_, pane)
   pane:send_text "mux\n"
 end)
