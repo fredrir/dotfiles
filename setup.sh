@@ -12,9 +12,6 @@ SYNC=0
 ARG_PROFILE=""
 LINK_ARGS=()
 
-# Everything after `--` is handed to `dotfile link` verbatim, which is how
-# `dotfile sync` forwards --resolve/--force/--override/-n without this script
-# having to know about them.
 while [ $# -gt 0 ]; do
   case "$1" in
   --commands-only) COMMANDS_ONLY=1 ;;
@@ -30,9 +27,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Steps that are expensive (tool reinstall, cargo build) are skipped when their
-# inputs are unchanged since the last run, so `dotfile sync` after a pull only
-# does the work the pull actually created. Stamps live outside the repository.
 STAMP_DIR="$STATE_DIR/sync"
 
 if command -v sha256sum >/dev/null 2>&1; then
@@ -142,8 +136,6 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# The commands are an editable install, so source edits need no reinstall;
-# only dependency or entry-point changes (pyproject/lock) do.
 PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
 
 python_current() {
@@ -178,10 +170,7 @@ if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
   echo "setup: could not write shell completions (continuing)" >&2
 fi
 
-RUST_BINARIES="bench-workloads count dotfile-format dotfmt flatten gget git-discard gpp hwire path size sysinfo-collect"
-# shared/tools counts too: dotfile-format carries an include_str! copy of every
-# config there for the trees it cannot find this repository from, so editing one
-# has to rebuild the binary that embeds it.
+RUST_BINARIES="bench-workloads count dotfile-format dotfmt flatten gget git-discard gpp hwire mux-route path size sysinfo-collect"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
     -type f -not -path '*/target/*' -print0 2>/dev/null |
@@ -213,8 +202,6 @@ else
   fi
 fi
 
-# `gdd` is GNU dd's conventional macOS name, and fzf-tab probes for it.
-# Keep the user-facing shorthand as a shell alias, not an executable.
 if [ -x "$TOOL_BIN_DIR/git-discard" ] && { [ -f "$TOOL_BIN_DIR/gdd" ] || [ -L "$TOOL_BIN_DIR/gdd" ]; }; then
   rm -f -- "$TOOL_BIN_DIR/gdd"
 fi

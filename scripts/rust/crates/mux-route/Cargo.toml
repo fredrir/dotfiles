@@ -1,12 +1,11 @@
 [package]
-name              = "hwire"
+name              = "mux-route"
 version           = "0.1.0"
-description       = "Latency and throughput between macie and archie"
+description       = "The wezterm mux domain for the first route to the peer that answers"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 clap.workspace        = true
 hostkit.workspace     = true
-serde_json.workspace  = true
 workstation.workspace = true

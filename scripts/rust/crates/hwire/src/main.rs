@@ -1,28 +1,11 @@
 //! Latency and throughput between macie and archie.
-//!
-//! `hwire` measures the link itself, not a program that happens to use it: it
-//! starts its own other half on the peer over ssh, then talks to it directly
-//! on the route being measured. What ssh would have cost — a key exchange, a
-//! cipher, one more copy of every byte — is left out of the numbers, and the
-//! only thing on the link during a transfer is zeros.
-//!
-//! There are four ordered routes between these machines: USB-C, Archie's
-//! private Wi-Fi AP, the regular home LAN, and Tailscale. With no argument
-//! `hwire` measures the first one that answers, matching OpenSSH; `--all`
-//! measures every route that is currently and honestly reachable.
-//!
-//! The peer's half is `hwire serve`. It is normally invisible — started for
-//! one measurement, told to exit at the end, and holding an idle timeout in
-//! case it is not — but it is an ordinary command, so `hwire serve` on one
-//! machine and `hwire --at HOST:PORT` on another measures any two machines
-//! that have the binary.
+
+#![forbid(unsafe_code)]
 
 mod client;
-mod host;
 mod proto;
 mod report;
 mod serve;
-mod socket;
 
 use std::io::{BufRead, BufReader};
 use std::net::{Ipv4Addr, SocketAddrV4};
@@ -30,11 +13,12 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
+use hostkit::host;
+use hostkit::{Host, Route};
 use serde_json::json;
 use workstation::{Completions, Style};
 
 use client::{Direction, Peer};
-use host::{Host, Route};
 use report::Run;
 
 const PROGRAM: &str = "hwire";
@@ -156,8 +140,6 @@ fn serve(half: &Half) -> Result<(), String> {
         token,
         idle,
     } = half;
-    // A server started by hand is for whoever finds it; one started for a
-    // measurement is handed that measurement's token and answers nobody else.
     let token = token.as_deref().map(proto::unhex).transpose()?;
     serve::serve(
         SocketAddrV4::new(*bind, *port),
@@ -190,8 +172,6 @@ fn measure(cli: &Cli) -> Result<(), String> {
         let peer = Peer {
             address,
             local: None,
-            // A server started by hand may have been given no token, and
-            // then it does not care what this one is.
             token: match &cli.token {
                 Some(text) => proto::unhex(text)?,
                 None => [0u8; 16],
@@ -309,8 +289,6 @@ fn present(cli: &Cli, style: &Style, this: &str, peer: &str, runs: &[Run]) -> Re
         println!("{document}");
         return Ok(());
     }
-    // A blank line between routes, so `--both` reads as two answers rather
-    // than one six-line block.
     let blocks: Vec<String> = runs
         .iter()
         .map(|run| run.render(style, this, peer))
@@ -325,12 +303,7 @@ struct Remote {
     address: SocketAddrV4,
 }
 
-/// Start `hwire serve` on the peer and wait for it to say where it is
-/// listening. The address it prints is the one it bound, so a server that
-/// came up on the wrong route is caught here rather than measured.
 fn start(peer: Host, route: Route, token: &[u8; 16], window: Duration) -> Result<Remote, String> {
-    // Every phase resets the timer, so this only has to outlast the longest
-    // gap between two of them, which is one transfer plus its warmup.
     let idle = 10 + 2 * window.as_secs();
     let bind = peer.address(route)?;
     let command = format!(
@@ -342,9 +315,6 @@ fn start(peer: Host, route: Route, token: &[u8; 16], window: Duration) -> Result
         .args(["-T", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR"])
         .arg(peer.name())
         .arg(&command)
-        // ssh reads a passphrase from the terminal, never from stdin, so
-        // closing it costs nothing and keeps ssh from eating the keystrokes
-        // meant for whatever runs after this.
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -403,9 +373,6 @@ fn explain(child: &mut Child, peer: Host) -> String {
 }
 
 impl Remote {
-    /// Close the ssh session down, and let a failure from the measurement
-    /// borrow the peer's stderr on its way out: a phase that failed because
-    /// the peer's half died has its reason there and nowhere else.
     fn finish(mut self, measured: Result<Run, String>) -> Result<Run, String> {
         let _ = self.child.kill();
         let _ = self.child.wait();

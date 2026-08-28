@@ -9,14 +9,11 @@ use clap::ValueEnum;
 
 use crate::socket;
 
-/// How long a route probe waits before calling the route down. The cable
-/// answers in under a millisecond and Tailscale in a few, so this only ever
-/// elapses when nothing is there.
 pub const PROBE: Duration = Duration::from_millis(400);
 
-/// The port both routes are probed on: sshd is the one service guaranteed to
-/// be listening on both machines, and reaching it is what `ssh` needs anyway.
 const PROBE_PORT: u16 = 22;
+
+pub const MUX_PORT: u16 = 8443;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Host {
@@ -40,12 +37,18 @@ impl Host {
         }
     }
 
-    /// Also the ssh host name, which is how the peer's half gets started.
     pub fn name(self) -> &'static str {
         match self {
             Host::Macie => "macie",
             Host::Archie => "archie",
         }
+    }
+
+    pub fn from_name(name: &str) -> Result<Host, String> {
+        [Host::Macie, Host::Archie]
+            .into_iter()
+            .find(|host| host.name() == name)
+            .ok_or_else(|| format!("unknown host: {name} (macie or archie)"))
     }
 
     pub fn address(self, route: Route) -> Result<Ipv4Addr, String> {
@@ -101,24 +104,18 @@ impl Route {
         [Route::Cable, Route::Wifi, Route::Lan, Route::Tailscale]
     }
 
-    /// Whether the peer answers over this route from this machine. The local
-    /// bind is the point: an answer proves the route, not just that the peer
-    /// is reachable somehow.
     pub fn up(self, this: Host) -> bool {
-        let (Ok(local), Ok(peer)) = (this.address(self), this.peer().address(self)) else {
+        self.answers(this, this.peer(), PROBE_PORT)
+    }
+
+    pub fn answers(self, from: Host, to: Host, port: u16) -> bool {
+        let (Ok(local), Ok(peer)) = (from.address(self), to.address(self)) else {
             return false;
         };
-        socket::connect(
-            Some(local),
-            std::net::SocketAddrV4::new(peer, PROBE_PORT),
-            PROBE,
-        )
-        .is_ok()
+        socket::connect(Some(local), std::net::SocketAddrV4::new(peer, port), PROBE).is_ok()
     }
 }
 
-/// Ask the same route-pinning helper OpenSSH uses for the local and peer LAN
-/// addresses. It rejects a result unless both are on 192.168.1.0/24.
 fn lan_pair(this: Host) -> Result<(Ipv4Addr, Ipv4Addr), String> {
     let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
     let helper = PathBuf::from(home).join(".ssh/bin/home-lan-connect");
@@ -157,8 +154,6 @@ fn parse_lan_pair(text: &str) -> Result<(Ipv4Addr, Ipv4Addr), String> {
     Ok((local, peer))
 }
 
-/// Which route to measure when none was named: the cable when it is there,
-/// which is the same order `ssh` resolves `archie` and `macie` in.
 pub fn best(this: Host) -> Option<Route> {
     Route::every().into_iter().find(|route| route.up(this))
 }
@@ -173,6 +168,15 @@ mod tests {
         assert_eq!(Host::Macie.peer(), Host::Archie);
         assert_eq!(Host::Archie.peer(), Host::Macie);
         assert_eq!(Host::Archie.peer().peer(), Host::Archie);
+    }
+
+    #[test]
+    fn a_host_name_round_trips() {
+        for host in [Host::Macie, Host::Archie] {
+            assert_eq!(Host::from_name(host.name()).unwrap(), host);
+        }
+        assert!(Host::from_name("Macie").is_err());
+        assert!(Host::from_name("").is_err());
     }
 
     #[test]
@@ -213,6 +217,17 @@ mod tests {
         "shared/wezterm/domain/hosts.lua",
     ];
 
+    /// Every guard below returns early when the repository is not found, so an
+    /// unresolved anchor would leave them all passing while reading nothing.
+    #[test]
+    fn the_repository_anchor_resolves() {
+        assert!(
+            repository().is_some(),
+            "repository() found no repo root from {}, so the drift guards are covering nothing",
+            env!("CARGO_MANIFEST_DIR")
+        );
+    }
+
     fn routed(root: &Path) -> impl Iterator<Item = (&'static str, String)> + '_ {
         ROUTED.into_iter().map(|path| {
             let text = std::fs::read_to_string(root.join(path))
@@ -241,6 +256,46 @@ mod tests {
                 "{cable} is not in the ssh configs any more"
             );
         }
+    }
+
+    /// The wezterm mux copies the port and the route names as well as the
+    /// addresses, and its domain names are built out of both.
+    #[test]
+    fn the_mux_port_and_route_names_match_hosts_lua() {
+        let Some(root) = repository() else {
+            return;
+        };
+        let hosts = std::fs::read_to_string(root.join("shared/wezterm/domain/hosts.lua")).unwrap();
+        assert!(
+            hosts.contains(&format!("local port = {MUX_PORT}")),
+            "hosts.lua no longer says port {MUX_PORT}"
+        );
+        let mut routes = 0;
+        for route in Route::every() {
+            if route == Route::Lan {
+                continue;
+            }
+            routes += 1;
+            let name = format!("name = {:?}", route.name());
+            assert!(hosts.contains(&name), "hosts.lua has no route {name}");
+
+            // The ssh guard only proves an address is somewhere in ten files;
+            // this proves hosts.lua itself carries the one that gets dialled.
+            for host in [Host::Macie, Host::Archie] {
+                let address = format!("address = {:?}", host.address(route).unwrap().to_string());
+                assert!(hosts.contains(&address), "hosts.lua has no {address}");
+            }
+        }
+
+        // The checks above are one-directional, so a route added to hosts.lua
+        // would build a wezterm domain this table never offers.
+        let listed = hosts.matches("{ name = ").count();
+        assert_eq!(
+            listed,
+            routes * 2,
+            "hosts.lua lists {listed} routes across the two hosts, this table has {}",
+            routes * 2
+        );
     }
 
     #[test]

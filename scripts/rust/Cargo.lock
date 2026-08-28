@@ -1387,11 +1387,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hostkit"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "socket2",
+]
+
+[[package]]
 name = "hwire"
 version = "0.1.0"
 dependencies = [
  "clap",
- "libc",
+ "hostkit",
  "serde_json",
  "workstation",
 ]
@@ -1530,6 +1538,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "mux-route"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hostkit",
+ "workstation",
 ]
 
 [[package]]
@@ -1819,6 +1836,16 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "socket2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+dependencies = [
+ "libc",
+ "windows-sys",
+]
 
 [[package]]
 name = "stable_deref_trait"

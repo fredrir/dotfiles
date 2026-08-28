@@ -1,41 +1,26 @@
-//! The measuring half: one connection per phase, and the arithmetic that
-//! turns what came back into a number worth printing.
-
 use std::io::{self, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpStream};
 use std::time::{Duration, Instant};
 
 use crate::proto::{self, Counted, Header, Mode};
-use crate::socket;
+use hostkit::socket;
 
-/// Long enough for a busy peer, short enough that a route that is not there
-/// is reported rather than waited on. The route was probed before this.
 const CONNECT: Duration = Duration::from_secs(5);
 
-/// Round trips taken before the timed ones, so the first sample is not the
-/// one that also paid for the connection warming up.
 const WARMUP_PINGS: usize = 5;
 
-/// Samples below which the budget does not get a say: a handful of round
-/// trips is a number, not a distribution.
 const ENOUGH_PINGS: usize = 10;
 
-/// Where the peer's half is listening, and how to reach it.
 #[derive(Clone, Copy)]
 pub struct Peer {
     pub address: SocketAddrV4,
-    /// The address to bind on this side, which is what pins a measurement to
-    /// one route. `None` when the peer was named directly and no route is
-    /// being claimed.
     pub local: Option<Ipv4Addr>,
     pub token: [u8; 16],
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Direction {
-    /// This machine to the peer.
     Up,
-    /// The peer to this machine.
     Down,
 }
 
@@ -62,15 +47,6 @@ impl Peer {
         Ok(stream)
     }
 
-    /// Round trip time of a small payload on an established connection, which
-    /// is the number a program on either machine actually waits for. Nagle is
-    /// off, so a sample is one packet out and one back rather than the kernel
-    /// deciding when to send.
-    ///
-    /// `samples` is a ceiling and `budget` is the other one: on a route where
-    /// a round trip is milliseconds rather than fractions of one, a full set
-    /// of samples would make the quickest phase the longest, so sampling
-    /// stops early once there are enough of them to describe a distribution.
     pub fn latency(&self, samples: usize, budget: Duration) -> io::Result<Latency> {
         let mut stream = self.dial(Mode::Ping, Duration::ZERO)?;
         stream.set_nodelay(true)?;
@@ -100,12 +76,6 @@ impl Peer {
         Ok(Latency { round_trips })
     }
 
-    /// Move zeros for `window` in one direction and report what landed.
-    ///
-    /// Whichever side receives is the side that counts, so this is the rate
-    /// the bytes arrived at rather than the rate the sender handed them to
-    /// its kernel — the two differ by however much the socket buffer was
-    /// holding when time ran out.
     pub fn transfer(
         &self,
         direction: Direction,
@@ -144,17 +114,11 @@ impl Peer {
         }
     }
 
-    /// Tell the peer's half to exit. Best effort: it has an idle timeout for
-    /// the times this does not arrive.
     pub fn bye(&self) {
         let _ = self.dial(Mode::Bye, Duration::ZERO);
     }
 }
 
-/// Parallel streams share one link, so their bytes add up but their times do
-/// not: the rate is everything that arrived over the window the slowest
-/// stream was open for. That is the conservative reading — a stream that
-/// finished early is counted as if it had been idle for the rest.
 fn combine(counted: &[Counted]) -> Counted {
     Counted {
         bytes: counted.iter().map(|counted| counted.bytes).sum(),
@@ -166,7 +130,6 @@ fn combine(counted: &[Counted]) -> Counted {
     }
 }
 
-/// Sorted round trips, which is the shape every statistic below wants.
 pub struct Latency {
     round_trips: Vec<Duration>,
 }

@@ -1,20 +1,11 @@
-//! What a measurement looks like once it is finished: one block per route for
-//! a person, or one object for a program.
-//!
-//! Rates are printed in decimal bits per second, the unit an interface is
-//! sold in, next to binary bytes per second, the unit a file copy is felt in.
-//! Mixing the two bases in one line is deliberate — it is what `iperf3` and
-//! every NIC datasheet do, and picking one base would make one of the two
-//! numbers unrecognisable.
-
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use workstation::Style;
 
 use crate::client::{Direction, Latency};
-use crate::host::Route;
 use crate::proto::Counted;
+use hostkit::Route;
 
 pub struct Run {
     pub route: Option<Route>,
@@ -27,8 +18,6 @@ pub struct Run {
 }
 
 impl Run {
-    /// The name of what was measured: the route when one was chosen, and
-    /// otherwise the plain fact that an address was named.
     pub fn label(&self) -> &'static str {
         match self.route {
             Some(route) => route.name(),

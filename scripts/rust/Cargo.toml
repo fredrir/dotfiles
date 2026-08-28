@@ -12,7 +12,9 @@ members = [
   "crates/git/gget",
   "crates/git/gitkit",
   "crates/git/gpp",
+  "crates/hostkit",
   "crates/hwire",
+  "crates/mux-route",
   "crates/path",
   "crates/size",
   "crates/sysinfo-collect",
@@ -33,6 +35,7 @@ serde_json    = "1"
 tempfile      = "3"
 workstation   = { path = "crates/workstation" }
 gitkit        = { path = "crates/git/gitkit" }
+hostkit       = { path = "crates/hostkit" }
 
 gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"

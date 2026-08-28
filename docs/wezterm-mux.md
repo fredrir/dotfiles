@@ -56,6 +56,10 @@ shared/wezterm/domain/hosts.lua        addresses, binds, PEM paths
 shared/wezterm/domain/tls.lua          tls_servers and tls_clients
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
+shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie
+shared/zsh/conf.d/44-mux.zsh           `mux`, and the `archie`/`macie` aliases
+scripts/rust/crates/mux-route/         which route answers, and the domain to attach over it
+scripts/rust/crates/hostkit/           the addresses those two read, and the guard on hosts.lua
 
 # Macie
 macos/launchd/com.fredrir.wezterm-mux.plist
