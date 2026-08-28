@@ -2,31 +2,14 @@ local wezterm = require "wezterm" ---@type Wezterm
 
 local M = {}
 
-local mux_route = wezterm.home_dir .. "/.local/bin/mux-route"
-
-local function domain()
-  local ran, ok, stdout, stderr = pcall(wezterm.run_child_process, { mux_route })
-
-  if not ran then
-    return nil, mux_route .. ": " .. tostring(ok)
-  end
-
-  if not ok then
-    local reason = (stderr or ""):gsub("%s+$", "")
-    return nil, reason ~= "" and reason or "mux-route: no answer"
-  end
-
-  return (stdout:gsub("%s+$", ""))
-end
-
-M.attach = wezterm.action_callback(function(window, pane)
-  local name, reason = domain()
-  if not name then
-    wezterm.log_error(reason)
-    window:toast_notification("wezterm mux", reason, nil, 5000)
-    return
-  end
-  window:perform_action(wezterm.action.AttachDomain(name), pane)
+-- The chord types the `mux` shell function rather than reaching for the peer
+-- itself. The gui's lua runs against its own mux, whose pane ids are not the
+-- ones `wezterm cli` and $WEZTERM_PANE speak, so a tab spawned from here
+-- lands outside localmux and a close cannot be aimed at this pane -- it takes
+-- whichever pane is active instead. The shell function holds the ids that
+-- work, and its errors land in the shell that asked rather than in a toast.
+M.attach = wezterm.action_callback(function(_, pane)
+  pane:send_text "mux\n"
 end)
 
 function M.apply_to_config(config)
