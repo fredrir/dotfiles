@@ -8,10 +8,47 @@ TOOL_BIN_DIR="$HOME/.local/bin"
 TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
 COMMANDS_ONLY=0
+SYNC=0
+ARG_PROFILE=""
+LINK_ARGS=()
 
-if [ "${1:-}" = "--commands-only" ]; then
-  COMMANDS_ONLY=1
+# Everything after `--` is handed to `dotfile link` verbatim, which is how
+# `dotfile sync` forwards --resolve/--force/--override/-n without this script
+# having to know about them.
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --commands-only) COMMANDS_ONLY=1 ;;
+  --sync) SYNC=1 ;;
+  --)
+    shift
+    LINK_ARGS=("$@")
+    break
+    ;;
+  --?*) ARG_PROFILE="${1#--}" ;;
+  ?*) ARG_PROFILE="$1" ;;
+  esac
+  shift
+done
+
+# Steps that are expensive (tool reinstall, cargo build) are skipped when their
+# inputs are unchanged since the last run, so `dotfile sync` after a pull only
+# does the work the pull actually created. Stamps live outside the repository.
+STAMP_DIR="$STATE_DIR/sync"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  HASHER="sha256sum"
+else
+  HASHER="shasum -a 256"
 fi
+
+content_hash() { cat "$@" 2>/dev/null | $HASHER | cut -d' ' -f1; }
+
+unchanged() { [ "$(cat "$STAMP_DIR/$1" 2>/dev/null)" = "$2" ]; }
+
+stamp() {
+  mkdir -p "$STAMP_DIR"
+  printf '%s\n' "$2" >"$STAMP_DIR/$1"
+}
 
 BOLD=$'\033[1m'
 DIM=$'\033[2m'
@@ -32,12 +69,12 @@ saved_override() {
   local line
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      "$1="*)
-        printf '%s\n' "${line#*=}"
-        return 0
-        ;;
+    "$1="*)
+      printf '%s\n' "${line#*=}"
+      return 0
+      ;;
     esac
-  done < "$STATE_DIR/overrides"
+  done <"$STATE_DIR/overrides"
 }
 
 pick() {
@@ -62,27 +99,27 @@ pick() {
         printf '    %s\033[K\n' "${opts[$i]}"
       fi
     done
-    IFS= read -rsn1 key < /dev/tty || key=""
+    IFS= read -rsn1 key </dev/tty || key=""
     case "$key" in
-      $'\033')
-        IFS= read -rsn2 -t 1 rest < /dev/tty || rest=""
-        case "$rest" in
-          '[A') idx=$(( (idx + count - 1) % count )) ;;
-          '[B') idx=$(( (idx + 1) % count )) ;;
-        esac
-        ;;
-      k) idx=$(( (idx + count - 1) % count )) ;;
-      j) idx=$(( (idx + 1) % count )) ;;
-      [1-9])
-        if [ "$key" -le "$count" ]; then
-          idx=$((key - 1))
-        fi
-        ;;
-      ''|$'\n'|$'\r') break ;;
-      q)
-        printf '\033[?25h\n'
-        exit 130
-        ;;
+    $'\033')
+      IFS= read -rsn2 -t 1 rest </dev/tty || rest=""
+      case "$rest" in
+      '[A') idx=$(((idx + count - 1) % count)) ;;
+      '[B') idx=$(((idx + 1) % count)) ;;
+      esac
+      ;;
+    k) idx=$(((idx + count - 1) % count)) ;;
+    j) idx=$(((idx + 1) % count)) ;;
+    [1-9])
+      if [ "$key" -le "$count" ]; then
+        idx=$((key - 1))
+      fi
+      ;;
+    '' | $'\n' | $'\r') break ;;
+    q)
+      printf '\033[?25h\n'
+      exit 130
+      ;;
     esac
   done
   printf '\033[?25h'
@@ -105,32 +142,98 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ "$COMMANDS_ONLY" = 0 ]; then
-  echo "syncing workstation tools (scripts/.venv)"
-  uv sync --project "$DOTFILES/scripts" --locked --compile-bytecode --quiet
-fi
+# The commands are an editable install, so source edits need no reinstall;
+# only dependency or entry-point changes (pyproject/lock) do.
+PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
 
-echo "installing workstation commands (~/.local/bin)"
-mkdir -p "$TOOL_BIN_DIR"
-UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
-  uv tool install \
+python_current() {
+  [ -x "$DOTFILE_BIN" ] || return 1
+  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile" ]; then
+    return 1
+  fi
+  unchanged python "$PYTHON_HASH"
+}
+
+if python_current; then
+  echo "workstation commands are current"
+else
+  if [ "$COMMANDS_ONLY" = 0 ]; then
+    echo "syncing workstation tools (scripts/python/.venv)"
+    uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
+  fi
+  echo "installing workstation commands (~/.local/bin)"
+  mkdir -p "$TOOL_BIN_DIR"
+  UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
+    uv tool install \
     --compile-bytecode \
     --constraints <(
-      uv export --project "$DOTFILES/scripts" --locked --no-dev --no-emit-project \
+      uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
         --no-header --no-annotate --no-hashes --quiet
     ) \
-    --editable --reinstall --quiet "$DOTFILES/scripts"
+    --editable --reinstall --quiet "$DOTFILES/scripts/python"
+  stamp python "$PYTHON_HASH"
+fi
+
+if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
+  echo "setup: could not write shell completions (continuing)" >&2
+fi
+
+RUST_BINARIES="bench-workloads count dotfile-format dotfmt flatten gget git-discard gpp hwire path size sysinfo-collect"
+# shared/tools counts too: dotfile-format carries an include_str! copy of every
+# config there for the trees it cannot find this repository from, so editing one
+# has to rebuild the binary that embeds it.
+RUST_HASH="$(
+  find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
+    -type f -not -path '*/target/*' -print0 2>/dev/null |
+    sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1
+)"
+
+rust_current() {
+  local name
+  for name in $RUST_BINARIES; do
+    [ -x "$TOOL_BIN_DIR/$name" ] || return 1
+  done
+  unchanged rust "$RUST_HASH"
+}
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "setup: cargo not found; skipping native tools (install rust to enable)"
+elif rust_current; then
+  echo "native tools are current"
+else
+  echo "building native tools (scripts/rust)"
+  if cargo build --release --locked --quiet --manifest-path "$DOTFILES/scripts/rust/Cargo.toml"; then
+    for name in $RUST_BINARIES; do
+      install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$TOOL_BIN_DIR/$name"
+    done
+    "$TOOL_BIN_DIR/sysinfo-collect" --version >/dev/null
+    stamp rust "$RUST_HASH"
+  else
+    echo "setup: cargo build failed; native tools skipped" >&2
+  fi
+fi
+
+# `gdd` is GNU dd's conventional macOS name, and fzf-tab probes for it.
+# Keep the user-facing shorthand as a shell alias, not an executable.
+if [ -x "$TOOL_BIN_DIR/git-discard" ] && { [ -f "$TOOL_BIN_DIR/gdd" ] || [ -L "$TOOL_BIN_DIR/gdd" ]; }; then
+  rm -f -- "$TOOL_BIN_DIR/gdd"
+fi
 
 if [ "$COMMANDS_ONLY" = 1 ]; then
   exit 0
 fi
 
-PROFILE="${1:-}"
-case "$PROFILE" in
-  --?*) PROFILE="${PROFILE#--}" ;;
-esac
+PROFILE="$ARG_PROFILE"
 
 list_profiles() { "$DOTFILE_BIN" profiles; }
+
+if [ -z "$PROFILE" ] && [ "$SYNC" = 1 ]; then
+  PROFILE="$(saved_profile)"
+  if [ -z "$PROFILE" ]; then
+    echo "setup: no saved environment to sync; run ./setup.sh once first" >&2
+    exit 1
+  fi
+fi
 
 if [ -z "$PROFILE" ]; then
   if interactive; then
@@ -148,7 +251,7 @@ if [ -z "$PROFILE" ]; then
     default="$(saved_profile)"
     if [ -z "$default" ]; then
       case "$(uname -s)" in
-        Darwin) default="macos" ;;
+      Darwin) default="macos" ;;
       esac
     fi
     pick "select environment" "$default" "${profiles[@]}"
@@ -173,7 +276,7 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 OVERRIDE_ARGS=()
-if interactive; then
+if interactive && [ "$SYNC" = 0 ]; then
   while IFS= read -r group; do
     group="${group%%#*}"
     group="${group#"${group%%[![:space:]]*}"}"
@@ -187,7 +290,7 @@ if interactive; then
     [ "${#names[@]}" -gt 0 ] || continue
     pick "select machine override for $group" "$(saved_override "$group")" "${names[@]}" none
     OVERRIDE_ARGS+=(--override "$group=$PICKED")
-  done < "$MANIFEST"
+  done <"$MANIFEST"
 fi
 
 if [ ! -f "$AGE_KEY_FILE" ]; then
@@ -197,15 +300,15 @@ fi
 
 echo
 link_failed=0
-"$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} || link_failed=1
+"$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} ${LINK_ARGS[@]+"${LINK_ARGS[@]}"} || link_failed=1
 
 if command -v systemctl >/dev/null 2>&1; then
   UNIT_DIR="$HOME/.config/systemd/user"
   if [ -L "$UNIT_DIR/generate-theme.path" ] ||
-     [ -L "$UNIT_DIR/default.target.wants/generate-theme.path" ]; then
+    [ -L "$UNIT_DIR/default.target.wants/generate-theme.path" ]; then
     systemctl --user disable generate-theme.path 2>/dev/null || true
     rm -f "$UNIT_DIR/generate-theme.path" "$UNIT_DIR/generate-theme.service" \
-          "$UNIT_DIR/default.target.wants/generate-theme.path"
+      "$UNIT_DIR/default.target.wants/generate-theme.path"
     systemctl --user daemon-reload 2>/dev/null || true
   fi
   if [ -f "$UNIT_DIR/theme-watch.path" ]; then
@@ -220,7 +323,7 @@ if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
   ELEPHANT_SRC="$DOTFILES/linux/hyprland/elephant/files.toml"
   if [ -f "$ELEPHANT_SRC" ]; then
     mkdir -p "$HOME/.config/elephant"
-    sed "s|\$HOME|$HOME|g" "$ELEPHANT_SRC" > "$HOME/.config/elephant/files.toml"
+    sed "s|\$HOME|$HOME|g" "$ELEPHANT_SRC" >"$HOME/.config/elephant/files.toml"
     echo "  generated ~/.config/elephant/files.toml"
   fi
 

@@ -1,9 +1,9 @@
 {
-  "id": "agent-transcripts",
-  "name": "Agent Transcripts",
-  "version": "2.0.1",
-  "minAppVersion": "1.4.0",
-  "description": "Capture, format, restyle, copy, and reassign agent transcript callouts.",
-  "author": "fredrir",
-  "isDesktopOnly": false
+	"id": "agent-transcripts",
+	"name": "Agent Transcripts",
+	"version": "2.0.1",
+	"minAppVersion": "1.4.0",
+	"description": "Capture, format, restyle, copy, and reassign agent transcript callouts.",
+	"author": "fredrir",
+	"isDesktopOnly": false
 }

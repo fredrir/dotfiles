@@ -5,7 +5,6 @@ RightButton;NoModifier=org.kde.contextmenu
 RightButton;NoModifier=org.kde.contextmenu
 
 [Containments][1]
-ItemGeometries-2400x1350=
 ItemGeometries-2560x1440=
 ItemGeometriesHorizontal=
 activityId=d79809f9-a71f-4ed9-84d7-a30aec30bec7
@@ -16,18 +15,10 @@ location=0
 plugin=org.kde.plasma.folder
 wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
-[Containments][1][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
-
 [Containments][1][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
-LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=4100
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][24]
-ItemGeometries-2560x1440=
-ItemGeometriesHorizontal=
 activityId=d79809f9-a71f-4ed9-84d7-a30aec30bec7
 formfactor=0
 immutability=1
@@ -37,8 +28,6 @@ plugin=org.kde.plasma.folder
 wallpaperplugin=luisbocanegra.smart.video.wallpaper.reborn
 
 [Containments][24][Wallpaper][luisbocanegra.smart.video.wallpaper.reborn][General]
-LastVideo=file:///home/fredrir/Videos/red-forest-cropped.mp4
-LastVideoPosition=10200
 VideoUrls=[{"filename":"file:///home/fredrir/Videos/red-forest-cropped.mp4","enabled":true,"duration":0,"customDuration":0,"playbackRate":0,"alternativePlaybackRate":0,"loop":false}]
 
 [Containments][27]
@@ -58,10 +47,6 @@ plugin=org.kde.plasma.kickoff
 popupHeight=509
 popupWidth=647
 
-[Containments][27][Applets][28][Configuration][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
-
 [Containments][27][Applets][28][Configuration][General]
 favoritesPortedToKAstats=true
 icon=distributor-logo-archlinux
@@ -72,15 +57,11 @@ immutability=1
 plugin=org.kde.plasma.digitalclock
 
 [Containments][27][Applets][32][Configuration]
-popupHeight=451
+popupHeight=400
 popupWidth=560
 
 [Containments][27][Applets][32][Configuration][Appearance]
 dateDisplayFormat=BelowTime
-
-[Containments][27][Applets][32][Configuration][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
 
 [Containments][27][Applets][33]
 immutability=1
@@ -89,10 +70,6 @@ plugin=org.kde.plasma.panelspacer
 [Containments][27][Applets][34]
 immutability=1
 plugin=org.kde.plasma.icontasks
-
-[Containments][27][Applets][34][Configuration][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
 
 [Containments][27][Applets][34][Configuration][General]
 iconSpacing=3
@@ -113,17 +90,16 @@ migrated=true
 immutability=1
 plugin=org.kde.plasma.bluetooth
 
-[Containments][27][Applets][36][Configuration]
-popupHeight=400
-popupWidth=560
-
 [Containments][27][Applets][39]
 immutability=1
 plugin=org.kde.plasma.networkmanagement
 
 [Containments][27][Applets][39][Configuration]
-popupHeight=400
-popupWidth=560
+popupHeight=361
+popupWidth=463
+
+[Containments][27][Applets][39][Configuration][General]
+currentDetailsTab=details
 
 [Containments][27][Applets][40]
 immutability=1
@@ -139,10 +115,6 @@ showTemperatureInCompactMode=true
 showTemperatureInTooltip=false
 showWindInTooltip=false
 
-[Containments][27][Applets][40][Configuration][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
-
 [Containments][27][Applets][40][Configuration][Units]
 pressureUnit=5007
 speedUnit=9001
@@ -157,14 +129,6 @@ provider=bbcukmet
 [Containments][27][Applets][43]
 immutability=1
 plugin=luisbocanegra.panel.colorizer
-
-[Containments][27][Applets][43][Configuration]
-popupHeight=400
-popupWidth=560
-
-[Containments][27][Applets][43][Configuration][ConfigDialog]
-DialogHeight=1376
-DialogWidth=2560
 
 [Containments][27][Applets][43][Configuration][General]
 configurationOverrides={"overrides":{},"associations":[]}
@@ -189,20 +153,12 @@ immutability=1
 plugin=com.fredrir.claudeusage
 
 [Containments][27][Applets][50][Configuration]
-popupHeight=223
+popupHeight=101
 popupWidth=342
-
-[Containments][27][Applets][50][Configuration][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
 
 [Containments][27][Applets][63]
 immutability=1
 plugin=org.kde.plasma.clipboard
-
-[Containments][27][Applets][63][Configuration]
-popupHeight=433
-popupWidth=432
 
 [Containments][27][General]
 AppletOrder=43;45;28;44;34;33;50;40;39;63;36;35;32
@@ -220,14 +176,6 @@ wallpaperplugin=org.kde.image
 immutability=1
 plugin=org.kde.plasma.kickoff
 
-[Containments][51][Applets][52][Configuration]
-popupHeight=509
-popupWidth=647
-
-[Containments][51][Applets][52][Configuration][ConfigDialog]
-DialogHeight=630
-DialogWidth=810
-
 [Containments][51][Applets][52][Configuration][General]
 favoritesPortedToKAstats=true
 icon=distributor-logo-archlinux
@@ -240,14 +188,6 @@ plugin=org.kde.plasma.panelspacer
 [Containments][51][Applets][60]
 immutability=1
 plugin=luisbocanegra.panel.colorizer
-
-[Containments][51][Applets][60][Configuration]
-popupHeight=400
-popupWidth=560
-
-[Containments][51][Applets][60][Configuration][ConfigDialog]
-DialogHeight=1376
-DialogWidth=2560
 
 [Containments][51][Applets][60][Configuration][General]
 configurationOverrides={"overrides":{},"associations":[]}

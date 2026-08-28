@@ -1,0 +1,12 @@
+Host dlab-*
+    User fredrir
+    ProxyCommand ssh -T -o LogLevel=ERROR archie /home/fredrir/projects/distro-lab/src/vm/bin/dlab-ssh-proxy %h %p
+    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking no
+    LogLevel ERROR
+    ConnectTimeout 300
+    ServerAliveInterval 30
+    ServerAliveCountMax 6
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 1m

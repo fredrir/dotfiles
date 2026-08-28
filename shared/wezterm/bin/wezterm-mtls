@@ -1,0 +1,927 @@
+#!/bin/sh
+# Mutual-TLS material for the wezterm mux link between macie and archie.
+#
+#   macie   ca                      create the offline CA, once
+#   both    csr                     generate this host's key; it never leaves
+#   macie   issue <hostname>        sign a CSR
+#   both    install <ca> <cert>     deploy into the material directory
+#   both    doctor                  read-only health checks
+
+umask 077
+set -eu
+
+PROGRAM=wezterm-mtls
+
+CA_HOST=${WEZTERM_MTLS_CA_HOST:-macie}
+
+MTLS_DIR=${WEZTERM_MTLS_DIR:-$HOME/.local/share/wezterm/mtls}
+CA_DIR=${WEZTERM_MTLS_CA_DIR:-${MTLS_DIR}-ca}
+
+CA_CERT=$CA_DIR/ca.pem
+CA_KEY=$CA_DIR/ca_key.pem
+
+INSTALLED_CA=$MTLS_DIR/ca.pem
+INSTALLED_CERT=$MTLS_DIR/cert.pem
+INSTALLED_KEY=$MTLS_DIR/private_key.pem
+
+CA_SUBJECT_CN='fredrir mux CA'
+CA_DAYS=7305 # 20 years
+LEAF_DAYS=3653
+WARN_DAYS=180
+
+RCGEN_SUBJECT='CN=rcgen self signed cert'
+
+PROBE_TIMEOUT=10
+
+WORKDIR=
+OPENSSL=
+OPENSSL_VERSION=
+
+DOCTOR_FAILURES=0
+DOCTOR_WARNINGS=0
+
+fail() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+	exit 1
+}
+
+note() {
+	printf '%s\n' "$*"
+}
+
+usage() {
+	cat <<-EOF
+		usage: $PROGRAM <command> [arguments]
+
+		  ca [--encrypt]                 create the offline CA (on $CA_HOST only)
+		  csr [--force] [hostname]       create this host's key and a CSR for it
+		  issue <hostname> [csr]         sign a CSR against the CA
+		  install [ca] [cert] [key]      deploy CA + leaf into $MTLS_DIR
+		  doctor [--probe <addr:port>] [--peer-name <hostname>]
+	EOF
+}
+
+usage_error() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+	usage >&2
+	exit 2
+}
+
+workdir_init() {
+	if [ -z "$WORKDIR" ]; then
+		WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/$PROGRAM.XXXXXX")
+	fi
+}
+
+cleanup() {
+	if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+		rm -rf "$WORKDIR"
+	fi
+}
+
+trap cleanup EXIT HUP INT TERM
+
+select_openssl() {
+	if [ -n "${WEZTERM_MTLS_OPENSSL:-}" ]; then
+		set -- "$WEZTERM_MTLS_OPENSSL"
+	else
+		set -- /opt/homebrew/bin/openssl /usr/local/bin/openssl /usr/bin/openssl openssl
+	fi
+	seen=
+	for candidate in "$@"; do
+		resolved=$(command -v "$candidate" 2>/dev/null) || continue
+		version=$("$resolved" version 2>/dev/null) || continue
+		case $version in
+		'OpenSSL 3.'* | 'OpenSSL 4.'*)
+			OPENSSL=$resolved
+			OPENSSL_VERSION=$version
+			return 0
+			;;
+		esac
+		seen="$seen  $resolved: $version
+"
+	done
+	fail "no usable OpenSSL 3.x (LibreSSL is not sufficient). Looked at:
+${seen:-  nothing usable}Set WEZTERM_MTLS_OPENSSL to a real openssl, or install one."
+}
+
+this_hostname() {
+	if [ -n "${WEZTERM_MTLS_HOSTNAME:-}" ]; then
+		printf '%s\n' "$WEZTERM_MTLS_HOSTNAME"
+	else
+		hostname -s 2>/dev/null || uname -n | sed 's/\..*//'
+	fi
+}
+
+mux_cn() {
+	printf '%s\n' "${USER:-$(id -un)}"
+}
+
+valid_hostname() {
+	case $1 in
+	'' | -* | *[!A-Za-z0-9.-]*) return 1 ;;
+	esac
+	return 0
+}
+
+random_serial() {
+	printf '0x0%s\n' "$("$OPENSSL" rand -hex 16 | cut -c 2-)"
+}
+
+assert_not_in_repo() {
+	probe=$1
+	while [ ! -d "$probe" ]; do
+		parent=$(dirname "$probe")
+		if [ "$parent" = "$probe" ]; then
+			return 0
+		fi
+		probe=$parent
+	done
+	toplevel=$(
+		unset GIT_DIR GIT_WORK_TREE GIT_CEILING_DIRECTORIES
+		git -C "$probe" rev-parse --show-toplevel 2>/dev/null
+	) || return 0
+	if [ -n "$toplevel" ]; then
+		fail "refusing to write key material under the git worktree at $toplevel ($1)"
+	fi
+}
+
+tilde_path() {
+	case $1 in
+	"$HOME"/*) printf '~/%s\n' "${1#"$HOME"/}" ;;
+	*) printf '%s\n' "$1" ;;
+	esac
+}
+
+file_mode() {
+	case $(uname -s) in
+	Darwin) stat -f '%Lp' "$1" ;;
+	*) stat -c '%a' "$1" ;;
+	esac
+}
+
+ensure_dir() {
+	if [ ! -d "$1" ]; then
+		mkdir -p "$1"
+	fi
+	chmod 700 "$1"
+}
+
+install_file() {
+	rm -f "$2"
+	cp "$1" "$2"
+	chmod 600 "$2"
+}
+
+archive_file() {
+	archived=$1.$(date -u '+%Y%m%dT%H%M%SZ').bak
+	mv "$1" "$archived"
+	note "archived $1 to $archived"
+}
+
+cert_subject() {
+	"$OPENSSL" x509 -in "$1" -noout -subject -nameopt RFC2253 | sed 's/^subject=//'
+}
+
+csr_subject() {
+	"$OPENSSL" req -in "$1" -noout -subject -nameopt RFC2253 | sed 's/^subject=//'
+}
+
+cert_not_after() {
+	"$OPENSSL" x509 -in "$1" -noout -enddate -dateopt iso_8601 | sed 's/^notAfter=//'
+}
+
+iso_to_epoch() {
+	case $(uname -s) in
+	Darwin) date -j -u -f '%Y-%m-%d %H:%M:%SZ' "$1" '+%s' 2>/dev/null ;;
+	*) date -u -d "$1" '+%s' 2>/dev/null ;;
+	esac
+}
+
+san_has() {
+	"$OPENSSL" x509 -in "$1" -noout -ext subjectAltName 2>/dev/null |
+		tr ',' '\n' |
+		sed 's/^[[:space:]]*//; s/[[:space:]]*$//' |
+		grep -Fqx "DNS:$2"
+}
+
+cert_eku() {
+	"$OPENSSL" x509 -in "$1" -noout -ext extendedKeyUsage 2>/dev/null |
+		sed -n 's/^[[:space:]][[:space:]]*//p'
+}
+
+keys_match() {
+	cert_pub=$("$OPENSSL" x509 -in "$1" -noout -pubkey </dev/null 2>/dev/null) || return 1
+	key_pub=$("$OPENSSL" pkey -in "$2" -pubout </dev/null 2>/dev/null) || return 1
+	[ "$cert_pub" = "$key_pub" ]
+}
+
+readable_cert() {
+	"$OPENSSL" x509 -in "$1" -noout </dev/null >/dev/null 2>&1
+}
+
+readable_key() {
+	"$OPENSSL" pkey -in "$1" -noout </dev/null >/dev/null 2>&1
+}
+
+check_ca_passfile() {
+	if [ -z "${WEZTERM_MTLS_CA_PASSFILE:-}" ]; then
+		return 0
+	fi
+	if [ ! -r "$WEZTERM_MTLS_CA_PASSFILE" ]; then
+		fail "WEZTERM_MTLS_CA_PASSFILE points at $WEZTERM_MTLS_CA_PASSFILE, which does not exist or is not readable"
+	fi
+	if [ ! -s "$WEZTERM_MTLS_CA_PASSFILE" ]; then
+		fail "WEZTERM_MTLS_CA_PASSFILE points at $WEZTERM_MTLS_CA_PASSFILE, which is empty"
+	fi
+}
+
+write_ca_config() {
+	cat >"$1" <<-EOF
+		[req]
+		distinguished_name = dn
+		prompt = no
+		default_md = sha256
+
+		[dn]
+		CN = $CA_SUBJECT_CN
+
+		[ca_ext]
+		basicConstraints = critical, CA:TRUE, pathlen:0
+		keyUsage = critical, keyCertSign, cRLSign
+		subjectKeyIdentifier = hash
+	EOF
+}
+
+write_csr_config() {
+	cat >"$1" <<-EOF
+		[req]
+		distinguished_name = dn
+		prompt = no
+		default_md = sha256
+
+		[dn]
+		CN = $2
+	EOF
+}
+
+write_leaf_config() {
+	cat >"$1" <<-EOF
+		[leaf_ext]
+		basicConstraints = critical, CA:FALSE
+		keyUsage = critical, digitalSignature
+		extendedKeyUsage = serverAuth, clientAuth
+		subjectAltName = DNS:$2, DNS:$2.local
+		subjectKeyIdentifier = hash
+		authorityKeyIdentifier = keyid, issuer
+	EOF
+}
+
+cmd_ca() {
+	encrypt=no
+	while [ "$#" -gt 0 ]; do
+		case $1 in
+		--encrypt) encrypt=yes ;;
+		*) usage_error "ca: unexpected argument $1" ;;
+		esac
+		shift
+	done
+
+	check_ca_passfile
+	assert_not_in_repo "$CA_DIR"
+	if [ -e "$CA_CERT" ] || [ -e "$CA_KEY" ]; then
+		fail "a CA already exists in $CA_DIR; re-keying is a full re-issue of both leaves. Move the directory aside deliberately first."
+	fi
+
+	ensure_dir "$CA_DIR"
+	workdir_init
+	write_ca_config "$WORKDIR/ca.cnf"
+
+	set --
+	if [ "$encrypt" = yes ]; then
+		set -- -aes-256-cbc
+		if [ -n "${WEZTERM_MTLS_CA_PASSFILE:-}" ]; then
+			set -- "$@" -pass "file:$WEZTERM_MTLS_CA_PASSFILE"
+		elif [ ! -t 0 ]; then
+			fail "--encrypt needs a terminal to prompt on, or WEZTERM_MTLS_CA_PASSFILE pointing at a file that holds the passphrase"
+		fi
+	fi
+	"$OPENSSL" genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 "$@" -out "$CA_KEY"
+	chmod 600 "$CA_KEY"
+
+	set --
+	if [ -n "${WEZTERM_MTLS_CA_PASSFILE:-}" ]; then
+		set -- -passin "file:$WEZTERM_MTLS_CA_PASSFILE"
+	fi
+
+	if ! "$OPENSSL" req -new -x509 -sha256 \
+		-key "$CA_KEY" \
+		-config "$WORKDIR/ca.cnf" \
+		-extensions ca_ext \
+		-days "$CA_DAYS" \
+		-set_serial "$(random_serial)" \
+		"$@" \
+		-out "$CA_CERT"; then
+		rm -f "$CA_KEY" "$CA_CERT"
+		fail "could not self-sign the CA certificate; removed the partial material from $CA_DIR so '$PROGRAM ca' can simply be re-run"
+	fi
+	chmod 600 "$CA_CERT"
+
+	note "CA certificate: $CA_CERT"
+	note "CA private key: $CA_KEY"
+	note "  subject: $(cert_subject "$CA_CERT")"
+	note "  expires: $(cert_not_after "$CA_CERT")"
+	note ""
+	note "Next: run '$PROGRAM csr' on each host, sign the CSRs here with"
+	note "'$PROGRAM issue <hostname>', then move $CA_KEY to offline media."
+}
+
+cmd_csr() {
+	force=no
+	host=
+	while [ "$#" -gt 0 ]; do
+		case $1 in
+		--force) force=yes ;;
+		-*) usage_error "csr: unexpected option $1" ;;
+		*)
+			if [ -n "$host" ]; then
+				usage_error "csr: too many arguments"
+			fi
+			host=$1
+			;;
+		esac
+		shift
+	done
+
+	if [ -z "$host" ]; then
+		host=$(this_hostname)
+	fi
+	if ! valid_hostname "$host"; then
+		fail "csr: refusing hostname '$host'; it goes into a SAN and a filename"
+	fi
+
+	assert_not_in_repo "$MTLS_DIR"
+	ensure_dir "$MTLS_DIR"
+	csr=$MTLS_DIR/$host.csr
+
+	if [ -e "$INSTALLED_KEY" ]; then
+		if [ "$force" != yes ]; then
+			fail "$INSTALLED_KEY already exists; a new key retires this host's mux identity. Re-run with --force to archive the old one."
+		fi
+		archive_file "$INSTALLED_KEY"
+	fi
+
+	"$OPENSSL" genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$INSTALLED_KEY"
+	chmod 600 "$INSTALLED_KEY"
+
+	workdir_init
+	write_csr_config "$WORKDIR/csr.cnf" "$(mux_cn)"
+	"$OPENSSL" req -new -sha256 -key "$INSTALLED_KEY" -config "$WORKDIR/csr.cnf" -out "$csr"
+
+	note "private key: $INSTALLED_KEY  (never copy this off $host)"
+	note "CSR:         $csr"
+	note "  subject: $(csr_subject "$csr")"
+	note ""
+	if [ "$host" = "$CA_HOST" ]; then
+		note "Sign it here:"
+		note "  $PROGRAM issue $host"
+		note "  $PROGRAM install"
+	else
+		note "Send it to $CA_HOST, sign it there, and bring back the two public files:"
+		note "  scp $csr $CA_HOST:"
+		note "  ssh $CA_HOST '$PROGRAM issue $host ~/$host.csr'"
+		note "  scp $CA_HOST:'~/$host-cert.pem' $CA_HOST:'$(tilde_path "$CA_CERT")' ."
+		note "  $PROGRAM install ./ca.pem ./$host-cert.pem"
+	fi
+}
+
+cmd_issue() {
+	host=${1:-}
+	if [ -z "$host" ]; then
+		usage_error "issue: needs a hostname"
+	fi
+	if ! valid_hostname "$host"; then
+		fail "issue: refusing hostname '$host'; it goes into a SAN and a filename"
+	fi
+	csr=${2:-$MTLS_DIR/$host.csr}
+
+	if [ ! -f "$csr" ]; then
+		fail "no CSR at $csr"
+	fi
+	if [ ! -f "$CA_CERT" ] || [ ! -f "$CA_KEY" ]; then
+		fail "no CA in $CA_DIR; run '$PROGRAM ca' on $CA_HOST first"
+	fi
+	check_ca_passfile
+	if ! "$OPENSSL" req -in "$csr" -noout -verify </dev/null >/dev/null 2>&1; then
+		fail "not a PEM CSR, or its self-signature does not verify: $csr"
+	fi
+
+	want="CN=$(mux_cn)"
+	got=$(csr_subject "$csr")
+	if [ "$got" != "$want" ]; then
+		fail "refusing to sign $csr: subject is '$got', must be exactly '$want'. Any other CN permanently kills the peer's TLS listener."
+	fi
+
+	if ! "$OPENSSL" x509 -in "$CA_CERT" -noout -checkend "$((LEAF_DAYS * 86400))" >/dev/null 2>&1; then
+		note "warning: the CA expires before this leaf would ($(cert_not_after "$CA_CERT")); the leaf will stop verifying first"
+	fi
+
+	out=$(dirname "$csr")/$host-cert.pem
+	assert_not_in_repo "$(dirname "$out")"
+
+	workdir_init
+	write_leaf_config "$WORKDIR/leaf.cnf" "$host"
+
+	set --
+	if [ -n "${WEZTERM_MTLS_CA_PASSFILE:-}" ]; then
+		set -- -passin "file:$WEZTERM_MTLS_CA_PASSFILE"
+	fi
+
+	"$OPENSSL" x509 -req -sha256 \
+		-in "$csr" \
+		-CA "$CA_CERT" \
+		-CAkey "$CA_KEY" \
+		-set_serial "$(random_serial)" \
+		-days "$LEAF_DAYS" \
+		-extfile "$WORKDIR/leaf.cnf" \
+		-extensions leaf_ext \
+		"$@" \
+		-out "$out"
+	chmod 600 "$out"
+
+	note "certificate: $out"
+	note "  subject: $(cert_subject "$out")"
+	note "  names:   DNS:$host, DNS:$host.local"
+	note "  expires: $(cert_not_after "$out")"
+	note ""
+	note "Return it to $host together with $CA_CERT:"
+	note "  scp $(tilde_path "$out") $(tilde_path "$CA_CERT") $host:"
+	note "  ssh $host '$PROGRAM install ~/ca.pem ~/$host-cert.pem'"
+}
+
+cmd_install() {
+	host=$(this_hostname)
+	ca_src=${1:-$CA_CERT}
+	cert_src=${2:-$MTLS_DIR/$host-cert.pem}
+	key_src=${3:-}
+
+	if [ ! -f "$ca_src" ]; then
+		usage_error "install: no CA certificate at $ca_src"
+	fi
+	if [ ! -f "$cert_src" ]; then
+		usage_error "install: no leaf certificate at $cert_src"
+	fi
+	if [ -n "$key_src" ] && [ ! -f "$key_src" ]; then
+		usage_error "install: no private key at $key_src"
+	fi
+	if [ -z "$key_src" ] && [ ! -f "$INSTALLED_KEY" ]; then
+		fail "no private key at $INSTALLED_KEY; run '$PROGRAM csr' on this host first"
+	fi
+
+	assert_not_in_repo "$MTLS_DIR"
+
+	check_key=${key_src:-$INSTALLED_KEY}
+
+	for path in "$ca_src" "$cert_src"; do
+		if ! readable_cert "$path"; then
+			fail "$path is not a PEM certificate"
+		fi
+	done
+	if ! readable_key "$check_key"; then
+		fail "$check_key is not a readable unencrypted PEM private key; the mux server has no way to supply a passphrase"
+	fi
+
+	if [ "$(cert_subject "$ca_src")" = "$RCGEN_SUBJECT" ]; then
+		fail "$ca_src is wezterm's own auto-generated CA ($RCGEN_SUBJECT), not the mux CA"
+	fi
+	if ! "$OPENSSL" verify -CAfile "$ca_src" "$cert_src" >/dev/null 2>&1; then
+		fail "$cert_src does not verify against $ca_src"
+	fi
+	if ! keys_match "$cert_src" "$check_key"; then
+		fail "$cert_src does not match the private key $check_key"
+	fi
+
+	want="CN=$(mux_cn)"
+	got=$(cert_subject "$cert_src")
+	if [ "$got" != "$want" ]; then
+		fail "refusing to install $cert_src: subject is '$got', must be exactly '$want'. Presenting any other CN permanently kills the peer's TLS listener."
+	fi
+	if ! san_has "$cert_src" "$host"; then
+		fail "refusing to install $cert_src: no 'DNS:$host' in its SAN, so the peer's expected_cn check can never pass. Wrong host?"
+	fi
+	eku=$(cert_eku "$cert_src")
+	case $eku in
+	*'TLS Web Server Authentication'*) ;;
+	*) fail "refusing to install $cert_src: EKU lacks serverAuth" ;;
+	esac
+	case $eku in
+	*'TLS Web Client Authentication'*) ;;
+	*) fail "refusing to install $cert_src: EKU lacks clientAuth" ;;
+	esac
+
+	ensure_dir "$MTLS_DIR"
+	if [ -n "$key_src" ]; then
+		if [ -e "$INSTALLED_KEY" ] && ! cmp -s "$key_src" "$INSTALLED_KEY"; then
+			archive_file "$INSTALLED_KEY"
+		fi
+		install_file "$key_src" "$INSTALLED_KEY"
+	else
+		chmod 600 "$INSTALLED_KEY"
+	fi
+	install_file "$ca_src" "$INSTALLED_CA"
+	install_file "$cert_src" "$INSTALLED_CERT"
+
+	note "installed into $MTLS_DIR:"
+	note "  ca.pem          $(cert_subject "$INSTALLED_CA")"
+	note "  cert.pem        $(cert_subject "$INSTALLED_CERT"), DNS:$host, expires $(cert_not_after "$INSTALLED_CERT")"
+	note "  private_key.pem $(file_mode "$INSTALLED_KEY")"
+	note ""
+	note "Run '$PROGRAM doctor' next, then restart the mux server."
+}
+
+d_ok() {
+	printf '%-4s  %-12s  %s\n' ok "$1" "$2"
+}
+
+d_warn() {
+	printf '%-4s  %-12s  %s\n' warn "$1" "$2"
+	DOCTOR_WARNINGS=$((DOCTOR_WARNINGS + 1))
+}
+
+d_fail() {
+	printf '%-4s  %-12s  %s\n' FAIL "$1" "$2"
+	DOCTOR_FAILURES=$((DOCTOR_FAILURES + 1))
+}
+
+d_skip() {
+	printf '%-4s  %-12s  %s\n' skip "$1" "$2"
+}
+
+pki_dirs() {
+	if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+		printf '%s\n' "$XDG_RUNTIME_DIR/wezterm/pki"
+	fi
+	printf '%s\n' "$HOME/.local/share/wezterm/pki"
+}
+
+check_pki_trust() {
+	strays=
+	scanned=
+	while IFS= read -r dir; do
+		if [ ! -d "$dir" ]; then
+			continue
+		fi
+		scanned="$scanned $dir"
+		for entry in "$dir"/*/ca.pem; do
+			if [ -e "$entry" ]; then
+				strays="$strays $entry"
+			fi
+		done
+	done <<-EOF
+		$(pki_dirs)
+	EOF
+
+	if [ -n "$strays" ]; then
+		d_fail "pki trust" "per-domain trust anchors wezterm would load as roots:$strays"
+	elif [ -z "$scanned" ]; then
+		d_ok "pki trust" "no wezterm pki directory on this host"
+	else
+		d_ok "pki trust" "no per-domain ca.pem under$scanned"
+	fi
+}
+
+PROBE_OUT=
+PROBE_STATUS=0
+
+run_probe() {
+	workdir_init
+	printf 'Q\n' >"$WORKDIR/probe.in"
+	"$@" <"$WORKDIR/probe.in" >"$WORKDIR/probe.out" 2>&1 &
+	probe_pid=$!
+	(
+		sleep "$PROBE_TIMEOUT"
+		kill "$probe_pid"
+	) >/dev/null 2>&1 &
+	watchdog_pid=$!
+
+	PROBE_STATUS=0
+	wait "$probe_pid" || PROBE_STATUS=$?
+	kill "$watchdog_pid" >/dev/null 2>&1 || true
+	wait "$watchdog_pid" >/dev/null 2>&1 || true
+	PROBE_OUT=$(cat "$WORKDIR/probe.out")
+	rm -f "$WORKDIR/probe.out" "$WORKDIR/probe.in"
+}
+
+probe_peer() {
+	probe_addr=$1
+	probe_name=$2
+
+	run_probe "$OPENSSL" s_client \
+		-connect "$probe_addr" \
+		-CAfile "$INSTALLED_CA" \
+		-cert "$INSTALLED_CERT" \
+		-key "$INSTALLED_KEY" \
+		-verify_hostname "$probe_name" \
+		-verify_return_error \
+		-verify 5
+
+	probe_reason=$(printf '%s\n' "$PROBE_OUT" |
+		sed -n \
+			-e 's/^verify error:num=[0-9]*:\(.*\)$/certificate verify failed: \1/p' \
+			-e 's/^connect:errno=\(.*\)$/connect failed, errno \1/p' \
+			-e 's/.*:error:[0-9A-Fa-f]*:[^:]*:[^:]*:\([^:]*\):.*/\1/p' |
+		head -n 1)
+
+	case $PROBE_OUT in
+	*'Verify return code: 0 (ok)'*) probe_verified=yes ;;
+	*) probe_verified=no ;;
+	esac
+
+	if [ -n "$probe_reason" ]; then
+		d_fail "peer probe" "$probe_addr as $probe_name: $probe_reason"
+		return
+	fi
+	if [ "$probe_verified" = no ]; then
+		if [ "$PROBE_STATUS" -gt 128 ]; then
+			d_fail "peer probe" "$probe_addr did not finish a handshake within ${PROBE_TIMEOUT}s -- listener wedged, or the peer never answered"
+		else
+			d_fail "peer probe" "$probe_addr as $probe_name: no verified session (s_client exit $PROBE_STATUS)"
+		fi
+		return
+	fi
+
+	probe_proto=$(printf '%s\n' "$PROBE_OUT" |
+		sed -n 's/^New, \(TLS[^,]*\), Cipher is \(.*\)$/\1 \2/p' |
+		head -n 1)
+	if [ "$PROBE_STATUS" -ne 0 ]; then
+		d_warn "peer probe" "$probe_addr verified as $probe_name over ${probe_proto:-TLS}, but s_client exited $PROBE_STATUS on teardown"
+	else
+		d_ok "peer probe" "$probe_addr verified as $probe_name over ${probe_proto:-TLS}"
+	fi
+}
+
+cmd_doctor() {
+	probe_addr=
+	peer_name=
+	while [ "$#" -gt 0 ]; do
+		case $1 in
+		--probe)
+			if [ "$#" -lt 2 ]; then
+				usage_error "doctor: --probe needs <address:port>"
+			fi
+			probe_addr=$2
+			shift
+			;;
+		--peer-name)
+			if [ "$#" -lt 2 ]; then
+				usage_error "doctor: --peer-name needs <hostname>"
+			fi
+			peer_name=$2
+			shift
+			;;
+		*) usage_error "doctor: unexpected argument $1" ;;
+		esac
+		shift
+	done
+
+	if [ -n "$probe_addr" ] && [ -z "$peer_name" ]; then
+		peer_name=${probe_addr%:*}
+		case $peer_name in
+		'') usage_error "doctor: --probe needs <address:port>" ;;
+		*[!0-9.]*) ;;
+		*) usage_error "doctor: --probe took an address literal; add --peer-name <hostname>, the peer's expected_cn" ;;
+		esac
+	fi
+
+	host=$(this_hostname)
+	printf '%s doctor  host %s  dir %s\n\n' "$PROGRAM" "$host" "$MTLS_DIR"
+	d_ok openssl "$OPENSSL_VERSION at $OPENSSL"
+
+	if [ -d "$MTLS_DIR" ]; then
+		mode=$(file_mode "$MTLS_DIR")
+		if [ "$mode" = 700 ]; then
+			d_ok "dir mode" "$MTLS_DIR is 0700"
+		else
+			d_fail "dir mode" "$MTLS_DIR is 0$mode, want 0700"
+		fi
+	else
+		d_fail "dir mode" "$MTLS_DIR does not exist"
+	fi
+
+	have_ca=no
+	have_cert=no
+	have_key=no
+	missing=
+	if readable_cert "$INSTALLED_CA"; then
+		have_ca=yes
+	else
+		missing="$missing ca.pem"
+	fi
+	if readable_cert "$INSTALLED_CERT"; then
+		have_cert=yes
+	else
+		missing="$missing cert.pem"
+	fi
+	if readable_key "$INSTALLED_KEY"; then
+		have_key=yes
+	else
+		missing="$missing private_key.pem"
+	fi
+	if [ -n "$missing" ]; then
+		d_fail files "missing or not readable as unencrypted PEM:$missing"
+	else
+		d_ok files "ca.pem, cert.pem, private_key.pem all parse"
+	fi
+
+	modes=
+	bad_modes=
+	for path in "$INSTALLED_CA" "$INSTALLED_CERT" "$INSTALLED_KEY"; do
+		if [ ! -e "$path" ]; then
+			continue
+		fi
+		mode=$(file_mode "$path")
+		modes="$modes $(basename "$path") 0$mode"
+		if [ "$mode" != 600 ]; then
+			bad_modes="$bad_modes $(basename "$path") 0$mode"
+		fi
+	done
+	if [ -n "$bad_modes" ]; then
+		d_fail "file modes" "want 0600, got:$bad_modes"
+	elif [ -n "$modes" ]; then
+		d_ok "file modes" "${modes# }"
+	else
+		d_skip "file modes" "nothing installed"
+	fi
+
+	if [ "$have_cert" = yes ] && [ "$have_key" = yes ]; then
+		if keys_match "$INSTALLED_CERT" "$INSTALLED_KEY"; then
+			d_ok "key pair" "cert.pem matches private_key.pem"
+		else
+			d_fail "key pair" "cert.pem does not match private_key.pem; the mux server exits at set_private_key_file"
+		fi
+	else
+		d_skip "key pair" "needs cert.pem and private_key.pem"
+	fi
+
+	if [ "$have_ca" = yes ] && [ "$have_cert" = yes ]; then
+		if "$OPENSSL" verify -CAfile "$INSTALLED_CA" "$INSTALLED_CERT" >/dev/null 2>&1; then
+			d_ok chain "cert.pem verifies against ca.pem"
+		else
+			d_fail chain "$("$OPENSSL" verify -CAfile "$INSTALLED_CA" "$INSTALLED_CERT" 2>&1 | tr '\n' ' ')"
+		fi
+
+		purposes=
+		for purpose in sslclient sslserver; do
+			if ! "$OPENSSL" verify -CAfile "$INSTALLED_CA" -purpose "$purpose" "$INSTALLED_CERT" >/dev/null 2>&1; then
+				purposes="$purposes $purpose"
+			fi
+		done
+		if [ -n "$purposes" ]; then
+			d_fail purpose "cert.pem fails openssl purpose check:$purposes"
+		else
+			d_ok purpose "valid for both sslclient and sslserver"
+		fi
+	else
+		d_skip chain "needs ca.pem and cert.pem"
+		d_skip purpose "needs ca.pem and cert.pem"
+	fi
+
+	if [ "$have_cert" = yes ]; then
+		check_expiry "leaf expiry" "$INSTALLED_CERT"
+	else
+		d_skip "leaf expiry" "no cert.pem"
+	fi
+	if [ "$have_ca" = yes ]; then
+		check_expiry "ca expiry" "$INSTALLED_CA"
+	else
+		d_skip "ca expiry" "no ca.pem"
+	fi
+
+	if [ "$have_cert" = yes ]; then
+		want="CN=$(mux_cn)"
+		got=$(cert_subject "$INSTALLED_CERT")
+		if [ "$got" = "$want" ]; then
+			d_ok "subject cn" "$got matches \$USER"
+		else
+			d_fail "subject cn" "$got, want $want -- presenting this kills the peer's TLS listener"
+		fi
+
+		if san_has "$INSTALLED_CERT" "$host"; then
+			d_ok san "DNS:$host present ($("$OPENSSL" x509 -in "$INSTALLED_CERT" -noout -ext subjectAltName | sed -n '2s/^[[:space:]]*//p'))"
+		else
+			d_fail san "no DNS:$host; the peer's expected_cn check cannot pass"
+		fi
+
+		eku=$(cert_eku "$INSTALLED_CERT")
+		missing_eku=
+		case $eku in
+		*'TLS Web Server Authentication'*) ;;
+		*) missing_eku="$missing_eku serverAuth" ;;
+		esac
+		case $eku in
+		*'TLS Web Client Authentication'*) ;;
+		*) missing_eku="$missing_eku clientAuth" ;;
+		esac
+		if [ -n "$missing_eku" ]; then
+			d_fail eku "missing:$missing_eku"
+		else
+			d_ok eku "$eku"
+		fi
+	else
+		d_skip "subject cn" "no cert.pem"
+		d_skip san "no cert.pem"
+		d_skip eku "no cert.pem"
+	fi
+
+	if [ "$have_ca" = yes ]; then
+		ca_subject=$(cert_subject "$INSTALLED_CA")
+		if [ "$ca_subject" = "$RCGEN_SUBJECT" ]; then
+			d_fail "ca subject" "$ca_subject -- this is wezterm's auto-generated CA, not the mux CA"
+		else
+			d_ok "ca subject" "$ca_subject"
+		fi
+	else
+		d_skip "ca subject" "no ca.pem"
+	fi
+
+	check_pki_trust
+	check_ca_key_absent
+
+	if [ -z "$probe_addr" ]; then
+		:
+	elif [ "$have_ca" = yes ] && [ "$have_cert" = yes ] && [ "$have_key" = yes ]; then
+		probe_peer "$probe_addr" "$peer_name"
+	else
+		d_skip "peer probe" "needs all three files installed"
+	fi
+
+	doctor_verdict
+}
+
+check_expiry() {
+	label=$1
+	path=$2
+	not_after=$(cert_not_after "$path")
+	epoch=$(iso_to_epoch "$not_after") || epoch=
+	now=$(date -u '+%s')
+	if [ -n "$epoch" ]; then
+		remaining=" ($(((epoch - now) / 86400)) days left)"
+	else
+		remaining=
+	fi
+
+	if ! "$OPENSSL" x509 -in "$path" -noout -checkend 0 >/dev/null 2>&1; then
+		d_fail "$label" "expired $not_after"
+	elif ! "$OPENSSL" x509 -in "$path" -noout -checkend "$((WARN_DAYS * 86400))" >/dev/null 2>&1; then
+		d_warn "$label" "$not_after$remaining -- under $WARN_DAYS days"
+	else
+		d_ok "$label" "$not_after$remaining"
+	fi
+}
+
+check_ca_key_absent() {
+	if [ -e "$CA_KEY" ]; then
+		d_warn "ca key" "$CA_KEY is on this host; move it to offline media. It must never exist on archie."
+	else
+		d_ok "ca key" "no CA private key on this host"
+	fi
+}
+
+doctor_verdict() {
+	printf '\n'
+	if [ "$DOCTOR_FAILURES" -gt 0 ]; then
+		printf '%d failed, %d warning(s)\n' "$DOCTOR_FAILURES" "$DOCTOR_WARNINGS"
+		exit 1
+	fi
+	printf 'all checks passed, %d warning(s)\n' "$DOCTOR_WARNINGS"
+}
+
+for arg in "$@"; do
+	case $arg in
+	pass:* | env:* | -pass* | *--pass*=*)
+		fail "refusing a passphrase on the command line; use WEZTERM_MTLS_CA_PASSFILE or the interactive prompt"
+		;;
+	esac
+done
+
+if [ "$#" -eq 0 ]; then
+	usage >&2
+	exit 2
+fi
+
+command=$1
+shift
+
+case $command in
+-h | --help | help)
+	usage
+	exit 0
+	;;
+ca | csr | issue | install | doctor)
+	select_openssl
+	"cmd_$command" "$@"
+	;;
+*)
+	usage_error "unknown command '$command'"
+	;;
+esac

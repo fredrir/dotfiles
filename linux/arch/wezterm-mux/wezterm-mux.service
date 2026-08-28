@@ -1,0 +1,12 @@
+[Unit]
+Description=WezTerm mux server: mutual-TLS listeners for the link to macie
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=/usr/bin/wezterm-mux-server
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

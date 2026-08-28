@@ -1,11 +1,11 @@
 return {
-  'catppuccin/nvim',
-  name = 'catppuccin',
+  "catppuccin/nvim",
+  name = "catppuccin",
   priority = 1000,
   config = function()
-    require('catppuccin').setup {
+    require("catppuccin").setup {
       -- theme:flavour
-      flavour = 'mocha',
+      flavour = "mocha",
       -- theme:flavour:end
       no_italic = true,
       integrations = {
@@ -18,14 +18,14 @@ return {
         native_lsp = {
           enabled = true,
           underlines = {
-            errors = { 'undercurl' },
-            hints = { 'undercurl' },
-            warnings = { 'undercurl' },
-            information = { 'undercurl' },
+            errors = { "undercurl" },
+            hints = { "undercurl" },
+            warnings = { "undercurl" },
+            information = { "undercurl" },
           },
         },
       },
     }
-    vim.cmd.colorscheme 'catppuccin'
+    vim.cmd.colorscheme "catppuccin"
   end,
 }

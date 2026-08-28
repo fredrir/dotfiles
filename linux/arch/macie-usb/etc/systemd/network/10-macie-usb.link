@@ -1,0 +1,18 @@
+# Match the USB function, not its MAC address. The Mac hands out a fresh
+# NCM address every so often, and a pinned MAC silently stops matching:
+# the interface keeps its kernel name, nothing holds 10.77.77.2, and
+# dnsmasq waits on an interface that never appears.
+[Match]
+Property=ID_VENDOR_ID=05ac ID_MODEL=Mac ID_USB_INTERFACE_NUM=00
+
+[Link]
+Name=macie0
+# 50 bytes under the Mac's own 8178, and the gap is the point. cdc_ncm packs
+# whole frames into a 32764-byte block and sends it when the next will not fit,
+# reserving 194 bytes for the datagram table: four 8142-byte frames fit with
+# two to spare, four 8143-byte frames do not. At 8178 that is three frames and
+# a quarter of every block wasted -- 8129 measures 2.97 frames per block, 8128
+# measures 4.00, and transmit steps 6.45 -> 6.97 Gbit/s across that one byte.
+# The Mac stays at 8178 and needs no configuration. TCP takes the lower of the
+# two advertised MSS values, and TCP is everything that crosses this link.
+MTUBytes=8128

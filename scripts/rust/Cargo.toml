@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+# Listed rather than globbed: every path a glob matches has to be a package,
+# and `crates/git` is a folder of them.
+members = [
+  "crates/bench-workloads",
+  "crates/count",
+  "crates/dotfile-format",
+  "crates/dotfmt",
+  "crates/flatten",
+  "crates/git/gdd",
+  "crates/git/gget",
+  "crates/git/gitkit",
+  "crates/git/gpp",
+  "crates/hwire",
+  "crates/path",
+  "crates/size",
+  "crates/sysinfo-collect",
+  "crates/workstation",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+# Versions for anything more than one crate depends on
+[workspace.dependencies]
+clap          = { version = "4", features = ["derive"] }
+clap_complete = "4"
+libc          = "0.2"
+rayon         = "1"
+serde_json    = "1"
+tempfile      = "3"
+workstation   = { path = "crates/workstation" }
+gitkit        = { path = "crates/git/gitkit" }
+
+gix-glob   = "0.27.1"
+gix-ignore = "0.22.1"
+
+# gitoxide, with only the parts the git tools use
+gix = { version = "0.87.1", default-features = false, features = [
+  "status",
+  "worktree-mutation",
+  "max-performance-safe",
+  "auto-chain-error",
+  "sha1",
+] }
+
+# One codegen unit and fat LTO, so a rebuild of the same source on the same
+# toolchain produces the same machine code: these binaries are measurement
+# instruments, and codegen variance would show up as a hardware regression.
+[profile.release]
+lto           = true
+codegen-units = 1

@@ -1,10 +1,12 @@
-alias cp="cp -i"
-alias mv="mv -i"
-alias rm="rm -i"
+alias -g NV='| nvim -R -' # open stdin in nvim read-only
+
+alias mkdir="mkdir -p"
 
 alias grep="grep --color=auto"
 alias fgrep="fgrep --color=auto"
 alias f='find . -type f -name'
+
+alias port="portview"
 
 alias disk="ncdu"
 
@@ -14,12 +16,14 @@ alias v="nvim"
 alias vv="nvim ."
 
 alias la="ls -a"
+alias l="ls"
 alias ll="ls -l"
+
+alias c="clear"
 
 alias untar="tar -xzf"
 
-(( $+commands[bat] )) && alias cat='bat -pp'
-
+(($+commands[bat])) && alias cat='bat -pp'
 
 # Navigation
 alias ..='cd ..'
@@ -32,13 +36,36 @@ alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdd="cd $HOME/dotfiles"
 alias cdn="cd $NVIM"
-alias cdp="cd ~/llunde/pyparser && python -m venv .venv && source .venv/bin/activate"
 alias cdz="cd $CONFIG/zsh/conf.d"
+alias cds="cd $HOME/.ssh/config.d"
 
+alias sshmux="ssh -O check"
+alias sshmux-exit="ssh -O exit"
+alias wez="wezterm cli"
+
+alias cdp="cd $HOME/projects"
 alias cdf="cd ../frontend"
 alias cdb="cd ../backend"
 
+alias cdo="cd $HOME/Documents/main/.obsidian"
+
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
+
+# Other
+
+alias u="uname -mrs"
+
+alias cleanup="kondo" # Cleanup build output
+
+alias dpp="dotfile sync -p"
+
+alias mtls="~/.config/wezterm/bin/wezterm-mtls"
+# Git
+
+alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
+alias gdd='git-discard'
+
+# Projects
 
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"

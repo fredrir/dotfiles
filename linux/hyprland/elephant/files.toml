@@ -1,26 +1,19 @@
-icon = "folder"
+icon      = "folder"
 min_score = 15
 
-search_dirs = [
-  "$HOME/Documents",
-  "$HOME/Downloads",
-]
+search_dirs = ["$HOME/Documents", "$HOME/Downloads"]
 
-ignored_dirs = [
-  "node_modules",
-  ".git",
-  ".cache",
-  ".local/share/Trash",
-  ".nvm",
-  "go/pkg",
-]
+ignored_dirs = ["node_modules", ".git", ".cache", ".local/share/Trash", ".nvm", "go/pkg"]
 
 fd_flags = [
   "--ignore-vcs",
-  "--type", "file",
-  "--type", "directory",
+  "--type",
+  "file",
+  "--type",
+  "directory",
   "--hidden",
-  "--exclude", ".git"
+  "--exclude",
+  ".git",
 ]
 
 watch = false

@@ -11,13 +11,35 @@ if command -v nvim >/dev/null; then
   bindkey -M viins '^F' terminal-telescope-widget
 fi
 
+if command -v nvim >/dev/null; then
+  _terminal_telescope_grep_widget() {
+    zle -I
+
+    command nvim -c \
+      'autocmd VimEnter * ++once Telescope live_grep'
+
+    zle reset-prompt
+  }
+
+  zle -N terminal-telescope-grep-widget _terminal_telescope_grep_widget
+
+  bindkey -M emacs '^G' terminal-telescope-grep-widget
+  bindkey -M vicmd '^G' terminal-telescope-grep-widget
+  bindkey -M viins '^G' terminal-telescope-grep-widget
+fi
+
+if command -v atuin >/dev/null; then
+  export ATUIN_NOBIND=true
+  eval "$(atuin init zsh)"
+
+  bindkey -M emacs '^R' atuin-search
+  bindkey -M viins '^R' atuin-search-viins:q
+  bindkey -M vicmd '^R' atuin-search-vicmd
+fi
+
 command -v fzf >/dev/null || return 0
 
 export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"
-
-bindkey -M emacs -r '^T'
-bindkey -M vicmd -r '^T'
-bindkey -M viins -r '^T'
 
 if ! command -v nvim >/dev/null; then
   bindkey -M emacs '^F' fzf-file-widget

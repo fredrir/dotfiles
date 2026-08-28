@@ -1,0 +1,18 @@
+[package]
+name              = "flatten"
+version           = "0.1.0"
+description       = "Lift a directory's contents up out of the directories holding them"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace        = true
+rayon.workspace       = true
+workstation.workspace = true
+
+# Only the moves are done through descriptors, and only unix has the calls.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

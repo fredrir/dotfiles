@@ -1,15 +1,15 @@
 [bar]
-height = 40
-edge = "bottom"
-layer = "top"
-outputs = []
-spacing = 6
-margin = 0
+height    = 40
+edge      = "bottom"
+layer     = "top"
+outputs   = []
+spacing   = 6
+margin    = 0
 exclusive = true
 
 [icons]
 search_paths = []
-fallback = "application-x-executable"
+fallback     = "application-x-executable"
 
 [icons.names]
 
@@ -17,10 +17,10 @@ fallback = "application-x-executable"
 
 [hardware]
 poll_interval_ms = 1500
-gpu_index = 0
+gpu_index        = 0
 
 [hardware.cpu]
-source = "hwmon"
+source     = "hwmon"
 hwmon_name = "k10temp"
 temp_label = "Tctl"
 
@@ -35,15 +35,15 @@ format = "%a %d %b  %H:%M:%S"
 
 [theme]
 follow_kde = true
-opacity = 0.85
+opacity    = 0.85
 
 [tasks]
 filter_activity = true
-filter_desktop = true
-filter_screen = false
-show_minimized = true
+filter_desktop  = true
+filter_screen   = false
+show_minimized  = true
 
 [weather]
-enabled = true
-units = "metric"
+enabled         = true
+units           = "metric"
 refresh_minutes = 15

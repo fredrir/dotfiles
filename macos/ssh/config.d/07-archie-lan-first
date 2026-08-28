@@ -1,0 +1,15 @@
+# The filtered proxy requires both ends of the selected path to be on the
+# home /24, so archpc.local advertised on archie-direct cannot masquerade as
+# the regular-LAN route. Explicitly repeat the earlier negative probes:
+# OpenSSH keeps the first value for HostName, but ProxyCommand would otherwise
+# be added later and accidentally wrap a cable/Wi-Fi HostName.
+
+Match originalhost archie exec "! /usr/bin/nc -4 -z -G 1 -s 10.77.77.1 10.77.77.2 22 >/dev/null 2>&1 && ! /usr/bin/nc -4 -z -G 1 -s 10.77.78.1 10.77.78.2 22 >/dev/null 2>&1 && ~/.ssh/bin/home-lan-connect --probe archpc.local 22 >/dev/null 2>&1"
+    HostName archpc.local
+    User fredrir
+    HostKeyAlias archie
+    ProxyCommand ~/.ssh/bin/home-lan-connect %h %p
+    ServerAliveInterval 10
+    ServerAliveCountMax 3
+
+Match all

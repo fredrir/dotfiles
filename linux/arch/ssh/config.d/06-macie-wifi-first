@@ -1,0 +1,12 @@
+# Mirror of Macie's private Wi-Fi route: it only applies while archie0 owns
+# Archie's bound address and Macie answers on the /30.
+
+Match originalhost macie exec "/usr/bin/nc -4 -z -w 1 -s 10.77.78.2 10.77.78.1 22 >/dev/null 2>&1"
+    HostName 10.77.78.1
+    User fredrir
+    HostKeyAlias macie
+    BindAddress 10.77.78.2
+    ServerAliveInterval 5
+    ServerAliveCountMax 2
+
+Match all

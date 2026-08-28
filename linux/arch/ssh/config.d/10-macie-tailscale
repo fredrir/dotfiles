@@ -1,0 +1,21 @@
+# The fallback route, used when the probe in 05- does not answer. Slacker
+# keepalives than the cable on purpose; see the mirror of this file on macie.
+
+Host macie
+    HostName 100.75.71.79
+    User fredrir
+    HostKeyAlias macie
+    ServerAliveInterval 15
+    ServerAliveCountMax 4
+
+# The same route by address; `macie` is only tailscale while the cable is
+# out, so it cannot be enrolled as one. Slack keepalives as above, for the
+# same reason. HostKeyAlias holds this spelling to the one known_hosts entry
+# instead of minting a second.
+
+Host 100.75.71.79
+    HostName 100.75.71.79
+    User fredrir
+    HostKeyAlias macie
+    ServerAliveInterval 15
+    ServerAliveCountMax 4

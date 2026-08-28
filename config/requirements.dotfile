@@ -1,0 +1,110 @@
+# What the configs in each group expect to find on the machine. `dotfile check`
+# keeps the blocks the selected profile links and reports what is missing.
+#
+#   name                a command that has to be on PATH
+#   name = package      ... installed under a different package name
+#   font <family>       a font family the configs ask for by name
+#   file <path>         a path that has to exist but is not tracked here
+#   ?name               wanted but not required: reported, never a failure
+
+shared {
+  git
+  zsh
+  uv
+  age
+  sops
+  nvim  = neovim
+  kitty
+  ?wezterm
+  yazi
+  starship
+  fastfetch
+  lazygit
+  fzf
+  eza
+  bat
+  fd
+  rg    = ripgrep
+  rsync
+  zoxide
+  direnv
+  ?ncdu
+  ?gh   = github-cli
+  ?docker
+  ?fio
+  ?sysbench
+  ?hyperfine
+  ?stress-ng
+  ?7z   = 7zip
+  ?portview
+  ?kondo
+  openssl
+  ?shfmt
+  ?biome
+  ?ruff
+  ?stylua
+  ?taplo
+  ?yamlfmt
+  ?yamllint
+  ?sqlfluff
+  font Hack Nerd Font Mono
+  font JetBrains Mono
+  font Noto Sans
+}
+
+macos {
+  brew  = homebrew
+  mosh
+  socat
+}
+
+linux/common {
+  flameshot
+  xremap
+  ?glmark2
+  ?vkmark
+  ?sensors  = lm_sensors
+  fc-cache  = fontconfig
+  wl-copy   = wl-clipboard
+  wl-paste  = wl-clipboard
+}
+
+linux/arch {
+  dnsmasq
+  hostapd
+  iw
+  nmcli               = networkmanager
+  nft                 = nftables
+  iptables
+  mosh
+  wezterm-mux-server  = wezterm-nightly-bin
+}
+
+linux/kde {
+  plasmashell  = plasma-desktop
+  konsole
+  kate
+  ?dolphin
+}
+
+linux/hyprland {
+  Hyprland  = hyprland
+  hyprlock
+  hypridle
+  waybar
+  dunst
+  wofi
+  wlogout
+  walker
+  elephant
+  swaybg
+  qt5ct
+  qt6ct
+  ?cliphist
+  ?grimblast
+  ?brightnessctl
+  ?playerctl
+  ?hyprsunset
+  font JetBrainsMono Nerd Font
+  file ~/.config/hypr/wallpaper.png
+}

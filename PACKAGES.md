@@ -1,17 +1,20 @@
 
 ## `shared`
 
+- `atuin`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
+- `gh`
 - `git` — Git configuration and global ignore rules
-- `kitty` — Terminal emulator configuration
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from the active theme profile
 - `rsync` — Shared exclusion rules for home-directory transfers
-- `skills`
+- `ssh` — OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
 - `starship` — Cross-shell prompt configuration
 - `tmux`
+- `tools`
 - `transcript`
-- `wezterm` — Terminal emulator with a modular Lua configuration
+- `vscode` — VS Code user settings: shared base with platform overlays merged on link
+- `wezterm`
 - `yazi` — Terminal file manager configuration
 - `zsh` — Shared Z shell configuration
 
@@ -28,9 +31,15 @@
 
 ## `linux/arch`
 
+- `archie-direct` — Reversible shared Wi-Fi AP for Macie
 - `fastfetch` — Arch fastfetch logo and configuration
 - `git` — Arch-specific Git configuration
 - `macie-usb` — USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
+- `ssh` — Cable, direct Wi-Fi, LAN, then Tailscale routing to macie
+- `vscode` — Arch-specific settings overlay merged into the shared VS Code settings
+- `wezterm-mux` — Mutual-TLS mux server for the link to macie
+- `wezterm-mux-sysctl` — Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up
+- `zsh`
 
 ## `linux/ubuntu`
 
@@ -40,7 +49,6 @@
 ## `linux/kde`
 
 - `kate` — Kate editor settings and external tools
-- `konsole` — Konsole terminal configuration
 - `krunnerrc` — KRunner configuration
 - `kvitals` — Plasma system monitor widget
 - `my-panel` — Plasma panel configuration
@@ -67,8 +75,9 @@
 
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
+- `hammerspoon`
 - `launchd`
-- `skhd`
 - `ssh`
 - `sunshine`
+- `vscode` — macOS-specific settings overlay merged into the shared VS Code settings
 - `zsh` — macOS-specific Z shell configuration

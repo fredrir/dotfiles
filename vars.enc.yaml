@@ -1,7 +1,4 @@
-macie:
-    usb:
-        primary_mac: ENC[AES256_GCM,data:G5QgB+q94c0AQOLZaIsfJ+I=,iv:vQIX6qecmuAoAEu6ux0RZmbOkfZy+nL08KWqw4JMsCQ=,tag:IjrtDk0Jzw4WlBzQq+vpkA==,type:str]
-        secondary_mac: ENC[AES256_GCM,data:IibvrB49AcdDwLVfWp5yNxU=,iv:8zaw1hlqBvSHJ4k1Qh+HxEJrN+AmLFAI2433Onery10=,tag:OgLbMJVTVIiEbW6ulkRadg==,type:str]
+archie_direct_sae_password: ENC[AES256_GCM,data:qWuPqMMYVp6s7lSOrP+umbUUBYTPmr+1nWqDuXc9fMwvy+BbZd9cXmSo9dk=,iv:wtj3wlBqSHY7Q9RpwbUYsDZychruy2LvVKS6lgIiCb0=,tag:6rqTI/j6jmzLH5n/g1PAtQ==,type:str]
 sops:
     age:
         - enc: |
@@ -31,7 +28,7 @@ sops:
             nNq0Jq60E11IxT5oEYC0ZX+4gV3dMl58ii3o/CjG63ujuy0+qDoMdA==
             -----END AGE ENCRYPTED FILE-----
           recipient: age1535gunzf00mxeww9v0ccerj5ygcthngm353hha8grwjqgh723qts99a3jm
-    lastmodified: "2026-08-13T03:43:34Z"
-    mac: ENC[AES256_GCM,data:pNPXOyxT078/RbiyOjcx0RxOQCW2Rrf8hgHr5+hUbNcFpvWzWQ8EWfcGBqACT9yp8Jla7JT1Gns5d7eOnPXJ0PPnKYDMkj5SErlsjRIFIeZZQodfHWC5SVathWUNy+XJdqDHQGX1IRghtSJ0vqX0tia5U5T9ZdIg9t4301/6Cx8=,iv:n7Mdn6G8m08lr6Q60L8yt/0RuyY2W+tTHNfSOotYEMI=,tag:UGIsB47TQNHJ2b/zPaQBFQ==,type:str]
+    lastmodified: "2026-08-23T23:45:26Z"
+    mac: ENC[AES256_GCM,data:DD9Jjf/XsIN3eI+tN1gxr6V4aUvum+G0yLalAboAzONYEgwtlJGk0pM2CrnufV8ksEqw+yqClbrXpucg8clIRyamTOvNBGzf5zLWHgG7TnwwVM33Tl2GMAZVK6ToL4FpbkKt+ZTZnMzmh5yRrEFqGrKCor9eC8cLUC5LtEhKcjo=,iv:2EsvqBjToLr4DTVbmMXQRNnwXnt7J7vFTYkwz2NKRZY=,tag:iX7zpy9GFI+UXlwZkltwlg==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.13.3

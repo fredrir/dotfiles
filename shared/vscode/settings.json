@@ -1,0 +1,251 @@
+{
+	"workbench.secondarySideBar.defaultVisibility": "hidden",
+	"editor.formatOnSave": true,
+	"explorer.confirmDelete": false,
+	"explorer.confirmDragAndDrop": false,
+	"git.enableSmartCommit": true,
+	"git.autofetch": true,
+	"git.confirmSync": false,
+	"git.openRepositoryInParentFolders": "always",
+
+	// One row per `dotfile format` provider, and per `formatters_by_ft` in
+	// shared/nvim/lua/plugins/conform.lua. Every one is named outright rather
+	// than left to whichever extension registers last, because that is the
+	// difference between a buffer saved here and the same file run through the
+	// CLI coming out identical or not. The formatter each extension actually
+	// runs, and where it reads its settings from, is the interesting part:
+	//
+	//   biome    walks up from the file and finds ~/biome.json, the link to
+	//            shared/tools/biome.global.json. `dotfile format` skips its own
+	//            --config-path injection for exactly the same reason, so both
+	//            sides read the same file. `biome.configurationPath` is not set
+	//            here on purpose: measured, it *overrides* a project's own
+	//            biome.json rather than backing off to it, so setting it in
+	//            user settings would force this repository's rules onto every
+	//            other project.
+	//   ruff     reads ~/.config/ruff/ruff.toml, which this repository links;
+	//            `ruff server`, which the extension runs, resolves it the same
+	//            way the CLI does.
+	//   stylua   see stylua.* below.
+	//   taplo    see evenBetterToml.formatter.* below.
+	//   shfmt    the extension passes --filename=<abs path> and pipes the
+	//            buffer, so shfmt reads .editorconfig upward from the file's
+	//            own directory and finds ~/.editorconfig.
+	//   rustfmt  rust-analyzer runs rustfmt with the project's rustfmt.toml,
+	//            which is what `cargo fmt` does.
+	//
+	// html is biome's, as in conform, and biome's HTML formatter is off by
+	// default -- so both the editor and the CLI leave .html alone, which is
+	// the agreement. Drop this line to get VS Code's own HTML formatter back.
+	"[python]": {
+		"editor.defaultFormatter": "charliermarsh.ruff"
+	},
+	"[javascript]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[javascriptreact]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[typescript]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[typescriptreact]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[css]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[html]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[json]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[jsonc]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	// VS Code gives User/snippets/*.json its own language id rather than json.
+	"[snippets]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[lua]": {
+		"editor.quickSuggestions": {
+			"other": true,
+			"comments": true,
+			"strings": true
+		},
+		"editor.tabCompletion": "on",
+		"editor.quickSuggestionsDelay": 1,
+		"editor.suggest.snippetsPreventQuickSuggestions": false,
+		"editor.formatOnSave": true,
+		// Was sumneko.lua, which formats with EmmyLuaCodeStyle and not stylua:
+		// on the same buffer it indents 4, keeps `if a then return b end` on one
+		// line and leaves a trailing comma in a table, where stylua with
+		// shared/tools/stylua.toml indents 2, breaks the statement and drops the
+		// comma. The 40 .lua files tracked here were being written one way and
+		// checked the other. sumneko.lua stays as the language server.
+		"editor.defaultFormatter": "JohnnyMorganz.stylua"
+	},
+	"[toml]": {
+		"editor.defaultFormatter": "tamasfe.even-better-toml"
+	},
+	"[rust]": {
+		"editor.defaultFormatter": "rust-lang.rust-analyzer"
+	},
+	"[go]": {
+		"editor.defaultFormatter": "golang.go"
+	},
+	// The Go extension formats with one tool, and goimports is a superset of
+	// gofmt -- it rewrites imports and then lays the file out exactly as gofmt
+	// would. So the single tool matches the CLI's `goimports -w` then
+	// `gofmt -w`. There is no Go in this repository and goimports is not on
+	// this machine; this is here so a Go file opened anywhere agrees.
+	"go.formatTool": "goimports",
+	"[markdown]": {
+		"editor.defaultFormatter": "yzhang.markdown-all-in-one"
+	},
+	"[nix]": {
+		"editor.insertSpaces": true,
+		"editor.tabSize": 2
+	},
+	"[shellscript]": {
+		"files.eol": "\n",
+		"editor.defaultColorDecorators": "never",
+		"editor.defaultFormatter": "mkhl.shfmt"
+	},
+
+	// The three rows no extension covers. `dotfile format` runs yamlfmt,
+	// `sqlfluff format` and dotfmt; each reads a body on stdin and writes the
+	// formatted bytes to stdout, which is the whole contract Custom Local
+	// Formatters needs. dotfmt is named by path because setup.sh installs it
+	// there on both platforms and a GUI VS Code does not always inherit a
+	// login shell's PATH.
+	//
+	// `sqlfluff format` rather than the sqlfluff extension: that extension
+	// formats with `sqlfluff fix`, which applies every fixable rule and will
+	// rewrite the query, and it has no setting to ask for `format` instead.
+	//
+	// dotfmt decides per file whether it owns one, and hands back anything it
+	// does not own untouched -- measured on ~/.gitconfig and on a .cfg, both of
+	// which come back byte for byte -- so pointing the whole `properties`
+	// language at it is safe even though that language also covers .gitconfig,
+	// .cfg and .editorconfig.
+	"customLocalFormatters.formatters": [
+		{
+			"command": "yamlfmt -",
+			"languages": ["yaml"]
+		},
+		{
+			"command": "sqlfluff format -",
+			"languages": ["sql"]
+		},
+		{
+			"command": "$HOME/.local/bin/dotfmt --stdin \"${file}\"",
+			"languages": ["properties"]
+		}
+	],
+	"[yaml]": {
+		"editor.defaultFormatter": "jkillian.custom-local-formatters"
+	},
+	"[sql]": {
+		"editor.defaultFormatter": "jkillian.custom-local-formatters"
+	},
+	"[properties]": {
+		"editor.defaultFormatter": "jkillian.custom-local-formatters"
+	},
+
+	// stylua resolves a config from the file's own directory and no further
+	// unless told to search upward; with the search on it also reaches
+	// ~/.config/stylua/stylua.toml, the link to shared/tools/stylua.toml. That
+	// is conform's `--search-parent-directories` and it keeps
+	// shared/nvim/.stylua.toml and shared/wezterm/.stylua.toml winning inside
+	// their own subtrees. `stylua.configPath` would reach the same file but
+	// overrides that lookup, so it is not used. Without searchBinaryInPATH the
+	// extension downloads a stylua of its own and the two sides drift by
+	// version.
+	"stylua.searchParentDirectories": true,
+	"stylua.searchBinaryInPATH": true,
+
+	// taplo never reads ~/.config/taplo/taplo.toml; it searches upward from the
+	// file, and this repository has no .taplo.toml of its own, so left alone the
+	// editor formats TOML at taplo's defaults while the CLI uses this
+	// repository's settings -- unaligned entries and two blank lines against
+	// one. These mirror shared/tools/.taplo.toml and have to be kept in step
+	// with it by hand. They are the settings rather than
+	// `evenBetterToml.taplo.configFile.path` because, measured, these are
+	// defaults a project's own .taplo.toml still overrides, where that path
+	// setting overrides the project.
+	//
+	// indentString is not in that file and is taplo's own default of two
+	// spaces, written out because the LSP falls back to the editor's tabSize
+	// when it is unset: 7 of this repository's 42 .toml files came out with
+	// four-space array items here and two-space ones from the CLI, purely
+	// because VS Code's tabSize is 4.
+	//
+	// The extension bundles @taplo/lsp 0.8.0 and runs that by default, against
+	// the taplo 0.10.0 on PATH that `dotfile format` runs -- two builds of the
+	// formatter, two chances to disagree. Turning the bundle off makes the
+	// extension run `taplo lsp stdio` on the PATH binary, which is the same
+	// program the CLI uses and the one the settings above were measured
+	// against. It does mean taplo has to be on VS Code's PATH; without it the
+	// extension says so, which is a better failure than quietly formatting
+	// differently.
+	"evenBetterToml.taplo.bundled": false,
+	"evenBetterToml.formatter.alignEntries": true,
+	"evenBetterToml.formatter.arrayTrailingComma": true,
+	"evenBetterToml.formatter.columnWidth": 100,
+	"evenBetterToml.formatter.allowedBlankLines": 1,
+	"evenBetterToml.formatter.indentString": "  ",
+
+	"files.associations": {
+		"*.zsh": "shellscript",
+		"*.hujson": "jsonc",
+		"*.lua": "lua",
+		// dotfmt's own format. `properties` is the closest built-in language
+		// and is what routes these through dotfmt above.
+		"*.dotfile": "properties",
+		// The TOML extension gives these two the `toml` language, so saving
+		// either one ran taplo over it -- 2610 changed lines in
+		// scripts/rust/Cargo.lock, which cargo would then write straight back.
+		// `dotfile format` sorts files by extension and has no row for .lock,
+		// so it never touched them. `properties` keeps them readable and hands
+		// them to dotfmt, which does not claim a .lock and returns both byte
+		// for byte.
+		"Cargo.lock": "properties",
+		"uv.lock": "properties",
+		// VS Code gives the filenames `settings.json` and `keybindings.json`
+		// the jsonc language wherever it finds them, so the copies in
+		// shared/vscode already open as JSONC. The platform overlays do not
+		// match those names and were opening as strict JSON, where a comment
+		// is an error.
+		"settings.*.json": "jsonc"
+	},
+	"js/ts.updateImportsOnFileMove.enabled": "always",
+	"json.schemaDownload.trustedDomains": {
+		"https://schemastore.azurewebsites.net/": true,
+		"https://raw.githubusercontent.com/microsoft/vscode/": true,
+		"https://raw.githubusercontent.com/devcontainers/spec/": true,
+		"https://www.schemastore.org/": true,
+		"https://json.schemastore.org/": true,
+		"https://json-schema.org/": true,
+		"https://developer.microsoft.com/json-schemas/": true,
+		"https://biomejs.dev": true,
+		"https://raw.githubusercontent.com": true
+	},
+	"json.schemas": [
+		{
+			"fileMatch": ["*.hujson"],
+			"schema": {
+				"allowTrailingCommas": true
+			}
+		}
+	],
+	"diffEditor.ignoreTrimWhitespace": false,
+	"github.copilot.enable": {
+		"lua": false,
+		"*": false,
+		"plaintext": false,
+		"markdown": false,
+		"scminput": false
+	}
+}

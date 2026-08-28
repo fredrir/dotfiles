@@ -1,0 +1,7 @@
+Host wifi-archie 10.77.78.2
+    HostName 10.77.78.2
+    User fredrir
+    HostKeyAlias archie
+    BindAddress 10.77.78.1
+    ServerAliveInterval 5
+    ServerAliveCountMax 2

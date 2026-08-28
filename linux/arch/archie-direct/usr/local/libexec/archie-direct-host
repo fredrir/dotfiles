@@ -1,0 +1,295 @@
+#!/bin/sh
+# Root-owned lifecycle helper for the shared direct Wi-Fi AP.
+# The public controller lives on Macie; this side owns network mutation and
+# makes every failure converge on a clean network state.
+
+set -eu
+umask 077
+
+PROGRAM=archie-direct-host
+RUNTIME=/run/archie-direct
+STATE="$RUNTIME/state"
+SECRET=/etc/archie-direct/secret.conf
+AP_IF=archie0
+UPLINK_IF=wlp9s0
+ARCHIE_IP=10.77.78.2
+MACIE_IP=10.77.78.1
+PREFIX=30
+PHY=phy0
+
+fail() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+	exit 1
+}
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || fail "$1 is not installed"
+}
+
+state_value() {
+	key=$1
+	[ -r "$STATE" ] || return 1
+	sed -n "s/^${key}=//p" "$STATE" | head -n 1
+}
+
+kill_pidfile() {
+	file=$1
+	expected=$2
+	[ -r "$file" ] || return 0
+	pid=$(sed -n '1p' "$file")
+	case "$pid" in
+	'' | *[!0-9]*) ;;
+	*)
+		# A stale pidfile must never turn cleanup into a signal for an
+		# unrelated process that reused the number.
+		[ "$(cat "/proc/$pid/comm" 2>/dev/null || true)" = "$expected" ] &&
+			kill "$pid" 2>/dev/null || true
+		;;
+	esac
+	rm -f "$file"
+}
+
+remove_docker_forwarding() {
+	command -v iptables >/dev/null 2>&1 || return 0
+
+	while iptables -C DOCKER-USER \
+		-i "$AP_IF" -o "$UPLINK_IF" -s 10.77.78.0/30 \
+		-m comment --comment archie-direct -j ACCEPT >/dev/null 2>&1; do
+		iptables -D DOCKER-USER \
+			-i "$AP_IF" -o "$UPLINK_IF" -s 10.77.78.0/30 \
+			-m comment --comment archie-direct -j ACCEPT >/dev/null 2>&1 || break
+	done
+
+	while iptables -C DOCKER-USER \
+		-i "$UPLINK_IF" -o "$AP_IF" -d 10.77.78.0/30 \
+		-m conntrack --ctstate ESTABLISHED,RELATED \
+		-m comment --comment archie-direct -j ACCEPT >/dev/null 2>&1; do
+		iptables -D DOCKER-USER \
+			-i "$UPLINK_IF" -o "$AP_IF" -d 10.77.78.0/30 \
+			-m conntrack --ctstate ESTABLISHED,RELATED \
+			-m comment --comment archie-direct -j ACCEPT >/dev/null 2>&1 || break
+	done
+}
+
+cleanup_runtime() {
+	kill_pidfile "$RUNTIME/dnsmasq.pid" dnsmasq
+	kill_pidfile "$RUNTIME/hostapd.pid" hostapd
+	remove_docker_forwarding
+	nft delete table ip archie_direct >/dev/null 2>&1 || true
+	iw dev "$AP_IF" del >/dev/null 2>&1 || ip link del "$AP_IF" >/dev/null 2>&1 || true
+}
+
+restore_forwarding() {
+	value=$(state_value ip_forward 2>/dev/null || true)
+	case "$value" in
+	0 | 1) printf '%s' "$value" >/proc/sys/net/ipv4/ip_forward ;;
+	esac
+}
+
+stop_link() {
+	cleanup_runtime
+	restore_forwarding
+	rm -rf "$RUNTIME"
+}
+
+write_common_hostapd() {
+	cat <<EOF
+interface=$AP_IF
+driver=nl80211
+ssid=archie-direct
+country_code=NO
+ieee80211d=1
+ieee80211h=1
+hw_mode=a
+wmm_enabled=1
+auth_algs=1
+wpa=2
+wpa_key_mgmt=SAE
+rsn_pairwise=CCMP
+sae_password=$SAE_PASSWORD
+sae_pwe=2
+ieee80211w=2
+ieee80211n=1
+ieee80211ac=1
+ieee80211ax=1
+ieee80211be=1
+EOF
+}
+
+write_shared_hostapd() {
+	info=$(iw dev "$UPLINK_IF" info) || fail "$UPLINK_IF is not connected"
+	channel=$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*channel \([0-9][0-9]*\).*/\1/p' | head -n1)
+	primary=$(printf '%s\n' "$info" | sed -n 's/.*channel [0-9][0-9]* (\([0-9][0-9]*\) MHz).*/\1/p' | head -n1)
+	width=$(printf '%s\n' "$info" | sed -n 's/.*width: \([0-9][0-9]*\) MHz.*/\1/p' | head -n1)
+	center=$(printf '%s\n' "$info" | sed -n 's/.*center1: \([0-9][0-9]*\) MHz.*/\1/p' | head -n1)
+	[ -n "$channel" ] && [ -n "$primary" ] && [ -n "$width" ] || fail "cannot read the upstream channel"
+	[ "$primary" -ge 5000 ] && [ "$primary" -lt 5925 ] || fail "shared mode requires a 5 GHz uplink"
+	# Keep the shared AP deterministic. A DFS upstream needs CAC and a
+	# channel-move policy that this implementation does not provide.
+	case "$channel" in
+	36 | 40 | 44 | 48 | 149 | 153 | 157 | 161 | 165) ;;
+	*) fail "shared mode refuses DFS/unsupported upstream channel $channel" ;;
+	esac
+	[ "$width" = 20 ] || [ "$width" = 40 ] || fail "shared mode supports the live 20/40 MHz uplink, not ${width} MHz"
+
+	{
+		write_common_hostapd
+		printf 'channel=%s\n' "$channel"
+		if [ "$width" = 40 ]; then
+			[ -n "$center" ] || fail "cannot read the 40 MHz center frequency"
+			if [ "$center" -lt "$primary" ]; then
+				printf 'ht_capab=[HT40-]\n'
+			else
+				printf 'ht_capab=[HT40+]\n'
+			fi
+			center_channel=$(((center - 5000) / 5))
+			printf 'vht_oper_chwidth=0\n'
+			printf 'vht_oper_centr_freq_seg0_idx=%s\n' "$center_channel"
+			printf 'he_oper_chwidth=0\n'
+			printf 'he_oper_centr_freq_seg0_idx=%s\n' "$center_channel"
+			printf 'eht_oper_chwidth=0\n'
+			printf 'eht_oper_centr_freq_seg0_idx=%s\n' "$center_channel"
+		fi
+	} >"$RUNTIME/hostapd.conf"
+
+	printf '%s' "$channel" >"$RUNTIME/channel"
+	printf '%s' "$width" >"$RUNTIME/width"
+}
+
+write_dnsmasq() {
+	cat <<EOF >"$RUNTIME/dnsmasq.conf"
+interface=$AP_IF
+bind-interfaces
+dhcp-range=$MACIE_IP,$MACIE_IP,255.255.255.252,12h
+pid-file=$RUNTIME/dnsmasq.pid
+dhcp-leasefile=$RUNTIME/dnsmasq.leases
+log-dhcp
+listen-address=$ARCHIE_IP
+dhcp-option=option:router,$ARCHIE_IP
+dhcp-option=option:dns-server,$ARCHIE_IP
+EOF
+}
+
+install_shared_nat() {
+	nft -f - <<EOF
+table ip archie_direct {
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    iifname "$AP_IF" oifname "$UPLINK_IF" accept
+    iifname "$AP_IF" drop
+    iifname "$UPLINK_IF" oifname "$AP_IF" ct state established,related accept
+    oifname "$AP_IF" drop
+  }
+  chain postrouting {
+    type nat hook postrouting priority srcnat; policy accept;
+    ip saddr 10.77.78.0/30 oifname "$UPLINK_IF" masquerade
+  }
+}
+EOF
+}
+
+install_docker_forwarding() {
+	# Docker deliberately leaves DOCKER-USER for host policy. Its iptables
+	# backend can set FORWARD to DROP, so an accept in our independent nftables
+	# base chain is not final when Docker's later base chain sees the packet.
+	if ! iptables -n -L DOCKER-USER >/dev/null 2>&1; then
+		if iptables -S FORWARD 2>/dev/null | grep -q '^-P FORWARD DROP$'; then
+			fail "FORWARD is DROP but the DOCKER-USER policy hook is unavailable"
+		fi
+		return 0
+	fi
+
+	iptables -C DOCKER-USER \
+		-i "$AP_IF" -o "$UPLINK_IF" -s 10.77.78.0/30 \
+		-m comment --comment archie-direct -j ACCEPT >/dev/null 2>&1 ||
+		iptables -I DOCKER-USER 1 \
+			-i "$AP_IF" -o "$UPLINK_IF" -s 10.77.78.0/30 \
+			-m comment --comment archie-direct -j ACCEPT
+
+	iptables -C DOCKER-USER \
+		-i "$UPLINK_IF" -o "$AP_IF" -d 10.77.78.0/30 \
+		-m conntrack --ctstate ESTABLISHED,RELATED \
+		-m comment --comment archie-direct -j ACCEPT >/dev/null 2>&1 ||
+		iptables -I DOCKER-USER 1 \
+			-i "$UPLINK_IF" -o "$AP_IF" -d 10.77.78.0/30 \
+			-m conntrack --ctstate ESTABLISHED,RELATED \
+			-m comment --comment archie-direct -j ACCEPT
+}
+
+start_link() {
+	mode=$1
+	[ "$mode" = shared ] || fail "mode must be shared"
+	[ ! -e "$STATE" ] || fail "$(state_value mode) mode is already active"
+	[ "$(id -u)" -eq 0 ] || fail "must run as root"
+	for command in hostapd dnsmasq iw ip nmcli nft iptables; do need "$command"; done
+	[ -r "$SECRET" ] || fail "$SECRET is missing; run dotfile system install"
+	secret_meta=$(stat -c '%a %U:%G' "$SECRET" 2>/dev/null || true)
+	[ "$secret_meta" = "600 root:root" ] ||
+		fail "$SECRET must be mode 0600 and owned by root:root"
+	# shellcheck disable=SC1090
+	. "$SECRET"
+	[ -n "${SAE_PASSWORD:-}" ] || fail "SAE_PASSWORD is empty"
+
+	# Recover from an interrupted or older cleanup before claiming the one AP
+	# slot exposed by this radio.
+	cleanup_runtime
+	install -d -m 0755 "$RUNTIME"
+	uplink_connection=$(nmcli -g GENERAL.CON-UUID device show "$UPLINK_IF" 2>/dev/null | head -n1)
+	[ -n "$uplink_connection" ] || fail "$UPLINK_IF has no active NetworkManager connection"
+	{
+		printf 'mode=shared\n'
+		printf 'ip_forward=%s\n' "$(cat /proc/sys/net/ipv4/ip_forward)"
+	} >"$STATE"
+	chmod 0644 "$STATE"
+
+	ok=0
+	trap '[ "$ok" -eq 1 ] || { cleanup_runtime; restore_forwarding; rm -rf "$RUNTIME"; }' EXIT HUP INT TERM
+
+	printf '1' >/proc/sys/net/ipv4/ip_forward
+	write_shared_hostapd
+	chmod 0644 "$RUNTIME/channel" "$RUNTIME/width"
+
+	iw phy "$PHY" interface add "$AP_IF" type __ap
+	ip link set "$AP_IF" up
+	ip address add "$ARCHIE_IP/$PREFIX" dev "$AP_IF"
+	write_dnsmasq
+
+	hostapd -B -P "$RUNTIME/hostapd.pid" "$RUNTIME/hostapd.conf"
+	dnsmasq --conf-file="$RUNTIME/dnsmasq.conf"
+	install_shared_nat
+	install_docker_forwarding
+
+	ok=1
+	trap - EXIT HUP INT TERM
+	printf '%s mode ready: %s/%s on channel %s (%s MHz)\n' \
+		"$PROGRAM" "$ARCHIE_IP" "$PREFIX" "$(cat "$RUNTIME/channel")" "$(cat "$RUNTIME/width")"
+}
+
+show_status() {
+	format=${1:-text}
+	mode=$(state_value mode 2>/dev/null || true)
+	if [ -z "$mode" ]; then
+		[ "$format" = json ] && printf '{"active":false}\n' || printf 'inactive\n'
+		return 0
+	fi
+	channel=$(cat "$RUNTIME/channel" 2>/dev/null || true)
+	width=$(cat "$RUNTIME/width" 2>/dev/null || true)
+	clients=$(iw dev "$AP_IF" station dump 2>/dev/null | grep -c '^Station ' || true)
+	if [ "$format" = json ]; then
+		printf '{"active":true,"mode":"%s","interface":"%s","address":"%s/%s","channel":%s,"width_mhz":%s,"clients":%s}\n' \
+			"$mode" "$AP_IF" "$ARCHIE_IP" "$PREFIX" "${channel:-0}" "${width:-0}" "${clients:-0}"
+	else
+		printf '%s  %s/%s  channel %s  %s MHz  %s client(s)\n' \
+			"$mode" "$ARCHIE_IP" "$PREFIX" "$channel" "$width" "$clients"
+	fi
+}
+
+case ${1:-} in
+start)
+	[ "$#" -eq 2 ] || fail "usage: $PROGRAM start shared"
+	start_link "$2"
+	;;
+stop) stop_link ;;
+status) show_status "${2:-text}" ;;
+*) fail "usage: $PROGRAM start shared | stop | status [json]" ;;
+esac

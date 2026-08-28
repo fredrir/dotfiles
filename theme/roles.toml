@@ -14,7 +14,7 @@ prompt_dir      = "teal"
 prompt_duration = "yellow"
 prompt_char     = "blue"
 
-sudo = "red"  # shell
+sudo = "red" # shell
 
 [terminal]
 foreground           = "text"
@@ -51,10 +51,10 @@ inactive_background = "surface0"
 bar_background      = "mantle"
 
 [eza]
-fi       = "subtext"   # fallback
-di       = "blue"      # directories
-ex       = "green"     # executables
-ln       = "teal"      # symlinks
+fi = "subtext" # fallback
+di = "blue"    # directories
+ex = "green"   # executables
+ln = "teal"    # symlinks
 
 "*.toml" = "orange"
 "*.json" = "yellow"
@@ -111,6 +111,6 @@ wm_inactive_fg    = "overlay2"
 wm_inactive_blend = "overlay2"
 
 [konsole]
-tab              = "base"
-focus_border     = "crust"
-tab_activity     = "text"
+tab          = "base"
+focus_border = "crust"
+tab_activity = "text"

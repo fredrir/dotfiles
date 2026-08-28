@@ -1,0 +1,7 @@
+Host wifi-macie 10.77.78.1
+    HostName 10.77.78.1
+    User fredrir
+    HostKeyAlias macie
+    BindAddress 10.77.78.2
+    ServerAliveInterval 5
+    ServerAliveCountMax 2

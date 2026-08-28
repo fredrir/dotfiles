@@ -1,4 +1,3 @@
-
 _brew_share="${HOMEBREW_PREFIX:-/opt/homebrew}/share"
 
 [[ -f "$_brew_share/fzf-tab/fzf-tab.zsh" ]] && source "$_brew_share/fzf-tab/fzf-tab.zsh"

@@ -1,0 +1,15 @@
+[Unit]
+Description=Archie shared direct Wi-Fi AP (%i)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/archie-direct-host start %i
+ExecStop=/usr/local/libexec/archie-direct-host stop
+TimeoutStartSec=45
+TimeoutStopSec=30
+
+# The AP is always an explicit choice. Do not add an Install section: it may
+# not be enabled at boot.

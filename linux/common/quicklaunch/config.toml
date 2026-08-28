@@ -1,15 +1,15 @@
 [window]
-width = 640
+width       = 640
 max_results = 8
-radius = 16
-row_height = 52
-opacity = 0.96
+radius      = 16
+row_height  = 52
+opacity     = 0.96
 
 [behavior]
-opening_animation = false
+opening_animation      = false
 close_on_click_outside = true
-close_on_focus_loss = true
-frequency_ranking = true
+close_on_focus_loss    = true
+frequency_ranking      = true
 
 [theme]
 source = "custom"

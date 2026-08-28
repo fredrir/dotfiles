@@ -1,0 +1,12 @@
+# Prefer the private Wi-Fi subnet after USB. Binding the source proves Macie
+# is already associated with archie-direct; ssh never changes Wi-Fi networks.
+
+Match originalhost archie exec "/usr/bin/nc -4 -z -G 1 -s 10.77.78.1 10.77.78.2 22 >/dev/null 2>&1"
+    HostName 10.77.78.2
+    User fredrir
+    HostKeyAlias archie
+    BindAddress 10.77.78.1
+    ServerAliveInterval 5
+    ServerAliveCountMax 2
+
+Match all

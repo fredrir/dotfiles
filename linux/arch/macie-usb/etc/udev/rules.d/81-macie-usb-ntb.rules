@@ -1,0 +1,29 @@
+# Throughput on this link is bytes per USB completion and nothing else -- the
+# interrupt rate sits near 26.6k/s in both directions whatever is tuned. cdc_ncm
+# defaults to a 16 KiB block regardless of what the device advertises, which
+# held a single frame: 19,242 bytes per xhci IRQ, 3.0 up and 4.4 Gbit/s down.
+#
+# tx_max is the size the Mac advertises. Read it together with MTUBytes=8128 in
+# 10-macie-usb.link -- that MTU exists to make four frames fit this block, and
+# 99.8% of blocks then leave full. Either setting alone gives back most of the
+# gain; the pair is worth 3.0 -> 6.9 Gbit/s.
+#
+# rx_max is what the Mac may send at once. It packs whole frames too, with 46
+# bytes of block header, so three 8142-byte frames need 24472 and this leaves
+# 104 spare. Raising it buys nothing -- a fourth frame would need 32614, and
+# above ~31744 the receive direction intermittently drops to 0.32 Gbit/s: 10 of
+# 29 runs, clearing and returning on its own, every rx_* counter at zero and
+# transmit unaffected, so the link idles rather than fails. Cause unidentified.
+# Never once at 26624 or below, which is the only reason this stops short.
+#
+# tx_timer_usecs is how long a lone frame waits in an unfilled block for
+# company, and cdc_ncm restarts the timer twice before giving up -- so the 400us
+# default cost three times that on every round trip, which is what made ssh over
+# the cable feel worse than the tailnet it replaces. 50 gives 0.26 ms for about
+# 1% of throughput; 20 costs a tenth of receive. None of it applies under load,
+# where blocks leave full rather than on the timer.
+#
+# Matched on the same properties as 10-macie-usb.link so what the device is has
+# one definition, and numbered after 75-net-description.rules, which sets them.
+ACTION=="add", SUBSYSTEM=="net", ENV{ID_VENDOR_ID}=="05ac", ENV{ID_MODEL}=="Mac", ENV{ID_USB_INTERFACE_NUM}=="00", \
+  ATTR{cdc_ncm/tx_max}="32764", ATTR{cdc_ncm/rx_max}="24576", ATTR{cdc_ncm/tx_timer_usecs}="50"

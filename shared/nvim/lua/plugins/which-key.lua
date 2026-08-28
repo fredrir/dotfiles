@@ -1,6 +1,6 @@
 return {
-  'folke/which-key.nvim',
-  event = 'VimEnter',
+  "folke/which-key.nvim",
+  event = "VimEnter",
   ---@module 'which-key'
   ---@type wk.Opts
   ---@diagnostic disable-next-line: missing-fields
@@ -8,12 +8,12 @@ return {
     delay = 0,
     icons = { mappings = vim.g.have_nerd_font },
     spec = {
-      { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
-      { '<leader>t', group = '[T]oggle' },
-      { '<leader>g', group = '[G]it' },
-      { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
-      { '<leader>r', group = '[R]efactor' },
-      { 'gr', group = 'LSP Actions', mode = { 'n' } },
+      { "<leader>s", group = "[S]earch", mode = { "n", "v" } },
+      { "<leader>t", group = "[T]oggle" },
+      { "<leader>g", group = "[G]it" },
+      { "<leader>h", group = "Git [H]unk", mode = { "n", "v" } },
+      { "<leader>r", group = "[R]efactor" },
+      { "gr", group = "LSP Actions", mode = { "n" } },
     },
   },
 }
