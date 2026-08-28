@@ -5,18 +5,18 @@
 hs.window.animationDuration = 0 -- no easing lag on focus/hide
 
 local WEZTERM_BUNDLE = "com.github.wez.wezterm"
-local HOME = os.getenv("HOME")
+local HOME = os.getenv "HOME"
 local WEZTERM_BIN = "/Applications/WezTerm.app/Contents/MacOS/wezterm"
 local DMUX_BIN = HOME .. "/.local/bin/dmux"
 -- Three-valued (ADR 010 §5): 1 states Wez-first, 0 states legacy, unset
 -- states no preference and means Wez-first since the §21 step 9 flip.
-local DMUX_WEZ_FIRST = os.getenv("DMUX_WEZ_FIRST") ~= "0"
+local DMUX_WEZ_FIRST = os.getenv "DMUX_WEZ_FIRST" ~= "0"
 
 -- Run a program without a shell; callback gets (exitCode, stdout, stderr).
 local function run(bin, args, callback)
-	local task = hs.task.new(bin, callback, args)
-	task:start()
-	return task
+  local task = hs.task.new(bin, callback, args)
+  task:start()
+  return task
 end
 
 ---------------------------------------------------------------------------
@@ -30,99 +30,99 @@ end
 local previousApp = nil
 
 local function coldSummon(notRunning, app)
-	if not DMUX_WEZ_FIRST then
-		if notRunning then
-			hs.application.launchOrFocusByBundleID(WEZTERM_BUNDLE)
-		else
-			run(WEZTERM_BIN, { "cli", "spawn", "--new-window" })
-			app:activate()
-		end
-		return
-	end
-	-- `_gui summon` performs the service/sentinel preflight, chooses the
-	-- previous live Space, and submits a signed cold-launcher presentation.
-	-- It never uses wezterm cli spawn or creates a parking workspace.
-	run(DMUX_BIN, { "_gui", "summon" }, function(exitCode, _, stderr)
-		if exitCode ~= 0 then
-			hs.alert.show("dmux could not summon WezTerm")
-			print("dmux summon: " .. tostring(stderr))
-			return
-		end
-		local summoned = hs.application.applicationsForBundleID(WEZTERM_BUNDLE)[1]
-		if summoned then
-			summoned:activate()
-			local win = summoned:focusedWindow() or summoned:mainWindow()
-			if win then
-				win:focus()
-			end
-		end
-	end)
+  if not DMUX_WEZ_FIRST then
+    if notRunning then
+      hs.application.launchOrFocusByBundleID(WEZTERM_BUNDLE)
+    else
+      run(WEZTERM_BIN, { "cli", "spawn", "--new-window" })
+      app:activate()
+    end
+    return
+  end
+  -- `_gui summon` performs the service/sentinel preflight, chooses the
+  -- previous live Space, and submits a signed cold-launcher presentation.
+  -- It never uses wezterm cli spawn or creates a parking workspace.
+  run(DMUX_BIN, { "_gui", "summon" }, function(exitCode, _, stderr)
+    if exitCode ~= 0 then
+      hs.alert.show "dmux could not summon WezTerm"
+      print("dmux summon: " .. tostring(stderr))
+      return
+    end
+    local summoned = hs.application.applicationsForBundleID(WEZTERM_BUNDLE)[1]
+    if summoned then
+      summoned:activate()
+      local win = summoned:focusedWindow() or summoned:mainWindow()
+      if win then
+        win:focus()
+      end
+    end
+  end)
 end
 
 local function focusPreviousApp()
-	if previousApp and previousApp:isRunning() and previousApp:bundleID() ~= WEZTERM_BUNDLE then
-		previousApp:activate()
-		return
-	end
-	for _, win in ipairs(hs.window.orderedWindows()) do
-		local app = win:application()
-		if app and app:bundleID() ~= WEZTERM_BUNDLE then
-			win:focus()
-			return
-		end
-	end
+  if previousApp and previousApp:isRunning() and previousApp:bundleID() ~= WEZTERM_BUNDLE then
+    previousApp:activate()
+    return
+  end
+  for _, win in ipairs(hs.window.orderedWindows()) do
+    local app = win:application()
+    if app and app:bundleID() ~= WEZTERM_BUNDLE then
+      win:focus()
+      return
+    end
+  end
 end
 
 local function summonWezTerm()
-	local app = hs.application.applicationsForBundleID(WEZTERM_BUNDLE)[1]
+  local app = hs.application.applicationsForBundleID(WEZTERM_BUNDLE)[1]
 
-	if not app then
-		coldSummon(true)
-		return
-	end
+  if not app then
+    coldSummon(true)
+    return
+  end
 
-	if DMUX_WEZ_FIRST and #app:allWindows() == 0 then
-		-- A resident zero-window app can still be the frontmost application.
-		-- Reattach before applying the ordinary frontmost-toggle behavior, or
-		-- the hotkey would hide an already invisible app and never summon.
-		coldSummon(false, app)
-		return
-	end
+  if DMUX_WEZ_FIRST and #app:allWindows() == 0 then
+    -- A resident zero-window app can still be the frontmost application.
+    -- Reattach before applying the ordinary frontmost-toggle behavior, or
+    -- the hotkey would hide an already invisible app and never summon.
+    coldSummon(false, app)
+    return
+  end
 
-	if app:isFrontmost() then
-		local win = app:focusedWindow()
-		if win and win:isFullScreen() then
-			focusPreviousApp()
-		else
-			app:hide()
-		end
-		return
-	end
+  if app:isFrontmost() then
+    local win = app:focusedWindow()
+    if win and win:isFullScreen() then
+      focusPreviousApp()
+    else
+      app:hide()
+    end
+    return
+  end
 
-	previousApp = hs.application.frontmostApplication()
+  previousApp = hs.application.frontmostApplication()
 
-	local windows = app:allWindows()
-	if #windows == 0 then
-		-- quit_when_all_windows_are_closed=false keeps the bridge resident. Ask
-		-- it to reattach an existing domain/Space through the no-create path.
-		coldSummon(false, app)
-		return
-	end
+  local windows = app:allWindows()
+  if #windows == 0 then
+    -- quit_when_all_windows_are_closed=false keeps the bridge resident. Ask
+    -- it to reattach an existing domain/Space through the no-create path.
+    coldSummon(false, app)
+    return
+  end
 
-	app:activate() -- unhides; switches Space if the window lives elsewhere
-	local win = app:focusedWindow() or app:mainWindow()
-	if not win then
-		for _, w in ipairs(windows) do
-			if w:isMinimized() then
-				w:unminimize()
-				win = w
-				break
-			end
-		end
-	end
-	if win then
-		win:focus()
-	end
+  app:activate() -- unhides; switches Space if the window lives elsewhere
+  local win = app:focusedWindow() or app:mainWindow()
+  if not win then
+    for _, w in ipairs(windows) do
+      if w:isMinimized() then
+        w:unminimize()
+        win = w
+        break
+      end
+    end
+  end
+  if win then
+    win:focus()
+  end
 end
 
 -- '§' sits left of 1 on the Norwegian Apple layout: unshifted, no AltGr,
@@ -131,9 +131,9 @@ end
 QuakeHotkey = nil
 local okBind, hotkey = pcall(hs.hotkey.bind, { "cmd" }, "§", summonWezTerm)
 if okBind then
-	QuakeHotkey = hotkey
+  QuakeHotkey = hotkey
 else
-	QuakeHotkey = hs.hotkey.bind({ "cmd" }, 10, summonWezTerm)
+  QuakeHotkey = hs.hotkey.bind({ "cmd" }, 10, summonWezTerm)
 end
 
 ---------------------------------------------------------------------------
@@ -156,123 +156,123 @@ local lastSeen = {} -- pane_id -> { type = ..., at = ... } for dedup
 SentNotifications = {} -- pane_id -> hs.notify, retained so clicks work
 
 local function readMarker(path)
-	local file = io.open(path, "r")
-	if not file then
-		return nil
-	end
-	local raw = file:read("*a")
-	file:close()
-	local ok, data = pcall(hs.json.decode, raw)
-	if ok and type(data) == "table" and data.type then
-		return data.type, data
-	end
-	local text = raw:gsub("%s+", "")
-	if #text > 0 then
-		return text, {}
-	end
-	return nil
+  local file = io.open(path, "r")
+  if not file then
+    return nil
+  end
+  local raw = file:read "*a"
+  file:close()
+  local ok, data = pcall(hs.json.decode, raw)
+  if ok and type(data) == "table" and data.type then
+    return data.type, data
+  end
+  local text = raw:gsub("%s+", "")
+  if #text > 0 then
+    return text, {}
+  end
+  return nil
 end
 
 local function anyPaneThinking()
-	for name in hs.fs.dir(ATTENTION_DIR) do
-		if name ~= "." and name ~= ".." then
-			local kind, data = readMarker(ATTENTION_DIR .. "/" .. name)
-			if kind == "thinking" then
-				-- updated_at may be seconds or milliseconds; normalize to seconds.
-				local at = tonumber(data.updated_at)
-				if at and at > 1e11 then
-					at = at / 1000
-				end
-				local age = at and (hs.timer.secondsSinceEpoch() - at) or 0
-				if age < THINKING_STALE_S then
-					return true
-				end
-			end
-		end
-	end
-	return false
+  for name in hs.fs.dir(ATTENTION_DIR) do
+    if name ~= "." and name ~= ".." then
+      local kind, data = readMarker(ATTENTION_DIR .. "/" .. name)
+      if kind == "thinking" then
+        -- updated_at may be seconds or milliseconds; normalize to seconds.
+        local at = tonumber(data.updated_at)
+        if at and at > 1e11 then
+          at = at / 1000
+        end
+        local age = at and (hs.timer.secondsSinceEpoch() - at) or 0
+        if age < THINKING_STALE_S then
+          return true
+        end
+      end
+    end
+  end
+  return false
 end
 
 local function updateCaffeinate()
-	local wantAwake = anyPaneThinking()
-	if hs.caffeinate.get("systemIdle") ~= wantAwake then
-		hs.caffeinate.set("systemIdle", wantAwake, false) -- false: AC only
-	end
+  local wantAwake = anyPaneThinking()
+  if hs.caffeinate.get "systemIdle" ~= wantAwake then
+    hs.caffeinate.set("systemIdle", wantAwake, false) -- false: AC only
+  end
 end
 
 local function notifyForPane(paneId, kind)
-	if not DMUX_WEZ_FIRST then
-		-- One 'wezterm cli list' to label the notification with the pane title;
-		-- preserve the legacy click-to-pane behavior until the canary is on.
-		run(WEZTERM_BIN, { "cli", "list", "--format", "json" }, function(exitCode, stdout)
-			local title = "WezTerm"
-			local body = NOTIFY_TYPES[kind] .. " in pane " .. paneId
-			if exitCode == 0 then
-				local ok, panes = pcall(hs.json.decode, stdout)
-				if ok and type(panes) == "table" then
-					for _, pane in ipairs(panes) do
-						if tostring(pane.pane_id) == paneId then
-							if pane.title and #pane.title > 0 then
-								title = pane.title
-							end
-							local tab = pane.tab_title
-							body = NOTIFY_TYPES[kind] .. (tab and #tab > 0 and (" - " .. tab) or "")
-							break
-						end
-					end
-				end
-			end
+  if not DMUX_WEZ_FIRST then
+    -- One 'wezterm cli list' to label the notification with the pane title;
+    -- preserve the legacy click-to-pane behavior until the canary is on.
+    run(WEZTERM_BIN, { "cli", "list", "--format", "json" }, function(exitCode, stdout)
+      local title = "WezTerm"
+      local body = NOTIFY_TYPES[kind] .. " in pane " .. paneId
+      if exitCode == 0 then
+        local ok, panes = pcall(hs.json.decode, stdout)
+        if ok and type(panes) == "table" then
+          for _, pane in ipairs(panes) do
+            if tostring(pane.pane_id) == paneId then
+              if pane.title and #pane.title > 0 then
+                title = pane.title
+              end
+              local tab = pane.tab_title
+              body = NOTIFY_TYPES[kind] .. (tab and #tab > 0 and (" - " .. tab) or "")
+              break
+            end
+          end
+        end
+      end
 
-			if SentNotifications[paneId] then
-				SentNotifications[paneId]:withdraw()
-			end
-			SentNotifications[paneId] = hs.notify
-				.new(function()
-					run(WEZTERM_BIN, { "cli", "activate-pane", "--pane-id", paneId }, function()
-						hs.application.launchOrFocusByBundleID(WEZTERM_BUNDLE)
-					end)
-				end, {
-					title = title,
-					informativeText = body,
-					soundName = kind == "notify" and hs.notify.defaultNotificationSound or nil,
-					withdrawAfter = 0,
-				})
-				:send()
-		end)
-		return
-	end
-	-- A GUI-local pane id is not portable across imported domains and may be
-	-- stale. Clicking safely summons the existing dmux presentation; exact
-	-- logical focus remains owned by signed bridge actions inside the GUI.
-	if SentNotifications[paneId] then
-		SentNotifications[paneId]:withdraw()
-	end
-	SentNotifications[paneId] = hs.notify
-		.new(summonWezTerm, {
-			title = "WezTerm",
-			informativeText = NOTIFY_TYPES[kind] .. " in pane " .. paneId,
-			soundName = kind == "notify" and hs.notify.defaultNotificationSound or nil,
-			withdrawAfter = 0,
-		})
-		:send()
+      if SentNotifications[paneId] then
+        SentNotifications[paneId]:withdraw()
+      end
+      SentNotifications[paneId] = hs.notify
+        .new(function()
+          run(WEZTERM_BIN, { "cli", "activate-pane", "--pane-id", paneId }, function()
+            hs.application.launchOrFocusByBundleID(WEZTERM_BUNDLE)
+          end)
+        end, {
+          title = title,
+          informativeText = body,
+          soundName = kind == "notify" and hs.notify.defaultNotificationSound or nil,
+          withdrawAfter = 0,
+        })
+        :send()
+    end)
+    return
+  end
+  -- A GUI-local pane id is not portable across imported domains and may be
+  -- stale. Clicking safely summons the existing dmux presentation; exact
+  -- logical focus remains owned by signed bridge actions inside the GUI.
+  if SentNotifications[paneId] then
+    SentNotifications[paneId]:withdraw()
+  end
+  SentNotifications[paneId] = hs.notify
+    .new(summonWezTerm, {
+      title = "WezTerm",
+      informativeText = NOTIFY_TYPES[kind] .. " in pane " .. paneId,
+      soundName = kind == "notify" and hs.notify.defaultNotificationSound or nil,
+      withdrawAfter = 0,
+    })
+    :send()
 end
 
 AttentionWatcher = hs.pathwatcher.new(ATTENTION_DIR, function(paths)
-	for _, path in ipairs(paths) do
-		local paneId = path:match("([^/]+)$")
-		local kind = readMarker(path) -- nil when the marker was just removed
-		if paneId and kind and NOTIFY_TYPES[kind] then
-			local frontmost = hs.application.frontmostApplication()
-			local wezFocused = frontmost and frontmost:bundleID() == WEZTERM_BUNDLE
-			local seen = lastSeen[paneId]
-			local dup = seen and seen.type == kind and (hs.timer.secondsSinceEpoch() - seen.at) < 5
-			if not wezFocused and not dup then
-				lastSeen[paneId] = { type = kind, at = hs.timer.secondsSinceEpoch() }
-				notifyForPane(paneId, kind)
-			end
-		end
-	end
-	updateCaffeinate()
+  for _, path in ipairs(paths) do
+    local paneId = path:match "([^/]+)$"
+    local kind = readMarker(path) -- nil when the marker was just removed
+    if paneId and kind and NOTIFY_TYPES[kind] then
+      local frontmost = hs.application.frontmostApplication()
+      local wezFocused = frontmost and frontmost:bundleID() == WEZTERM_BUNDLE
+      local seen = lastSeen[paneId]
+      local dup = seen and seen.type == kind and (hs.timer.secondsSinceEpoch() - seen.at) < 5
+      if not wezFocused and not dup then
+        lastSeen[paneId] = { type = kind, at = hs.timer.secondsSinceEpoch() }
+        notifyForPane(paneId, kind)
+      end
+    end
+  end
+  updateCaffeinate()
 end)
 AttentionWatcher:start()
 
@@ -286,13 +286,13 @@ updateCaffeinate()
 ---------------------------------------------------------------------------
 
 ConfigWatcher = hs.pathwatcher.new(HOME .. "/dotfiles/macos/hammerspoon/", function(paths)
-	for _, path in ipairs(paths) do
-		if path:sub(-4) == ".lua" then
-			hs.reload()
-			return
-		end
-	end
+  for _, path in ipairs(paths) do
+    if path:sub(-4) == ".lua" then
+      hs.reload()
+      return
+    end
+  end
 end)
 ConfigWatcher:start()
 
-hs.alert.show("Hammerspoon ready")
+hs.alert.show "Hammerspoon ready"

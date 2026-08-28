@@ -1,12 +1,12 @@
 [package]
-name = "workstation"
-version = "0.1.0"
-description = "Shared command-line plumbing for the workstation tools"
+name              = "workstation"
+version           = "0.1.0"
+description       = "Shared command-line plumbing for the workstation tools"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
+clap.workspace          = true
 clap_complete.workspace = true
 
 # Only for the terminal-size ioctl; there is no other way to ask.

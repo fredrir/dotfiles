@@ -15,18 +15,12 @@ fi
 if staged config/packages.dotfile PACKAGES.md scripts/python/src/tools/dotfile \
 	environment shared linux/common linux/arch linux/ubuntu linux/kde \
 	linux/hyprland linux/server macos; then
-	"$bin/dotfile" packages
+	"$bin/dotfile" packages >/dev/null
 	git add "$root/config/packages.dotfile" "$root/PACKAGES.md"
 fi
 
 if staged benchmarks scripts/python/src/tools/utils/sysinfo/bench; then
 	if "$bin/sysinfo" bench document >/dev/null; then
-		# -A over the whole directory, for two reasons. BENCHMARKS.md is generated
-		# from every run file on disk regardless of staging, so staging the document
-		# without its inputs commits a table describing runs that are not in the
-		# repository. And `document` deletes the file when no host directory
-		# remains, which a plain `git add <path>` cannot stage, leaving the tree
-		# permanently dirty.
 		git add -A -- "$root/benchmarks"
 	else
 		echo "pre-commit: benchmark document generation failed (continuing)" >&2
@@ -34,7 +28,7 @@ if staged benchmarks scripts/python/src/tools/utils/sysinfo/bench; then
 fi
 
 if staged docs/cli scripts/python/src scripts/rust; then
-	if "$bin/dotfile" docs; then
+	if "$bin/dotfile" docs >/dev/null; then
 		git add -A -- "$root/docs/cli"
 	else
 		echo "pre-commit: cli documentation generation failed (continuing)" >&2
@@ -42,14 +36,14 @@ if staged docs/cli scripts/python/src scripts/rust; then
 fi
 
 if staged config/keys.dotfile; then
-	"$bin/dotfile" secret sync
+	"$bin/dotfile" secret sync >/dev/null
 	if [ -e "$root/.sops.yaml" ]; then
 		git add "$root/.sops.yaml"
 	fi
 fi
 
 if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
-	if "$bin/dotfile" theme apply; then
+	if "$bin/dotfile" theme apply >/dev/null; then
 		formatter="$(command -v dotfile-format || true)"
 		while IFS= read -r path; do
 			if [ -e "$root/$path" ]; then
@@ -65,11 +59,11 @@ if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
 fi
 
 if staged linux/arch/fastfetch/config.jsonc; then
-	if "$bin/update-readme-fastfetch"; then
+	if "$bin/update-readme-fastfetch" >/dev/null; then
 		git add "$root/README.md"
 	else
 		echo "pre-commit: fastfetch README update failed (continuing)" >&2
 	fi
 fi
 
-"$bin/dotfile" secret scan --staged
+"$bin/dotfile" secret scan --staged >/dev/null

@@ -1,14 +1,21 @@
 [package]
-name = "dotfmt"
-version = "0.1.0"
-description = "Format .conf, .config and .dotfile files"
+name              = "dotfmt"
+version           = "0.1.0"
+description       = "Format .conf, .config and .dotfile files"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
-rayon.workspace = true
+clap.workspace        = true
+rayon.workspace       = true
 workstation.workspace = true
+
+# git's own pattern parsing and matching, so an include/exclude pattern behaves
+# the way the same line behaves in a .gitignore rather than approximately.
+# `bstr` is what gix's matching functions take, with the same features gix-glob
+# itself asks for so nothing new is pulled in.
+bstr               = { version = "1", default-features = false, features = ["std"] }
+gix-glob.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -1,14 +1,14 @@
 [package]
-name = "size"
-version = "0.1.0"
-description = "Sizes and line counts for files and directories"
+name              = "size"
+version           = "0.1.0"
+description       = "Sizes and line counts for files and directories"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
-memchr = "2"
-rayon.workspace = true
+clap.workspace        = true
+memchr                = "2"
+rayon.workspace       = true
 workstation.workspace = true
 
 [target.'cfg(target_vendor = "apple")'.dependencies]

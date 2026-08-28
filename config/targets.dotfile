@@ -23,20 +23,18 @@ shared/ssh = ~/.ssh
 shared/obsidian/plugins/agent-transcripts = ~/Documents/main/.obsidian/plugins/agent-transcripts
 macos:shared/vscode/settings.json = ~/Library/Application Support/Code/User/settings.json
 macos:shared/vscode/keybindings.json = ~/Library/Application Support/Code/User/keybindings.json
-macos:shared/vscode/snippets = ~/Library/Application Support/Code/User/snippets
 macos/vscode = ~/Library/Application Support/Code/User
 linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
 linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
-linux:shared/vscode/snippets = ~/.config/Code/User/snippets
 linux/arch/vscode = ~/.config/Code/User
 
 shared/tools/biome.global.json = ~/biome.json
 shared/tools/.editorconfig = ~/.editorconfig
 shared/tools/.sqlfluff = ~/.sqlfluff
-shared/tools/.yamllint.yaml = ~/.yamllint.yaml
+shared/tools/.yamllint.yaml = ~/.config/yamllint/config
 
 shared/tools/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
 shared/tools/stylua.toml = ~/.config/stylua/stylua.toml
 shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
 shared/tools/.taplo.toml = ~/.config/taplo/taplo.toml
-shared/tools/dotfile.dotfile = ~/.config/dotfmt/dotfile.dotfile
+shared/tools/dotfmt.dotfile = ~/.config/dotfmt/dotfmt.dotfile

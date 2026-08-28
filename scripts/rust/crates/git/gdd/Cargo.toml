@@ -1,14 +1,14 @@
 [package]
-name = "git-discard"
-version = "0.1.0"
-description = "Discard every change in the working tree"
+name              = "git-discard"
+version           = "0.1.0"
+description       = "Discard every change in the working tree"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
-gitkit.workspace = true
-gix.workspace = true
+clap.workspace        = true
+gitkit.workspace      = true
+gix.workspace         = true
 workstation.workspace = true
 
 [dev-dependencies]

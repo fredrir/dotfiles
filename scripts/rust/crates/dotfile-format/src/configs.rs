@@ -7,6 +7,8 @@
 //! settings, `--sync` is how a project that already agreed to them keeps up,
 //! and neither should ever be the other by accident.
 
+use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -20,8 +22,8 @@ use crate::lang::{LANGS, Lang};
 /// held when this binary was built.
 pub const EMBEDDED: [(&str, &str); 9] = [
     (
-        "dotfile.dotfile",
-        include_str!("../../../../../shared/tools/dotfile.dotfile"),
+        "dotfmt.dotfile",
+        include_str!("../../../../../shared/tools/dotfmt.dotfile"),
     ),
     (
         "ruff.toml",
@@ -246,4 +248,188 @@ pub fn sync<'a>(
 fn place(source: &Source, placement: &Placement) -> Result<(), String> {
     let text = read(source, placement.from)?;
     fs::write(&placement.to, text).map_err(|error| format!("{}: {error}", placement.to.display()))
+}
+
+// ------------------------------------------------- pointing a tool at a config
+
+/// Which of a row's files a set of arguments applies to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Scope {
+    /// All of them. The program resolves once, from the directory it is run
+    /// in, so a config deeper in the tree is one it would never have found and
+    /// naming this one takes nothing away.
+    Row,
+    /// Only the files with no config of their own between them and the root.
+    ///
+    /// The program resolves per file, and a config named on the command line
+    /// outranks a nearer one — measured: `stylua --config-path` overrides a
+    /// `.stylua.toml` one directory down, and `biome --config-path` turns off
+    /// the nested resolution it would otherwise do. So the files that have
+    /// their own are run in a second invocation without the flag, and
+    /// `shared/nvim/.stylua.toml` and `shared/wezterm/.stylua.toml` keep
+    /// winning inside their subtrees.
+    Unclaimed(&'static [&'static str]),
+}
+
+/// A program that has to be told where this repository's config is, and the
+/// names it would look for on its own.
+///
+/// Keyed by program rather than by language, which is not a detail: the YAML
+/// row runs two of them, and `yamlfmt -c` is not a flag — it exits printing
+/// the usage text, exactly the way `yamlfmt -w` did. A config belongs to a
+/// tool, not to a language.
+///
+/// Every one of these searches for a config and would find nothing of this
+/// repository's, because the configs live under `shared/tools/` rather than at
+/// the root. Two of them — taplo and stylua — really did format this whole
+/// tree at their own defaults and report it clean. The other two are saved on
+/// this machine only by a symlink in `$HOME` that a fresh checkout, a CI
+/// runner, or a target outside `$HOME` would not have; naming the config is
+/// what stops the settings depending on where the run happens to stand.
+pub struct Injection {
+    pub program: &'static str,
+    /// The flag that names a config outright.
+    pub flag: &'static str,
+    /// Its name in `shared/tools/`.
+    pub file: &'static str,
+    /// What the program finds by itself. A target that has one keeps it.
+    pub own: &'static [&'static str],
+    pub scope: Scope,
+}
+
+/// The names each of them looks for, written once so the guard and the scope
+/// cannot drift apart.
+const OWN_TAPLO: &[&str] = &[".taplo.toml", "taplo.toml"];
+const OWN_BIOME: &[&str] = &["biome.json", "biome.jsonc"];
+const OWN_STYLUA: &[&str] = &[".stylua.toml", "stylua.toml"];
+const OWN_YAMLLINT: &[&str] = &[".yamllint", ".yamllint.yaml", ".yamllint.yml"];
+
+pub const INJECTED: [Injection; 4] = [
+    Injection {
+        program: "taplo",
+        flag: "--config",
+        file: ".taplo.toml",
+        own: OWN_TAPLO,
+        // Resolved once from the working directory: a `.taplo.toml` in a
+        // subdirectory is one taplo would never have read.
+        scope: Scope::Row,
+    },
+    Injection {
+        program: "biome",
+        // biome takes either a directory or a file here, but a directory is
+        // searched for `biome.json`/`biome.jsonc` only — handed
+        // `shared/tools/`, biome exits 1 with "couldn't find a configuration
+        // in the directory", because the copy there is `biome.global.json`.
+        // Naming the file itself is what makes the repository's own copy
+        // usable without renaming it.
+        flag: "--config-path",
+        file: "biome.global.json",
+        own: OWN_BIOME,
+        scope: Scope::Unclaimed(OWN_BIOME),
+    },
+    Injection {
+        program: "stylua",
+        flag: "--config-path",
+        file: "stylua.toml",
+        own: OWN_STYLUA,
+        scope: Scope::Unclaimed(OWN_STYLUA),
+    },
+    Injection {
+        program: "yamllint",
+        // Measured on 1.38: yamllint does search upward, so on a machine
+        // where `~/.yamllint.yaml` is linked it already lints this repository
+        // at the shipped settings and nothing is injected. It is here for the
+        // machine where that link is absent — a fresh checkout, CI, or any
+        // target outside `$HOME` — where it would otherwise fall back to its
+        // own defaults: line length 80 as an error, against the 100 as a
+        // warning the shipped config asks for.
+        flag: "-c",
+        file: ".yamllint.yaml",
+        own: OWN_YAMLLINT,
+        scope: Scope::Row,
+    },
+];
+
+/// One program's arguments, and which of a row's files they are for.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Injected {
+    pub program: &'static str,
+    pub args: Vec<OsString>,
+    pub scope: Scope,
+}
+
+/// The extra arguments each program needs to run with this repository's
+/// settings, for the programs that would otherwise use their own defaults.
+///
+/// Nothing is injected when the target already has a config the program would
+/// find for itself: a project's own settings always win. Nothing is injected
+/// either when no checkout was found, because the copies compiled into this
+/// binary have no path to name.
+pub fn injections(source: &Source, root: &Path) -> Vec<Injected> {
+    let Source::Repo(repo) = source else {
+        return Vec::new();
+    };
+    INJECTED
+        .iter()
+        .filter(|injection| !brings_its_own(root, injection.own))
+        .map(|injection| {
+            let config = repo.join(TOOLS).join(injection.file);
+            Injected {
+                program: injection.program,
+                args: vec![OsString::from(injection.flag), config.into_os_string()],
+                scope: injection.scope,
+            }
+        })
+        .collect()
+}
+
+/// The same upward search the programs themselves do from the directory every
+/// child is run in, so the answer to "would it find one?" is theirs and not a
+/// second opinion.
+fn brings_its_own(root: &Path, names: &[&str]) -> bool {
+    let mut at = Some(root);
+    while let Some(directory) = at {
+        if names.iter().any(|name| directory.join(name).is_file()) {
+            return true;
+        }
+        at = directory.parent();
+    }
+    false
+}
+
+/// Split a row's files by whether the program would find a config of its own
+/// above them, for the programs that resolve per file.
+///
+/// Only the directories below the root are looked at. Root and above have
+/// already been searched — finding nothing there is why there is anything to
+/// inject — so a second walk up to the filesystem root would ask a question
+/// that has been answered.
+///
+/// Memoised per directory: walking up from each of forty `.lua` files under
+/// `shared/nvim/lua/plugins/` reads the same chain forty times otherwise.
+pub fn partition(root: &Path, own: &[&str], files: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut known: HashMap<PathBuf, bool> = HashMap::new();
+    let mut theirs = Vec::new();
+    let mut ours = Vec::new();
+    for file in files {
+        let holder = file.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+        let has = *known
+            .entry(holder)
+            .or_insert_with_key(|holder| below(root, holder, own));
+        if has { &mut theirs } else { &mut ours }.push(file.clone());
+    }
+    (theirs, ours)
+}
+
+fn below(root: &Path, holder: &Path, own: &[&str]) -> bool {
+    let mut at = root.join(holder);
+    while at.as_path() != root {
+        if own.iter().any(|name| at.join(name).is_file()) {
+            return true;
+        }
+        if !at.pop() {
+            return false;
+        }
+    }
+    false
 }

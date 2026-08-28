@@ -4,13 +4,11 @@ inline_height = 40
 
 style = "compact" # auto | full | compact
 
-
 history_filter = [
   "^ls",
   "^cd ",
   "--password", # exclude anything with a password flag
 ]
-
 
 ## Base directory for Atuin data files (databases, keys, session, etc.)
 ## All data file paths default to being relative to this directory.
@@ -87,10 +85,8 @@ history_filter = [
 ## set search.filters to include "workspace" before other filter modes.
 # workspaces = false
 
-
 ## the maximum number of lines the interface should take up
 ## set it to 0 to always go full screen
-
 
 ## the maximum number of lines the interface should take up
 ## when atuin is invoked from a shell up-key binding
@@ -132,7 +128,6 @@ show_numeric_shortcuts = false
 ## before saving them to history.
 ## Escaped trailing spaces (for example `printf foo\\ `) are preserved.
 # strip_trailing_whitespace = true
-
 
 ## prevent commands run with cwd matching any of these regexes from being written
 ## to history. Note that these regular expressions are unanchored, i.e. if they don't
@@ -321,7 +316,6 @@ exit_past_line_start = false
 ## If you provide a custom theme file, it should be  called "NAME.toml" and the theme below
 ## should be the stem, i.e. `theme = "NAME"` for your chosen NAME.
 
-
 name = "marine" # TODO replace with dotfiles theme
 
 ## Whether the theme manager should output normal or extra information to help fix themes.
@@ -335,15 +329,7 @@ name = "marine" # TODO replace with dotfiles theme
 
 workspaces = true
 
-
-filters = [
-  "global",
-  "host",
-  "session",
-  "workspace",
-  "directory",
-  "session-preload",
-]
+filters = ["global", "host", "session", "workspace", "directory", "session-preload"]
 
 ## Filter interactive search results by the shell used to run the command:
 ##
@@ -394,7 +380,6 @@ filters = [
 columns = ["time", "host", "command"]
 
 syntax_highlight = true
-
 
 ## Examples:
 ##

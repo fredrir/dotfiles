@@ -3,7 +3,16 @@
 //! One orchestrator over ten providers. The tree is walked once, every file
 //! is sorted into the row of the provider table that owns its extension, and
 //! each row's programs are handed the list. `dotfmt` sits in that table next
-//! to stylua and shfmt: a subprocess with a file list, not a special case.
+//! to stylua and shfmt: a subprocess with a file list, not a special case —
+//! except that its row is built from its own answer to `--owns` rather than
+//! from an extension list here, because its selection rules are per directory
+//! and only it reads them.
+//!
+//! Two of the providers are handed this repository's config outright. taplo
+//! and biome both search upward from the directory they are run in and would
+//! find nothing here, so both of them formatted this tree at their own
+//! defaults and called it clean. A target that has a config of its own keeps
+//! it.
 //!
 //! `--check` runs the same formatters in verify mode and the linters as well,
 //! and writes nothing. It never runs clippy — that is a different question
@@ -19,15 +28,22 @@
 //! Four of the ten providers are missing on the machine this was written on,
 //! and a run there is still a success.
 //!
+//! What a run says is a count, and one line for each provider that has
+//! something to report with the files it fell over on under it. The table,
+//! the commands and everything the tools said are behind `--verbose`.
+//!
 //! stdout carries data — the completion script, the command dump, the help —
 //! and the prompts. Everything a person reads is on stderr.
 
 mod configs;
 mod lang;
+mod owns;
 mod render;
 mod run;
 mod walk;
 
+use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,7 +52,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, ValueHint};
 use workstation::{Completions, Style};
 
-use lang::Mode;
+use lang::{Lang, Mode};
 
 const PROGRAM: &str = "dotfile-format";
 
@@ -49,9 +65,13 @@ const PROGRAM: &str = "dotfile-format";
 Every file under the target is sorted by extension into the row of the \
 provider table that owns it — ruff for Python, biome for the web languages, \
 stylua for Lua, cargo fmt for Rust, taplo for TOML, yamlfmt for YAML, \
-sqlfluff for SQL, shfmt for shell, goimports and gofmt for Go, and dotfmt \
-for .conf, .config and .dotfile. The rows run in parallel; the programs \
-within one row run in order.
+sqlfluff for SQL, shfmt for shell, goimports and gofmt for Go. dotfmt is \
+asked which files it owns rather than guessed at. The rows run in parallel; \
+the programs within one row run in order.
+
+taplo and biome are pointed at this repository\'s configuration on the \
+command line, because neither would find it otherwise. A target that has a \
+config of its own for one of them keeps it.
 
 --check runs the same formatters in verify mode and the linters as well, \
 writes nothing, and exits 1 if there is anything to report. It does not run \
@@ -60,6 +80,10 @@ clippy.
 --add and --sync copy this repository's tool configuration into another \
 project: --add asks about each file, --sync replaces only the ones already \
 there.
+
+A run reports a count, and one line for each provider that has something to \
+say with the files it fell over on under it. --verbose adds the per-language \
+table, the commands as they were run, and everything the tools said.
 
 A tool that is not installed is named in the report and is never a failure. \
 Files git ignores are left out, .git and the usual build directories are not \
@@ -145,25 +169,77 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
     }
 
     let mode = if cli.check { Mode::Check } else { Mode::Write };
-    let work = run::sort(found.files);
-    if work.is_empty() {
+
+    // Two of the providers search upward from the directory they are run in
+    // and would find nothing, so they are handed this repository's config
+    // outright. A target with one of its own keeps it.
+    let source = configs::source()?;
+    let injected = configs::injections(&source, &root);
+
+    // dotfmt's row is dotfmt's answer, not a guess from an extension list —
+    // when there is an answer to be had. When there is not, the three
+    // extensions this crate has always used are the row, because an empty one
+    // would quietly stop formatting every `.conf` in the tree while the run
+    // reported success.
+    let (owned, unasked) = match owns::ask(&root, &found.files) {
+        owns::Owned::Claimed(owned) => (owned, None),
+        // Not installed is not a failure, and the row reads like every other
+        // provider's: the files it would have had, and the tool that was not
+        // there to take them.
+        owns::Owned::Missing => (run::by_extension(&found.files), None),
+        // Installed and unable to answer is a failure, because a dotfmt too
+        // old to know `--owns` still formats — so the row would otherwise run
+        // to completion under the wrong selection rule and say nothing.
+        owns::Owned::Failed(said) => (run::by_extension(&found.files), Some(said)),
+    };
+    let claimed: HashSet<&OsStr> = owned.iter().map(|path| path.as_os_str()).collect();
+    let rest: Vec<PathBuf> = found
+        .files
+        .iter()
+        .filter(|path| !claimed.contains(path.as_os_str()))
+        .cloned()
+        .collect();
+    let mut work = run::with_dotfmt(run::sort(rest), owned);
+
+    // No row is handed a file that is encrypted at rest, whatever its name is
+    // and whichever provider would have taken it. Reformatting one is a diff
+    // the size of the file on every run at best, and at worst it breaks the
+    // MAC that guards it — and a secrets file is the last thing that should be
+    // rewritten by a tool nobody asked to look at it.
+    let sealed = walk::drop_encrypted(&root, &mut work);
+    if !cli.quiet && !sealed.is_empty() {
+        // Leaving one alone is the tool working as intended, so this is a
+        // `--verbose` line like a lockfile — unless it is the whole reason
+        // there is nothing to do, when a silent no-op would be a mystery.
+        note(&sealed, cli.verbose || work.is_empty());
+    }
+
+    if work.is_empty() && unasked.is_none() {
         if !cli.quiet {
             eprintln!("{PROGRAM}: nothing to format in {}", render::shorten(&root));
         }
         return Ok(ExitCode::SUCCESS);
     }
 
-    let done = run::run(&root, work, mode, cli.verbose);
+    let plan = run::Plan {
+        mode,
+        verbose: cli.verbose,
+        injected: &injected,
+    };
+    let mut done = run::run(&root, work, &plan);
+    if let Some(said) = unasked {
+        match done.iter_mut().find(|ran| ran.lang == Lang::Dotfmt) {
+            Some(ran) => ran.unasked(&said),
+            // Nothing in the tree looked like dotfmt's even by extension, so
+            // there is no row to mark and the failure is the row.
+            None => {
+                done.push(run::Ran::broken(Lang::Dotfmt, said));
+                run::order(&mut done);
+            }
+        }
+    }
     if !cli.quiet {
-        let what = if cli.check { "check" } else { "" };
-        for line in render::heading(PROGRAM, &root, what, &style) {
-            eprintln!("{line}");
-        }
-        for line in render::report(&done, mode, &style) {
-            eprintln!("{line}");
-        }
-        eprintln!();
-        eprintln!("  {}", render::tally(&done, mode));
+        report(&done, mode, cli.verbose, &root, cli.check, &style);
     }
 
     // Drift is only a finding in --check; a write run that reformatted half
@@ -176,6 +252,44 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
     } else {
         ExitCode::SUCCESS
     })
+}
+
+/// The encrypted files this run passed over.
+fn note(sealed: &[PathBuf], say: bool) {
+    if !say {
+        return;
+    }
+    let names: Vec<String> = sealed
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
+    eprintln!(
+        "{PROGRAM}: {} encrypted {} left alone: {}",
+        names.len(),
+        if names.len() == 1 { "file" } else { "files" },
+        names.join(", ")
+    );
+}
+
+/// The whole of what a run says, which by default is a count and nothing
+/// else. `--verbose` is where the table, the commands and the tools' own
+/// words live.
+fn report(done: &[run::Ran], mode: Mode, verbose: bool, root: &Path, check: bool, style: &Style) {
+    if !verbose {
+        for line in render::summary(done, mode, style) {
+            eprintln!("{line}");
+        }
+        return;
+    }
+    let what = if check { "check" } else { "" };
+    for line in render::heading(PROGRAM, root, what, style) {
+        eprintln!("{line}");
+    }
+    for line in render::report(done, mode, style) {
+        eprintln!("{line}");
+    }
+    eprintln!();
+    eprintln!("  {}", render::tally(done, mode));
 }
 
 /// `--add` and `--sync`: this repository's tool configuration, put into

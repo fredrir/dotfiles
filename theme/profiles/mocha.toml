@@ -1,5 +1,5 @@
-name = "Catppuccin Mocha"
-dark = true
+name  = "Catppuccin Mocha"
+dark  = true
 icons = "Breeze Chameleon Dark"
 
 [nvim]
@@ -7,23 +7,23 @@ flavour = "mocha"
 
 [palette]
 flamingo = "#f2cdcd"
-pink = "#f5c2e7"
-mauve = "#cba6f7"
-red = "#f38ba8"      # sudo
-peach = "#fab387"
-yellow = "#f9e2af"
-orange = "#fdbc4b"   # (.venv), .toml,md...
-green = "#7cff6b"
-teal = "#1abc9c"     # dir
-blue = "#3daee9"     # system
+pink     = "#f5c2e7"
+mauve    = "#cba6f7"
+red      = "#f38ba8" # sudo
+peach    = "#fab387"
+yellow   = "#f9e2af"
+orange   = "#fdbc4b" # (.venv), .toml,md...
+green    = "#7cff6b"
+teal     = "#1abc9c" # dir
+blue     = "#3daee9" # system
 lavender = "#b4befe" # kde accent
-text = "#cdd6f4"
-subtext = "#bac2de"
-overlay = "#6c7086"  # separator
+text     = "#cdd6f4"
+subtext  = "#bac2de"
+overlay  = "#6c7086" # separator
 overlay2 = "#9399b2" # kde inactive / disabled text
 surface2 = "#585b70"
 surface1 = "#45475a"
 surface0 = "#313244"
-base = "#1e1e2e"
-mantle = "#181825"
-crust = "#11111b"
+base     = "#1e1e2e"
+mantle   = "#181825"
+crust    = "#11111b"

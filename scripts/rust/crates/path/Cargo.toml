@@ -1,12 +1,12 @@
 [package]
-name = "path"
-version = "0.1.0"
-description = "Repository-relative or home-relative path of a target"
+name              = "path"
+version           = "0.1.0"
+description       = "Repository-relative or home-relative path of a target"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
+clap.workspace        = true
 workstation.workspace = true
 
 [dev-dependencies]

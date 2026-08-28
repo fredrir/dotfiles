@@ -10,7 +10,7 @@ asks the tool at the moment the cursor is on that argument, which keeps the
 script static and still correct after a profile or a host is added.
 """
 
-from tools.surface import spec
+from tools.surface import pages, prose, spec
 
 SHELLS = ("zsh",)
 
@@ -54,20 +54,29 @@ def _name(command):
 def _function(command, program, helpers):
     specs = _option_specs(command, program, helpers) + _argument_specs(command, program, helpers)
     children = command.visible()
+    # Only the root dispatches: `dotfile secret <name>` never becomes an exec.
+    dispatched = pages.dispatched(program) if command.path == (program,) else ()
     body = [f"{_name(command)}() {{"]
-    if children:
+    if children or dispatched:
         body.append("    local context state state_descr line ret=1")
         body.append("    typeset -A opt_args")
         specs = specs + ["'1: :->command'", "'*:: :->argument'"]
         body.append(_arguments("-s -S -C", specs))
         body.append("    case $state in")
         body.append("        command)")
-        body.append(_commands_block(command))
+        body.append(_commands_block(command, dispatched))
         body.append("            ;;")
         body.append("        argument)")
         body.append("            case $line[1] in")
         for child in children:
             body.append(f"                {child.name}) {_name(child)} && ret=0 ;;")
+        for name, binary in dispatched:
+            # `*:: :->argument` has already re-shifted words and CURRENT, which
+            # is what the tool's own function expects; the guard keeps the
+            # branch inert where that tool is not installed.
+            body.append(
+                f"                {name}) (( $+functions[_{binary}] )) && _{binary} && ret=0 ;;"
+            )
         body.append("            esac")
         body.append("            ;;")
         body.append("    esac")
@@ -89,10 +98,13 @@ def _arguments(flags, specs):
     return f"    _arguments {flags} \\\n        {joined} && ret=0"
 
 
-def _commands_block(command):
+def _commands_block(command, dispatched=()):
     items = ["            local -a commands", "            commands=("]
     for child in command.visible():
         items.append(f"                {_quote(child.name + ':' + _describe_text(child.help))}")
+    for name, binary in dispatched:
+        described = _describe_text(prose.COMMANDS.get(binary, ""))
+        items.append(f"                {_quote(name + ':' + described)}")
     items.append("            )")
     label = _quote(f"{command.label} command")
     items.append(f"            _describe -t commands {label} commands && ret=0")

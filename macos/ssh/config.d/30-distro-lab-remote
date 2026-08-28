@@ -10,4 +10,3 @@ Host dlab-*
     ControlMaster auto
     ControlPath ~/.ssh/cm-%r@%h:%p
     ControlPersist 1m
-

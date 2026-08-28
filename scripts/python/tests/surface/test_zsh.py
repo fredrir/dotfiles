@@ -21,6 +21,15 @@ def test_subcommands_are_offered_with_their_help_text():
     assert "_dotfile__secret__enroll" in SCRIPT
 
 
+def test_a_dispatched_subcommand_is_offered_and_delegated():
+    assert "'format:Formats a tree by handing each language to the tool that owns it.'" in SCRIPT
+    assert "format) (( $+functions[_dotfile-format] )) && _dotfile-format && ret=0 ;;" in SCRIPT
+
+
+def test_only_the_root_dispatches():
+    assert SCRIPT.count("_dotfile-format") == 2
+
+
 def test_hidden_commands_stay_out_of_the_offer():
     for hidden in ("'link:", "'profiles:", "'__complete:", "'completions:", "'help:"):
         assert hidden not in SCRIPT

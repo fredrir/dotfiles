@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use crate::block;
 use crate::conf::{self, Mode};
 use crate::config::Config;
+use crate::select::Token;
 
 /// Which formatter owns a file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -43,8 +44,13 @@ pub struct Outcome {
     pub mode: Option<Mode>,
 }
 
-/// Which formatter a path belongs to, decided by the only thing that decides
-/// it. `None` is a file dotfmt does not own.
+/// Which formatter a path's extension belongs to. `None` is a name no
+/// extension claims, which under `--stdin` is a body to hand straight back.
+///
+/// This is deliberately not the selection rule. `--stdin` names one file the
+/// caller chose on purpose and there is no tree to filter, so an editor asking
+/// dotfmt to lay out a `.conf` buffer gets one laid out whether or not the
+/// `include` block would have picked that file up during a walk.
 pub fn kind(path: &Path) -> Option<Kind> {
     match path.extension()?.to_str()? {
         "conf" | "config" => Some(Kind::Conf),
@@ -53,12 +59,36 @@ pub fn kind(path: &Path) -> Option<Kind> {
     }
 }
 
-/// Lay out a body, guarded. A file dotfmt does not own comes back untouched,
+/// Which formatter a selected file belongs to.
+///
+/// A name carrying no extension is laid out as a `.conf` file. Those are ssh
+/// configs and the KDE `rc` files, and the `.dotfile` formatter would read an
+/// ssh `SetEnv FOO=bar` as a key and a value and write it back out as
+/// `SetEnv FOO = bar`, which ssh does not accept.
+pub fn formatter(token: Token) -> Kind {
+    match token {
+        Token::Conf | Token::Config | Token::Empty => Kind::Conf,
+        Token::Dotfile => Kind::Block,
+    }
+}
+
+/// Lay out a body, guarded. A file no extension claims comes back untouched,
 /// which is what makes `--stdin` safe to point at anything.
 pub fn format(path: &Path, label: &str, text: &str, config: &Config) -> Result<String, String> {
     let Some(kind) = kind(path) else {
         return Ok(text.to_string());
     };
+    format_as(path, label, text, kind, config)
+}
+
+/// Lay out a body that is already known to belong to `kind`.
+pub fn format_as(
+    path: &Path,
+    label: &str,
+    text: &str,
+    kind: Kind,
+    config: &Config,
+) -> Result<String, String> {
     let formatted = shape(path, label, text, kind, config)?;
     guard(path, label, text, &formatted, kind, config)?;
     Ok(formatted)
@@ -66,11 +96,17 @@ pub fn format(path: &Path, label: &str, text: &str, config: &Config) -> Result<S
 
 /// Format one file in place, or under `--check` only work out whether it
 /// would change.
-pub fn apply(path: &Path, label: &str, config: &Config, write: bool) -> Result<Outcome, String> {
+pub fn apply(
+    path: &Path,
+    label: &str,
+    kind: Kind,
+    config: &Config,
+    write: bool,
+) -> Result<Outcome, String> {
     let raw = fs::read(path).map_err(|error| format!("{label}: {error}"))?;
     let text = String::from_utf8(raw).map_err(|_| format!("{label}: not UTF-8"))?;
-    let formatted = format(path, label, &text, config)?;
-    let mode = (kind(path) == Some(Kind::Conf)).then(|| config.mode_for(&shown(path)));
+    let formatted = format_as(path, label, &text, kind, config)?;
+    let mode = (kind == Kind::Conf).then(|| conf::mode(&shown(path)));
     if formatted == text {
         return Ok(Outcome {
             done: Done::Unchanged,
@@ -94,7 +130,7 @@ fn shape(
     config: &Config,
 ) -> Result<String, String> {
     match kind {
-        Kind::Conf => Ok(conf::format(text, config.mode_for(&shown(path)))),
+        Kind::Conf => Ok(conf::format(text, conf::mode(&shown(path)))),
         Kind::Block => block::format(text, config)
             .map_err(|problem| format!("{label}:{}: {}", problem.line, problem.message)),
     }

@@ -78,7 +78,8 @@ class ScopedOutput:
             self._output.edit(target, transform)
 
 
-def replace_between(text, name, new_lines, indent=""):
+def replace_between(text, name, new_lines, indent=None):
+    """Swap the block between two markers, indented the way the marker is."""
     start = f"theme:{name}"
     end = f"theme:{name}:end"
     lines = text.split("\n")
@@ -86,6 +87,8 @@ def replace_between(text, name, new_lines, indent=""):
     last = next((i for i, line in enumerate(lines) if end in line), None)
     if first is None or last is None or last < first:
         raise SystemExit(f"markers '{start}' / '{end}' not found in the target file")
+    if indent is None:
+        indent = lines[first][: len(lines[first]) - len(lines[first].lstrip())]
     body = [indent + line if line else line for line in new_lines]
     return "\n".join(lines[: first + 1] + body + lines[last:])
 

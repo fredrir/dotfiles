@@ -1,13 +1,13 @@
 [package]
-name = "dotfile-format"
-version = "0.1.0"
-description = "Format a tree with the tool that owns each language"
+name              = "dotfile-format"
+version           = "0.1.0"
+description       = "Format a tree with the tool that owns each language"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
-rayon.workspace = true
+clap.workspace        = true
+rayon.workspace       = true
 workstation.workspace = true
 
 [dev-dependencies]

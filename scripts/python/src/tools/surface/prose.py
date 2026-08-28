@@ -159,6 +159,9 @@ FLAGS = {
     ("dotfmt", "--stdin"): (
         "Formats standard input as the named file and writes the result to standard output."
     ),
+    ("dotfmt", "--owns"): (
+        "Reads NUL-separated paths from standard input and answers with the ones it formats."
+    ),
     ("dotfmt", "--verbose"): "Names every file as it is formatted.",
     ("dotfmt", "--quiet"): "Reports nothing but failures.",
     ("flatten", "--deep"): (

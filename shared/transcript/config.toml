@@ -17,28 +17,23 @@ min_rounds = 1
 nested_groups = ["llunde"]
 
 [aliases]
-"llunde-new/infra" = "llunde-infra"
-"llunde-new/backend" = "llunde-backend"
+"llunde-new/infra"    = "llunde-infra"
+"llunde-new/backend"  = "llunde-backend"
 "llunde-new/frontend" = "llunde-frontend"
 "llunde-new/pyparser" = "llunde-pyparser"
 
 [groups]
-llunde = [
-  "llunde-infra",
-  "llunde-backend",
-  "llunde-frontend",
-  "llunde-pyparser",
-]
-other = ["sndbx"]
-dotfiles = ["dotfiles"]
+llunde     = ["llunde-infra", "llunde-backend", "llunde-frontend", "llunde-pyparser"]
+other      = ["sndbx"]
+dotfiles   = ["dotfiles"]
 distro-lab = ["distro-lab"]
-rif = ["rif"]
-elvfast = ["Elvfast"]
+rif        = ["rif"]
+elvfast    = ["Elvfast"]
 
 [destinations]
-dotfiles = "Dotfiles/_Agents"
+dotfiles   = "Dotfiles/_Agents"
 distro-lab = "Dotfiles/Distro Lab/_Agents"
-ArchTeX = "ArchTeX/_Agents"
-llunde = "llunde/_Agents"
-rif = "rif/_Agents"
-elvfast = "Elvfast/_Agents"
+ArchTeX    = "ArchTeX/_Agents"
+llunde     = "llunde/_Agents"
+rif        = "rif/_Agents"
+elvfast    = "Elvfast/_Agents"

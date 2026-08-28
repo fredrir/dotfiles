@@ -21,6 +21,116 @@ pub fn heading(program: &str, root: &Path, what: &str, style: &Style) -> Vec<Str
     vec![String::new(), line, String::new()]
 }
 
+const NAMED: usize = 5;
+
+const CLIP: usize = 96;
+
+pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
+    let counted: Vec<&Ran> = done
+        .iter()
+        .filter(|ran| ran.ran > 0 || ran.failed)
+        .collect();
+    if counted.is_empty() {
+        return absent(done, style).into_iter().collect();
+    }
+    let reported: Vec<&&Ran> = counted
+        .iter()
+        .filter(|ran| ran.failed || ran.findings)
+        .collect();
+    let name = reported
+        .iter()
+        .map(|ran| ran.lang.name().chars().count())
+        .max()
+        .unwrap_or(0);
+    let count = reported
+        .iter()
+        .map(|ran| ran.files.to_string().len())
+        .max()
+        .unwrap_or(0);
+
+    let mut lines = Vec::new();
+    for ran in &reported {
+        lines.push(format!(
+            "{:name$}  {:>count$} {}  {}",
+            ran.lang.name(),
+            ran.files,
+            files(ran.files),
+            if ran.failed {
+                style.red("failed")
+            } else {
+                style.red("findings")
+            },
+        ));
+        lines.extend(culprits(ran, style));
+    }
+
+    let total: usize = counted.iter().map(|ran| ran.files).sum();
+    let made: usize = counted
+        .iter()
+        .filter(|ran| !ran.failed && !ran.findings)
+        .map(|ran| ran.files)
+        .sum();
+    lines.push(format!(
+        "{made} / {total} {} {}",
+        files(total),
+        match mode {
+            Mode::Write => "formatted",
+            Mode::Check => "clean",
+        }
+    ));
+    lines
+}
+
+/// Which files a provider fell over on, so a failure is actionable without a
+/// second run at a louder setting.
+fn culprits(ran: &Ran, style: &Style) -> Vec<String> {
+    if ran.blamed.is_empty() {
+        // Nothing in the output looked like one of the files this row was
+        // given — a tool that failed before it opened one, or that names them
+        // in some way this does not read. Its first word is more use than
+        // silence.
+        return ran
+            .output
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .map(|line| format!("  {}", style.dim(&clip(line.trim()))))
+            .into_iter()
+            .collect();
+    }
+    let mut lines: Vec<String> = ran
+        .blamed
+        .iter()
+        .take(NAMED)
+        .map(|name| format!("  {name}"))
+        .collect();
+    if ran.blamed.len() > NAMED {
+        lines.push(format!(
+            "  {}",
+            style.dim(&format!("… and {} more", ran.blamed.len() - NAMED))
+        ));
+    }
+    lines
+}
+
+/// Nothing ran, so the tools nobody installed are not a footnote to the run —
+/// they are the run.
+fn absent(done: &[Ran], style: &Style) -> Option<String> {
+    let mut named: Vec<&str> = Vec::new();
+    for program in done.iter().flat_map(|ran| &ran.missing) {
+        if !named.contains(program) {
+            named.push(program);
+        }
+    }
+    (!named.is_empty()).then(|| style.dim(&format!("{} not installed", named.join(", "))))
+}
+
+fn clip(line: &str) -> String {
+    if line.chars().count() <= CLIP {
+        return line.to_string();
+    }
+    format!("{}…", line.chars().take(CLIP - 1).collect::<String>())
+}
+
 /// One row per language, then whatever the tools had to say.
 pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
     let name = done

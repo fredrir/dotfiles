@@ -81,6 +81,13 @@ pub enum Drift {
 /// is still 1, so `Drift::Status` reads the row the same way.
 const QUIET_RUST_LOG: &[(&str, &str)] = &[("RUST_LOG", "warn")];
 
+/// Let biome parse a `.json` file that is really JSONC.
+///
+/// The value is written out because the flag is `--flag=<true|false>` rather
+/// than a bare switch: without it biome reads the first path as the value and
+/// fails before it has looked at a single file.
+const ALLOW_COMMENTS: &str = "--json-parse-allow-comments=true";
+
 /// One program invocation, before the files it is given.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Step {
@@ -194,10 +201,19 @@ impl Lang {
                 on_files("ruff", &["check"]),
             ],
 
-            (Lang::Web, Mode::Write) => vec![on_files("biome", &["format", "--write"])],
-            (Lang::Web, Mode::Check) => {
-                vec![on_files("biome", &["format"]), on_files("biome", &["lint"])]
+            // `.json` in this repository is sometimes JSONC — a leading `//`
+            // in `shared/vscode/keybindings.json` is what editors write there
+            // — and biome refuses to parse one without being told. The flag
+            // takes an explicit value: bare `--json-parse-allow-comments`
+            // swallows the next argument as its value and the run dies on
+            // "provided string was not `true` or `false`".
+            (Lang::Web, Mode::Write) => {
+                vec![on_files("biome", &["format", "--write", ALLOW_COMMENTS])]
             }
+            (Lang::Web, Mode::Check) => vec![
+                on_files("biome", &["format", ALLOW_COMMENTS]),
+                on_files("biome", &["lint", ALLOW_COMMENTS]),
+            ],
 
             (Lang::Lua, Mode::Write) => vec![on_files("stylua", &[])],
             (Lang::Lua, Mode::Check) => vec![on_files("stylua", &["--check"])],
@@ -213,7 +229,10 @@ impl Lang {
                 on_files("taplo", &["lint"]).quiet(QUIET_RUST_LOG),
             ],
 
-            (Lang::Yaml, Mode::Write) => vec![on_files("yamlfmt", &["-w"])],
+            // yamlfmt writes in place with no flag at all. `-w` is not one
+            // of its flags: it exits 2 printing the usage text, which is why
+            // no YAML in this repository had ever been formatted.
+            (Lang::Yaml, Mode::Write) => vec![on_files("yamlfmt", &[])],
             (Lang::Yaml, Mode::Check) => {
                 vec![on_files("yamlfmt", &["-lint"]), on_files("yamllint", &[])]
             }
@@ -246,7 +265,7 @@ impl Lang {
     /// project's own, but `biome.json` is the only name biome reads.
     pub fn config(self) -> Option<(&'static str, &'static str)> {
         match self {
-            Lang::Dotfmt => Some(("dotfile.dotfile", "dotfile.dotfile")),
+            Lang::Dotfmt => Some(("dotfmt.dotfile", "dotfmt.dotfile")),
             Lang::Python => Some(("ruff.toml", "ruff.toml")),
             Lang::Web => Some(("biome.global.json", "biome.json")),
             Lang::Lua => Some(("stylua.toml", "stylua.toml")),
@@ -272,4 +291,86 @@ impl Lang {
             _ => &[],
         }
     }
+}
+
+/// Where a program's configuration comes from.
+///
+/// Four of the twelve look for a config where this repository keeps none —
+/// the configs live under `shared/tools/`, not at the root. taplo and stylua
+/// formatted the whole tree at their own defaults and reported it clean;
+/// biome and yamllint are saved here only by a symlink in `$HOME` that a
+/// fresh checkout would not have. Each was found by hand, one after another,
+/// which is three times too many.
+///
+/// So every program in the table has to say which case it is, and
+/// `every_program_says_where_its_configuration_comes_from` fails a row that
+/// has not. A fifth one is a red test rather than a silent wrong-settings run.
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Configured {
+    /// The run names the config on the command line, because the program
+    /// would find nothing where it looks. Must be in `configs::INJECTED`.
+    Named,
+    /// Left to the program, with the reason that is safe.
+    Found(&'static str),
+    /// Nothing here configures it.
+    Nothing,
+    /// A gap that is known, is not closed here, and says why.
+    Gap(&'static str),
+}
+
+/// Every program the table can run, once each, in the order the rows give.
+#[cfg(test)]
+pub fn programs() -> Vec<&'static str> {
+    let mut named = Vec::new();
+    for lang in LANGS {
+        for mode in [Mode::Write, Mode::Check] {
+            for step in lang.steps(mode) {
+                if !named.contains(&step.program) {
+                    named.push(step.program);
+                }
+            }
+        }
+    }
+    named
+}
+
+/// What settles this program's configuration, and why that is the right
+/// answer for it.
+///
+/// `None` for a program that has not been asked the question. That is the
+/// whole mechanism: a new row whose author did not think about where its
+/// config comes from fails the test rather than quietly running at defaults.
+#[cfg(test)]
+pub fn configured(program: &str) -> Option<Configured> {
+    Some(match program {
+        "taplo" | "biome" | "stylua" | "yamllint" => Configured::Named,
+
+        // dotfmt resolves per file and falls back to `~/.config/dotfmt/`.
+        // That rule is the thing dotfmt exists to own — the same reasoning
+        // that made this crate ask `--owns` rather than guess — so naming one
+        // config for a whole run would override it everywhere.
+        "dotfmt" => Configured::Found("resolves per file and owns that rule"),
+        "ruff" => Configured::Found("reads ~/.config/ruff/ruff.toml, which this repository links"),
+        "sqlfluff" => Configured::Found("reads ~/.sqlfluff, which this repository links"),
+        // shfmt reads `.editorconfig` from the file's own directory upward,
+        // and this repository links one into `$HOME`, which is above any
+        // target under it.
+        "shfmt" => Configured::Found("reads .editorconfig upward, and one is linked into $HOME"),
+
+        // rustfmt does take `--config-path`, but only after the manifest and
+        // behind a `--`, which is a different argument position from every
+        // other row here. It is a gap rather than a live defect: every value
+        // in `shared/tools/rustfmt.toml` is currently rustfmt's own default,
+        // so `cargo fmt --check` agrees with and without it. Editing that file
+        // would open it silently.
+        "cargo" => Configured::Gap("takes its config after the manifest, behind a --"),
+
+        // yamlfmt reads `.yamlfmt` from the working directory. This
+        // repository ships no such file, so there is nothing to name.
+        "yamlfmt" => Configured::Nothing,
+        "gofmt" | "goimports" => Configured::Nothing,
+
+        _ => return None,
+    })
 }

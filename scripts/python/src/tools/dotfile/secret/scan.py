@@ -1,7 +1,8 @@
 import os
 import shlex
+import sys
 
-from tools.core.console import colors_enabled
+from tools.core.console import colors_enabled, err
 from tools.core.patterns import (
     KEY_FILENAMES,
     KEY_SUFFIXES,
@@ -176,6 +177,10 @@ def paint(text, color, on):
 
 
 def report(findings, scanned, skipped, canaries, notes, show_all):
+    # Findings go to stderr, the clean line to stdout: the git hooks send this
+    # command's stdout to /dev/null to stay quiet on a good commit, and sharing
+    # one stream would blank the whole leak report along with it, leaving a bare
+    # non-zero exit in place of the one message that must always be readable.
     on = colors_enabled()
     for note in notes:
         log(paint("!", YELLOW, on) + f" {note}")
@@ -186,19 +191,20 @@ def report(findings, scanned, skipped, canaries, notes, show_all):
         log(paint("✓", GREEN, on) + f" clean  {summary}{tail}")
         return
 
+    on = colors_enabled(sys.stderr)
     shown = findings if show_all else findings[:ITEM_LIMIT]
     for finding in shown:
-        log(
+        err(
             paint("✗", RED, on)
             + f" {finding.tier:<9} {finding.where()}"
             + paint(f"  {finding.label}", BOLD, on)
             + paint(f"  {finding.detail}", DIM, on)
         )
     if len(findings) > len(shown):
-        log(f"  … {len(findings) - len(shown)} more (--all)")
-    log("")
-    log(f"{plural(len(findings), 'finding')} in {plural(scanned, 'file')}")
-    log("allow a false positive in config/scan.dotfile; a canary is never allowed")
+        err(f"  … {len(findings) - len(shown)} more (--all)")
+    err("")
+    err(f"{plural(len(findings), 'finding')} in {plural(scanned, 'file')}")
+    err("allow a false positive in config/scan.dotfile; a canary is never allowed")
     raise SystemExit(1)
 
 

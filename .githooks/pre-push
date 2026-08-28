@@ -22,7 +22,7 @@ while read -r _local_ref local_oid _remote_ref remote_oid; do
 	else
 		range="$remote_oid..$local_oid"
 	fi
-	if ! "$bin/dotfile" secret scan --commits "$range"; then
+	if ! "$bin/dotfile" secret scan --commits "$range" >/dev/null; then
 		status=1
 	fi
 done

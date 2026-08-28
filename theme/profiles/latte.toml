@@ -1,5 +1,5 @@
-name = "Catppuccin Latte"
-dark = false
+name  = "Catppuccin Latte"
+dark  = false
 icons = "breeze"
 
 [nvim]
@@ -7,29 +7,29 @@ flavour = "latte"
 
 [palette]
 flamingo = "#dd7878"
-pink = "#ea76cb"
-mauve = "#8839ef"
-red = "#d20f39"      # sudo
-peach = "#fe640b"
-yellow = "#df8e1d"
-orange = "#d98a0b"   # (.venv), .toml,md...
-green = "#40a02b"
-teal = "#179299"     # dir
-blue = "#1e66f5"     # system
+pink     = "#ea76cb"
+mauve    = "#8839ef"
+red      = "#d20f39" # sudo
+peach    = "#fe640b"
+yellow   = "#df8e1d"
+orange   = "#d98a0b" # (.venv), .toml,md...
+green    = "#40a02b"
+teal     = "#179299" # dir
+blue     = "#1e66f5" # system
 lavender = "#7287fd" # kde accent
-text = "#4c4f69"
-subtext = "#5c5f77"
-overlay = "#9ca0b0"  # separator
+text     = "#4c4f69"
+subtext  = "#5c5f77"
+overlay  = "#9ca0b0" # separator
 overlay2 = "#7c7f93" # kde inactive / disabled text
 surface2 = "#acb0be"
 surface1 = "#bcc0cc"
 surface0 = "#ccd0da"
-base = "#eff1f5"
-mantle = "#e6e9ef"
-crust = "#dce0e8"
+base     = "#eff1f5"
+mantle   = "#e6e9ef"
+crust    = "#dce0e8"
 
 [terminal.ansi]
-black = "subtext"
+black        = "subtext"
 bright_black = "overlay2"
-white = "surface2"
+white        = "surface2"
 bright_white = "surface1"

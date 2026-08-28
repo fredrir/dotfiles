@@ -25,7 +25,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// The spelling a `modes` block uses, and the one `--verbose` prints.
+    /// The one thing `--verbose` says about how a `.conf` file was read.
     pub fn name(self) -> &'static str {
         match self {
             Mode::Plain => "plain",
@@ -33,16 +33,24 @@ impl Mode {
             Mode::Kitty => "kitty",
         }
     }
-
-    pub fn parse(name: &str) -> Option<Mode> {
-        match name {
-            "plain" => Some(Mode::Plain),
-            "hypr" => Some(Mode::Hypr),
-            "kitty" => Some(Mode::Kitty),
-            _ => None,
-        }
-    }
 }
+
+/// The patterns `format.py` hardcoded, in the order it tested them.
+///
+/// Compiled in and not configurable. Which files are formatted is a question
+/// for the `include` and `exclude` blocks; *how* a `.conf` file is laid out is
+/// a property of the program that reads it, and a config that could remap
+/// these could only ever get hyprland's own syntax wrong.
+const MODES: &[(&str, Mode)] = &[
+    ("*/hypr/*", Mode::Hypr),
+    ("*/hypr-local.conf", Mode::Hypr),
+    ("hypr*.conf", Mode::Hypr),
+    ("*/kitty/colors*.conf", Mode::Plain),
+    ("*/colors*.conf", Mode::Plain),
+    ("*/kitty/conf.d/fonts.conf", Mode::Plain),
+    ("*/kitty/*.conf", Mode::Kitty),
+    ("*/kitty.conf", Mode::Kitty),
+];
 
 /// A file's lines, the way both formatters in this crate read one: split on
 /// `\n`, one trailing empty element dropped so a file that ends in a newline
@@ -85,12 +93,11 @@ pub fn format(text: &str, mode: Mode) -> String {
 ///
 /// `format.py` tested three separate lists — hypr, then plain, then kitty —
 /// and that order carries meaning. `plain` is the opt-out, so
-/// `*/kitty/colors*.conf = plain` has to beat `*/kitty/*.conf = kitty`
-/// whichever way round a `modes` block lists them; making the priority the
-/// mode rather than the line is what keeps reordering the block harmless.
-pub fn mode(path: &str, modes: &[(String, Mode)]) -> Mode {
+/// `*/kitty/colors*.conf` has to beat `*/kitty/*.conf`; making the priority
+/// the mode rather than the line is what keeps reordering the table harmless.
+pub fn mode(path: &str) -> Mode {
     for wanted in [Mode::Hypr, Mode::Plain, Mode::Kitty] {
-        let matched = modes
+        let matched = MODES
             .iter()
             .any(|(pattern, mode)| *mode == wanted && matches(pattern, path));
         if matched {

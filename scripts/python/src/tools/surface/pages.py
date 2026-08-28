@@ -60,3 +60,14 @@ def page_for(program):
         if program in page.programs:
             return page
     return None
+
+
+def dispatched(program):
+    """The subcommands `program` gains from a `program-<name>` binary on PATH."""
+    found = []
+    for page in PAGES:
+        for binary in page.programs:
+            head, _, name = binary.partition("-")
+            if head == program and name and page.title == f"{program} {name}":
+                found.append((name, binary))
+    return tuple(found)

@@ -59,8 +59,17 @@ def test_pattern_tier_reports_without_printing_the_secret(tool, repo):
     stage(root, "shared/notes/leak.md", f"export TOKEN={TOKEN}\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "github-token" in result.stdout
-    assert TOKEN not in result.stdout
+    assert "github-token" in result.stderr
+    assert TOKEN not in result.stdout + result.stderr
+
+
+def test_a_finding_survives_the_hooks_silencing_of_stdout(tool, repo):
+    root, _home, env = repo
+    stage(root, "shared/notes/leak.md", f"export TOKEN={TOKEN}\n")
+    result = scan(tool, env, "--staged")
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "1 finding" in result.stderr
 
 
 def test_an_identifier_named_like_a_key_is_not_a_finding(tool, repo):
@@ -75,8 +84,8 @@ def test_an_age_private_key_is_a_finding_however_it_is_named(tool, repo):
     stage(root, "shared/lib/leak.py", f"HARMLESS_NAME = '{identity}'\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "age-identity" in result.stdout
-    assert identity not in result.stdout
+    assert "age-identity" in result.stderr
+    assert identity not in result.stdout + result.stderr
 
 
 def test_an_age_public_key_is_not_a_finding(tool, repo):
@@ -105,8 +114,8 @@ def test_canary_is_reported_by_label_only(tool, repo):
     stage(root, "shared/notes/infra.md", f"the box lives at {PRIVATE_VALUE}\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "parser-origin" in result.stdout
-    assert PRIVATE_VALUE not in result.stdout
+    assert "parser-origin" in result.stderr
+    assert PRIVATE_VALUE not in result.stdout + result.stderr
 
 
 def test_canary_ignores_the_allowlist(tool, repo):
@@ -116,7 +125,7 @@ def test_canary_ignores_the_allowlist(tool, repo):
     stage(root, "vendor/lib.js", f"host = {PRIVATE_VALUE}\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "parser-origin" in result.stdout
+    assert "parser-origin" in result.stderr
 
 
 def test_no_canaries_skips_the_tier(tool, repo):
@@ -140,7 +149,7 @@ def test_enc_file_must_carry_sops_metadata(tool, repo):
     stage(root, "shared/ssh/config.enc", "host example\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "not-encrypted" in result.stdout
+    assert "not-encrypted" in result.stderr
 
 
 def test_encrypted_file_passes_and_skips_content_tiers(tool, repo):
@@ -155,7 +164,7 @@ def test_secret_package_rejects_plaintext(tool, repo):
     stage(root, "shared/ssh/config", "host example\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "plaintext" in result.stdout
+    assert "plaintext" in result.stderr
 
 
 def test_key_filename_outside_a_secret_package(tool, repo):
@@ -163,7 +172,7 @@ def test_key_filename_outside_a_secret_package(tool, repo):
     stage(root, "shared/ssh/id_ed25519", "opaque\n")
     result = scan(tool, env)
     assert result.returncode == 1
-    assert "key-file" in result.stdout
+    assert "key-file" in result.stderr
 
 
 def test_staged_scan_sees_staged_content(tool, repo):

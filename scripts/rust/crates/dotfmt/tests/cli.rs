@@ -12,14 +12,21 @@ use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 /// A run with `HOME` and `XDG_CONFIG_HOME` pointed at an empty directory, so
-/// the machine's own `~/.config/dotfmt/dotfile.dotfile` cannot decide a test.
+/// the machine's own `~/.config/dotfmt/dotfmt.dotfile` cannot decide a test.
 fn dotfmt(root: &Path, args: &[&str], body: &str) -> Output {
+    dotfmt_from(root, root, args, body)
+}
+
+/// The same, with `HOME` somewhere other than the directory the run happens
+/// in — the only way to reach `~/dotfmt.dotfile` by the rule that names it,
+/// since anywhere below `$HOME` finds it on the way up instead.
+fn dotfmt_from(root: &Path, home: &Path, args: &[&str], body: &str) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dotfmt"))
         .args(args)
         .current_dir(root)
         .env("NO_COLOR", "1")
         .env("COLUMNS", "80")
-        .env("HOME", root)
+        .env("HOME", home)
         .env("XDG_CONFIG_HOME", root.join("empty-config"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -171,7 +178,7 @@ fn stdin_refuses_to_be_given_a_target_as_well() {
 #[test]
 fn stdin_reads_the_settings_that_govern_the_name_it_was_given() {
     let root = tree(&[
-        ("project/dotfile.dotfile", "dotfmt {\n  indent = 4\n}\n"),
+        ("project/dotfmt.dotfile", "dotfmt {\n  indent = 4\n}\n"),
         ("project/hosts.dotfile", ""),
     ]);
     let output = dotfmt(
@@ -188,7 +195,7 @@ fn stdin_reads_the_settings_that_govern_the_name_it_was_given() {
 fn the_config_in_the_home_directory_is_the_next_place_looked() {
     let root = tree(&[
         (
-            "empty-config/dotfmt/dotfile.dotfile",
+            "empty-config/dotfmt/dotfmt.dotfile",
             "dotfmt {\n  align = false\n}\n",
         ),
         ("a.dotfile", ""),
@@ -197,6 +204,32 @@ fn the_config_in_the_home_directory_is_the_next_place_looked() {
 
     assert_eq!(code(&output), 0);
     assert_eq!(stdout(&output), RAGGED);
+}
+
+#[test]
+fn the_home_directory_itself_is_the_place_looked_after_that() {
+    let root = tree(&[
+        (
+            "empty-config/dotfmt/dotfmt.dotfile",
+            "dotfmt {\n  indent = 4\n}\n",
+        ),
+        ("home/dotfmt.dotfile", "dotfmt {\n  indent = 6\n}\n"),
+        ("a.dotfile", ""),
+    ]);
+    let home = root.path().join("home");
+
+    let under_config = dotfmt_from(root.path(), &home, &["--stdin", "a.dotfile"], RAGGED);
+    assert_eq!(
+        stdout(&under_config),
+        "host {\n    a       = 1\n    longer  = 2\n}\n"
+    );
+
+    fs::remove_file(root.path().join("empty-config/dotfmt/dotfmt.dotfile")).unwrap();
+    let at_home = dotfmt_from(root.path(), &home, &["--stdin", "a.dotfile"], RAGGED);
+    assert_eq!(
+        stdout(&at_home),
+        "host {\n      a       = 1\n      longer  = 2\n}\n"
+    );
 }
 
 #[test]
@@ -320,12 +353,16 @@ fn quiet_says_nothing_anywhere_about_a_run_that_changed_a_file() {
 
 #[test]
 fn verbose_names_every_file_and_which_mode_a_conf_was_read_in() {
-    let root = tree(&[("kitty/kitty.conf", "font_size  12\n")]);
+    let root = tree(&[
+        ("dotfmt.dotfile", "include {\n  .conf\n}\n"),
+        ("kitty/kitty.conf", "font_size  12\n"),
+    ]);
     let output = dotfmt(root.path(), &["-v", "."], "");
 
     assert_eq!(code(&output), 0);
     let said = stderr(&output);
-    assert!(said.contains("config built-in defaults"), "{said}");
+    assert!(said.contains("config "), "{said}");
+    assert!(said.contains("dotfmt.dotfile"), "{said}");
     assert!(said.contains("ok kitty/kitty.conf  kitty"), "{said}");
 }
 
@@ -391,14 +428,14 @@ fn a_named_file_dotfmt_does_not_own_is_a_failure_rather_than_a_silent_skip() {
 #[test]
 fn a_mistake_in_the_config_stops_the_run_and_names_the_line() {
     let root = tree(&[
-        ("dotfile.dotfile", "dotfmt {\n  indnet = 2\n}\n"),
+        ("dotfmt.dotfile", "dotfmt {\n  indnet = 2\n}\n"),
         ("a.dotfile", RAGGED),
     ]);
     let output = dotfmt(root.path(), &["."], "");
 
     assert_eq!(code(&output), 1);
     assert!(
-        stderr(&output).contains("dotfile.dotfile:2: unknown setting: indnet"),
+        stderr(&output).contains("dotfmt.dotfile:2: unknown setting: indnet"),
         "{}",
         stderr(&output)
     );
@@ -415,4 +452,163 @@ fn a_bad_flag_is_claps_own_failure() {
 
     assert_eq!(code(&output), 2);
     assert_eq!(stdout(&output), "");
+}
+
+#[test]
+fn the_include_block_decides_which_files_a_walk_picks_up() {
+    let root = tree(&[
+        (
+            "dotfmt.dotfile",
+            "include {\n  .conf\n}\n\nexclude {\n  kitty\n}\n",
+        ),
+        ("a.conf", "x  =  1\n\n\n"),
+        ("kitty/b.conf", "x  =  1\n\n\n"),
+    ]);
+    let output = dotfmt(root.path(), &["."], "");
+
+    assert_eq!(code(&output), 0);
+    assert_eq!(stderr(&output), "  format a.conf\nformatted 1 of 2 files\n");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.conf")).unwrap(),
+        "x  =  1\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("kitty/b.conf")).unwrap(),
+        "x  =  1\n\n\n"
+    );
+}
+
+#[test]
+fn a_conf_file_is_left_alone_until_a_config_opts_it_in() {
+    // The default that made this rework necessary. `.dotfile` is dotfmt's own
+    // format and is on; `.conf` is somebody else's and is not.
+    let root = tree(&[("a.conf", "x  =  1\n\n\n"), ("b.dotfile", RAGGED)]);
+    let output = dotfmt(root.path(), &["."], "");
+
+    assert_eq!(code(&output), 0);
+    assert_eq!(
+        stderr(&output),
+        "  format b.dotfile\nformatted 1 of 1 file\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.conf")).unwrap(),
+        "x  =  1\n\n\n"
+    );
+}
+
+#[test]
+fn a_named_file_the_config_leaves_alone_is_a_failure_rather_than_a_silent_skip() {
+    let root = tree(&[("a.conf", "x=1\n")]);
+    let output = dotfmt(root.path(), &["a.conf"], "");
+
+    assert_eq!(code(&output), 1);
+    assert!(
+        stderr(&output).contains("not selected by this config: a.conf"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn owns_answers_on_stdout_with_the_paths_it_would_format() {
+    let root = tree(&[
+        ("dotfmt.dotfile", "include {\n  .conf\n  **ssh/_empty_\n}\n"),
+        ("a.conf", ""),
+        ("a.dotfile", ""),
+        ("a.py", ""),
+        ("LICENSE", ""),
+        ("ssh/config.d/40-cabled", ""),
+    ]);
+    // `deep/absent.conf` is not there at all: the answer is about paths, and
+    // the caller is asking which ones dotfmt would take rather than which it
+    // can open.
+    let asked = "a.conf\0a.dotfile\0a.py\0LICENSE\0ssh/config.d/40-cabled\0deep/absent.conf\0";
+    let output = dotfmt(root.path(), &["--owns"], asked);
+
+    assert_eq!(code(&output), 0);
+    assert_eq!(
+        stdout(&output),
+        "a.conf\0a.dotfile\0ssh/config.d/40-cabled\0deep/absent.conf\0"
+    );
+    assert_eq!(stderr(&output), "");
+}
+
+#[test]
+fn owns_reads_the_config_of_each_path_rather_than_one_for_all_of_them() {
+    let root = tree(&[
+        ("one/dotfmt.dotfile", "include {\n  .conf\n}\n"),
+        ("one/a.conf", ""),
+        ("two/a.conf", ""),
+    ]);
+    let output = dotfmt(root.path(), &["--owns"], "one/a.conf\0two/a.conf\0");
+
+    assert_eq!(code(&output), 0);
+    assert_eq!(stdout(&output), "one/a.conf\0");
+}
+
+#[test]
+fn owns_writes_nothing_at_all_when_a_config_will_not_parse() {
+    // A half-answered question about ownership is worse than an unanswered
+    // one: the caller cannot tell the files dotfmt declined from the ones it
+    // never managed to consider.
+    let root = tree(&[
+        ("dotfmt.dotfile", "dotfmt {\n  indnet = 2\n}\n"),
+        ("a.dotfile", ""),
+    ]);
+    let output = dotfmt(root.path(), &["--owns"], "a.dotfile\0");
+
+    assert_eq!(code(&output), 1);
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).contains("unknown setting: indnet"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn owns_answers_nothing_for_nothing_rather_than_reading_the_tree() {
+    let root = tree(&[("a.dotfile", RAGGED)]);
+    let output = dotfmt(root.path(), &["--owns"], "");
+
+    assert_eq!(code(&output), 0);
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        fs::read_to_string(root.path().join("a.dotfile")).unwrap(),
+        RAGGED
+    );
+}
+
+#[test]
+fn owns_refuses_to_be_given_a_target_as_well() {
+    let root = tempfile::tempdir().unwrap();
+    let output = dotfmt(root.path(), &["--owns", "a.dotfile"], "");
+
+    assert_eq!(code(&output), 2);
+    assert_eq!(stdout(&output), "");
+}
+
+#[test]
+fn a_pattern_holding_an_equals_is_refused_rather_than_rewritten() {
+    // The trap this rejection exists for: `block.rs` reads `a=b` as an entry,
+    // and laying this very file out would write it back as `a  = b`. A run
+    // must never edit a pattern into a different pattern.
+    let config = "include {\n  a=b\n}\n";
+    let root = tree(&[("dotfmt.dotfile", config), ("b.dotfile", RAGGED)]);
+    let output = dotfmt(root.path(), &["."], "");
+
+    assert_eq!(code(&output), 1);
+    assert!(
+        stderr(&output).contains("a pattern cannot hold an ="),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("dotfmt.dotfile")).unwrap(),
+        config
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("b.dotfile")).unwrap(),
+        RAGGED
+    );
 }

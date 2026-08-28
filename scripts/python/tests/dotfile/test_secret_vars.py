@@ -116,8 +116,8 @@ def test_var_values_become_canaries(vault, writer, tool):
     run_git(root, "add", "-A")
     result = tool("dotfile", "secret", "scan", "--staged", "--all", env=env)
     assert result.returncode == 1
-    assert "hosts.parser.origin" in result.stdout
-    assert "203.0.113.77" not in result.stdout
+    assert "hosts.parser.origin" in result.stderr
+    assert "203.0.113.77" not in result.stdout + result.stderr
 
 
 @needs_sops

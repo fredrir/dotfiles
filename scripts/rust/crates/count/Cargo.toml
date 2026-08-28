@@ -1,13 +1,13 @@
 [package]
-name = "count"
-version = "0.1.0"
-description = "Count items inside a directory"
+name              = "count"
+version           = "0.1.0"
+description       = "Count items inside a directory"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap.workspace = true
-rayon.workspace = true
+clap.workspace        = true
+rayon.workspace       = true
 workstation.workspace = true
 
 [dev-dependencies]

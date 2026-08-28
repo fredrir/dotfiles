@@ -1,3 +1,4 @@
+import difflib
 import os
 
 import pytest
@@ -30,6 +31,19 @@ COMMENTED = (
 def parse(text):
     """The one place these tests lean on the JSONC reader."""
     return jsonc.loads(text)
+
+
+def changed(old, new):
+    """The lines `new` dropped and the lines it gained, in order.
+
+    These tests are about bytes, against a file that is hand-authored and
+    edited often, so they state the shape of the edit rather than naming the
+    settings that happen to sit around it today.
+    """
+    diff = list(difflib.ndiff(old.splitlines(), new.splitlines()))
+    dropped = [line[2:] for line in diff if line.startswith("- ")]
+    gained = [line[2:] for line in diff if line.startswith("+ ")]
+    return dropped, gained
 
 
 def real_text():
@@ -325,8 +339,10 @@ def test_real_settings_insert_adds_one_line_and_one_comma(tmp_path):
     set_key(path_to_file, ("editor.fontSize",), 14)
     new = read_back(path_to_file)
     assert parse(new) == dict(parse(old), **{"editor.fontSize": 14})
-    trimmed = new.replace('\t"editor.fontSize": 14\n', "", 1).replace("\t],\n", "\t]\n", 1)
-    assert trimmed == old
+    dropped, gained = changed(old, new)
+    assert len(dropped) == 1 and len(gained) == 2, "more than one line moved"
+    assert gained[0] == dropped[0] + ",", "the key that was last gained only a comma"
+    assert gained[1] == '\t"editor.fontSize": 14'
 
 
 @needs_repo_file
@@ -336,21 +352,22 @@ def test_real_settings_nested_insert_keeps_every_other_byte(tmp_path):
     set_key(path_to_file, ("[lua]", "editor.tabSize"), 2)
     new = read_back(path_to_file)
     assert parse(new)["[lua]"]["editor.tabSize"] == 2
-    trimmed = new.replace('\t\t"editor.tabSize": 2\n', "", 1).replace(
-        '\t\t"editor.defaultFormatter": "sumneko.lua",\n',
-        '\t\t"editor.defaultFormatter": "sumneko.lua"\n',
-        1,
-    )
-    assert trimmed == old
+    dropped, gained = changed(old, new)
+    assert len(dropped) == 1 and len(gained) == 2, "more than one line moved"
+    assert gained[0] == dropped[0] + ",", "the member that was last gained only a comma"
+    assert gained[1] == '\t\t"editor.tabSize": 2'
 
 
 @needs_repo_file
 def test_real_settings_keeps_its_tab_indent_for_a_new_structure(tmp_path):
+    # A key the real file cannot already carry, so this keeps testing the indent
+    # of a structure being written rather than which language blocks
+    # settings.json happens to have today.
     path_to_file = copy_to(tmp_path, real_text())
-    set_key(path_to_file, ("[toml]",), {"editor.defaultFormatter": "tamasfe.even-better-toml"})
+    set_key(path_to_file, ("[dotfile-probe]",), {"editor.defaultFormatter": "vendor.probe"})
     new = read_back(path_to_file)
-    assert '\t"[toml]": {\n\t\t"editor.defaultFormatter": "tamasfe.even-better-toml"\n\t}\n' in new
-    assert parse(new)["[toml]"] == {"editor.defaultFormatter": "tamasfe.even-better-toml"}
+    assert '\t"[dotfile-probe]": {\n\t\t"editor.defaultFormatter": "vendor.probe"\n\t}\n' in new
+    assert parse(new)["[dotfile-probe]"] == {"editor.defaultFormatter": "vendor.probe"}
 
 
 @needs_repo_file

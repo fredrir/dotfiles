@@ -12,7 +12,32 @@ use workstation::Answer;
 use super::*;
 use configs::Source;
 use lang::{Drift, Feed, LANGS, Lang, Mode};
-use run::Ran;
+use run::{Plan, Ran};
+
+/// A run of nothing in particular: no config to inject, no `--verbose`.
+fn plan(mode: Mode) -> Plan<'static> {
+    Plan {
+        mode,
+        verbose: false,
+        injected: &[],
+    }
+}
+
+/// One finished row, for the parts of the report that are about rendering
+/// rather than about running.
+fn row(lang: Lang, files: usize) -> Ran {
+    Ran {
+        lang,
+        files,
+        missing: Vec::new(),
+        findings: false,
+        failed: false,
+        ran: 1,
+        note: None,
+        output: String::new(),
+        blamed: Vec::new(),
+    }
+}
 
 fn tree(lines: &[&str]) -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
@@ -222,11 +247,18 @@ fn biome_is_the_only_config_that_lands_under_a_different_name() {
 
 // ----------------------------------------------------------------- the walk
 
+/// Every file is a candidate, whatever it is called. dotfmt owns files by
+/// path as well as by extension — `_empty_` under `**ssh/` has no extension at
+/// all — so a walk that kept only the extensions this table knows could never
+/// offer it one.
 #[test]
-fn the_walk_finds_only_the_files_some_row_owns() {
+fn the_walk_offers_every_file_it_reaches() {
     let root = tree(&["a.py", "b.rs", "notes.md", "sub/c.lua", "LICENSE"]);
     let found = walk::walk(root.path());
-    assert_eq!(shown(&found.files), ["a.py", "b.rs", "sub/c.lua"]);
+    assert_eq!(
+        shown(&found.files),
+        ["LICENSE", "a.py", "b.rs", "notes.md", "sub/c.lua"]
+    );
 }
 
 #[test]
@@ -359,7 +391,7 @@ fn a_tracked_file_survives_an_ignore_rule_that_matches_it() {
     }
     let found = walk::walk(root.path());
     let kept = walk::drop_ignored(root.path(), found.files);
-    assert_eq!(shown(&kept), ["kept.py", "lua/tracked.lua"]);
+    assert_eq!(shown(&kept), [".gitignore", "kept.py", "lua/tracked.lua"]);
 }
 
 #[test]
@@ -372,7 +404,244 @@ fn outside_a_work_tree_nothing_is_dropped() {
     );
 }
 
+// ------------------------------------------------- files encrypted at rest
+
+/// One encrypted value as SOPS really writes it.
+const SEALED_VALUE: &str =
+    "password: ENC[AES256_GCM,data:qWuPqA==,iv:wtj3wg=,tag:6rqTIQ==,type:str]";
+
+fn holding(body: &str) -> tempfile::TempDir {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("f"), body).unwrap();
+    root
+}
+
+fn sealed(body: &str) -> bool {
+    let root = holding(body);
+    !walk::encrypted(root.path(), &["f".into()]).is_empty()
+}
+
+/// The file this whole rule exists for: reformatting it is a diff the size of
+/// the file at best, and breaks the MAC that guards it at worst.
+#[test]
+fn a_sops_document_is_recognised() {
+    assert!(sealed(&format!(
+        "{SEALED_VALUE}\nsops:\n    version: 3.13.3\n"
+    )));
+}
+
+/// Detection is by content, so the file that follows the naming convention
+/// and the file that does not are both read rather than guessed at.
+#[test]
+fn the_configuration_that_says_what_to_encrypt_is_not_itself_encrypted() {
+    // `.sops.yaml`: the recipients to encrypt *for*, and nothing encrypted.
+    assert!(!sealed(
+        "creation_rules:\n  - age: age15wjewk6yjs5vsezah0sa9vz3gyl569eexwj74l8dvrc2vlsxuq3q7hq52d\n"
+    ));
+}
+
+/// The regression this rule nearly caused. Four files in this repository name
+/// the marker without holding a secret — the secret scanner's own pattern
+/// table, two of its tests, and `walk.rs` itself. Skipping them would have
+/// quietly stopped formatting them.
+#[test]
+fn source_that_merely_names_the_marker_is_not_a_secret() {
+    assert!(!sealed("SOPS_MARKER = \"ENC[AES256_GCM\"\n"));
+    assert!(!sealed("const CIPHERTEXT: &str = \"ENC[AES256_GCM\";\n"));
+    assert!(!sealed("assert \"ENC[AES256_GCM\" in sealed.read_text()\n"));
+    // A test building half of one is still not one.
+    assert!(!sealed(
+        "stage(root, f\"data: ENC[AES256_GCM,data:xx] {TOKEN}\")\n"
+    ));
+}
+
+/// The same file could arrive as JSON, as a dotenv, or as an INI in another
+/// project, and none of those is a `.yaml`.
+#[test]
+fn the_metadata_block_is_recognised_in_every_format_sops_writes() {
+    assert!(sealed(
+        "{\n\t\"a\": \"x\",\n\t\"sops\": {\n\t\t\"version\": \"3.13.3\"\n\t}\n}\n"
+    ));
+    assert!(sealed("A=x\nsops_version=3.13.3\n"));
+    assert!(sealed("[a]\nb=x\n[sops]\nversion=3.13.3\n"));
+}
+
+/// An indented one belongs to something else.
+#[test]
+fn a_nested_sops_key_is_not_the_metadata_block() {
+    assert!(!sealed("tools:\n  sops:\n    enabled: true\n"));
+}
+
+/// In YAML the block is appended, so on any file worth the name it is at the
+/// far end — which is why both ends are read.
+#[test]
+fn a_block_past_the_head_of_a_long_file_is_still_found() {
+    let mut body = String::new();
+    for nth in 0..2000 {
+        body.push_str(&format!("key_{nth}: plaintext value number {nth}\n"));
+    }
+    assert!(body.len() > walk::SNIFF * 2);
+    body.push_str("sops:\n    version: 3.13.3\n");
+    assert!(sealed(&body));
+}
+
+/// Reading two windows of a file is not reading the file, so a plaintext
+/// document far larger than both is still formatted.
+#[test]
+fn a_long_plaintext_file_is_left_alone_by_the_sniff() {
+    let body: String = (0..2000).map(|nth| format!("key_{nth}: {nth}\n")).collect();
+    assert!(!sealed(&body));
+}
+
+/// Whichever row it landed in, and the row goes with it when it was the only
+/// file in it.
+#[test]
+fn an_encrypted_file_is_taken_out_of_whatever_row_it_was_in() {
+    let root = tempfile::tempdir().unwrap();
+    let body = format!("{SEALED_VALUE}\nsops:\n    version: 3.13.3\n");
+    fs::write(root.path().join("secrets.yaml"), &body).unwrap();
+    fs::write(root.path().join("ci.yaml"), "a: 1\n").unwrap();
+    fs::write(root.path().join("creds.json"), &body).unwrap();
+
+    let mut work = run::sort(vec![
+        "secrets.yaml".into(),
+        "ci.yaml".into(),
+        "creds.json".into(),
+    ]);
+    let gone = walk::drop_encrypted(root.path(), &mut work);
+    assert_eq!(shown(&gone), ["creds.json", "secrets.yaml"]);
+    // The web row held nothing else, so it is gone; yaml keeps the one file
+    // that was not a secret.
+    assert_eq!(work.len(), 1);
+    assert_eq!(work[0].0, Lang::Yaml);
+    assert_eq!(shown(&work[0].1), ["ci.yaml"]);
+}
+
 // -------------------------------------------------------------- the driver
+
+/// The extension list still describes dotfmt, but it no longer decides for
+/// it: which files dotfmt owns depends on per-directory `include`/`exclude`
+/// patterns that only dotfmt reads, so its row comes from its own answer.
+#[test]
+fn sorting_never_builds_the_dotfmt_row() {
+    let work = run::sort(vec![
+        "a.conf".into(),
+        "b.dotfile".into(),
+        "c.py".into(),
+        "notes.md".into(),
+    ]);
+    assert_eq!(work.len(), 1);
+    assert_eq!(work[0].0, Lang::Python);
+}
+
+/// When dotfmt cannot be asked, the guess is the row. An empty row would stop
+/// formatting every `.conf` in the tree and read as a clean run, which is a
+/// worse failure than a guess that is occasionally wide.
+#[test]
+fn the_fallback_row_is_the_three_extensions_dotfmt_has_always_had() {
+    let files: Vec<std::path::PathBuf> = ["a.conf", "b.config", "c.dotfile", "d.py", "LICENSE"]
+        .iter()
+        .map(Into::into)
+        .collect();
+    assert_eq!(
+        shown(&run::by_extension(&files)),
+        ["a.conf", "b.config", "c.dotfile"]
+    );
+    assert_eq!(Lang::Dotfmt.extensions(), ["conf", "config", "dotfile"]);
+}
+
+#[test]
+fn dotfmts_answer_becomes_the_first_row_and_an_empty_answer_becomes_none() {
+    let work = run::with_dotfmt(run::sort(vec!["c.py".into()]), vec!["a.conf".into()]);
+    assert_eq!(work[0].0, Lang::Dotfmt);
+    assert_eq!(shown(&work[0].1), ["a.conf"]);
+    assert_eq!(work[1].0, Lang::Python);
+
+    let none = run::with_dotfmt(run::sort(vec!["c.py".into()]), Vec::new());
+    assert_eq!(none.len(), 1);
+    assert_eq!(none[0].0, Lang::Python);
+}
+
+// -------------------------------------------------- what a tool pointed at
+
+/// Every tool writes a path the way it was handed the path, so the run's own
+/// file list is all that is needed to read any of them.
+#[test]
+fn the_files_a_tool_named_are_recognised_however_it_decorated_them() {
+    let files: Vec<std::path::PathBuf> = [
+        "shared/zsh/conf.d/90-utils.zsh",
+        "shared/vscode/keybindings.json",
+        "a.yaml",
+        "untouched.py",
+    ]
+    .iter()
+    .map(Into::into)
+    .collect();
+    let said = "shared/zsh/conf.d/90-utils.zsh:376:24: not a valid parameter expansion\n\
+                shared/vscode/keybindings.json:1:1 parse ━━━\n\
+                a.yaml:\n";
+    assert_eq!(
+        run::blamed(said, Path::new("/nowhere"), &files),
+        [
+            "shared/zsh/conf.d/90-utils.zsh",
+            "shared/vscode/keybindings.json",
+            "a.yaml"
+        ]
+    );
+}
+
+/// taplo names a file as one field of a structured log line, so the path is
+/// not a word of its own.
+#[test]
+fn a_tool_that_names_a_file_inside_a_field_is_read_the_same_way() {
+    let files: Vec<std::path::PathBuf> = vec!["theme/roles.toml".into()];
+    assert_eq!(
+        run::blamed(
+            "ERROR the file is not properly formatted \
+             path=\"/home/x/repo/theme/roles.toml\"\n",
+            Path::new("/home/x/repo"),
+            &files
+        ),
+        ["theme/roles.toml"]
+    );
+}
+
+/// `cargo fmt` is handed a manifest rather than a file list and answers in
+/// absolute paths, so the row that cannot name its own files is the one that
+/// most needs them named.
+#[test]
+fn a_tool_that_answers_in_absolute_paths_is_read_the_same_way() {
+    let files: Vec<std::path::PathBuf> = vec!["crates/dotfmt/src/select.rs".into()];
+    assert_eq!(
+        run::blamed(
+            "Diff in /home/x/repo/crates/dotfmt/src/select.rs:161:\n",
+            Path::new("/home/x/repo"),
+            &files
+        ),
+        ["crates/dotfmt/src/select.rs"]
+    );
+}
+
+/// A path that only ends the same way is a different file.
+#[test]
+fn a_file_is_only_named_when_the_whole_path_matches() {
+    let files: Vec<std::path::PathBuf> = vec!["src/a.py".into()];
+    let here = Path::new("/nowhere");
+    assert!(run::blamed("would reformat src/data.py\n", here, &files).is_empty());
+    assert_eq!(
+        run::blamed("would reformat src/a.py\n", here, &files),
+        ["src/a.py"]
+    );
+}
+
+#[test]
+fn a_file_named_twice_is_named_once() {
+    let files: Vec<std::path::PathBuf> = vec!["a.py".into()];
+    assert_eq!(
+        run::blamed("a.py:1:1 x\na.py:9:2 y\n", Path::new("/nowhere"), &files),
+        ["a.py"]
+    );
+}
 
 #[test]
 fn a_language_with_no_files_gets_no_row() {
@@ -388,7 +657,7 @@ fn a_language_with_no_files_gets_no_row() {
 fn the_rows_are_reported_in_table_order() {
     let work = run::sort(vec!["z.lua".into(), "a.py".into(), "m.toml".into()]);
     let root = tempfile::tempdir().unwrap();
-    let done = run::run(root.path(), work, Mode::Check, false);
+    let done = run::run(root.path(), work, &plan(Mode::Check));
     let order: Vec<&str> = done.iter().map(|ran| ran.lang.name()).collect();
     assert_eq!(order, ["python", "lua", "toml"]);
 }
@@ -403,7 +672,7 @@ fn a_program_that_is_not_installed_is_a_missing_program_and_not_an_error() {
         feed: Feed::Files,
         drift: Drift::Status,
     };
-    let error = run::invoke(root.path(), &step, &[]).unwrap_err();
+    let error = run::invoke(root.path(), &step, &[], &[]).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
 }
 
@@ -443,8 +712,7 @@ fn rust_files_with_no_manifest_above_them_are_reported_rather_than_run() {
     let done = run::run(
         root.path(),
         run::sort(vec!["stray.rs".into()]),
-        Mode::Write,
-        false,
+        &plan(Mode::Write),
     );
     assert_eq!(
         done[0].note.as_deref(),
@@ -708,20 +976,224 @@ fn sync_replaces_what_is_there_and_introduces_nothing() {
     assert!(!project.path().join("ruff.toml").exists());
 }
 
+/// The regression that started all of this: this repository keeps none of
+/// these where the tool that wants it looks, so each of them ran at its own
+/// defaults over the whole tree and called it clean.
+#[test]
+fn a_target_with_no_config_of_its_own_is_pointed_at_this_repositorys() {
+    let repo = checkout();
+    let project = tempfile::tempdir().unwrap();
+    let injected = configs::injections(
+        &Source::Repo(repo.path().to_path_buf()),
+        &project.path().canonicalize().unwrap(),
+    );
+    let tools = repo.path().join("shared/tools");
+    let said: Vec<(&str, Vec<String>)> = injected
+        .iter()
+        .map(|one| {
+            (
+                one.program,
+                one.args
+                    .iter()
+                    .map(|argument| argument.to_string_lossy().into_owned())
+                    .collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [
+            (
+                "taplo",
+                vec![
+                    "--config".to_string(),
+                    tools.join(".taplo.toml").display().to_string()
+                ]
+            ),
+            (
+                "biome",
+                vec![
+                    "--config-path".to_string(),
+                    tools.join("biome.global.json").display().to_string()
+                ]
+            ),
+            (
+                "stylua",
+                vec![
+                    "--config-path".to_string(),
+                    tools.join("stylua.toml").display().to_string()
+                ]
+            ),
+            (
+                "yamllint",
+                vec![
+                    "-c".to_string(),
+                    tools.join(".yamllint.yaml").display().to_string()
+                ]
+            ),
+        ]
+    );
+}
+
+fn injected_programs(repo: &tempfile::TempDir, root: &Path) -> Vec<&'static str> {
+    configs::injections(&Source::Repo(repo.path().to_path_buf()), root)
+        .iter()
+        .map(|one| one.program)
+        .collect()
+}
+
+/// A project's own settings win, and per program: a target with a
+/// `.taplo.toml` and nothing else keeps the one and is given the other three.
+#[test]
+fn a_config_the_target_already_has_is_never_replaced() {
+    let repo = checkout();
+    let project = tempfile::tempdir().unwrap();
+    fs::write(project.path().join(".taplo.toml"), "mine\n").unwrap();
+    assert_eq!(
+        injected_programs(&repo, &project.path().canonicalize().unwrap()),
+        ["biome", "stylua", "yamllint"]
+    );
+}
+
+/// The programs search upward from the directory they are run in, so a config
+/// over the target is one they would find and one this must not override.
+#[test]
+fn a_config_above_the_target_counts_as_the_targets_own() {
+    let repo = checkout();
+    let above = tempfile::tempdir().unwrap();
+    fs::write(above.path().join("biome.jsonc"), "{}\n").unwrap();
+    let project = above.path().join("deep/inside");
+    fs::create_dir_all(&project).unwrap();
+    assert_eq!(
+        injected_programs(&repo, &project.canonicalize().unwrap()),
+        ["taplo", "stylua", "yamllint"]
+    );
+}
+
+/// With no checkout there is no file on disk to name, so nothing is injected
+/// rather than a path that is not there being passed.
+#[test]
+fn the_copies_compiled_in_are_never_named_on_a_command_line() {
+    let project = tempfile::tempdir().unwrap();
+    assert!(configs::injections(&Source::Embedded, project.path()).is_empty());
+}
+
+/// The YAML row runs two programs and only one of them takes a config here.
+/// `yamlfmt -c` is not a flag — it exits printing the usage text, exactly the
+/// way `yamlfmt -w` did — so keying this by language rather than by program
+/// would have broken the row that was only just fixed.
+#[test]
+fn injection_is_keyed_by_program_and_not_by_language() {
+    let repo = checkout();
+    let project = tempfile::tempdir().unwrap();
+    let injected = configs::injections(
+        &Source::Repo(repo.path().to_path_buf()),
+        &project.path().canonicalize().unwrap(),
+    );
+    assert!(injected.iter().any(|one| one.program == "yamllint"));
+    assert!(!injected.iter().any(|one| one.program == "yamlfmt"));
+}
+
+/// stylua and biome resolve per file, and a config named on the command line
+/// outranks a nearer one, so the files that have their own must be run
+/// without the flag. taplo and yamllint resolve once from the working
+/// directory, where a nearer config is one they would never have read.
+#[test]
+fn only_the_programs_that_resolve_per_file_split_a_row() {
+    for injection in configs::INJECTED {
+        let split = matches!(injection.scope, configs::Scope::Unclaimed(_));
+        assert_eq!(
+            split,
+            matches!(injection.program, "stylua" | "biome"),
+            "{} is wrong about how it resolves",
+            injection.program
+        );
+    }
+}
+
+/// The file `shared/nvim/.stylua.toml` and `shared/wezterm/.stylua.toml` case:
+/// their subtrees keep their own settings, and everything else gets this
+/// repository's.
+#[test]
+fn a_config_below_the_root_wins_for_its_own_subtree_only() {
+    let root = tree(&[
+        "nvim/.stylua.toml",
+        "nvim/init.lua",
+        "nvim/lua/plugins/lsp.lua",
+        "yazi/init.lua",
+        "hammerspoon/init.lua",
+    ]);
+    let files: Vec<std::path::PathBuf> = [
+        "nvim/init.lua",
+        "nvim/lua/plugins/lsp.lua",
+        "yazi/init.lua",
+        "hammerspoon/init.lua",
+    ]
+    .iter()
+    .map(Into::into)
+    .collect();
+    let (theirs, ours) = configs::partition(root.path(), &[".stylua.toml"], &files);
+    assert_eq!(
+        shown(&theirs),
+        ["nvim/init.lua", "nvim/lua/plugins/lsp.lua"]
+    );
+    assert_eq!(shown(&ours), ["yazi/init.lua", "hammerspoon/init.lua"]);
+}
+
+// ------------------------------------- where every program's config comes from
+
+/// The guard. Four programs searched upward, found nothing, and ran at their
+/// own defaults over this whole tree — taplo, then biome, then stylua and
+/// yamllint, each found by hand after the last. A fifth has to be a red test
+/// instead.
+#[test]
+fn every_program_says_where_its_configuration_comes_from() {
+    for program in lang::programs() {
+        let Some(configured) = lang::configured(program) else {
+            panic!("{program} does not say where its configuration comes from");
+        };
+        let injected = configs::INJECTED
+            .iter()
+            .any(|injection| injection.program == program);
+        match configured {
+            lang::Configured::Named => assert!(
+                injected,
+                "{program} says the run names its config, and nothing in INJECTED does"
+            ),
+            lang::Configured::Found(why) | lang::Configured::Gap(why) => {
+                assert!(!why.is_empty(), "{program} gives no reason");
+                assert!(!injected, "{program} is injected and does not say so");
+            }
+            lang::Configured::Nothing => {
+                assert!(!injected, "{program} is injected and says it has no config");
+            }
+        }
+    }
+}
+
+/// And nothing is injected for a program no row ever runs.
+#[test]
+fn every_injection_is_for_a_program_the_table_runs() {
+    let programs = lang::programs();
+    for injection in configs::INJECTED {
+        assert!(
+            programs.contains(&injection.program),
+            "{} is injected and never run",
+            injection.program
+        );
+    }
+    assert_eq!(programs.len(), 12);
+}
+
 // ---------------------------------------------------------------- the report
 
 /// A row where nothing ran must not read as a row where everything passed.
 #[test]
 fn a_row_whose_every_tool_is_missing_does_not_claim_success() {
     let ran = Ran {
-        lang: Lang::Yaml,
-        files: 2,
         missing: vec!["yamlfmt", "yamllint"],
-        findings: false,
-        failed: false,
         ran: 0,
-        note: None,
-        output: String::new(),
+        ..row(Lang::Yaml, 2)
     };
     let lines = render::report(&[ran], Mode::Check, &workstation::Style::plain());
     assert_eq!(
@@ -733,14 +1205,8 @@ fn a_row_whose_every_tool_is_missing_does_not_claim_success() {
 #[test]
 fn a_row_that_ran_says_so_and_still_names_the_tool_it_was_missing() {
     let ran = Ran {
-        lang: Lang::Go,
-        files: 1,
         missing: vec!["goimports"],
-        findings: false,
-        failed: false,
-        ran: 1,
-        note: None,
-        output: String::new(),
+        ..row(Lang::Go, 1)
     };
     let lines = render::report(&[ran], Mode::Write, &workstation::Style::plain());
     assert_eq!(
@@ -753,28 +1219,172 @@ fn a_row_that_ran_says_so_and_still_names_the_tool_it_was_missing() {
 fn a_missing_tool_is_counted_in_the_tally_apart_from_the_findings() {
     let done = vec![
         Ran {
-            lang: Lang::Python,
-            files: 3,
-            missing: Vec::new(),
             findings: true,
-            failed: false,
             ran: 2,
-            note: None,
-            output: String::new(),
+            ..row(Lang::Python, 3)
         },
         Ran {
-            lang: Lang::Sql,
-            files: 1,
             missing: vec!["sqlfluff"],
-            findings: false,
-            failed: false,
             ran: 0,
-            note: None,
-            output: String::new(),
+            ..row(Lang::Sql, 1)
         },
     ];
     assert_eq!(
         render::tally(&done, Mode::Check),
         "4 files checked, 1 with findings, 1 not installed"
+    );
+}
+
+// ------------------------------------------------------------- the summary
+
+fn summary(done: &[Ran], mode: Mode) -> Vec<String> {
+    render::summary(done, mode, &workstation::Style::plain())
+}
+
+/// The whole point of the reduced output: a tree that is already formatted
+/// says so in one line and says nothing else.
+#[test]
+fn a_run_with_nothing_to_report_is_one_line() {
+    let done = vec![row(Lang::Python, 120), row(Lang::Lua, 48)];
+    assert_eq!(summary(&done, Mode::Write), ["168 / 168 files formatted"]);
+}
+
+#[test]
+fn a_check_run_says_clean_rather_than_formatted() {
+    assert_eq!(
+        summary(&[row(Lang::Toml, 42)], Mode::Check),
+        ["42 / 42 files clean"]
+    );
+}
+
+/// One line per provider that has something to report, then the count. The
+/// files of a failed row are the difference between the two numbers.
+#[test]
+fn a_failed_provider_gets_a_line_and_its_files_leave_the_count() {
+    let done = vec![
+        Ran {
+            failed: true,
+            ..row(Lang::Web, 40)
+        },
+        Ran {
+            failed: true,
+            ..row(Lang::Yaml, 5)
+        },
+        row(Lang::Python, 123),
+    ];
+    assert_eq!(
+        summary(&done, Mode::Write),
+        [
+            "web   40 files  failed",
+            "yaml   5 files  failed",
+            "123 / 168 files formatted",
+        ]
+    );
+}
+
+/// Drift in `--check` is a finding rather than a failure, and it reads the
+/// same way: the provider is named and its files are not counted as clean.
+#[test]
+fn drift_names_the_provider_in_the_same_shape() {
+    let done = vec![
+        Ran {
+            findings: true,
+            ..row(Lang::Python, 3)
+        },
+        row(Lang::Lua, 7),
+    ];
+    assert_eq!(
+        summary(&done, Mode::Check),
+        ["python  3 files  findings", "7 / 10 files clean"]
+    );
+}
+
+/// A failure nobody can act on is a failure that needs a second run, which is
+/// the thing this output is trying to avoid.
+#[test]
+fn a_failed_provider_names_the_files_it_fell_over_on() {
+    let done = vec![Ran {
+        failed: true,
+        blamed: vec!["shared/zsh/conf.d/90-utils.zsh".to_string()],
+        ..row(Lang::Shell, 34)
+    }];
+    assert_eq!(
+        summary(&done, Mode::Write),
+        [
+            "shell  34 files  failed",
+            "  shared/zsh/conf.d/90-utils.zsh",
+            "0 / 34 files formatted",
+        ]
+    );
+}
+
+#[test]
+fn the_files_named_under_a_provider_are_capped() {
+    let blamed: Vec<String> = (0..9).map(|nth| format!("f{nth}.py")).collect();
+    let done = vec![Ran {
+        failed: true,
+        blamed,
+        ..row(Lang::Python, 9)
+    }];
+    let lines = summary(&done, Mode::Write);
+    assert_eq!(lines[1], "  f0.py");
+    assert_eq!(lines[5], "  f4.py");
+    assert_eq!(lines[6], "  … and 4 more");
+    assert_eq!(lines[7], "0 / 9 files formatted");
+}
+
+/// A tool that fell over before it opened a file names none, so its own first
+/// word stands in for the list.
+#[test]
+fn a_failure_that_names_no_file_shows_what_the_tool_said() {
+    let done = vec![Ran {
+        failed: true,
+        output: "\ndotfmt --owns: unexpected argument\n".to_string(),
+        ..row(Lang::Dotfmt, 0)
+    }];
+    assert_eq!(
+        summary(&done, Mode::Write),
+        [
+            "dotfmt  0 files  failed",
+            "  dotfmt --owns: unexpected argument",
+            "0 / 0 files formatted",
+        ]
+    );
+}
+
+/// Nothing formatted those files and nothing could have, so they are in
+/// neither half of the count rather than being reported as a failure.
+#[test]
+fn a_row_whose_every_tool_is_missing_is_left_out_of_the_count() {
+    let done = vec![
+        row(Lang::Python, 10),
+        Ran {
+            missing: vec!["sqlfluff"],
+            ran: 0,
+            ..row(Lang::Sql, 4)
+        },
+    ];
+    assert_eq!(summary(&done, Mode::Write), ["10 / 10 files formatted"]);
+}
+
+/// Unless that is the whole story, in which case a bare `0 / 0` would be a
+/// riddle rather than an answer.
+#[test]
+fn when_nothing_ran_at_all_the_missing_tools_are_the_report() {
+    let done = vec![
+        Ran {
+            missing: vec!["yamlfmt", "yamllint"],
+            ran: 0,
+            ..row(Lang::Yaml, 2)
+        },
+        Ran {
+            missing: vec!["yamlfmt"],
+            ran: 0,
+            ..row(Lang::Sql, 1)
+        },
+    ];
+    assert_eq!(
+        summary(&done, Mode::Write),
+        ["yamlfmt, yamllint not installed"]
     );
 }

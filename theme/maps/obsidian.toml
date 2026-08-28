@@ -2,166 +2,166 @@
 source = "mauve"
 
 [variables]
-"--color-base-00" = "crust"
-"--color-base-05" = "mantle"
-"--color-base-10" = "base"
-"--color-base-20" = "surface0"
-"--color-base-25" = "surface1"
-"--color-base-30" = "surface2"
-"--color-base-35" = "overlay"
-"--color-base-40" = "overlay2"
-"--color-base-50" = "subtext"
-"--color-base-60" = "text"
-"--color-base-70" = "lavender"
-"--color-base-100" = "text"
-"--color-red" = "red"
-"--color-red-rgb" = { rgb = "red" }
-"--color-orange" = "orange"
-"--color-orange-rgb" = { rgb = "orange" }
-"--color-yellow" = "yellow"
-"--color-yellow-rgb" = { rgb = "yellow" }
-"--color-green" = "green"
-"--color-green-rgb" = { rgb = "green" }
-"--color-cyan" = "teal"
-"--color-cyan-rgb" = { rgb = "teal" }
-"--color-blue" = "blue"
-"--color-blue-rgb" = { rgb = "blue" }
-"--color-purple" = "mauve"
-"--color-purple-rgb" = { rgb = "mauve" }
-"--color-pink" = "pink"
-"--color-pink-rgb" = { rgb = "pink" }
-"--color-overlay-rgb" = { rgb = "overlay" }
-"--background-primary" = "base"
-"--background-primary-alt" = "mantle"
-"--background-secondary" = "mantle"
-"--background-secondary-alt" = "crust"
-"--background-modifier-form-field" = "surface0"
+"--color-base-00"                              = "crust"
+"--color-base-05"                              = "mantle"
+"--color-base-10"                              = "base"
+"--color-base-20"                              = "surface0"
+"--color-base-25"                              = "surface1"
+"--color-base-30"                              = "surface2"
+"--color-base-35"                              = "overlay"
+"--color-base-40"                              = "overlay2"
+"--color-base-50"                              = "subtext"
+"--color-base-60"                              = "text"
+"--color-base-70"                              = "lavender"
+"--color-base-100"                             = "text"
+"--color-red"                                  = "red"
+"--color-red-rgb"                              = { rgb = "red" }
+"--color-orange"                               = "orange"
+"--color-orange-rgb"                           = { rgb = "orange" }
+"--color-yellow"                               = "yellow"
+"--color-yellow-rgb"                           = { rgb = "yellow" }
+"--color-green"                                = "green"
+"--color-green-rgb"                            = { rgb = "green" }
+"--color-cyan"                                 = "teal"
+"--color-cyan-rgb"                             = { rgb = "teal" }
+"--color-blue"                                 = "blue"
+"--color-blue-rgb"                             = { rgb = "blue" }
+"--color-purple"                               = "mauve"
+"--color-purple-rgb"                           = { rgb = "mauve" }
+"--color-pink"                                 = "pink"
+"--color-pink-rgb"                             = { rgb = "pink" }
+"--color-overlay-rgb"                          = { rgb = "overlay" }
+"--background-primary"                         = "base"
+"--background-primary-alt"                     = "mantle"
+"--background-secondary"                       = "mantle"
+"--background-secondary-alt"                   = "crust"
+"--background-modifier-form-field"             = "surface0"
 "--background-modifier-form-field-highlighted" = "surface1"
-"--background-modifier-box-shadow" = { color = "crust", alpha = "0.45" }
-"--background-modifier-success" = { color = "green", alpha = "0.16" }
-"--background-modifier-error" = { color = "red", alpha = "0.16" }
-"--background-modifier-error-hover" = { color = "red", alpha = "0.24" }
-"--background-modifier-cover" = { color = "crust", alpha = "0.72" }
-"--background-modifier-border" = "surface0"
-"--background-modifier-border-hover" = "surface1"
-"--background-modifier-border-focus" = "mauve"
-"--background-modifier-hover" = { color = "mauve", alpha = "0.1" }
-"--background-modifier-active-hover" = { color = "mauve", alpha = "0.16" }
-"--selection-background" = { color = "mauve", alpha = "0.3" }
-"--code-block-shadow" = { color = "crust", alpha = "0.2" }
-"--text-normal" = "text"
-"--text-muted" = "subtext"
-"--text-faint" = "overlay2"
-"--text-on-accent" = "crust"
-"--text-on-accent-inverted" = "crust"
-"--text-success" = "green"
-"--text-warning" = "yellow"
-"--text-error" = "red"
-"--text-accent" = "mauve"
-"--text-accent-hover" = "lavender"
-"--interactive-normal" = "surface0"
-"--interactive-hover" = "surface1"
-"--interactive-accent" = "mauve"
-"--interactive-accent-hover" = "lavender"
-"--accent-h" = { derived = "accent_h" }
-"--accent-s" = { derived = "accent_s" }
-"--accent-l" = { derived = "accent_l" }
-"--interactive-accent-hsl" = { derived = "accent_hsl" }
-"--scrollbar-bg" = { literal = "transparent" }
-"--scrollbar-thumb-bg" = "surface1"
-"--scrollbar-active-thumb-bg" = "surface2"
-"--icon-color" = "subtext"
-"--icon-color-hover" = "text"
-"--icon-color-active" = "mauve"
-"--icon-color-focused" = "lavender"
-"--nav-item-color" = "subtext"
-"--nav-item-color-hover" = "text"
-"--nav-item-color-active" = "text"
-"--nav-item-color-selected" = "text"
-"--nav-item-background-hover" = { color = "mauve", alpha = "0.1" }
-"--nav-item-background-active" = { color = "mauve", alpha = "0.16" }
-"--nav-indentation-guide-color" = "surface0"
-"--titlebar-background" = "mantle"
-"--titlebar-background-focused" = "mantle"
-"--titlebar-text-color" = "subtext"
-"--titlebar-text-color-focused" = "text"
-"--tab-container-background" = "mantle"
-"--tab-background-active" = "base"
-"--tab-text-color" = "overlay2"
-"--tab-text-color-focused" = "subtext"
-"--tab-text-color-focused-active" = "text"
-"--tab-text-color-focused-active-current" = "mauve"
-"--tab-outline-color" = "surface0"
-"--ribbon-background" = "mantle"
-"--ribbon-background-collapsed" = "crust"
-"--status-bar-background" = "mantle"
-"--status-bar-border-color" = "surface0"
-"--divider-color" = "surface0"
-"--divider-color-hover" = "mauve"
-"--modal-background" = "mantle"
-"--modal-border-color" = "surface1"
-"--prompt-background" = "mantle"
-"--prompt-border-color" = "surface1"
-"--link-color" = "blue"
-"--link-color-hover" = "lavender"
-"--link-external-color" = "teal"
-"--link-external-color-hover" = "green"
-"--link-unresolved-color" = "pink"
-"--link-unresolved-opacity" = { literal = "0.8" }
-"--link-unresolved-decoration-color" = "pink"
-"--tag-color" = "mauve"
-"--tag-color-hover" = "lavender"
-"--tag-background" = { color = "mauve", alpha = "0.13" }
-"--tag-background-hover" = { color = "mauve", alpha = "0.22" }
-"--tag-border-color" = { color = "mauve", alpha = "0.3" }
-"--tag-border-color-hover" = "mauve"
-"--blockquote-border-color" = "mauve"
-"--blockquote-color" = "subtext"
-"--code-background" = "mantle"
-"--code-normal" = "flamingo"
-"--code-comment" = "overlay2"
-"--code-function" = "blue"
-"--code-important" = "red"
-"--code-keyword" = "mauve"
-"--code-operator" = "teal"
-"--code-property" = "yellow"
-"--code-punctuation" = "overlay2"
-"--code-string" = "green"
-"--code-tag" = "red"
-"--code-value" = "peach"
-"--code-variable" = "pink"
-"--h1-color" = "mauve"
-"--h2-color" = "blue"
-"--h3-color" = "teal"
-"--h4-color" = "green"
-"--h5-color" = "yellow"
-"--h6-color" = "peach"
-"--hr-color" = "surface1"
-"--indentation-guide-color" = "surface0"
-"--indentation-guide-color-active" = "overlay"
-"--metadata-label-text-color" = "overlay2"
-"--metadata-input-text-color" = "text"
-"--metadata-divider-color" = "surface0"
-"--metadata-property-background" = "mantle"
-"--checkbox-color" = "mauve"
-"--checkbox-color-hover" = "lavender"
-"--checkbox-border-color" = "overlay"
-"--checkbox-border-color-hover" = "mauve"
-"--table-border-color" = "surface0"
-"--table-header-background" = "mantle"
-"--table-header-background-hover" = "surface0"
-"--table-row-background-hover" = { color = "mauve", alpha = "0.08" }
-"--embed-background" = "mantle"
-"--embed-border-start" = "mauve"
-"--canvas-background" = "crust"
-"--canvas-card-label-color" = "subtext"
-"--canvas-dot-pattern" = "surface0"
-"--graph-line" = "surface1"
-"--graph-node" = "mauve"
-"--graph-node-focused" = "lavender"
-"--graph-node-tag" = "teal"
-"--graph-node-attachment" = "peach"
-"--graph-node-unresolved" = "overlay"
-"--text-highlight-bg" = { color = "yellow", alpha = "0.22" }
-"--text-highlight-bg-active" = { color = "peach", alpha = "0.3" }
-"--highlight-mix-blend-mode" = { literal = "normal" }
+"--background-modifier-box-shadow"             = { color = "crust", alpha = "0.45" }
+"--background-modifier-success"                = { color = "green", alpha = "0.16" }
+"--background-modifier-error"                  = { color = "red", alpha = "0.16" }
+"--background-modifier-error-hover"            = { color = "red", alpha = "0.24" }
+"--background-modifier-cover"                  = { color = "crust", alpha = "0.72" }
+"--background-modifier-border"                 = "surface0"
+"--background-modifier-border-hover"           = "surface1"
+"--background-modifier-border-focus"           = "mauve"
+"--background-modifier-hover"                  = { color = "mauve", alpha = "0.1" }
+"--background-modifier-active-hover"           = { color = "mauve", alpha = "0.16" }
+"--selection-background"                       = { color = "mauve", alpha = "0.3" }
+"--code-block-shadow"                          = { color = "crust", alpha = "0.2" }
+"--text-normal"                                = "text"
+"--text-muted"                                 = "subtext"
+"--text-faint"                                 = "overlay2"
+"--text-on-accent"                             = "crust"
+"--text-on-accent-inverted"                    = "crust"
+"--text-success"                               = "green"
+"--text-warning"                               = "yellow"
+"--text-error"                                 = "red"
+"--text-accent"                                = "mauve"
+"--text-accent-hover"                          = "lavender"
+"--interactive-normal"                         = "surface0"
+"--interactive-hover"                          = "surface1"
+"--interactive-accent"                         = "mauve"
+"--interactive-accent-hover"                   = "lavender"
+"--accent-h"                                   = { derived = "accent_h" }
+"--accent-s"                                   = { derived = "accent_s" }
+"--accent-l"                                   = { derived = "accent_l" }
+"--interactive-accent-hsl"                     = { derived = "accent_hsl" }
+"--scrollbar-bg"                               = { literal = "transparent" }
+"--scrollbar-thumb-bg"                         = "surface1"
+"--scrollbar-active-thumb-bg"                  = "surface2"
+"--icon-color"                                 = "subtext"
+"--icon-color-hover"                           = "text"
+"--icon-color-active"                          = "mauve"
+"--icon-color-focused"                         = "lavender"
+"--nav-item-color"                             = "subtext"
+"--nav-item-color-hover"                       = "text"
+"--nav-item-color-active"                      = "text"
+"--nav-item-color-selected"                    = "text"
+"--nav-item-background-hover"                  = { color = "mauve", alpha = "0.1" }
+"--nav-item-background-active"                 = { color = "mauve", alpha = "0.16" }
+"--nav-indentation-guide-color"                = "surface0"
+"--titlebar-background"                        = "mantle"
+"--titlebar-background-focused"                = "mantle"
+"--titlebar-text-color"                        = "subtext"
+"--titlebar-text-color-focused"                = "text"
+"--tab-container-background"                   = "mantle"
+"--tab-background-active"                      = "base"
+"--tab-text-color"                             = "overlay2"
+"--tab-text-color-focused"                     = "subtext"
+"--tab-text-color-focused-active"              = "text"
+"--tab-text-color-focused-active-current"      = "mauve"
+"--tab-outline-color"                          = "surface0"
+"--ribbon-background"                          = "mantle"
+"--ribbon-background-collapsed"                = "crust"
+"--status-bar-background"                      = "mantle"
+"--status-bar-border-color"                    = "surface0"
+"--divider-color"                              = "surface0"
+"--divider-color-hover"                        = "mauve"
+"--modal-background"                           = "mantle"
+"--modal-border-color"                         = "surface1"
+"--prompt-background"                          = "mantle"
+"--prompt-border-color"                        = "surface1"
+"--link-color"                                 = "blue"
+"--link-color-hover"                           = "lavender"
+"--link-external-color"                        = "teal"
+"--link-external-color-hover"                  = "green"
+"--link-unresolved-color"                      = "pink"
+"--link-unresolved-opacity"                    = { literal = "0.8" }
+"--link-unresolved-decoration-color"           = "pink"
+"--tag-color"                                  = "mauve"
+"--tag-color-hover"                            = "lavender"
+"--tag-background"                             = { color = "mauve", alpha = "0.13" }
+"--tag-background-hover"                       = { color = "mauve", alpha = "0.22" }
+"--tag-border-color"                           = { color = "mauve", alpha = "0.3" }
+"--tag-border-color-hover"                     = "mauve"
+"--blockquote-border-color"                    = "mauve"
+"--blockquote-color"                           = "subtext"
+"--code-background"                            = "mantle"
+"--code-normal"                                = "flamingo"
+"--code-comment"                               = "overlay2"
+"--code-function"                              = "blue"
+"--code-important"                             = "red"
+"--code-keyword"                               = "mauve"
+"--code-operator"                              = "teal"
+"--code-property"                              = "yellow"
+"--code-punctuation"                           = "overlay2"
+"--code-string"                                = "green"
+"--code-tag"                                   = "red"
+"--code-value"                                 = "peach"
+"--code-variable"                              = "pink"
+"--h1-color"                                   = "mauve"
+"--h2-color"                                   = "blue"
+"--h3-color"                                   = "teal"
+"--h4-color"                                   = "green"
+"--h5-color"                                   = "yellow"
+"--h6-color"                                   = "peach"
+"--hr-color"                                   = "surface1"
+"--indentation-guide-color"                    = "surface0"
+"--indentation-guide-color-active"             = "overlay"
+"--metadata-label-text-color"                  = "overlay2"
+"--metadata-input-text-color"                  = "text"
+"--metadata-divider-color"                     = "surface0"
+"--metadata-property-background"               = "mantle"
+"--checkbox-color"                             = "mauve"
+"--checkbox-color-hover"                       = "lavender"
+"--checkbox-border-color"                      = "overlay"
+"--checkbox-border-color-hover"                = "mauve"
+"--table-border-color"                         = "surface0"
+"--table-header-background"                    = "mantle"
+"--table-header-background-hover"              = "surface0"
+"--table-row-background-hover"                 = { color = "mauve", alpha = "0.08" }
+"--embed-background"                           = "mantle"
+"--embed-border-start"                         = "mauve"
+"--canvas-background"                          = "crust"
+"--canvas-card-label-color"                    = "subtext"
+"--canvas-dot-pattern"                         = "surface0"
+"--graph-line"                                 = "surface1"
+"--graph-node"                                 = "mauve"
+"--graph-node-focused"                         = "lavender"
+"--graph-node-tag"                             = "teal"
+"--graph-node-attachment"                      = "peach"
+"--graph-node-unresolved"                      = "overlay"
+"--text-highlight-bg"                          = { color = "yellow", alpha = "0.22" }
+"--text-highlight-bg-active"                   = { color = "peach", alpha = "0.3" }
+"--highlight-mix-blend-mode"                   = { literal = "normal" }

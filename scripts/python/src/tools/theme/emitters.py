@@ -114,7 +114,7 @@ def emit_fastfetch_config(theme, out):
     )
 
     def transform(text):
-        text = replace_between(text, "constants", lines, indent=" " * 6)
+        text = replace_between(text, "constants", lines)
         updated = text.split("\n")
         for index, line in enumerate(updated):
             if "theme:separator" in line:
@@ -157,11 +157,14 @@ def emit_fastfetch_logo(theme, out):
 
 def emit_starship(theme, out):
     names = list(theme.palette.keys())
-    width = max(len(name) for name in names + list(PROMPT_ROLES))
     lines = [f"# {theme.header}", "[palettes.theme]"]
+    # A width per run of entries, because the blank line below starts a second
+    # one and `align_entries` lines each up on its own longest key.
+    width = max(len(name) for name in names)
     for name in names:
         lines.append(f"{name.ljust(width)} = '{theme.hex(name)}'")
     lines.append("")
+    width = max(len(role) for role in PROMPT_ROLES)
     for role in PROMPT_ROLES:
         lines.append(f"{role.ljust(width)} = '{theme.role(role)}'")
     out.edit(
@@ -220,30 +223,30 @@ def obsidian_variables(theme, derived):
     lines = []
     for name, value in load_map("obsidian")["variables"].items():
         if isinstance(value, str):
-            lines.append(f"  {name}: {theme.hex(value)};")
+            lines.append(f"{name}: {theme.hex(value)};")
         elif "literal" in value:
-            lines.append(f"  {name}: {value['literal']};")
+            lines.append(f"{name}: {value['literal']};")
         elif "derived" in value:
-            lines.append(f"  {name}: {derived[value['derived']]};")
+            lines.append(f"{name}: {derived[value['derived']]};")
         elif "rgb" in value:
             channels = ", ".join(str(channel) for channel in theme.rgb(theme.hex(value["rgb"])))
-            lines.append(f"  {name}: {channels};")
+            lines.append(f"{name}: {channels};")
         else:
             channels = ", ".join(str(channel) for channel in theme.rgb(theme.hex(value["color"])))
-            lines.append(f"  {name}: rgba({channels}, {value['alpha']});")
+            lines.append(f"{name}: rgba({channels}, {value['alpha']});")
     return lines
 
 
 def emit_obsidian(theme, out):
-    lines = [f"  color-scheme: {'dark' if theme.dark else 'light'};"]
+    lines = [f"color-scheme: {'dark' if theme.dark else 'light'};"]
     lines += obsidian_variables(theme, obsidian_derived(theme))
     if theme.uses_fonts("obsidian"):
         general = theme.font("general").replace("\\", "\\\\").replace('"', '\\"')
         nerd = theme.font("nerd").replace("\\", "\\\\").replace('"', '\\"')
         lines += [
-            f'  --font-interface-theme: "{general}", sans-serif;',
-            f'  --font-text-theme: "{general}", sans-serif;',
-            f'  --font-monospace-theme: "{nerd}", ui-monospace, monospace;',
+            f'--font-interface-theme: "{general}", sans-serif;',
+            f'--font-text-theme: "{general}", sans-serif;',
+            f'--font-monospace-theme: "{nerd}", ui-monospace, monospace;',
         ]
     out.edit(
         path(OBSIDIAN_DIR, "theme.css"),
@@ -257,7 +260,7 @@ def emit_nvim(theme, out):
         raise SystemExit(f"dotfile theme: profile '{theme.profile}' has no [nvim] flavour")
     out.edit(
         path(NVIM_CATPPUCCIN),
-        lambda text: replace_between(text, "flavour", [f"flavour = '{flavour}',"], indent=" " * 6),
+        lambda text: replace_between(text, "flavour", [f'flavour = "{flavour}",']),
     )
 
 
