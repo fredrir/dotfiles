@@ -107,8 +107,6 @@ def current_branch(ctx):
 
 
 def push_branch(ctx, branch):
-    if git(ctx, "status", "--porcelain").stdout.strip():
-        log("note: this machine has uncommitted changes, they stay here")
     upstream = git(ctx, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
     if upstream.returncode != 0:
         stop(f"'{branch}' tracks no remote branch (git push -u origin {branch} once)")
@@ -118,7 +116,7 @@ def push_branch(ctx, branch):
         stop(first_line(counted.stderr) or f"cannot compare '{branch}' with {tracked}")
     ahead = int(counted.stdout.strip() or 0)
     if not ahead:
-        log(f"nothing to push, {branch} matches {tracked}")
+        log("nothing to push.")
         return
     log(f"pushing {plural(ahead, 'commit')} to {tracked}")
     if subprocess.call(["git", "-C", ctx.root, "push"]) != 0:
@@ -129,7 +127,7 @@ def remote_state(host, directory):
     """The far side's branch and its uncommitted changes, in one round trip."""
     result = capture(["ssh", host, remote_script(directory, "git status --porcelain --branch")])
     if result.returncode != 0:
-        stop(f"{host}: {first_line(result.stderr) or 'cannot read the repository there'}")
+        stop(f"{host}: {first_line(result.stderr) or 'cannot repository'}")
     branch = ""
     changes = []
     for line in result.stdout.splitlines():
