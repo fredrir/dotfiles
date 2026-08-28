@@ -1093,12 +1093,12 @@ fn a_run_with_nothing_to_report_is_one_line() {
 /// row failing is not actionable; the row naming the file is.
 #[test]
 fn a_provider_that_fell_over_on_one_file_names_that_file() {
-    let root = tree(&["a.sh=x\n", "deep/b.sh=x\n", "deep/odd.zsh=x\n"]);
+    let root = tree(&["a.sh=x\n", "deep/b.sh=x\n", "deep/odd.bash=x\n"]);
     let bin = tempfile::tempdir().unwrap();
     stub(
         bin.path(),
         "shfmt",
-        "echo 'deep/odd.zsh:376:24: not a valid parameter expansion operator: `~`' >&2; exit 1",
+        "echo 'deep/odd.bash:376:24: not a valid parameter expansion operator: `~`' >&2; exit 1",
     );
     let output = format(
         &[&at(&root, "")],
@@ -1108,7 +1108,7 @@ fn a_provider_that_fell_over_on_one_file_names_that_file() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         stderr(&output).trim_end(),
-        "shell  3 files  failed\n  deep/odd.zsh\n0 / 3 files formatted"
+        "shell  3 files  failed\n  deep/odd.bash\n0 / 3 files formatted"
     );
 }
 

@@ -54,7 +54,6 @@ return {
       toml = { "taplo" },
       sh = { "shfmt" },
       bash = { "shfmt" },
-      zsh = { "shfmt" },
       conf = { "dotfmt" },
       dotfile = { "dotfmt" },
     },

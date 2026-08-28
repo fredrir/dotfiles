@@ -169,7 +169,13 @@ impl Lang {
             Lang::Toml => &["toml"],
             Lang::Yaml => &["yaml", "yml"],
             Lang::Sql => &["sql"],
-            Lang::Shell => &["sh", "bash", "zsh"],
+            // zsh is deliberately absent. shfmt claims to read it, but on this
+            // repository it silently rewrote `$#` to `$` and `${~pattern}` to
+            // `${(~)pattern}` -- the first broke the lazygit wrapper, the second
+            // stopped a directory glob matching anything, and shfmt then could not
+            // re-parse its own output. `-ln zsh` is worse: 18 of 34 files fail.
+            // zsh is a different language, so it goes unformatted rather than wrong.
+            Lang::Shell => &["sh", "bash"],
             Lang::Go => &["go"],
         }
     }

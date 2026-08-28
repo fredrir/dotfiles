@@ -1,5 +1,5 @@
 git() {
-  case "$1:$" in
+  case "$1:$#" in
   diff:1) command lazygit ;;
   log:1) command lazygit log ;;
   *) command git "$@" ;;
@@ -373,7 +373,7 @@ cd() {
   setopt localoptions extendedglob
 
   local pattern="(#i)${(b)1}"
-  local -a matches=(${(~)pattern}(N-/))
+  local -a matches=( ${~pattern}(N-/) )
 
   case $#matches in
   1)
