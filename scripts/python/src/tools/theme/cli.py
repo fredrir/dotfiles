@@ -5,7 +5,7 @@ import typer
 
 from tools.core import menu
 from tools.core.console import die, out
-from tools.theme import view
+from tools.theme import preview
 from tools.theme.model import Theme, list_profiles, path
 from tools.theme.profiles import (
     DEFAULT_GROUP,
@@ -27,15 +27,15 @@ app = typer.Typer(
 )
 
 MENU = (
-    ("switch", "assign a profile and restamp every config"),
-    ("status", "which profile each group uses"),
-    ("show", "preview a profile in full"),
-    ("apply", "regenerate every generated file"),
-    ("check", "report what would change without writing"),
+    "sync",
+    "switch",
+    "status",
+    "preview",
+    "dry",
 )
 
-EVERYTHING = "everything"
-WHOLE_GROUP = "the whole group"
+EVERYTHING = "global"
+WHOLE_GROUP = "group"
 
 
 def _owned():
@@ -45,14 +45,14 @@ def _owned():
     return seen
 
 
-def _generate(check):
+def _generate(dry):
     owned = _owned()
     selection = read_selection(owned)
     themes = {}
     for name in sorted({selection.for_path(target) for target in owned}):
         themes[name] = Theme.load(name)
         validate(themes[name])
-    output = Output(check=check)
+    output = Output(dry=dry)
     for emitter in EMITTERS:
         by_theme = {}
         for target in emitter.outputs():
@@ -77,16 +77,17 @@ def _interactive():
     if choice is None:
         return
     name = MENU[choice][0]
-    if name == "switch":
+    if name == "sync":
+        sync()
+    elif name == "switch":
         switch(profile="", scope="")
     elif name == "status":
         status()
     elif name == "show":
         show(profile="")
-    elif name == "apply":
-        apply()
-    elif name == "check":
-        check()
+
+    elif name == "dry":
+        dry()
 
 
 @app.callback(invoke_without_command=True)
@@ -99,30 +100,30 @@ def main(ctx: typer.Context):
     _interactive()
 
 
-@app.command(help="Regenerate every config from the profiles named in config/profiles.dotfile.")
-def apply():
+@app.command(help="Regenerate generated theme configs")
+def sync():
     _selection, changed = _generate(False)
-    view.render_changes(changed, False)
+    preview.render_changes(changed, False)
 
 
-@app.command(help="Report what would change without writing, and exit non-zero if anything would.")
-def check():
+@app.command(help="Prints dry-run of sync")
+def dry():
     _selection, changed = _generate(True)
-    view.render_changes(changed, True)
+    preview.render_changes(changed, True)
     if changed:
         raise typer.Exit(1)
 
 
-@app.command(help="Show which profile each group resolves to, and whether anything has drifted.")
+@app.command(help="Show profile group resolvers, and drift")
 def status():
     owned = _owned()
     selection, changed = _generate(True)
-    view.render_status(_status_rows(selection, owned), changed)
+    preview.render_status(_status_rows(selection, owned), changed)
 
 
-@app.command(help="Preview a profile: palette, roles, fonts and a sample of the terminal.")
+@app.command(help="Preview a profile")
 def show(
-    profile: Annotated[str, typer.Argument(help="Profile name; omit to pick one.")] = "",
+    profile: Annotated[str, typer.Argument(help="Profile name")] = "",
 ):
     owned = _owned()
     selection = read_selection(owned)
@@ -138,10 +139,10 @@ def show(
     validate(theme)
     scopes = selection.scopes(owned).get(profile, [])
     count = len(selection.assignments(owned).get(profile, []))
-    view.render_show(theme, scopes, count)
+    preview.render_show(theme, scopes, count)
 
 
-@app.command(help="Assign a profile to everything, to one group, or to one package.")
+@app.command(help="Assign a profile globally, to one group, or to one package.")
 def switch(
     profile: Annotated[str, typer.Argument(help="Profile name; omit to pick one.")] = "",
     scope: Annotated[
@@ -175,18 +176,16 @@ def switch(
     assign(block, key, profile)
     out(f"  {_label(block, key, everything)} → {profile}")
     _selection, changed = _generate(False)
-    view.render_changes(changed, False)
+    preview.render_changes(changed, False)
     _restart_hint(changed)
 
 
-@app.command(help="Print the files this generator owns, one per line.")
+@app.command(help="Print the files this generator owns")
 def outputs(
-    stageable: Annotated[
-        bool, typer.Option("--stageable", help="Only the files that are safe to stage.")
-    ] = False,
+    staged: Annotated[bool, typer.Option("--staged")] = False,
 ):
     for emitter in EMITTERS:
-        if stageable and not emitter.stageable:
+        if staged and not emitter.staged:
             continue
         for target in emitter.outputs():
             out(target)
@@ -236,7 +235,7 @@ def _pick_profile(title, default):
         die(PROG, "no profiles in theme/profiles")
     details = [_describe(name) for name in names]
     start = names.index(default) if default in names else 0
-    choice = menu.pick(title, names, details, default=start, preview=view.picker_preview(names))
+    choice = menu.pick(title, names, details, default=start, preview=preview.picker_preview(names))
     return None if choice is None else names[choice]
 
 
@@ -273,7 +272,7 @@ def _clear_overrides(selection):
     extra = selection.overrides()
     if not extra:
         return True
-    out("  this also drops the assignments below:")
+    out("  drops the assignments below:")
     for block, key in extra:
         out(f"      {_label(block, key)} = {selection.groups[block][key]}")
     if sys.stdin.isatty() and not typer.confirm("  drop them?", default=True):

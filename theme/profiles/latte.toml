@@ -27,9 +27,3 @@ surface0 = "#ccd0da"
 base     = "#eff1f5"
 mantle   = "#e6e9ef"
 crust    = "#dce0e8"
-
-[terminal.ansi]
-black        = "subtext"
-bright_black = "overlay2"
-white        = "surface2"
-bright_white = "surface1"

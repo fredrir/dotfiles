@@ -25,19 +25,11 @@ from tools.theme import cli as theme_cli
 
 
 class Dispatch(TyperGroup):
-    """git's fallback rule: `dotfile <name>` runs `dotfile-<name>` off PATH.
-
-    A native subcommand then needs no python at all -- a new `dotfile-X` binary
-    answers to `dotfile X` the moment setup.sh installs it -- and `execvp`
-    replaces this process rather than wrapping one, so the tool owns the exit
-    status and all three streams instead of having them relayed.
-    """
+    """git's fallback rule: `dotfile <name>` runs `dotfile-<name>` off PATH."""
 
     def resolve_command(self, ctx, args):
         name = args[0] if args else ""
         external = bool(name) and not name.startswith("-") and self.get_command(ctx, name) is None
-        # Never while completing: click resolves speculatively there, and an
-        # exec would hand the shell's completion process to the tool.
         if external and not ctx.resilient_parsing:
             program = f"dotfile-{name}"
             if shutil.which(program):
@@ -46,14 +38,14 @@ class Dispatch(TyperGroup):
             return super().resolve_command(ctx, args)
         except UsageError as error:
             if external:
-                error.message += " Run ./setup.sh if it should be one of the native tools."
+                error.message += " Run ./setup.sh"
             raise
 
 
 app = typer.Typer(
     cls=Dispatch,
     add_completion=False,
-    help="Manage dotfile symlinks, packages, themes, and formatting for this repository.",
+    help="The dotfile manager",
 )
 
 app.add_typer(secret_cli.app, name="secret")

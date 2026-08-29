@@ -344,7 +344,7 @@ def render_status(rows, changed, columns=None):
         count = f"{len(changed)} generated {'file' if len(changed) == 1 else 'files'}"
         footer.append("  ! ", style="bold yellow")
         footer.append(f"{count} would change")
-        footer.append("      dotfile theme apply", style="dim")
+        footer.append("      dotfile theme sync", style="dim")
     else:
         footer.append("  ✓ ", style="bold green")
         footer.append("every generated file matches its profile")
@@ -352,14 +352,14 @@ def render_status(rows, changed, columns=None):
     stdout.print(Group(*blocks))
 
 
-def render_changes(changed, check):
+def render_changes(changed, dry):
     if not changed:
         stdout.print(Text("  theme is already up to date", style="dim"))
         return
     summary = Text()
     summary.append("  ")
     count = f"{len(changed)} {'file' if len(changed) == 1 else 'files'}"
-    if check:
+    if dry:
         summary.append("! ", style="bold yellow")
         summary.append(f"{count} would change")
     else:

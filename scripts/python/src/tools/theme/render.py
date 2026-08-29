@@ -29,8 +29,8 @@ def _umask():
 
 
 class Output:
-    def __init__(self, check=False):
-        self.check = check
+    def __init__(self, dry=False):
+        self.dry = dry
         self.changed = []
 
     def _record(self, target):
@@ -43,7 +43,7 @@ class Output:
                 previous = handle.read()
         if previous == content:
             return
-        if not self.check:
+        if not self.dry:
             write_atomic(target, content)
         self._record(target)
 
@@ -56,7 +56,7 @@ class Output:
         updated = transform(previous)
         if updated == previous:
             return
-        if not self.check:
+        if not self.dry:
             write_atomic(target, updated)
         self._record(target)
 

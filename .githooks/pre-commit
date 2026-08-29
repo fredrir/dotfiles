@@ -43,7 +43,7 @@ if staged config/keys.dotfile; then
 fi
 
 if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
-	if "$bin/dotfile" theme apply >/dev/null; then
+	if "$bin/dotfile" theme sync >/dev/null; then
 		formatter="$(command -v dotfile-format || true)"
 		while IFS= read -r path; do
 			if [ -e "$root/$path" ]; then
