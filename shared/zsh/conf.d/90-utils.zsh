@@ -6,6 +6,19 @@ git() {
   esac
 }
 
+lls() {
+  local -a links=(*(ND@))
+
+  ((${#links[@]})) || return 0
+
+  eza -lh \
+    --no-permissions \
+    --no-filesize \
+    --no-user \
+    --no-time \
+    -- "${links[@]}"
+}
+
 # Copy one path between matching locations under the home directories on
 # macie and archie.
 _home_copy() {

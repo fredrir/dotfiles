@@ -40,3 +40,4 @@ shared/tools/stylua.toml = ~/.config/stylua/stylua.toml
 shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
 shared/tools/.taplo.toml = ~/.config/taplo/taplo.toml
 shared/tools/dotfmt.dotfile = ~/.config/dotfmt/dotfmt.dotfile
+macos/vscode/tasks.json = ~/Library/Application Support/Code/User/tasks.json

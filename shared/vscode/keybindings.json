@@ -12,11 +12,6 @@
 		"command": "workbench.action.splitEditor"
 	},
 	{
-		"key": "cmd+k cmd+2",
-		"command": "-editor.foldLevel2",
-		"when": "editorTextFocus && foldingEnabled"
-	},
-	{
 		"key": "cmd+2",
 		"command": "-workbench.action.focusSecondEditorGroup"
 	},
@@ -91,5 +86,86 @@
 	{
 		"key": "ctrl+9",
 		"command": "-workbench.action.openEditorAtIndex9"
+	},
+	{
+		"key": "ctrl+shift+alt+cmd+k",
+		"command": "copyFilePath",
+		"when": "editorFocus"
+	},
+	{
+		"key": "alt+cmd+c",
+		"command": "-copyFilePath",
+		"when": "editorFocus"
+	},
+	{
+		"key": "ctrl+shift+alt+c",
+		"command": "copyFilePath",
+		"when": "!editorFocus"
+	},
+	{
+		"key": "alt+cmd+c",
+		"command": "-copyFilePath",
+		"when": "!editorFocus"
+	},
+	{
+		"key": "ctrl+alt+cmd+k",
+		"command": "copyRelativeFilePath",
+		"when": "editorFocus"
+	},
+	{
+		"key": "cmd+k shift+alt+cmd+c",
+		"command": "-copyRelativeFilePath",
+		"when": "editorFocus"
+	},
+	{
+		"key": "ctrl+alt+c",
+		"command": "copyRelativeFilePath",
+		"when": "!editorFocus"
+	},
+	{
+		"key": "shift+alt+cmd+c",
+		"command": "-copyRelativeFilePath",
+		"when": "!editorFocus"
+	},
+	{
+		"key": "shift+cmd+t",
+		"command": "-workbench.action.reopenClosedEditor"
+	},
+	{
+		"key": "shift+cmd+t",
+		"command": "workbench.action.closeOtherEditors"
+	},
+	{
+		"key": "shift+cmd+[Period]",
+		"command": "-breadcrumbs.focus",
+		"when": "breadcrumbsPossible && breadcrumbsVisible"
+	},
+	{
+		"key": "shift+cmd+[Period]",
+		"command": "runCommands",
+		"args": {
+			"commands": [
+				"workbench.action.files.save",
+				{
+					"command": "workbench.action.tasks.runTask",
+					"args": "Copy active filename"
+				}
+			]
+		},
+		"when": "editorFocus"
+	},
+	{
+		"key": "shift+alt+[Period]",
+		"command": "runCommands",
+		"args": {
+			"commands": [
+				"workbench.action.files.save",
+				{
+					"command": "workbench.action.tasks.runTask",
+					"args": "Copy active file content"
+				}
+			]
+		},
+		"when": "editorFocus"
 	}
 ]

@@ -1,0 +1,39 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Copy active filename",
+			"type": "shell",
+			"command": "copy_filename",
+			"args": ["${fileBasename}"],
+			"options": {
+				"shell": {
+					"executable": "/bin/zsh",
+					"args": ["-ic"]
+				}
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "never",
+				"close": true
+			}
+		},
+		{
+			"label": "Copy active file content",
+			"type": "shell",
+			"command": "copy_file_content",
+			"args": ["${relativeFile}", "${file}"],
+			"options": {
+				"shell": {
+					"executable": "/bin/zsh",
+					"args": ["-ic"]
+				}
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "never",
+				"close": true
+			}
+		}
+	]
+}

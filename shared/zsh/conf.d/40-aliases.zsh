@@ -1,4 +1,4 @@
-alias -g NV='| nvim -R -' # open stdin in nvim read-only
+alias -g NV='| nvim -R -'
 
 alias mkdir="mkdir -p"
 

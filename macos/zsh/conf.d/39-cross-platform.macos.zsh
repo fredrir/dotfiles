@@ -1,0 +1,1 @@
+alias dclip="pbcopy"

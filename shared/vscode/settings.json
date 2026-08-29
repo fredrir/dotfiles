@@ -1,5 +1,7 @@
 {
 	"workbench.secondarySideBar.defaultVisibility": "hidden",
+	"editor.gotoLocation.multipleDefinitions": "goto",
+	"editor.definitionLinkOpensInPeek": false,
 	"workbench.editor.enablePreviewFromCodeNavigation": false,
 	"editor.formatOnSave": true,
 	"explorer.confirmDelete": false,
