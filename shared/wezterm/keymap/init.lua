@@ -5,10 +5,10 @@ local bind_keys = require "utils.bind-keys"
 local macos_no_NB_keys = require "keymap.macos"
 local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
-
-local act = wezterm.action
+local disconnect = require "utils.disconnect"
 local MOD = require "keymap.modifiers"
 
+local act = wezterm.action
 local M = {}
 
 M.attach = wezterm.action_callback(function(_window, pane)
@@ -37,14 +37,14 @@ local keys = bind_keys {
     mods = MOD.SPECIAL,
     action = act.QuitApplication,
   },
-  { -- Quit Tab --
+  { -- Quit Tab (1) --
     key = "w",
     mods = MOD.SPECIAL,
     action = act.CloseCurrentTab { confirm = true },
   },
   { -- Quit Pane --
     key = "d",
-    mods = MOD.CTRL_OR_SECONDARY,
+    mods = "CTRL",
     action = act.CloseCurrentPane { confirm = true },
   },
   { -- Go to last tab --
@@ -84,8 +84,9 @@ local keys = bind_keys {
   { key = "-", mods = MOD.SUPER, action = resize_window(-50) },
   { key = "+", mods = MOD.SUPER, action = resize_window(50) },
 
-  -- SSH Archie / Macie
+  -- Remote Sessions --
   { key = ".", mods = MOD.SUPER, action = M.attach },
+  { key = "d", mods = MOD.SECONDARY, action = disconnect },
 }
 
 -- Go to tab 1..9

@@ -22,6 +22,9 @@ BLANK = "  "
 INDENT = "  "
 GAP = "  "
 ESC_DELAY = 0.05
+ESC_LIMIT = 16
+ESC_DRAIN = 256
+CSI_FINAL = "\x40", "\x7e"
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
@@ -72,16 +75,47 @@ def normalise(key):
     return ARROWS.get(key) or NAMED.get(key, key)
 
 
+def pending(fd):
+    return bool(select.select([fd], [], [], ESC_DELAY)[0])
+
+
+def read_byte(fd):
+    """One byte as text.  An undecodable byte still reads as a character, so only a real
+    end of stream comes back empty and the caller can tell the two apart."""
+    data = os.read(fd, 1)
+    return data.decode(errors="replace") if data else ""
+
+
+def read_escape(fd):
+    """The rest of an escape sequence: SS3 takes one final byte, CSI runs to its final
+    byte.  An overlong CSI is drained to the end even though only the first ESC_LIMIT
+    characters are reported, so no tail is left to read back as a keystroke of its own."""
+    key = "\033" + read_byte(fd)
+    if key == "\033O":
+        return key + (read_byte(fd) if pending(fd) else "")
+    if key != "\033[":
+        return key
+    low, high = CSI_FINAL
+    for _step in range(ESC_DRAIN):
+        if not pending(fd):
+            break
+        byte = read_byte(fd)
+        if not byte:
+            break
+        if len(key) < ESC_LIMIT:
+            key += byte
+        if low <= byte <= high:
+            break
+    return key
+
+
 def read_key(fd):
     """One keystroke.  A bare ESC returns at once rather than waiting for a sequence, and
     a terminal that hangs up reads as "" so the caller treats it as an abort."""
     try:
-        data = os.read(fd, 1)
-        if not data:
-            return ""
-        key = data.decode(errors="ignore")
-        if key == "\033" and select.select([fd], [], [], ESC_DELAY)[0]:
-            key += os.read(fd, 2).decode(errors="ignore")
+        key = read_byte(fd)
+        if key == "\033" and pending(fd):
+            return read_escape(fd)
     except OSError:
         return ""
     return key

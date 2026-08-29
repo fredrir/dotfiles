@@ -2,22 +2,13 @@
 #   dotfmt    the .dotfile block formatter
 #   include   which files dotfmt owns, in .gitignore syntax
 #   exclude   applied after include; a file must match one and not the other
-#
-# `.dotfile` is owned by default and need not be listed. `_empty_` is a
-# filename with no extension, and is off by default because most of the
-# extensionless files here are not config at all -- LICENSE, the git hooks,
-# kdeglobals -- and laying those out as blocks would destroy them. Scope it
-# instead, the way `ssh/_empty_` picks up the ssh config fragments and leaves
-# the rest of the tree alone. The one file that scoping still gets wrong is
-# `shared/ssh/bin/home-lan-connect`, a `#!/bin/sh` ProxyCommand, so the
-# exclude takes its directory back out.
 
 dotfmt {
   indent         = 2
   align          = true
   align_max      = 24
   blank_lines    = 1
-  final_newline  = true
+  final_newline  = false
 }
 
 include {

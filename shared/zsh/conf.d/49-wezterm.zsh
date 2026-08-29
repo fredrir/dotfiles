@@ -16,7 +16,7 @@ mux() {
   domain=$(mux-route $1) || return
 
   if [[ -z $WEZTERM_PANE ]]; then
-    print -ru2 "mux: not a wezterm pane, so there is nowhere to put $domain"
+    print -ru2 "mux: not a wezterm pane; $domain"
     return 1
   fi
 
@@ -28,3 +28,5 @@ mux() {
 
 alias archie='mux archie'
 alias macie='mux macie'
+
+alias mtls="~/.config/wezterm/bin/wezterm-mtls"

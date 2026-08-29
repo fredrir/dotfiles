@@ -17,7 +17,9 @@ alias vv="nvim ."
 
 alias la="ls -a"
 alias l="ls"
-alias ll="ls -l"
+alias ll="ls -lah"
+alias lld="eza -lahX --no-permissions --no-filesize --no-user --time=modified --sort=modified" # Last modified
+alias llc="eza -lahX --no-permissions --no-filesize --no-user --time=created --sort=modified"
 
 alias c="clear"
 
@@ -57,23 +59,5 @@ alias u="uname -mrs"
 
 alias cleanup="kondo" # Cleanup build output
 
-alias dpp="dotfile sync -p"
-
-alias mtls="~/.config/wezterm/bin/wezterm-mtls"
 # Git
-
 alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
-alias gdd='git-discard'
-
-# Projects
-
-alias docku="docker compose up --build"
-alias dockd="docker compose down -v"
-alias dockseed="docker compose exec backend pnpm db:seed"
-alias dockus="docker compose down -v && docker compose up --build -d && docker compose exec backend pnpm db:seed && docker compose logs -f backend"
-
-alias dockexp="docker exec -e SAMPLES_DIR=/samples/exams llunde-pyparser-worker"
-
-alias pyparser-restart="ssh leploy 'cd /opt/pyparser && docker compose restart'"
-
-alias penv="python -m venv .venv && source .venv/bin/activate"
