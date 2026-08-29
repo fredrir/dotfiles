@@ -4,7 +4,8 @@
 	"runtime.path": ["?.lua", "?/init.lua"],
 	"runtime.pathStrict": true,
 	"workspace.library": [
-		"${workspaceFolder}/lua_modules/share/lua/5.5/wezterm/types"
+		"${workspaceFolder}/lua_modules/share/lua/5.5/wezterm/types",
+		"${workspaceFolder}/types"
 	],
 	"workspace.ignoreDir": [".luarocks"],
 	"workspace.checkThirdParty": false,

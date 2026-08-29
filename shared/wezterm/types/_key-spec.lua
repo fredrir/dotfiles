@@ -1,0 +1,4 @@
+---@class KeySpec
+---@field key string
+---@field mods string
+---@field action Action

@@ -2,6 +2,10 @@ local wezterm = require "wezterm" ---@type Wezterm
 local platform = require "utils.platform"
 local resize_window = require "utils.resize-window"
 local bind_keys = require "utils.bind-keys"
+local macos_no_NB_keys = require "keymap.macos"
+local motion_keys = require "keymap.motion-keys"
+local extend = require "utils.extend"
+
 local act = wezterm.action
 local MOD = require "keymap.modifiers"
 
@@ -28,7 +32,7 @@ local keys = bind_keys {
   --   mods = MOD.SUPER_REV,
   --   action = act.DetachTab "CurrentTabDomain",
   -- },
-  { -- Quit Window --
+  { -- Quit Application --
     key = "q",
     mods = MOD.SPECIAL,
     action = act.QuitApplication,
@@ -38,20 +42,30 @@ local keys = bind_keys {
     mods = MOD.SPECIAL,
     action = act.CloseCurrentTab { confirm = false },
   },
+  { -- Quit Pane --
+    key = "d",
+    mods = MOD.ALT,
+    action = act.CloseCurrentPane { confirm = false },
+  },
   { -- Go to last tab --
     key = "0",
     mods = MOD.SPECIAL,
     action = act.ActivateTab(-1),
   },
+  { -- Go to next tab --
+    key = "Tab",
+    mods = "CTRL",
+    action = act.ActivateTabRelative(1),
+  },
 
   { -- Split Pane to the Side --
-    key = MOD.SPLITSIDE,
-    mods = "CMD",
+    key = "d",
+    mods = MOD.SPECIAL,
     action = act.SplitHorizontal { domain = "CurrentPaneDomain" },
   },
   { -- Split Pane Below --
-    key = MOD.SPECIAL,
-    mods = "CMD",
+    key = MOD.SPLITBELOW,
+    mods = MOD.SPECIAL_OR_CTRL,
     action = act.SplitVertical { domain = "CurrentPaneDomain" },
   },
 
@@ -72,24 +86,14 @@ for i = 1, 9 do
   })
 end
 
+-- Extenders
+extend(keys, motion_keys)
 if platform.is_mac then
-  ---@type Key[]
-  local cursor_motion_keys = {
-    { key = "LeftArrow", mods = MOD.ALT, action = act.SendKey { key = "b", mods = "ALT" } },
-    { key = "RightArrow", mods = MOD.ALT, action = act.SendKey { key = "f", mods = "ALT" } },
-    { key = "LeftArrow", mods = MOD.SUPER, action = act.SendKey { key = "a", mods = "CTRL" } },
-    { key = "RightArrow", mods = MOD.SUPER, action = act.SendKey { key = "e", mods = "CTRL" } },
-  }
-
-  -- Fixes ⌥+7, ⌥+8 --> [ , ]
-
-  table.move(cursor_motion_keys, 1, #cursor_motion_keys, #keys + 1, keys)
+  extend(keys, macos_no_NB_keys)
 end
 
 function M.apply_to_config(config)
   config.disable_default_key_bindings = true
-  config.keys = keys
-
   config.keys = keys
   -- config.disable_default_mouse_bindings = true
   -- config.leader = {}
