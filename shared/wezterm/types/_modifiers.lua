@@ -1,7 +1,8 @@
 ---@class Modifiers
 ---@field SUPER string
 ---@field SUPER_REV string
----@field ALT string
+---@field SECONDARY string
 ---@field SPECIAL string
 ---@field SPECIAL_OR_CTRL string[]
+---@field CTRL_OR_SECONDARY string[]
 ---@field SPLITBELOW string

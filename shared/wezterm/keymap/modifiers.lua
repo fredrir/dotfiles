@@ -7,10 +7,11 @@ local function modifiers()
     return {
       SUPER = "CMD",
       SPECIAL = "CMD",
-      ALT = "OPT",
+      SECONDARY = "OPT",
       ---
       SUPER_REV = "CMD|SHIFT",
       SPECIAL_OR_CTRL = { "CMD", "CTRL" },
+      CTRL_OR_SECONDARY = { "CTRL", "OPT" },
       ---
       SPLITBELOW = "'",
     }
@@ -20,10 +21,12 @@ local function modifiers()
   return {
     SUPER = "CTRL",
     SPECIAL = "ALT",
-    ALT = "ALT",
+    SECONDARY = "ALT",
     ---
     SUPER_REV = "CTRL|SHIFT",
     SPECIAL_OR_CTRL = { "ALT", "CTRL" },
+    CTRL_OR_SECONDARY = { "CTRL", "ALT" },
+
     ---
     SPLITBELOW = "§",
   }

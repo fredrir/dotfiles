@@ -40,12 +40,12 @@ local keys = bind_keys {
   { -- Quit Tab --
     key = "w",
     mods = MOD.SPECIAL,
-    action = act.CloseCurrentTab { confirm = false },
+    action = act.CloseCurrentTab { confirm = true },
   },
   { -- Quit Pane --
     key = "d",
-    mods = MOD.ALT,
-    action = act.CloseCurrentPane { confirm = false },
+    mods = MOD.CTRL_OR_SECONDARY,
+    action = act.CloseCurrentPane { confirm = true },
   },
   { -- Go to last tab --
     key = "0",
@@ -58,15 +58,26 @@ local keys = bind_keys {
     action = act.ActivateTabRelative(1),
   },
 
-  { -- Split Pane to the Side --
+  { -- Pane Controls --
     key = "d",
-    mods = MOD.SPECIAL,
-    action = act.SplitHorizontal { domain = "CurrentPaneDomain" },
+    mods = MOD.SUPER,
+    action = act.SplitHorizontal { domain = "CurrentPaneDomain" }, -- Split to the side
   },
-  { -- Split Pane Below --
+  {
     key = MOD.SPLITBELOW,
     mods = MOD.SPECIAL_OR_CTRL,
-    action = act.SplitVertical { domain = "CurrentPaneDomain" },
+    action = act.SplitVertical { domain = "CurrentPaneDomain" }, -- Split Below
+  },
+
+  {
+    key = "l",
+    mods = MOD.CTRL_OR_SECONDARY,
+    action = act.ClearScrollback "ScrollbackAndViewport",
+  },
+  {
+    key = "l",
+    mods = MOD.SUPER,
+    action = act.ClearScrollback "ScrollbackOnly",
   },
 
   -- Zoom Controls --
@@ -95,6 +106,7 @@ end
 function M.apply_to_config(config)
   config.disable_default_key_bindings = true
   config.keys = keys
+  config.window_close_confirmation = "AlwaysPrompt"
   -- config.disable_default_mouse_bindings = true
   -- config.leader = {}
   -- config.key_tables = key_tables
