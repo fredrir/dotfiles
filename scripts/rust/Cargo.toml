@@ -5,6 +5,7 @@ resolver = "2"
 members = [
   "crates/bench-workloads",
   "crates/count",
+  "crates/doc-purge",
   "crates/dotfile-format",
   "crates/dotfmt",
   "crates/flatten",

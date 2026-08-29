@@ -5,6 +5,7 @@
 | -------------- | ---------------------------------------- | ---------------------------------------------------- |
 | clipboard      | [clipboard.md](./clipboard.md)           | [scripts/python/src/tools/utils/remote_clipboard.py] |
 | count          | [count.md](./count.md)                   | [scripts/rust/crates/count/]                         |
+| doc-purge      | [doc-purge.md](./doc-purge.md)           | [scripts/rust/crates/doc-purge/]                     |
 | dotfile        | [dotfile.md](./dotfile.md)               | [scripts/python/src/tools/dotfile/]                  |
 | dotfile-format | [dotfile-format.md](./dotfile-format.md) | [scripts/rust/crates/dotfile-format/]                |
 | dotfmt         | [dotfmt.md](./dotfmt.md)                 | [scripts/rust/crates/dotfmt/]                        |
