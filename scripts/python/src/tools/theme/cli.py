@@ -34,6 +34,14 @@ MENU = (
     "dry",
 )
 
+MENU_HELP = (
+    "regenerate every config",
+    "assign a profile to a scope",
+    "resolved profiles, and drift",
+    "look at a profile in full",
+    "what sync would change",
+)
+
 EVERYTHING = "global"
 WHOLE_GROUP = "group"
 
@@ -73,21 +81,29 @@ def _status_rows(selection, owned):
 
 
 def _interactive():
-    choice = menu.pick(PROG, MENU)
-    if choice is None:
+    owned = _owned()
+    selection = read_selection(owned)
+    picks = menu.cascade(PROG, _expand(selection, inventory(owned)))
+    _dispatch(picks, selection, owned)
+
+
+def _dispatch(picks, selection, owned, flow=""):
+    if picks is None:
         return
-    name = MENU[choice]
+    if picks[-1].kind == "note":
+        die(PROG, picks[-1].option)
+    name = flow or picks[0].option
     if name == "sync":
         sync()
-    elif name == "switch":
-        switch(profile="", scope="")
     elif name == "status":
         status()
-    elif name == "show":
-        show(profile="")
-
     elif name == "dry":
         dry()
+    elif name == "preview":
+        _render_profile(owned, selection, picks[-1].option)
+    elif name == "switch":
+        block, key, everything = _scope_of(picks)
+        _apply_switch(selection, block, key, everything, picks[-1].option)
 
 
 @app.callback(invoke_without_command=True)
@@ -121,8 +137,8 @@ def status():
     preview.render_status(_status_rows(selection, owned), changed)
 
 
-@app.command(help="Preview a profile")
-def show(
+@app.command("preview", help="Preview a profile")
+def preview_(
     profile: Annotated[str, typer.Argument(help="Profile name")] = "",
 ):
     owned = _owned()
@@ -133,6 +149,10 @@ def show(
         profile = _pick_profile("preview which profile?", selection.default)
         if profile is None:
             return
+    _render_profile(owned, selection, profile)
+
+
+def _render_profile(owned, selection, profile):
     if profile not in list_profiles():
         die(PROG, f"unknown profile '{profile}' (available: {', '.join(list_profiles())})")
     theme = Theme.load(profile)
@@ -152,23 +172,25 @@ def switch(
     owned = _owned()
     selection = read_selection(owned)
     groups = inventory(owned)
-    everything = False
     if not profile and not _interactive_terminal():
         die(PROG, f"a profile is required (available: {', '.join(list_profiles())})")
+    if not profile and not scope:
+        picks = menu.cascade(PROG, _expand(selection, groups, flow="switch"))
+        _dispatch(picks, selection, owned, flow="switch")
+        return
     if scope:
         block, key, everything = _parse_scope(scope, groups)
-    elif profile:
-        block, key = DEFAULT_GROUP, THEME_KEY
     else:
-        chosen = _pick_scope(selection, groups)
-        if chosen is None:
-            return
-        block, key, everything = chosen
+        block, key, everything = DEFAULT_GROUP, THEME_KEY, False
     if not profile:
-        current = selection.groups.get(block, {}).get(key, selection.default)
-        profile = _pick_profile(f"which profile for {_label(block, key, everything)}?", current)
+        title = f"which profile for {_label(block, key, everything)}?"
+        profile = _pick_profile(title, _current(selection, block, key))
         if profile is None:
             return
+    _apply_switch(selection, block, key, everything, profile)
+
+
+def _apply_switch(selection, block, key, everything, profile):
     if profile not in list_profiles():
         die(PROG, f"unknown profile '{profile}' (available: {', '.join(list_profiles())})")
     if everything and not _clear_overrides(selection):
@@ -229,43 +251,86 @@ def _describe(name):
     return f"{theme.name}   {'dark' if theme.dark else 'light'}"
 
 
+def _current(selection, block, key):
+    return selection.groups.get(block, {}).get(key, selection.default)
+
+
 def _pick_profile(title, default):
+    column = _profile_column(default)
+    if column.kind == "note":
+        die(PROG, column.options[0])
+    choice = menu.pick(title, column.options, column.details, column.index, column.preview)
+    return None if choice is None else column.options[choice]
+
+
+def _profile_column(default):
     names = list_profiles()
     if not names:
-        die(PROG, "no profiles in theme/profiles")
-    details = [_describe(name) for name in names]
-    start = names.index(default) if default in names else 0
-    choice = menu.pick(title, names, details, default=start, preview=preview.picker_preview(names))
-    return None if choice is None else names[choice]
+        return menu.Column(["no profiles in theme/profiles"], kind="note")
+    return menu.Column(
+        names,
+        [_describe(name) for name in names],
+        preview=preview.picker_preview(names),
+        default=names.index(default) if default in names else 0,
+        kind="profile",
+    )
 
 
-def _pick_scope(selection, groups):
+def _scope_column(selection, groups):
     options = [EVERYTHING]
-    details = [f"{selection.default}"]
+    details = [selection.default]
     for group in groups:
-        current = selection.groups.get(group, {}).get(THEME_KEY, selection.default)
         options.append(group)
-        details.append(f"{current}   {', '.join(groups[group])}")
-    choice = menu.pick("what should change?", options, details)
-    if choice is None:
-        return None
-    if choice == 0:
-        return DEFAULT_GROUP, THEME_KEY, True
-    group = options[choice]
-    packages = groups[group]
-    if len(packages) < 2:
-        return group, THEME_KEY, False
+        details.append(f"{_current(selection, group, THEME_KEY)}   {', '.join(groups[group])}")
+    return menu.Column(options, details, kind="scope")
+
+
+def _package_column(selection, group, packages):
     assigned = selection.groups.get(group, {})
     current = assigned.get(THEME_KEY, selection.default)
-    inner = [WHOLE_GROUP, *packages]
-    hints = [f"every file in {group}, now {current}"]
-    hints.extend(assigned.get(name, current) for name in packages)
-    picked = menu.pick(f"all of {group}, or one package?", inner, hints)
-    if picked is None:
+    details = [f"every file in {group}, now {current}"]
+    details.extend(assigned.get(name, current) for name in packages)
+    return menu.Column([WHOLE_GROUP, *packages], details, kind="package")
+
+
+def _expand(selection, groups, flow=""):
+    def expand(picks):
+        if not picks:
+            if flow == "switch":
+                return _scope_column(selection, groups)
+            return menu.Column(list(MENU), list(MENU_HELP), kind="menu")
+        last = picks[-1]
+        if last.kind == "menu":
+            if last.option == "switch":
+                return _scope_column(selection, groups)
+            if last.option == "preview":
+                return _profile_column(selection.default)
+            return None
+        if last.kind == "scope":
+            if not last.index:
+                return _profile_column(selection.default)
+            packages = groups[last.option]
+            if len(packages) < 2:
+                return _profile_column(_current(selection, last.option, THEME_KEY))
+            return _package_column(selection, last.option, packages)
+        if last.kind == "package":
+            block, key, _everything = _scope_of(picks)
+            return _profile_column(_current(selection, block, key))
         return None
-    if picked == 0:
-        return group, THEME_KEY, False
-    return group, inner[picked], False
+
+    return expand
+
+
+def _scope_of(picks):
+    scope = next((pick for pick in picks if pick.kind == "scope"), None)
+    if scope is None:
+        return DEFAULT_GROUP, THEME_KEY, False
+    if not scope.index:
+        return DEFAULT_GROUP, THEME_KEY, True
+    package = next((pick for pick in picks if pick.kind == "package"), None)
+    if package is None or not package.index:
+        return scope.option, THEME_KEY, False
+    return scope.option, package.option, False
 
 
 def _clear_overrides(selection):

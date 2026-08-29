@@ -30,12 +30,24 @@ MENU = (
     ("prune", "thin old runs"),
 )
 
+MACHINES = "machine vs machine"
+UPGRADE = "before vs after upgrade"
+DISTROS = "distro vs distro"
+BY_HAND = "pick two runs"
+
 COMPARISONS = (
-    ("machine vs machine", "the same metric on two different machines"),
-    ("before vs after upgrade", "two hardware configurations of one machine"),
-    ("distro vs distro", "two installations on one machine"),
-    ("pick two runs", "choose both sides by hand"),
+    (MACHINES, "the same metric on two different machines"),
+    (UPGRADE, "two hardware configurations of one machine"),
+    (DISTROS, "two installations on one machine"),
+    (BY_HAND, "choose both sides by hand"),
 )
+
+PAIR_TITLES = {
+    ("epoch", "a"): "earlier configuration",
+    ("epoch", "b"): "later configuration",
+    ("install", "a"): "first installation",
+    ("install", "b"): "second installation",
+}
 
 
 def known_hosts():
@@ -96,36 +108,166 @@ def resolve_host(explicit="", allow_adopt=True):
 
 
 def require_terminal(what):
-    # menu.pick returns None when stdout is not a terminal, which every caller
+    # menu.cascade returns None when stdout is not a terminal, which every caller
     # read as "the user quit" -- so piping these commands printed nothing and
     # exited 0, as though the work had been done.
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         die(PROG, f"{what} needs a terminal; pass the arguments instead")
 
 
-def pick_run(title, runs):
-    if not runs:
-        die(PROG, "no runs recorded")
-    require_terminal("choosing a run")
-    options = [run.run_id for run in runs]
-    details = [report.describe_run(run) for run in runs]
-    choice = menu.pick(title, options, details)
-    if choice is None:
-        raise typer.Exit(0)
-    return runs[choice]
+class _Runs:
+    def __init__(self):
+        self.cache = {}
+        self.seen = {}
+
+    def hosts(self):
+        if "hosts" not in self.cache:
+            self.cache["hosts"] = store.known_hosts()
+        return self.cache["hosts"]
+
+    def listed(self, host=None, grades=select.ANY):
+        key = (host, grades)
+        if key not in self.cache:
+            found = store.list_runs(host, grades=grades)
+            self.cache[key] = found
+            self.seen.update({one.run_id: one for one in found})
+        return self.cache[key]
+
+    def groups(self, host, kind):
+        key = (kind, host)
+        if key not in self.cache:
+            self.cache[key] = select.epochs(host) if kind == "epoch" else select.installs(host)
+        return self.cache[key]
+
+    def run(self, run_id):
+        return self.seen[run_id]
 
 
-def pick_host(title):
-    names = store.known_hosts()
-    if not names:
-        die(PROG, "no runs recorded")
-    if len(names) == 1:
-        return names[0]
-    require_terminal("choosing a machine")
-    choice = menu.pick(title, names)
-    if choice is None:
-        raise typer.Exit(0)
-    return names[choice]
+def _option(picks, kind):
+    found = next((pick for pick in picks if pick.kind == kind), None)
+    return found.option if found else ""
+
+
+def _host_of(picks, names):
+    return _option(picks, "host") or (names[0] if names else "")
+
+
+def _grouping(picks):
+    if _option(picks, "compare") == UPGRADE:
+        return "epoch", "hardware configuration"
+    return "install", "installation"
+
+
+def _note(message):
+    return menu.Column([message], kind="note")
+
+
+def _expand(runs, flow=""):
+    def host_column(title):
+        names = runs.hosts()
+        if len(names) < 2:
+            return None
+        return menu.Column(names, kind="host", title=title)
+
+    def run_column(found, title, kind="run"):
+        if not found:
+            return _note("no runs recorded")
+        details = [report.describe_run(one) for one in found]
+        return menu.Column([one.run_id for one in found], details, kind=kind, title=title)
+
+    def pair(picks, side):
+        host = _host_of(picks, runs.hosts())
+        kind, noun = _grouping(picks)
+        found = runs.groups(host, kind)
+        if len(found) < 2:
+            return _note(f"{host} has only one {noun} on record")
+        keys = [key for key in found if side == "a" or key != _option(picks, f"{kind}-a")]
+        details = [f"{len(found[key])} runs" for key in keys]
+        return menu.Column(keys, details, kind=f"{kind}-{side}", title=PAIR_TITLES[kind, side])
+
+    def after_host(name, picks):
+        host = _host_of(picks, runs.hosts())
+        if name == "trend":
+            clean = runs.listed(host, select.CLEAN)
+            keys = sorted({metric.key for one in clean for metric in one.metrics})
+            if not keys:
+                return _note(f"{host} has no clean runs")
+            return menu.Column(keys, kind="metric", title="which metric?")
+        if name == "baseline":
+            title = "use which run as the baseline?"
+            return run_column(runs.listed(host, select.CLEAN), title)
+        return pair(picks, "a")
+
+    def opening(name, picks):
+        if name == "show":
+            return run_column(runs.listed(), "show which run?")
+        if name == "compare":
+            options = [name for name, _ in COMPARISONS]
+            details = [text for _, text in COMPARISONS]
+            return menu.Column(options, details, kind="compare", title="compare what?")
+        if name in ("trend", "baseline"):
+            return host_column("which machine?") or after_host(name, picks)
+        return None
+
+    def expand(picks):
+        if not picks:
+            if flow:
+                return opening(flow, picks)
+            options = [name for name, _ in MENU]
+            return menu.Column(options, [text for _, text in MENU], kind="menu")
+        last = picks[-1]
+        if last.kind == "menu":
+            return opening(last.option, picks)
+        if last.kind == "compare":
+            if last.option == MACHINES:
+                names = runs.hosts()
+                if len(names) < 2:
+                    return _note("two machines are needed; only one has runs")
+                return menu.Column(names, kind="host-a", title="first machine")
+            if last.option == BY_HAND:
+                return run_column(runs.listed(), "left run", kind="run-a")
+            return host_column("which machine?") or pair(picks, "a")
+        if last.kind == "host":
+            return after_host(flow or picks[0].option, picks)
+        if last.kind == "host-a":
+            rest = [name for name in runs.hosts() if name != last.option]
+            return menu.Column(rest, kind="host-b", title="second machine")
+        if last.kind == "run-a":
+            return run_column(runs.listed(), "right run", kind="run-b")
+        if last.kind in ("epoch-a", "install-a"):
+            return pair(picks, "b")
+        return None
+
+    return expand
+
+
+def _sides(runs, picks):
+    comparison = _option(picks, "compare")
+    if comparison == MACHINES:
+        left, right = _option(picks, "host-a"), _option(picks, "host-b")
+        return require_run(left, left), require_run(right, right)
+    if comparison == BY_HAND:
+        return runs.run(_option(picks, "run-a")), runs.run(_option(picks, "run-b"))
+    kind, _noun = _grouping(picks)
+    found = runs.groups(_host_of(picks, runs.hosts()), kind)
+    return found[_option(picks, f"{kind}-a")][0], found[_option(picks, f"{kind}-b")][0]
+
+
+def _open(flow, what):
+    require_terminal(what)
+    runs = _Runs()
+    _dispatch(runs, menu.cascade(PROG, _expand(runs, flow=flow)), flow=flow)
+
+
+def _pick_run(what):
+    require_terminal(what)
+    runs = _Runs()
+    picks = menu.cascade(PROG, _expand(runs, flow="show"))
+    if picks is None:
+        return None
+    if picks[-1].kind == "note":
+        die(PROG, picks[-1].option)
+    return runs.run(_option(picks, "run"))
 
 
 def require_run(text, label):
@@ -142,10 +284,16 @@ def main(ctx: typer.Context):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         out(ctx.get_help())
         return
-    choice = menu.pick("sysinfo bench", [name for name, _ in MENU], [text for _, text in MENU])
-    if choice is None:
+    runs = _Runs()
+    _dispatch(runs, menu.cascade(PROG, _expand(runs)))
+
+
+def _dispatch(runs, picks, flow=""):
+    if picks is None:
         return
-    name = MENU[choice][0]
+    if picks[-1].kind == "note":
+        die(PROG, picks[-1].option)
+    name = flow or picks[0].option
     if name == "run":
         run(
             tier="quick",
@@ -160,99 +308,24 @@ def main(ctx: typer.Context):
             as_json=False,
         )
     elif name == "show":
-        show(target="")
+        report.render_run(runs.run(_option(picks, "run")))
     elif name == "health":
         health(host="")
     elif name == "list":
         list_(host="", limit=20, all_grades=False)
     elif name == "compare":
-        interactive_compare()
+        emit_comparison(*_sides(runs, picks))
     elif name == "trend":
-        interactive_trend()
+        host = _host_of(picks, runs.hosts())
+        report.render_trend(runs.listed(host, select.CLEAN), _option(picks, "metric"))
     elif name == "baseline":
-        interactive_baseline()
+        chosen = runs.run(_option(picks, "run"))
+        store.set_baseline(chosen.host, chosen.epoch, chosen.run_id)
+        out(f"{PROG}: baseline for {chosen.host}@{chosen.epoch} is {chosen.run_id}")
     elif name == "prune":
         # Not forced to --dry-run any more: the menu entry says "thin old runs",
         # and the confirmation below is what makes actually doing so safe.
         prune(host="", keep=12, dry_run=False, yes=False)
-
-
-def interactive_compare():
-    require_terminal("compare without both selectors")
-    choice = menu.pick(
-        "compare what?", [name for name, _ in COMPARISONS], [t for _, t in COMPARISONS]
-    )
-    if choice is None:
-        return
-    if choice == 0:
-        names = store.known_hosts()
-        if len(names) < 2:
-            die(PROG, "two machines are needed; only one has runs")
-        first = menu.pick("first machine", names)
-        if first is None:
-            return
-        rest = [name for name in names if name != names[first]]
-        second = menu.pick("second machine", rest)
-        if second is None:
-            return
-        left = require_run(names[first], names[first])
-        right = require_run(rest[second], rest[second])
-    elif choice == 1:
-        host = pick_host("which machine?")
-        found = select.epochs(host)
-        if len(found) < 2:
-            die(PROG, f"{host} has only one hardware configuration on record")
-        keys = list(found)
-        labels = [f"{epoch}  {len(found[epoch])} runs" for epoch in keys]
-        first = menu.pick("earlier configuration", labels)
-        if first is None:
-            return
-        second = menu.pick("later configuration", labels)
-        if second is None:
-            return
-        left = found[keys[first]][0]
-        right = found[keys[second]][0]
-    elif choice == 2:
-        host = pick_host("which machine?")
-        found = select.installs(host)
-        if len(found) < 2:
-            die(PROG, f"{host} has runs from only one installation")
-        keys = list(found)
-        first = menu.pick("first installation", keys)
-        if first is None:
-            return
-        second = menu.pick("second installation", keys)
-        if second is None:
-            return
-        left = found[keys[first]][0]
-        right = found[keys[second]][0]
-    else:
-        runs = store.list_runs(grades=select.ANY)
-        left = pick_run("left run", runs)
-        right = pick_run("right run", runs)
-    emit_comparison(left, right)
-
-
-def interactive_trend():
-    require_terminal("trend without a metric")
-    host = pick_host("which machine?")
-    runs = store.list_runs(host, grades=select.CLEAN)
-    keys = sorted({metric.key for run in runs for metric in run.metrics})
-    if not keys:
-        die(PROG, f"{host} has no clean runs")
-    choice = menu.pick("which metric?", keys)
-    if choice is None:
-        return
-    report.render_trend(runs, keys[choice])
-
-
-def interactive_baseline():
-    require_terminal("baseline set without a selector")
-    host = pick_host("which machine?")
-    runs = store.list_runs(host, grades=select.CLEAN)
-    chosen = pick_run("use which run as the baseline?", runs)
-    store.set_baseline(chosen.host, chosen.epoch, chosen.run_id)
-    out(f"{PROG}: baseline for {chosen.host}@{chosen.epoch} is {chosen.run_id}")
 
 
 def emit_comparison(left, right, as_json=False):
@@ -370,7 +443,9 @@ def show(
     if target:
         found = require_run(target, target)
     else:
-        found = pick_run("show which run?", store.list_runs(grades=select.ANY))
+        found = _pick_run("choosing a run")
+        if found is None:
+            return
     if as_json:
         out(json.dumps(found.to_json(), indent=2))
         return
@@ -419,7 +494,7 @@ def compare(
     as_json: Annotated[bool, typer.Option("--json", help="Emit the comparison as JSON.")] = False,
 ):
     if not left or not right:
-        interactive_compare()
+        _open("compare", "compare without both selectors")
         return
     emit_comparison(require_run(left, left), require_run(right, right), as_json)
 
@@ -430,7 +505,7 @@ def trend(
     metric: Annotated[str, typer.Argument(help="Metric key such as cpu.multi.")] = "",
 ):
     if not target or not metric:
-        interactive_trend()
+        _open("trend", "trend without a metric")
         return
     selector = select.parse(target)
     runs = [
@@ -457,7 +532,7 @@ def baseline(
         return
     if action == "set":
         if not target:
-            interactive_baseline()
+            _open("baseline", "baseline set without a selector")
             return
         chosen = require_run(target, target)
         store.set_baseline(chosen.host, chosen.epoch, chosen.run_id)

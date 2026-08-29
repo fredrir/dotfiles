@@ -1,22 +1,11 @@
+from tools.core.screen import BOLD, DIM, GREEN, INDENT, RED, YELLOW, paint
 from tools.dotfile.state import log
-
-BOLD = "\033[1m"
-DIM = "\033[2m"
-GREEN = "\033[32m"
-RED = "\033[31m"
-YELLOW = "\033[33m"
-RESET = "\033[0m"
 
 MARKS = {"ok": ("✓", GREEN), "bad": ("✗", RED), "warn": ("!", YELLOW), "note": ("·", DIM)}
 
-INDENT = "  "
 ITEM_INDENT = " " * 6
 LABEL_WIDTH = 11
 ITEM_LIMIT = 12
-
-
-def paint(text, color, color_on):
-    return f"{color}{text}{RESET}" if color_on else text
 
 
 def plural(count, noun, many=""):

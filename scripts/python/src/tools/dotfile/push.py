@@ -127,7 +127,7 @@ def remote_state(host, directory):
     """The far side's branch and its uncommitted changes, in one round trip."""
     result = capture(["ssh", host, remote_script(directory, "git status --porcelain --branch")])
     if result.returncode != 0:
-        stop(f"{host}: {first_line(result.stderr) or 'cannot repository'}")
+        stop(f"{host}: {first_line(result.stderr) or 'cannot read repository'}")
     branch = ""
     changes = []
     for line in result.stdout.splitlines():

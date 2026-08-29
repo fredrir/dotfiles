@@ -13,16 +13,34 @@ the whole interaction can be driven by a scripted key sequence in tests.
 """
 
 import contextlib
-import os
-import select
 import shutil
 import sys
-import termios
-import tty
 
-from tools.dotfile.report import BOLD, DIM, GREEN, MARKS, RED, YELLOW, paint, plural
-
-CYAN = "\033[36m"
+from tools.core.screen import (
+    ABORT,
+    BLANK,
+    BOLD,
+    CLEAR,
+    CURSOR,
+    CYAN,
+    DIM,
+    ERASE,
+    GAP,
+    GREEN,
+    HIDE,
+    INDENT,
+    RED,
+    SHOW,
+    YELLOW,
+    colors_for,
+    compose,
+    fit,
+    flush,
+    normalise,
+    scripted,
+    tty_keys,
+)
+from tools.dotfile.report import MARKS, plural
 
 ACTIONS = ("shared", "target", "ignore", "discard")
 
@@ -38,17 +56,8 @@ TINT = {"shared": GREEN, "target": CYAN, "ignore": YELLOW, "discard": DIM}
 
 BACK = "‹ back"
 REVISE = "‹ revise"
-HIDE = "\033[?25l"
-SHOW = "\033[?25h"
-CLEAR = "\033[K"
-ERASE = "\033[J"
-CURSOR = "❯ "
-BLANK = "  "
-INDENT = "  "
-GAP = "  "
 ARROW = "  → "
 BAR = 4
-ESC_DELAY = 0.05
 
 # blank, title, help, blank, destination, two scroll hints, two footer lines, one spare
 CHROME = 10
@@ -67,19 +76,6 @@ HELP = {
     ABORTED: "",
 }
 
-ARROWS = {
-    "\033[A": "up",
-    "\033OA": "up",
-    "\033[B": "down",
-    "\033OB": "down",
-    "\033[C": "right",
-    "\033OC": "right",
-    "\033[D": "left",
-    "\033OD": "left",
-}
-NAMED = {"k": "up", "j": "down", "h": "left", "l": "right", "\r": "enter", "\n": "enter"}
-ABORT = ("q", "\033", "\003", "")
-
 
 class Change:
     """One local edit to route.  `kind` picks the row glyph, `label` and `detail` are
@@ -94,27 +90,6 @@ class Change:
 
     def __repr__(self):
         return f"Change({self.kind!r}, {self.path!r}, {self.label!r})"
-
-
-def fit(text, width):
-    """Clip to `width` columns, marking the cut with an ellipsis."""
-    if width <= 0:
-        return ""
-    if len(text) <= width:
-        return text
-    return text[: width - 1] + "…" if width > 1 else "…"
-
-
-def compose(segments, width, color_on):
-    """Paint (text, colour) segments into one line; returns the line and its printed width."""
-    parts, used = [], 0
-    for text, color in segments:
-        if used >= width:
-            break
-        text = fit(text, width - used)
-        used += len(text)
-        parts.append(paint(text, color, color_on) if color else text)
-    return "".join(parts), used
 
 
 def cells(items, index, column, focused):
@@ -136,59 +111,6 @@ def cells(items, index, column, focused):
         if position + 1 < len(items):
             segments.append((" ", ""))
     return segments, span + 1
-
-
-def normalise(key):
-    return ARROWS.get(key) or NAMED.get(key, key)
-
-
-def read_key(fd):
-    """One keystroke.  A bare ESC returns at once rather than waiting for a sequence, and
-    a terminal that hangs up reads as "" so the caller treats it as an abort."""
-    try:
-        data = os.read(fd, 1)
-        if not data:
-            return ""
-        key = data.decode(errors="ignore")
-        if key == "\033" and select.select([fd], [], [], ESC_DELAY)[0]:
-            key += os.read(fd, 2).decode(errors="ignore")
-    except OSError:
-        return ""
-    return key
-
-
-@contextlib.contextmanager
-def tty_keys():
-    """A cbreak reader on /dev/tty, so the selector still works with stdout redirected."""
-    with open("/dev/tty", "rb", buffering=0) as handle:
-        fd = handle.fileno()
-        saved = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
-            yield lambda: read_key(fd)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-
-
-def scripted(keys):
-    """Accept either a reader callable or a plain sequence of keystrokes."""
-    if callable(keys):
-        return keys
-    pending = iter(keys)
-    return lambda: next(pending, "")
-
-
-def colors_for(stream):
-    if "NO_COLOR" in os.environ:
-        return False
-    isatty = getattr(stream, "isatty", None)
-    return bool(isatty and isatty())
-
-
-def flush(stream):
-    handler = getattr(stream, "flush", None)
-    if handler:
-        handler()
 
 
 class Selector:

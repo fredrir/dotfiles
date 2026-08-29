@@ -28,6 +28,8 @@ MENU = (
     ("sync", "sync allowlisted sessions now"),
 )
 
+_MENU_NAMES = [name for name, _ in MENU]
+
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context, completions: str = surface.COMPLETIONS):
@@ -36,10 +38,13 @@ def main(ctx: typer.Context, completions: str = surface.COMPLETIONS):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         out(ctx.get_help())
         return
-    choice = menu.pick("transcript", [name for name, _ in MENU], [text for _, text in MENU])
-    if choice is None:
+    candidates = _Candidates()
+    picks = _walk(candidates)
+    if picks is None:
         return
-    name = MENU[choice][0]
+    if picks[-1].kind == "note":
+        die("transcript", picks[-1].option)
+    name = picks[0].option
     if name == "capture":
         capture(provider="", raw=False, quiet=False, fallback="")
     elif name == "import":
@@ -47,13 +52,45 @@ def main(ctx: typer.Context, completions: str = surface.COMPLETIONS):
     elif name == "list":
         list_(limit=15)
     elif name == "add":
-        _interactive_add()
+        _track(candidates.directory(picks[-1]))
     elif name == "rm":
-        _interactive_rm()
+        _untrack(picks[-1].option)
     elif name == "migrate":
         migrate(verbose=False)
     elif name == "sync":
         sync(dry_run=False, raw=False, quiet=False, tools=False)
+
+
+def _walk(candidates):
+    while True:
+        picks = menu.cascade("transcript", _expand(candidates), start=candidates.start)
+        if picks is None or picks[-1].kind != "candidate":
+            return picks
+        if not candidates.reveal(picks[-1].index):
+            return picks
+        menu.erase()
+
+
+def _expand(candidates):
+    def expand(picks):
+        if not picks:
+            return menu.Column([name for name, _ in MENU], [text for _, text in MENU], kind="menu")
+        if picks[-1].kind != "menu":
+            return None
+        if picks[-1].option == "add":
+            return candidates.column()
+        if picks[-1].option == "rm":
+            return _project_column()
+        return None
+
+    return expand
+
+
+def _project_column():
+    projects = config.project_list()
+    if not projects:
+        return menu.Column(["no tracked projects"], kind="note")
+    return menu.Column(projects, kind="project")
 
 
 def _untracked_candidates():
@@ -87,52 +124,59 @@ def _untracked_candidates():
     return candidates
 
 
-def _interactive_add():
-    page = 10
-    candidates = _untracked_candidates()
-    shown = page
-    cursor = 0
-    while True:
-        visible = candidates[:shown]
+PAGE = 10
+ENTER_PATH = "enter a path…"
+
+
+class _Candidates:
+    def __init__(self):
+        self.found = None
+        self.shown = PAGE
+        self.start = ()
+
+    def scan(self):
+        if self.found is None:
+            self.found = _untracked_candidates()
+        return self.found
+
+    def column(self):
+        visible = self.scan()[: self.shown]
         options = [name for name, _ in visible]
-        descriptions = [str(root) for _, root in visible]
-        remaining = len(candidates) - len(visible)
+        details = [str(root) for _, root in visible]
+        remaining = len(self.scan()) - len(visible)
         if remaining:
-            options.append(f"show {min(remaining, page)} more…")
-            descriptions.append(f"{remaining} more from session history")
-        options.append("enter a path…")
-        descriptions.append("type a directory yourself")
-        choice = menu.pick("track which project?", options, descriptions, default=cursor)
-        if choice is None:
-            return
-        if remaining and choice == len(visible):
-            menu.erase(len(options))
-            cursor = len(visible)
-            shown += page
-            continue
-        if choice == len(options) - 1:
-            raw = typer.prompt("directory", default=".")
-            directory = Path(raw).expanduser().resolve()
-            if not directory.is_dir():
-                die("transcript", f"no such directory: {directory}")
-        else:
-            directory = visible[choice][1]
-        break
-    default_name = manage.resolve_repo(directory).name
-    name = typer.prompt("project name", default=default_name)
+            options.append(f"show {min(remaining, PAGE)} more…")
+            details.append(f"{remaining} more from session history")
+        options.append(ENTER_PATH)
+        details.append("type a directory yourself")
+        default = self.start[1] if len(self.start) > 1 else 0
+        return menu.Column(options, details, default=default, kind="candidate")
+
+    def reveal(self, index):
+        visible = min(self.shown, len(self.scan()))
+        if index != visible or visible == len(self.scan()):
+            return False
+        self.start = (_MENU_NAMES.index("add"), visible)
+        self.shown += PAGE
+        return True
+
+    def directory(self, chosen):
+        visible = self.scan()[: self.shown]
+        if chosen.index < len(visible):
+            return visible[chosen.index][1]
+        return Path(typer.prompt("directory", default=".")).expanduser().resolve()
+
+
+def _track(directory):
+    if not directory.is_dir():
+        die("transcript", f"no such directory: {directory}")
+    name = typer.prompt("project name", default=manage.resolve_repo(directory).name)
     group = typer.prompt("group (empty for none)", default="")
     project, added = manage.track(directory, name.strip(), group.strip())
     out(f"tracking {project}" if added else f"{project} is already tracked")
 
 
-def _interactive_rm():
-    projects = config.project_list()
-    if not projects:
-        die("transcript", "no tracked projects")
-    choice = menu.pick("stop tracking which project?", projects)
-    if choice is None:
-        return
-    name = projects[choice]
+def _untrack(name):
     if manage.untrack(name):
         out(f"stopped tracking {name}")
     else:
@@ -304,10 +348,7 @@ def rm(
         name = vault.project_of(str(manage.resolve_repo(candidate.resolve())))
     else:
         name = target.strip().strip("/")
-    if manage.untrack(name):
-        out(f"stopped tracking {name}")
-    else:
-        die("transcript", f"{name} is not tracked")
+    _untrack(name)
 
 
 def _vault_relative(path):

@@ -27,6 +27,7 @@ COMMANDS = {
     "cpa": "Copies the local text clipboard to Archie.",
     "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",
     "count": "Counts items inside a directory.",
+    "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
     "dotfile add": "Moves a live config into the repository and symlinks it back.",
     "dotfile remove": "Moves a tracked path out of the repository and keeps it live.",
@@ -143,6 +144,13 @@ FLAGS = {
     ("dotfile", "--unused"): "Lists only variable names that no secret template references.",
     ("dotfile", "--yes"): "Installs system files without asking for confirmation.",
     ("dotfile", "--group"): "Selects the package group for an added system file.",
+    ("doc-purge", "--type"): (
+        "Limits the walk to one file type, named by extension or by language, "
+        "and repeats or takes a comma-separated list for several."
+    ),
+    ("doc-purge", "--dry"): "Shows what would go without writing anything.",
+    ("doc-purge", "--yes"): "Runs without asking for confirmation.",
+    ("doc-purge", "--verbose"): "Lists every row instead of truncating sections after 12 rows.",
     ("dotfile-format", "--check"): (
         "Verifies formatting and runs each language's linter instead of writing anything."
     ),

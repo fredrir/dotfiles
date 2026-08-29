@@ -124,7 +124,7 @@ VALUES = {
     "dotfile secret edit": {"path": call("secrets", "secret")},
     "dotfile system diff": {"path": call("system-files", "system file")},
     "dotfile system add": {"path": files(), "--pkg": PACKAGE, "--group": GROUPS},
-    "dotfile theme show": {"profile": call("theme-profiles", "theme profile")},
+    "dotfile theme preview": {"profile": call("theme-profiles", "theme profile")},
     "dotfile theme switch": {
         "profile": call("theme-profiles", "theme profile"),
         "scope": call("theme-scopes", "scope"),

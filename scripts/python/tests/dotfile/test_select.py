@@ -1,9 +1,5 @@
-import contextlib
 import io
-import os
 import re
-import time
-import tty
 
 import pytest
 
@@ -50,19 +46,6 @@ def changes():
         Change("modify", ("git.autofetch",), '"git.autofetch"', "true → false", ["macos", "linux"]),
         Change("delete", ("cSpell.userWords",), '"cSpell.userWords"', '["fredrir", …]', ["macos"]),
     ]
-
-
-@contextlib.contextmanager
-def terminal_pair():
-    """A raw pty, so the reader can be exercised the way it runs against /dev/tty."""
-    reader, writer = os.openpty()
-    tty.setraw(writer)
-    try:
-        yield reader, writer
-    finally:
-        for handle in (reader, writer):
-            with contextlib.suppress(OSError):
-                os.close(handle)
 
 
 def plain(text):
@@ -394,50 +377,6 @@ def test_the_change_record_keeps_its_key_path():
     assert "modify" in repr(change)
 
 
-@pytest.mark.parametrize(
-    ("key", "name"),
-    [
-        ("\x1b[A", "up"),
-        ("\x1bOA", "up"),
-        ("\x1b[B", "down"),
-        ("\x1bOB", "down"),
-        ("\x1b[C", "right"),
-        ("\x1bOC", "right"),
-        ("\x1b[D", "left"),
-        ("\x1bOD", "left"),
-        ("k", "up"),
-        ("j", "down"),
-        ("h", "left"),
-        ("l", "right"),
-        ("\r", "enter"),
-        ("\n", "enter"),
-        ("q", "q"),
-    ],
-)
-def test_keys_are_named_consistently(key, name):
-    assert select.normalise(key) == name
-
-
 def test_application_cursor_keys_drive_the_selector(changes):
     plan, _screen = run(changes, ["\x1bOB", "\x1bOC", "\x1bOC", ENTER, ENTER, ENTER, ENTER])
     assert plan == {0: "ignore", 1: "ignore", 2: "ignore"}
-
-
-def test_an_arrow_sequence_is_read_as_one_keystroke():
-    with terminal_pair() as (reader, writer):
-        os.write(writer, b"\x1b[A")
-        assert select.read_key(reader) == "\x1b[A"
-
-
-def test_a_bare_escape_returns_without_waiting_for_more():
-    with terminal_pair() as (reader, writer):
-        os.write(writer, b"\x1b")
-        started = time.monotonic()
-        assert select.read_key(reader) == "\x1b"
-        assert time.monotonic() - started < 1
-
-
-def test_a_closed_terminal_reads_as_an_abort():
-    with terminal_pair() as (reader, writer):
-        os.close(writer)
-        assert select.read_key(reader) == ""

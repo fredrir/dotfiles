@@ -94,5 +94,5 @@ def test_theme_lives_under_dotfile():
 
     commands = typer.main.get_command(app).commands
     assert "theme" in commands
-    expected = {"apply", "check", "status", "show", "switch", "outputs"}
+    expected = {"sync", "dry", "status", "preview", "switch", "outputs"}
     assert expected <= set(commands["theme"].commands)
