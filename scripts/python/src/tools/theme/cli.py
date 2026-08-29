@@ -73,10 +73,10 @@ def _status_rows(selection, owned):
 
 
 def _interactive():
-    choice = menu.pick(PROG, [name for name, _ in MENU], [text for _, text in MENU])
+    choice = menu.pick(PROG, MENU)
     if choice is None:
         return
-    name = MENU[choice][0]
+    name = MENU[choice]
     if name == "sync":
         sync()
     elif name == "switch":
@@ -241,7 +241,7 @@ def _pick_profile(title, default):
 
 def _pick_scope(selection, groups):
     options = [EVERYTHING]
-    details = [f"every group, now {selection.default}"]
+    details = [f"{selection.default}"]
     for group in groups:
         current = selection.groups.get(group, {}).get(THEME_KEY, selection.default)
         options.append(group)
