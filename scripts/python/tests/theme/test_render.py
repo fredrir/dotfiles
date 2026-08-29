@@ -75,11 +75,11 @@ def test_set_ini_key_updates_and_inserts_sorted():
     assert set_ini_key(text, "General", "Beta", "2") == "[General]\nAlpha=1\nBeta=2\nGamma=3"
 
 
-def test_registry_marks_plasma_owned_files_unstageable():
+def test_registry_marks_plasma_owned_files_unstaged():
     by_name = {emitter.name: emitter for emitter in registry.EMITTERS}
-    assert not by_name["kde-colorscheme"].stageable
-    assert not by_name["desktop-appletsrc"].stageable
-    assert by_name["wezterm"].stageable
+    assert not by_name["kde-colorscheme"].staged
+    assert not by_name["desktop-appletsrc"].staged
+    assert by_name["wezterm"].staged
 
 
 def test_every_emitter_declares_outputs():

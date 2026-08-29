@@ -57,12 +57,12 @@ COMMANDS = {
     "dotfile system install": "Installs tracked system files at their destinations as root.",
     "dotfile system add": "Copies a root-owned file into the repository.",
     "dotfile theme": "Stamps selected theme profiles into generated configuration files.",
-    "dotfile theme apply": "Regenerates every config from the selected theme profiles.",
-    "dotfile theme check": "Reports what theme generation would change without writing.",
+    "dotfile theme sync": "Regenerates every config from the selected theme profiles.",
+    "dotfile theme dry": "Reports what theme generation would change without writing.",
     "dotfile theme status": (
         "Shows each group's resolved profile and whether generated files have drifted."
     ),
-    "dotfile theme show": "Previews a profile's palette, roles, fonts, and terminal colors.",
+    "dotfile theme preview": "Previews a profile's palette, roles, fonts, and terminal colors.",
     "dotfile theme switch": "Assigns a profile globally, to a group, or to a package.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
     "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
@@ -143,7 +143,6 @@ FLAGS = {
     ("dotfile", "--unused"): "Lists only variable names that no secret template references.",
     ("dotfile", "--yes"): "Installs system files without asking for confirmation.",
     ("dotfile", "--group"): "Selects the package group for an added system file.",
-    ("dotfile", "--stageable"): "Prints only generated theme files that are safe to stage.",
     ("dotfile-format", "--check"): (
         "Verifies formatting and runs each language's linter instead of writing anything."
     ),

@@ -52,7 +52,7 @@ if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
 				fi
 				git add "$root/$path"
 			fi
-		done < <("$bin/dotfile" theme outputs --stageable)
+		done < <("$bin/dotfile" theme outputs --staged)
 	else
 		echo "pre-commit: theme generation failed (continuing)" >&2
 	fi

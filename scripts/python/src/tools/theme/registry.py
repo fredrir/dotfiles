@@ -5,11 +5,11 @@ from tools.theme.model import ROOT
 
 
 class Emitter:
-    def __init__(self, name, run, outputs, stageable=True):
+    def __init__(self, name, run, outputs, staged=True):
         self.name = name
         self.run = run
         self._outputs = outputs
-        self.stageable = stageable
+        self.staged = staged
 
     def outputs(self):
         produced = self._outputs() if callable(self._outputs) else self._outputs
@@ -44,12 +44,12 @@ EMITTERS = [
         "kde-colorscheme",
         emitters.emit_kde_colorscheme,
         ["linux/kde/plasma/kdeglobals"],
-        stageable=False,
+        staged=False,
     ),
     Emitter(
         "desktop-appletsrc",
         emitters.emit_desktop_appletsrc,
         ["linux/kde/plasma/plasma-org.kde.plasma.desktop-appletsrc"],
-        stageable=False,
+        staged=False,
     ),
 ]
