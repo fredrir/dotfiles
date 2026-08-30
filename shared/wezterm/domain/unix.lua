@@ -6,7 +6,6 @@ function M.apply_to_config(config)
   config.unix_domains = {
     {
       name = "localmux",
-      no_serve_automatically = true,
       socket_path = wezterm.home_dir .. "/.local/share/wezterm/localmux.sock",
     },
   }

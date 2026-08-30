@@ -22,7 +22,7 @@ local AVAILABLE_DEVICE_TYPES = {
 }
 
 ---@type GpuInfo[]
-local ENUMERATED_GPUS = wezterm.gui.enumerate_gpus()
+local ENUMERATED_GPUS = wezterm.gui and wezterm.gui.enumerate_gpus() or {}
 
 ---@class GpuAdapters
 ---@field scoreboard {[number]: GpuInfo}
