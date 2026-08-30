@@ -37,13 +37,6 @@ selection_foreground = "selection_fg"
 selection_background = "selection_bg"
 url                  = "bright_red"
 
-[terminal.tabs]
-active_foreground   = "contrast(magenta)"
-active_background   = "magenta"
-inactive_foreground = "muted"
-inactive_background = "surface"
-bar_background      = "panel"
-
 [eza]
 fi = "muted"  # fallback
 di = "blue"   # directories

@@ -4,7 +4,15 @@ import os
 import re
 import sys
 
-from tools.theme.model import list_profiles, load_map, path, profile_palette
+from tools.theme.model import (
+    FONTS_FILE,
+    Theme,
+    list_profiles,
+    load_map,
+    load_toml,
+    path,
+    profile_palette,
+)
 from tools.theme.render import (
     replace_between,
     replace_ini_section,
@@ -38,6 +46,49 @@ PANEL_PRESETS_DIR = "linux/kde/panel-colorizer/presets"
 
 NVIM_CATPPUCCIN = "shared/nvim/lua/plugins/catppuccin.lua"
 
+WEZTERM_COLORS_DIR = "shared/wezterm/ui/colors"
+
+WEZTERM_FONTS_DIR = "shared/wezterm/ui/fonts"
+
+WEZTERM_COLORS = (
+    ("foreground", "foreground"),
+    ("background", "background"),
+    ("cursor_bg", "cursor"),
+    ("cursor_fg", "cursor_text"),
+    ("cursor_border", "cursor"),
+    ("selection_fg", "selection_foreground"),
+    ("selection_bg", "selection_background"),
+)
+
+LUA_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+LUA_KEYWORDS = frozenset(
+    [
+        "and",
+        "break",
+        "do",
+        "else",
+        "elseif",
+        "end",
+        "false",
+        "for",
+        "function",
+        "goto",
+        "if",
+        "in",
+        "local",
+        "nil",
+        "not",
+        "or",
+        "repeat",
+        "return",
+        "then",
+        "true",
+        "until",
+        "while",
+    ]
+)
+
 GTK_VERSIONS = ("gtk-3.0", "gtk-4.0")
 
 QUICKLAUNCH_KEYS = (
@@ -49,56 +100,117 @@ QUICKLAUNCH_KEYS = (
 )
 
 
-# def emit_wezterm(theme, out):
-#     terminal = theme.data["terminal"]
-#     ansi = terminal["ansi"]
-#     tabs = terminal["tabs"]
+def _lua_string(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-#     def quoted(value):
-#         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-#         return '"' + escaped + '"'
 
-#     def entry(key, value):
-#         return f"    [{quoted(key)}] = {quoted(value)},"
+def _lua_key(name):
+    if LUA_IDENTIFIER.match(name) and name not in LUA_KEYWORDS:
+        return name
+    return f"[{_lua_string(name)}]"
 
-#     def ansi_list(names):
-#         return "{ " + ", ".join(quoted(theme.hex(ansi[name])) for name in names) + " }"
 
-#     lines = [
-#         f"-- {theme.header}",
-#         "return {",
-#         f"  name = {quoted(theme.name)},",
-#         f"  dark = {'true' if theme.dark else 'false'},",
-#         "  colors = {",
-#         f"    foreground = {quoted(theme.hex(terminal['foreground']))},",
-#         f"    background = {quoted(theme.hex(terminal['background']))},",
-#         f"    cursor_bg = {quoted(theme.hex(terminal['cursor']))},",
-#         f"    cursor_fg = {quoted(theme.hex(terminal['cursor_text']))},",
-#         f"    cursor_border = {quoted(theme.hex(terminal['cursor']))},",
-#         f"    selection_fg = {quoted(theme.hex(terminal['selection_foreground']))},",
-#         f"    selection_bg = {quoted(theme.hex(terminal['selection_background']))},",
-#         f"    ansi = {ansi_list(ANSI_NORMAL)},",
-#         f"    brights = {ansi_list(['bright_' + name for name in ANSI_NORMAL])},",
-#         "  },",
-#         "  tabs = {",
-#     ]
-#     for key in sorted(tabs):
-#         lines.append(entry(key, theme.hex(tabs[key])))
-#     lines.append("  },")
-#     lines.append("  palette = {")
-#     for name in sorted(theme.palette):
-#         lines.append(entry(name, theme.hex(name)))
-#     lines.append("  },")
-#     lines.append("  fonts = {")
-#     for name in sorted(theme.fonts):
-#         lines.append(entry(name, theme.fonts[name]))
-#     lines.append("  },")
-#     lines.append("  sizes = {")
-#     for name in sorted(theme.sizes):
-#         lines.append(f"    [{quoted(name)}] = {theme.sizes[name]},")
-#     lines.append("  },")
-#     lines.append("}")
-#     out.write(path("shared/wezterm/ui/theme.lua"), "\n".join(lines) + "\n")
+def _lua_entries(entries, indent):
+    return [f"{indent}{_lua_key(key)} = {value}," for key, value in entries]
+
+
+def wezterm_font_roles():
+    return sorted(load_toml(FONTS_FILE)["fonts"])
+
+
+def wezterm_outputs():
+    targets = [f"{WEZTERM_COLORS_DIR}/{profile}.lua" for profile in list_profiles()]
+    targets.append(f"{WEZTERM_COLORS_DIR}/init.lua")
+    targets += [f"{WEZTERM_FONTS_DIR}/{role}.lua" for role in wezterm_font_roles()]
+    targets.append(f"{WEZTERM_FONTS_DIR}/init.lua")
+    return targets
+
+
+def _wezterm_scheme(scheme):
+    def ansi_list(names):
+        return "{ " + ", ".join(_lua_string(scheme.hex(name)) for name in names) + " }"
+
+    lines = [
+        f"-- {scheme.header}",
+        "return {",
+        f"  name = {_lua_string(scheme.name)},",
+        "  colors = {",
+    ]
+    lines += _lua_entries(
+        [
+            (key, _lua_string(scheme.hex(scheme.data["terminal"][role])))
+            for key, role in WEZTERM_COLORS
+        ],
+        "    ",
+    )
+    lines.append(f"    ansi = {ansi_list(ANSI_NORMAL)},")
+    lines.append(f"    brights = {ansi_list(['bright_' + name for name in ANSI_NORMAL])},")
+    lines += ["  },", "}"]
+    return "\n".join(lines) + "\n"
+
+
+def _wezterm_colors_init(theme):
+    lines = [f"-- {theme.header}", "local profiles = {"]
+    lines += [f"  {_lua_string(profile)}," for profile in list_profiles()]
+    lines += [
+        "}",
+        "",
+        "local M = {}",
+        "",
+        "function M.apply_to_config(config)",
+        "  local schemes = {}",
+        "  for _, profile in ipairs(profiles) do",
+        '    local scheme = require("ui.colors." .. profile)',
+        "    schemes[scheme.name] = scheme.colors",
+        "  end",
+        "  config.color_schemes = schemes",
+        f"  config.color_scheme = {_lua_string(theme.name)}",
+        "end",
+        "",
+        "return M",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _wezterm_font(theme, role):
+    lines = [f"-- {theme.header}", "return {", f"  family = {_lua_string(theme.font(role))},", "}"]
+    return "\n".join(lines) + "\n"
+
+
+def _wezterm_fonts_init(theme):
+    terminal = f"platform.is_mac and {theme.size('terminal_mac')} or {theme.size('terminal')}"
+    lines = [
+        f"-- {theme.header}",
+        'local wezterm = require "wezterm"',
+        'local platform = require "utils.platform"',
+        "",
+        'local terminal = require "ui.fonts.nerd"',
+        'local interface = require "ui.fonts.general"',
+        "",
+        "local M = {}",
+        "",
+        "function M.apply_to_config(config)",
+        "  config.font = wezterm.font_with_fallback { terminal.family }",
+        f"  config.font_size = {terminal}",
+        "",
+        "  config.window_frame = config.window_frame or {}",
+        "  config.window_frame.font = wezterm.font_with_fallback { interface.family }",
+        f"  config.window_frame.font_size = {theme.size('interface')}",
+        "end",
+        "",
+        "return M",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def emit_wezterm(theme, out):
+    for profile in list_profiles():
+        scheme = theme if profile == theme.profile else Theme.load(profile)
+        out.write(path(WEZTERM_COLORS_DIR, f"{profile}.lua"), _wezterm_scheme(scheme))
+    out.write(path(WEZTERM_COLORS_DIR, "init.lua"), _wezterm_colors_init(theme))
+    for role in wezterm_font_roles():
+        out.write(path(WEZTERM_FONTS_DIR, f"{role}.lua"), _wezterm_font(theme, role))
+    out.write(path(WEZTERM_FONTS_DIR, "init.lua"), _wezterm_fonts_init(theme))
 
 
 def emit_fastfetch_config(theme, out):

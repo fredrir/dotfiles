@@ -1,10 +1,17 @@
+import os
 from types import SimpleNamespace
 
 import pytest
 
 from tools.theme import registry
-from tools.theme.emitters import emit_nvim, emit_starship
-from tools.theme.model import Theme
+from tools.theme.emitters import (
+    WEZTERM_COLORS_DIR,
+    emit_nvim,
+    emit_starship,
+    emit_wezterm,
+    wezterm_font_roles,
+)
+from tools.theme.model import Theme, list_profiles, path
 from tools.theme.render import replace_between, replace_ini_section, set_ini_key
 
 
@@ -16,6 +23,14 @@ class Captured:
 
     def edit(self, _target, transform):
         self.text = transform(self.text)
+
+
+class Written:
+    def __init__(self):
+        self.files = {}
+
+    def write(self, target, content):
+        self.files[os.path.relpath(target, path(WEZTERM_COLORS_DIR, ".."))] = content
 
 
 def test_replace_between_swaps_the_marked_block():
@@ -62,6 +77,84 @@ def test_starship_aligns_each_run_of_entries_on_its_own():
     lines = out.text.split("\n")
     assert "red      = '#000000'" in lines
     assert "prompt_duration = '#111111'" in lines
+
+
+def test_wezterm_gets_a_scheme_file_per_profile_and_an_init():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    expected = {f"colors/{profile}.lua" for profile in list_profiles()}
+    assert expected | {"colors/init.lua"} <= set(out.files)
+
+
+def test_a_wezterm_scheme_matches_the_documented_colors_schema():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    scheme = out.files["colors/mocha.lua"]
+    assert '  name = "Catppuccin Mocha",' in scheme
+    assert '    background = "#1e1e2e",' in scheme
+    assert '    ansi = { "' in scheme
+    assert '    brights = { "' in scheme
+    assert scheme.endswith("}\n")
+
+
+def test_a_wezterm_scheme_carries_only_the_keys_wezterm_reads():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    scheme = out.files["colors/mocha.lua"]
+    assert "palette" not in scheme
+    assert "dark" not in scheme
+    assert "tab_bar" not in scheme
+
+
+def test_the_wezterm_init_activates_the_selected_profile():
+    out = Written()
+    emit_wezterm(Theme.load("latte"), out)
+    init = out.files["colors/init.lua"]
+    assert '  config.color_scheme = "Catppuccin Latte"' in init
+    for profile in list_profiles():
+        assert f'  "{profile}",' in init
+
+
+def test_wezterm_gets_a_font_file_per_role_and_an_init():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    expected = {f"fonts/{role}.lua" for role in wezterm_font_roles()}
+    assert expected | {"fonts/init.lua"} <= set(out.files)
+
+
+def test_a_wezterm_font_role_file_is_inert_data():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    nerd = out.files["fonts/nerd.lua"]
+    assert '  family = "Hack Nerd Font Mono",' in nerd
+    assert "wezterm" not in nerd
+    assert "require" not in nerd
+
+
+def test_the_wezterm_font_init_sizes_the_terminal_per_platform():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    init = out.files["fonts/init.lua"]
+    assert "  config.font_size = platform.is_mac and 13 or 12" in init
+    assert "  config.window_frame.font_size = 10" in init
+
+
+def test_the_wezterm_terminal_font_chain_omits_bundled_fallbacks():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    init = out.files["fonts/init.lua"]
+    assert "config.font = wezterm.font_with_fallback { terminal.family }" in init
+    assert "Symbols Nerd Font" not in init
+    assert "Noto Color Emoji" not in init
+    assert "interface.family }" not in init.split("config.font_size")[0]
+
+
+def test_a_wezterm_key_that_is_not_a_lua_identifier_is_bracketed():
+    from tools.theme.emitters import _lua_key
+
+    assert _lua_key("bright_black") == "bright_black"
+    assert _lua_key("*.toml") == '["*.toml"]'
+    assert _lua_key("end") == '["end"]'
 
 
 def test_replace_between_requires_markers():

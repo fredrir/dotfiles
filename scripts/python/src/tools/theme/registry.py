@@ -21,7 +21,7 @@ def _panel_preset_outputs():
 
 
 EMITTERS = [
-    # Emitter("wezterm", emitters.emit_wezterm, ["shared/wezterm/wez/theme.lua"]),
+    Emitter("wezterm", emitters.emit_wezterm, emitters.wezterm_outputs),
     Emitter("fastfetch-config", emitters.emit_fastfetch_config, emitters.FASTFETCH_CONFIGS),
     Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, emitters.FASTFETCH_LOGOS),
     Emitter("starship", emitters.emit_starship, ["shared/starship/starship.toml"]),

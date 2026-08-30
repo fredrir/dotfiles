@@ -1,5 +1,7 @@
-local performance = require "ui.performance"
+local colors = require "ui.colors"
+local fonts = require "ui.fonts"
 local gpu_adapters = require "utils.gpu-adapter"
+local performance = require "ui.performance"
 
 ---@type Config
 local settings = {
@@ -13,6 +15,8 @@ function M.apply_to_config(config)
   for key, value in pairs(settings) do
     config[key] = value
   end
+  colors.apply_to_config(config)
+  fonts.apply_to_config(config)
 end
 
 return M
