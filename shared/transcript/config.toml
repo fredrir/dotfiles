@@ -10,6 +10,7 @@ projects = [
   "sndbx",
   "rif",
   "Elvfast",
+  "wez-vertical-tabs",
 ]
 
 min_rounds = 1
@@ -25,7 +26,7 @@ nested_groups = ["llunde"]
 [groups]
 llunde     = ["llunde-infra", "llunde-backend", "llunde-frontend", "llunde-pyparser"]
 other      = ["sndbx"]
-dotfiles   = ["dotfiles"]
+dotfiles   = ["dotfiles", "wez-vertical-tabs"]
 distro-lab = ["distro-lab"]
 rif        = ["rif"]
 elvfast    = ["Elvfast"]

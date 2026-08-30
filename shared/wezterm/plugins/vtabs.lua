@@ -9,8 +9,8 @@ local M = {}
 function M.apply_to_config(config)
   vtabs.apply_to_config(config, {
     backend = {
-      path = function(domain)
-        if domain:match "^archie" then
+      path = function(domain, host)
+        if host == "archie" or domain:match "^archie" then
           return "/home/fredrir/projects/wez-vertical-tabs/backend/target/release/wez-vtabs"
         end
         return wezterm.home_dir .. "/projects/wez-vertical-tabs/backend/target/release/wez-vtabs"
