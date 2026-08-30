@@ -20,14 +20,14 @@ local function modifiers()
 
   ---@type Mods
   return {
-    SUPER = "CTRL",
+    SUPER = "CTRL|SHIFT",
     SPECIAL = "ALT",
     SECONDARY = "ALT",
     ---
-    SUPER_REV = "CTRL|SHIFT",
+    SUPER_REV = "CTRL|SHIFT|ALT",
     CTRL_OR_SPECIAL = { "CTRL", "ALT" },
     CTRL_OR_SECONDARY = { "CTRL", "ALT" },
-    CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "OPT", "CMD" },
+    CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "ALT" },
 
     ---
     SPLITBELOW = "§",

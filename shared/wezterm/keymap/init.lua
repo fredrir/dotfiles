@@ -23,7 +23,7 @@ local keys = bind_keys {
   -- Window Management --
   { -- New Tab --
     key = "t",
-    mods = MOD.CTRL_OR_SPECIAL,
+    mods = MOD.SUPER,
     action = act.SpawnTab "CurrentPaneDomain",
   },
   { -- Quit Application --
