@@ -150,13 +150,39 @@ def _wezterm_scheme(scheme):
 
 
 def _wezterm_colors_init(theme):
-    lines = [f"-- {theme.header}", "local profiles = {"]
+    lines = [
+        f"-- {theme.header}",
+        f'local active = require "ui.colors.{theme.profile}"',
+        "",
+        "local profiles = {",
+    ]
     lines += [f"  {_lua_string(profile)}," for profile in list_profiles()]
     lines += [
         "}",
         "",
+        "---@class GeneratedThemePalette",
+        "---@field foreground string",
+        "---@field background string",
+        "---@field cursor_bg string",
+        "---@field cursor_fg string",
+        "---@field cursor_border string",
+        "---@field selection_fg string",
+        "---@field selection_bg string",
+        "---@field ansi string[]",
+        "---@field brights string[]",
+        "",
+        "---@class GeneratedThemeConfig",
+        "---@field color_schemes? table<string, GeneratedThemePalette>",
+        "---@field color_scheme? string",
+        "",
         "local M = {}",
         "",
+        "---@return GeneratedThemePalette",
+        "function M.get_active()",
+        "  return active.colors",
+        "end",
+        "",
+        "---@param config GeneratedThemeConfig",
         "function M.apply_to_config(config)",
         "  local schemes = {}",
         "  for _, profile in ipairs(profiles) do",
@@ -164,7 +190,7 @@ def _wezterm_colors_init(theme):
         "    schemes[scheme.name] = scheme.colors",
         "  end",
         "  config.color_schemes = schemes",
-        f"  config.color_scheme = {_lua_string(theme.name)}",
+        "  config.color_scheme = active.name",
         "end",
         "",
         "return M",

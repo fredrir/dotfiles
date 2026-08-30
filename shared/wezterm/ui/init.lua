@@ -1,3 +1,4 @@
+local appearance = require "ui.appearance"
 local colors = require "ui.colors"
 local fonts = require "ui.fonts"
 local gpu_adapters = require "utils.gpu-adapter"
@@ -13,6 +14,10 @@ local M = {}
 
 ---@param config Config
 function M.apply_to_config(config)
+  for key, value in pairs(appearance) do
+    config[key] = value
+  end
+
   for key, value in pairs(settings) do
     config[key] = value
   end

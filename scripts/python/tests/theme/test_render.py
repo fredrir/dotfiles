@@ -110,7 +110,10 @@ def test_the_wezterm_init_activates_the_selected_profile():
     out = Written()
     emit_wezterm(Theme.load("latte"), out)
     init = out.files["colors/init.lua"]
-    assert '  config.color_scheme = "Catppuccin Latte"' in init
+    assert 'local active = require "ui.colors.latte"' in init
+    assert "function M.get_active()" in init
+    assert "  return active.colors" in init
+    assert "  config.color_scheme = active.name" in init
     for profile in list_profiles():
         assert f'  "{profile}",' in init
 
