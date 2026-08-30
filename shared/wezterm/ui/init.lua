@@ -11,10 +11,12 @@ local settings = {
 
 local M = {}
 
+---@param config Config
 function M.apply_to_config(config)
   for key, value in pairs(settings) do
     config[key] = value
   end
+
   colors.apply_to_config(config)
   fonts.apply_to_config(config)
 end

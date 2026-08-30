@@ -7,6 +7,7 @@ local profiles = {
 
 local M = {}
 
+---@param config Config
 function M.apply_to_config(config)
   local schemes = {}
   for _, profile in ipairs(profiles) do
