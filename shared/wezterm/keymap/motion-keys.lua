@@ -2,7 +2,6 @@ local wezterm = require "wezterm"
 local MOD = require "keymap.modifiers"
 local platform = require "utils.platform"
 local extend = require "utils.extend"
-
 local act = wezterm.action
 
 ---@type KeySpec[]

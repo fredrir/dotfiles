@@ -1,5 +1,5 @@
 local wezterm = require "wezterm"
-local extend = require "utils.extend"
+-- local extend = require "utils.extend"
 local act = wezterm.action
 
 ---@type KeySpec[]

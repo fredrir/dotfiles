@@ -3,25 +3,6 @@ local wezterm = require "wezterm"
 ---@alias Hostname "macie" | "archie"
 ---@alias InterfaceName "cable" | "wifi" | "tailscale"
 
----@alias Pem {
----  key: string,
----  cert: string,
----  ca: string,
----}
-
----@alias IpAddress {
----  name: InterfaceName,
----  address: string,
----  bind: string,
----}
-
----@alias Host {
----  hostname: Hostname,
----  target: Hostname,
----  pem: Pem,
----  ip: IpAddress[],
----}
-
 local pki_dir = wezterm.home_dir .. "/.local/share/wezterm/mtls/"
 
 ---@type Pem

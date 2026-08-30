@@ -23,7 +23,6 @@ function M.apply_to_config(config)
   local clients = {}
 
   for _, route in ipairs(host.target.ip) do
-    ---@diagnostic disable-next-line: missing-fields
     table.insert(clients, {
       name = host.target.hostname .. "-" .. route.name,
       remote_address = route.address .. ":" .. host.port,

@@ -5,19 +5,14 @@ local bind_keys = require "utils.bind-keys"
 local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
-local disconnect = require "utils.disconnect"
 local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "ui.skip_close_confirmation"
+local mux = require "utils.mux"
 
----@type Modifiers
 local MOD = require "keymap.modifiers"
 
 local act = wezterm.action
 local M = {}
-
-M.attach = wezterm.action_callback(function(_window, pane)
-  pane:send_text "mux\n"
-end)
 
 ---@type Key[]
 local keys = bind_keys {
@@ -31,11 +26,6 @@ local keys = bind_keys {
     mods = MOD.CTRL_OR_SPECIAL,
     action = act.SpawnTab "CurrentPaneDomain",
   },
-  -- { -- Detach Tab
-  --   key = "s",
-  --   mods = MOD.SUPER_REV,
-  --   action = act.DetachTab "CurrentTabDomain",
-  -- },
   { -- Quit Application --
     key = "q",
     mods = MOD.SPECIAL,
@@ -70,12 +60,7 @@ local keys = bind_keys {
 
   {
     key = "l",
-    mods = MOD.CTRL_OR_SECONDARY,
-    action = act.ClearScrollback "ScrollbackAndViewport",
-  },
-  {
-    key = "l",
-    mods = MOD.SUPER,
+    mods = MOD.CTRL_OR_SECONDARY_OR_SPECIAL,
     action = act.SendKey {
       key = "l",
       mods = "CTRL",
@@ -86,12 +71,16 @@ local keys = bind_keys {
   { key = "-", mods = MOD.SUPER, action = resize_window(-50) },
   { key = "+", mods = MOD.SUPER, action = resize_window(50) },
 
-  -- Remote Sessions --
-  { key = ".", mods = MOD.SUPER, action = M.attach },
+  -- Mux --
   {
-    key = "d",
-    mods = MOD.SECONDARY,
-    action = disconnect,
+    key = "s",
+    mods = MOD.SUPER_REV,
+    action = mux.detach_pane,
+  },
+  {
+    key = ".",
+    mods = MOD.SUPER,
+    action = mux.attach_pane,
   },
 }
 
