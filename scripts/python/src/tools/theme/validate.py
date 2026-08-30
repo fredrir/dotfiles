@@ -1,4 +1,7 @@
-from tools.theme.model import COLOR_TABLES, FONT_SIZES, load_map
+import sys
+
+from tools.theme import oklab
+from tools.theme.model import ANSI, COLOR_TABLES, FONT_SIZES, RAMP_FILE, load_map, load_toml
 
 
 def _leaves(table):
@@ -9,13 +12,16 @@ def _leaves(table):
             yield key, value
 
 
-def _palette_references(theme):
+def _expressions(theme):
     for name in COLOR_TABLES:
         for key, value in _leaves(theme.data.get(name, {})):
             yield f"[{name}] {key}", value
 
-    for key, value in load_map("catppuccin")["colors"].items():
-        yield f"maps/catppuccin.toml {key}", value
+    for key, value in load_map("gtk")["colors"].items():
+        yield f"maps/gtk.toml {key}", value
+
+    for key, value in load_map("nvim")["colors"].items():
+        yield f"maps/nvim.toml {key}", value
 
     obsidian = load_map("obsidian")
     yield "maps/obsidian.toml [derived] source", obsidian["derived"]["source"]
@@ -28,40 +34,34 @@ def _palette_references(theme):
             yield f"maps/obsidian.toml {key}", value["color"]
 
 
-def _check_palette_names(theme, problems):
-    for where, name in _palette_references(theme):
-        if name not in theme.palette:
-            problems.append(f"{where} -> unknown palette color '{name}'")
-
-    kde = theme.data.get("kde", {})
-    for key, name in load_map("gtk")["colors"].items():
-        if name in kde:
-            if kde[name] not in theme.palette:
-                problems.append(
-                    f"maps/gtk.toml {key} -> [kde] {name} -> unknown color '{kde[name]}'"
-                )
-        elif name not in theme.palette:
-            problems.append(f"maps/gtk.toml {key} -> unknown palette color or kde role '{name}'")
+def _check_expressions(theme, problems):
+    for where, expression in _expressions(theme):
+        try:
+            theme.color(expression)
+        except SystemExit as error:
+            problems.append(f"{where} -> {error}")
 
 
-def _check_palette_shape(theme, problems):
-    seen = {}
-    for name, value in theme.palette.items():
-        lowered = value.lower()
-        if lowered in seen:
-            problems.append(
-                f"[palette] '{name}' and '{seen[lowered]}' are both {lowered};"
-                " duplicate colors cannot survive a profile switch"
-            )
-        else:
-            seen[lowered] = name
+def _accents():
+    for name in ANSI:
+        if name not in ("black", "white"):
+            yield name
+            yield f"bright_{name}"
 
-    for name in theme.data.get("kde", {}):
-        if name in theme.palette:
-            problems.append(
-                f"[kde] '{name}' shadows the palette color of the same name,"
-                " which silently changes what maps/gtk.toml resolves to"
-            )
+
+def _check_contrast(theme, warnings):
+    floors = load_toml(RAMP_FILE)["contrast"]
+    background = theme.hex("bg")
+    checked = [("fg_on_bg", "fg"), ("muted_on_bg", "muted")]
+    checked += [("ansi_on_bg", name) for name in _accents()]
+    for floor, name in checked:
+        try:
+            value = theme.hex(name)
+        except SystemExit:
+            continue
+        ratio = oklab.contrast_ratio(value, background)
+        if ratio < floors[floor]:
+            warnings.append(f"{name} {value} on bg is {ratio:.2f}:1, under {floors[floor]}:1")
 
 
 def _check_eza_categories(theme, problems):
@@ -91,10 +91,13 @@ def _check_fonts(theme, problems):
 
 def validate(theme):
     problems = []
-    _check_palette_names(theme, problems)
-    _check_palette_shape(theme, problems)
+    warnings = []
+    _check_expressions(theme, problems)
     _check_eza_categories(theme, problems)
     _check_fonts(theme, problems)
+    _check_contrast(theme, warnings)
+    for warning in warnings:
+        print(f"dotfile theme: {theme.profile}: {warning}", file=sys.stderr)
     if problems:
         listed = "\n".join(f"  {problem}" for problem in problems)
         raise SystemExit(f"dotfile theme: profile '{theme.profile}' is not usable:\n{listed}")

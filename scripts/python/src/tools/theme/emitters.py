@@ -255,13 +255,18 @@ def emit_obsidian(theme, out):
 
 
 def emit_nvim(theme, out):
-    flavour = theme.data.get("nvim", {}).get("flavour")
-    if not flavour:
-        raise SystemExit(f"dotfile theme: profile '{theme.profile}' has no [nvim] flavour")
-    out.edit(
-        path(NVIM_CATPPUCCIN),
-        lambda text: replace_between(text, "flavour", [f'flavour = "{flavour}",']),
-    )
+    spec = load_map("nvim")
+    flavour = spec["flavour"]["dark" if theme.dark else "light"]
+    colors = {name: theme.hex(value) for name, value in spec["colors"].items()}
+
+    def transform(text):
+        unit = "\t" if "\n\t" in text else "  "
+        lines = [f'flavour = "{flavour}",', "color_overrides = {", f"{unit}all = {{"]
+        lines += [f'{unit * 2}{name} = "{value}",' for name, value in colors.items()]
+        lines += [f"{unit}}},", "},"]
+        return replace_between(text, "palette", lines)
+
+    out.edit(path(NVIM_CATPPUCCIN), transform)
 
 
 def emit_kde_colorscheme(theme, out):
@@ -342,19 +347,13 @@ def emit_gtk_settings(theme, out):
 
 def _hex_to_name(theme):
     mapping = {}
-    owner = {}
     active = theme.profile
     ordered = [active] + [name for name in list_profiles() if name != active]
+    # An ANSI palette may repeat a hex across slots, so first writer wins and
+    # the active profile is scanned first to make its own names authoritative.
     for profile in ordered:
         for name, value in profile_palette(profile).items():
-            key = value.lstrip("#").lower()
-            if key in mapping and mapping[key] != name:
-                raise SystemExit(
-                    f"dotfile theme: {key} is '{mapping[key]}' in profile '{owner[key]}' but"
-                    f" '{name}' in profile '{profile}'; a shared hex cannot be remapped"
-                )
-            mapping.setdefault(key, name)
-            owner.setdefault(key, profile)
+            mapping.setdefault(value.lstrip("#").lower(), name)
     for key, name in load_map("catppuccin")["colors"].items():
         mapping.setdefault(key.lower(), name)
     return mapping

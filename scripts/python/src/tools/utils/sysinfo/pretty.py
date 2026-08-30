@@ -30,9 +30,9 @@ class Colors:
 def load_colors():
     theme = Theme.load()
     return Colors(
-        text=theme.hex("text"),
-        subtext=theme.hex("subtext"),
-        overlay=theme.hex("overlay"),
+        text=theme.hex("fg"),
+        subtext=theme.hex("muted"),
+        overlay=theme.hex("separator"),
         system=theme.role("section_system"),
         hardware=theme.role("section_hardware"),
         desktop=theme.role("section_desktop"),

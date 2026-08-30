@@ -1,116 +1,110 @@
+[tokens]
+sunken      = "bg/-100"
+panel       = "bg/-50"
+surface     = "bg/150"
+surface_alt = "bg/250"
+border      = "bg/400"
+separator   = "bg/500"
+disabled    = "bg/700"
+muted       = "bg/900"
+accent      = "bright_blue"
+orange      = "bright_yellow~yellow/400"
+
 [roles]
 
 # fastfetch
 section_system   = "blue"
-section_hardware = "peach"
-section_desktop  = "mauve"
+section_hardware = "bright_yellow"
+section_desktop  = "magenta"
 section_network  = "green"
-separator        = "overlay"
+separator        = "separator"
 
 # starship
 prompt_python   = "orange"
 prompt_git      = "green"
-prompt_dir      = "teal"
+prompt_dir      = "cyan"
 prompt_duration = "yellow"
 prompt_char     = "blue"
 
 sudo = "red" # shell
 
 [terminal]
-foreground           = "text"
-background           = "base"
-cursor               = "flamingo"
-cursor_text          = "base"
-selection_foreground = "base"
-selection_background = "flamingo"
-url                  = "flamingo"
-
-[terminal.ansi]
-black          = "surface1"
-red            = "red"
-green          = "green"
-yellow         = "yellow"
-blue           = "blue"
-magenta        = "pink"
-cyan           = "teal"
-white          = "subtext"
-bright_black   = "surface2"
-bright_red     = "red"
-bright_green   = "green"
-bright_yellow  = "yellow"
-bright_blue    = "blue"
-bright_magenta = "pink"
-bright_cyan    = "teal"
-bright_white   = "subtext"
+foreground           = "fg"
+background           = "bg"
+cursor               = "cursor"
+cursor_text          = "cursor_text"
+selection_foreground = "selection_fg"
+selection_background = "selection_bg"
+url                  = "bright_red"
 
 [terminal.tabs]
-active_foreground   = "base"
-active_background   = "mauve"
-inactive_foreground = "subtext"
-inactive_background = "surface0"
-bar_background      = "mantle"
+active_foreground   = "contrast(magenta)"
+active_background   = "magenta"
+inactive_foreground = "muted"
+inactive_background = "surface"
+bar_background      = "panel"
 
 [eza]
-fi = "subtext" # fallback
-di = "blue"    # directories
-ex = "green"   # executables
-ln = "teal"    # symlinks
+fi = "muted"  # fallback
+di = "blue"   # directories
+ex = "green"  # executables
+ln = "cyan"   # symlinks
 
 "*.toml" = "orange"
 "*.json" = "yellow"
-"*.lock" = "overlay"
+"*.lock" = "separator"
 "*.sh"   = "green"
 
 [eza.categories]
-image    = "mauve"
-video    = "pink"
-audio    = "teal"
+image    = "magenta"
+video    = "bright_magenta"
+audio    = "cyan"
 archive  = "red"
 document = "orange"
 source   = "yellow"
-config   = "peach"
+config   = "bright_yellow"
 markup   = "orange"
-data     = "flamingo"
-web      = "peach"
-temp     = "overlay"
-compiled = "overlay"
+data     = "bright_red"
+web      = "bright_yellow"
+temp     = "separator"
+compiled = "separator"
 
 [kde]
-accent = "lavender"
+accent = "bright_blue"
 
-window_bg   = "base"
-window_alt  = "mantle"
-button_bg   = "surface0"
-button_alt  = "surface1"
-view_bg     = "base"
-view_alt    = "mantle"
-tooltip_bg  = "surface0"
-tooltip_alt = "surface1"
-header_bg   = "mantle"
-header_alt  = "base"
+window_bg   = "bg"
+window_alt  = "panel"
+button_bg   = "surface"
+button_alt  = "surface_alt"
+view_bg     = "bg"
+view_alt    = "panel"
+tooltip_bg  = "surface"
+tooltip_alt = "surface_alt"
+header_bg   = "panel"
+header_alt  = "bg"
 
-selection_bg = "mauve"
-selection_fg = "base"
+selection_bg = "magenta"
+selection_fg = "contrast(magenta)"
 
-foreground = "text"
-inactive   = "overlay2"
-active     = "lavender"
+foreground = "fg"
+inactive   = "disabled"
+active     = "bright_blue"
 link       = "blue"
-visited    = "mauve"
+visited    = "magenta"
 negative   = "red"
-neutral    = "peach"
+neutral    = "bright_yellow"
 positive   = "green"
-decoration = "lavender"
+decoration = "bright_blue"
 
 # window manager titlebar
-wm_active_bg      = "base"
-wm_active_fg      = "text"
-wm_active_blend   = "text"
-wm_inactive_bg    = "mantle"
-wm_inactive_fg    = "overlay2"
-wm_inactive_blend = "overlay2"
+wm_active_bg      = "bg"
+wm_active_fg      = "fg"
+wm_active_blend   = "fg"
+wm_inactive_bg    = "panel"
+wm_inactive_fg    = "disabled"
+wm_inactive_blend = "disabled"
 
 [konsole]
-tab          = "base"
-focus_border = "crust"
-tab_activity = "text"
+tab          = "bg"
+focus_border = "sunken"
+tab_activity = "fg"

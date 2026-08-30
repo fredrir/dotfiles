@@ -2,28 +2,34 @@ name  = "Catppuccin Mocha"
 dark  = true
 icons = "Breeze Chameleon Dark"
 
-[nvim]
-flavour = "mocha"
+[colors.primary]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
 
-[palette]
-flamingo = "#f2cdcd"
-pink     = "#f5c2e7"
-mauve    = "#cba6f7"
-red      = "#f38ba8" # sudo
-peach    = "#fab387"
-yellow   = "#f9e2af"
-orange   = "#fdbc4b" # (.venv), .toml,md...
-green    = "#7cff6b"
-teal     = "#1abc9c" # dir
-blue     = "#3daee9" # system
-lavender = "#b4befe" # kde accent
-text     = "#cdd6f4"
-subtext  = "#bac2de"
-overlay  = "#6c7086" # separator
-overlay2 = "#9399b2" # kde inactive / disabled text
-surface2 = "#585b70"
-surface1 = "#45475a"
-surface0 = "#313244"
-base     = "#1e1e2e"
-mantle   = "#181825"
-crust    = "#11111b"
+[colors.cursor]
+cursor = "#f2cdcd"
+text   = "#1e1e2e"
+
+[colors.selection]
+background = "#f2cdcd"
+text       = "#1e1e2e"
+
+[colors.normal]
+black   = "#45475a"
+red     = "#f38ba8"
+green   = "#7cff6b"
+yellow  = "#f9e2af"
+blue    = "#3daee9"
+magenta = "#cba6f7"
+cyan    = "#1abc9c"
+white   = "#bac2de"
+
+[colors.bright]
+black   = "#585b70"
+red     = "#f2cdcd"
+green   = "#a6e3a1"
+yellow  = "#fab387"
+blue    = "#b4befe"
+magenta = "#f5c2e7"
+cyan    = "#94e2d5"
+white   = "#cdd6f4"

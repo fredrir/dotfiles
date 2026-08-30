@@ -43,7 +43,7 @@ def terminal(theme, key):
 
 
 def ansi(theme, key):
-    return theme.hex(theme.data["terminal"]["ansi"][key])
+    return theme.hex(key)
 
 
 def eza(theme, key):

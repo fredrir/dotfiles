@@ -4,6 +4,7 @@ import pytest
 
 from tools.theme import registry
 from tools.theme.emitters import emit_nvim, emit_starship
+from tools.theme.model import Theme
 from tools.theme.render import replace_between, replace_ini_section, set_ini_key
 
 
@@ -35,13 +36,18 @@ def test_replace_between_leaves_a_blank_line_blank():
     assert updated == "  # theme:palette\n  a\n\n  b\n  # theme:palette:end"
 
 
-def test_the_nvim_flavour_is_quoted_the_way_stylua_wants_it():
-    theme = SimpleNamespace(profile="test", data={"nvim": {"flavour": "mocha"}})
-    out = Captured("\t\t\t-- theme:flavour\n\t\t\told\n\t\t\t-- theme:flavour:end")
-    emit_nvim(theme, out)
-    assert out.text == (
-        '\t\t\t-- theme:flavour\n\t\t\tflavour = "mocha",\n\t\t\t-- theme:flavour:end'
-    )
+def test_the_nvim_palette_is_quoted_the_way_stylua_wants_it():
+    out = Captured("\t\t\t-- theme:palette\n\t\t\told\n\t\t\t-- theme:palette:end")
+    emit_nvim(Theme.load("mocha"), out)
+    assert '\n\t\t\tflavour = "mocha",\n' in out.text
+    assert '\n\t\t\t\t\tbase = "#1e1e2e",\n' in out.text
+    assert out.text.endswith("\t\t\t},\n\t\t\t-- theme:palette:end")
+
+
+def test_the_nvim_flavour_follows_the_profile_lightness():
+    out = Captured("-- theme:palette\nold\n-- theme:palette:end")
+    emit_nvim(Theme.load("latte"), out)
+    assert 'flavour = "latte",' in out.text
 
 
 def test_starship_aligns_each_run_of_entries_on_its_own():

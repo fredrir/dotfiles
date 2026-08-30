@@ -2,28 +2,34 @@ name  = "Catppuccin Latte"
 dark  = false
 icons = "breeze"
 
-[nvim]
-flavour = "latte"
+[colors.primary]
+background = "#eff1f5"
+foreground = "#4c4f69"
 
-[palette]
-flamingo = "#dd7878"
-pink     = "#ea76cb"
-mauve    = "#8839ef"
-red      = "#d20f39" # sudo
-peach    = "#fe640b"
-yellow   = "#df8e1d"
-orange   = "#d98a0b" # (.venv), .toml,md...
-green    = "#40a02b"
-teal     = "#179299" # dir
-blue     = "#1e66f5" # system
-lavender = "#7287fd" # kde accent
-text     = "#4c4f69"
-subtext  = "#5c5f77"
-overlay  = "#9ca0b0" # separator
-overlay2 = "#7c7f93" # kde inactive / disabled text
-surface2 = "#acb0be"
-surface1 = "#bcc0cc"
-surface0 = "#ccd0da"
-base     = "#eff1f5"
-mantle   = "#e6e9ef"
-crust    = "#dce0e8"
+[colors.cursor]
+cursor = "#dd7878"
+text   = "#eff1f5"
+
+[colors.selection]
+background = "#dd7878"
+text       = "#eff1f5"
+
+[colors.normal]
+black   = "#bcc0cc"
+red     = "#d20f39"
+green   = "#40a02b"
+yellow  = "#df8e1d"
+blue    = "#1e66f5"
+magenta = "#8839ef"
+cyan    = "#179299"
+white   = "#5c5f77"
+
+[colors.bright]
+black   = "#acb0be"
+red     = "#dd7878"
+green   = "#459042"
+yellow  = "#fe640b"
+blue    = "#7287fd"
+magenta = "#ea76cb"
+cyan    = "#30848f"
+white   = "#4c4f69"

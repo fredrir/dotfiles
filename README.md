@@ -7,21 +7,21 @@
                                       ───────────────────────────────
 
                                         SYSTEM
-                                      󰌽  OS        macOS Tahoe 26.5.1 (25F80) arm64
-                        ..'           󰒓  Kernel    Darwin 25.5.0
-                    ,xNMM.            󰅐  Uptime    6 hours, 36 mins
-                  .OMMMMo             󰏗  Packages  230 (brew), 17 (brew-cask), 59 (nix-user), 51 (nix-default)
+                                      󰌽  OS        macOS Tahoe 26.6.2 (25G83) arm64
+                        ..'           󰒓  Kernel    Darwin 25.6.0
+                    ,xNMM.            󰅐  Uptime    50 mins
+                  .OMMMMo             󰏗  Packages  234 (brew), 18 (brew-cask)
                   lMM"                󰆍  Shell     zsh 5.9
         .;loddo:.  .olloddol;.
       cKMMMMMMMMMMNWMMMMMMMMMM0:        HARDWARE
     .KMMMMMMMMMMMMMMMMMMMMMMMWd.      󰻠  CPU       Apple M5 Pro (5+10) @ 4.61 GHz
     XMMMMMMMMMMMMMMMMMMMMMMMX.        󰢮  GPU       Apple M5 Pro (16) @ 1.62 GHz [Integrated]
-   ;MMMMMMMMMMMMMMMMMMMMMMMM:         󰍛  Memory    17 GB / 24 GB [70%]
-   :MMMMMMMMMMMMMMMMMMMMMMMM:         󰋊  Disk      /  394 GB / 926 GB [43%]
+   ;MMMMMMMMMMMMMMMMMMMMMMMM:         󰍛  Memory    18 GB / 24 GB [74%]
+   :MMMMMMMMMMMMMMMMMMMMMMMM:         󰋊  Disk      /  388 GB / 926 GB [42%]
    .MMMMMMMMMMMMMMMMMMMMMMMMX.
     kMMMMMMMMMMMMMMMMMMMMMMMMWd.        DESKTOP
     'XMMMMMMMMMMMMMMMMMMMMMMMMMMk     󰖯  WM        Quartz Compositor 1.600.0
-     'XMMMMMMMMMMMMMMMMMMMMMMMMK.     󰆌  Terminal  tmux
+     'XMMMMMMMMMMMMMMMMMMMMMMMMK.     󰆌  Terminal  ghostty
        kMMMMMMMMMMMMMMMMMMMMMMd       󰏘  Theme     Liquid Glass
         ;KMMMMMMMWXXWMMMMMMMk.        󰍹  Display   3024x1964 @ 2x in 14", 120 Hz [Built-in] *
           "cooc*"    "*coo'"          󰍹  Display   5120x2880 @ 2x in 29", 60 Hz [External]
