@@ -1,9 +1,11 @@
-local wezterm = require "wezterm" ---@type Wezterm
-local config = wezterm.config_builder() ---@type Config
+local wezterm = require "wezterm"
+local config = wezterm.config_builder()
 
 local modules = {
   "domain",
   "keymap",
+  "ui",
+  "plugins",
 }
 
 for _, module in ipairs(modules) do

@@ -80,7 +80,7 @@ local keys = bind_keys {
   {
     key = ".",
     mods = MOD.SUPER,
-    action = mux.attach_pane,
+    action = mux.attach_detached,
   },
 }
 
