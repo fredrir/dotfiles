@@ -2,10 +2,14 @@ local wezterm = require "wezterm" ---@type Wezterm
 local platform = require "utils.platform"
 local resize_window = require "utils.resize-window"
 local bind_keys = require "utils.bind-keys"
-local macos_no_NB_keys = require "keymap.macos"
+local physical_keys = require "keymap.physical-keys"
 local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
 local disconnect = require "utils.disconnect"
+local mouse_bindings = require "keymap.mouse-bindings"
+local skip_close_confirmation = require "ui.skip_close_confirmation"
+
+---@type Modifiers
 local MOD = require "keymap.modifiers"
 
 local act = wezterm.action
@@ -24,7 +28,7 @@ local keys = bind_keys {
   -- Window Management --
   { -- New Tab --
     key = "t",
-    mods = MOD.SPECIAL_OR_CTRL,
+    mods = MOD.CTRL_OR_SPECIAL,
     action = act.SpawnTab "CurrentPaneDomain",
   },
   -- { -- Detach Tab
@@ -42,11 +46,6 @@ local keys = bind_keys {
     mods = MOD.SPECIAL,
     action = act.CloseCurrentTab { confirm = true },
   },
-  { -- Quit Pane --
-    key = "d",
-    mods = "CTRL",
-    action = act.CloseCurrentPane { confirm = true },
-  },
   { -- Go to last tab --
     key = "0",
     mods = MOD.SPECIAL,
@@ -60,12 +59,12 @@ local keys = bind_keys {
 
   { -- Pane Controls --
     key = "d",
-    mods = MOD.SUPER,
+    mods = MOD.SPECIAL,
     action = act.SplitHorizontal { domain = "CurrentPaneDomain" }, -- Split to the side
   },
   {
     key = MOD.SPLITBELOW,
-    mods = MOD.SPECIAL_OR_CTRL,
+    mods = MOD.CTRL_OR_SPECIAL,
     action = act.SplitVertical { domain = "CurrentPaneDomain" }, -- Split Below
   },
 
@@ -77,7 +76,10 @@ local keys = bind_keys {
   {
     key = "l",
     mods = MOD.SUPER,
-    action = act.ClearScrollback "ScrollbackOnly",
+    action = act.SendKey {
+      key = "l",
+      mods = "CTRL",
+    },
   },
 
   -- Zoom Controls --
@@ -86,7 +88,11 @@ local keys = bind_keys {
 
   -- Remote Sessions --
   { key = ".", mods = MOD.SUPER, action = M.attach },
-  { key = "d", mods = MOD.SECONDARY, action = disconnect },
+  {
+    key = "d",
+    mods = MOD.SECONDARY,
+    action = disconnect,
+  },
 }
 
 -- Go to tab 1..9
@@ -98,20 +104,21 @@ for i = 1, 9 do
   })
 end
 
--- Extenders
+-- Extenders—
 extend(keys, motion_keys)
 if platform.is_mac then
-  extend(keys, macos_no_NB_keys)
+  extend(keys, physical_keys)
 end
 
 function M.apply_to_config(config)
   config.disable_default_key_bindings = true
   config.keys = keys
-  config.window_close_confirmation = "AlwaysPrompt"
+  config.mouse_bindings = mouse_bindings
+  config.skip_close_confirmation_for_processes_named = skip_close_confirmation
+
   -- config.disable_default_mouse_bindings = true
   -- config.leader = {}
   -- config.key_tables = key_tables
-  -- config.mouse_bindings = mouse_bindings
 end
 
 return M

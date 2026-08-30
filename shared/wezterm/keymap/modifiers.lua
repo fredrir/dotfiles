@@ -10,7 +10,7 @@ local function modifiers()
       SECONDARY = "OPT",
       ---
       SUPER_REV = "CMD|SHIFT",
-      SPECIAL_OR_CTRL = { "CMD", "CTRL" },
+      CTRL_OR_SPECIAL = { "CTRL", "CMD" },
       CTRL_OR_SECONDARY = { "CTRL", "OPT" },
       ---
       SPLITBELOW = "'",
@@ -24,7 +24,7 @@ local function modifiers()
     SECONDARY = "ALT",
     ---
     SUPER_REV = "CTRL|SHIFT",
-    SPECIAL_OR_CTRL = { "ALT", "CTRL" },
+    CTRL_OR_SPECIAL = { "CTRL", "ALT" },
     CTRL_OR_SECONDARY = { "CTRL", "ALT" },
 
     ---

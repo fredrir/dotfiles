@@ -38,6 +38,7 @@ alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
 alias cdd="cd $HOME/dotfiles"
 alias cdn="cd $NVIM"
+alias cdw="cd $WEZTERM_CONFIG_DIR"
 alias cdz="cd $CONFIG/zsh/conf.d"
 alias cds="cd $HOME/.ssh/config.d"
 

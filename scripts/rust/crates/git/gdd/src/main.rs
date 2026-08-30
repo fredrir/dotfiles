@@ -1,4 +1,3 @@
-
 use std::process::ExitCode;
 
 use clap::{Parser, ValueHint};
@@ -16,14 +15,7 @@ const WIDTH: usize = 100;
 #[command(
     version,
     about = "Discard every change in the working tree",
-    long_about = "Discard every change in the working tree. Tracked files are restored to \
-HEAD and untracked files are deleted. Without a path the whole repository is \
-discarded; paths limit it to what they match.
-
-Ignored files and nested repositories are kept.
-
-The line counts are the diff against HEAD that would be thrown away. A \
-restored file is still in HEAD; a deleted untracked file is nowhere.",
+    long_about = "Discard every change in the working tree.",
     after_long_help = "Examples:
   gdd                 Discard everything in the repository
   gdd -n              Show what that would be and stop
