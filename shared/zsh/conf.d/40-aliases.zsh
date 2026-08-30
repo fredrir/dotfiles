@@ -44,7 +44,7 @@ alias cds="cd $HOME/.ssh/config.d"
 
 alias sshmux="ssh -O check"
 alias sshmux-exit="ssh -O exit"
-alias wez="wezterm cli"
+alias wez="wezterm cli --no-auto-start"
 
 alias cdp="cd $HOME/projects"
 alias cdf="cd ../frontend"
