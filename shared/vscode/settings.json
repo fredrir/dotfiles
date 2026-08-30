@@ -145,5 +145,7 @@
 	},
 	"evenBetterToml.taplo.configFile.enabled": true,
 	"chat.titleBar.openInAgentsWindow.enabled": false,
-	"workbench.browser.showInTitleBar": false
+	"workbench.browser.showInTitleBar": false,
+	"biome.enabled": true,
+	"biome.requireConfiguration": false
 }
