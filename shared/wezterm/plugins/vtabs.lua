@@ -1,6 +1,6 @@
 local wezterm = require "wezterm"
 
-package.path = wezterm.home_dir .. "/projects/wez-vertical-tabs/plugin/?.lua;" .. package.path
+package.path = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/plugin/?.lua;" .. package.path
 
 local vtabs = require "init"
 
@@ -11,9 +11,9 @@ function M.apply_to_config(config)
     backend = {
       path = function(domain, host)
         if host == "archie" or domain:match "^archie" then
-          return "/home/fredrir/projects/wez-vertical-tabs/backend/target/release/wez-vtabs"
+          return "/home/fredrir/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs"
         end
-        return wezterm.home_dir .. "/projects/wez-vertical-tabs/backend/target/release/wez-vtabs"
+        return wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs"
       end,
     },
     keys = {
