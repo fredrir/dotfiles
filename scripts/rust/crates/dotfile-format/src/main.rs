@@ -1,4 +1,3 @@
-
 mod configs;
 mod lang;
 mod owns;
@@ -23,36 +22,9 @@ const PROGRAM: &str = "dotfile-format";
 #[derive(Parser)]
 #[command(
     version,
-    about = "Format a tree with the tool that owns each language",
-    long_about = "Format a tree with the tool that owns each language.
-
-Every file under the target is sorted by extension into the row of the \
-provider table that owns it — ruff for Python, biome for the web languages, \
-stylua for Lua, cargo fmt for Rust, taplo for TOML, yamlfmt for YAML, \
-sqlfluff for SQL, shfmt for shell, goimports and gofmt for Go. dotfmt is \
-asked which files it owns rather than guessed at. The rows run in parallel; \
-the programs within one row run in order.
-
-taplo and biome are pointed at this repository\'s configuration on the \
-command line, because neither would find it otherwise. A target that has a \
-config of its own for one of them keeps it.
-
---check runs the same formatters in verify mode and the linters as well, \
-writes nothing, and exits 1 if there is anything to report. It does not run \
-clippy.
-
---add and --sync copy this repository's tool configuration into another \
-project: --add asks about each file, --sync replaces only the ones already \
-there.
-
-A run reports a count, and one line for each provider that has something to \
-say with the files it fell over on under it. --verbose adds the per-language \
-table, the commands as they were run, and everything the tools said.
-
-A tool that is not installed is named in the report and is never a failure. \
-Files git ignores are left out, .git and the usual build directories are not \
-walked, and symlinked directories are not followed.",
-    after_long_help = "Examples:
+    about = "Format configurations for most types of files",
+    long_about = "Format a tree with the tool that owns each language.",
+    long_about = "Examples:
   dotfile format .                 Format the tree under the working directory
   dotfile format --check .         Verify formatting and lint, changing nothing
   dotfile format src/main.rs       Format one file

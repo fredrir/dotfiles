@@ -1,4 +1,3 @@
-
 mod block;
 mod conf;
 mod config;
@@ -26,30 +25,7 @@ const PROGRAM: &str = "dotfmt";
 #[command(
     version,
     about = "Format .conf, .config and .dotfile files",
-    long_about = "Format .conf, .config and .dotfile files.
-
-A target is a file or a directory; a directory is walked for the files the \
-include and exclude blocks pick up and nothing else. --check reports what is \
-not formatted, writes nothing, and exits 1 if it found anything. --stdin \
-reads a body from stdin and writes the formatted bytes to stdout, so an \
-editor can format a buffer that was never saved. --owns reads NUL-separated \
-paths from stdin and answers with the ones it would format, NUL-separated, so \
-another tool can ask rather than guess.
-
-.conf and .config files are laid out in one of three modes chosen by the \
-path: hypr, kitty, or plain, which trims trailing whitespace and leaves the \
-structure alone. .dotfile files are laid out by their blocks, with the = of \
-each group of entries sharing a column.
-
-Which files are formatted is an include block of .gitignore patterns, each \
-ending in .conf, .config, .dotfile or _empty_, and an exclude block of plain \
-.gitignore patterns. .dotfile is included unless a config says otherwise; the \
-other three are not.
-
-Everything a person reads is written to stderr, whatever the mode, so stdout \
-is only ever data. Settings are found per file: the nearest dotfmt.dotfile \
-at or above it, then ~/.config/dotfmt/dotfmt.dotfile, then ~/dotfmt.dotfile, \
-then the defaults built in.",
+    long_about = "Format .conf, .config and .dotfile files",
     after_long_help = "Examples:
   dotfmt .                       Format every file it owns below here
   dotfmt --check .               Report what is not formatted, and change nothing

@@ -1,4 +1,3 @@
-
 mod apply;
 mod dir;
 mod plan;
@@ -25,19 +24,7 @@ const ARROW: &str = " -> ";
 #[command(
     version,
     about = "Lift a directory's contents up out of the directories holding them",
-    long_about = "Lift a directory's contents up out of the directories holding them.
-
-By default only redundant nesting is undone: while the directory holds \
-exactly one entry and that entry is a directory, that directory is emptied \
-into the target and removed. Nothing can be overwritten that way, so it runs \
-without asking and without saying anything.
-
-With --deep every entry underneath the directory comes up to the top and \
-every directory underneath is removed. That prints the plan, asks about each \
-name two entries want, and asks once more before it starts.
-
-Symlinks are moved, never followed, so a link to a directory comes up as \
-itself and a loop is not a hang.",
+    long_about = "Lift a directory's contents up out of the directories holding them",
     after_long_help = "Examples:
   flatten documents        Undo the folder-inside-a-folder-of-the-same-name
   flatten -n -d pack       Show what a deep flatten would do, and stop

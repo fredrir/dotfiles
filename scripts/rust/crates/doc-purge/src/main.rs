@@ -30,25 +30,7 @@ const PROGRAM: &str = "doc-purge";
 #[command(
     version,
     about = "Purge comments, doc strings and typographic glyphs from source files",
-    long_about = "Purge comments, doc strings and typographic glyphs from source files.
-
-A target is a file or a directory; a directory is walked for the file types \
-doc-purge reads, skipping dot directories, build output and anything that is \
-not text. What would go is shown as a line diff per file, and nothing is \
-written until the prompt is answered.
-
-Shebangs, tool directives such as `# noqa` or `// @ts-ignore`, and a leading \
-licence header stay, because removing them changes what the file does. A \
-python doc string that is the only statement in its body is replaced by its \
-first sentence rather than removed, so the body still parses.
-
-Typographic glyphs go from string literals at the same time: the em dash, the \
-en dash and the zero width spaces are removed, curly quotes become straight \
-ones, and a non-breaking space becomes an ordinary one. The middle dot and the \
-ellipsis stay, because terminal output leans on them.
-
-A file the scanner cannot read with confidence is left alone and listed, and \
-so is one whose purged form no longer reads back.",
+    long_about = "Purge comments, doc strings and typographic glyphs from source files.",
     after_long_help = "Examples:
   doc-purge .                Purge everything below here, after asking
   doc-purge src --dry        Show what would go, and change nothing
