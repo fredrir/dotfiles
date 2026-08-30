@@ -9,7 +9,12 @@ local M = {}
 function M.apply_to_config(config)
   vtabs.apply_to_config(config, {
     backend = {
-      path = wezterm.home_dir .. "/projects/wez-vertical-tabs/backend/target/release/wez-vtabs",
+      path = function(domain)
+        if domain:match "^archie" then
+          return "/home/fredrir/wez-vertical-tabs/backend/target/release/wez-vtabs" -- adjust to where you built it
+        end
+        return wezterm.home_dir .. "/projects/wez-vertical-tabs/backend/target/release/wez-vtabs"
+      end,
     },
     keys = {
       new_tab = false,
