@@ -15,7 +15,7 @@ const PROGRAM: &str = "gpp";
 struct Cli {
     #[arg(
         value_name = "MESSAGE",
-        required_unless_present = "shell",
+        default_value = ".",
         trailing_var_arg = true,
         allow_hyphen_values = true
     )]

@@ -207,9 +207,17 @@ fn a_conflicted_merge_is_committed_as_it_stands() {
 }
 
 #[test]
-fn a_missing_message_is_a_usage_error() {
+fn a_missing_message_defaults_to_dot() {
     let sandbox = Sandbox::new();
-    assert_eq!(sandbox.gpp(&sandbox.work(), &[]).status.code(), Some(2));
+    let work = sandbox.work();
+    fs::write(work.join("new.txt"), "content\n").unwrap();
+
+    assert!(sandbox.gpp(&work, &[]).status.success());
+    assert_eq!(sandbox.read(&work, &["log", "-1", "--format=%s"]), ".");
+    assert_eq!(
+        sandbox.read(&work, &["rev-parse", "HEAD"]),
+        sandbox.read(&work, &["rev-parse", "@{u}"])
+    );
 }
 
 #[test]
@@ -228,11 +236,11 @@ fn completions_need_no_message() {
 }
 
 #[test]
-fn help_describes_this_tool() {
+fn help_advertises_the_default_message() {
     let sandbox = Sandbox::new();
     let output = sandbox.gpp(&sandbox.work(), &["--help"]);
-    assert!(
-        String::from_utf8_lossy(&output.stdout)
-            .starts_with("Stage everything, commit with the given message, and push")
-    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("Stage everything, commit with the given message, and push"));
+    assert!(stdout.contains("Usage: gpp [OPTIONS] [MESSAGE]..."), "{stdout}");
+    assert!(stdout.contains("[default: .]"), "{stdout}");
 }
