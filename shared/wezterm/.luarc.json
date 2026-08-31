@@ -5,7 +5,7 @@
   "runtime.pathStrict": true,
   "workspace.library": [
     "${workspaceFolder}/lua_modules/share/lua/5.5/wezterm/types",
-    "${workspaceFolder}/types"
+    "${workspaceFolder}/_types"
   ],
   "workspace.ignoreDir": [".luarocks"],
   "workspace.checkThirdParty": false,

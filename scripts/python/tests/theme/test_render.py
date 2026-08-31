@@ -118,11 +118,24 @@ def test_the_wezterm_init_activates_the_selected_profile():
         assert f'  "{profile}",' in init
 
 
-def test_wezterm_gets_a_font_file_per_role_and_an_init():
+def test_wezterm_gets_a_font_file_per_role_and_a_fonts_file():
     out = Written()
     emit_wezterm(Theme.load("mocha"), out)
     expected = {f"fonts/{role}.lua" for role in wezterm_font_roles()}
-    assert expected | {"fonts/init.lua"} <= set(out.files)
+    assert expected | {"fonts/fonts.lua"} <= set(out.files)
+
+
+def test_wezterm_puts_all_generated_type_definitions_in_the_types_directory():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+
+    generated_types = out.files["../_types/_dotfile-theme.lua"]
+    assert "---@class (exact) ColorProfile" in generated_types
+    assert "---@class (exact) FontFamily" in generated_types
+    assert "---@class (exact) DotfileFonts" in generated_types
+
+    runtime_files = [content for name, content in out.files.items() if name != "../_types/_dotfile-theme.lua"]
+    assert all("---@class" not in content and "---@field" not in content for content in runtime_files)
 
 
 def test_a_wezterm_font_role_file_is_inert_data():
@@ -134,22 +147,13 @@ def test_a_wezterm_font_role_file_is_inert_data():
     assert "require" not in nerd
 
 
-def test_the_wezterm_font_init_sizes_the_terminal_per_platform():
+def test_the_wezterm_fonts_file_contains_the_selected_font_settings():
     out = Written()
     emit_wezterm(Theme.load("mocha"), out)
-    init = out.files["fonts/init.lua"]
-    assert "  config.font_size = platform.is_mac and 13 or 12" in init
-    assert "  config.window_frame.font_size = 10" in init
-
-
-def test_the_wezterm_terminal_font_chain_omits_bundled_fallbacks():
-    out = Written()
-    emit_wezterm(Theme.load("mocha"), out)
-    init = out.files["fonts/init.lua"]
-    assert "config.font = wezterm.font_with_fallback { terminal.family }" in init
-    assert "Symbols Nerd Font" not in init
-    assert "Noto Color Emoji" not in init
-    assert "interface.family }" not in init.split("config.font_size")[0]
+    fonts = out.files["fonts/fonts.lua"]
+    assert "  font_size = 12," in fonts
+    assert '  nerd_family = "Hack Nerd Font Mono",' in fonts
+    assert '  general_family = "Noto Sans",' in fonts
 
 
 def test_a_wezterm_key_that_is_not_a_lua_identifier_is_bracketed():

@@ -50,6 +50,8 @@ WEZTERM_COLORS_DIR = "shared/wezterm/ui/colors"
 
 WEZTERM_FONTS_DIR = "shared/wezterm/ui/fonts"
 
+WEZTERM_TYPES_FILE = "shared/wezterm/_types/_dotfile-theme.lua"
+
 WEZTERM_COLORS = (
     ("foreground", "foreground"),
     ("background", "background"),
@@ -123,6 +125,7 @@ def wezterm_outputs():
     targets.append(f"{WEZTERM_COLORS_DIR}/profiles.lua")
     targets += [f"{WEZTERM_FONTS_DIR}/{role}.lua" for role in wezterm_font_roles()]
     targets.append(f"{WEZTERM_FONTS_DIR}/fonts.lua")
+    targets.append(WEZTERM_TYPES_FILE)
     return targets
 
 
@@ -151,15 +154,21 @@ def _wezterm_scheme(scheme):
     return "\n".join(lines) + "\n"
 
 
-def _wezterm_types(schema):
+def _wezterm_types(theme):
     lines = [
-        f"-- {schema.header}",
+        f"-- {theme.header}",
         "",
         "---@class (exact) ColorProfile",
         "---@field name string",
         "---@field colors Palette",
         "",
-        "---@type table<string, ColorProfile>",
+        "---@class (exact) FontFamily",
+        "---@field family string",
+        "",
+        "---@class (exact) DotfileFonts",
+        "---@field font_size number",
+        "---@field nerd_family string",
+        "---@field general_family string",
     ]
     return "\n".join(lines) + "\n"
 
@@ -184,7 +193,6 @@ def _wezterm_colors_init(theme):
 def _wezterm_font(theme, role):
     lines = [
         f"-- {theme.header}",
-        "",
         "---@type FontFamily",
         "return {",
         f"  family = {_lua_string(theme.font(role))},",
@@ -196,18 +204,12 @@ def _wezterm_font(theme, role):
 def _wezterm_fonts(theme):
     lines = [
         f"-- {theme.header}",
-        "---@class DotfileFonts",
-        "---@field font_size number",
-        "---@field nerd_family string",
-        "---@field general_family string",
-        "",
         "---@type DotfileFonts",
         "return {",
         f"  font_size = {theme.size('terminal')},",
         f"  nerd_family = {_lua_string(theme.font('nerd'))},",
         f"  general_family = {_lua_string(theme.font('general'))},",
         "}",
-        "",
     ]
     return "\n".join(lines) + "\n"
 
@@ -216,12 +218,11 @@ def emit_wezterm(theme, out):
     for profile in list_profiles():
         scheme = theme if profile == theme.profile else Theme.load(profile)
         out.write(path(WEZTERM_COLORS_DIR, f"{profile}.lua"), _wezterm_scheme(scheme))
-    out.write(path(WEZTERM_COLORS_DIR, "types.lua"), _wezterm_types(scheme))
+    out.write(path(WEZTERM_TYPES_FILE), _wezterm_types(theme))
     out.write(path(WEZTERM_COLORS_DIR, "init.lua"), _wezterm_colors_init(theme))
-    out.write(
-        path(WEZTERM_FONTS_DIR, "init.lua"),
-        _wezterm_fonts(theme),
-    )
+    for role in wezterm_font_roles():
+        out.write(path(WEZTERM_FONTS_DIR, f"{role}.lua"), _wezterm_font(theme, role))
+    out.write(path(WEZTERM_FONTS_DIR, "fonts.lua"), _wezterm_fonts(theme))
 
 
 def emit_fastfetch_config(theme, out):
