@@ -165,9 +165,6 @@
   --text-highlight-bg: #ebcb8b;
   --text-highlight-bg-active: #ebcb8b;
   --highlight-mix-blend-mode: normal;
-  --font-interface-theme: "Noto Sans", sans-serif;
-  --font-text-theme: "Noto Sans", sans-serif;
-  --font-monospace-theme: "Hack Nerd Font Mono", ui-monospace, monospace;
   /* theme:variables:end */
   --radius-s: 6px;
   --radius-m: 10px;

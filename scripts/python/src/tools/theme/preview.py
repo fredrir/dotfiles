@@ -353,9 +353,6 @@ def render_status(rows, changed, columns=None):
 
 
 def render_changes(changed, dry):
-    if not changed:
-        stdout.print(Text("  theme is already up to date", style="dim"))
-        return
     summary = Text()
     summary.append("  ")
     count = f"{len(changed)} {'file' if len(changed) == 1 else 'files'}"

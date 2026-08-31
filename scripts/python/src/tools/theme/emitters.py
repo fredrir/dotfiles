@@ -120,9 +120,9 @@ def wezterm_font_roles():
 
 def wezterm_outputs():
     targets = [f"{WEZTERM_COLORS_DIR}/{profile}.lua" for profile in list_profiles()]
-    targets.append(f"{WEZTERM_COLORS_DIR}/init.lua")
+    targets.append(f"{WEZTERM_COLORS_DIR}/profiles.lua")
     targets += [f"{WEZTERM_FONTS_DIR}/{role}.lua" for role in wezterm_font_roles()]
-    targets.append(f"{WEZTERM_FONTS_DIR}/init.lua")
+    targets.append(f"{WEZTERM_FONTS_DIR}/fonts.lua")
     return targets
 
 
@@ -132,6 +132,8 @@ def _wezterm_scheme(scheme):
 
     lines = [
         f"-- {scheme.header}",
+        "",
+        "---@type ColorProfile",
         "return {",
         f"  name = {_lua_string(scheme.name)},",
         "  colors = {",
@@ -149,82 +151,63 @@ def _wezterm_scheme(scheme):
     return "\n".join(lines) + "\n"
 
 
+def _wezterm_types(schema):
+    lines = [
+        f"-- {schema.header}",
+        "",
+        "---@class (exact) ColorProfile",
+        "---@field name string",
+        "---@field colors Palette",
+        "",
+        "---@type table<string, ColorProfile>",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _wezterm_colors_init(theme):
     lines = [
         f"-- {theme.header}",
-        f'local active = require "ui.colors.{theme.profile}"',
         "",
-        "local profiles = {",
+        "---@type table<string, ColorProfile>",
+        "return {",
     ]
-    lines += [f"  {_lua_string(profile)}," for profile in list_profiles()]
+
     lines += [
-        "}",
-        "",
-        "---@class GeneratedThemePalette",
-        "---@field foreground string",
-        "---@field background string",
-        "---@field cursor_bg string",
-        "---@field cursor_fg string",
-        "---@field cursor_border string",
-        "---@field selection_fg string",
-        "---@field selection_bg string",
-        "---@field ansi string[]",
-        "---@field brights string[]",
-        "",
-        "---@class GeneratedThemeConfig",
-        "---@field color_schemes? table<string, GeneratedThemePalette>",
-        "---@field color_scheme? string",
-        "",
-        "local M = {}",
-        "",
-        "---@return GeneratedThemePalette",
-        "function M.get_active()",
-        "  return active.colors",
-        "end",
-        "",
-        "---@param config GeneratedThemeConfig",
-        "function M.apply_to_config(config)",
-        "  local schemes = {}",
-        "  for _, profile in ipairs(profiles) do",
-        '    local scheme = require("ui.colors." .. profile)',
-        "    schemes[scheme.name] = scheme.colors",
-        "  end",
-        "  config.color_schemes = schemes",
-        "  config.color_scheme = active.name",
-        "end",
-        "",
-        "return M",
+        f"  [{_lua_string(profile)}] = require {_lua_string('ui.colors.' + profile)},"
+        for profile in list_profiles()
     ]
+
+    lines.append("}")
     return "\n".join(lines) + "\n"
 
 
 def _wezterm_font(theme, role):
-    lines = [f"-- {theme.header}", "return {", f"  family = {_lua_string(theme.font(role))},", "}"]
+    lines = [
+        f"-- {theme.header}",
+        "",
+        "---@type FontFamily",
+        "return {",
+        f"  family = {_lua_string(theme.font(role))},",
+        "}",
+    ]
     return "\n".join(lines) + "\n"
 
 
-def _wezterm_fonts_init(theme):
-    terminal = f"platform.is_mac and {theme.size('terminal_mac')} or {theme.size('terminal')}"
+def _wezterm_fonts(theme):
     lines = [
         f"-- {theme.header}",
-        'local wezterm = require "wezterm"',
-        'local platform = require "utils.platform"',
+        "---@class DotfileFonts",
+        "---@field font_size number",
+        "---@field nerd_family string",
+        "---@field general_family string",
         "",
-        'local terminal = require "ui.fonts.nerd"',
-        'local interface = require "ui.fonts.general"',
+        "---@type DotfileFonts",
+        "return {",
+        f"  font_size = {theme.size('terminal')},",
+        f"  nerd_family = {_lua_string(theme.font('nerd'))},",
+        f"  general_family = {_lua_string(theme.font('general'))},",
+        "}",
         "",
-        "local M = {}",
-        "",
-        "function M.apply_to_config(config)",
-        "  config.font = wezterm.font_with_fallback { terminal.family }",
-        f"  config.font_size = {terminal}",
-        "",
-        "  config.window_frame = config.window_frame or {}",
-        "  config.window_frame.font = wezterm.font_with_fallback { interface.family }",
-        f"  config.window_frame.font_size = {theme.size('interface')}",
-        "end",
-        "",
-        "return M",
     ]
     return "\n".join(lines) + "\n"
 
@@ -233,10 +216,12 @@ def emit_wezterm(theme, out):
     for profile in list_profiles():
         scheme = theme if profile == theme.profile else Theme.load(profile)
         out.write(path(WEZTERM_COLORS_DIR, f"{profile}.lua"), _wezterm_scheme(scheme))
+    out.write(path(WEZTERM_COLORS_DIR, "types.lua"), _wezterm_types(scheme))
     out.write(path(WEZTERM_COLORS_DIR, "init.lua"), _wezterm_colors_init(theme))
-    for role in wezterm_font_roles():
-        out.write(path(WEZTERM_FONTS_DIR, f"{role}.lua"), _wezterm_font(theme, role))
-    out.write(path(WEZTERM_FONTS_DIR, "init.lua"), _wezterm_fonts_init(theme))
+    out.write(
+        path(WEZTERM_FONTS_DIR, "init.lua"),
+        _wezterm_fonts(theme),
+    )
 
 
 def emit_fastfetch_config(theme, out):
