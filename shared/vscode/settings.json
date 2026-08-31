@@ -1,151 +1,151 @@
 {
-	"workbench.secondarySideBar.defaultVisibility": "hidden",
-	"editor.gotoLocation.multipleDefinitions": "goto",
-	"editor.definitionLinkOpensInPeek": false,
-	"workbench.editor.enablePreviewFromCodeNavigation": false,
-	"editor.formatOnSave": true,
-	"explorer.confirmDelete": false,
-	"explorer.confirmDragAndDrop": false,
-	"git.enableSmartCommit": true,
-	"git.autofetch": true,
-	"git.confirmSync": false,
-	"git.openRepositoryInParentFolders": "always",
+  "workbench.secondarySideBar.defaultVisibility": "hidden",
+  "editor.gotoLocation.multipleDefinitions": "goto",
+  "editor.definitionLinkOpensInPeek": false,
+  "workbench.editor.enablePreviewFromCodeNavigation": false,
+  "editor.formatOnSave": true,
+  "explorer.confirmDelete": false,
+  "explorer.confirmDragAndDrop": false,
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.openRepositoryInParentFolders": "always",
 
-	"[python]": {
-		"editor.defaultFormatter": "charliermarsh.ruff"
-	},
-	"[javascript]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[javascriptreact]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[typescript]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[typescriptreact]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[css]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[html]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[json]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[jsonc]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[snippets]": {
-		"editor.defaultFormatter": "biomejs.biome"
-	},
-	"[lua]": {
-		"editor.quickSuggestions": {
-			"other": true,
-			"comments": true,
-			"strings": true
-		},
-		"editor.tabCompletion": "on",
-		"editor.quickSuggestionsDelay": 1,
-		"editor.suggest.snippetsPreventQuickSuggestions": false,
-		"editor.formatOnSave": true,
-		"editor.defaultFormatter": "JohnnyMorganz.stylua"
-	},
-	"[toml]": {
-		"editor.defaultFormatter": "tamasfe.even-better-toml"
-	},
-	"[rust]": {
-		"editor.defaultFormatter": "rust-lang.rust-analyzer"
-	},
-	"[go]": {},
-	"[markdown]": {
-		"editor.defaultFormatter": "yzhang.markdown-all-in-one"
-	},
-	"[nix]": {
-		"editor.insertSpaces": true,
-		"editor.tabSize": 2
-	},
-	"[shellscript]": {
-		"files.eol": "\n",
-		"editor.defaultColorDecorators": "never",
-		"editor.defaultFormatter": "mkhl.shfmt"
-	},
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[snippets]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[lua]": {
+    "editor.quickSuggestions": {
+      "other": true,
+      "comments": true,
+      "strings": true
+    },
+    "editor.tabCompletion": "on",
+    "editor.quickSuggestionsDelay": 1,
+    "editor.suggest.snippetsPreventQuickSuggestions": false,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "JohnnyMorganz.stylua"
+  },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml"
+  },
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "[go]": {},
+  "[markdown]": {
+    "editor.defaultFormatter": "yzhang.markdown-all-in-one"
+  },
+  "[nix]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2
+  },
+  "[shellscript]": {
+    "files.eol": "\n",
+    "editor.defaultColorDecorators": "never",
+    "editor.defaultFormatter": "mkhl.shfmt"
+  },
 
-	"customLocalFormatters.formatters": [
-		{
-			"command": "yamlfmt -",
-			"languages": ["yaml"]
-		},
-		{
-			"command": "sqlfluff format -",
-			"languages": ["sql"]
-		},
-		{
-			"command": "$HOME/.local/bin/dotfmt --stdin \"${file}\"",
-			"languages": ["properties"]
-		}
-	],
-	"[yaml]": {
-		"editor.defaultFormatter": "jkillian.custom-local-formatters"
-	},
-	"[sql]": {
-		"editor.defaultFormatter": "jkillian.custom-local-formatters"
-	},
-	"[properties]": {
-		"editor.defaultFormatter": "jkillian.custom-local-formatters"
-	},
+  "customLocalFormatters.formatters": [
+    {
+      "command": "yamlfmt -",
+      "languages": ["yaml"]
+    },
+    {
+      "command": "sqlfluff format -",
+      "languages": ["sql"]
+    },
+    {
+      "command": "$HOME/.local/bin/dotfmt --stdin \"${file}\"",
+      "languages": ["properties"]
+    }
+  ],
+  "[yaml]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
+  "[sql]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
+  "[properties]": {
+    "editor.defaultFormatter": "jkillian.custom-local-formatters"
+  },
 
-	"stylua.searchParentDirectories": true,
-	"stylua.searchBinaryInPATH": true,
+  "stylua.searchParentDirectories": true,
+  "stylua.searchBinaryInPATH": true,
 
-	"evenBetterToml.formatter.alignEntries": true,
-	"evenBetterToml.formatter.arrayTrailingComma": true,
-	"evenBetterToml.formatter.columnWidth": 100,
-	"evenBetterToml.formatter.allowedBlankLines": 1,
-	"evenBetterToml.formatter.indentString": "  ",
+  "evenBetterToml.formatter.alignEntries": true,
+  "evenBetterToml.formatter.arrayTrailingComma": true,
+  "evenBetterToml.formatter.columnWidth": 100,
+  "evenBetterToml.formatter.allowedBlankLines": 1,
+  "evenBetterToml.formatter.indentString": "  ",
 
-	"files.associations": {
-		"*.zsh": "shellscript",
-		"*.hujson": "jsonc",
-		"*.lua": "lua",
-		"*.dotfile": "properties",
-		"Cargo.lock": "properties",
-		"uv.lock": "properties",
-		"settings.*.json": "jsonc"
-	},
-	"js/ts.updateImportsOnFileMove.enabled": "always",
-	"json.schemaDownload.trustedDomains": {
-		"https://schemastore.azurewebsites.net/": true,
-		"https://raw.githubusercontent.com/microsoft/vscode/": true,
-		"https://raw.githubusercontent.com/devcontainers/spec/": true,
-		"https://www.schemastore.org/": true,
-		"https://json.schemastore.org/": true,
-		"https://json-schema.org/": true,
-		"https://developer.microsoft.com/json-schemas/": true,
-		"https://biomejs.dev": true,
-		"https://raw.githubusercontent.com": true
-	},
-	"json.schemas": [
-		{
-			"fileMatch": ["*.hujson"],
-			"schema": {
-				"allowTrailingCommas": true
-			}
-		}
-	],
-	"diffEditor.ignoreTrimWhitespace": false,
-	"github.copilot.enable": {
-		"lua": false,
-		"*": false,
-		"plaintext": false,
-		"markdown": false,
-		"scminput": false
-	},
-	"evenBetterToml.taplo.configFile.enabled": true,
-	"chat.titleBar.openInAgentsWindow.enabled": false,
-	"workbench.browser.showInTitleBar": false,
-	"biome.enabled": true,
-	"biome.requireConfiguration": false
+  "files.associations": {
+    "*.zsh": "shellscript",
+    "*.hujson": "jsonc",
+    "*.lua": "lua",
+    "*.dotfile": "properties",
+    "Cargo.lock": "properties",
+    "uv.lock": "properties",
+    "settings.*.json": "jsonc"
+  },
+  "js/ts.updateImportsOnFileMove.enabled": "always",
+  "json.schemaDownload.trustedDomains": {
+    "https://schemastore.azurewebsites.net/": true,
+    "https://raw.githubusercontent.com/microsoft/vscode/": true,
+    "https://raw.githubusercontent.com/devcontainers/spec/": true,
+    "https://www.schemastore.org/": true,
+    "https://json.schemastore.org/": true,
+    "https://json-schema.org/": true,
+    "https://developer.microsoft.com/json-schemas/": true,
+    "https://biomejs.dev": true,
+    "https://raw.githubusercontent.com": true
+  },
+  "json.schemas": [
+    {
+      "fileMatch": ["*.hujson"],
+      "schema": {
+        "allowTrailingCommas": true
+      }
+    }
+  ],
+  "diffEditor.ignoreTrimWhitespace": false,
+  "github.copilot.enable": {
+    "lua": false,
+    "*": false,
+    "plaintext": false,
+    "markdown": false,
+    "scminput": false
+  },
+  "evenBetterToml.taplo.configFile.enabled": true,
+  "chat.titleBar.openInAgentsWindow.enabled": false,
+  "workbench.browser.showInTitleBar": false,
+  "biome.enabled": true,
+  "biome.requireConfiguration": false
 }

@@ -1,4 +1,3 @@
-
 use hostkit::{Host, Route};
 
 pub const ROUTES: [Route; 3] = [Route::Cable, Route::Wifi, Route::Tailscale];
@@ -54,7 +53,10 @@ mod tests {
     fn nothing_named_means_the_peer() {
         assert_eq!(target(None, Host::Macie).unwrap(), Host::Archie);
         assert_eq!(target(None, Host::Archie).unwrap(), Host::Macie);
-        assert_eq!(target(Some(Host::Archie), Host::Macie).unwrap(), Host::Archie);
+        assert_eq!(
+            target(Some(Host::Archie), Host::Macie).unwrap(),
+            Host::Archie
+        );
     }
 
     #[test]

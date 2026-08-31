@@ -1,4 +1,3 @@
-
 use std::process::{Command, Output};
 
 fn size(args: &[&str]) -> Output {

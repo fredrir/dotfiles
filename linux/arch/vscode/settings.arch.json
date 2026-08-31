@@ -1,7 +1,7 @@
 {
-	"shfmt.executablePath": "/usr/bin/shfmt",
-	"evenBetterToml.taplo.configFile.path": "/home/fredrir/dotfiles/shared/tools/.taplo.toml",
-	"evenBetterToml.taplo.path": "/usr/bin/taplo",
-	"stylua.configPath": "/Users/fredrir/dotfiles/shared/tools/stylua.toml",
-	"stylua.targetReleaseVersion": "/opt/homebrew/bin/stylua"
+  "shfmt.executablePath": "/usr/bin/shfmt",
+  "evenBetterToml.taplo.configFile.path": "/home/fredrir/dotfiles/shared/tools/.taplo.toml",
+  "evenBetterToml.taplo.path": "/usr/bin/taplo",
+  "stylua.configPath": "/Users/fredrir/dotfiles/shared/tools/stylua.toml",
+  "stylua.targetReleaseVersion": "/opt/homebrew/bin/stylua"
 }

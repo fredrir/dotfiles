@@ -1,4 +1,3 @@
-
 use serde_json::json;
 use sysinfo::{Disks, MemoryRefreshKind, RefreshKind, System};
 

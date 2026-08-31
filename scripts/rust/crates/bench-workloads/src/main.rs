@@ -1,4 +1,3 @@
-
 use std::env;
 use std::hint::black_box;
 use std::process::ExitCode;

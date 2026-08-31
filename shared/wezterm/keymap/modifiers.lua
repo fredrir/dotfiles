@@ -1,37 +1,37 @@
-local platform = require "utils.platform"
+local platform = require("utils.platform")
 
 ---@return Mods
 local function modifiers()
-  if platform.is_mac then
-    ---@type Mods
-    return {
-      SUPER = "CMD",
-      SPECIAL = "CMD",
-      SECONDARY = "OPT",
-      ---
-      SUPER_REV = "CMD|SHIFT",
-      CTRL_OR_SPECIAL = { "CTRL", "CMD" },
-      CTRL_OR_SECONDARY = { "CTRL", "OPT" },
-      CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "OPT", "CMD" },
-      ---
-      SPLITBELOW = "'",
-    }
-  end
+	if platform.is_mac then
+		---@type Mods
+		return {
+			SUPER = "CMD",
+			SPECIAL = "CMD",
+			SECONDARY = "OPT",
+			---
+			SUPER_REV = "CMD|SHIFT",
+			CTRL_OR_SPECIAL = { "CTRL", "CMD" },
+			CTRL_OR_SECONDARY = { "CTRL", "OPT" },
+			CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "OPT", "CMD" },
+			---
+			SPLITBELOW = "'",
+		}
+	end
 
-  ---@type Mods
-  return {
-    SUPER = "CTRL|SHIFT",
-    SPECIAL = "ALT",
-    SECONDARY = "ALT",
-    ---
-    SUPER_REV = "CTRL|SHIFT|ALT",
-    CTRL_OR_SPECIAL = { "CTRL", "ALT" },
-    CTRL_OR_SECONDARY = { "CTRL", "ALT" },
-    CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "ALT" },
+	---@type Mods
+	return {
+		SUPER = "CTRL|SHIFT",
+		SPECIAL = "ALT",
+		SECONDARY = "ALT",
+		---
+		SUPER_REV = "CTRL|SHIFT|ALT",
+		CTRL_OR_SPECIAL = { "CTRL", "ALT" },
+		CTRL_OR_SECONDARY = { "CTRL", "ALT" },
+		CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "ALT" },
 
-    ---
-    SPLITBELOW = "§",
-  }
+		---
+		SPLITBELOW = "§",
+	}
 end
 
 local _MOD = modifiers()

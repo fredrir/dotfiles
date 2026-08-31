@@ -1,4 +1,3 @@
-
 use std::process::{Command, Output};
 
 use hostkit::Host;
@@ -47,7 +46,10 @@ fn the_completion_offers_the_machines_rather_than_file_names() {
     let output = mux_route(&["--completions", "zsh"]);
     let script = String::from_utf8_lossy(&output.stdout);
     assert!(script.contains("(macie archie)"), "{script}");
-    assert!(!script.contains("host -- Machine to reach:_default"), "{script}");
+    assert!(
+        !script.contains("host -- Machine to reach:_default"),
+        "{script}"
+    );
 }
 
 #[test]

@@ -1,553 +1,553 @@
 body {
-	--agent-claude-accent: #c47a5e;
-	--agent-claude-accent-rgb: 196, 122, 94;
-	--agent-codex-accent: #3d6fb4;
-	--agent-codex-accent-rgb: 61, 111, 180;
-	--agent-chatgpt-accent: #10a37f;
-	--agent-chatgpt-accent-rgb: 16, 163, 127;
+  --agent-claude-accent: #c47a5e;
+  --agent-claude-accent-rgb: 196, 122, 94;
+  --agent-codex-accent: #3d6fb4;
+  --agent-codex-accent-rgb: 61, 111, 180;
+  --agent-chatgpt-accent: #10a37f;
+  --agent-chatgpt-accent-rgb: 16, 163, 127;
 }
 
 .callout:is(
-	[data-callout="claude"],
-	[data-callout="codex"],
-	[data-callout="agent"],
-	[data-callout="chatgpt"]
+  [data-callout="claude"],
+  [data-callout="codex"],
+  [data-callout="agent"],
+  [data-callout="chatgpt"]
 ) {
-	--agent-accent: var(--text-accent);
-	--agent-label: "agent";
-	--agent-surface: color-mix(
-		in srgb,
-		var(--agent-accent) 3%,
-		var(--background-primary)
-	);
-	--callout-color: 128, 128, 128;
-	--callout-icon: lucide-bot;
-	margin-block: 1.1rem;
-	padding: 0;
-	overflow: hidden;
-	border: 1px solid var(--background-modifier-border);
-	border-inline-start: 2px solid
-		color-mix(in srgb, var(--agent-accent) 55%, transparent);
-	border-radius: 8px;
-	background: var(--agent-surface);
+  --agent-accent: var(--text-accent);
+  --agent-label: "agent";
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-accent) 3%,
+    var(--background-primary)
+  );
+  --callout-color: 128, 128, 128;
+  --callout-icon: lucide-bot;
+  margin-block: 1.1rem;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-inline-start: 2px solid
+    color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  border-radius: 8px;
+  background: var(--agent-surface);
 
-	& > .callout-title {
-		align-items: center;
-		gap: 0.55rem;
-		padding: 0.55rem 0.8rem;
-		background: transparent;
-		border-bottom: 1px solid var(--background-modifier-border);
-		color: var(--text-normal);
+  & > .callout-title {
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.55rem 0.8rem;
+    background: transparent;
+    border-bottom: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
 
-		&::after {
-			content: var(--agent-label);
-			order: 8;
-			margin-left: auto;
-			color: color-mix(in srgb, var(--agent-accent) 70%, var(--text-muted));
-			font-family: var(--font-interface);
-			font-size: 0.68rem;
-			font-weight: 600;
-			letter-spacing: 0.05em;
-		}
+    &::after {
+      content: var(--agent-label);
+      order: 8;
+      margin-left: auto;
+      color: color-mix(in srgb, var(--agent-accent) 70%, var(--text-muted));
+      font-family: var(--font-interface);
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
 
-		& .callout-icon {
-			flex-shrink: 0;
-			color: var(--agent-accent);
+    & .callout-icon {
+      flex-shrink: 0;
+      color: var(--agent-accent);
 
-			& svg {
-				width: 1rem;
-				height: 1rem;
-			}
-		}
+      & svg {
+        width: 1rem;
+        height: 1rem;
+      }
+    }
 
-		& .callout-title-inner {
-			min-width: 0;
-			color: var(--text-normal);
-			font-family: var(--font-interface);
-			font-size: 0.9rem;
-			font-weight: 600;
-			line-height: 1.4;
-		}
+    & .callout-title-inner {
+      min-width: 0;
+      color: var(--text-normal);
+      font-family: var(--font-interface);
+      font-size: 0.9rem;
+      font-weight: 600;
+      line-height: 1.4;
+    }
 
-		& .callout-fold {
-			order: 10;
-			margin-left: 0.25rem;
-			color: var(--text-faint);
-		}
-	}
+    & .callout-fold {
+      order: 10;
+      margin-left: 0.25rem;
+      color: var(--text-faint);
+    }
+  }
 
-	&.is-collapsed > .callout-title {
-		border-bottom-color: transparent;
-	}
+  &.is-collapsed > .callout-title {
+    border-bottom-color: transparent;
+  }
 
-	& > .callout-content {
-		padding: 0.85rem 1rem 1rem;
-		background: transparent;
-		font-size: 0.95em;
-		line-height: 1.6;
+  & > .callout-content {
+    padding: 0.85rem 1rem 1rem;
+    background: transparent;
+    font-size: 0.95em;
+    line-height: 1.6;
 
-		& > :first-child {
-			margin-top: 0;
-		}
+    & > :first-child {
+      margin-top: 0;
+    }
 
-		& > :last-child {
-			margin-bottom: 0;
-		}
+    & > :last-child {
+      margin-bottom: 0;
+    }
 
-		& pre {
-			max-height: 30rem;
-			overflow: auto;
-			border: 1px solid var(--background-modifier-border);
-			border-radius: 6px;
-			scrollbar-gutter: stable;
-		}
+    & pre {
+      max-height: 30rem;
+      overflow: auto;
+      border: 1px solid var(--background-modifier-border);
+      border-radius: 6px;
+      scrollbar-gutter: stable;
+    }
 
-		& blockquote {
-			border-inline-start: 2px solid
-				color-mix(in srgb, var(--agent-accent) 45%, transparent);
-			background: transparent;
-		}
+    & blockquote {
+      border-inline-start: 2px solid
+        color-mix(in srgb, var(--agent-accent) 45%, transparent);
+      background: transparent;
+    }
 
-		& table {
-			display: block;
-			max-width: 100%;
-			overflow-x: auto;
-		}
-	}
+    & table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+  }
 
-	&[data-callout-metadata*="scroll"] > .callout-content {
-		max-height: min(60vh, 44rem);
-		overflow: auto;
-		overscroll-behavior: contain;
-		scrollbar-gutter: stable;
-	}
+  &[data-callout-metadata*="scroll"] > .callout-content {
+    max-height: min(60vh, 44rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
 
-	&[data-callout-metadata*="compact"] > .callout-content {
-		padding: 0.6rem 0.8rem 0.7rem;
-		font-size: 0.88em;
-		line-height: 1.5;
-	}
+  &[data-callout-metadata*="compact"] > .callout-content {
+    padding: 0.6rem 0.8rem 0.7rem;
+    font-size: 0.88em;
+    line-height: 1.5;
+  }
 }
 
 .callout[data-callout="claude"] {
-	--agent-accent: var(--agent-claude-accent);
-	--agent-label: "claude";
-	--agent-surface: color-mix(
-		in srgb,
-		var(--agent-claude-accent) 3%,
-		var(--background-primary)
-	);
-	--callout-color: var(--agent-claude-accent-rgb);
-	--callout-icon: lucide-asterisk;
+  --agent-accent: var(--agent-claude-accent);
+  --agent-label: "claude";
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-claude-accent) 3%,
+    var(--background-primary)
+  );
+  --callout-color: var(--agent-claude-accent-rgb);
+  --callout-icon: lucide-asterisk;
 }
 
 .callout[data-callout="codex"] {
-	--agent-accent: var(--agent-codex-accent);
-	--agent-label: "codex";
-	--agent-surface: color-mix(
-		in srgb,
-		var(--agent-codex-accent) 4%,
-		var(--background-primary)
-	);
-	--callout-color: var(--agent-codex-accent-rgb);
-	--callout-icon: lucide-terminal;
+  --agent-accent: var(--agent-codex-accent);
+  --agent-label: "codex";
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-codex-accent) 4%,
+    var(--background-primary)
+  );
+  --callout-color: var(--agent-codex-accent-rgb);
+  --callout-icon: lucide-terminal;
 
-	& > .callout-title .callout-title-inner {
-		font-family: var(--font-monospace);
-		font-size: 0.82rem;
-	}
+  & > .callout-title .callout-title-inner {
+    font-family: var(--font-monospace);
+    font-size: 0.82rem;
+  }
 
-	& > .callout-title::after {
-		font-family: var(--font-monospace);
-		letter-spacing: 0;
-	}
+  & > .callout-title::after {
+    font-family: var(--font-monospace);
+    letter-spacing: 0;
+  }
 }
 
 .callout[data-callout="chatgpt"] {
-	--agent-accent: var(--agent-chatgpt-accent);
-	--agent-label: "chatgpt";
-	--agent-surface: color-mix(
-		in srgb,
-		var(--agent-chatgpt-accent) 3%,
-		var(--background-primary)
-	);
-	--callout-color: var(--agent-chatgpt-accent-rgb);
-	--callout-icon: lucide-message-square;
+  --agent-accent: var(--agent-chatgpt-accent);
+  --agent-label: "chatgpt";
+  --agent-surface: color-mix(
+    in srgb,
+    var(--agent-chatgpt-accent) 3%,
+    var(--background-primary)
+  );
+  --callout-color: var(--agent-chatgpt-accent-rgb);
+  --callout-icon: lucide-message-square;
 }
 
 .callout:is(
-	[data-callout="me"],
-	[data-callout="turn"],
-	[data-callout="tool"],
-	[data-callout="toc"]
+  [data-callout="me"],
+  [data-callout="turn"],
+  [data-callout="tool"],
+  [data-callout="toc"]
 ) {
-	--callout-color: 128, 128, 128;
-	margin-block: 0.6rem;
-	padding: 0;
-	overflow: hidden;
-	border: none;
-	border-radius: 6px;
-	background: transparent;
+  --callout-color: 128, 128, 128;
+  margin-block: 0.6rem;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
 
-	& > .callout-title {
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.45rem 0.65rem;
-		background: transparent;
-		color: var(--text-muted);
+  & > .callout-title {
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.65rem;
+    background: transparent;
+    color: var(--text-muted);
 
-		& .callout-icon {
-			flex-shrink: 0;
-			color: var(--text-muted);
+    & .callout-icon {
+      flex-shrink: 0;
+      color: var(--text-muted);
 
-			& svg {
-				width: 0.85rem;
-				height: 0.85rem;
-			}
-		}
+      & svg {
+        width: 0.85rem;
+        height: 0.85rem;
+      }
+    }
 
-		& .callout-title-inner {
-			color: var(--text-muted);
-			font-family: var(--font-interface);
-			font-size: 0.72rem;
-			font-weight: 600;
-			letter-spacing: 0.06em;
-			text-transform: uppercase;
-		}
+    & .callout-title-inner {
+      color: var(--text-muted);
+      font-family: var(--font-interface);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
 
-		& .callout-fold {
-			order: 10;
-			margin-left: 0.25rem;
-			color: var(--text-faint);
-		}
+    & .callout-fold {
+      order: 10;
+      margin-left: 0.25rem;
+      color: var(--text-faint);
+    }
 
-		& .agent-copy-button {
-			margin-left: auto;
-		}
-	}
+    & .agent-copy-button {
+      margin-left: auto;
+    }
+  }
 
-	&:not(:has(.agent-copy-button)) > .callout-title .callout-fold {
-		margin-left: auto;
-	}
+  &:not(:has(.agent-copy-button)) > .callout-title .callout-fold {
+    margin-left: auto;
+  }
 
-	& > .callout-content {
-		padding: 0.05rem 0.7rem 0.65rem;
-		font-size: 0.95em;
+  & > .callout-content {
+    padding: 0.05rem 0.7rem 0.65rem;
+    font-size: 0.95em;
 
-		& > :first-child {
-			margin-top: 0;
-		}
+    & > :first-child {
+      margin-top: 0;
+    }
 
-		& > :last-child {
-			margin-bottom: 0;
-		}
-	}
+    & > :last-child {
+      margin-bottom: 0;
+    }
+  }
 }
 
 .callout[data-callout="me"] {
-	--me-accent: var(--color-purple);
-	--callout-icon: lucide-user;
-	border: 1px solid
-		color-mix(in srgb, var(--me-accent) 14%, var(--background-modifier-border));
-	background: color-mix(in srgb, var(--me-accent) 2%, transparent);
+  --me-accent: var(--color-purple);
+  --callout-icon: lucide-user;
+  border: 1px solid
+    color-mix(in srgb, var(--me-accent) 14%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--me-accent) 2%, transparent);
 
-	& > .callout-title .callout-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		align-self: center;
-		flex: 0 0 1.7rem;
-		width: 1.7rem;
-		height: 1.7rem;
-		border: 1px solid color-mix(in srgb, var(--me-accent) 30%, transparent);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--me-accent) 12%, transparent);
-		color: var(--me-accent);
+  & > .callout-title .callout-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    flex: 0 0 1.7rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border: 1px solid color-mix(in srgb, var(--me-accent) 30%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--me-accent) 12%, transparent);
+    color: var(--me-accent);
 
-		& svg {
-			display: block;
-			width: 0.95rem;
-			height: 0.95rem;
-		}
-	}
+    & svg {
+      display: block;
+      width: 0.95rem;
+      height: 0.95rem;
+    }
+  }
 
-	& > .callout-title .callout-title-inner {
-		color: color-mix(in srgb, var(--me-accent) 55%, var(--text-muted));
-	}
+  & > .callout-title .callout-title-inner {
+    color: color-mix(in srgb, var(--me-accent) 55%, var(--text-muted));
+  }
 }
 
 .callout[data-callout="turn"] {
-	--turn-accent: var(--text-muted);
-	--callout-icon: lucide-bot;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--text-normal) 2%, transparent);
+  --turn-accent: var(--text-muted);
+  --callout-icon: lucide-bot;
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--text-normal) 2%, transparent);
 
-	& > .callout-title .callout-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		align-self: center;
-		flex: 0 0 1.7rem;
-		width: 1.7rem;
-		height: 1.7rem;
-		border: 1px solid color-mix(in srgb, var(--turn-accent) 30%, transparent);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--turn-accent) 12%, transparent);
-		color: var(--turn-accent);
+  & > .callout-title .callout-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    flex: 0 0 1.7rem;
+    width: 1.7rem;
+    height: 1.7rem;
+    border: 1px solid color-mix(in srgb, var(--turn-accent) 30%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--turn-accent) 12%, transparent);
+    color: var(--turn-accent);
 
-		& svg {
-			display: block;
-			width: 0.95rem;
-			height: 0.95rem;
-		}
-	}
+    & svg {
+      display: block;
+      width: 0.95rem;
+      height: 0.95rem;
+    }
+  }
 
-	& > .callout-title .callout-title-inner {
-		color: color-mix(in srgb, var(--turn-accent) 65%, var(--text-muted));
-	}
+  & > .callout-title .callout-title-inner {
+    color: color-mix(in srgb, var(--turn-accent) 65%, var(--text-muted));
+  }
 }
 
 .callout[data-callout="turn"][data-callout-metadata*="claude"] {
-	--callout-icon: lucide-asterisk;
-	--turn-accent: var(--agent-claude-accent);
+  --callout-icon: lucide-asterisk;
+  --turn-accent: var(--agent-claude-accent);
 }
 
 .callout[data-callout="turn"][data-callout-metadata*="codex"] {
-	--callout-icon: lucide-terminal;
-	--turn-accent: var(--agent-codex-accent);
+  --callout-icon: lucide-terminal;
+  --turn-accent: var(--agent-codex-accent);
 }
 
 .callout[data-callout="turn"][data-callout-metadata*="chatgpt"] {
-	--callout-icon: lucide-message-square;
-	--turn-accent: var(--agent-chatgpt-accent);
+  --callout-icon: lucide-message-square;
+  --turn-accent: var(--agent-chatgpt-accent);
 }
 
 .callout[data-callout="toc"] {
-	--callout-icon: lucide-list;
-	border: 1px dashed var(--background-modifier-border);
-	background: transparent;
+  --callout-icon: lucide-list;
+  border: 1px dashed var(--background-modifier-border);
+  background: transparent;
 
-	& > .callout-content {
-		font-size: 0.85em;
+  & > .callout-content {
+    font-size: 0.85em;
 
-		& ul {
-			margin: 0.2rem 0;
-		}
+    & ul {
+      margin: 0.2rem 0;
+    }
 
-		& li {
-			margin: 0.1rem 0;
-		}
-	}
+    & li {
+      margin: 0.1rem 0;
+    }
+  }
 }
 
 .agent-copy-button {
-	order: 9;
-	display: grid;
-	place-items: center;
-	width: 1.4rem;
-	height: 1.4rem;
-	margin-left: 0.4rem;
-	padding: 0;
-	border: none;
-	border-radius: 4px;
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-faint);
-	cursor: pointer;
+  order: 9;
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-left: 0.4rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
 
-	&:hover {
-		background: var(--background-modifier-hover);
-		color: var(--text-normal);
-	}
+  &:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 
-	& svg {
-		width: var(--icon-size);
-		height: var(--icon-size);
-	}
+  & svg {
+    width: var(--icon-size);
+    height: var(--icon-size);
+  }
 }
 
 .agent-provider-button {
-	order: 9;
-	display: grid;
-	place-items: center;
-	width: 1.4rem;
-	height: 1.4rem;
-	margin-left: 0.15rem;
-	padding: 0;
-	border: none;
-	border-radius: 4px;
-	background: transparent;
-	box-shadow: none;
-	color: var(--text-faint);
-	cursor: pointer;
-	opacity: 0;
-	transition: opacity 120ms ease;
+  order: 9;
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-left: 0.15rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
 
-	&:hover {
-		background: var(--background-modifier-hover);
-		color: var(--text-normal);
-	}
+  &:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
 
-	& svg {
-		width: var(--icon-size);
-		height: var(--icon-size);
-	}
+  & svg {
+    width: var(--icon-size);
+    height: var(--icon-size);
+  }
 }
 
 .callout-title:hover .agent-provider-button,
 .agent-provider-button:focus-visible {
-	opacity: 1;
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.agent-provider-button {
-		transition: none;
-	}
+  .agent-provider-button {
+    transition: none;
+  }
 }
 
 .callout[data-callout="tool"] {
-	--callout-icon: lucide-wrench;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary-alt);
+  --callout-icon: lucide-wrench;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary-alt);
 
-	& > .callout-title .callout-title-inner {
-		font-family: var(--font-monospace);
-		font-size: 0.75rem;
-		letter-spacing: 0;
-		text-transform: none;
-	}
+  & > .callout-title .callout-title-inner {
+    font-family: var(--font-monospace);
+    font-size: 0.75rem;
+    letter-spacing: 0;
+    text-transform: none;
+  }
 
-	& > .callout-content {
-		color: var(--text-muted);
-		font-family: var(--font-monospace);
-		font-size: 0.82em;
-		line-height: 1.55;
-	}
+  & > .callout-content {
+    color: var(--text-muted);
+    font-family: var(--font-monospace);
+    font-size: 0.82em;
+    line-height: 1.55;
+  }
 }
 
 .transcript.markdown-rendered h3,
 .transcript .markdown-rendered h3 {
-	margin-top: 2.4rem;
-	padding-top: 1.15rem;
-	border-top: 1px solid var(--background-modifier-border);
-	color: var(--text-normal);
-	font-size: 0.98rem;
-	font-weight: 650;
-	letter-spacing: 0.01em;
+  margin-top: 2.4rem;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: 0.98rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .transcript .callout-content :is(h1, h2, h3, h4, h5, h6) {
-	margin: 1rem 0 0.35rem;
-	padding: 0;
-	border: none;
-	color: var(--text-muted);
-	font-size: 0.95em;
-	font-weight: 650;
-	letter-spacing: 0;
+  margin: 1rem 0 0.35rem;
+  padding: 0;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95em;
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
 .transcript .callout-content :not(pre) > code {
-	padding: 0.09em 0.35em;
-	border-radius: 4px;
-	background: color-mix(
-		in srgb,
-		var(--turn-accent, var(--text-accent)) 7%,
-		transparent
-	);
-	color: color-mix(
-		in srgb,
-		var(--turn-accent, var(--text-accent)) 55%,
-		var(--text-normal)
-	);
-	font-size: 0.88em;
+  padding: 0.09em 0.35em;
+  border-radius: 4px;
+  background: color-mix(
+    in srgb,
+    var(--turn-accent, var(--text-accent)) 7%,
+    transparent
+  );
+  color: color-mix(
+    in srgb,
+    var(--turn-accent, var(--text-accent)) 55%,
+    var(--text-normal)
+  );
+  font-size: 0.88em;
 }
 
 .transcript .callout-content pre {
-	max-height: 30rem;
-	overflow: auto;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 6px;
-	scrollbar-gutter: stable;
+  max-height: 30rem;
+  overflow: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  scrollbar-gutter: stable;
 }
 
 .transcript .callout-content p {
-	margin-block: 0.55em;
+  margin-block: 0.55em;
 }
 
 .transcript .callout-content :is(ul, ol) {
-	margin-block: 0.45em;
+  margin-block: 0.45em;
 }
 
 .transcript .callout[data-callout="me"] > .callout-content {
-	color: var(--text-muted);
-	font-size: 0.92em;
+  color: var(--text-muted);
+  font-size: 0.92em;
 }
 
 .markdown-rendered pre:has(> code.language-claude) {
-	--agent-accent: var(--agent-claude-accent);
-	--agent-block-label: "claude";
+  --agent-accent: var(--agent-claude-accent);
+  --agent-block-label: "claude";
 }
 
 .markdown-rendered pre:has(> code.language-codex) {
-	--agent-accent: var(--agent-codex-accent);
-	--agent-block-label: "codex";
+  --agent-accent: var(--agent-codex-accent);
+  --agent-block-label: "codex";
 }
 
 .markdown-rendered pre:has(> code.language-chatgpt) {
-	--agent-accent: var(--agent-chatgpt-accent);
-	--agent-block-label: "chatgpt";
+  --agent-accent: var(--agent-chatgpt-accent);
+  --agent-block-label: "chatgpt";
 }
 
 .markdown-rendered pre:has(> code.language-agent) {
-	--agent-accent: var(--text-accent);
-	--agent-block-label: "agent";
+  --agent-accent: var(--text-accent);
+  --agent-block-label: "agent";
 }
 
 .markdown-rendered
-	pre:has(
-		> code:is(
-				.language-claude,
-				.language-codex,
-				.language-chatgpt,
-				.language-agent
-			)
-	) {
-	position: relative;
-	max-height: min(60vh, 44rem);
-	margin-block: 1.1rem;
-	padding: 2.4rem 1rem 1rem;
-	overflow: auto;
-	border: 1px solid var(--background-modifier-border);
-	border-inline-start: 2px solid
-		color-mix(in srgb, var(--agent-accent) 55%, transparent);
-	border-radius: 8px;
-	background: var(--code-background);
-	scrollbar-gutter: stable;
+  pre:has(
+    > code:is(
+        .language-claude,
+        .language-codex,
+        .language-chatgpt,
+        .language-agent
+      )
+  ) {
+  position: relative;
+  max-height: min(60vh, 44rem);
+  margin-block: 1.1rem;
+  padding: 2.4rem 1rem 1rem;
+  overflow: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-inline-start: 2px solid
+    color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  border-radius: 8px;
+  background: var(--code-background);
+  scrollbar-gutter: stable;
 
-	&::before {
-		content: var(--agent-block-label);
-		position: absolute;
-		top: 0.7rem;
-		left: 1rem;
-		color: color-mix(in srgb, var(--agent-accent) 70%, var(--text-muted));
-		font-family: var(--font-interface);
-		font-size: 0.68rem;
-		font-weight: 600;
-		letter-spacing: 0.05em;
-	}
+  &::before {
+    content: var(--agent-block-label);
+    position: absolute;
+    top: 0.7rem;
+    left: 1rem;
+    color: color-mix(in srgb, var(--agent-accent) 70%, var(--text-muted));
+    font-family: var(--font-interface);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
 
-	& > code {
-		background: transparent;
-		color: var(--text-normal);
-		font-family: var(--font-monospace);
-		font-size: 0.85em;
-		line-height: 1.55;
-		white-space: pre;
-		overflow-wrap: normal;
+  & > code {
+    background: transparent;
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    line-height: 1.55;
+    white-space: pre;
+    overflow-wrap: normal;
 
-		&::before {
-			display: none;
-			content: none;
-		}
-	}
+    &::before {
+      display: none;
+      content: none;
+    }
+  }
 }

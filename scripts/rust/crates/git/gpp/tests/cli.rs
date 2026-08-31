@@ -1,4 +1,3 @@
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -241,6 +240,9 @@ fn help_advertises_the_default_message() {
     let output = sandbox.gpp(&sandbox.work(), &["--help"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("Stage everything, commit with the given message, and push"));
-    assert!(stdout.contains("Usage: gpp [OPTIONS] [MESSAGE]..."), "{stdout}");
+    assert!(
+        stdout.contains("Usage: gpp [OPTIONS] [MESSAGE]..."),
+        "{stdout}"
+    );
     assert!(stdout.contains("[default: .]"), "{stdout}");
 }

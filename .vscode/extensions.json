@@ -1,22 +1,22 @@
 {
-	"recommendations": [
-		// biome: js, jsx, ts, tsx, css, html, json, jsonc
-		"biomejs.biome",
-		// ruff
-		"charliermarsh.ruff",
-		// stylua. Not the formatter sumneko.lua ships, which is a different
-		// tool and lays Lua out differently.
-		"JohnnyMorganz.stylua",
-		// taplo
-		"tamasfe.even-better-toml",
-		// shfmt
-		"mkhl.shfmt",
-		// rustfmt, over `cargo fmt`'s own settings
-		"rust-lang.rust-analyzer",
-		// yamlfmt, `sqlfluff format` and dotfmt doesnt have formatters -->  pipes a buffer through a command
-		"jkillian.custom-local-formatters",
-		"sumneko.lua",
-		"ms-python.python",
-		"yzhang.markdown-all-in-one"
-	]
+  "recommendations": [
+    // biome: js, jsx, ts, tsx, css, html, json, jsonc
+    "biomejs.biome",
+    // ruff
+    "charliermarsh.ruff",
+    // stylua. Not the formatter sumneko.lua ships, which is a different
+    // tool and lays Lua out differently.
+    "JohnnyMorganz.stylua",
+    // taplo
+    "tamasfe.even-better-toml",
+    // shfmt
+    "mkhl.shfmt",
+    // rustfmt, over `cargo fmt`'s own settings
+    "rust-lang.rust-analyzer",
+    // yamlfmt, `sqlfluff format` and dotfmt doesnt have formatters -->  pipes a buffer through a command
+    "jkillian.custom-local-formatters",
+    "sumneko.lua",
+    "ms-python.python",
+    "yzhang.markdown-all-in-one"
+  ]
 }

@@ -1,4 +1,3 @@
-
 use hostkit::Host;
 use workstation::Style;
 

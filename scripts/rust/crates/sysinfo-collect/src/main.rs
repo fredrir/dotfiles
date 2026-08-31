@@ -1,4 +1,3 @@
-
 mod common;
 #[cfg(target_os = "linux")]
 mod linux;

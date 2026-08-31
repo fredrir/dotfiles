@@ -1,4 +1,3 @@
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -45,7 +44,10 @@ pub enum Counts {
     None,
     Files(usize),
     Binary,
-    Lines { added: u32, removed: u32 },
+    Lines {
+        added: u32,
+        removed: u32,
+    },
 }
 
 pub(crate) struct Source {

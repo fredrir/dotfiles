@@ -1,4 +1,4 @@
-local wezterm = require "wezterm"
+local wezterm = require("wezterm")
 
 ---@class ProcessNode
 ---@field pid integer
@@ -10,12 +10,12 @@ local wezterm = require "wezterm"
 ---@param indent string?
 ---@return nil
 local function log_proc(proc, indent)
-  indent = indent or ""
+	indent = indent or ""
 
-  wezterm.log_info(indent .. "pid=" .. proc.pid .. ", name=" .. proc.name .. ", status=" .. proc.status)
+	wezterm.log_info(indent .. "pid=" .. proc.pid .. ", name=" .. proc.name .. ", status=" .. proc.status)
 
-  for _, child in pairs(proc.children) do
-    log_proc(child, indent .. "  ")
-  end
+	for _, child in pairs(proc.children) do
+		log_proc(child, indent .. "  ")
+	end
 end
 return log_proc

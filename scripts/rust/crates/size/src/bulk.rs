@@ -1,4 +1,3 @@
-
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::File;
 use std::os::unix::ffi::OsStrExt;

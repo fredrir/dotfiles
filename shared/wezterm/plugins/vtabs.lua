@@ -1,28 +1,28 @@
-local wezterm = require "wezterm"
+-- local wezterm = require "wezterm"
 
-package.path = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/plugin/?.lua;" .. package.path
+-- package.path = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/plugin/?.lua;" .. package.path
 
-local vtabs = require "init"
+-- local vtabs = require "init"
 
 local M = {}
 
-function M.apply_to_config(config)
-  vtabs.apply_to_config(config, {
-    backend = {
-      path = function(domain, host)
-        if host == "archie" or domain:match "^archie" then
-          return "/home/fredrir/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs"
-        end
-        return wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs"
-      end,
-    },
-    keys = {
-      new_tab = false,
-      close_tab = false,
-      new_window = false,
-      next_tab = false,
-    },
-  })
-end
+-- function M.apply_to_config(config)
+--   vtabs.apply_to_config(config, {
+--     backend = {
+--       path = function(domain, host)
+--         if host == "archie" or domain:match "^archie" then
+--           return "/home/fredrir/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs"
+--         end
+--         return wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs"
+--       end,
+--     },
+--     keys = {
+--       new_tab = false,
+--       close_tab = false,
+--       new_window = false,
+--       next_tab = false,
+--     },
+--   })
+-- end
 
 return M

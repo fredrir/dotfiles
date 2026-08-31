@@ -1,4 +1,3 @@
-
 use std::process::ExitCode;
 
 use clap::Parser;

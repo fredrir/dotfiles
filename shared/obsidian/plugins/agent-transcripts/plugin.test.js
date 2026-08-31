@@ -11,38 +11,38 @@ class Plugin {}
 class TFile {}
 
 const obsidian = {
-	FuzzySuggestModal,
-	Menu,
-	Notice,
-	Plugin,
-	TFile,
-	setIcon() {},
+  FuzzySuggestModal,
+  Menu,
+  Notice,
+  Plugin,
+  TFile,
+  setIcon() {},
 };
 
 test("loads as a self-contained Obsidian entry point", () => {
-	const filename = path.join(__dirname, "main.js");
-	const source = fs.readFileSync(filename, "utf8");
-	const module = { exports: {} };
-	const requirePluginDependency = (request) => {
-		assert.equal(
-			request,
-			"obsidian",
-			`unexpected runtime dependency: ${request}`,
-		);
-		return obsidian;
-	};
+  const filename = path.join(__dirname, "main.js");
+  const source = fs.readFileSync(filename, "utf8");
+  const module = { exports: {} };
+  const requirePluginDependency = (request) => {
+    assert.equal(
+      request,
+      "obsidian",
+      `unexpected runtime dependency: ${request}`,
+    );
+    return obsidian;
+  };
 
-	vm.runInNewContext(
-		source,
-		{ console, document: {}, module, require: requirePluginDependency },
-		{
-			filename,
-		},
-	);
+  vm.runInNewContext(
+    source,
+    { console, document: {}, module, require: requirePluginDependency },
+    {
+      filename,
+    },
+  );
 
-	assert.equal(typeof module.exports, "function");
-	assert.equal(
-		Object.getPrototypeOf(module.exports.prototype),
-		Plugin.prototype,
-	);
+  assert.equal(typeof module.exports, "function");
+  assert.equal(
+    Object.getPrototypeOf(module.exports.prototype),
+    Plugin.prototype,
+  );
 });

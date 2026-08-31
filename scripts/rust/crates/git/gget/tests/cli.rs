@@ -1,4 +1,3 @@
-
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -353,7 +352,10 @@ fn a_listing_hides_dotfiles_until_it_is_asked() {
 #[test]
 fn a_listing_reads_the_branch_out_of_the_url() {
     let sandbox = Sandbox::new();
-    let output = sandbox.gget(&["-l", "https://github.com/user/repo/tree/dev/folder_8"], "");
+    let output = sandbox.gget(
+        &["-l", "https://github.com/user/repo/tree/dev/folder_8"],
+        "",
+    );
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(stdout(&output).contains("folder_10"), "{}", stdout(&output));
 }

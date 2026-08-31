@@ -1,4 +1,3 @@
-
 use std::path::Path;
 
 use gix::bstr::BString;

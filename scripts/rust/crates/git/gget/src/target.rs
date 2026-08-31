@@ -1,4 +1,3 @@
-
 const HOST: &str = "github.com";
 
 #[derive(Debug)]

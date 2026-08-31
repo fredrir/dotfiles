@@ -38,10 +38,10 @@ selection_background = "selection_bg"
 url                  = "bright_red"
 
 [eza]
-fi = "muted"  # fallback
-di = "blue"   # directories
-ex = "green"  # executables
-ln = "cyan"   # symlinks
+fi = "muted" # fallback
+di = "blue"  # directories
+ex = "green" # executables
+ln = "cyan"  # symlinks
 
 "*.toml" = "orange"
 "*.json" = "yellow"
