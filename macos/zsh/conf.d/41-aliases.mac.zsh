@@ -1,3 +1,3 @@
-alias -g CP="| pbcopy"
+alias -g CP="| dclip"
 
 alias finder='open'

@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+copy_via_osc52() {
+  [ -w /dev/tty ] || {
+    printf '%s\n' 'dclip: no clipboard backend and no controlling tty' >&2
+    exit 1
+  }
+  printf '\033]52;c;%s\033\\' "$(base64 | tr -d '\n')" >/dev/tty
+}
+
+if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+  exec wl-copy
+fi
+
+if [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+  exec xclip -selection clipboard
+fi
+
+if command -v pbcopy >/dev/null 2>&1; then
+  exec pbcopy
+fi
+
+copy_via_osc52

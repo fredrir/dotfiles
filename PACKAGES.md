@@ -2,6 +2,7 @@
 ## `shared`
 
 - `atuin`
+- `bin`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
 - `gh`
 - `git` — Git configuration and global ignore rules
