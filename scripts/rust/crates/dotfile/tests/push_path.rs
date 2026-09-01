@@ -147,7 +147,7 @@ impl Machine {
         let sync_log = temporary.path().join("sync.log");
         executable(
             &bin.join("ssh"),
-            "#!/bin/sh\nif [ \"${PUSH_SSH_BLOCK:-0}\" = 1 ]; then printf 'blocked\\n' >> \"$PUSH_SSH_LOG\"; exec sleep 30; fi\nif [ \"${PUSH_LEGACY:-0}\" = 1 ]; then\n  case \"$3\" in\n    *json_string*) printf 'protocol\\n' >> \"$PUSH_SSH_LOG\"; exit 0 ;;\n    *'git status --porcelain --branch'*) printf 'status\\n' >> \"$PUSH_SSH_LOG\"; printf '## main...origin/main\\n'; exit 0 ;;\n    *'git pull --ff-only || exit 1'*) printf 'sync\\n' >> \"$PUSH_SSH_LOG\"; exit 0 ;;\n  esac\nfi\nprintf 'session\\n' >> \"$PUSH_SSH_LOG\"\nexport HOME=\"$PUSH_REMOTE_HOME\"\nexec /bin/sh -c \"$3\"\n",
+            "#!/bin/sh\nif [ \"${PUSH_SSH_BLOCK:-0}\" = 1 ]; then printf 'blocked\\n' >> \"$PUSH_SSH_LOG\"; exec sleep 30; fi\nif [ \"${PUSH_SSH_HANDSHAKE_EOF:-0}\" = 1 ]; then printf '%s\\n' '{\"message\":\"hello\",\"version\":2,\"host\":\"archie\"}' '{\"message\":\"state\",\"branch\":\"main\"}'; printf 'zsh: read-only variable: status\\n' >&2; exit 1; fi\nif [ \"${PUSH_LEGACY:-0}\" = 1 ]; then\n  case \"$3\" in\n    *json_string*) printf 'protocol\\n' >> \"$PUSH_SSH_LOG\"; exit 0 ;;\n    *'git status --porcelain --branch'*) printf 'status\\n' >> \"$PUSH_SSH_LOG\"; printf '## main...origin/main\\n'; exit 0 ;;\n    *'git pull --ff-only || exit 1'*) printf 'sync\\n' >> \"$PUSH_SSH_LOG\"; exit 0 ;;\n  esac\nfi\nprintf 'session\\n' >> \"$PUSH_SSH_LOG\"\nexport HOME=\"$PUSH_REMOTE_HOME\"\nexec \"${PUSH_REMOTE_SHELL:-/bin/sh}\" -c \"$3\"\n",
         );
         executable(&remote_home.join(".local/bin/dotfile"), WIRE_STUB);
         let state = home.join(".config/dotfile");
@@ -188,6 +188,8 @@ impl Machine {
                 OsString::from(if legacy { "1" } else { "0" }),
             ),
             ("PUSH_SSH_BLOCK", OsString::from("0")),
+            ("PUSH_SSH_HANDSHAKE_EOF", OsString::from("0")),
+            ("PUSH_REMOTE_SHELL", OsString::from("/bin/sh")),
             ("PUSH_WIRE_SCENARIO", OsString::new()),
         ])
     }
@@ -328,6 +330,36 @@ fn push_structured_session_transfers_commits_and_streams_remote_phases() {
         event,
         Event::Warning { message, .. } if message == "archie: remote warning"
     )));
+}
+
+#[test]
+fn push_structured_session_is_compatible_with_zsh() {
+    if Command::new("zsh").arg("--version").output().is_err() {
+        return;
+    }
+    let _lock = lock_environment();
+    let machine = Machine::new();
+    let _environment = machine.environment(false);
+    let _shell = Environment::set(&[("PUSH_REMOTE_SHELL", OsString::from("zsh"))]);
+
+    let (result, _) = run(&machine, &cli());
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(machine.calls(), ["session"]);
+}
+
+#[test]
+fn push_reports_an_incomplete_handshake_before_writing_to_the_remote() {
+    let _lock = lock_environment();
+    let machine = Machine::new();
+    let _environment = machine.environment(false);
+    let _scenario = Environment::set(&[("PUSH_SSH_HANDSHAKE_EOF", OsString::from("1"))]);
+
+    let (result, _) = run(&machine, &cli());
+
+    let error = result.unwrap_err();
+    assert!(error.contains("read-only variable: status"));
+    assert!(!error.contains("Broken pipe"));
 }
 
 #[test]

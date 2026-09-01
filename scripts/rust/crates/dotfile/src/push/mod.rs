@@ -757,6 +757,7 @@ fn protocol_session(
     let stderr_thread = drain(stderr);
     let (lines, stdout_thread) = line_stream(stdout);
     let mut hello = false;
+    let mut ready = false;
     let mut state = RemoteState {
         branch: String::new(),
         changes: Vec::new(),
@@ -798,7 +799,10 @@ fn protocol_session(
             }
             Ok(Message::State { branch }) if hello => state.branch = branch,
             Ok(Message::Change { value }) if hello => state.changes.push(value),
-            Ok(Message::Ready) if hello => break,
+            Ok(Message::Ready) if hello => {
+                ready = true;
+                break;
+            }
             Ok(Message::Error {
                 operation,
                 value,
@@ -832,6 +836,14 @@ fn protocol_session(
         drop(stdin);
         let _ = finish_child(child, stderr_thread, stdout_thread);
         return Ok(SessionOutcome::Unsupported);
+    }
+    if !ready {
+        drop(stdin);
+        let (_, stderr) = finish_child(child, stderr_thread, stdout_thread)?;
+        return Err(Failure::remote(format!(
+            "{host}: {}",
+            first_line(stderr.as_bytes()).unwrap_or("remote session ended before it was ready")
+        )));
     }
     if state.branch.is_empty() {
         send_decision(&mut stdin, &Message::Cancel)?;
@@ -1286,11 +1298,11 @@ fn protocol_script(host: &str, directory: &str, resolution: Resolution, force: b
         "if [ \"$code\" -ne 0 ] || [ -z \"$branch\" ]; then emit_error state \"${branch:-no branch checked out}\" \"$code\"; exit \"${code:-1}\"; fi".to_string(),
         "branch_json=$(printf '%s' \"$branch\" | json_string)".to_string(),
         "printf '{\"message\":\"state\",\"branch\":\"%s\"}\\n' \"$branch_json\"".to_string(),
-        "status=$(git -c core.quotePath=true status --porcelain 2>&1)".to_string(),
+        "tree_state=$(git -c core.quotePath=true status --porcelain 2>&1)".to_string(),
         "code=$?".to_string(),
-        "if [ \"$code\" -ne 0 ]; then emit_error state \"$status\" \"$code\"; exit \"$code\"; fi".to_string(),
-        "if [ -n \"$status\" ]; then".to_string(),
-        "  printf '%s\\n' \"$status\" | while IFS= read -r line; do".to_string(),
+        "if [ \"$code\" -ne 0 ]; then emit_error state \"$tree_state\" \"$code\"; exit \"$code\"; fi".to_string(),
+        "if [ -n \"$tree_state\" ]; then".to_string(),
+        "  printf '%s\\n' \"$tree_state\" | while IFS= read -r line; do".to_string(),
         "    encoded=$(printf '%s' \"$line\" | json_string)".to_string(),
         "    printf '{\"message\":\"change\",\"value\":\"%s\"}\\n' \"$encoded\"".to_string(),
         "  done".to_string(),
