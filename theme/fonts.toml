@@ -3,7 +3,7 @@ general = "Noto Sans"
 nerd    = "Hack Nerd Font Mono"
 
 [sizes]
-terminal  = 12
-interface = 10
+terminal  = 12.5
+interface = 12.5
 
 obsidian = true

@@ -75,7 +75,7 @@ local keys = bind_keys {
   -- Mux --
   {
     key = "s",
-    mods = MOD.PRIMARY,
+    mods = MOD.SUPER_REV,
     action = mux.detach_pane,
   },
   {

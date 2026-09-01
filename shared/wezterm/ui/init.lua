@@ -6,12 +6,12 @@ local profiles = require "ui.colors.profiles"
 
 ---@type Config
 local ui_config = {
-  font = wezterm.font_with_fallback { family = fonts.nerd_family, weight = "Medium" },
+  font = wezterm.font_with_fallback { { family = fonts.nerd_family, weight = "Medium" } },
   font_size = fonts.font_size,
 
   window_frame = {
-    font = wezterm.font_with_fallback { "Noto Sans" },
-    font_size = 14,
+    font = wezterm.font_with_fallback { { family = fonts.general_family } },
+    font_size = fonts.interface_font_size,
   },
   inactive_pane_hsb = {
     hue = 1,
