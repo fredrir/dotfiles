@@ -50,6 +50,7 @@ impl Failure {
 #[derive(Debug)]
 struct LocalBranch {
     name: String,
+    oid: String,
     upstream: String,
     ahead: usize,
 }
@@ -317,7 +318,15 @@ fn execute(
     });
 
     active(Phase::Remote)?;
-    match protocol_session(&host, &directory, &branch.name, cli, events, decisions)? {
+    match protocol_session(
+        &host,
+        &directory,
+        &branch.name,
+        &branch.oid,
+        cli,
+        events,
+        decisions,
+    )? {
         SessionOutcome::Complete(changed) => Ok(Some(changed)),
         SessionOutcome::Unsupported => {
             legacy_session(&host, &directory, &branch.name, cli, events, decisions).map(|()| None)
@@ -583,12 +592,15 @@ fn current_branch(context: &Context) -> Result<LocalBranch, Failure> {
         ));
     }
     let mut name = None;
+    let mut oid = None;
     let mut upstream = None;
     let mut ahead = None;
     let mut behind = None;
     for line in String::from_utf8_lossy(&status.stdout).lines() {
         if let Some(value) = line.strip_prefix("# branch.head ") {
             name = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("# branch.oid ") {
+            oid = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix("# branch.upstream ") {
             upstream = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix("# branch.ab +") {
@@ -606,6 +618,7 @@ fn current_branch(context: &Context) -> Result<LocalBranch, Failure> {
             "this machine is on a detached HEAD, so there is nothing to push",
         ));
     }
+    let oid = oid.ok_or_else(|| Failure::push(format!("git returned no commit for '{name}'")))?;
     let upstream = upstream.ok_or_else(|| {
         Failure::push(format!(
             "'{name}' tracks no remote branch (git push -u origin {name} once)"
@@ -628,6 +641,7 @@ fn current_branch(context: &Context) -> Result<LocalBranch, Failure> {
     }
     Ok(LocalBranch {
         name,
+        oid,
         upstream,
         ahead,
     })
@@ -733,12 +747,19 @@ fn protocol_session(
     host: &str,
     directory: &str,
     local_branch: &str,
+    local_head: &str,
     cli: &SyncCli,
     events: &dyn EventSink,
     decisions: &dyn DecisionClient,
 ) -> Result<SessionOutcome, Failure> {
     active(Phase::Remote)?;
-    let script = protocol_script(host, directory, remote_resolution(cli), cli.force);
+    let script = protocol_script(
+        host,
+        directory,
+        local_head,
+        remote_resolution(cli),
+        cli.force,
+    );
     let mut child = ChildGuard::new(spawn_ssh(host, &script)?);
     let mut stdin =
         child.child().stdin.take().ok_or_else(|| {
@@ -1249,7 +1270,13 @@ fn dirty_failure(host: &str) -> Failure {
     ))
 }
 
-fn protocol_script(host: &str, directory: &str, resolution: Resolution, force: bool) -> String {
+fn protocol_script(
+    host: &str,
+    directory: &str,
+    expected_head: &str,
+    resolution: Resolution,
+    force: bool,
+) -> String {
     let hello = protocol::encode(&Message::Hello {
         version: protocol::VERSION,
         host: host.to_string(),
@@ -1293,6 +1320,7 @@ fn protocol_script(host: &str, directory: &str, resolution: Resolution, force: b
         "}".to_string(),
         format!("printf '%s\\n' {}", shell_quote(&hello)),
         format!("cd \"$HOME\"/{} 2>/dev/null || {{ emit_error state 'cannot read repository' 1; exit 1; }}", shell_quote(directory)),
+        format!("expected_head={}", shell_quote(expected_head)),
         "branch=$(git symbolic-ref --short -q HEAD 2>&1)".to_string(),
         "code=$?".to_string(),
         "if [ \"$code\" -ne 0 ] || [ -z \"$branch\" ]; then emit_error state \"${branch:-no branch checked out}\" \"$code\"; exit \"${code:-1}\"; fi".to_string(),
@@ -1301,6 +1329,9 @@ fn protocol_script(host: &str, directory: &str, resolution: Resolution, force: b
         "tree_state=$(git -c core.quotePath=true status --porcelain 2>&1)".to_string(),
         "code=$?".to_string(),
         "if [ \"$code\" -ne 0 ]; then emit_error state \"$tree_state\" \"$code\"; exit \"$code\"; fi".to_string(),
+        "current_head=$(git rev-parse HEAD 2>&1)".to_string(),
+        "code=$?".to_string(),
+        "if [ \"$code\" -ne 0 ]; then emit_error state \"$current_head\" \"$code\"; exit \"$code\"; fi".to_string(),
         "if [ -n \"$tree_state\" ]; then".to_string(),
         "  printf '%s\\n' \"$tree_state\" | while IFS= read -r line; do".to_string(),
         "    encoded=$(printf '%s' \"$line\" | json_string)".to_string(),
@@ -1325,18 +1356,22 @@ fn protocol_script(host: &str, directory: &str, resolution: Resolution, force: b
         "  '{\"message\":\"continue\"}') ;;".to_string(),
         "  *) emit_error control 'invalid client decision' 2; exit 2 ;;".to_string(),
         "esac".to_string(),
-        "printf '{\"message\":\"phase\",\"operation\":\"pull\"}\\n'".to_string(),
-        "pull=$(git pull --ff-only 2>&1)".to_string(),
-        "code=$?".to_string(),
-        "emit_lines pull \"$pull\"".to_string(),
-        "if [ \"$code\" -ne 0 ]; then emit_error pull \"$pull\" \"$code\"; exit \"$code\"; fi".to_string(),
+        "if [ \"$current_head\" != \"$expected_head\" ]; then".to_string(),
+        "  printf '{\"message\":\"phase\",\"operation\":\"pull\"}\\n'".to_string(),
+        "  pull=$(git pull --ff-only 2>&1)".to_string(),
+        "  code=$?".to_string(),
+        "  emit_lines pull \"$pull\"".to_string(),
+        "  if [ \"$code\" -ne 0 ]; then emit_error pull \"$pull\" \"$code\"; exit \"$code\"; fi".to_string(),
+        "fi".to_string(),
         "export PATH=\"$HOME/.local/bin:$PATH\"".to_string(),
-        "printf '{\"message\":\"phase\",\"operation\":\"update\"}\\n'".to_string(),
-        "update=$(./setup.sh --commands-only 2>&1)".to_string(),
-        "code=$?".to_string(),
-        "emit_lines update \"$update\"".to_string(),
-        "if [ \"$code\" -ne 0 ]; then emit_error update \"$update\" \"$code\"; exit \"$code\"; fi".to_string(),
-        format!("if ! {probe} >/dev/null 2>&1; then emit_error update 'installed dotfile does not support the required native sync wire protocol; run ./setup.sh --commands-only on this machine' 1; exit 1; fi"),
+        format!("if ! {probe} >/dev/null 2>&1; then"),
+        "  printf '{\"message\":\"phase\",\"operation\":\"update\"}\\n'".to_string(),
+        "  update=$(./setup.sh --commands-only 2>&1)".to_string(),
+        "  code=$?".to_string(),
+        "  emit_lines update \"$update\"".to_string(),
+        "  if [ \"$code\" -ne 0 ]; then emit_error update \"$update\" \"$code\"; exit \"$code\"; fi".to_string(),
+        format!("  if ! {probe} >/dev/null 2>&1; then emit_error update 'installed dotfile does not support the required native sync wire protocol; run ./setup.sh --commands-only on this machine' 1; exit 1; fi"),
+        "fi".to_string(),
         "printf '{\"message\":\"phase\",\"operation\":\"sync\"}\\n'".to_string(),
         format!("exec {sync}"),
     ];

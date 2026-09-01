@@ -157,3 +157,44 @@ hwire -r wifi         direct Wi-Fi only, or fail
 hwire -r lan          filtered regular LAN only, or fail
 hwire -l              round trips only
 ```
+
+## Inspecting the route
+
+`hwire -i` reports connection state without running a benchmark. In a local
+shell it probes all four routes concurrently, lists the routes that answer in
+reverse preference order, and puts the route the next `ssh archie` or
+`ssh macie` would choose last in bold color:
+
+```console
+$ hwire -i
+TAILSCALE | LAN
+```
+
+Inside SSH it reads `SSH_CONNECTION` and reports the route carrying that
+specific session. The result does not change merely because a better route was
+plugged in after the session connected:
+
+```console
+$ hwire -i
+LAN                                                             archie --> macie
+```
+
+The route order is cable, direct Wi-Fi, regular LAN, then Tailscale. `UNKNOWN`
+means the server address could not be matched safely; `hwire` does not treat an
+unrecognized private address as LAN.
+
+Pass SSH names or addresses to inspect the configuration the next connection
+would use. Every target is resolved independently with `ssh -G`:
+
+```console
+$ hwire -i archie lan-archie 100.126.231.24
+```
+
+`hwire -iv HOST...` adds the resolved hostname, binding or proxy, and
+ControlMaster status, socket, age, and OpenSSH diagnostic. `hwire -i --json`
+emits the same information as structured data. Use `--watch` to refresh the
+route snapshot, `--interval SECONDS` to set its cadence, and `--notify` to ring
+the terminal bell when the preferred route changes.
+
+The old `hpath` shell function has been removed without an alias. Its explicit
+target and JSON behavior now lives under `hwire -i`.

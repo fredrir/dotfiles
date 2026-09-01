@@ -1771,8 +1771,11 @@ name = "hwire"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "crossterm",
  "hostkit",
+ "ratatui",
  "serde_json",
+ "tachyonfx",
  "workstation",
 ]
 

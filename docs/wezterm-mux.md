@@ -1,7 +1,8 @@
 ## wezterm mux: macie ⇄ archie
 
-Both machines run a `wezterm-mux-server`. Each dials the other over mutual TLS,
-on the same three routes `ssh` uses. No SSH is involved in the mux path.
+Both machines run a `wezterm-mux-server`. Each dials the other over mutual TLS
+on the cable, direct Wi-Fi, or Tailscale route. SSH also has the regular LAN
+route, but no SSH is involved in the mux path.
 
 ```
 macie                                        archie
@@ -14,6 +15,29 @@ macie                                        archie
 ```
 
 Peer-facing port is 8443 on both hosts; a client always dials `<peer>:8443`.
+
+## Connection information
+
+Remote mux panes carry a validated `HWIRE_SESSION` environment stamp with the
+origin host, destination host, selected route, and TLS marker. That lets
+`hwire -i` describe the actual pane rather than whichever route is preferred
+now:
+
+```console
+$ hwire -i
+CABLE - TLS                                                      macie --> archie
+```
+
+`WEZTERM_HOSTNAME` is only the hostname of the process environment; whether it
+is empty or set cannot identify the mux domain or prove which route carried the
+connection. `hwire` therefore accepts only the validated session stamp as TLS
+evidence. `hwire -iv` shows that evidence and the selected domain.
+
+Existing remote panes predate the stamp and must be reopened once after this
+change. New tabs and splits opened from a stamped TLS pane propagate the stamp
+automatically. Because an unstamped legacy pane is indistinguishable from a
+local pane, it is shown as local route availability instead of a guessed TLS
+route.
 
 ## Why the two halves differ
 
@@ -57,7 +81,8 @@ shared/wezterm/domain/tls.lua          tls_servers and tls_clients
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
 shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie
-shared/zsh/conf.d/44-mux.zsh           `mux`, and the `archie`/`macie` aliases
+shared/wezterm/utils/hwire-session.lua propagates TLS metadata to tabs and splits
+shared/zsh/conf.d/49-wezterm.zsh       `mux`, the `archie`/`macie` aliases, and TLS metadata
 scripts/rust/crates/mux-route/         which route answers, and the domain to attach over it
 scripts/rust/crates/hostkit/           the addresses those two read, and the guard on hosts.lua
 

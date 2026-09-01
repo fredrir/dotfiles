@@ -26,6 +26,10 @@ pub struct Completions {
 }
 
 impl Completions {
+    pub fn is_zsh(&self) -> bool {
+        self.shell == Some(Shell::Zsh)
+    }
+
     pub fn emit<C: CommandFactory>(&self, program: &str) -> Option<ExitCode> {
         if self.dump {
             let mut command = C::command();
@@ -120,13 +124,21 @@ impl Style {
         Style::for_stream(io::stdout().is_terminal())
     }
 
+    pub fn for_stdout_with_color(colored: bool) -> Style {
+        Style::new(colored)
+    }
+
     pub fn for_stderr() -> Style {
         Style::for_stream(io::stderr().is_terminal())
     }
 
     fn for_stream(terminal: bool) -> Style {
+        Self::new(terminal && std::env::var_os("NO_COLOR").is_none())
+    }
+
+    fn new(colored: bool) -> Style {
         Style {
-            colored: terminal && std::env::var_os("NO_COLOR").is_none(),
+            colored,
             green: theme("THEME_GIT", "\x1b[32m"),
             red: theme("THEME_SUDO", "\x1b[31m"),
             teal: theme("THEME_DIR", "\x1b[36m"),

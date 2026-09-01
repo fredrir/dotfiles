@@ -9,6 +9,7 @@ local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "ui.skip_close_confirmation"
 local close_tab = require "utils.close-tab"
 local mux = require "utils.mux"
+local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
 
 local act = wezterm.action
@@ -23,7 +24,7 @@ local keys = bind_keys {
   { -- New Tab --
     key = "t",
     mods = MOD.PRIMARY,
-    action = act.SpawnTab "CurrentPaneDomain",
+    action = hwire_session.new_tab,
   },
   { -- Quit Application --
     key = "q",
@@ -49,12 +50,12 @@ local keys = bind_keys {
   { -- Pane Controls --
     key = "d",
     mods = MOD.PRIMARY,
-    action = act.SplitHorizontal { domain = "CurrentPaneDomain" }, -- Split to the side
+    action = hwire_session.split "horizontal", -- Split to the side
   },
   {
     key = MOD.SPLITBELOW,
     mods = { "CTRL", MOD.PRIMARY },
-    action = act.SplitVertical { domain = "CurrentPaneDomain" }, -- Split Below
+    action = hwire_session.split "vertical", -- Split Below
   },
 
   {

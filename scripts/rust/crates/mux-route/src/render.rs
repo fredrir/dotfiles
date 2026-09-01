@@ -14,10 +14,14 @@ pub fn list(style: &Style, peer: Host, answers: &[Answer]) -> String {
                 true => (style.green("up  "), domain::name(peer, answer.route)),
                 false => (style.red("down"), String::new()),
             };
+            let address = answer
+                .peer_socket()
+                .map(|address| address.to_string())
+                .unwrap_or_else(|| "unresolved".into());
             let line = format!(
                 "{state}  {:<10} {:<ADDRESS$} {domain}",
                 answer.route.name(),
-                answer.peer.to_string()
+                address
             );
             line.trim_end().to_string()
         })
@@ -29,13 +33,17 @@ pub fn list(style: &Style, peer: Host, answers: &[Answer]) -> String {
 mod tests {
     use super::*;
     use hostkit::{MUX_PORT, Route};
-    use std::net::SocketAddrV4;
+    use std::time::Duration;
 
     fn answer(route: Route, up: bool) -> Answer {
         Answer {
             route,
-            peer: SocketAddrV4::new(Host::Archie.address(route).unwrap(), MUX_PORT),
+            local_address: Some(Host::Macie.address(route).unwrap()),
+            peer_address: Some(Host::Archie.address(route).unwrap()),
+            port: MUX_PORT,
             up,
+            elapsed: Duration::ZERO,
+            error: (!up).then(|| "refused".into()),
         }
     }
 

@@ -1,38 +1,11 @@
-use std::net::SocketAddrV4;
-
-use hostkit::{Host, MUX_PORT, Route};
+use hostkit::{Host, MUX_PORT, RouteProbe};
 
 use crate::domain::{self, ROUTES};
 
-pub struct Answer {
-    pub route: Route,
-    pub peer: SocketAddrV4,
-    pub up: bool,
-}
+pub type Answer = RouteProbe;
 
 pub fn probe(this: Host, peer: Host) -> Result<Vec<Answer>, String> {
-    let mut targets = Vec::with_capacity(ROUTES.len());
-    for route in ROUTES {
-        targets.push((route, SocketAddrV4::new(peer.address(route)?, MUX_PORT)));
-    }
-    Ok(std::thread::scope(|scope| {
-        let asked: Vec<_> = targets
-            .into_iter()
-            .map(|(route, address)| {
-                let probe = scope.spawn(move || route.answers(this, peer, MUX_PORT));
-                (route, address, probe)
-            })
-            .collect();
-        asked
-            .into_iter()
-            .map(|(route, address, probe)| Answer {
-                route,
-                peer: address,
-                // A probe that panicked did not answer, which is down.
-                up: probe.join().unwrap_or(false),
-            })
-            .collect()
-    }))
+    Ok(hostkit::probe_routes(this, peer, MUX_PORT, &ROUTES).routes)
 }
 
 pub fn pick(peer: Host, answers: &[Answer]) -> Result<String, String> {
@@ -47,6 +20,7 @@ pub fn pick(peer: Host, answers: &[Answer]) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
+    use std::time::Duration;
 
     fn answers(up: [bool; 3]) -> Vec<Answer> {
         ROUTES
@@ -54,8 +28,12 @@ mod tests {
             .zip(up)
             .map(|(route, up)| Answer {
                 route,
-                peer: SocketAddrV4::new(Ipv4Addr::LOCALHOST, MUX_PORT),
+                local_address: Some(Ipv4Addr::LOCALHOST),
+                peer_address: Some(Ipv4Addr::LOCALHOST),
+                port: MUX_PORT,
                 up,
+                elapsed: Duration::ZERO,
+                error: (!up).then(|| "refused".into()),
             })
             .collect()
     }

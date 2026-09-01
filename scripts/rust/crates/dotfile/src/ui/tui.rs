@@ -583,6 +583,14 @@ pub fn run(
 
 fn starts_tui(event: &Event, verbose: bool) -> bool {
     verbose
+        || matches!(
+            event,
+            Event::Started {
+                dry_run: false,
+                peer: Some(_),
+                ..
+            }
+        )
         || matches!(event, Event::Item { changed: true, .. })
         || matches!(
             event,
@@ -1577,6 +1585,22 @@ mod tests {
 
     #[test]
     fn deferred_tui_starts_for_planned_link_work_before_apply() {
+        assert!(starts_tui(
+            &Event::Started {
+                profile: "macos".to_string(),
+                dry_run: false,
+                peer: Some("archie".to_string()),
+            },
+            false,
+        ));
+        assert!(!starts_tui(
+            &Event::Started {
+                profile: "macos".to_string(),
+                dry_run: true,
+                peer: Some("archie".to_string()),
+            },
+            false,
+        ));
         assert!(starts_tui(
             &Event::PhaseStarted {
                 phase: Phase::Links,

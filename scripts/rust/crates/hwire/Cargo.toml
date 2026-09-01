@@ -7,6 +7,13 @@ license.workspace = true
 
 [dependencies]
 clap.workspace        = true
+crossterm.workspace   = true
 hostkit.workspace     = true
+ratatui.workspace     = true
 serde_json.workspace  = true
+tachyonfx.workspace   = true
 workstation.workspace = true
+
+[[bench]]
+name = "info"
+harness = false

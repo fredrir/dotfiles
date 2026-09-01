@@ -12,8 +12,23 @@ mux() {
     return
   fi
 
-  local domain
+  local domain from route session to
   domain=$(mux-route $1) || return
+
+  from=${HOST%%.*}
+  to=${domain%-*}
+  route=${domain##*-}
+
+  case "$from:$to:$route" in
+    macie:archie:cable|macie:archie:wifi|macie:archie:tailscale|\
+    archie:macie:cable|archie:macie:wifi|archie:macie:tailscale)
+      session="v1:${from}:${to}:${route}:tls"
+      ;;
+    *)
+      print -ru2 "mux: refusing invalid TLS domain metadata: $from -> $domain"
+      return 1
+      ;;
+  esac
 
   if [[ -z $WEZTERM_PANE ]]; then
     print -ru2 "mux: not a wezterm pane; $domain"
@@ -21,7 +36,7 @@ mux() {
   fi
 
   local pane
-  pane=$(wezterm cli spawn --domain-name "$domain") || return
+  pane=$(wezterm cli spawn --domain-name "$domain" -- env "HWIRE_SESSION=$session" zsh -l) || return
   wezterm cli activate-pane --pane-id "$pane"
   wezterm cli kill-pane --pane-id "$WEZTERM_PANE"
 }

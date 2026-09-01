@@ -297,10 +297,7 @@ fn push_structured_session_transfers_commits_and_streams_remote_phases() {
         fs::read_to_string(machine.remote.join("shared/alpha/value")).unwrap(),
         "beta\n"
     );
-    assert_eq!(
-        fs::read_to_string(&machine.sync_log).unwrap(),
-        "update\nsync\n"
-    );
+    assert_eq!(fs::read_to_string(&machine.sync_log).unwrap(), "sync\n");
     assert!(events.iter().any(|event| matches!(
         event,
         Event::Item {
@@ -346,6 +343,22 @@ fn push_structured_session_is_compatible_with_zsh() {
 
     assert_eq!(result, Ok(()));
     assert_eq!(machine.calls(), ["session"]);
+}
+
+#[test]
+fn push_noop_skips_remote_pull_and_native_update() {
+    let _lock = lock_environment();
+    let machine = Machine::new();
+    let _environment = machine.environment(false);
+    git(
+        &machine.remote,
+        &["remote", "set-url", "origin", "/missing-origin"],
+    );
+
+    let (result, _) = run(&machine, &cli());
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(fs::read_to_string(&machine.sync_log).unwrap(), "sync\n");
 }
 
 #[test]
@@ -611,7 +624,7 @@ fn push_force_discards_remote_changes_and_forwards_repo_resolution() {
     );
     assert_eq!(
         fs::read_to_string(&machine.sync_log).unwrap(),
-        "update\nsync --force\n"
+        "sync --force\n"
     );
 }
 

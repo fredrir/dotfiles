@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,7 @@ from tools.surface import entry, introspect, zsh
 from tools.utils.tardirs import app as tardirs_app
 
 SCRIPT = zsh.script(introspect.from_typer(dotfile_app, "dotfile"))
+ROOT = Path(__file__).resolve().parents[4]
 
 
 def test_the_script_declares_and_registers_the_command():
@@ -88,3 +90,38 @@ def test_every_installed_tool_lands_in_one_file(tmp_path):
     assert str(tmp_path) in path
     for program in entry.programs():
         assert f"compdef _{program} {program}" in body
+
+
+@pytest.mark.skipif(not shutil.which("zsh"), reason="zsh is not installed")
+def test_mux_spawns_with_an_exact_hwire_tls_stamp(tmp_path):
+    log = tmp_path / "wezterm-arguments"
+    script = r'''
+WEZTERM_PANE=
+source "$HWIRE_WEZTERM_ZSH"
+function mux-route { print -- archie-cable }
+function wezterm {
+  print -r -- "$@" >> "$HWIRE_WEZTERM_LOG"
+  [[ $1 == cli && $2 == spawn ]] && print -- 42
+  return 0
+}
+HOST=macie.local
+WEZTERM_PANE=7
+mux archie
+'''
+    result = subprocess.run(
+        ["zsh", "-f"],
+        input=script,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "HWIRE_WEZTERM_ZSH": str(ROOT / "shared/zsh/conf.d/49-wezterm.zsh"),
+            "HWIRE_WEZTERM_LOG": str(log),
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert (
+        "cli spawn --domain-name archie-cable -- "
+        "env HWIRE_SESSION=v1:macie:archie:cable:tls zsh -l"
+    ) in log.read_text()

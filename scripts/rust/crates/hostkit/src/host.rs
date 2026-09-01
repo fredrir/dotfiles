@@ -1,7 +1,8 @@
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::process::Command;
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+use std::{io::Read, thread};
 
 use clap::ValueEnum;
 
@@ -103,29 +104,79 @@ impl Route {
     }
 
     pub fn answers(self, from: Host, to: Host, port: u16) -> bool {
-        let (Ok(local), Ok(peer)) = (from.address(self), to.address(self)) else {
+        let addresses = match self {
+            Route::Lan => lan_addresses(from, to),
+            _ => from
+                .address(self)
+                .and_then(|local| to.address(self).map(|peer| (local, peer))),
+        };
+        let Ok((local, peer)) = addresses else {
             return false;
         };
         socket::connect(Some(local), std::net::SocketAddrV4::new(peer, port), PROBE).is_ok()
     }
 }
 
-fn lan_pair(this: Host) -> Result<(Ipv4Addr, Ipv4Addr), String> {
+fn lan_addresses(from: Host, to: Host) -> Result<(Ipv4Addr, Ipv4Addr), String> {
+    let perspective = Host::this()?;
+    let (local, peer) = lan_pair(perspective)?;
+    let address = |host| if host == perspective { local } else { peer };
+    Ok((address(from), address(to)))
+}
+
+pub(crate) fn lan_pair(this: Host) -> Result<(Ipv4Addr, Ipv4Addr), String> {
+    lan_pair_with_timeout(this, PROBE)
+}
+
+pub(crate) fn lan_pair_with_timeout(
+    this: Host,
+    timeout: Duration,
+) -> Result<(Ipv4Addr, Ipv4Addr), String> {
     let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not set".to_string())?;
     let helper = PathBuf::from(home).join(".ssh/bin/home-lan-connect");
-    let output = Command::new(&helper)
+    let mut child = Command::new(&helper)
         .args(["--resolve", this.peer().lan_name()])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|error| format!("{}: {error}", helper.display()))?;
-    if !output.status.success() {
-        let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let started = Instant::now();
+    let status = loop {
+        match child
+            .try_wait()
+            .map_err(|error| format!("{}: {error}", helper.display()))?
+        {
+            Some(status) => break status,
+            None if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "regular LAN resolution exceeded {:.0} ms",
+                    timeout.as_secs_f64() * 1_000.0
+                ));
+            }
+            None => thread::sleep(Duration::from_millis(5)),
+        }
+    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        pipe.read_to_end(&mut stdout)
+            .map_err(|error| format!("{}: {error}", helper.display()))?;
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        pipe.read_to_end(&mut stderr)
+            .map_err(|error| format!("{}: {error}", helper.display()))?;
+    }
+    if !status.success() {
+        let reason = String::from_utf8_lossy(&stderr).trim().to_string();
         return Err(if reason.is_empty() {
             "regular LAN is not resolvable on 192.168.1.0/24".into()
         } else {
             reason
         });
     }
-    let text = String::from_utf8(output.stdout)
+    let text = String::from_utf8(stdout)
         .map_err(|_| "home-lan-connect returned non-UTF-8 output".to_string())?;
     parse_lan_pair(&text)
 }
@@ -149,7 +200,7 @@ fn parse_lan_pair(text: &str) -> Result<(Ipv4Addr, Ipv4Addr), String> {
 }
 
 pub fn best(this: Host) -> Option<Route> {
-    Route::every().into_iter().find(|route| route.up(this))
+    crate::snapshot::probe(this, this.peer(), PROBE_PORT).best()
 }
 
 #[cfg(test)]
