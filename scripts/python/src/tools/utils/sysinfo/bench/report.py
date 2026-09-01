@@ -160,7 +160,6 @@ def render_comparison(left, right, deltas, changes, only_left, only_right):
         if only_right:
             out(f"  only on the right: {', '.join(only_right)}")
     out()
-    out("  Changes are relative to this machine's own history, not to other machines.")
     out()
 
 
