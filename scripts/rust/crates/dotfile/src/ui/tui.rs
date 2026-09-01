@@ -721,7 +721,7 @@ fn render_decision_body(
                             ui_style(color, Color::Rgb(244, 114, 182), Modifier::BOLD),
                         ),
                         Span::styled(
-                            format!("{compact_key}  ·  {compact_path}"),
+                            format!("{compact_key}  |  {compact_path}"),
                             ui_style(color, Color::Rgb(203, 213, 225), Modifier::empty()),
                         ),
                     ]),
@@ -784,7 +784,7 @@ fn render_decision_body(
                         ),
                         Span::styled(
                             format!(
-                                "{}  ·  {}",
+                                "{}  |  {}",
                                 compact_text(key, pair_width),
                                 compact_text(&super::compact_path(path), pair_width)
                             ),
@@ -865,7 +865,7 @@ fn render_decision_body(
             area,
             area.height.saturating_sub(1),
             Line::from(Span::styled(
-                "  ←/→ navigate  ·  enter confirm  ·  q cancel",
+                "  ←/→ navigate  |  enter confirm  |  q cancel",
                 ui_style(color, Color::Rgb(100, 116, 139), Modifier::empty()),
             )),
             buffer,
@@ -931,7 +931,7 @@ fn choice_spans(decision: &DecisionState, color: bool) -> Vec<Span<'static>> {
             ),
             Span::raw("  ›  "),
             Span::styled(
-                format!("{position}   enter to confirm"),
+                format!("{position}   ↩ to confirm"),
                 ui_style(color, Color::Rgb(100, 116, 139), Modifier::empty()),
             ),
         ];
@@ -953,7 +953,7 @@ fn choice_spans(decision: &DecisionState, color: bool) -> Vec<Span<'static>> {
         ));
     }
     spans.push(Span::styled(
-        "   enter to confirm",
+        "   ↩ to confirm",
         ui_style(color, Color::Rgb(100, 116, 139), Modifier::empty()),
     ));
     spans
@@ -1128,14 +1128,14 @@ fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: 
         } else if summary.peer.is_some() {
             match summary.remote_changed {
                 Some(remote_changed) => {
-                    format!("local {} · peer {remote_changed}", summary.changed)
+                    format!("local {} | peer {remote_changed}", summary.changed)
                 }
                 None => format!("local {}", summary.changed),
             }
         } else if summary.changed == 0 {
             format!("{} checked", summary.checked)
         } else {
-            format!("{} changed · {} checked", summary.changed, summary.checked)
+            format!("{} changed | {} checked", summary.changed, summary.checked)
         };
         Line::from(vec![
             Span::styled(
@@ -1143,7 +1143,7 @@ fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: 
                 ui_style(color, foreground, Modifier::BOLD),
             ),
             Span::styled(
-                format!("  {detail} · {} ms", summary.elapsed.as_millis()),
+                format!("  {detail} | {} ms", summary.elapsed.as_millis()),
                 ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
             ),
         ])
@@ -1178,7 +1178,7 @@ fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: 
             None => String::new(),
         };
         let label = if model.verbose && !model.label.is_empty() {
-            format!("  ·  {}", model.label)
+            format!("  |  {}", model.label)
         } else {
             String::new()
         };
@@ -1223,7 +1223,7 @@ fn render_progress(
                 }),
             )
             .ratio(ratio)
-            .label(format!("{} / {}  ·  {percent}%", model.completed, total));
+            .label(format!("{} / {}  |  {percent}%", model.completed, total));
         gauge.render(inset(area, 2), buffer);
     } else {
         let width = area.width.saturating_sub(4) as usize;
@@ -1266,7 +1266,7 @@ fn render_summary_breakdown(model: &UiModel, area: Rect, buffer: &mut Buffer, co
         parts.push(summary_part(summary.generated, "generated", "generated"));
     }
     if !parts.is_empty() {
-        Paragraph::new(format!("    {}", parts.join("  ·  ")))
+        Paragraph::new(format!("    {}", parts.join("  |  ")))
             .style(ui_style(
                 color,
                 Color::Rgb(100, 116, 139),

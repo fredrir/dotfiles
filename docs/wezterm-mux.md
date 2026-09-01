@@ -10,7 +10,7 @@ macie                                        archie
                127.0.0.1:8444 ←socat← 10.77.78.1:8443  ⇄  10.77.78.2:8443
                127.0.0.1:8445 ←socat← 100.75.71.79:8443 ⇄ 100.126.231.24:8443
 
-  tls_clients  archie-cable · archie-wifi · archie-tailscale
+  tls_clients  archie-cable | archie-wifi | archie-tailscale
                (mirrored on archie as macie-*)
 ```
 

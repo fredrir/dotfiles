@@ -68,7 +68,7 @@ def render():
         parts.append(f"\n## `{host}`\n\n")
         installs = sorted({run.install.get("os", "unknown") for run in runs})
         noun = "run" if len(runs) == 1 else "runs"
-        parts.append(f"{len(runs)} clean {noun}  ·  {', '.join(installs)}\n\n")
+        parts.append(f"{len(runs)} clean {noun}  |  {', '.join(installs)}\n\n")
         by_epoch = {}
         for run in runs:
             by_epoch.setdefault(run.epoch, []).append(run)

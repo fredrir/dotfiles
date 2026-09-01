@@ -298,7 +298,7 @@ def key_lines(changes):
     """One line per changed key, so a status tells you what actually moved."""
     width = max(shutil.get_terminal_size().columns - len(KEY_INDENT) - 4, 20)
     for change in changes[: merge_state.DETAIL_KEYS]:
-        glyph = GLYPHS.get(change.kind, "·")
+        glyph = GLYPHS.get(change.kind, "|")
         detail = adoption.render_change(change, width)
         log(f"{KEY_INDENT}{glyph} {change.key() or '(document)'}{'  ' + detail if detail else ''}")
     rest = len(changes) - merge_state.DETAIL_KEYS

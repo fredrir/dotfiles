@@ -48,7 +48,7 @@ workstation = { path = "crates/workstation" }
 gitkit = { path = "crates/git/gitkit" }
 hostkit = { path = "crates/hostkit" }
 
-gix-glob = "0.27.1"
+gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"
 
 # gitoxide, with only the parts the git tools use
@@ -64,5 +64,5 @@ gix = { version = "0.87.1", default-features = false, features = [
 # toolchain produces the same machine code: these binaries are measurement
 # instruments, and codegen variance would show up as a hardware regression.
 [profile.release]
-lto = true
+lto           = true
 codegen-units = 1

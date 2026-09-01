@@ -249,8 +249,8 @@ def _facts(theme):
     flavour = theme.data.get("nvim", {}).get("flavour", "")
     if flavour:
         table.add_row("nvim", flavour)
-    table.add_row("fonts", f"{theme.font('general')}  ·  {theme.font('nerd')}")
-    sizes = "  ·  ".join(f"{name} {theme.size(name)}" for name in sorted(theme.sizes))
+    table.add_row("fonts", f"{theme.font('general')}  |  {theme.font('nerd')}")
+    sizes = "  |  ".join(f"{name} {theme.size(name)}" for name in sorted(theme.sizes))
     table.add_row("sizes", sizes)
     table.add_row("source", f"theme/profiles/{theme.profile}.toml")
     return table
@@ -312,7 +312,7 @@ def _headline(theme, scopes, count):
     return grid
 
 
-def _packed(values, columns, indent, separator="  ·  "):
+def _packed(values, columns, indent, separator="  |  "):
     room = max(columns - indent - 2, 20)
     lines = []
     current = ""

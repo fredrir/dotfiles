@@ -277,7 +277,7 @@ impl InlineTerminal {
                 };
                 let block = Block::default()
                     .borders(Borders::ALL)
-                    .title(format!("{title} · ↑/↓ scroll · q quit "))
+                    .title(format!("{title} | ↑/↓ scroll | q quit "))
                     .border_style(ui_style(color, Color::Rgb(124, 58, 237), Modifier::BOLD));
                 let inner = block.inner(area);
                 frame.render_widget(block, area);

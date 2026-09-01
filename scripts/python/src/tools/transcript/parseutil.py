@@ -45,7 +45,7 @@ def tool_title(name, input_value):
     detail = " ".join(detail.split())
     if len(detail) > 60:
         detail = detail[:59] + "…"
-    return f"{name} · {detail}" if detail else name
+    return f"{name} | {detail}" if detail else name
 
 
 def tag_strippers(tags):

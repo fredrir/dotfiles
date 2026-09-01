@@ -62,19 +62,13 @@ def setup_environment(tmp_path):
     state.mkdir(parents=True)
     fake_path.mkdir()
     log = tmp_path / "dotfile.log"
-    driver = (
-        "#!/bin/sh\n"
-        "printf '%s\\n' \"$*\" >> \"$DOTFILE_TEST_LOG\"\n"
-        "exit 0\n"
-    )
+    driver = '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$DOTFILE_TEST_LOG"\nexit 0\n'
     for name in RUST_BINARIES:
         executable(binaries / name, driver if name == "dotfile" else "#!/bin/sh\nexit 0\n")
     executable(binaries / "dotfile-py")
     for name in ("cargo", "git", "uv"):
         executable(fake_path / name)
-    python_hash = digest(
-        [ROOT / "scripts/python/pyproject.toml", ROOT / "scripts/python/uv.lock"]
-    )
+    python_hash = digest([ROOT / "scripts/python/pyproject.toml", ROOT / "scripts/python/uv.lock"])
     (state / "python").write_text(f"{python_hash}\n")
     (state / "rust").write_text(f"{digest(rust_inputs())}\n")
     environment = dict(os.environ)
@@ -154,7 +148,7 @@ def test_concurrent_setups_serialize_installation(tmp_path):
     executable(
         tmp_path / "path/uv",
         "#!/bin/sh\n"
-        "if [ \"$1 $2\" = \"tool install\" ]; then\n"
+        'if [ "$1 $2" = "tool install" ]; then\n'
         "  printf 'begin\\n' >> \"$DOTFILE_UV_ACTIVITY\"\n"
         "  sleep 0.4\n"
         "  printf 'end\\n' >> \"$DOTFILE_UV_ACTIVITY\"\n"
@@ -206,13 +200,13 @@ def test_failed_staged_binary_validation_preserves_installed_tools(tmp_path):
     executable(
         tmp_path / "path/install",
         "#!/bin/sh\n"
-        "for argument do destination=\"$argument\"; done\n"
-        "if [ \"${destination##*/}\" = dotfile ]; then\n"
+        'for argument do destination="$argument"; done\n'
+        'if [ "${destination##*/}" = dotfile ]; then\n'
         "  printf '#!/bin/sh\\nexit 71\\n' > \"$destination\"\n"
         "else\n"
         "  printf '#!/bin/sh\\nexit 0\\n' > \"$destination\"\n"
         "fi\n"
-        "chmod 0755 \"$destination\"\n",
+        'chmod 0755 "$destination"\n',
     )
 
     result = subprocess.run(
@@ -242,10 +236,10 @@ def test_failed_native_rename_rolls_back_every_installed_tool(tmp_path):
     executable(
         tmp_path / "path/install",
         "#!/bin/sh\n"
-        "for argument do destination=\"$argument\"; done\n"
+        'for argument do destination="$argument"; done\n'
         "name=${destination##*/}\n"
-        "printf '#!/bin/sh\\n# new-%s\\nexit 0\\n' \"$name\" > \"$destination\"\n"
-        "chmod 0755 \"$destination\"\n",
+        'printf \'#!/bin/sh\\n# new-%s\\nexit 0\\n\' "$name" > "$destination"\n'
+        'chmod 0755 "$destination"\n',
     )
     environment["DOTFILE_REAL_MV"] = shutil.which("mv") or "/bin/mv"
     environment["DOTFILE_MV_FAILED"] = str(tmp_path / "mv.failed")
@@ -254,15 +248,15 @@ def test_failed_native_rename_rolls_back_every_installed_tool(tmp_path):
         "#!/bin/sh\n"
         "previous=\n"
         "for argument do source=$previous; previous=$argument; done\n"
-        "case \"$source\" in\n"
+        'case "$source" in\n'
         "*/.dotfile-native.*/doc-purge)\n"
-        "  if [ ! -e \"$DOTFILE_MV_FAILED\" ]; then\n"
-        "    : > \"$DOTFILE_MV_FAILED\"\n"
+        '  if [ ! -e "$DOTFILE_MV_FAILED" ]; then\n'
+        '    : > "$DOTFILE_MV_FAILED"\n'
         "    exit 79\n"
         "  fi\n"
         "  ;;\n"
         "esac\n"
-        "exec \"$DOTFILE_REAL_MV\" \"$@\"\n",
+        'exec "$DOTFILE_REAL_MV" "$@"\n',
     )
 
     result = subprocess.run(
@@ -292,10 +286,10 @@ def test_signal_during_native_commit_finishes_batch_then_returns_signal(tmp_path
     executable(
         tmp_path / "path/install",
         "#!/bin/sh\n"
-        "for argument do destination=\"$argument\"; done\n"
+        'for argument do destination="$argument"; done\n'
         "name=${destination##*/}\n"
-        "printf '#!/bin/sh\\n# new-%s\\nexit 0\\n' \"$name\" > \"$destination\"\n"
-        "chmod 0755 \"$destination\"\n",
+        'printf \'#!/bin/sh\\n# new-%s\\nexit 0\\n\' "$name" > "$destination"\n'
+        'chmod 0755 "$destination"\n',
     )
     environment["DOTFILE_REAL_MV"] = shutil.which("mv") or "/bin/mv"
     environment["DOTFILE_MV_SIGNALED"] = str(tmp_path / "mv.signaled")
@@ -304,11 +298,11 @@ def test_signal_during_native_commit_finishes_batch_then_returns_signal(tmp_path
         "#!/bin/sh\n"
         "previous=\n"
         "for argument do source=$previous; previous=$argument; done\n"
-        "\"$DOTFILE_REAL_MV\" \"$@\" || exit $?\n"
-        "case \"$source\" in\n"
+        '"$DOTFILE_REAL_MV" "$@" || exit $?\n'
+        'case "$source" in\n'
         "*/.dotfile-native.*/bench-workloads)\n"
-        "  if [ ! -e \"$DOTFILE_MV_SIGNALED\" ]; then\n"
-        "    : > \"$DOTFILE_MV_SIGNALED\"\n"
+        '  if [ ! -e "$DOTFILE_MV_SIGNALED" ]; then\n'
+        '    : > "$DOTFILE_MV_SIGNALED"\n'
         "    kill -TERM 0\n"
         "  fi\n"
         "  ;;\n"
@@ -326,10 +320,7 @@ def test_signal_during_native_commit_finishes_batch_then_returns_signal(tmp_path
     )
 
     assert result.returncode == 128 + signal.SIGTERM
-    assert all(
-        f"# new-{name}\n" in (binaries / name).read_text()
-        for name in RUST_BINARIES
-    )
+    assert all(f"# new-{name}\n" in (binaries / name).read_text() for name in RUST_BINARIES)
     assert (state / "rust").read_text().strip() == digest(rust_inputs())
     assert not list(binaries.glob(".dotfile-native.*"))
     assert not (state.parent / "setup.lock.d").exists()

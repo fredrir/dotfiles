@@ -4,7 +4,7 @@
 
 ## `archie`
 
-2 clean runs  ·  arch
+2 clean runs  |  arch
 
 ### `10db7d1f`
 
@@ -35,7 +35,7 @@ Baseline: `2026-08-13T11-34-32Z-10db7d1f`
 
 ## `macie`
 
-2 clean runs  ·  macos
+2 clean runs  |  macos
 
 ### `31c0c4e0`
 

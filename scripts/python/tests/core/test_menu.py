@@ -90,7 +90,7 @@ def test_a_single_column_frame_reads_like_a_plain_list():
     assert frames(sheet)[0] == [
         "",
         "  dotfile theme",
-        "  ↑/↓ move · enter select · q quit",
+        "  ↑/↓ move | ↩ select | q quit",
         "",
         "  ❯ sync",
         "    switch",
@@ -132,15 +132,15 @@ def test_only_the_active_column_shows_details():
 
 def test_the_hint_gains_a_level_key_once_a_column_is_open():
     _picks, sheet = run(two_levels, [DOWN, ENTER, "q"])
-    assert frames(sheet)[0][2] == "  ↑/↓ move · enter select · q quit"
-    assert frames(sheet)[-1][2] == "  ↑/↓ move · ←/→ level · enter select · q quit"
+    assert frames(sheet)[0][2] == "  ↑/↓ move | ↩ select | q quit"
+    assert frames(sheet)[-1][2] == "  ↑/↓ move | ←/→ level | ↩ select | q quit"
 
 
 def test_left_pops_a_column_and_restores_the_parent_cursor():
     _picks, sheet = run(two_levels, [DOWN, ENTER, DOWN, LEFT, "q"])
     painted = frames(sheet)
     assert rows(painted[-1]) == rows(painted[1])
-    assert painted[-1][2] == "  ↑/↓ move · enter select · q quit"
+    assert painted[-1][2] == "  ↑/↓ move | ↩ select | q quit"
 
 
 def test_left_at_the_first_column_does_nothing():

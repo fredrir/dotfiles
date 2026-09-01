@@ -21,7 +21,7 @@ def test_migrate_previews_and_prompts_before_moving(tool, tmp_path):
     assert "Transcripts/dotfiles → Dotfiles/Agents" in output
     assert "2026-07/codex  1 file" in output
     assert "17-note.md" not in output
-    assert "·" not in output
+    assert "|" not in output
     assert "[y/N]" in output
     assert "cancelled" in output
     assert source.exists()

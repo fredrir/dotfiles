@@ -50,7 +50,7 @@ GLYPHS = {
     "delete": ("-", RED),
     "conflict": ("!", RED + BOLD),
 }
-UNKNOWN = ("·", DIM)
+UNKNOWN = ("|", DIM)
 
 TINT = {"shared": GREEN, "target": CYAN, "ignore": YELLOW, "discard": DIM}
 
@@ -69,9 +69,9 @@ EDIT, CONFIRM, DONE, ABORTED = "edit", "confirm", "done", "aborted"
 SUB = "sub"
 
 HELP = {
-    EDIT: "↑/↓ key · ←/→ action · ⏎ apply · a rest · u undo · q abort",
-    SUB: "←/→ target · ⏎ choose · a rest · ‹ back · q abort",
-    CONFIRM: "↑/↓ review · ←/→ choose · ⏎ confirm · u undo · q abort",
+    EDIT: "↑/↓ key | ←/→ action | ⏎ apply | a rest | u undo | q abort",
+    SUB: "←/→ target | ⏎ choose | a rest | ‹ back | q abort",
+    CONFIRM: "↑/↓ review | ←/→ choose | ⏎ confirm | u undo | q abort",
     DONE: "",
     ABORTED: "",
 }
@@ -307,7 +307,7 @@ class Selector:
         parts = ["dotfile sync", plural(len(self.changes), "change")]
         if self.decisions:
             parts.append(f"{len(self.decisions)} decided")
-        return self.text([(INDENT, ""), (" · ".join(parts), BOLD)], width)
+        return self.text([(INDENT, ""), (" | ".join(parts), BOLD)], width)
 
     def hint(self, count, where, width):
         if count <= 0:
@@ -356,7 +356,7 @@ class Selector:
             note = f"applying {plural(len(self.changes), 'change')}"
         else:
             mark, tint = MARKS["bad"]
-            note = "aborted · nothing applied"
+            note = "aborted | nothing applied"
         return self.text([(" " * BAR, ""), (mark + " ", tint), (note, DIM)], width)
 
     def frame(self):

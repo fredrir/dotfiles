@@ -35,8 +35,8 @@ MIN_ROWS = 3
 MIN_PANEL = 4
 MIN_WIDTH = 24
 
-HINT = "↑/↓ move · enter select · q quit"
-DEEP_HINT = "↑/↓ move · ←/→ level · enter select · q quit"
+HINT = "↑/↓ move | ↩ select | q quit"
+DEEP_HINT = "↑/↓ move | ←/→ level | ↩ select | q quit"
 
 Pick = collections.namedtuple("Pick", "kind index option")
 

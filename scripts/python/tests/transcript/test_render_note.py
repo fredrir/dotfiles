@@ -45,7 +45,7 @@ def test_tool_turns_dropped_by_default_and_responses_merged():
             turns=[
                 Turn("me", "You", "do it"),
                 Turn("turn", "Response", "first part"),
-                Turn("tool", "Bash · ls", "output"),
+                Turn("tool", "Bash | ls", "output"),
                 Turn("turn", "Response", "second part"),
             ],
         ),
@@ -55,7 +55,7 @@ def test_tool_turns_dropped_by_default_and_responses_merged():
     assert body.count("[!turn|codex]- Codex") == 1
     assert "first part\n>\n> second part" in body
     with_tools = render.render_session(session, include_tools=True)
-    assert "[!tool]- Bash · ls" in with_tools
+    assert "[!tool]- Bash | ls" in with_tools
     assert with_tools.count("[!turn|codex]- Codex") == 2
 
 
@@ -109,7 +109,7 @@ def test_tool_fences_get_sniffed_language():
         Round(
             timestamp=stamp,
             label="q",
-            turns=[Turn("tool", "exec · cat data.json", '{"key": "value"}')],
+            turns=[Turn("tool", "exec | cat data.json", '{"key": "value"}')],
         ),
     ]
     body = render.render_session(session, include_tools=True)

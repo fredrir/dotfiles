@@ -19,7 +19,9 @@ def test_the_script_declares_and_registers_the_command():
 
 
 def test_subcommands_are_offered_with_their_help_text():
-    assert "'sync:Refresh generated metadata and reconcile $HOME with the selected profile.'" in SCRIPT
+    assert (
+        "'sync:Refresh generated metadata and reconcile $HOME with the selected profile.'" in SCRIPT
+    )
     assert "_dotfile__secret__enroll" in SCRIPT
 
 
@@ -95,7 +97,7 @@ def test_every_installed_tool_lands_in_one_file(tmp_path):
 @pytest.mark.skipif(not shutil.which("zsh"), reason="zsh is not installed")
 def test_mux_spawns_with_an_exact_hwire_tls_stamp(tmp_path):
     log = tmp_path / "wezterm-arguments"
-    script = r'''
+    script = r"""
 WEZTERM_PANE=
 source "$HWIRE_WEZTERM_ZSH"
 function mux-route { print -- archie-cable }
@@ -107,7 +109,7 @@ function wezterm {
 HOST=macie.local
 WEZTERM_PANE=7
 mux archie
-'''
+"""
     result = subprocess.run(
         ["zsh", "-f"],
         input=script,
@@ -122,6 +124,5 @@ mux archie
     )
     assert result.returncode == 0, result.stderr
     assert (
-        "cli spawn --domain-name archie-cable -- "
-        "env HWIRE_SESSION=v1:macie:archie:cable:tls zsh -l"
+        "cli spawn --domain-name archie-cable -- env HWIRE_SESSION=v1:macie:archie:cable:tls zsh -l"
     ) in log.read_text()

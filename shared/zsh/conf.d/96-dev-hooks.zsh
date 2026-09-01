@@ -77,13 +77,13 @@ dev() {
 
     case "$transport" in
     USB)
-      print -P "%F{green}dev: $pm · USB · $host%f" >&2
+      print -P "%F{green}dev: $pm | USB | $host%f" >&2
       ;;
     Tailscale)
-      print -P "%F{blue}dev: $pm · Tailscale · $host%f" >&2
+      print -P "%F{blue}dev: $pm | Tailscale | $host%f" >&2
       ;;
     *)
-      print -P "%F{yellow}dev: $pm · SSH · $host%f" >&2
+      print -P "%F{yellow}dev: $pm | SSH | $host%f" >&2
       ;;
     esac
   fi

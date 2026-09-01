@@ -39,7 +39,7 @@ RowLayout {
 
                 PlasmaComponents.Label {
                     visible: index > 0
-                    text: "·"
+                    text: "|"
                     font.pixelSize: compactRow.effectiveFontSize
                     font.family: compactRow.fontFamily
                     font.bold: compactRow.fontBold

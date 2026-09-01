@@ -15,5 +15,5 @@ tachyonfx.workspace   = true
 workstation.workspace = true
 
 [[bench]]
-name = "info"
+name    = "info"
 harness = false

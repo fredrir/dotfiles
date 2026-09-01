@@ -246,7 +246,7 @@ fn preflight_host(
                 phase: Phase::Preflight,
                 completed: 1,
                 total: Some(3),
-                label: format!("{host} · refreshing upstream"),
+                label: format!("{host} | refreshing upstream"),
             });
         }
         fetch_upstream(context)?;
@@ -257,7 +257,7 @@ fn preflight_host(
             phase: Phase::Preflight,
             completed: 3,
             total: Some(3),
-            label: format!("{host} · ready"),
+            label: format!("{host} | ready"),
         });
     }
     Ok(PushPlan {
@@ -926,7 +926,7 @@ fn protocol_session(
                     phase: Phase::Remote,
                     completed: completed_steps,
                     total: Some(2),
-                    label: format!("{host} · {operation}"),
+                    label: format!("{host} | {operation}"),
                 });
             }
             Ok(Message::Log { operation, value }) => {
@@ -956,7 +956,7 @@ fn protocol_session(
                     phase: Phase::Remote,
                     completed: 1,
                     total: Some(2),
-                    label: format!("{host} · sync"),
+                    label: format!("{host} | sync"),
                 });
             }
             Ok(Message::DecisionRequest { id, prompt }) if sync_ready => {
@@ -1183,22 +1183,22 @@ fn translate_remote_event(host: &str, event: Event, events: &dyn EventSink) {
             phase: Phase::Remote,
             completed: 1,
             total: Some(2),
-            label: format!("{host} · {profile}"),
+            label: format!("{host} | {profile}"),
         }),
         Event::PhaseStarted { phase, .. } => events.emit(Event::Progress {
             phase: Phase::Remote,
             completed: 1,
             total: Some(2),
-            label: format!("{host} · {}", phase_label(phase)),
+            label: format!("{host} | {}", phase_label(phase)),
         }),
         Event::Progress { phase, label, .. } => events.emit(Event::Progress {
             phase: Phase::Remote,
             completed: 1,
             total: Some(2),
             label: if label.is_empty() {
-                format!("{host} · {}", phase_label(phase))
+                format!("{host} | {}", phase_label(phase))
             } else {
-                format!("{host} · {label}")
+                format!("{host} | {label}")
             },
         }),
         Event::Item {
@@ -1435,7 +1435,7 @@ fn legacy_session(
         phase: Phase::Remote,
         completed: 1,
         total: Some(2),
-        label: format!("{host} · pull"),
+        label: format!("{host} | pull"),
     });
     let mut command = vec![
         "export PATH=\"$HOME/.local/bin:$PATH\"".to_string(),

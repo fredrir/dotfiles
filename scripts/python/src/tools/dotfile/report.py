@@ -1,7 +1,7 @@
 from tools.core.screen import BOLD, DIM, GREEN, INDENT, RED, YELLOW, paint
 from tools.dotfile.state import log
 
-MARKS = {"ok": ("✓", GREEN), "bad": ("✗", RED), "warn": ("!", YELLOW), "note": ("·", DIM)}
+MARKS = {"ok": ("✓", GREEN), "bad": ("✗", RED), "warn": ("!", YELLOW), "note": ("|", DIM)}
 
 ITEM_INDENT = " " * 6
 LABEL_WIDTH = 11

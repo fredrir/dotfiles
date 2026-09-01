@@ -77,8 +77,8 @@ def test_first_frame_matches_the_intended_layout(changes):
     _plan, screen = run(changes, ["q"])
     assert frames(screen)[0] == [
         "",
-        "  dotfile sync · 3 changes",
-        "  ↑/↓ key · ←/→ action · ⏎ apply · a rest · u undo · q abort",
+        "  dotfile sync | 3 changes",
+        "  ↑/↓ key | ←/→ action | ⏎ apply | a rest | u undo | q abort",
         "",
         f"  {DST}",
         "",
@@ -137,7 +137,7 @@ def test_target_opens_a_submenu_of_overlay_names(changes):
     frame = frames(screen)[-2]
     assert frame[-1].strip().startswith("‹ back")
     assert "macos" in frame[-1] and "linux" in frame[-1]
-    assert frame[2] == "  ←/→ target · ⏎ choose · a rest · ‹ back · q abort"
+    assert frame[2] == "  ←/→ target | ⏎ choose | a rest | ‹ back | q abort"
 
 
 def test_submenu_aligns_under_the_selected_action(changes):
@@ -195,7 +195,7 @@ def test_bulk_from_inside_the_submenu(changes):
 def test_undo_reverts_the_most_recent_decision(changes):
     _plan, screen = run(changes, [ENTER, ENTER, "u", "q"])
     frame = frames(screen)[-2]
-    assert frame[1] == "  dotfile sync · 3 changes · 1 decided"
+    assert frame[1] == "  dotfile sync | 3 changes | 1 decided"
     assert '  ❯ ~ "git.autofetch"' in "\n".join(rows(frame))
 
 
@@ -207,7 +207,7 @@ def test_undo_restores_an_earlier_choice_rather_than_clearing_it(changes):
 def test_undo_reverts_a_bulk_apply_as_one_step(changes):
     _plan, screen = run(changes, ["a", "u", "q"])
     frame = frames(screen)[-2]
-    assert frame[1] == "  dotfile sync · 3 changes"
+    assert frame[1] == "  dotfile sync | 3 changes"
     assert staged(frame) == ["", "", ""]
 
 
@@ -226,7 +226,7 @@ def test_confirm_frame_shows_the_whole_plan(changes):
     _plan, screen = run(changes, [ENTER, RIGHT, RIGHT, ENTER, RIGHT, ENTER, "q"])
     frame = frames(screen)[-2]
     assert staged(frame) == ["shared", "ignore", "discard"]
-    assert frame[2] == "  ↑/↓ review · ←/→ choose · ⏎ confirm · u undo · q abort"
+    assert frame[2] == "  ↑/↓ review | ←/→ choose | ⏎ confirm | u undo | q abort"
 
 
 def test_revise_returns_to_the_action_bar(changes):
@@ -250,13 +250,13 @@ def test_confirming_closes_with_a_summary(changes):
 def test_every_abort_key_returns_nothing(changes, key):
     plan, screen = run(changes, [ENTER, key])
     assert plan is None
-    assert frames(screen)[-1][-2] == "    ✗ aborted · nothing applied"
+    assert frames(screen)[-1][-2] == "    ✗ aborted | nothing applied"
 
 
 def test_abort_at_the_confirm_prompt_discards_the_whole_plan(changes):
     plan, screen = run(changes, [ENTER, ENTER, ENTER, "q"])
     assert plan is None
-    assert frames(screen)[-1][-2] == "    ✗ aborted · nothing applied"
+    assert frames(screen)[-1][-2] == "    ✗ aborted | nothing applied"
 
 
 def test_running_out_of_keys_aborts_rather_than_hanging(changes):
@@ -367,7 +367,7 @@ def test_row_glyphs_follow_the_change_kind():
         Change("mystery", ("e",), '"e"', "5"),
     ]
     _plan, screen = run(changes, ["q"])
-    assert [line[4] for line in rows(frames(screen)[0])] == ["+", "~", "-", "!", "·"]
+    assert [line[4] for line in rows(frames(screen)[0])] == ["+", "~", "-", "!", "|"]
 
 
 def test_the_change_record_keeps_its_key_path():

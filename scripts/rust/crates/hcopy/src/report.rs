@@ -81,7 +81,7 @@ pub fn summary(style: &Style, plan: &Plan, outcome: &Outcome) -> String {
         style.dim(&format!("in {}", seconds(outcome.elapsed)))
     ));
     if let Some(rate) = rate(outcome.bytes, outcome.elapsed) {
-        line.push_str(&format!("  {}  {}", style.dim("·"), style.dim(&rate)));
+        line.push_str(&format!("  {}  {}", style.dim("|"), style.dim(&rate)));
     }
     line
 }

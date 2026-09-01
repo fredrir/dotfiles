@@ -214,7 +214,7 @@ pick() {
     [ "${opts[$i]}" = "$default" ] && idx="$i"
   done
   printf '\n  %s%s%s\n' "$BOLD" "$title" "$RESET"
-  printf '  %s↑/↓ move · enter select · q quit%s\n\n' "$DIM" "$RESET"
+  printf '  %s↑/↓ move | ↩ select | q quit%s\n\n' "$DIM" "$RESET"
   printf '\033[?25l'
   while :; do
     if [ "$first" = 0 ]; then

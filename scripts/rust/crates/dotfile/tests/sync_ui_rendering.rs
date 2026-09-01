@@ -69,7 +69,7 @@ fn sync_ui_compact_view_uses_only_reported_progress() {
     let rendered = render(&model, 72, 4);
     assert!(rendered.contains("DOTFILE  /  SYNC  macos"));
     assert!(rendered.contains("links  4/10"));
-    assert!(rendered.contains("4 / 10  ·  40%"));
+    assert!(rendered.contains("4 / 10  |  40%"));
     assert!(!rendered.contains(".gitconfig"));
 }
 
@@ -142,8 +142,8 @@ fn sync_ui_push_plan_finishes_with_exact_summary_and_timeline() {
     let rendered = render(&model, 80, 5);
     assert!(rendered.contains("PUSH  macos  →  archie"));
     assert!(rendered.contains("● local ━━━━━ ● origin ━━━━━ ● peer"));
-    assert!(rendered.contains("◇ PLAN READY  4 changes pending · 63 ms"));
-    assert!(rendered.contains("2 links  ·  1 merge  ·  1 generated"));
+    assert!(rendered.contains("◇ PLAN READY  4 changes pending | 63 ms"));
+    assert!(rendered.contains("2 links  |  1 merge  |  1 generated"));
 }
 
 fn completion_summary() -> Summary {

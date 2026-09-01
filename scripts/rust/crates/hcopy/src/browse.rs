@@ -444,7 +444,7 @@ fn elsewhere(offset: usize, height: usize, total: usize) -> Option<String> {
         (0, 0) => None,
         (0, below) => Some(format!("… {below} below")),
         (above, 0) => Some(format!("… {above} above")),
-        (above, below) => Some(format!("… {above} above · {below} below")),
+        (above, below) => Some(format!("… {above} above | {below} below")),
     }
 }
 
@@ -673,7 +673,7 @@ mod tests {
         assert_eq!(elsewhere(61, 14, 75), Some("… 61 above".to_string()));
         assert_eq!(
             elsewhere(10, 14, 75),
-            Some("… 10 above · 51 below".to_string())
+            Some("… 10 above | 51 below".to_string())
         );
     }
 
