@@ -7,10 +7,6 @@ return {
     "MunifTanjim/nui.nvim",
   },
   lazy = false,
-  keys = {
-    { "<leader>e", "<cmd>Neotree toggle<CR>", desc = "File [E]xplorer" },
-    { "\\", ":Neotree reveal<CR>", desc = "NeoTree reveal", silent = true },
-  },
   ---@module 'neo-tree'
   ---@type neotree.Config
   opts = {
@@ -20,9 +16,7 @@ return {
         hide_dotfiles = false,
       },
       window = {
-        mappings = {
-          ["\\"] = "close_window",
-        },
+        mappings = require("core.keymaps").neo_tree_window,
       },
     },
   },

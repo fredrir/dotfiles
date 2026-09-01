@@ -7,13 +7,6 @@ return {
   opts = {
     delay = 0,
     icons = { mappings = vim.g.have_nerd_font },
-    spec = {
-      { "<leader>s", group = "[S]earch", mode = { "n", "v" } },
-      { "<leader>t", group = "[T]oggle" },
-      { "<leader>g", group = "[G]it" },
-      { "<leader>h", group = "Git [H]unk", mode = { "n", "v" } },
-      { "<leader>r", group = "[R]efactor" },
-      { "gr", group = "LSP Actions", mode = { "n" } },
-    },
+    spec = require("core.keymaps").which_key_groups,
   },
 }

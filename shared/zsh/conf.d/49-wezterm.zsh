@@ -62,3 +62,11 @@ do
   break
 done
 unset _wezterm_sh
+
+_wezterm_insert_newline() {
+  LBUFFER+=$'\n'
+}
+
+zle -N wezterm-insert-newline _wezterm_insert_newline
+bindkey -M emacs $'\e[13;2u' wezterm-insert-newline
+bindkey -M viins $'\e[13;2u' wezterm-insert-newline

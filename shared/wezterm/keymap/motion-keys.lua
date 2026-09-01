@@ -4,6 +4,14 @@ local platform = require "utils.platform"
 local extend = require "utils.extend"
 local act = wezterm.action
 
+local ctrl_a = "\x01"
+local ctrl_b = "\x02"
+local ctrl_e = "\x05"
+local shift_enter_sequence = "\x1b[13;2u"
+local shift_enter = act.SendString(shift_enter_sequence)
+local open_line_below = act.SendString(ctrl_e .. shift_enter_sequence)
+local open_line_above = act.SendString(ctrl_a .. shift_enter_sequence .. ctrl_b)
+
 ---@type KeySpec[]
 local motion_keys = {
   { key = "LeftArrow", mods = MOD.UNIQUE, action = act.SendKey { key = "b", mods = "ALT" } },
@@ -13,24 +21,17 @@ local motion_keys = {
   {
     key = "Enter",
     mods = "SHIFT",
-    action = act.SendString "\x16\n", -- Split the line at the cursor
+    action = shift_enter,
   },
   {
     key = "Enter",
     mods = MOD.PRIMARY,
-    action = act.Multiple {
-      act.SendKey { key = "e", mods = "CTRL" },
-      act.SendString "\x16\n",
-    },
+    action = open_line_below,
   },
   {
     key = "Enter",
     mods = MOD.PRIMARY .. "|SHIFT",
-    action = act.Multiple {
-      act.SendKey { key = "a", mods = "CTRL" },
-      act.SendString "\x16\n",
-      act.SendKey { key = "b", mods = "CTRL" },
-    },
+    action = open_line_above,
   },
 }
 
