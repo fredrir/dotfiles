@@ -25,3 +25,38 @@
 | `--completions <SHELL>` | Prints a shell completion script for the named shell and exits.                         |
 | `-V`, `--version`       | Prints the version and exits.                                                           |
 <!-- cli:flags:end -->
+
+## Browser
+
+Without `--to`, `--from`, or `--yes`, the remote filesystem opens in an inline browser.
+
+### Command Behavior
+
+| Command | Behavior                                                      |
+| ------- | ------------------------------------------------------------- |
+| `hpush` | Selects the open directory as its destination                 |
+| `hpull` | Selects the highlighted entry, or a genuinely empty directory |
+
+### Destination Rules
+
+| Scenario                    | Behavior                                       |
+| --------------------------- | ---------------------------------------------- |
+| Missing `hpush` destination | Can be selected and is created by the transfer |
+| Missing `hpull` source      | Cannot be selected                             |
+| Unreadable `hpull` source   | Cannot be selected                             |
+
+### Navigation Keys
+
+| Key                  | Action                                                                    |
+| -------------------- | ------------------------------------------------------------------------- |
+| Arrow keys, `j`, `k` | Move                                                                      |
+| Right, `l`           | Open a directory                                                          |
+| Left, `h`            | Return to parent directory                                                |
+| Page Up, Page Down   | Move through listings                                                     |
+| Home, End            | Jump to start/end of listings                                             |
+| `g`, `G`             | Move through longer listings                                              |
+| `/`                  | Start case-insensitive filtering or accept path beginning with `/` or `~` |
+| `r`                  | Refresh the open directory                                                |
+| `?`                  | Show complete key guide                                                   |
+| Escape               | Cancel                                                                    |
+| Ctrl-C               | Interrupt                                                                 |

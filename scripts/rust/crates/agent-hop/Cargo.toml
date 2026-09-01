@@ -1,0 +1,13 @@
+[package]
+name              = "agent-hop"
+version           = "0.1.0"
+description       = "Continue Codex and Claude Code sessions on the other workstation"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap.workspace        = true
+hostkit.workspace     = true
+serde_json.workspace  = true
+tempfile.workspace    = true
+workstation.workspace = true

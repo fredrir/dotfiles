@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 RUST_BINARIES = [
+    "agent-hop",
     "bench-workloads",
     "count",
     "doc-purge",

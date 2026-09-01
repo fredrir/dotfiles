@@ -69,4 +69,11 @@ benchmarks/.lock
 **/lua_modules
 **/.luarocks
 
+**/nvim/tags
+**/nvim/test.sh
+**/nvim/.luarc.json
+**/nvim/nvim
+**/nvim/spell/
+
+
 /shared/wezterm/lua
