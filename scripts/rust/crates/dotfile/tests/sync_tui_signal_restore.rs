@@ -201,6 +201,88 @@ fn sync_tui_noop_does_not_open_or_reserve_an_inline_viewport() {
 }
 
 #[test]
+fn sync_tui_animates_a_stale_tooling_refresh_before_reexec() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("repo");
+    let home = temporary.path().join("home");
+    let config = home.join(".config");
+    let installed = home.join(".local/bin/dotfile");
+    fs::create_dir_all(root.join("config")).unwrap();
+    fs::create_dir_all(root.join("environment/test")).unwrap();
+    fs::create_dir_all(root.join("shared")).unwrap();
+    fs::create_dir_all(&config).unwrap();
+    fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    fs::write(
+        root.join("config/targets.dotfile"),
+        "shared/gitconfig = ~/.gitconfig\n",
+    )
+    .unwrap();
+    fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
+    fs::write(root.join("shared/gitconfig"), "[user]\nname = Test\n").unwrap();
+    std::os::unix::fs::symlink(root.join("shared/gitconfig"), home.join(".gitconfig")).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_dotfile"), &installed).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    let setup = root.join("setup.sh");
+    fs::write(&setup, "#!/bin/sh\nsleep 0.3\n").unwrap();
+    fs::set_permissions(&setup, fs::Permissions::from_mode(0o755)).unwrap();
+    let backend = temporary.path().join("dotfile-py");
+    fs::write(&backend, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let (master, slave, _) = open_pty();
+    let input = slave.try_clone().unwrap();
+    let activity = slave.try_clone().unwrap();
+    let errors = slave.try_clone().unwrap();
+    let mut command = Command::new(&installed);
+    command
+        .args(["sync", "test"])
+        .env("DOTFILE_ROOT", &root)
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", &config)
+        .env("DOTFILE_PYTHON", &backend)
+        .env("TERM", "xterm-256color")
+        .env_remove("CI")
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::from(input))
+        .stdout(Stdio::from(activity))
+        .stderr(Stdio::from(errors));
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().unwrap();
+    drop(slave);
+    let mut output = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut cursor_replies = 0;
+    let status = loop {
+        read_available(&master, &mut output, 100);
+        reply_to_cursor_queries(&master, &output, &mut cursor_replies);
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "tooling refresh did not finish");
+    };
+    read_available(&master, &mut output, 0);
+    assert!(
+        status.success(),
+        "PTY output: {:?}",
+        String::from_utf8_lossy(&output)
+    );
+    assert!(
+        output.windows(6).any(|window| window == b"\x1b[?25l"),
+        "tooling refresh did not animate: {:?}",
+        String::from_utf8_lossy(&output)
+    );
+    let output = String::from_utf8_lossy(&output).replace('\r', "");
+    assert!(output.contains("✓ Synced"));
+}
+
+#[test]
 fn sync_tui_signal_restores_terminal_and_cursor() {
     let temporary = tempfile::tempdir().unwrap();
     let root = temporary.path().join("repo");

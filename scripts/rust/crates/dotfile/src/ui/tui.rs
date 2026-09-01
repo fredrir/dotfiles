@@ -595,6 +595,13 @@ fn starts_tui(event: &Event, verbose: bool) -> bool {
         || matches!(
             event,
             Event::PhaseStarted {
+                phase: Phase::Tooling,
+                ..
+            }
+        )
+        || matches!(
+            event,
+            Event::PhaseStarted {
                 phase: Phase::Links,
                 total: Some(total),
             } if *total > 0
@@ -1598,6 +1605,13 @@ mod tests {
                 profile: "macos".to_string(),
                 dry_run: true,
                 peer: Some("archie".to_string()),
+            },
+            false,
+        ));
+        assert!(starts_tui(
+            &Event::PhaseStarted {
+                phase: Phase::Tooling,
+                total: None,
             },
             false,
         ));

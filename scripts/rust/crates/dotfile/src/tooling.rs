@@ -1,37 +1,95 @@
 use std::ffi::OsString;
 use std::fs;
-use std::path::Path;
+use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
 use crate::cli::SyncCli;
 use crate::context::Context;
+use crate::event::{Event, EventSink, Phase, Summary};
 
-pub fn refresh(cli: &SyncCli, arguments: &[OsString]) -> Result<(), String> {
+#[derive(Clone)]
+pub struct Refresh {
+    root: PathBuf,
+    executable: PathBuf,
+}
+
+pub fn pending(cli: &SyncCli) -> Result<Option<Refresh>, String> {
     if cli.dry_run || std::env::var_os("DOTFILE_REEXECED").is_some() {
-        return Ok(());
+        return Ok(None);
     }
     let context = Context::discover()?;
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     if !is_installed(&context.home, &executable) || !stale(&context.root, &executable)? {
-        return Ok(());
+        return Ok(None);
     }
-    eprintln!("dotfile: updating workstation commands…");
-    let output = Command::new(context.root.join("setup.sh"))
-        .arg("--commands-only")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|error| format!("cannot update workstation commands: {error}"))?;
-    if !output.status.success() {
-        let message = String::from_utf8_lossy(&output.stderr)
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .unwrap_or("command update failed")
-            .to_string();
-        return Err(message);
+    Ok(Some(Refresh {
+        root: context.root,
+        executable,
+    }))
+}
+
+impl Refresh {
+    pub fn run(&self, events: &dyn EventSink) -> Result<Summary, String> {
+        let started = Instant::now();
+        events.emit(Event::PhaseStarted {
+            phase: Phase::Tooling,
+            total: None,
+        });
+        events.emit(Event::Progress {
+            phase: Phase::Tooling,
+            completed: 0,
+            total: None,
+            label: "updating workstation commands".to_string(),
+        });
+        if !std::io::stderr().is_terminal() {
+            eprintln!("dotfile: updating workstation commands…");
+        }
+        let output = Command::new(self.root.join("setup.sh"))
+            .arg("--commands-only")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| format!("cannot update workstation commands: {error}"))?;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr)
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or("command update failed")
+                .to_string();
+            events.emit(Event::Failed {
+                phase: Phase::Tooling,
+                message: message.clone(),
+                hint: None,
+            });
+            return Err(message);
+        }
+        crate::cancel::check()?;
+        events.emit(Event::Progress {
+            phase: Phase::Tooling,
+            completed: 1,
+            total: Some(1),
+            label: "workstation commands ready".to_string(),
+        });
+        Ok(Summary {
+            profile: String::new(),
+            peer: None,
+            remote_changed: None,
+            checked: 0,
+            changed: 0,
+            links: 0,
+            merges: 0,
+            secrets: 0,
+            generated: 0,
+            dry_run: false,
+            elapsed: started.elapsed(),
+        })
     }
-    reexec(&executable, arguments)
+
+    pub fn reexec(&self, arguments: &[OsString]) -> Result<(), String> {
+        reexec(&self.executable, arguments)
+    }
 }
 
 pub(crate) fn native_current() -> Result<bool, String> {

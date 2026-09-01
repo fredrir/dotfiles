@@ -21,9 +21,23 @@ fn main() -> ExitCode {
             return ExitCode::from(code as u8);
         }
     };
-    if let Err(error) = dotfile_cli::tooling::refresh(&cli, &original_arguments) {
-        eprintln!("dotfile: {error}");
-        return ExitCode::FAILURE;
+    let refresh = match dotfile_cli::tooling::pending(&cli) {
+        Ok(refresh) => refresh,
+        Err(error) => return failure(error),
+    };
+    if let Some(refresh) = refresh {
+        dotfile_cli::cancel::reset();
+        let (sender, receiver) = crossbeam_channel::bounded(256);
+        let (_decision_client, decision_server) = dotfile_cli::decision::channel();
+        let update = refresh.clone();
+        let worker = std::thread::spawn(move || update.run(&sender));
+        if let Err(error) = dotfile_cli::ui::run(receiver, decision_server, worker, cli.verbose) {
+            return failure(error);
+        }
+        return match refresh.reexec(&original_arguments) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => failure(error),
+        };
     }
     let verbose = cli.verbose;
     dotfile_cli::cancel::reset();
@@ -36,15 +50,17 @@ fn main() -> ExitCode {
             println!("{}", dotfile_cli::ui::completion_line(&summary));
             ExitCode::SUCCESS
         }
-        Err(error) => {
-            eprintln!("dotfile: {error}");
-            if let Some(code) = dotfile_cli::ui::signal_exit_code() {
-                ExitCode::from(code)
-            } else if dotfile_cli::cancel::requested() {
-                ExitCode::from(130)
-            } else {
-                ExitCode::FAILURE
-            }
-        }
+        Err(error) => failure(error),
+    }
+}
+
+fn failure(error: String) -> ExitCode {
+    eprintln!("dotfile: {error}");
+    if let Some(code) = dotfile_cli::ui::signal_exit_code() {
+        ExitCode::from(code)
+    } else if dotfile_cli::cancel::requested() {
+        ExitCode::from(130)
+    } else {
+        ExitCode::FAILURE
     }
 }
