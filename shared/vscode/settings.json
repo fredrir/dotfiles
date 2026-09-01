@@ -147,5 +147,9 @@
   "chat.titleBar.openInAgentsWindow.enabled": false,
   "workbench.browser.showInTitleBar": false,
   "biome.enabled": true,
-  "biome.requireConfiguration": false
+  "biome.requireConfiguration": false,
+  "workbench.editorAssociations": {
+    "*.copilotmd": "vscode.markdown.preview.editor",
+    "*.md": "vscode.markdown.editor"
+  }
 }

@@ -13,7 +13,7 @@ if ! (($+functions[compdef])); then
   compinit
 fi
 
-for _tool in count dotfile-format dotfmt flatten gdd gget gpp hwire mux-route path size; do
+for _tool in count dotfile-format dotfmt flatten gdd gget gpp hpull hpush hwire mux-route path size; do
   if [[ "$_tool" == gdd ]]; then
     _tool_bin="$HOME/.local/bin/git-discard"
   else

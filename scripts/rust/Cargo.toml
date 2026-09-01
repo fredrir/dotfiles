@@ -13,6 +13,7 @@ members = [
   "crates/git/gget",
   "crates/git/gitkit",
   "crates/git/gpp",
+  "crates/hcopy",
   "crates/hostkit",
   "crates/hwire",
   "crates/mux-route",

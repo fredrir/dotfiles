@@ -1,5 +1,5 @@
 Host lan-archie
-    HostName archpc.local
+    HostName archie.local
     User fredrir
     HostKeyAlias archie
     ProxyCommand ~/.ssh/bin/home-lan-connect %h %p

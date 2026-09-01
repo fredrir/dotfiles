@@ -5,6 +5,10 @@ use std::process::ExitCode;
 use clap::{Args, CommandFactory};
 use clap_complete::Shell;
 
+pub mod screen;
+
+pub use screen::{Key, Screen};
+
 // The `--completions <SHELL>` flag, flattened into each tool's parser. A
 // required positional has to opt out of being required when the flag is
 // present, with `#[arg(required_unless_present = "shell")]`.
@@ -219,11 +223,18 @@ pub fn terminal_width() -> Option<usize> {
     if let Some(columns) = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok()) {
         return Some(columns);
     }
-    terminal_columns()
+    terminal_size().map(|(columns, _rows)| columns)
+}
+
+pub fn terminal_height() -> Option<usize> {
+    if let Some(rows) = std::env::var("LINES").ok().and_then(|v| v.parse().ok()) {
+        return Some(rows);
+    }
+    terminal_size().map(|(_columns, rows)| rows)
 }
 
 #[cfg(unix)]
-fn terminal_columns() -> Option<usize> {
+fn terminal_size() -> Option<(usize, usize)> {
     // SAFETY: `winsize` is four integers, and the ioctl either fills them in
     // and reports success or leaves them alone and reports failure.
     let (ok, size) = unsafe {
@@ -231,11 +242,11 @@ fn terminal_columns() -> Option<usize> {
         let status = libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &raw mut size);
         (status == 0, size)
     };
-    (ok && size.ws_col > 0).then_some(size.ws_col as usize)
+    (ok && size.ws_col > 0).then_some((size.ws_col as usize, size.ws_row as usize))
 }
 
 #[cfg(not(unix))]
-fn terminal_columns() -> Option<usize> {
+fn terminal_size() -> Option<(usize, usize)> {
     None
 }
 

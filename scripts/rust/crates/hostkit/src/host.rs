@@ -68,7 +68,7 @@ impl Host {
     fn lan_name(self) -> &'static str {
         match self {
             Host::Macie => "macie-2.local",
-            Host::Archie => "archpc.local",
+            Host::Archie => "archie.local",
         }
     }
 }

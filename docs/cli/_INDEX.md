@@ -11,6 +11,7 @@
 | dotfmt         | [dotfmt.md](./dotfmt.md)                 | [scripts/rust/crates/dotfmt/]                        |
 | flatten        | [flatten.md](./flatten.md)               | [scripts/rust/crates/flatten/]                       |
 | git            | [git.md](./git.md)                       | [scripts/rust/crates/git/]                           |
+| home-copy      | [home-copy.md](./home-copy.md)           | [scripts/rust/crates/hcopy/]                         |
 | hwire          | [hwire.md](./hwire.md)                   | [scripts/rust/crates/hwire/]                         |
 | path           | [path.md](./path.md)                     | [scripts/rust/crates/path/]                          |
 | size           | [size.md](./size.md)                     | [scripts/rust/crates/size/]                          |

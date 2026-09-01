@@ -170,7 +170,7 @@ if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
   echo "setup: could not write shell completions (continuing)" >&2
 fi
 
-RUST_BINARIES="bench-workloads count doc-purge dotfile-format dotfmt flatten gget git-discard gpp hwire mux-route path size sysinfo-collect"
+RUST_BINARIES="bench-workloads count doc-purge dotfile-format dotfmt flatten gget git-discard gpp hpull hpush hwire mux-route path size sysinfo-collect"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
     -type f -not -path '*/target/*' -print0 2>/dev/null |

@@ -1,0 +1,22 @@
+[package]
+name              = "hcopy"
+version           = "0.1.0"
+description       = "Copy a path between the same home-relative place on macie and archie"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "hpush"
+path = "src/bin/hpush.rs"
+
+[[bin]]
+name = "hpull"
+path = "src/bin/hpull.rs"
+
+[dependencies]
+clap.workspace        = true
+hostkit.workspace     = true
+workstation.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

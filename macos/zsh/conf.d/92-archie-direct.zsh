@@ -68,7 +68,7 @@ _archie_direct_wait_address() {
 _archie_direct_wait_home() {
   local attempt
   for attempt in {1..45}; do
-    if ~/.ssh/bin/home-lan-connect --probe archpc.local 22 >/dev/null 2>&1 ||
+    if ~/.ssh/bin/home-lan-connect --probe archie.local 22 >/dev/null 2>&1 ||
       /usr/bin/nc -4 -z -G 1 100.126.231.24 22 >/dev/null 2>&1; then
       return 0
     fi
@@ -229,13 +229,13 @@ _archie_direct_benchmark() {
     case "$route" in
     cable) peer=10.77.77.2 ;;
     wifi) peer=10.77.78.2 ;;
-    lan) peer=$(~/.ssh/bin/home-lan-connect --resolve archpc.local | awk '{print $2}') ;;
+    lan) peer=$(~/.ssh/bin/home-lan-connect --resolve archie.local | awk '{print $2}') ;;
     tailscale) peer=100.126.231.24 ;;
     esac
     ping -c 200 -i 0.1 "$peer" >"$directory/ping-${route}.txt" 2>&1 || true
   done
 
-  if ((!measured)); then
+  if ((! measured)); then
     print -u2 -- "archie-direct: no $label routes were reachable; no benchmark was recorded"
     print -u2 -- "$directory"
     return 1
