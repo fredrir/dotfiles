@@ -150,6 +150,6 @@
   "biome.requireConfiguration": false,
   "workbench.editorAssociations": {
     "*.copilotmd": "vscode.markdown.preview.editor",
-    "*.md": "vscode.markdown.editor"
+    "*.md": "default"
   }
 }

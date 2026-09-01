@@ -10,6 +10,8 @@ return {
   ---@module 'neo-tree'
   ---@type neotree.Config
   opts = {
+    -- Also clean placeholders from session files created outside `:restart`.
+    auto_clean_after_session_restore = true,
     filesystem = {
       filtered_items = {
         visible = true,
