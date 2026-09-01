@@ -8,62 +8,15 @@ dotfile="$bin/dotfile-py"
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
 if [ ! -x "$dotfile" ]; then
-	echo "pre-commit: scripts/python/.venv missing, the secret scan cannot run" >&2
-	echo "pre-commit: run ./setup.sh (or: uv sync --project scripts/python --locked)" >&2
+	echo "pre-commit: error: dotfile secret scan cannot run: missing scripts/python/.venv" >&2
+	echo "pre-commit: error: dotfile secret: run: ./setup.sh" >&2
 	exit 1
-fi
-
-if staged config/packages.dotfile PACKAGES.md scripts/python/src/tools/dotfile \
-	environment shared linux/common linux/arch linux/ubuntu linux/kde \
-	linux/hyprland linux/server macos; then
-	"$dotfile" __inventory >/dev/null
-	git add "$root/config/packages.dotfile" "$root/PACKAGES.md"
-fi
-
-if staged benchmarks scripts/python/src/tools/utils/sysinfo/bench; then
-	if "$bin/sysinfo" bench document >/dev/null; then
-		git add -A -- "$root/benchmarks"
-	else
-		echo "pre-commit: benchmark document generation failed (continuing)" >&2
-	fi
-fi
-
-if staged docs/cli scripts/python/src scripts/rust; then
-	if "$dotfile" __reference >/dev/null; then
-		git add -A -- "$root/docs/cli"
-	else
-		echo "pre-commit: cli documentation generation failed (continuing)" >&2
-	fi
 fi
 
 if staged config/keys.dotfile; then
 	"$dotfile" secret sync >/dev/null
 	if [ -e "$root/.sops.yaml" ]; then
 		git add "$root/.sops.yaml"
-	fi
-fi
-
-if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
-	if "$dotfile" theme sync >/dev/null; then
-		formatter="$(command -v dotfile-format || true)"
-		while IFS= read -r path; do
-			if [ -e "$root/$path" ]; then
-				if [ -n "$formatter" ] && ! "$formatter" --quiet "$root/$path"; then
-					echo "pre-commit: could not format $path (continuing)" >&2
-				fi
-				git add "$root/$path"
-			fi
-		done < <("$dotfile" theme outputs --staged)
-	else
-		echo "pre-commit: theme generation failed (continuing)" >&2
-	fi
-fi
-
-if staged linux/arch/fastfetch/config.jsonc; then
-	if "$bin/update-readme-fastfetch" >/dev/null; then
-		git add "$root/README.md"
-	else
-		echo "pre-commit: fastfetch README update failed (continuing)" >&2
 	fi
 fi
 

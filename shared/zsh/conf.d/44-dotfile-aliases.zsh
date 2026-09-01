@@ -5,3 +5,5 @@ alias gdd="git-discard"
 alias dot="dotfile"
 alias dots="dotfile sync"
 alias dpp="dotfile sync -p"
+
+alias pp="hwire -i"
