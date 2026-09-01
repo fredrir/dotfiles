@@ -275,7 +275,7 @@ fn sync_ui_merge_decision_starts_safe_and_requires_selected_response() {
     });
     assert_eq!(model.selected_choice(), Some(Choice::Skip));
     let rendered = render(&model, 78, 4);
-    assert!(rendered.contains("◆ MERGE"));
+    assert!(rendered.contains("  MERGE"));
     assert!(rendered.contains("editor.fontFamily"));
     assert!(rendered.contains("Berkeley Mono↵Regular"));
     assert!(rendered.contains("JetBrains Mono"));
@@ -310,7 +310,7 @@ fn sync_ui_merge_target_preselects_default_and_cycles_named_targets() {
     });
     assert_eq!(model.selected_choice(), Some(Choice::Target(1)));
     let rendered = render(&model, 78, 4);
-    assert!(rendered.contains("◆ TARGET"));
+    assert!(rendered.contains("  TARGET"));
     assert!(rendered.contains("macos"));
     assert!(rendered.contains("3 destinations"));
     assert!(rendered.contains("2/3"));
@@ -337,7 +337,7 @@ fn sync_ui_remote_decision_shows_host_count_and_safe_cancel() {
     assert_eq!(model.selected_choice(), Some(Choice::Cancel));
     assert_eq!(model.cancel_response().unwrap().1, Choice::Cancel);
     let rendered = render(&model, 78, 5);
-    assert!(rendered.contains("◆ REMOTE CHANGES  archie"));
+    assert!(rendered.contains("  REMOTE CHANGES  archie"));
     assert!(rendered.contains("3 incoming changes"));
     assert!(rendered.contains("+2 more"));
     assert!(rendered.contains("discard"));

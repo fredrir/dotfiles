@@ -1,6 +1,7 @@
 local M = {}
 local map = vim.keymap.set
 local profile = require "core.profile"
+local commands = require "core.commands"
 
 -- General --
 
@@ -8,29 +9,7 @@ map("n", "<Esc>", "<cmd>nohlsearch<CR>")
 
 -- Neovim --
 
-map("n", "<leader>rr", function()
-  local reopen_neo_tree = false
-
-  for _, window in ipairs(vim.api.nvim_list_wins()) do
-    local buffer = vim.api.nvim_win_get_buf(window)
-    if vim.bo[buffer].filetype == "neo-tree" then
-      reopen_neo_tree = true
-      break
-    end
-  end
-
-  -- Native restart serializes displayed nofile buffers as named blank windows.
-  -- Exclude those placeholders so the new process never opens a Neo-tree name
-  -- while the old process still owns its swap file.
-  local sessionoptions = vim.o.sessionoptions
-  vim.opt.sessionoptions:remove "blank"
-  local ok, err = pcall(vim.cmd, reopen_neo_tree and "restart Neotree show" or "restart")
-  vim.o.sessionoptions = sessionoptions
-
-  if not ok then
-    error(err, 0)
-  end
-end, { desc = "Restart Neovim" })
+map("n", "<leader>rr", commands.restart, { desc = "Restart Neovim" })
 
 -- Editing --
 

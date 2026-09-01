@@ -8,6 +8,7 @@ local extend = require "utils.extend"
 local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "ui.skip_close_confirmation"
 local close_tab = require "utils.close-tab"
+local close_pane = require "utils.close-pane"
 local mux = require "utils.mux"
 local hwire_session = require "utils.hwire-session"
 local MOD = require "keymap.modifiers"
@@ -53,11 +54,30 @@ local keys = bind_keys {
     action = hwire_session.split "horizontal", -- Split to the side
   },
   {
+    key = "q",
+    mods = MOD.UNIQUE,
+    action = close_pane,
+  },
+  {
     key = MOD.SPLITBELOW,
     mods = { "CTRL", MOD.PRIMARY },
     action = hwire_session.split "vertical", -- Split Below
   },
-
+  {
+    key = "m",
+    mods = MOD.PRIMARY,
+    action = act.PaneSelect {
+      mode = "MoveToNewTab",
+    },
+  },
+  {
+    key = "m",
+    mods = MOD.SUPER_REV,
+    action = wezterm.action_callback(function(_, pane) -- Promote the active split into its own tab
+      local tab = pane:move_to_new_tab()
+      tab:activate()
+    end),
+  },
   {
     key = "l",
     mods = { MOD.PRIMARY, MOD.SECONDARY, MOD.UNIQUE }, -- All mod keys + l should clear the screen

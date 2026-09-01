@@ -685,7 +685,7 @@ fn render_decision_body(
                     area,
                     0,
                     Line::from(Span::styled(
-                        "◆ MERGE CONFLICT",
+                        "  MERGE CONFLICT",
                         ui_style(color, Color::Rgb(244, 114, 182), Modifier::BOLD),
                     )),
                     buffer,
@@ -717,7 +717,7 @@ fn render_decision_body(
                     0,
                     Line::from(vec![
                         Span::styled(
-                            "◆ MERGE  ",
+                            "  MERGE  ",
                             ui_style(color, Color::Rgb(244, 114, 182), Modifier::BOLD),
                         ),
                         Span::styled(
@@ -756,7 +756,7 @@ fn render_decision_body(
                     area,
                     0,
                     Line::from(Span::styled(
-                        "◆ MERGE DESTINATION",
+                        "  MERGE DESTINATION",
                         ui_style(color, Color::Rgb(129, 140, 248), Modifier::BOLD),
                     )),
                     buffer,
@@ -779,7 +779,7 @@ fn render_decision_body(
                     0,
                     Line::from(vec![
                         Span::styled(
-                            "◆ TARGET  ",
+                            "  TARGET  ",
                             ui_style(color, Color::Rgb(129, 140, 248), Modifier::BOLD),
                         ),
                         Span::styled(
@@ -811,22 +811,16 @@ fn render_decision_body(
             render_decision_line(
                 area,
                 0,
-                Line::from(vec![
-                    Span::styled(
-                        "◆ REMOTE CHANGES  ",
-                        ui_style(color, Color::Rgb(251, 146, 60), Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        host,
-                        ui_style(color, Color::Rgb(203, 213, 225), Modifier::empty()),
-                    ),
-                ]),
+                Line::from(vec![Span::styled(
+                    "  REMOTE CHANGES",
+                    ui_style(color, Color::Rgb(251, 146, 60), Modifier::BOLD),
+                )]),
                 buffer,
             );
             render_labeled_value(
                 area,
                 1,
-                "peer",
+                &host,
                 &format!("{count} incoming {count_label}"),
                 buffer,
                 color,
@@ -1037,7 +1031,7 @@ fn render_header(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) 
     };
     let mut spans = vec![
         Span::styled(
-            "◆ ",
+            "  ",
             ui_style(color, Color::Rgb(45, 212, 191), Modifier::BOLD),
         ),
         Span::styled(
