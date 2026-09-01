@@ -41,8 +41,6 @@ def first_line(text):
 
 
 def known_hosts(ctx):
-    # Imported here rather than at module scope: sysinfo's package pulls in the
-    # whole collector, and every `dotfile` invocation would pay for it.
     from tools.utils.sysinfo import hosts as hosts_config
 
     path = os.path.join(ctx.root, HOSTS_FILE)

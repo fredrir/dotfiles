@@ -117,7 +117,7 @@ _sync_git_repo_commands() {
     alias ga='_git_from_root add .'
     alias gc='_git_from_root commit -m'
     alias gcm='_git_from_root commit -m'
-    alias gp='_git_from_root push'
+    alias gp='_git_from_root pull'
     alias gl='_git_from_root log'
     alias gd='_git_from_root diff'
     alias gff='gpp .'
