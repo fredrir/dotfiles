@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::cli::SyncCli;
 use crate::context::Context;
 use crate::decision::Client;
-use crate::event::{EventSink, Summary};
+use crate::event::{ChangeSetSink, EventSink, Summary};
 
 use super::config::Configuration;
 
@@ -14,15 +14,16 @@ pub fn reconcile(
     decisions: &Client,
     events: &dyn EventSink,
 ) -> Result<Summary, String> {
+    let changed = ChangeSetSink::new(events);
     crate::cancel::check()?;
-    let configuration = Configuration::load(context, profile, &cli.overrides, events)?;
+    let configuration = Configuration::load(context, profile, &cli.overrides, &changed)?;
     let (merge_entries, merge_paths) = super::merge::discover(context, &configuration)?;
     crate::cancel::check()?;
     let links =
-        super::links::synchronize(context, &configuration, &merge_paths, cli.dry_run, events)?;
+        super::links::synchronize(context, &configuration, &merge_paths, cli.dry_run, &changed)?;
     crate::cancel::check()?;
     let secrets =
-        super::secrets::synchronize(context, &configuration, cli.dry_run, cli.force, events)?;
+        super::secrets::synchronize(context, &configuration, cli.dry_run, cli.force, &changed)?;
     crate::cancel::check()?;
     let merges = super::merge::synchronize(
         context,
@@ -31,11 +32,11 @@ pub fn reconcile(
         cli.force,
         cli.resolve,
         decisions,
-        events,
+        &changed,
     )?;
     crate::cancel::check()?;
     let integrations =
-        super::integrations::synchronize(context, &configuration, cli.dry_run, events)?;
+        super::integrations::synchronize(context, &configuration, cli.dry_run, &changed)?;
     context.save_profile(profile, cli.dry_run)?;
     configuration.save_overrides(context, cli.dry_run)?;
     if secrets.blocked > 0 || merges.blocked > 0 {
@@ -62,7 +63,7 @@ pub fn reconcile(
         peer: None,
         remote_changed: None,
         checked: links.checked + secrets.checked + merges.checked + integrations.checked,
-        changed: links.changed + secrets.changed + merges.changed + integrations.changed,
+        changed: changed.changed(),
         links: links.links,
         merges: merges.merges,
         secrets: secrets.secrets,

@@ -89,56 +89,43 @@ pub fn signal_exit_code() -> Option<u8> {
 }
 
 pub fn completion_line(summary: &Summary) -> String {
-    let unit = if summary.changed == 1 {
-        "change"
-    } else {
-        "changes"
-    };
-    if let Some(peer) = &summary.peer {
-        if summary.dry_run {
-            return format!(
-                "○ {} → {} · {} local {unit} pending",
-                summary.profile, peer, summary.changed
-            );
-        }
-        return match summary.remote_changed {
-            Some(remote_changed) => format!(
-                "✓ {} → {} synced · local {} · peer {} · {} checked · {} ms",
-                summary.profile,
-                peer,
-                summary.changed,
-                remote_changed,
-                summary.checked,
-                summary.elapsed.as_millis()
-            ),
-            None => format!(
-                "✓ {} → {} synced · local {} · {} checked · {} ms",
-                summary.profile,
-                peer,
-                summary.changed,
-                summary.checked,
-                summary.elapsed.as_millis()
-            ),
+    if summary.dry_run {
+        let changes = if summary.changed == 0 {
+            String::new()
+        } else {
+            format!(" {} {}", summary.changed, change_word(summary.changed))
+        };
+        return match &summary.peer {
+            Some(peer) => format!("○ Plan ready{changes} → {peer}"),
+            None => format!("○ Plan ready{changes}"),
         };
     }
-    if summary.dry_run {
-        format!("○ {} · {} {unit} pending", summary.profile, summary.changed)
-    } else if summary.changed == 0 {
-        format!(
-            "✓ {} current · {} checked · {} ms",
-            summary.profile,
-            summary.checked,
-            summary.elapsed.as_millis()
-        )
-    } else {
-        format!(
-            "✓ {} synced · {} changed · {} checked · {} ms",
-            summary.profile,
-            summary.changed,
-            summary.checked,
-            summary.elapsed.as_millis()
-        )
+    if let Some(peer) = &summary.peer {
+        let local = if summary.changed == 0 {
+            String::new()
+        } else if summary.remote_changed.is_some_and(|changed| changed > 0) {
+            format!(
+                " {} local {}",
+                summary.changed,
+                change_word(summary.changed)
+            )
+        } else {
+            format!(" {} {}", summary.changed, change_word(summary.changed))
+        };
+        let remote = match summary.remote_changed {
+            Some(0) | None => String::new(),
+            Some(changed) => format!(" {changed} {}", change_word(changed)),
+        };
+        return format!("✓ Synced{local} → {peer}{remote}");
     }
+    match summary.changed {
+        0 => "✓ Synced".to_string(),
+        changed => format!("✓ Synced {changed} {}", change_word(changed)),
+    }
+}
+
+fn change_word(count: usize) -> &'static str {
+    if count == 1 { "change" } else { "changes" }
 }
 
 pub(crate) fn finish_worker(

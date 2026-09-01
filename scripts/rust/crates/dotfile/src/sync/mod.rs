@@ -4,7 +4,7 @@ use crate::artifacts;
 use crate::cli::SyncCli;
 use crate::context::Context;
 use crate::decision::Client;
-use crate::event::{Event, EventSink, Summary};
+use crate::event::{ChangeSetSink, Event, EventSink, Summary};
 use crate::lock::SyncLock;
 
 pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<Summary, String> {
@@ -48,14 +48,15 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
         )?),
         None => None,
     };
+    let changed = ChangeSetSink::new(events);
     crate::cancel::check()?;
-    let packages = artifacts::packages::synchronize(&context, cli.dry_run, events)?;
+    let packages = artifacts::packages::synchronize(&context, cli.dry_run, &changed)?;
     crate::cancel::check()?;
-    let docs = artifacts::docs::synchronize(&context, cli.dry_run, events)?;
+    let docs = artifacts::docs::synchronize(&context, cli.dry_run, &changed)?;
     let generated = packages + docs;
-    let mut summary = engine::reconcile(&context, &profile, cli, decisions, events)?;
+    let mut summary = engine::reconcile(&context, &profile, cli, decisions, &changed)?;
     summary.generated += generated;
-    summary.changed += generated;
+    summary.changed = changed.changed();
     if let Some(plan) = push_plan {
         summary.remote_changed = crate::push::run_preflighted_with_decisions_summary(
             &context, cli, plan, events, decisions,

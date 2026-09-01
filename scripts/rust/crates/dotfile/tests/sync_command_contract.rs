@@ -95,7 +95,9 @@ impl Sandbox {
 
 fn lock_environment() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 fn snapshot(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -147,7 +149,7 @@ fn dry_run_is_read_only_quiet_by_default_and_detailed_only_when_verbose() {
     let compact_stdout = String::from_utf8_lossy(&compact.stdout);
     let compact_stderr = String::from_utf8_lossy(&compact.stderr);
     assert_eq!(compact_stdout.lines().count(), 1);
-    assert!(compact_stdout.contains("changes pending"));
+    assert_eq!(compact_stdout, "○ Plan ready 2 changes\n");
     assert!(!compact_stdout.contains(".gitconfig"));
     assert!(!compact_stdout.contains("linking profile"));
     assert!(!compact_stdout.contains("\u{1b}["));

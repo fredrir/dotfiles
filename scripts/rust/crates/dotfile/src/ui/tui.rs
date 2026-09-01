@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use crossterm::event::{self, Event as TerminalEvent, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -343,7 +343,14 @@ pub fn run(
     verbose: bool,
     policy: UiPolicy,
 ) -> Result<Summary, String> {
-    let mut initial = Vec::new();
+    let signals = match SignalGuard::new() {
+        Ok(signals) => signals,
+        Err(_) => return super::plain::run(receiver, decisions, worker, verbose),
+    };
+    let mut model = UiModel::new(verbose);
+    let mut pending_output = Vec::new();
+    let mut phase_changed = false;
+    let mut deferred_plain = Vec::new();
     let mut decisions_open = true;
     let pending_decision = loop {
         let incoming = if decisions_open {
@@ -356,37 +363,45 @@ pub fn run(
         };
         match incoming {
             ChannelInput::Event(Ok(event)) => {
-                initial.push(event);
-                break None;
+                let finished = matches!(&event, Event::Finished(_) | Event::Failed { .. });
+                let starts_tui = starts_tui(&event, verbose);
+                if verbose || matches!(&event, Event::Warning { .. } | Event::Failed { .. }) {
+                    deferred_plain.push(event.clone());
+                }
+                let update = model.apply(&event);
+                pending_output.extend(update.output);
+                phase_changed |= update.phase_changed;
+                if finished {
+                    return super::plain::run_with_initial(
+                        receiver,
+                        decisions,
+                        worker,
+                        verbose,
+                        deferred_plain,
+                    );
+                }
+                if starts_tui {
+                    break None;
+                }
             }
             ChannelInput::Event(Err(_)) => {
-                return super::finish_worker(worker, None);
+                return super::plain::run_with_initial(
+                    receiver,
+                    decisions,
+                    worker,
+                    verbose,
+                    deferred_plain,
+                );
             }
             ChannelInput::Decision(Ok(request)) => break Some(request),
             ChannelInput::Decision(Err(_)) => decisions_open = false,
             ChannelInput::Timeout => unreachable!(),
         }
     };
-    initial.extend(receiver.try_iter().take(256));
-    if initial
-        .iter()
-        .any(|event| matches!(event, Event::Finished(_) | Event::Failed { .. }))
-    {
-        return super::plain::run_with_initial(receiver, decisions, worker, verbose, initial);
-    }
-
-    let mut model = UiModel::new(verbose);
-    let mut pending_output = Vec::new();
-    let mut phase_changed = false;
-    for event in &initial {
-        let update = model.apply(event);
-        pending_output.extend(update.output);
-        phase_changed |= update.phase_changed;
-    }
     if let Some(request) = pending_decision {
         model.show_decision(request);
     }
-    let mut terminal = match InlineTerminal::new(model.desired_height()) {
+    let mut terminal = match InlineTerminal::new(model.desired_height(), signals) {
         Ok(terminal) => terminal,
         Err(_) => {
             if let Some((request, _)) = model.decision_response()
@@ -395,7 +410,13 @@ pub fn run(
                 super::settle_worker_after_ui_error(&receiver, &decisions, worker, Some(request));
                 return Err(error);
             }
-            return super::plain::run_with_initial(receiver, decisions, worker, verbose, initial);
+            return super::plain::run_with_initial(
+                receiver,
+                decisions,
+                worker,
+                verbose,
+                deferred_plain,
+            );
         }
     };
     let started = Instant::now();
@@ -558,6 +579,18 @@ pub fn run(
             Err(error)
         }
     }
+}
+
+fn starts_tui(event: &Event, verbose: bool) -> bool {
+    verbose
+        || matches!(event, Event::Item { changed: true, .. })
+        || matches!(
+            event,
+            Event::PhaseStarted {
+                phase: Phase::Links,
+                total: Some(total),
+            } if *total > 0
+        )
 }
 
 pub fn render_buffer(
@@ -1322,13 +1355,12 @@ struct InlineTerminal {
 }
 
 impl InlineTerminal {
-    fn new(height: u16) -> io::Result<Self> {
+    fn new(height: u16, signals: SignalGuard) -> io::Result<Self> {
         if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
             return Err(io::Error::other(
                 "interactive terminal input is unavailable",
             ));
         }
-        let signals = SignalGuard::new()?;
         enable_raw_mode()?;
         let backend = CrosstermBackend::new(io::stderr());
         let terminal = Terminal::with_options(
@@ -1514,8 +1546,11 @@ enum ChannelInput {
 
 impl Drop for InlineTerminal {
     fn drop(&mut self) {
+        let origin = self.terminal.get_frame().area().as_position();
         let _ = self.terminal.clear();
+        let _ = self.terminal.set_cursor_position(origin);
         let _ = self.terminal.show_cursor();
+        let _ = self.terminal.backend_mut().flush();
         if self.raw_mode {
             let _ = disable_raw_mode();
         }
@@ -1534,4 +1569,43 @@ fn scrollback_line(line: &str, color: bool) -> Line<'static> {
         line.to_string(),
         ui_style(color, foreground, Modifier::empty()),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deferred_tui_starts_for_planned_link_work_before_apply() {
+        assert!(starts_tui(
+            &Event::PhaseStarted {
+                phase: Phase::Links,
+                total: Some(1),
+            },
+            false,
+        ));
+        assert!(!starts_tui(
+            &Event::PhaseStarted {
+                phase: Phase::Links,
+                total: Some(0),
+            },
+            false,
+        ));
+        assert!(!starts_tui(
+            &Event::PhaseStarted {
+                phase: Phase::Secrets,
+                total: Some(1),
+            },
+            false,
+        ));
+        assert!(starts_tui(
+            &Event::Item {
+                action: crate::event::Action::Merge,
+                path: std::path::PathBuf::from("settings.json"),
+                detail: String::new(),
+                changed: true,
+            },
+            false,
+        ));
+    }
 }

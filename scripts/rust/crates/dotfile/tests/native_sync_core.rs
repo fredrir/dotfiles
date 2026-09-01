@@ -149,6 +149,199 @@ fn dry_run_and_reconcile_share_a_deterministic_link_plan() {
     assert!(current.checked >= 1);
 }
 
+#[cfg(unix)]
+#[test]
+fn settled_layered_targets_keep_the_final_symlinks_untouched() {
+    use std::os::unix::fs::{MetadataExt, symlink};
+
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/git/.gitconfig = ~/.gitconfig\nmacos/git/.gitconfig = ~/.gitconfig\n",
+    );
+    sandbox.write("shared/git/.gitconfig", "shared\n");
+    sandbox.write("macos/git/.gitconfig", "macos\n");
+    sandbox.write("shared/fastfetch/config.jsonc", "shared\n");
+    sandbox.write("macos/fastfetch/config.jsonc", "macos\n");
+    let git = sandbox.home.join(".gitconfig");
+    let fastfetch_directory = sandbox.home.join(".config/fastfetch");
+    let fastfetch = fastfetch_directory.join("config.jsonc");
+    fs::create_dir_all(&fastfetch_directory).unwrap();
+    symlink(sandbox.root.join("macos/git/.gitconfig"), &git).unwrap();
+    symlink(
+        sandbox.root.join("macos/fastfetch/config.jsonc"),
+        &fastfetch,
+    )
+    .unwrap();
+    let identity = |path: &std::path::Path| {
+        let metadata = fs::symlink_metadata(path).unwrap();
+        (
+            metadata.ino(),
+            metadata.modified().unwrap(),
+            fs::read_link(path).unwrap(),
+        )
+    };
+    let before = (identity(&git), identity(&fastfetch));
+    let first = sandbox.sync(&cli()).expect("first settled sync");
+    let after_first = (identity(&git), identity(&fastfetch));
+    let second = sandbox.sync(&cli()).expect("second settled sync");
+    let after_second = (identity(&git), identity(&fastfetch));
+    assert_eq!(first.changed, 0);
+    assert_eq!(second.changed, 0);
+    assert_eq!(after_first, before);
+    assert_eq!(after_second, before);
+}
+
+#[cfg(unix)]
+#[test]
+fn fresh_layered_targets_count_each_final_destination_once() {
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/git/.gitconfig = ~/.gitconfig\nmacos/git/.gitconfig = ~/.gitconfig\n",
+    );
+    sandbox.write("shared/git/.gitconfig", "shared\n");
+    sandbox.write("macos/git/.gitconfig", "macos\n");
+    sandbox.write("shared/fastfetch/config.jsonc", "shared\n");
+    sandbox.write("macos/fastfetch/config.jsonc", "macos\n");
+    let summary = sandbox.sync(&cli()).expect("layered sync");
+    assert_eq!(summary.changed, 2);
+    assert_eq!(
+        fs::read_link(sandbox.home.join(".gitconfig")).unwrap(),
+        sandbox.root.join("macos/git/.gitconfig")
+    );
+    assert_eq!(
+        fs::read_link(sandbox.home.join(".config/fastfetch/config.jsonc")).unwrap(),
+        sandbox.root.join("macos/fastfetch/config.jsonc")
+    );
+    assert_eq!(sandbox.sync(&cli()).unwrap().changed, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn later_directory_replaces_an_earlier_file_at_the_same_destination() {
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/lower/item = ~/.config/final\nmacos/upper/item = ~/.config/final\n",
+    );
+    sandbox.write("shared/lower/item", "lower\n");
+    sandbox.write("macos/upper/item/child.conf", "higher\n");
+    let destination = sandbox.home.join(".config/final");
+    let mut options = cli();
+    options.dry_run = true;
+    assert_eq!(sandbox.sync(&options).expect("directory plan").changed, 1);
+    assert!(!destination.exists());
+    options.dry_run = false;
+    assert_eq!(sandbox.sync(&options).expect("directory apply").changed, 1);
+    assert_eq!(
+        fs::read_link(&destination).unwrap(),
+        sandbox.root.join("macos/upper/item")
+    );
+    assert_eq!(sandbox.sync(&options).expect("directory warm").changed, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn later_file_replaces_an_earlier_directory_at_the_same_destination() {
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/lower/item = ~/.config/final\nmacos/upper/item = ~/.config/final\n",
+    );
+    sandbox.write("shared/lower/item/child.conf", "lower\n");
+    sandbox.write("macos/upper/item", "higher\n");
+    let destination = sandbox.home.join(".config/final");
+    let mut options = cli();
+    options.dry_run = true;
+    assert_eq!(sandbox.sync(&options).expect("file plan").changed, 1);
+    assert!(!destination.exists());
+    options.dry_run = false;
+    assert_eq!(sandbox.sync(&options).expect("file apply").changed, 1);
+    assert_eq!(
+        fs::read_link(&destination).unwrap(),
+        sandbox.root.join("macos/upper/item")
+    );
+    assert_eq!(sandbox.sync(&options).expect("file warm").changed, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn stale_folded_directory_rebuilds_only_the_active_remapped_union() {
+    use std::os::unix::fs::symlink;
+
+    let sandbox = Sandbox::new(
+        "shared\n",
+        "shared/tool/moved.conf = ~/.config/moved.conf\n",
+    );
+    sandbox.write("shared/tool/moved.conf", "active\n");
+    sandbox.write("inactive/tool/moved.conf", "inactive\n");
+    sandbox.write("inactive/tool/old-only.conf", "stale\n");
+    let destination = sandbox.home.join(".config/tool");
+    symlink(sandbox.root.join("inactive/tool"), &destination).unwrap();
+    assert_eq!(sandbox.sync(&cli()).expect("active rebuild").changed, 2);
+    assert!(destination.is_dir());
+    assert!(!destination.join("moved.conf").exists());
+    assert!(!destination.join("old-only.conf").exists());
+    assert_eq!(
+        fs::read_link(sandbox.home.join(".config/moved.conf")).unwrap(),
+        sandbox.root.join("shared/tool/moved.conf")
+    );
+    assert_eq!(sandbox.sync(&cli()).expect("settled rebuild").changed, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn later_file_replaces_only_a_fully_managed_expanded_directory() {
+    use std::os::unix::fs::symlink;
+
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/lower/item = ~/.config/final\nmacos/upper/item = ~/.config/final\n",
+    );
+    sandbox.write("shared/lower/item/child.conf", "lower\n");
+    sandbox.write("macos/upper/item", "higher\n");
+    let destination = sandbox.home.join(".config/final");
+    let child = destination.join("child.conf");
+    fs::create_dir_all(&destination).unwrap();
+    symlink(sandbox.root.join("shared/lower/item/child.conf"), &child).unwrap();
+    fs::create_dir_all(&sandbox.context.state).unwrap();
+    fs::write(
+        sandbox.context.state.join("links"),
+        format!("{}\n", child.display()),
+    )
+    .unwrap();
+    assert_eq!(
+        sandbox.sync(&cli()).expect("managed replacement").changed,
+        1
+    );
+    assert_eq!(
+        fs::read_link(&destination).unwrap(),
+        sandbox.root.join("macos/upper/item")
+    );
+    assert_eq!(
+        sandbox.sync(&cli()).expect("settled replacement").changed,
+        0
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn later_file_never_removes_an_unmanaged_directory() {
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/lower/item = ~/.config/final\nmacos/upper/item = ~/.config/final\n",
+    );
+    sandbox.write("shared/lower/item/child.conf", "lower\n");
+    sandbox.write("macos/upper/item", "higher\n");
+    let destination = sandbox.home.join(".config/final");
+    fs::create_dir_all(&destination).unwrap();
+    fs::create_dir(destination.join("empty")).unwrap();
+    fs::write(destination.join("mine.conf"), "mine\n").unwrap();
+    assert!(sandbox.sync(&cli()).is_err());
+    assert!(destination.join("empty").is_dir());
+    assert_eq!(
+        fs::read_to_string(destination.join("mine.conf")).unwrap(),
+        "mine\n"
+    );
+}
+
 #[test]
 fn unmanaged_conflict_is_reported_once_and_never_replaced() {
     let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");

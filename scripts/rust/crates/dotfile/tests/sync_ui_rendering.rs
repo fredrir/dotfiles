@@ -146,38 +146,54 @@ fn sync_ui_push_plan_finishes_with_exact_summary_and_timeline() {
     assert!(rendered.contains("2 links  ·  1 merge  ·  1 generated"));
 }
 
-#[test]
-fn sync_ui_plain_push_completion_names_peer_and_remote_changes() {
-    let summary = Summary {
+fn completion_summary() -> Summary {
+    Summary {
         profile: "macos".to_string(),
-        peer: Some("archie".to_string()),
-        remote_changed: Some(3),
+        peer: None,
+        remote_changed: None,
         checked: 184,
-        changed: 2,
+        changed: 0,
         links: 1,
         merges: 1,
         secrets: 0,
         generated: 0,
         dry_run: false,
         elapsed: Duration::from_millis(63),
-    };
-    assert_eq!(
-        completion_line(&summary),
-        "✓ macos → archie synced · local 2 · peer 3 · 184 checked · 63 ms"
-    );
-    let mut legacy = summary.clone();
-    legacy.remote_changed = None;
-    assert_eq!(
-        completion_line(&legacy),
-        "✓ macos → archie synced · local 2 · 184 checked · 63 ms"
-    );
-    let mut dry_run = summary;
+    }
+}
+
+#[test]
+fn sync_ui_persisted_local_completion_is_minimal() {
+    let mut summary = completion_summary();
+    assert_eq!(completion_line(&summary), "✓ Synced");
+    summary.changed = 1;
+    assert_eq!(completion_line(&summary), "✓ Synced 1 change");
+    summary.changed = 4;
+    assert_eq!(completion_line(&summary), "✓ Synced 4 changes");
+}
+
+#[test]
+fn sync_ui_persisted_dry_run_and_push_completion_stays_compact() {
+    let mut dry_run = completion_summary();
     dry_run.dry_run = true;
+    assert_eq!(completion_line(&dry_run), "○ Plan ready");
     dry_run.changed = 1;
+    assert_eq!(completion_line(&dry_run), "○ Plan ready 1 change");
+    dry_run.changed = 3;
+    dry_run.peer = Some("archie".to_string());
+    assert_eq!(completion_line(&dry_run), "○ Plan ready 3 changes → archie");
+
+    let mut push = completion_summary();
+    push.peer = Some("archie".to_string());
+    push.remote_changed = Some(3);
+    assert_eq!(completion_line(&push), "✓ Synced → archie 3 changes");
+    push.changed = 2;
     assert_eq!(
-        completion_line(&dry_run),
-        "○ macos → archie · 1 local change pending"
+        completion_line(&push),
+        "✓ Synced 2 local changes → archie 3 changes"
     );
+    push.remote_changed = None;
+    assert_eq!(completion_line(&push), "✓ Synced 2 changes → archie");
 }
 
 #[test]

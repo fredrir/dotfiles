@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -88,6 +89,44 @@ pub struct Summary {
 
 pub trait EventSink: Send + Sync {
     fn emit(&self, event: Event);
+}
+
+pub struct ChangeSetSink<'a> {
+    inner: &'a dyn EventSink,
+    paths: std::sync::Mutex<BTreeSet<PathBuf>>,
+}
+
+impl<'a> ChangeSetSink<'a> {
+    pub fn new(inner: &'a dyn EventSink) -> Self {
+        Self {
+            inner,
+            paths: std::sync::Mutex::new(BTreeSet::new()),
+        }
+    }
+
+    pub fn changed(&self) -> usize {
+        self.paths
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
+    }
+}
+
+impl EventSink for ChangeSetSink<'_> {
+    fn emit(&self, event: Event) {
+        if let Event::Item {
+            path,
+            changed: true,
+            ..
+        } = &event
+        {
+            self.paths
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(path.clone());
+        }
+        self.inner.emit(event);
+    }
 }
 
 impl EventSink for crossbeam_channel::Sender<Event> {
