@@ -1,0 +1,75 @@
+#!/bin/sh
+
+set -eu
+
+PROGRAM=wezterm-mux-route
+
+POLL_SECONDS=${WEZTERM_MUX_ROUTE_POLL_SECONDS:-5}
+SOCAT=${WEZTERM_MUX_ROUTE_SOCAT:-}
+
+SOCAT_CANDIDATES='/opt/homebrew/bin/socat /usr/local/bin/socat /usr/bin/socat'
+
+fail() {
+	printf '%s: %s\n' "$PROGRAM" "$*" >&2
+	exit 1
+}
+
+note() {
+	printf '%s %s: %s\n' "$(date '+%Y/%m/%d %H:%M:%S')" "$PROGRAM" "$*"
+}
+
+usage_error() {
+	printf 'usage: %s <bind-address> <listen-port> <backend-port>\n' "$PROGRAM" >&2
+	exit 64
+}
+
+resolve_socat() {
+	if [ -n "$SOCAT" ]; then
+		[ -x "$SOCAT" ] || fail "WEZTERM_MUX_ROUTE_SOCAT=$SOCAT is not executable"
+		printf '%s' "$SOCAT"
+		return
+	fi
+
+	for candidate in $SOCAT_CANDIDATES; do
+		if [ -x "$candidate" ]; then
+			printf '%s' "$candidate"
+			return
+		fi
+	done
+
+	fail "found no socat in $SOCAT_CANDIDATES"
+}
+
+address_is_local() {
+	ifconfig 2>/dev/null |
+		awk -v want="$1" '$1 == "inet" && $2 == want { hit = 1 } END { exit !hit }'
+}
+
+[ "$#" -eq 3 ] || usage_error
+
+address=$1
+listen_port=$2
+backend_port=$3
+
+case $address in
+'' | *[!0-9.]*) fail "refusing to bind '$address'; expected an IPv4 literal" ;;
+esac
+
+case "$listen_port$backend_port" in
+'' | *[!0-9]*) fail "ports must be numeric, got '$listen_port' and '$backend_port'" ;;
+esac
+
+socat_bin=$(resolve_socat)
+
+if ! address_is_local "$address"; then
+	note "waiting for $address"
+	while ! address_is_local "$address"; do
+		sleep "$POLL_SECONDS"
+	done
+fi
+
+note "relaying $address:$listen_port to 127.0.0.1:$backend_port"
+
+exec "$socat_bin" \
+	"TCP4-LISTEN:$listen_port,bind=$address,reuseaddr,fork,nodelay,keepalive,setsockopt-int=6:16:10,keepintvl=5,keepcnt=3" \
+	"TCP4:127.0.0.1:$backend_port,nodelay"

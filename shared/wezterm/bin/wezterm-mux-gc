@@ -1,0 +1,122 @@
+#!/bin/sh
+
+set -eu
+
+PROGRAM=wezterm-mux-gc
+
+DATA_DIR=${WEZTERM_MUX_GC_DATA_DIR:-$HOME/.local/share/wezterm}
+LOG_DIR=${WEZTERM_MUX_GC_LOG_DIR:-$HOME/Library/Logs}
+MAX_LOG_BYTES=${WEZTERM_MUX_GC_MAX_LOG_BYTES:-1048576}
+MIN_AGE_MINUTES=${WEZTERM_MUX_GC_MIN_AGE_MINUTES:-60}
+
+ROTATED_LOGS='wezterm-mux.log
+wezterm-mux-route.cable.log
+wezterm-mux-route.wifi.log
+wezterm-mux-route.tailscale.log
+wezterm-mux-gc.log'
+
+PER_PID_PATTERNS='agent.*
+gui-sock-*
+wezterm-log-*.txt
+wezterm-gui-log-*.txt
+wezterm-mux-server-log-*.txt'
+
+WORKDIR=
+
+cleanup() {
+	if [ -n "$WORKDIR" ]; then
+		rm -rf "$WORKDIR"
+	fi
+}
+trap cleanup EXIT INT TERM
+
+WORKDIR=$(mktemp -d)
+REMOVED=$WORKDIR/removed
+TRUNCATED=$WORKDIR/truncated
+: >"$REMOVED"
+: >"$TRUNCATED"
+
+note() {
+	printf '%s %s: %s\n' "$(date '+%Y/%m/%d %H:%M:%S')" "$PROGRAM" "$*"
+}
+
+size_of() {
+	wc -c <"$1" | tr -d ' '
+}
+
+is_plain_file() {
+	if [ -L "$1" ]; then
+		return 1
+	fi
+	[ -f "$1" ]
+}
+
+older_than_guard() {
+	[ -n "$(find "$1" -maxdepth 0 -mmin "+$MIN_AGE_MINUTES" 2>/dev/null)" ]
+}
+
+rotate_named_log() {
+	log=$LOG_DIR/$1
+	is_plain_file "$log" || return 0
+
+	size=$(size_of "$log")
+	[ "$size" -gt "$MAX_LOG_BYTES" ] || return 0
+
+	cp "$log" "$log.1"
+	: >"$log"
+	note "rotated $1 at $size bytes"
+}
+
+sweep_per_pid() {
+	find "$DATA_DIR" -maxdepth 1 -name "$1" 2>/dev/null |
+		while IFS= read -r path; do
+			pid=$(printf '%s' "${path##*/}" | tr -dc '0-9')
+			[ -n "$pid" ] || continue
+
+			if kill -0 "$pid" 2>/dev/null; then
+				is_plain_file "$path" || continue
+				size=$(size_of "$path")
+				[ "$size" -gt "$MAX_LOG_BYTES" ] || continue
+				: >"$path"
+				printf '%s %s\n' "${path##*/}" "$size" >>"$TRUNCATED"
+				continue
+			fi
+
+			older_than_guard "$path" || continue
+			rm -f "$path"
+			printf '%s\n' "${path##*/}" >>"$REMOVED"
+		done
+}
+
+if [ -d "$LOG_DIR" ]; then
+	printf '%s\n' "$ROTATED_LOGS" | while IFS= read -r name; do
+		if [ -n "$name" ]; then
+			rotate_named_log "$name"
+		fi
+	done
+else
+	note "no log directory at $LOG_DIR"
+fi
+
+if [ -d "$DATA_DIR" ]; then
+	printf '%s\n' "$PER_PID_PATTERNS" | while IFS= read -r pattern; do
+		if [ -n "$pattern" ]; then
+			sweep_per_pid "$pattern"
+		fi
+	done
+
+	removed=$(wc -l <"$REMOVED" | tr -d ' ')
+	if [ "$removed" -gt 0 ]; then
+		note "removed $removed entries belonging to dead processes"
+	fi
+
+	while IFS=' ' read -r name size; do
+		if [ -n "$name" ]; then
+			note "truncated live $name at $size bytes"
+		fi
+	done <"$TRUNCATED"
+else
+	note "no data directory at $DATA_DIR"
+fi
+
+exit 0

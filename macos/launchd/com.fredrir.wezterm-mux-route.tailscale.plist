@@ -6,9 +6,10 @@
   <string>com.fredrir.wezterm-mux-route.tailscale</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/socat</string>
-    <string>TCP4-LISTEN:8443,bind=100.75.71.79,reuseaddr,fork,nodelay,keepalive,setsockopt-int=6:16:10,keepintvl=5,keepcnt=3</string>
-    <string>TCP4:127.0.0.1:8445,nodelay</string>
+    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-route</string>
+    <string>100.75.71.79</string>
+    <string>8443</string>
+    <string>8445</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
