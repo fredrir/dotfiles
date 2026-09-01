@@ -65,13 +65,8 @@ fn auto_enabled(
 #[command(
     name = "agent-hop",
     version,
-    about = "Move a Codex or Claude Code CLI session to the other workstation",
-    long_about = "Move a Codex or Claude Code CLI session to the other workstation.
-
-With no session ID, the newest session for this working directory is selected.
-The destination receives a fork with a new session ID, while the source session
-and both worktrees remain unchanged. Project files must be synchronized separately.",
-    after_long_help = "Examples:
+    about = "Move an agent session another other workstation",
+    after_long_help = "
   agent-hop codex                 Move this directory's latest Codex session
   agent-hop claude                Move this directory's latest Claude Code session
   agent-hop codex SESSION_ID      Move one specific session
