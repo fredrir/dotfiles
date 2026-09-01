@@ -7,7 +7,7 @@ use workstation::Style;
 use crate::browse::{Browser, Chosen};
 use crate::cli::{Direction, Request};
 use crate::place::{self, Local};
-use crate::remote::{Kind, Peer, Target};
+use crate::remote::{Kind, Listing, Peer, Target};
 use crate::report;
 use crate::transfer::{self, Plan};
 
@@ -42,10 +42,10 @@ pub fn main(request: Request) -> Result<(), String> {
         home,
         style: Style::for_stdout(),
         route: route.join().ok().flatten(),
-        remote_home: listing.home,
+        remote_home: listing.home.clone(),
     };
 
-    let start = session.start(anchor.as_ref());
+    let start = session.start(request.direction, anchor.as_ref(), &listing);
     let Some(remote) = session.decide(&request, anchor.as_ref(), &start)? else {
         return Ok(());
     };
@@ -95,7 +95,7 @@ fn name(anchor: Option<&Local>) -> Result<&str, String> {
 }
 
 impl Session {
-    fn start(&self, anchor: Option<&Local>) -> Start {
+    fn start(&self, direction: Direction, anchor: Option<&Local>, listing: &Listing) -> Start {
         let Some(local) = anchor else {
             return Start {
                 directory: self.remote_home.clone(),
@@ -104,13 +104,23 @@ impl Session {
             };
         };
         let parent = local.parent();
+        let mirror = place::join(&self.remote_home, &local.relative);
+        let remote_file = listing
+            .entries
+            .iter()
+            .find(|entry| entry.name == local.name)
+            .is_some_and(|entry| !entry.directory);
+        let open_mirror = direction == Direction::Push && local.absolute.is_dir() && !remote_file;
         Start {
-            directory: match parent.is_empty() {
-                true => self.remote_home.clone(),
-                false => place::join(&self.remote_home, &parent),
+            directory: match open_mirror {
+                true => mirror.clone(),
+                false => match parent.is_empty() {
+                    true => self.remote_home.clone(),
+                    false => place::join(&self.remote_home, &parent),
+                },
             },
             name: Some(local.name.clone()),
-            mirror: Some(place::join(&self.remote_home, &local.relative)),
+            mirror: Some(mirror),
         }
     }
 
@@ -155,6 +165,7 @@ impl Session {
         match browser.choose()? {
             Chosen::Picked(path) => Ok(Some(path)),
             Chosen::Cancelled => Ok(None),
+            Chosen::Interrupted => Err("interrupted".to_string()),
             // Without a terminal there is nothing to choose in, and guessing
             // silently is worse than saying which flag would have said.
             Chosen::Unavailable => Err(format!(
@@ -287,6 +298,26 @@ impl Session {
 mod tests {
     use super::*;
 
+    fn session(home: &Path) -> Session {
+        Session {
+            this: Host::Macie,
+            peer: Peer::new("archie"),
+            home: home.to_path_buf(),
+            style: Style::plain(),
+            route: None,
+            remote_home: "/home/fredrir".to_string(),
+        }
+    }
+
+    fn listing(entries: Vec<crate::remote::Entry>) -> Listing {
+        Listing {
+            path: "/home/fredrir".to_string(),
+            home: "/home/fredrir".to_string(),
+            entries,
+            missing: false,
+        }
+    }
+
     fn request(direction: Direction, path: &str) -> Request {
         Request {
             direction,
@@ -331,5 +362,76 @@ mod tests {
         let path = home.join("dangling").to_string_lossy().into_owned();
 
         assert!(anchor(&request(Direction::Push, &path), &home).is_ok());
+    }
+
+    #[test]
+    fn a_directory_push_opens_the_mirrored_directory_itself() {
+        let root = tempfile::tempdir().unwrap();
+        let home = std::fs::canonicalize(root.path()).unwrap();
+        let directory = home.join("dotfiles");
+        std::fs::create_dir(&directory).unwrap();
+        let local = Local {
+            absolute: directory,
+            relative: "dotfiles".to_string(),
+            name: "dotfiles".to_string(),
+        };
+        let remote = listing(vec![crate::remote::Entry {
+            name: "dotfiles".to_string(),
+            directory: true,
+        }]);
+
+        let start = session(&home).start(Direction::Push, Some(&local), &remote);
+
+        assert_eq!(start.directory, "/home/fredrir/dotfiles");
+        assert_eq!(start.name.as_deref(), Some("dotfiles"));
+        assert_eq!(start.mirror.as_deref(), Some("/home/fredrir/dotfiles"));
+
+        let missing = session(&home).start(Direction::Push, Some(&local), &listing(Vec::new()));
+        assert_eq!(missing.directory, "/home/fredrir/dotfiles");
+        assert_eq!(missing.mirror.as_deref(), Some("/home/fredrir/dotfiles"));
+    }
+
+    #[test]
+    fn file_pushes_conflicts_and_pulls_keep_the_mirror_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let home = std::fs::canonicalize(root.path()).unwrap();
+        let file = home.join("notes.md");
+        std::fs::write(&file, []).unwrap();
+        let local_file = Local {
+            absolute: file,
+            relative: "notes.md".to_string(),
+            name: "notes.md".to_string(),
+        };
+        let directory = home.join("dotfiles");
+        std::fs::create_dir(&directory).unwrap();
+        let local_directory = Local {
+            absolute: directory,
+            relative: "dotfiles".to_string(),
+            name: "dotfiles".to_string(),
+        };
+        let listing = listing(vec![crate::remote::Entry {
+            name: "dotfiles".to_string(),
+            directory: false,
+        }]);
+        let session = session(&home);
+
+        assert_eq!(
+            session
+                .start(Direction::Push, Some(&local_file), &listing)
+                .directory,
+            "/home/fredrir"
+        );
+        assert_eq!(
+            session
+                .start(Direction::Push, Some(&local_directory), &listing)
+                .directory,
+            "/home/fredrir"
+        );
+        assert_eq!(
+            session
+                .start(Direction::Pull, Some(&local_directory), &listing)
+                .directory,
+            "/home/fredrir"
+        );
     }
 }

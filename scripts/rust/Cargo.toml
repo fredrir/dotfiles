@@ -3,12 +3,14 @@ resolver = "2"
 # Listed rather than globbed: every path a glob matches has to be a package,
 # and `crates/git` is a folder of them.
 members = [
+  "crates/agent-hop",
   "crates/bench-workloads",
   "crates/count",
   "crates/doc-purge",
   "crates/dotfile",
   "crates/dotfile-format",
   "crates/dotfmt",
+  "crates/file-explorer",
   "crates/flatten",
   "crates/git/gdd",
   "crates/git/gget",
@@ -47,6 +49,8 @@ tempfile = "3"
 workstation = { path = "crates/workstation" }
 gitkit = { path = "crates/git/gitkit" }
 hostkit = { path = "crates/hostkit" }
+file-explorer = { path = "crates/file-explorer" }
+unicode-width = "0.2"
 
 gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"

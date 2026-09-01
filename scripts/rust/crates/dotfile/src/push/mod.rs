@@ -237,9 +237,6 @@ fn preflight_host(
     events: Option<&dyn EventSink>,
 ) -> Result<PushPlan, Failure> {
     let directory = repo_directory(context);
-    if !cli.dry_run && !repository_changes(context)?.is_empty() {
-        return Err(dirty_local_failure());
-    }
     if !cli.dry_run {
         if let Some(events) = events {
             events.emit(Event::Progress {
@@ -303,7 +300,6 @@ fn execute(
         return Ok(Some(0));
     }
 
-    require_clean_repository(context, events)?;
     active(Phase::Push)?;
     push_branch(context, &branch, events)?;
     events.emit(Event::Progress {
@@ -707,22 +703,6 @@ fn push_branch(
     }
 }
 
-fn require_clean_repository(context: &Context, events: &dyn EventSink) -> Result<(), Failure> {
-    let changes = repository_changes(context)?;
-    if changes.is_empty() {
-        return Ok(());
-    }
-    for change in changes {
-        events.emit(Event::Item {
-            action: Action::Check,
-            path: context.root.clone(),
-            detail: change,
-            changed: true,
-        });
-    }
-    Err(dirty_local_failure())
-}
-
 fn repository_changes(context: &Context) -> Result<Vec<String>, Failure> {
     let output = git(context, &["status", "--porcelain", "--untracked-files=all"])?;
     if !output.status.success() {
@@ -735,12 +715,6 @@ fn repository_changes(context: &Context) -> Result<Vec<String>, Failure> {
         .filter(|line| !line.trim().is_empty())
         .map(str::to_string)
         .collect())
-}
-
-fn dirty_local_failure() -> Failure {
-    Failure::push(
-        "local repository has uncommitted changes; review and commit them before dotfile sync -p",
-    )
 }
 
 fn protocol_session(

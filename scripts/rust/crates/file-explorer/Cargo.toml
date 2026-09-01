@@ -1,0 +1,13 @@
+[package]
+name              = "file-explorer"
+version           = "0.1.0"
+description       = "Reusable interactive file and location explorer for command-line tools"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+unicode-width.workspace = true
+workstation.workspace   = true
+
+[dev-dependencies]
+tempfile.workspace = true

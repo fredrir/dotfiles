@@ -55,11 +55,63 @@ mod imp {
     use std::fs::{File, OpenOptions};
     use std::io::{self, Read, Write};
     use std::os::fd::AsRawFd;
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    static TERMINATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
+
+    struct SignalGuard {
+        previous: Vec<(libc::c_int, libc::sigaction)>,
+    }
+
+    impl SignalGuard {
+        fn new() -> io::Result<Self> {
+            TERMINATION_SIGNAL.store(0, Ordering::Release);
+            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+            action.sa_sigaction = terminal_signal as *const () as libc::sighandler_t;
+            action.sa_flags = 0;
+            unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
+            let mut previous = Vec::with_capacity(3);
+            for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                let mut prior: libc::sigaction = unsafe { std::mem::zeroed() };
+                if unsafe { libc::sigaction(signal, &raw const action, &raw mut prior) } != 0 {
+                    for (installed, handler) in previous.into_iter().rev() {
+                        unsafe {
+                            libc::sigaction(installed, &raw const handler, std::ptr::null_mut())
+                        };
+                    }
+                    return Err(io::Error::last_os_error());
+                }
+                previous.push((signal, prior));
+            }
+            Ok(Self { previous })
+        }
+    }
+
+    impl Drop for SignalGuard {
+        fn drop(&mut self) {
+            for (signal, handler) in self.previous.drain(..).rev() {
+                unsafe { libc::sigaction(signal, &raw const handler, std::ptr::null_mut()) };
+            }
+            let signal = TERMINATION_SIGNAL.swap(0, Ordering::AcqRel);
+            if signal != 0 {
+                unsafe { libc::raise(signal) };
+            }
+        }
+    }
+
+    extern "C" fn terminal_signal(signal: libc::c_int) {
+        TERMINATION_SIGNAL.store(signal, Ordering::Release);
+    }
+
+    fn termination_requested() -> bool {
+        TERMINATION_SIGNAL.load(Ordering::Acquire) != 0
+    }
 
     pub struct Screen {
         tty: File,
         saved: libc::termios,
         drawn: usize,
+        _signals: SignalGuard,
     }
 
     impl Screen {
@@ -78,6 +130,7 @@ mod imp {
                 }
                 saved
             };
+            let signals = SignalGuard::new()?;
 
             // OPOST stays on, so a newline still returns the carriage and the
             // frames below need no \r of their own. ISIG goes off so ctrl-c
@@ -85,8 +138,8 @@ mod imp {
             let mut raw = saved;
             raw.c_lflag &= !(libc::ICANON | libc::ECHO | libc::ISIG | libc::IEXTEN);
             raw.c_iflag &= !(libc::IXON | libc::ICRNL);
-            raw.c_cc[libc::VMIN] = 1;
-            raw.c_cc[libc::VTIME] = 0;
+            raw.c_cc[libc::VMIN] = 0;
+            raw.c_cc[libc::VTIME] = 1;
             // SAFETY: `raw` is the struct tcgetattr just filled in, with only
             // flag bits and control characters changed.
             if unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &raw) } != 0 {
@@ -97,6 +150,7 @@ mod imp {
                 tty,
                 saved,
                 drawn: 0,
+                _signals: signals,
             };
             screen.put("\x1b[?25l")?;
             Ok(Some(screen))
@@ -118,13 +172,22 @@ mod imp {
             self.put(&frame)
         }
 
+        pub fn size(&self) -> Option<(usize, usize)> {
+            let fd = self.tty.as_raw_fd();
+            let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+            let status = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &raw mut size) };
+            (status == 0 && size.ws_col > 0 && size.ws_row > 0)
+                .then_some((size.ws_col as usize, size.ws_row as usize))
+        }
+
         pub fn clear(&mut self) -> io::Result<()> {
             if self.drawn == 0 {
                 return Ok(());
             }
             let frame = format!("\x1b[{}F\x1b[0J", self.drawn);
+            self.put(&frame)?;
             self.drawn = 0;
-            self.put(&frame)
+            Ok(())
         }
 
         pub fn key(&mut self) -> io::Result<Key> {
@@ -205,11 +268,25 @@ mod imp {
         }
 
         fn byte(&mut self) -> io::Result<Option<u8>> {
+            self.read_byte(false)
+        }
+
+        fn read_byte(&mut self, brief: bool) -> io::Result<Option<u8>> {
             let mut buffer = [0u8; 1];
             loop {
+                if termination_requested() {
+                    return Ok(None);
+                }
                 return match self.tty.read(&mut buffer) {
-                    Ok(0) => Ok(None),
+                    Ok(0) if brief => Ok(None),
+                    Ok(0) => continue,
                     Ok(_) => Ok(Some(buffer[0])),
+                    Err(error)
+                        if error.kind() == io::ErrorKind::Interrupted
+                            && termination_requested() =>
+                    {
+                        Ok(None)
+                    }
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => Err(error),
                 };
@@ -219,25 +296,7 @@ mod imp {
         // An escape byte is either a key on its own or the start of a
         // sequence, and only the pause after it tells the two apart.
         fn waited(&mut self) -> io::Result<Option<u8>> {
-            self.timeout(true);
-            let byte = self.byte();
-            self.timeout(false);
-            byte
-        }
-
-        fn timeout(&mut self, brief: bool) {
-            let fd = self.tty.as_raw_fd();
-            // SAFETY: both calls take a descriptor this struct owns and a
-            // termios they fill in or read, and both report their own failure.
-            unsafe {
-                let mut current: libc::termios = std::mem::zeroed();
-                if libc::tcgetattr(fd, &mut current) != 0 {
-                    return;
-                }
-                current.c_cc[libc::VMIN] = u8::from(!brief);
-                current.c_cc[libc::VTIME] = u8::from(brief);
-                libc::tcsetattr(fd, libc::TCSANOW, &current);
-            }
+            self.read_byte(true)
         }
 
         fn put(&mut self, text: &str) -> io::Result<()> {
@@ -248,6 +307,7 @@ mod imp {
 
     impl Drop for Screen {
         fn drop(&mut self) {
+            let _ = self.clear();
             let _ = self.put("\x1b[?25h");
             let fd = self.tty.as_raw_fd();
             // SAFETY: `saved` is what tcgetattr returned for this descriptor
@@ -272,6 +332,9 @@ mod imp {
         }
         pub fn draw(&mut self, _lines: &[String]) -> io::Result<()> {
             Ok(())
+        }
+        pub fn size(&self) -> Option<(usize, usize)> {
+            None
         }
         pub fn clear(&mut self) -> io::Result<()> {
             Ok(())
