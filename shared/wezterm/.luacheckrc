@@ -1,4 +1,4 @@
-std = luajit
+std = lua54
 cache = true
 codes = true
 

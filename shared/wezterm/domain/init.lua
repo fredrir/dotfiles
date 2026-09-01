@@ -1,11 +1,6 @@
-local unix = require "domain.unix"
-local tls = require "domain.tls"
+local append_conf = require "utils.append_conf"
 
-local M = {}
+---@type Config
+local domain_config = {}
 
-function M.apply_to_config(config)
-  unix.apply_to_config(config)
-  tls.apply_to_config(config)
-end
-
-return M
+return append_conf(domain_config, "domain.unix", "domain.tls")

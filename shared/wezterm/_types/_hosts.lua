@@ -13,3 +13,8 @@
 ---@field target Hostname
 ---@field pem Pem
 ---@field ip IpAddress[]
+
+---@class Hosts
+---@field origin Host
+---@field target Host
+---@field port integer

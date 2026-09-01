@@ -4,7 +4,7 @@
 
 -- local vtabs = require "init"
 
-local M = {}
+-- local M = {}
 
 -- function M.apply_to_config(config)
 --   vtabs.apply_to_config(config, {
@@ -25,4 +25,4 @@ local M = {}
 --   })
 -- end
 
-return M
+-- return M

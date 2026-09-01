@@ -1,13 +1,16 @@
 -- Generated from theme/profiles/sexy-purple.toml
 
----@class (exact) ColorProfile
+---@class ColorProfile
 ---@field name string
 ---@field colors Palette
 
----@class (exact) FontFamily
+---@alias DotfileColorProfiles { active: ColorProfile, profiles: table<string, Palette> }
+
+---@class FontFamily
 ---@field family string
 
----@class (exact) DotfileFonts
+---@class DotfileFonts
 ---@field font_size number
+---@field interface_font_size number
 ---@field nerd_family string
 ---@field general_family string

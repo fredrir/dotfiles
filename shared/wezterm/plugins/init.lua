@@ -1,9 +1,11 @@
 -- local vtabs = require "plugins.vtabs"
 
-local M = {}
+---@type Config
+local plugin_config = {}
 
--- function M.apply_to_config(config)
+-- To enable a plugin that mutates the builder, return a typed provider function:
+-- return function(config)
 --   vtabs.apply_to_config(config)
 -- end
 
-return M
+return plugin_config

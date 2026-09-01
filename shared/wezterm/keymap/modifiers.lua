@@ -1,39 +1,35 @@
 local platform = require "utils.platform"
 
----@return Mods
-local function modifiers()
-  if platform.is_mac then
-    ---@type Mods
-    return {
-      SUPER = "CMD",
-      SPECIAL = "CMD",
-      SECONDARY = "OPT",
-      ---
-      SUPER_REV = "CMD|SHIFT",
-      CTRL_OR_SPECIAL = { "CTRL", "CMD" },
-      CTRL_OR_SECONDARY = { "CTRL", "OPT" },
-      CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "OPT", "CMD" },
-      ---
-      SPLITBELOW = "'",
-    }
-  end
+---@type Mods
+local MOD
 
-  ---@type Mods
-  return {
-    SUPER = "CTRL|SHIFT",
-    SPECIAL = "ALT",
+if platform.is_mac then
+  MOD = {
+    PRIMARY = "CMD",
+    SECONDARY = "CTRL",
+    UNIQUE = "OPT",
+    EDGE = "CMD",
+    ---
+    SUPER_REV = { "CMD|SHIFT", "CTRL|SHIFT" },
+    SUPER_REV_2 = "CTRL|CMD",
+    ---
+    SPLITBELOW = "'",
+  }
+else
+  MOD = {
+    PRIMARY = "CTRL",
     SECONDARY = "ALT",
-    ---
-    SUPER_REV = "CTRL|SHIFT|ALT",
-    CTRL_OR_SPECIAL = { "CTRL", "ALT" },
-    CTRL_OR_SECONDARY = { "CTRL", "ALT" },
-    CTRL_OR_SECONDARY_OR_SPECIAL = { "CTRL", "ALT" },
+    UNIQUE = "ALT",
+    EDGE = "ALT",
 
-    ---
+    SUPER_REV = "CTRL|SHIFT",
+    SUPER_REV_2 = "CTRL|ALT",
+
     SPLITBELOW = "§",
   }
 end
 
-local _MOD = modifiers()
+-- EDGE; What should be CMD on mac, but is not naturally reserved for alt-key in linux. CTRL key with mac-keyboard is less ergonomical and more akward than CTRL on windows due the placement of the "fn" button being bottom left.
+-- UNQIUE: The key that is unique between macos and linux; macos has one more unique usable key due to WM in linux owning SUPER.
 
-return _MOD
+return MOD ---@ type Mods

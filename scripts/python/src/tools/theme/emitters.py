@@ -158,35 +158,46 @@ def _wezterm_types(theme):
     lines = [
         f"-- {theme.header}",
         "",
-        "---@class (exact) ColorProfile",
+        "---@class ColorProfile",
         "---@field name string",
         "---@field colors Palette",
         "",
-        "---@class (exact) FontFamily",
+        # A record alias keeps LuaLS's structural assignability checks. A named
+        # class is unsound here: LuaLS accepts it as an unrelated generic map.
+        "---@alias DotfileColorProfiles { active: ColorProfile, profiles: table<string, Palette> }",
+        "",
+        "---@class FontFamily",
         "---@field family string",
         "",
-        "---@class (exact) DotfileFonts",
+        "---@class DotfileFonts",
         "---@field font_size number",
+        "---@field interface_font_size number",
         "---@field nerd_family string",
         "---@field general_family string",
     ]
     return "\n".join(lines) + "\n"
 
 
-def _wezterm_colors_init(theme):
+def _wezterm_color_profile_entry(theme, profile):
+    scheme = theme if profile == theme.profile else Theme.load(profile)
+    module = _lua_string(f"ui.colors.{profile}")
+    return f"    [{_lua_string(scheme.name)}] = require({module}).colors,"
+
+
+def _wezterm_color_profiles(theme):
     lines = [
         f"-- {theme.header}",
         "",
-        "---@type table<string, ColorProfile>",
+        "---@type DotfileColorProfiles",
         "return {",
+        f'  active = require "ui.colors.{theme.profile}",',
+        "  profiles = {",
     ]
-
+    lines += [_wezterm_color_profile_entry(theme, profile) for profile in list_profiles()]
     lines += [
-        f"  [{_lua_string(profile)}] = require {_lua_string('ui.colors.' + profile)},"
-        for profile in list_profiles()
+        "  },",
+        "}",
     ]
-
-    lines.append("}")
     return "\n".join(lines) + "\n"
 
 
@@ -207,6 +218,7 @@ def _wezterm_fonts(theme):
         "---@type DotfileFonts",
         "return {",
         f"  font_size = {theme.size('terminal')},",
+        f"  interface_font_size = {theme.size('interface')},",
         f"  nerd_family = {_lua_string(theme.font('nerd'))},",
         f"  general_family = {_lua_string(theme.font('general'))},",
         "}",
@@ -219,7 +231,7 @@ def emit_wezterm(theme, out):
         scheme = theme if profile == theme.profile else Theme.load(profile)
         out.write(path(WEZTERM_COLORS_DIR, f"{profile}.lua"), _wezterm_scheme(scheme))
     out.write(path(WEZTERM_TYPES_FILE), _wezterm_types(theme))
-    out.write(path(WEZTERM_COLORS_DIR, "init.lua"), _wezterm_colors_init(theme))
+    out.write(path(WEZTERM_COLORS_DIR, "profiles.lua"), _wezterm_color_profiles(theme))
     for role in wezterm_font_roles():
         out.write(path(WEZTERM_FONTS_DIR, f"{role}.lua"), _wezterm_font(theme, role))
     out.write(path(WEZTERM_FONTS_DIR, "fonts.lua"), _wezterm_fonts(theme))

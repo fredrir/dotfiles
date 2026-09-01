@@ -1,16 +1,18 @@
 local wezterm = require "wezterm"
 
-local M = {}
-
-function M.apply_to_config(config)
-  config.unix_domains = {
+-- wezterm-types 4.3.0 marks fields with runtime defaults as required.
+---@diagnostic disable: missing-fields
+---@type Config
+local unix_config = {
+  unix_domains = {
     {
       name = "localmux",
       socket_path = wezterm.home_dir .. "/.local/share/wezterm/localmux.sock",
     },
-  }
-  config.default_domain = "localmux"
-  config.default_gui_startup_args = { "connect", "localmux" }
-end
+  },
+  default_domain = "localmux",
+  default_gui_startup_args = { "connect", "localmux" },
+}
+---@diagnostic enable: missing-fields
 
-return M
+return unix_config

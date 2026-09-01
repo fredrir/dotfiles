@@ -10,6 +10,7 @@ from tools.theme.emitters import (
     emit_starship,
     emit_wezterm,
     wezterm_font_roles,
+    wezterm_outputs,
 )
 from tools.theme.model import Theme, list_profiles, path
 from tools.theme.render import replace_between, replace_ini_section, set_ini_key
@@ -79,11 +80,19 @@ def test_starship_aligns_each_run_of_entries_on_its_own():
     assert "prompt_duration = '#111111'" in lines
 
 
-def test_wezterm_gets_a_scheme_file_per_profile_and_an_init():
+def test_wezterm_gets_a_scheme_file_per_profile_and_a_profiles_table():
     out = Written()
     emit_wezterm(Theme.load("mocha"), out)
     expected = {f"colors/{profile}.lua" for profile in list_profiles()}
-    assert expected | {"colors/init.lua"} <= set(out.files)
+    assert expected | {"colors/profiles.lua"} <= set(out.files)
+
+
+def test_wezterm_declared_outputs_match_the_files_it_writes():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    root = path(WEZTERM_COLORS_DIR, "..")
+    declared = {os.path.relpath(path(target), root) for target in wezterm_outputs()}
+    assert declared == set(out.files)
 
 
 def test_a_wezterm_scheme_matches_the_documented_colors_schema():
@@ -106,16 +115,18 @@ def test_a_wezterm_scheme_carries_only_the_keys_wezterm_reads():
     assert "tab_bar" not in scheme
 
 
-def test_the_wezterm_init_activates_the_selected_profile():
+def test_the_wezterm_profiles_file_is_typed_inert_data_with_an_active_profile():
     out = Written()
     emit_wezterm(Theme.load("latte"), out)
-    init = out.files["colors/init.lua"]
-    assert 'local active = require "ui.colors.latte"' in init
-    assert "function M.get_active()" in init
-    assert "  return active.colors" in init
-    assert "  config.color_scheme = active.name" in init
-    for profile in list_profiles():
-        assert f'  "{profile}",' in init
+    profiles = out.files["colors/profiles.lua"]
+    assert "---@type DotfileColorProfiles" in profiles
+    assert '  active = require "ui.colors.latte",' in profiles
+    assert "  profiles = {" in profiles
+    assert "function" not in profiles
+    assert "config" not in profiles
+    assert '    ["Catppuccin Latte"] = require("ui.colors.latte").colors,' in profiles
+    assert '    ["Catppuccin Mocha"] = require("ui.colors.mocha").colors,' in profiles
+    assert '    ["Sexy Purple"] = require("ui.colors.sexy-purple").colors,' in profiles
 
 
 def test_wezterm_gets_a_font_file_per_role_and_a_fonts_file():
@@ -130,12 +141,21 @@ def test_wezterm_puts_all_generated_type_definitions_in_the_types_directory():
     emit_wezterm(Theme.load("mocha"), out)
 
     generated_types = out.files["../_types/_dotfile-theme.lua"]
-    assert "---@class (exact) ColorProfile" in generated_types
-    assert "---@class (exact) FontFamily" in generated_types
-    assert "---@class (exact) DotfileFonts" in generated_types
+    assert "---@class ColorProfile" in generated_types
+    assert (
+        "---@alias DotfileColorProfiles { active: ColorProfile, profiles: table<string, Palette> }"
+        in generated_types
+    )
+    assert "---@class DotfileColorProfiles" not in generated_types
+    assert "---@class FontFamily" in generated_types
+    assert "---@class DotfileFonts" in generated_types
 
-    runtime_files = [content for name, content in out.files.items() if name != "../_types/_dotfile-theme.lua"]
-    assert all("---@class" not in content and "---@field" not in content for content in runtime_files)
+    runtime_files = [
+        content for name, content in out.files.items() if name != "../_types/_dotfile-theme.lua"
+    ]
+    assert all(
+        "---@class" not in content and "---@field" not in content for content in runtime_files
+    )
 
 
 def test_a_wezterm_font_role_file_is_inert_data():
@@ -152,8 +172,19 @@ def test_the_wezterm_fonts_file_contains_the_selected_font_settings():
     emit_wezterm(Theme.load("mocha"), out)
     fonts = out.files["fonts/fonts.lua"]
     assert "  font_size = 12," in fonts
+    assert "  interface_font_size = 10," in fonts
     assert '  nerd_family = "Hack Nerd Font Mono",' in fonts
     assert '  general_family = "Noto Sans",' in fonts
+
+
+def test_generated_wezterm_runtime_files_are_inert_data():
+    out = Written()
+    emit_wezterm(Theme.load("mocha"), out)
+    runtime_files = [
+        content for name, content in out.files.items() if name != "../_types/_dotfile-theme.lua"
+    ]
+    assert all("function " not in content for content in runtime_files)
+    assert all("config." not in content for content in runtime_files)
 
 
 def test_a_wezterm_key_that_is_not_a_lua_identifier_is_bracketed():

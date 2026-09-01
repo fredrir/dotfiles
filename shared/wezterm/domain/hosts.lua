@@ -45,8 +45,11 @@ local origin = assert(hosts[hostname], ("Unknown host: %s"):format(hostname))
 
 local target = assert(hosts[origin.target], ("Unknown target host: %s"):format(origin.target))
 
-return {
+---@type Hosts
+local selected_hosts = {
   origin = origin,
   target = target,
   port = port,
 }
+
+return selected_hosts

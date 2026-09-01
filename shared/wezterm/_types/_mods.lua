@@ -1,9 +1,8 @@
 ---@class Mods
----@field SUPER string
----@field SUPER_REV string
+---@field PRIMARY string
 ---@field SECONDARY string
----@field SPECIAL string
----@field CTRL_OR_SPECIAL string[]
----@field CTRL_OR_SECONDARY string[]
----@field CTRL_OR_SECONDARY_OR_SPECIAL string[]
+---@field UNIQUE string
+---@field EDGE string
+---@field SUPER_REV string | string[]
+---@field SUPER_REV_2 string
 ---@field SPLITBELOW string
