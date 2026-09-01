@@ -175,7 +175,7 @@ def test_hostname_selects_the_matching_host(monkeypatch, tmp_path):
     config = tmp_path / "hosts.dotfile"
     config.write_text(
         "archie {\n"
-        "  hostnames = archpc, archie\n"
+        "  hostnames = archie\n"
         "  MEMORY = Corsair 32 GB DDR5\n"
         "  CPU_COOLER = Noctua NH-D15\n"
         "}\n"
@@ -199,7 +199,7 @@ def test_hostname_selects_the_matching_host(monkeypatch, tmp_path):
 def test_explicit_host_overrides_the_hostname(monkeypatch, tmp_path):
     config = tmp_path / "hosts.dotfile"
     config.write_text(
-        "archie {\n  hostnames = archpc\n  MEMORY = Corsair 32 GB DDR5\n}\n",
+        "archie {\n  hostnames = archie\n  MEMORY = Corsair 32 GB DDR5\n}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("SYSINFO_CONFIG", str(config))
@@ -213,7 +213,7 @@ def test_explicit_host_overrides_the_hostname(monkeypatch, tmp_path):
 
 def test_an_unknown_machine_reports_no_configured_hardware(monkeypatch, tmp_path):
     config = tmp_path / "hosts.dotfile"
-    config.write_text("archie {\n  hostnames = archpc\n  CASE = ARCTIC Xtender\n}\n", "utf-8")
+    config.write_text("archie {\n  hostnames = archie\n  CASE = ARCTIC Xtender\n}\n", "utf-8")
     monkeypatch.setenv("SYSINFO_CONFIG", str(config))
     monkeypatch.delenv("SYSINFO_HOST", raising=False)
     monkeypatch.setattr(hosts, "saved_host", lambda: "")

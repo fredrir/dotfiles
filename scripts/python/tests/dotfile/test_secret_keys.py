@@ -48,8 +48,8 @@ def secret(tool, env, *args):
 
 def test_parses_a_recipients_block(repo):
     root, _home, _env = repo
-    write_keys(root, f"recipients {{\n  archpc = {KEY_A}\n  recovery = {KEY_B}\n}}\n")
-    assert keys.load_recipients(Ctx(root)) == {"archpc": KEY_A, "recovery": KEY_B}
+    write_keys(root, f"recipients {{\n  archie = {KEY_A}\n  recovery = {KEY_B}\n}}\n")
+    assert keys.load_recipients(Ctx(root)) == {"archie": KEY_A, "recovery": KEY_B}
 
 
 def test_missing_file_is_empty(repo):
@@ -59,21 +59,21 @@ def test_missing_file_is_empty(repo):
 
 def test_rejects_a_value_that_is_not_an_age_key(repo):
     root, _home, _env = repo
-    write_keys(root, "recipients {\n  archpc = not-a-key\n}\n")
+    write_keys(root, "recipients {\n  archie = not-a-key\n}\n")
     with pytest.raises(typer.Exit):
         keys.load_recipients(Ctx(root))
 
 
 def test_rejects_a_duplicate_label(repo):
     root, _home, _env = repo
-    write_keys(root, f"recipients {{\n  archpc = {KEY_A}\n  archpc = {KEY_B}\n}}\n")
+    write_keys(root, f"recipients {{\n  archie = {KEY_A}\n  archie = {KEY_B}\n}}\n")
     with pytest.raises(typer.Exit):
         keys.load_recipients(Ctx(root))
 
 
 def test_rejects_an_unterminated_block(repo):
     root, _home, _env = repo
-    write_keys(root, f"recipients {{\n  archpc = {KEY_A}\n")
+    write_keys(root, f"recipients {{\n  archie = {KEY_A}\n")
     with pytest.raises(typer.Exit):
         keys.load_recipients(Ctx(root))
 
@@ -92,42 +92,42 @@ def test_empty_recipients_produce_no_sops_document():
 
 def test_enroll_writes_both_files(tool, repo):
     root, _home, env = repo
-    assert secret(tool, env, "enroll", "archpc", KEY_A).returncode == 0
+    assert secret(tool, env, "enroll", "archie", KEY_A).returncode == 0
     assert (
         root / "config" / "keys.dotfile"
-    ).read_text() == f"recipients {{\n  archpc = {KEY_A}\n}}\n"
+    ).read_text() == f"recipients {{\n  archie = {KEY_A}\n}}\n"
     assert KEY_A in (root / ".sops.yaml").read_text()
 
 
 def test_enroll_is_idempotent(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
-    result = secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
+    result = secret(tool, env, "enroll", "archie", KEY_A)
     assert result.returncode == 0
     assert "already enrolled" in result.stdout
 
 
 def test_enroll_refuses_a_key_held_under_another_label(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     result = secret(tool, env, "enroll", "laptop", KEY_A)
     assert result.returncode == 1
-    assert "already enrolled as 'archpc'" in result.stderr
+    assert "already enrolled as 'archie'" in result.stderr
 
 
 def test_enroll_refuses_to_replace_a_label(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
-    result = secret(tool, env, "enroll", "archpc", KEY_B)
+    secret(tool, env, "enroll", "archie", KEY_A)
+    result = secret(tool, env, "enroll", "archie", KEY_B)
     assert result.returncode == 1
     assert "revoke it first" in result.stderr
 
 
 def test_revoke_removes_and_regenerates(tool, repo):
     root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     secret(tool, env, "enroll", "recovery", KEY_B)
-    assert secret(tool, env, "revoke", "archpc").returncode == 0
+    assert secret(tool, env, "revoke", "archie").returncode == 0
     assert (
         root / "config" / "keys.dotfile"
     ).read_text() == f"recipients {{\n  recovery = {KEY_B}\n}}\n"
@@ -136,27 +136,27 @@ def test_revoke_removes_and_regenerates(tool, repo):
 
 def test_revoke_refuses_the_last_recipient(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
-    result = secret(tool, env, "revoke", "archpc")
+    secret(tool, env, "enroll", "archie", KEY_A)
+    result = secret(tool, env, "revoke", "archie")
     assert result.returncode == 1
     assert "only recipient" in result.stderr
 
 
 def test_revoke_warns_that_rewrapping_is_not_rotation(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     secret(tool, env, "enroll", "recovery", KEY_B)
-    result = secret(tool, env, "revoke", "archpc")
+    result = secret(tool, env, "revoke", "archie")
     assert "rotate anything that key actually protected" in result.stdout
 
 
 def test_sync_rewrites_a_drifted_sops_file(tool, repo):
     root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     (root / ".sops.yaml").write_text("creation_rules: []\n")
-    assert keys.sops_drifted(Ctx(root), {"archpc": KEY_A})
+    assert keys.sops_drifted(Ctx(root), {"archie": KEY_A})
     assert secret(tool, env, "sync").returncode == 0
-    assert not keys.sops_drifted(Ctx(root), {"archpc": KEY_A})
+    assert not keys.sops_drifted(Ctx(root), {"archie": KEY_A})
 
 
 def test_sync_without_recipients_fails(tool, repo):
@@ -168,9 +168,9 @@ def test_sync_without_recipients_fails(tool, repo):
 
 def test_keys_lists_what_is_enrolled(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     result = secret(tool, env, "keys")
-    assert "archpc" in result.stdout
+    assert "archie" in result.stdout
     assert KEY_A in result.stdout
 
 
@@ -184,7 +184,7 @@ def test_doctor_fails_on_a_fresh_repository(tool, repo):
 
 def test_doctor_reports_a_missing_recovery_key(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     result = secret(tool, env, "doctor")
     assert "none named recovery" in result.stdout
 
@@ -230,7 +230,7 @@ def test_doctor_tells_a_duplicate_identity_from_a_different_one(repo, tmp_path):
 
 def test_enroll_stages_what_it_changed(tool, repo):
     root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     staged = subprocess.run(
         ["git", "-C", str(root), "diff", "--cached", "--name-only"],
         capture_output=True,
@@ -325,7 +325,7 @@ def test_using_rejects_a_path_that_is_not_an_identity(tool, repo, tmp_path):
 
 def test_any_recovery_prefixed_label_counts(tool, repo):
     _root, _home, env = repo
-    secret(tool, env, "enroll", "archpc", KEY_A)
+    secret(tool, env, "enroll", "archie", KEY_A)
     secret(tool, env, "enroll", "recovery2", KEY_B)
     result = secret(tool, env, "doctor")
     assert "no recovery" not in result.stdout
@@ -343,7 +343,7 @@ def test_recovery_labels_are_matched_by_prefix():
     assert keys.recovery_labels({"recovery": "x"}) == ["recovery"]
     assert keys.recovery_labels({"recovery2": "x"}) == ["recovery2"]
     assert keys.recovery_labels({"Recovery-yubikey": "x"}) == ["Recovery-yubikey"]
-    assert keys.recovery_labels({"archpc": "x", "macie": "x"}) == []
+    assert keys.recovery_labels({"archie": "x", "macie": "x"}) == []
 
 
 needs_both = pytest.mark.skipif(

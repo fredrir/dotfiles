@@ -16,7 +16,7 @@ DIRTY = "## main...origin/main\n M shared/alpha/alpha.conf\n"
 
 HOSTS = """\
 archie {
-  hostnames = archpc, archie
+  hostnames = archie
   role = desktop
 }
 

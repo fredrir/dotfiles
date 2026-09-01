@@ -14,7 +14,7 @@ def workstation_snapshot():
         },
         modules={
             "OS": {"id": "arch", "name": "Arch Linux", "prettyName": "Arch Linux"},
-            "Host": {"vendor": "ASUS", "family": "Desktop", "name": "archpc"},
+            "Host": {"vendor": "ASUS", "family": "Desktop", "name": "archie"},
             "Kernel": {"release": "7.1.5-arch1-2", "architecture": "x86_64"},
             "Uptime": {"uptime": 93784000},
             "Packages": {"all": 1315, "pacman": 1315},

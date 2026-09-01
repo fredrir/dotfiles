@@ -90,7 +90,7 @@ def test_an_age_private_key_is_a_finding_however_it_is_named(tool, repo):
 
 def test_an_age_public_key_is_not_a_finding(tool, repo):
     root, _home, env = repo
-    stage(root, "config/keys.dotfile", "recipients {\n  archpc = age1" + "q" * 58 + "\n}\n")
+    stage(root, "config/keys.dotfile", "recipients {\n  archie = age1" + "q" * 58 + "\n}\n")
     assert scan(tool, env).returncode == 0
 
 

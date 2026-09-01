@@ -15,7 +15,7 @@ def pretty_output(
     full=False,
     health=False,
     issues=(),
-    hostname="archpc",
+    hostname="archie",
 ):
     monkeypatch.setattr("tools.utils.sysinfo.pretty.display_username", lambda: "fredrir")
     monkeypatch.setattr("tools.utils.sysinfo.pretty.display_hostname", lambda: hostname)
@@ -42,9 +42,9 @@ def test_pretty_is_borderless_branded_and_hardware_complete(
 ):
     output = pretty_output(monkeypatch, workstation_snapshot)
 
-    assert "fredrir@archpc" not in output
+    assert "fredrir@archie" not in output
     assert "FREDRIR   WORKSTATION" in output
-    assert "ARCHPC" in output
+    assert "ARCHIE" in output
     assert "█" in output
     assert output.splitlines().index("HARDWARE") >= 12
     for expected in (
@@ -210,7 +210,7 @@ def test_macos_pretty_uses_native_hardware_and_clean_power_details(
 
 def test_truecolor_uses_brand_accents(monkeypatch, workstation_snapshot):
     monkeypatch.setattr("tools.utils.sysinfo.pretty.display_username", lambda: "fredrir")
-    monkeypatch.setattr("tools.utils.sysinfo.pretty.display_hostname", lambda: "archpc")
+    monkeypatch.setattr("tools.utils.sysinfo.pretty.display_hostname", lambda: "archie")
     stream = StringIO()
     console = Console(
         file=stream,

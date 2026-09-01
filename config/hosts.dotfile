@@ -1,5 +1,5 @@
 archie {
-  hostnames  = archpc, archie, archie.local
+  hostnames  = archie, archie.local
   role       = desktop
 
   CPU_COOLER    = Noctua NH-D15

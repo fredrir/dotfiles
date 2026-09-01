@@ -4,7 +4,7 @@ from tools.utils.sysinfo import hosts
 
 DOCUMENT = """
 archie {
-  hostnames = archpc, archie, archie.local
+  hostnames = archie, archie.local
   role = desktop
 
   CPU_COOLER = Noctua NH-D15
@@ -32,7 +32,7 @@ def test_hosts_carry_their_aliases_and_hardware(hosts_file):
     known = hosts.load_hosts()
 
     assert list(known) == ["archie", "macie"]
-    assert known["archie"].hostnames == ("archpc", "archie", "archie.local")
+    assert known["archie"].hostnames == ("archie", "archie.local")
     assert known["archie"].role == "desktop"
     assert known["archie"].hardware["cpu_cooler"] == "Noctua NH-D15"
     assert known["macie"].hardware == {}
@@ -49,14 +49,14 @@ def test_unset_hardware_falls_back_to_the_defaults(hosts_file):
 def test_a_hostname_alias_resolves_to_the_declared_name(hosts_file):
     known = hosts.load_hosts()
 
-    assert hosts.match_hostname(known, ["archpc"]) == "archie"
+    assert hosts.match_hostname(known, ["archie"]) == "archie"
     assert hosts.match_hostname(known, ["ARCHIE.LOCAL"]) == "archie"
     assert hosts.match_hostname(known, ["thinkpad"]) == ""
 
 
 def test_the_environment_overrides_the_hostname(hosts_file, monkeypatch):
     monkeypatch.setenv("SYSINFO_HOST", "macie")
-    monkeypatch.setattr(hosts, "local_hostnames", lambda: ("archpc",))
+    monkeypatch.setattr(hosts, "local_hostnames", lambda: ("archie",))
 
     assert hosts.resolve() == "macie"
 
