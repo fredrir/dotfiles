@@ -7,6 +7,7 @@ local motion_keys = require "keymap.motion-keys"
 local extend = require "utils.extend"
 local mouse_bindings = require "keymap.mouse-bindings"
 local skip_close_confirmation = require "ui.skip_close_confirmation"
+local close_tab = require "utils.close-tab"
 local mux = require "utils.mux"
 local MOD = require "keymap.modifiers"
 
@@ -32,7 +33,7 @@ local keys = bind_keys {
   { -- Quit Tab (1) --
     key = "w",
     mods = MOD.PRIMARY,
-    action = act.CloseCurrentTab { confirm = true },
+    action = close_tab,
   },
   { -- Go to last tab --
     key = "0",

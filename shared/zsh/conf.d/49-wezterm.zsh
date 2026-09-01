@@ -30,3 +30,20 @@ alias archie='mux archie'
 alias macie='mux macie'
 
 alias mtls="~/.config/wezterm/bin/wezterm-mtls"
+
+[[ -n $WEZTERM_PANE ]] || return 0
+
+WEZTERM_SHELL_SKIP_SEMANTIC_ZONES=1
+WEZTERM_SHELL_SKIP_CWD=1
+: ${WEZTERM_HOSTNAME:=$HOST}
+
+for _wezterm_sh in \
+  /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
+  /etc/profile.d/wezterm.sh \
+  /usr/share/wezterm/shell-integration/wezterm.sh
+do
+  [[ -r $_wezterm_sh ]] || continue
+  source "$_wezterm_sh"
+  break
+done
+unset _wezterm_sh
