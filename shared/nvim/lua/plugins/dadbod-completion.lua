@@ -1,6 +1,8 @@
-if vim.g.minimal then
+local profile = require "core.profile"
+
+if profile.minimal then
   return {}
-end -- skipped in minimal (server) mode
+end
 return {
   {
     "kristijanhusak/vim-dadbod-ui",

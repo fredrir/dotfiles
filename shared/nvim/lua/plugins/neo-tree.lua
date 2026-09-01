@@ -8,6 +8,7 @@ return {
   },
   lazy = false,
   keys = {
+    { "<leader>e", "<cmd>Neotree toggle<CR>", desc = "File [E]xplorer" },
     { "\\", ":Neotree reveal<CR>", desc = "NeoTree reveal", silent = true },
   },
   ---@module 'neo-tree'

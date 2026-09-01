@@ -1,3 +1,6 @@
+local catalog = require "languages.catalog"
+local profile = require "core.profile"
+
 return {
   "nvim-treesitter/nvim-treesitter",
   lazy = false,
@@ -6,48 +9,7 @@ return {
   config = function()
     local ts = require "nvim-treesitter"
 
-    -- On headless servers (vps/linux exports NVIM_MINIMAL) pre-warm only the
-    -- shell/config/scripting/docs parsers and skip the web-frontend stack — the
-    -- FileType autocmd below still installs anything else on demand. Neovim
-    -- bundles c/lua/markdown/query/vim/vimdoc; the rest are compiled from C.
-    local ensure = vim.g.minimal
-        and {
-          "bash",
-          "c",
-          "diff",
-          "go",
-          "json",
-          "lua",
-          "luadoc",
-          "markdown",
-          "markdown_inline",
-          "python",
-          "query",
-          "vim",
-          "vimdoc",
-          "yaml",
-        }
-      or {
-        "bash",
-        "c",
-        "css",
-        "diff",
-        "go",
-        "html",
-        "javascript",
-        "json",
-        "lua",
-        "luadoc",
-        "markdown",
-        "markdown_inline",
-        "python",
-        "query",
-        "tsx",
-        "typescript",
-        "vim",
-        "vimdoc",
-        "yaml",
-      }
+    local ensure = catalog.parsers_for(profile)
     local installed = ts.get_installed()
     local missing = vim.tbl_filter(function(lang)
       return not vim.tbl_contains(installed, lang)

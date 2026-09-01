@@ -4,7 +4,6 @@ return {
 	priority = 1000,
 	config = function()
 		require("catppuccin").setup({
-			-- theme:palette
 			flavour = "mocha",
 			color_overrides = {
 				all = {
@@ -36,7 +35,6 @@ return {
 					crust = "#060419",
 				},
 			},
-			-- theme:palette:end
 			no_italic = true,
 			integrations = {
 				gitsigns = true,
