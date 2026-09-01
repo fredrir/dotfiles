@@ -8,6 +8,7 @@ local unix_config = {
     {
       name = "localmux",
       socket_path = wezterm.home_dir .. "/.local/share/wezterm/localmux.sock",
+      no_serve_automatically = true,
     },
   },
   default_domain = "localmux",

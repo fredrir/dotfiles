@@ -95,6 +95,24 @@ local function restore_editor(state)
     return
   end
 
+  local current_window = vim.api.nvim_get_current_win()
+  local editor_window
+
+  for _, window in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local buffer = vim.api.nvim_win_get_buf(window)
+    local config = vim.api.nvim_win_get_config(window)
+    if vim.bo[buffer].filetype ~= "neo-tree" and config.relative == "" then
+      editor_window = window
+      if window == current_window then
+        break
+      end
+    end
+  end
+
+  if editor_window then
+    vim.api.nvim_set_current_win(editor_window)
+  end
+
   vim.cmd.edit(vim.fn.fnameescape(state.path))
   local window = vim.api.nvim_get_current_win()
 
@@ -152,19 +170,73 @@ function M.restore_restart(payload)
     return
   end
 
-  local editor_window = restore_editor(state.editor)
-  restore_neo_tree(state.neo_tree, editor_window)
+  local restored = false
+  local events
+  local event_handler
 
-  if
-    editor_window
-    and vim.api.nvim_win_is_valid(editor_window)
-    and type(state.editor) == "table"
-    and type(state.editor.view) == "table"
-  then
-    vim.api.nvim_win_call(editor_window, function()
-      vim.fn.winrestview(state.editor.view)
-    end)
+  local function restore()
+    if restored then
+      return
+    end
+    restored = true
+
+    if events and event_handler then
+      events.unsubscribe(event_handler)
+    end
+
+    local editor_window = restore_editor(state.editor)
+    restore_neo_tree(state.neo_tree, editor_window)
+
+    if
+      editor_window
+      and vim.api.nvim_win_is_valid(editor_window)
+      and type(state.editor) == "table"
+      and type(state.editor.view) == "table"
+    then
+      vim.api.nvim_win_call(editor_window, function()
+        vim.fn.winrestview(state.editor.view)
+      end)
+    end
   end
+
+  local startup_path = vim.fn.argv(0)
+  local startup_stat = type(startup_path) == "string" and (vim.uv or vim.loop).fs_stat(startup_path)
+  if not startup_stat or startup_stat.type ~= "directory" then
+    vim.schedule(restore)
+    return
+  end
+
+  -- When Nvim was started with a directory, Neo-tree replaces that directory
+  -- buffer on a debounced callback. Restore after its first filesystem render
+  -- so the hijack cannot replace the editor buffer again.
+  local loaded
+  loaded, events = pcall(require, "neo-tree.events")
+  if not loaded then
+    vim.schedule(restore)
+    return
+  end
+
+  local manager_loaded, manager = pcall(require, "neo-tree.sources.manager")
+  local filesystem_state = manager_loaded and manager.get_state "filesystem"
+  if filesystem_state and filesystem_state.winid and vim.api.nvim_win_is_valid(filesystem_state.winid) then
+    vim.schedule(restore)
+    return
+  end
+
+  event_handler = {
+    event = events.NEO_TREE_WINDOW_AFTER_OPEN,
+    id = "core_restart_restore",
+    handler = function(args)
+      if args.source == "filesystem" then
+        -- The hijack queues its directory-buffer cleanup after opening the
+        -- window. Two schedules put restoration behind that cleanup.
+        vim.schedule(function()
+          vim.schedule(restore)
+        end)
+      end
+    end,
+  }
+  events.subscribe(event_handler)
 end
 
 function M.restart()
