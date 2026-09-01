@@ -1,18 +1,6 @@
 dotfile() {
-  if [[ $1 == sync ]]; then
-    local arg
-    for arg in "$@"; do
-      case $arg in
-      -n | --dry-run | --help)
-        command dotfile "$@"
-        return
-        ;;
-      esac
-    done
-
-    command dotfile "$@" || return
-    exec zsh
-  fi
-
   command dotfile "$@"
+  local exit_status=$?
+  ((exit_status == 0)) && rehash
+  return exit_status
 }

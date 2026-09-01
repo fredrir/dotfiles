@@ -46,8 +46,6 @@ cd ~/dotfiles
 
 ```bash
 dotfile sync
-
-./setup.sh --commands-only # CLI only
 ```
 
 ## Switch theme profile

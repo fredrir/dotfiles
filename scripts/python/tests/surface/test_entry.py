@@ -45,4 +45,4 @@ def test_writing_every_script_leaves_one_file_to_source(tool, tmp_path):
 
 
 def test_the_documentation_matches_the_tools(tool):
-    assert tool("dotfile", "docs", "--check").returncode == 0
+    assert tool("dotfile-py", "__reference", "--check").returncode == 0

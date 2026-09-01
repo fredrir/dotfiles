@@ -1,0 +1,26 @@
+[package]
+name = "dotfile-cli"
+version = "0.1.0"
+description = "Reconcile the dotfiles repository with this workstation"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dotfile"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+crossbeam-channel.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tachyonfx.workspace = true
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

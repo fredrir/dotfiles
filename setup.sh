@@ -7,6 +7,7 @@ STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
 TOOL_BIN_DIR="$HOME/.local/bin"
 TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
+DOTFILE_BACKEND_BIN="$TOOL_BIN_DIR/dotfile-py"
 COMMANDS_ONLY=0
 SYNC=0
 ARG_PROFILE=""
@@ -28,6 +29,137 @@ while [ $# -gt 0 ]; do
 done
 
 STAMP_DIR="$STATE_DIR/sync"
+SETUP_LOCK_DIR="$STATE_DIR/setup.lock.d"
+SETUP_LOCK_KIND=""
+SETUP_STAGE=""
+SETUP_NATIVE_TRANSACTION=0
+SETUP_DEFERRED_SIGNAL=0
+
+settled() (
+  trap '' HUP INT TERM
+  "$@"
+)
+
+record_setup_signal() {
+  case "$1" in
+  HUP) SETUP_DEFERRED_SIGNAL=1 ;;
+  INT) SETUP_DEFERRED_SIGNAL=2 ;;
+  TERM) SETUP_DEFERRED_SIGNAL=15 ;;
+  esac
+}
+
+finish_deferred_signal() {
+  local deferred="$SETUP_DEFERRED_SIGNAL"
+  trap - HUP INT TERM
+  SETUP_DEFERRED_SIGNAL=0
+  if [ "$deferred" -gt 0 ]; then
+    exit $((128 + deferred))
+  fi
+}
+
+rollback_native_install() {
+  [ "$SETUP_NATIVE_TRANSACTION" = 1 ] || return 0
+  local name failed=0
+  case "$SETUP_STAGE" in
+  "$TOOL_BIN_DIR"/.dotfile-native.*)
+    for name in $RUST_BINARIES; do
+      [ "$name" = dotfile ] && continue
+      if [ -e "$SETUP_STAGE/.previous/$name" ] || [ -L "$SETUP_STAGE/.previous/$name" ]; then
+        if ! settled mv -f "$SETUP_STAGE/.previous/$name" "$TOOL_BIN_DIR/$name"; then
+          echo "setup: could not restore native tool '$name'" >&2
+          failed=1
+        fi
+      elif [ -f "$SETUP_STAGE/.absent/$name" ]; then
+        if ! settled rm -f -- "$TOOL_BIN_DIR/$name"; then
+          echo "setup: could not remove partially installed native tool '$name'" >&2
+          failed=1
+        fi
+      fi
+    done
+    name=dotfile
+    if [ -e "$SETUP_STAGE/.previous/$name" ] || [ -L "$SETUP_STAGE/.previous/$name" ]; then
+      if ! settled mv -f "$SETUP_STAGE/.previous/$name" "$TOOL_BIN_DIR/$name"; then
+        echo "setup: could not restore native tool '$name'" >&2
+        failed=1
+      fi
+    elif [ -f "$SETUP_STAGE/.absent/$name" ]; then
+      if ! settled rm -f -- "$TOOL_BIN_DIR/$name"; then
+        echo "setup: could not remove partially installed native tool '$name'" >&2
+        failed=1
+      fi
+    fi
+    ;;
+  esac
+  if [ "$failed" = 0 ]; then
+    SETUP_NATIVE_TRANSACTION=0
+  fi
+  return "$failed"
+}
+
+release_setup_lock() {
+  if [ "$SETUP_LOCK_KIND" = mkdir ]; then
+    local owner
+    owner="$(cat "$SETUP_LOCK_DIR/pid" 2>/dev/null || true)"
+    if [ -z "$owner" ] || [ "$owner" = "$$" ]; then
+      rm -f -- "$SETUP_LOCK_DIR/pid"
+      rmdir "$SETUP_LOCK_DIR" 2>/dev/null || true
+    fi
+  fi
+  SETUP_LOCK_KIND=""
+}
+
+cleanup_setup() {
+  local status=$?
+  if rollback_native_install; then
+    case "$SETUP_STAGE" in
+    "$TOOL_BIN_DIR"/.dotfile-native.*) settled rm -rf -- "$SETUP_STAGE" ;;
+    esac
+  else
+    status=1
+    echo "setup: rollback incomplete; recovery files remain at $SETUP_STAGE" >&2
+  fi
+  release_setup_lock
+  if [ -t 1 ]; then
+    printf '\033[?25h'
+  fi
+  return "$status"
+}
+
+acquire_setup_lock() {
+  mkdir -p "$STATE_DIR"
+  local owner stale announced=0 missing=0
+  while ! mkdir "$SETUP_LOCK_DIR" 2>/dev/null; do
+    owner="$(cat "$SETUP_LOCK_DIR/pid" 2>/dev/null || true)"
+    if [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+      stale="$SETUP_LOCK_DIR.stale.$$"
+      if mv "$SETUP_LOCK_DIR" "$stale" 2>/dev/null; then
+        rm -rf -- "$stale"
+      fi
+      continue
+    fi
+    if [ "$announced" = 0 ]; then
+      echo "another setup is running; waiting"
+      announced=1
+    fi
+    if [ -z "$owner" ]; then
+      missing=$((missing + 1))
+      if [ "$missing" -ge 25 ]; then
+        echo "setup: lock has no owner; remove $SETUP_LOCK_DIR if no setup is running" >&2
+        exit 1
+      fi
+    else
+      missing=0
+    fi
+    sleep 0.2
+  done
+  SETUP_LOCK_KIND="mkdir"
+  if ! printf '%s\n' "$$" >"$SETUP_LOCK_DIR/pid"; then
+    release_setup_lock
+    exit 1
+  fi
+}
+
+trap cleanup_setup EXIT
 
 if command -v sha256sum >/dev/null 2>&1; then
   HASHER="sha256sum"
@@ -41,7 +173,10 @@ unchanged() { [ "$(cat "$STAMP_DIR/$1" 2>/dev/null)" = "$2" ]; }
 
 stamp() {
   mkdir -p "$STAMP_DIR"
-  printf '%s\n' "$2" >"$STAMP_DIR/$1"
+  local temporary
+  temporary="$(mktemp "$STAMP_DIR/.$1.XXXXXX")"
+  printf '%s\n' "$2" >"$temporary"
+  mv -f "$temporary" "$STAMP_DIR/$1"
 }
 
 BOLD=$'\033[1m'
@@ -120,10 +255,6 @@ pick() {
   PICKED="${opts[$idx]}"
 }
 
-if interactive; then
-  trap 'printf "\033[?25h"' EXIT
-fi
-
 git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || true
 
 AGE_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/age/keys.txt"
@@ -136,11 +267,13 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+acquire_setup_lock
+
 PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
 
 python_current() {
-  [ -x "$DOTFILE_BIN" ] || return 1
-  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile" ]; then
+  [ -x "$DOTFILE_BACKEND_BIN" ] || return 1
+  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile-py" ]; then
     return 1
   fi
   unchanged python "$PYTHON_HASH"
@@ -166,14 +299,10 @@ else
   stamp python "$PYTHON_HASH"
 fi
 
-if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
-  echo "setup: could not write shell completions (continuing)" >&2
-fi
-
-RUST_BINARIES="bench-workloads count doc-purge dotfile-format dotfmt flatten gget git-discard gpp hpull hpush hwire mux-route path size sysinfo-collect"
+RUST_BINARIES="bench-workloads count doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gpp hpull hpush hwire mux-route path size sysinfo-collect"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
-    -type f -not -path '*/target/*' -print0 2>/dev/null |
+    -type d -name target -prune -o -type f -print0 2>/dev/null |
     sort -z | xargs -0 cat 2>/dev/null | $HASHER | cut -d' ' -f1
 )"
 
@@ -182,25 +311,72 @@ rust_current() {
   for name in $RUST_BINARIES; do
     [ -x "$TOOL_BIN_DIR/$name" ] || return 1
   done
+  "$DOTFILE_BIN" sync --version >/dev/null 2>&1 || return 1
   unchanged rust "$RUST_HASH"
 }
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "setup: cargo not found; skipping native tools (install rust to enable)"
+  echo "setup: cargo is required to build dotfile" >&2
+  exit 1
 elif rust_current; then
   echo "native tools are current"
 else
   echo "building native tools (scripts/rust)"
   if cargo build --release --locked --quiet --manifest-path "$DOTFILES/scripts/rust/Cargo.toml"; then
+    SETUP_STAGE="$(mktemp -d "$TOOL_BIN_DIR/.dotfile-native.XXXXXX")"
     for name in $RUST_BINARIES; do
-      install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$TOOL_BIN_DIR/$name"
+      install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$SETUP_STAGE/$name"
     done
-    "$TOOL_BIN_DIR/sysinfo-collect" --version >/dev/null
-    stamp rust "$RUST_HASH"
+    "$SETUP_STAGE/dotfile" sync --version >/dev/null
+    "$SETUP_STAGE/sysinfo-collect" --version >/dev/null
+    mkdir "$SETUP_STAGE/.previous" "$SETUP_STAGE/.absent"
+    for name in $RUST_BINARIES; do
+      if [ -e "$TOOL_BIN_DIR/$name" ] || [ -L "$TOOL_BIN_DIR/$name" ]; then
+        cp -pP "$TOOL_BIN_DIR/$name" "$SETUP_STAGE/.previous/$name"
+      else
+        : >"$SETUP_STAGE/.absent/$name"
+      fi
+    done
+    trap 'record_setup_signal HUP' HUP
+    trap 'record_setup_signal INT' INT
+    trap 'record_setup_signal TERM' TERM
+    SETUP_NATIVE_TRANSACTION=1
+    for name in $RUST_BINARIES; do
+      [ "$name" = dotfile ] && continue
+      if ! settled mv -f "$SETUP_STAGE/$name" "$TOOL_BIN_DIR/$name"; then
+        echo "setup: could not install native tool '$name'" >&2
+        rollback_native_install || true
+        finish_deferred_signal
+        exit 1
+      fi
+    done
+    if ! settled mv -f "$SETUP_STAGE/dotfile" "$DOTFILE_BIN"; then
+      echo "setup: could not install dotfile" >&2
+      rollback_native_install || true
+      finish_deferred_signal
+      exit 1
+    fi
+    if ! settled stamp rust "$RUST_HASH"; then
+      echo "setup: could not record native tool installation" >&2
+      rollback_native_install || true
+      finish_deferred_signal
+      exit 1
+    fi
+    SETUP_NATIVE_TRANSACTION=0
+    settled rm -rf -- "$SETUP_STAGE"
+    SETUP_STAGE=""
+    finish_deferred_signal
   else
-    echo "setup: cargo build failed; native tools skipped" >&2
+    echo "setup: cargo build failed" >&2
+    exit 1
   fi
 fi
+
+if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
+  echo "setup: could not write shell completions (continuing)" >&2
+fi
+
+release_setup_lock
 
 if [ -x "$TOOL_BIN_DIR/git-discard" ] && { [ -f "$TOOL_BIN_DIR/gdd" ] || [ -L "$TOOL_BIN_DIR/gdd" ]; }; then
   rm -f -- "$TOOL_BIN_DIR/gdd"
@@ -210,17 +386,18 @@ if [ "$COMMANDS_ONLY" = 1 ]; then
   exit 0
 fi
 
+if [ "$SYNC" = 1 ]; then
+  sync_args=(sync)
+  if [ -n "$ARG_PROFILE" ]; then
+    sync_args+=("$ARG_PROFILE")
+  fi
+  sync_args+=("${LINK_ARGS[@]}")
+  exec "$DOTFILE_BIN" "${sync_args[@]}"
+fi
+
 PROFILE="$ARG_PROFILE"
 
 list_profiles() { "$DOTFILE_BIN" profiles; }
-
-if [ -z "$PROFILE" ] && [ "$SYNC" = 1 ]; then
-  PROFILE="$(saved_profile)"
-  if [ -z "$PROFILE" ]; then
-    echo "setup: no saved environment to sync; run ./setup.sh once first" >&2
-    exit 1
-  fi
-fi
 
 if [ -z "$PROFILE" ]; then
   if interactive; then
@@ -263,7 +440,7 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 OVERRIDE_ARGS=()
-if interactive && [ "$SYNC" = 0 ]; then
+if interactive; then
   while IFS= read -r group; do
     group="${group%%#*}"
     group="${group#"${group%%[![:space:]]*}"}"
@@ -286,47 +463,7 @@ if [ ! -f "$AGE_KEY_FILE" ]; then
 fi
 
 echo
-link_failed=0
-"$DOTFILE_BIN" link "$PROFILE" ${OVERRIDE_ARGS[@]+"${OVERRIDE_ARGS[@]}"} ${LINK_ARGS[@]+"${LINK_ARGS[@]}"} || link_failed=1
-
-if command -v systemctl >/dev/null 2>&1; then
-  UNIT_DIR="$HOME/.config/systemd/user"
-  if [ -L "$UNIT_DIR/generate-theme.path" ] ||
-    [ -L "$UNIT_DIR/default.target.wants/generate-theme.path" ]; then
-    systemctl --user disable generate-theme.path 2>/dev/null || true
-    rm -f "$UNIT_DIR/generate-theme.path" "$UNIT_DIR/generate-theme.service" \
-      "$UNIT_DIR/default.target.wants/generate-theme.path"
-    systemctl --user daemon-reload 2>/dev/null || true
-  fi
-  if [ -f "$UNIT_DIR/theme-watch.path" ]; then
-    systemctl --user daemon-reload 2>/dev/null || true
-    if systemctl --user enable --now theme-watch.path 2>/dev/null; then
-      echo "  enabled theme auto-regenerate watcher"
-    fi
-  fi
-fi
-
-if grep -qE '(^|[[:space:]])linux/hyprland([[:space:]]|$)' "$MANIFEST"; then
-  ELEPHANT_SRC="$DOTFILES/linux/hyprland/elephant/files.toml"
-  if [ -f "$ELEPHANT_SRC" ]; then
-    mkdir -p "$HOME/.config/elephant"
-    sed "s|\$HOME|$HOME|g" "$ELEPHANT_SRC" >"$HOME/.config/elephant/files.toml"
-    echo "  generated ~/.config/elephant/files.toml"
-  fi
-
-  STALE_LOCAL="$DOTFILES/linux/hyprland/hypr/conf.d/local.conf"
-  if [ -L "$STALE_LOCAL" ] && [ ! -e "$STALE_LOCAL" ]; then
-    rm "$STALE_LOCAL"
-  fi
-
-  if [ ! -f "$HOME/.config/hypr/wallpaper.png" ]; then
-    echo "  note: place your wallpaper at ~/.config/hypr/wallpaper.png"
-  fi
-
-  command -v hyprctl >/dev/null 2>&1 && hyprctl reload >/dev/null 2>&1 || true
-fi
-
-echo
-"$DOTFILE_BIN" secret doctor || true
-
-exit "$link_failed"
+sync_args=(sync "$PROFILE")
+sync_args+=("${OVERRIDE_ARGS[@]}")
+sync_args+=("${LINK_ARGS[@]}")
+exec "$DOTFILE_BIN" "${sync_args[@]}"

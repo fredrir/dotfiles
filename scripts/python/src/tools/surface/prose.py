@@ -31,9 +31,7 @@ COMMANDS = {
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
     "dotfile add": "Moves a live config into the repository and symlinks it back.",
     "dotfile remove": "Moves a tracked path out of the repository and keeps it live.",
-    "dotfile docs": "Regenerates the command tables in `docs/cli` from the tools themselves.",
-    "dotfile packages": "Regenerates `config/packages.dotfile` and `PACKAGES.md`.",
-    "dotfile sync": "Reconciles `$HOME` with a profile by linking, merging, and applying secrets.",
+    "dotfile sync": "Refreshes generated metadata and reconciles `$HOME` with a selected profile.",
     "dotfile status": "Shows link state for every file in a profile.",
     "dotfile check": "Checks a profile's links, required tools, and packages.",
     "dotfile secret": "Keeps private material out of the repository.",
@@ -123,17 +121,17 @@ FLAGS = {
     ("dotfile", "--macos"): "Places an added file in the `macos` package group.",
     ("dotfile", "--pkg"): "Selects the package name when adding a config, secret, or system file.",
     ("dotfile", "--description"): "Adds a package description to `PACKAGES.md`.",
-    ("dotfile", "--check"): "Reports documentation drift instead of writing the tables.",
-    ("dotfile", "--dry-run"): "Reports actions without changing files.",
+    ("dotfile", "--dry-run"): "Plans without changing files or contacting the peer.",
     ("dotfile", "--override"): "Selects a machine override with `<group>=<name|none>`.",
     ("dotfile", "--force"): (
-        "Forces repository resolution during sync or overwrites locally edited secret destinations."
+        "Resolves local edits from the repository and discards remote edits with `--push`."
     ),
     ("dotfile", "--resolve"): (
-        "Selects `skip`, `repo`, or `live` resolution for locally changed configs."
+        "Chooses `skip`, `repo`, or `live` for locally edited merged configs."
     ),
-    ("dotfile", "--push"): "Pushes changes, then pulls and syncs the other machine.",
-    ("dotfile", "--to"): "Selects the machine targeted by `--push`.",
+    ("dotfile", "--push"): "Pushes commits, then pulls and syncs the peer.",
+    ("dotfile", "--to"): "Selects the peer and implies `--push`.",
+    ("dotfile", "--verbose"): "Shows every link, merge, generated file, and remote action.",
     ("dotfile", "--all"): "Shows every finding or file location instead of summarized output.",
     ("dotfile", "--staged"): "Scans the content staged for commit.",
     ("dotfile", "--commits"): "Scans blobs added within a revision-list range.",

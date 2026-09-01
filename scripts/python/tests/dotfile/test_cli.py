@@ -22,45 +22,34 @@ def sandbox(tmp_path):
     return repo, home, env
 
 
-def test_sync_runs_setup_with_the_sync_flag(tool, sandbox):
-    repo, _home, env = sandbox
-    script = repo / "setup.sh"
-    script.write_text('#!/bin/sh\nprintf %s "$1" > "$(dirname "$0")/called.txt"\nexit 7\n')
-    script.chmod(0o755)
-    result = tool("dotfile", "sync", env=env)
-    assert result.returncode == 7
-    assert (repo / "called.txt").read_text() == "--sync"
-
-
-def test_sync_forwards_the_linker_flags_after_a_separator(tool, sandbox):
-    repo, _home, env = sandbox
-    script = repo / "setup.sh"
-    script.write_text('#!/bin/sh\nprintf "%s" "$*" > "$(dirname "$0")/called.txt"\n')
-    script.chmod(0o755)
-    result = tool(
-        "dotfile", "sync", "test", "--resolve", "live", "--override", "shared=none", "-n", env=env
-    )
-    assert result.returncode == 0
-    assert (repo / "called.txt").read_text() == (
-        "--sync test -- --override shared=none -n --resolve live"
-    )
-
-
-def test_sync_rejects_an_unknown_resolution(tool, sandbox):
-    repo, _home, env = sandbox
-    script = repo / "setup.sh"
-    script.write_text("#!/bin/sh\nexit 0\n")
-    script.chmod(0o755)
-    result = tool("dotfile", "sync", "--resolve", "sideways", env=env)
-    assert result.returncode == 1
-    assert "--resolve must be one of" in result.stderr
-
-
-def test_sync_without_a_setup_script_fails(tool, sandbox):
+def test_sync_help_comes_from_the_native_command(tool, sandbox):
     _repo, _home, env = sandbox
-    result = tool("dotfile", "sync", env=env)
+    result = tool("dotfile", "sync", "--help", env=env)
+    assert result.returncode == 0
+    assert "Reconcile the repository, generated metadata, and this workstation" in result.stdout
+    assert "--verbose" in result.stdout
+
+
+def test_sync_rejects_an_unknown_resolution_natively(tool, sandbox):
+    _repo, _home, env = sandbox
+    result = tool("dotfile", "sync", "--resolve", "sideways", env=env)
+    assert result.returncode == 2
+    assert "invalid value 'sideways'" in result.stderr
+
+
+def test_private_python_backend_refuses_to_duplicate_sync(tool, sandbox):
+    _repo, _home, env = sandbox
+    result = tool("dotfile-py", "sync", env=env)
     assert result.returncode == 1
-    assert "setup.sh" in result.stderr
+    assert "native dotfile executable" in result.stderr
+
+
+def test_generation_commands_point_to_sync(tool, sandbox):
+    _repo, _home, env = sandbox
+    for command in ("docs", "packages"):
+        result = tool("dotfile", command, env=env)
+        assert result.returncode == 2
+        assert f"'{command}' is included in 'dotfile sync'" in result.stderr
 
 
 def test_link_folds_a_package(tool, sandbox):

@@ -3,8 +3,9 @@ set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 bin="$root/scripts/python/.venv/bin"
+dotfile="$bin/dotfile-py"
 
-if [ ! -x "$bin/dotfile" ]; then
+if [ ! -x "$dotfile" ]; then
 	echo "pre-push: scripts/python/.venv missing, the secret scan cannot run" >&2
 	echo "pre-push: run ./setup.sh (or: uv sync --project scripts/python --locked)" >&2
 	exit 1
@@ -22,7 +23,7 @@ while read -r _local_ref local_oid _remote_ref remote_oid; do
 	else
 		range="$remote_oid..$local_oid"
 	fi
-	if ! "$bin/dotfile" secret scan --commits "$range" >/dev/null; then
+	if ! "$dotfile" secret scan --commits "$range" >/dev/null; then
 		status=1
 	fi
 done

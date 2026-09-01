@@ -8,9 +8,7 @@
 | `dotfile`                | Manages this repository's symlinks, packages, themes, secrets, and system files. |
 | `dotfile add`            | Moves a live config into the repository and symlinks it back.                    |
 | `dotfile remove`         | Moves a tracked path out of the repository and keeps it live.                    |
-| `dotfile docs`           | Regenerates the command tables in `docs/cli` from the tools themselves.          |
-| `dotfile packages`       | Regenerates `config/packages.dotfile` and `PACKAGES.md`.                         |
-| `dotfile sync`           | Reconciles `$HOME` with a profile by linking, merging, and applying secrets.     |
+| `dotfile sync`           | Refreshes generated metadata and reconciles `$HOME` with a selected profile.     |
 | `dotfile status`         | Shows link state for every file in a profile.                                    |
 | `dotfile check`          | Checks a profile's links, required tools, and packages.                          |
 | `dotfile secret`         | Keeps private material out of the repository.                                    |
@@ -46,35 +44,35 @@
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                             | Description                                                                                |
-| -------------------------------- | ------------------------------------------------------------------------------------------ |
-| `--shared`                       | Places an added file in the shared package group.                                          |
-| `--linux`                        | Places an added file in the `linux/common` package group.                                  |
-| `--arch`                         | Places an added file in the `linux/arch` package group.                                    |
-| `--ubuntu`                       | Places an added file in the `linux/ubuntu` package group.                                  |
-| `--kde`                          | Places an added file in the `linux/kde` package group.                                     |
-| `--hyprland`                     | Places an added file in the `linux/hyprland` package group.                                |
-| `--server`                       | Places an added config in the `linux/server` package group.                                |
-| `--macos`                        | Places an added file in the `macos` package group.                                         |
-| `--pkg <TEXT>`                   | Selects the package name when adding a config, secret, or system file.                     |
-| `--description`, `--desc <TEXT>` | Adds a package description to `PACKAGES.md`.                                               |
-| `--check`                        | Reports documentation drift instead of writing the tables.                                 |
-| `-n`, `--dry-run`                | Reports actions without changing files.                                                    |
-| `--override <TEXT>`              | Selects a machine override with `<group>=<name\|none>`.                                    |
-| `--force`                        | Forces repository resolution during sync or overwrites locally edited secret destinations. |
-| `--resolve <TEXT>`               | Selects `skip`, `repo`, or `live` resolution for locally changed configs.                  |
-| `-p`, `--push`                   | Pushes changes, then pulls and syncs the other machine.                                    |
-| `--to <TEXT>`                    | Selects the machine targeted by `--push`.                                                  |
-| `--all`                          | Shows every finding or file location instead of summarized output.                         |
-| `--staged`                       | Scans the content staged for commit.                                                       |
-| `--commits <TEXT>`               | Scans blobs added within a revision-list range.                                            |
-| `--no-canaries`                  | Skips the private-value tier of secret scanning.                                           |
-| `--using <TEXT>`                 | Uses the selected identity file for recipient and re-encryption operations.                |
-| `--rewrap`                       | Updates the recipients on every encrypted file during secret sync.                         |
-| `--marker`, `--no-marker`        | Forces the `.secret` package marker on or off.                                             |
-| `--unused`                       | Lists only variable names that no secret template references.                              |
-| `--yes`                          | Installs system files without asking for confirmation.                                     |
-| `--group <TEXT>`                 | Selects the package group for an added system file.                                        |
-| `--help`                         | Shows help for the selected command and exits.                                             |
-| `--completions <SHELL>`          | Prints a shell completion script for the named shell and exits.                            |
+| Flag                             | Description                                                                       |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `--shared`                       | Places an added file in the shared package group.                                 |
+| `--linux`                        | Places an added file in the `linux/common` package group.                         |
+| `--arch`                         | Places an added file in the `linux/arch` package group.                           |
+| `--ubuntu`                       | Places an added file in the `linux/ubuntu` package group.                         |
+| `--kde`                          | Places an added file in the `linux/kde` package group.                            |
+| `--hyprland`                     | Places an added file in the `linux/hyprland` package group.                       |
+| `--server`                       | Places an added config in the `linux/server` package group.                       |
+| `--macos`                        | Places an added file in the `macos` package group.                                |
+| `--pkg <TEXT>`                   | Selects the package name when adding a config, secret, or system file.            |
+| `--description`, `--desc <TEXT>` | Adds a package description to `PACKAGES.md`.                                      |
+| `-n`, `--dry-run`                | Plans without changing files or contacting the peer.                              |
+| `--override <TEXT>`              | Selects a machine override with `<group>=<name\|none>`.                           |
+| `--force`                        | Resolves local edits from the repository and discards remote edits with `--push`. |
+| `--resolve <TEXT>`               | Chooses `skip`, `repo`, or `live` for locally edited merged configs.              |
+| `-p`, `--push`                   | Pushes commits, then pulls and syncs the peer.                                    |
+| `--to <TEXT>`                    | Selects the peer and implies `--push`.                                            |
+| `-v`, `--verbose`                | Shows every link, merge, generated file, and remote action.                       |
+| `--all`                          | Shows every finding or file location instead of summarized output.                |
+| `--staged`                       | Scans the content staged for commit.                                              |
+| `--commits <TEXT>`               | Scans blobs added within a revision-list range.                                   |
+| `--no-canaries`                  | Skips the private-value tier of secret scanning.                                  |
+| `--using <TEXT>`                 | Uses the selected identity file for recipient and re-encryption operations.       |
+| `--rewrap`                       | Updates the recipients on every encrypted file during secret sync.                |
+| `--marker`, `--no-marker`        | Forces the `.secret` package marker on or off.                                    |
+| `--unused`                       | Lists only variable names that no secret template references.                     |
+| `--yes`                          | Installs system files without asking for confirmation.                            |
+| `--group <TEXT>`                 | Selects the package group for an added system file.                               |
+| `--help`                         | Shows help for the selected command and exits.                                    |
+| `--completions <SHELL>`          | Prints a shell completion script for the named shell and exits.                   |
 <!-- cli:flags:end -->

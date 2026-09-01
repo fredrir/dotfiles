@@ -17,8 +17,14 @@ def test_the_script_declares_and_registers_the_command():
 
 
 def test_subcommands_are_offered_with_their_help_text():
-    assert "'sync:Reconcile $HOME with the profile\\: link, merge, and apply secrets.'" in SCRIPT
+    assert "'sync:Refresh generated metadata and reconcile $HOME with the selected profile.'" in SCRIPT
     assert "_dotfile__secret__enroll" in SCRIPT
+
+
+def test_sync_replaces_the_old_generation_commands():
+    assert "'docs:" not in SCRIPT
+    assert "'packages:" not in SCRIPT
+    assert "--verbose[show every link, merge, generated file, and remote action]" in SCRIPT
 
 
 def test_a_dispatched_subcommand_is_offered_and_delegated():

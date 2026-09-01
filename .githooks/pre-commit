@@ -3,10 +3,11 @@ set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
 bin="$root/scripts/python/.venv/bin"
+dotfile="$bin/dotfile-py"
 
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
-if [ ! -x "$bin/dotfile" ]; then
+if [ ! -x "$dotfile" ]; then
 	echo "pre-commit: scripts/python/.venv missing, the secret scan cannot run" >&2
 	echo "pre-commit: run ./setup.sh (or: uv sync --project scripts/python --locked)" >&2
 	exit 1
@@ -15,7 +16,7 @@ fi
 if staged config/packages.dotfile PACKAGES.md scripts/python/src/tools/dotfile \
 	environment shared linux/common linux/arch linux/ubuntu linux/kde \
 	linux/hyprland linux/server macos; then
-	"$bin/dotfile" packages >/dev/null
+	"$dotfile" __inventory >/dev/null
 	git add "$root/config/packages.dotfile" "$root/PACKAGES.md"
 fi
 
@@ -28,7 +29,7 @@ if staged benchmarks scripts/python/src/tools/utils/sysinfo/bench; then
 fi
 
 if staged docs/cli scripts/python/src scripts/rust; then
-	if "$bin/dotfile" docs >/dev/null; then
+	if "$dotfile" __reference >/dev/null; then
 		git add -A -- "$root/docs/cli"
 	else
 		echo "pre-commit: cli documentation generation failed (continuing)" >&2
@@ -36,14 +37,14 @@ if staged docs/cli scripts/python/src scripts/rust; then
 fi
 
 if staged config/keys.dotfile; then
-	"$bin/dotfile" secret sync >/dev/null
+	"$dotfile" secret sync >/dev/null
 	if [ -e "$root/.sops.yaml" ]; then
 		git add "$root/.sops.yaml"
 	fi
 fi
 
 if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
-	if "$bin/dotfile" theme sync >/dev/null; then
+	if "$dotfile" theme sync >/dev/null; then
 		formatter="$(command -v dotfile-format || true)"
 		while IFS= read -r path; do
 			if [ -e "$root/$path" ]; then
@@ -52,7 +53,7 @@ if staged theme config/profiles.dotfile scripts/python/src/tools/theme; then
 				fi
 				git add "$root/$path"
 			fi
-		done < <("$bin/dotfile" theme outputs --staged)
+		done < <("$dotfile" theme outputs --staged)
 	else
 		echo "pre-commit: theme generation failed (continuing)" >&2
 	fi
@@ -66,4 +67,4 @@ if staged linux/arch/fastfetch/config.jsonc; then
 	fi
 fi
 
-"$bin/dotfile" secret scan --staged >/dev/null
+"$dotfile" secret scan --staged >/dev/null

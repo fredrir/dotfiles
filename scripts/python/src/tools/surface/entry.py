@@ -66,7 +66,13 @@ def programs():
     path = os.path.join(str(repo_root()), "scripts/python/pyproject.toml")
     with open(path, encoding="utf-8") as handle:
         data = tomlkit.parse(handle.read())
-    return dict(data["project"]["scripts"])
+    found = dict(data["project"]["scripts"])
+    backend = found.pop("dotfile-py", None)
+    if backend:
+        if backend.endswith(":run"):
+            backend = backend.removesuffix(":run") + ":app"
+        found["dotfile"] = backend
+    return found
 
 
 def load(target):

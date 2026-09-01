@@ -6,6 +6,7 @@ members = [
   "crates/bench-workloads",
   "crates/count",
   "crates/doc-purge",
+  "crates/dotfile",
   "crates/dotfile-format",
   "crates/dotfmt",
   "crates/flatten",
@@ -29,17 +30,25 @@ license = "MIT"
 
 # Versions for anything more than one crate depends on
 [workspace.dependencies]
-clap          = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
-libc          = "0.2"
-rayon         = "1"
-serde_json    = "1"
-tempfile      = "3"
-workstation   = { path = "crates/workstation" }
-gitkit        = { path = "crates/git/gitkit" }
-hostkit       = { path = "crates/hostkit" }
+crossbeam-channel = "0.5"
+crossterm = "0.29"
+libc = "0.2"
+ratatui = { version = "0.30.2", default-features = false, features = [
+  "crossterm_0_29",
+  "scrolling-regions",
+] }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tachyonfx = { version = "0.25.1", default-features = false, features = ["std"] }
+tempfile = "3"
+workstation = { path = "crates/workstation" }
+gitkit = { path = "crates/git/gitkit" }
+hostkit = { path = "crates/hostkit" }
 
-gix-glob   = "0.27.1"
+gix-glob = "0.27.1"
 gix-ignore = "0.22.1"
 
 # gitoxide, with only the parts the git tools use
@@ -55,5 +64,5 @@ gix = { version = "0.87.1", default-features = false, features = [
 # toolchain produces the same machine code: these binaries are measurement
 # instruments, and codegen variance would show up as a hardware regression.
 [profile.release]
-lto           = true
+lto = true
 codegen-units = 1

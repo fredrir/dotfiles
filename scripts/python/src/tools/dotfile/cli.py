@@ -1,6 +1,5 @@
 import os
 import shutil
-import subprocess
 
 import typer
 
@@ -13,9 +12,7 @@ from tools.dotfile import add as add_command
 from tools.dotfile import check as check_command
 from tools.dotfile import link as link_command
 from tools.dotfile import merge as merge_command
-from tools.dotfile import packages as packages_command
 from tools.dotfile import profiles as profiles_command
-from tools.dotfile import push as push_command
 from tools.dotfile import remove as remove_command
 from tools.dotfile import system as system_cli
 from tools.dotfile.secret import cli as secret_cli
@@ -37,12 +34,15 @@ class Dispatch(TyperGroup):
         try:
             return super().resolve_command(ctx, args)
         except UsageError as error:
-            if external:
+            if name in {"docs", "packages"}:
+                error.message = f"'{name}' is included in 'dotfile sync'; run that instead."
+            elif external:
                 error.message += " Run ./setup.sh"
             raise
 
 
 app = typer.Typer(
+    name="dotfile",
     cls=Dispatch,
     add_completion=False,
     help="The dotfile manager",
@@ -52,6 +52,10 @@ app.add_typer(secret_cli.app, name="secret")
 app.add_typer(system_cli.app, name="system")
 app.add_typer(theme_cli.app, name="theme")
 surface.register(app)
+
+
+def run():
+    app(prog_name=os.environ.get("DOTFILE_PROGRAM_NAME"))
 
 
 @app.callback(invoke_without_command=True)
@@ -75,10 +79,7 @@ GROUP_FLAGS = (
 
 RESOLUTIONS = (merge_command.SKIP, merge_command.REPO, merge_command.LIVE)
 
-RESOLVE_HELP = (
-    "how to settle a config the live machine changed: "
-    "skip leaves it and reports, repo discards the local change, live adopts it back"
-)
+RESOLVE_HELP = "choose how locally edited merged configs are settled: skip, repo, or live"
 
 
 def checked_resolution(value):
@@ -96,7 +97,7 @@ def link(
         False, "-n", "--dry-run", help="print actions without changing anything"
     ),
     override: list[str] = typer.Option(
-        [], "--override", help="pick a machine override set: <group>=<name|none>"
+        [], "--override", help="select a machine override with GROUP=NAME|none"
     ),
     force: bool = typer.Option(False, "--force", help="alias for --resolve repo"),
     resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
@@ -155,7 +156,7 @@ def completions(
     log(f"  {count} tools completed by {path}")
 
 
-@app.command(help="Regenerate the command tables in docs/cli from the tools themselves.")
+@app.command("__reference", hidden=True)
 def docs(
     check: bool = typer.Option(False, "--check", help="report drift instead of writing"),
 ):
@@ -175,59 +176,41 @@ def docs(
         raise typer.Exit(1)
 
 
-@app.command(help="Regenerate config/packages.dotfile and PACKAGES.md.")
+@app.command("__inventory", hidden=True)
 def packages():
+    from tools.dotfile import packages as packages_command
+
     packages_command.cmd_packages(Context())
 
 
-@app.command(help="Reconcile $HOME with the profile: link, merge, and apply secrets.")
+@app.command(help="Refresh generated metadata and reconcile $HOME with the selected profile.")
 def sync(
     profile: str | None = typer.Argument(None),
     dry_run: bool = typer.Option(
-        False, "-n", "--dry-run", help="print actions without changing anything"
+        False, "-n", "--dry-run", help="plan without changing files or contacting the peer"
     ),
     override: list[str] = typer.Option(
         [], "--override", help="pick a machine override set: <group>=<name|none>"
     ),
     force: bool = typer.Option(
-        False, "--force", help="alias for --resolve repo; with --push, discard without asking"
+        False,
+        "--force",
+        help="resolve local edits from the repository; discard remote edits with --push",
     ),
     resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
     push: bool = typer.Option(
-        False, "-p", "--push", help="then push, and pull and sync the other machine"
+        False, "-p", "--push", help="push commits, then pull and sync the peer"
     ),
-    to: str = typer.Option(
-        "", "--to", help="which machine --push targets; the only other one by default"
+    to: str = typer.Option("", "--to", help="select the peer; implies --push"),
+    verbose: bool = typer.Option(
+        False,
+        "-v",
+        "--verbose",
+        help="show every link, merge, generated file, and remote action",
     ),
 ):
-    ctx = Context()
-    script = os.path.join(ctx.root, "setup.sh")
-    if not os.access(script, os.X_OK):
-        die("setup.sh is missing from the repository root")
     checked_resolution(resolve)
-    # Resolved before the local sync so an unreachable or misspelled target
-    # fails now, rather than after the machine has already been relinked.
-    host = push_command.choose_host(ctx, to) if push or to else ""
-    command = [script, "--sync"]
-    if profile:
-        command.append(profile)
-    # setup.sh owns the profile and override prompts, so everything the linker
-    # alone cares about rides after `--`.
-    passthrough = []
-    for spec in override:
-        passthrough += ["--override", spec]
-    if dry_run:
-        passthrough.append("-n")
-    if force:
-        passthrough.append("--force")
-    if resolve != merge_command.SKIP:
-        passthrough += ["--resolve", resolve]
-    if passthrough:
-        command += ["--", *passthrough]
-    code = subprocess.call(command)
-    if code or not host:
-        raise typer.Exit(code)
-    push_command.cmd_push(ctx, host, force, merge_command.REPO if force else resolve, dry_run)
+    die("sync is provided by the native dotfile executable")
 
 
 @app.command(help="Show link state for every file in the profile.")
