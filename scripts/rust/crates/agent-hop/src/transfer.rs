@@ -1,6 +1,6 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -11,6 +11,7 @@ use tempfile::NamedTempFile;
 use crate::remote::shell_quote;
 
 const ATTEMPTS: usize = 3;
+const MAX_RECORD_BYTES: usize = 64 * 1024 * 1024;
 const TRANSPORT: &str = "ssh -o ConnectTimeout=8 -o LogLevel=ERROR";
 
 pub struct Snapshot {
@@ -34,6 +35,11 @@ impl Snapshot {
 
     pub fn path(&self) -> &Path {
         self.file.path()
+    }
+
+    pub(crate) fn from_temporary(mut file: NamedTempFile) -> Result<Snapshot, String> {
+        finish_snapshot(&mut file)?;
+        Ok(Snapshot { file })
     }
 }
 
@@ -81,6 +87,7 @@ pub fn directory_arguments(
     ))
 }
 
+#[cfg(test)]
 pub fn valid_jsonl(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return false;
@@ -105,6 +112,11 @@ fn snapshot_once(source: &Path) -> Result<NamedTempFile, String> {
         .map_err(|error| format!("could not create a temporary snapshot: {error}"))?;
     std::io::copy(&mut BufReader::new(input), snapshot.as_file_mut())
         .map_err(|error| format!("could not copy {}: {error}", source.display()))?;
+    finish_snapshot(&mut snapshot)?;
+    Ok(snapshot)
+}
+
+fn finish_snapshot(snapshot: &mut NamedTempFile) -> Result<(), String> {
     snapshot
         .as_file_mut()
         .flush()
@@ -114,11 +126,31 @@ fn snapshot_once(source: &Path) -> Result<NamedTempFile, String> {
         .seek(SeekFrom::Start(0))
         .map_err(|error| format!("could not inspect the session snapshot: {error}"))?;
     let mut reader = BufReader::new(snapshot.as_file_mut());
-    let mut bytes = Vec::new();
-    reader
-        .read_until(0, &mut bytes)
-        .map_err(|error| format!("could not inspect the session snapshot: {error}"))?;
-    if !valid_jsonl(&bytes) {
+    let mut line = Vec::new();
+    let mut records = 0usize;
+    loop {
+        line.clear();
+        let bytes = reader
+            .by_ref()
+            .take((MAX_RECORD_BYTES + 1) as u64)
+            .read_until(b'\n', &mut line)
+            .map_err(|error| format!("could not inspect the session snapshot: {error}"))?;
+        if bytes == 0 {
+            break;
+        }
+        if bytes > MAX_RECORD_BYTES {
+            return Err("the copied transcript contains an unreasonably large record".to_string());
+        }
+        let record = line.strip_suffix(b"\n").unwrap_or(&line);
+        let record = record.strip_suffix(b"\r").unwrap_or(record);
+        if record.is_empty()
+            || !serde_json::from_slice::<Value>(record).is_ok_and(|value| value.is_object())
+        {
+            return Err("the copied transcript is not valid JSONL".to_string());
+        }
+        records += 1;
+    }
+    if records == 0 {
         return Err("the copied transcript is not valid JSONL".to_string());
     }
     drop(reader);
@@ -126,7 +158,7 @@ fn snapshot_once(source: &Path) -> Result<NamedTempFile, String> {
         .as_file_mut()
         .seek(SeekFrom::Start(0))
         .map_err(|error| format!("could not rewind the session snapshot: {error}"))?;
-    Ok(snapshot)
+    Ok(())
 }
 
 fn arguments(source: OsString, destination: OsString) -> Vec<OsString> {

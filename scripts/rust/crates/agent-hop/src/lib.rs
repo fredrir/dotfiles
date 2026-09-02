@@ -1,30 +1,101 @@
 #![forbid(unsafe_code)]
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use clap::CommandFactory;
 use hostkit::Host;
 
+mod catalog;
 pub mod cli;
+mod favorites;
+mod inbound;
+mod interactive;
+mod machine;
 mod plan;
+mod preferences;
+mod preview;
 mod remote;
 mod report;
 mod session;
 mod transfer;
+mod tui;
 
-use cli::Cli;
+use cli::{Agent, Cli, ColorMode, Command};
 use remote::Remote;
 use transfer::Snapshot;
+use tui::{Origin, PickerAction, PickerOutcome};
+
+#[derive(Clone, Copy)]
+pub(crate) struct TransferOptions {
+    pub(crate) dry_run: bool,
+    pub(crate) no_connect: bool,
+    pub(crate) color: ColorMode,
+}
 
 pub fn run(cli: Cli) -> Result<(), String> {
-    let agent = cli
-        .agent
-        .ok_or_else(|| "choose codex or claude".to_string())?;
+    if let Some(Command::Machine(machine)) = cli.command {
+        return machine::run(machine.request);
+    }
+    if cli.list {
+        return interactive::list();
+    }
+    let options = TransferOptions {
+        dry_run: cli.dry_run,
+        no_connect: cli.no_connect,
+        color: cli.color,
+    };
+    if let Some(agent) = cli.agent {
+        return send_local_session(agent, cli.session_id.as_deref(), options);
+    }
+    if !tui::capable() {
+        let mut command = Cli::command();
+        command
+            .print_help()
+            .map_err(|error| format!("could not print help: {error}"))?;
+        std::io::stdout()
+            .write_all(b"\n")
+            .map_err(|error| format!("could not print help: {error}"))?;
+        return Ok(());
+    }
+    let default_action = if options.dry_run {
+        PickerAction::DryRun
+    } else if options.no_connect {
+        PickerAction::CopyOnly
+    } else {
+        PickerAction::HopAndOpen
+    };
+    match interactive::browse(options.color, default_action)? {
+        PickerOutcome::Cancelled(_) => Ok(()),
+        PickerOutcome::Picked(picked) => {
+            let options = TransferOptions {
+                dry_run: picked.action == PickerAction::DryRun,
+                no_connect: picked.action == PickerAction::CopyOnly,
+                color: options.color,
+            };
+            match picked.session.origin {
+                Origin::Local => {
+                    send_local_session(picked.session.agent, Some(&picked.session.id), options)
+                }
+                Origin::Remote => {
+                    inbound::receive(picked.session.agent, &picked.session.id, options)
+                }
+            }
+        }
+    }
+}
+
+fn send_local_session(
+    agent: Agent,
+    session_id: Option<&str>,
+    options: TransferOptions,
+) -> Result<(), String> {
     let this = Host::this()?;
     let peer = this.peer();
     let home = local_home()?;
     let current_cwd = physical_current_directory()?;
-    let session = session::discover(&home, &current_cwd, agent, cli.session_id.as_deref())?;
+    let session = session::discover(&home, &current_cwd, agent, session_id)?;
 
     let route_peer = peer.name().to_owned();
     let route = std::thread::spawn(move || hostkit::ssh::resolved(&route_peer));
@@ -41,7 +112,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
     )?;
     remote.preflight(&destination.workspace, session.agent)?;
 
-    let style = cli.color.style();
+    let style = options.color.style();
     let source_workspace = plan::display(&session.workspace, &home);
     let destination_workspace = plan::display(&destination.workspace, &remote_home);
     let source_transcript = plan::display(&session.transcript, &home);
@@ -65,7 +136,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
     println!();
 
     let attachment_count = count_companion(session.companion.as_deref())?;
-    if cli.dry_run {
+    if options.dry_run {
         let reused = verify_destination(remote, &session.transcript, &destination.transcript)?;
         if reused {
             println!("{}", report::reused(&style));
@@ -102,7 +173,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
         println!("{}", report::copied(&style, bytes, attachment_count));
     }
 
-    if cli.no_connect {
+    if options.no_connect {
         println!("{}", report::copied_without_connect(&style, peer.name()));
         return Ok(());
     }

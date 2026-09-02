@@ -20,10 +20,13 @@ fn help_describes_the_command_and_its_examples() {
     let output = agent_hop(&["--help"]);
     assert!(output.status.success(), "{output:?}");
     let text = stdout(&output);
-    assert!(text.starts_with("Move a Codex or Claude Code CLI session to the other workstation"));
+    assert!(text.starts_with("Move a Codex or Claude Code CLI session between workstations"));
     assert!(text.contains("Usage: agent-hop"));
+    assert!(text.contains("Browse, preview, and move your sessions"));
     assert!(text.contains("agent-hop codex SESSION_ID"));
+    assert!(text.contains("agent-hop --list"));
     assert!(text.contains("[possible values: codex, claude]"));
+    assert!(!text.contains("__machine"));
 }
 
 #[test]
@@ -45,6 +48,7 @@ fn zsh_completions_cover_the_public_surface() {
         "--dry-run",
         "--no-connect",
         "--color",
+        "--list",
         "--completions",
     ] {
         assert!(script.contains(value), "completion script has no {value}");
@@ -58,22 +62,151 @@ fn the_command_dump_describes_the_parser() {
     assert!(output.status.success(), "{output:?}");
     let dump = stdout(&output);
     assert!(dump.starts_with(
-        "C\tagent-hop\t0\tMove a Codex or Claude Code CLI session to the other workstation"
+        "C\tagent-hop\t0\tMove a Codex or Claude Code CLI session between workstations"
     ));
     assert!(dump.contains("\toption\tdry_run\t-n,--dry-run\t"));
     assert!(dump.contains("\toption\tno_connect\t--no-connect\t"));
     assert!(dump.contains("\toption\tcolor\t--color\tWHEN\t"));
+    assert!(dump.contains("\toption\tlist\t--list\t"));
     assert!(dump.contains("\targument\tagent\t\tAGENT\t"));
     assert!(dump.contains("\targument\tsession_id\t\tSESSION_ID\t"));
 }
 
 #[test]
-fn a_missing_agent_is_a_usage_error() {
+fn a_bare_noninteractive_invocation_prints_help_and_succeeds() {
     let output = agent_hop(&[]);
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let complaint = stderr(&output);
-    assert!(complaint.contains("required arguments were not provided"));
-    assert!(complaint.contains("<AGENT>"));
+    assert!(output.status.success(), "{output:?}");
+    assert!(stderr(&output).is_empty(), "{output:?}");
+    let text = stdout(&output);
+    assert!(text.starts_with("Move a Codex or Claude Code CLI session between workstations"));
+    assert!(text.contains("Usage: agent-hop"));
+}
+
+#[test]
+fn the_hidden_catalog_protocol_is_machine_readable_without_session_stores() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args(["__machine", "catalog", "--protocol", "1", "--limit", "10"])
+        .env("HOME", directory.path())
+        .output()
+        .expect("agent-hop machine catalog runs");
+    assert!(output.status.success(), "{output:?}");
+    assert!(stderr(&output).is_empty(), "{output:?}");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["protocol"], "agent-hop-machine");
+    assert_eq!(value["version"], 1);
+    assert_eq!(value["kind"], "catalog");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["data"]["sessions"].as_array().unwrap().len(), 0);
+    assert_eq!(value["data"]["warnings"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn the_hidden_export_protocol_streams_a_validated_stable_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let home = directory.path().join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let home = std::fs::canonicalize(home).unwrap();
+    let workspace = home.join("work");
+    let id = "session-export";
+    let transcript = home.join(format!(
+        ".codex/sessions/2026/09/02/rollout-2026-09-02T00-00-00-{id}.jsonl"
+    ));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let content = format!(
+        "{}\n{}\n",
+        serde_json::json!({"type":"session_meta","payload":{"id":id,"cwd":workspace,"thread_source":"user","source":"cli"}}),
+        serde_json::json!({"type":"event_msg","payload":{"type":"user_message","message":"hello"}}),
+    );
+    std::fs::write(&transcript, &content).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args([
+            "__machine",
+            "export",
+            "--protocol",
+            "1",
+            "--agent",
+            "codex",
+            "--session",
+            id,
+        ])
+        .env("HOME", &home)
+        .output()
+        .expect("agent-hop machine export runs");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, content.as_bytes());
+    assert!(output.stderr.is_empty(), "{output:?}");
+}
+
+#[test]
+fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let home = directory.path().join("home");
+    std::fs::create_dir_all(home.join("work")).unwrap();
+    let home = std::fs::canonicalize(home).unwrap();
+    let workspace = home.join("work");
+    let id = "claude-export";
+    let transcript = home.join(format!(".claude/projects/project/{id}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::write(
+        &transcript,
+        format!(
+            "{}\n",
+            serde_json::json!({"type":"user","sessionId":id,"cwd":workspace,"message":{"role":"user","content":"hello"}})
+        ),
+    )
+    .unwrap();
+    let companion = transcript.with_extension("");
+    std::fs::create_dir(&companion).unwrap();
+    std::fs::write(companion.join("attachment.txt"), "bound-content").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args([
+            "__machine",
+            "export-companion",
+            "--protocol",
+            "1",
+            "--agent",
+            "claude",
+            "--session",
+            id,
+            "--workspace",
+            workspace.to_str().unwrap(),
+        ])
+        .env("HOME", &home)
+        .output()
+        .expect("agent-hop machine companion export runs");
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.starts_with(b"agent-hop-companion/1\n"));
+    assert!(
+        output
+            .stdout
+            .windows(b"bound-content".len())
+            .any(|window| window == b"bound-content")
+    );
+    assert!(output.stderr.is_empty(), "{output:?}");
+
+    let wrong_workspace = home.join("other");
+    std::fs::create_dir(&wrong_workspace).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args([
+            "__machine",
+            "export-companion",
+            "--protocol",
+            "1",
+            "--agent",
+            "claude",
+            "--session",
+            id,
+            "--workspace",
+            wrong_workspace.to_str().unwrap(),
+        ])
+        .env("HOME", &home)
+        .output()
+        .expect("agent-hop rejects mismatched companion identity");
+    assert!(!output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert!(stderr(&output).contains("workspace changed"), "{output:?}");
 }
 
 #[test]

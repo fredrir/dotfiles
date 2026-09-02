@@ -703,20 +703,6 @@ fn push_branch(
     }
 }
 
-fn repository_changes(context: &Context) -> Result<Vec<String>, Failure> {
-    let output = git(context, &["status", "--porcelain", "--untracked-files=all"])?;
-    if !output.status.success() {
-        return Err(Failure::push(
-            first_line(&output.stderr).unwrap_or("cannot inspect the local working tree"),
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(str::to_string)
-        .collect())
-}
-
 fn protocol_session(
     host: &str,
     directory: &str,

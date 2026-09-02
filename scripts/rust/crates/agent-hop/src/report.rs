@@ -16,12 +16,14 @@ pub struct View<'a> {
 }
 
 pub fn header(style: &Style, view: &View<'_>) -> String {
+    let this = safe(view.this);
+    let peer = safe(view.peer);
     let mut text = format!(
         "{}   {} {} {}",
         style.bold("agent-hop"),
-        style.bold(view.this),
+        style.bold(&this),
         style.dim("→"),
-        style.bold(view.peer)
+        style.bold(&peer)
     );
     if let Some(route) = view.route {
         text.push_str(&format!("   {}", style.teal(route.name())));
@@ -30,9 +32,10 @@ pub fn header(style: &Style, view: &View<'_>) -> String {
 }
 
 pub fn details(style: &Style, view: &View<'_>) -> Vec<String> {
+    let session_id = safe(view.session_id);
     vec![
         row(style, "agent  ", &style.bold(view.agent.name())),
-        row(style, "session", view.session_id),
+        row(style, "session", &session_id),
         endpoints(
             style,
             "work   ",
@@ -89,6 +92,7 @@ pub fn dry_run(style: &Style) -> String {
 }
 
 pub fn copied_without_connect(style: &Style, peer: &str) -> String {
+    let peer = safe(peer);
     format!(
         "  {}",
         style.dim(&format!(
@@ -98,11 +102,12 @@ pub fn copied_without_connect(style: &Style, peer: &str) -> String {
 }
 
 pub fn launching(style: &Style, agent: Agent, peer: &str) -> String {
+    let peer = safe(peer);
     format!(
         "  {}  opening a new {} session on {}",
         style.green("▸"),
         style.bold(agent.name()),
-        style.bold(peer)
+        style.bold(&peer)
     )
 }
 
@@ -118,6 +123,10 @@ fn endpoints(
     peer: &str,
     destination: &str,
 ) -> String {
+    let this = safe(this);
+    let source = safe(source);
+    let peer = safe(peer);
+    let destination = safe(destination);
     row(
         style,
         label,
@@ -128,6 +137,10 @@ fn endpoints(
             style.teal(&format!("{peer}:{destination}"))
         ),
     )
+}
+
+fn safe(value: &str) -> String {
+    crate::preview::sanitize(value)
 }
 
 fn size(bytes: u64) -> String {
@@ -199,5 +212,15 @@ mod tests {
         assert!(dry_run(&style).contains("nothing copied"));
         assert!(copied_without_connect(&style, "archie").contains("archie"));
         assert!(launching(&style, Agent::Claude, "archie").contains("claude"));
+    }
+
+    #[test]
+    fn dynamic_paths_cannot_inject_terminal_controls() {
+        let mut unsafe_view = view();
+        unsafe_view.source_workspace = "~/bad\x1b]8;;https://example.test\x1b\\link\nnext";
+        let lines = details(&Style::plain(), &unsafe_view);
+        assert!(!lines[2].contains('\x1b'));
+        assert!(!lines[2].contains('\n'));
+        assert!(!lines[2].contains("https://example.test"));
     }
 }

@@ -53,17 +53,18 @@ pub(crate) struct Session {
 }
 
 #[derive(Default)]
-struct Scan {
-    regular: Vec<PathBuf>,
-    unsafe_entries: Vec<PathBuf>,
+pub(crate) struct Scan {
+    pub(crate) regular: Vec<PathBuf>,
+    pub(crate) unsafe_entries: Vec<PathBuf>,
+    pub(crate) errors: Vec<String>,
 }
 
 #[derive(Clone)]
-struct Candidate {
-    id: SessionId,
-    transcript: PathBuf,
-    workspace: PathBuf,
-    modified: SystemTime,
+pub(crate) struct Candidate {
+    pub(crate) id: SessionId,
+    pub(crate) transcript: PathBuf,
+    pub(crate) workspace: PathBuf,
+    pub(crate) modified: SystemTime,
 }
 
 pub(crate) fn discover(
@@ -229,7 +230,7 @@ fn discover_latest(
     materialize(home, agent, best)
 }
 
-fn parse_candidate(
+pub(crate) fn parse_candidate(
     agent: Agent,
     transcript: PathBuf,
     expected: Option<&SessionId>,
@@ -347,7 +348,79 @@ fn parse_claude(path: &Path, filename_id: &SessionId) -> Result<PathBuf, String>
     Err("the Claude Code session has no workspace".to_owned())
 }
 
-fn materialize(home: &Path, agent: Agent, candidate: Candidate) -> Result<Session, String> {
+pub(crate) fn validate_snapshot_identity(
+    path: &Path,
+    agent: Agent,
+    expected_id: &SessionId,
+    expected_workspace: &Path,
+) -> Result<(), String> {
+    let (id, workspace) = match agent {
+        Agent::Codex => parse_codex(path)?
+            .ok_or_else(|| "the exported transcript is not a user Codex CLI session".to_string())?,
+        Agent::Claude => parse_claude_snapshot(path, expected_id)?,
+    };
+    if &id != expected_id {
+        return Err(format!(
+            "the exported transcript names session {id}, not {expected_id}"
+        ));
+    }
+    if workspace != expected_workspace {
+        return Err("the exported transcript workspace changed during transfer".to_string());
+    }
+    Ok(())
+}
+
+fn parse_claude_snapshot(
+    path: &Path,
+    expected_id: &SessionId,
+) -> Result<(SessionId, PathBuf), String> {
+    let file =
+        File::open(path).map_err(|error| format!("could not open exported transcript: {error}"))?;
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    let mut workspace = None;
+    let mut saw_id = false;
+    loop {
+        line.clear();
+        if reader
+            .read_until(b'\n', &mut line)
+            .map_err(|error| format!("could not read exported transcript: {error}"))?
+            == 0
+        {
+            break;
+        }
+        let record: Value = serde_json::from_slice(&line)
+            .map_err(|error| format!("an exported transcript record is invalid: {error}"))?;
+        if let Some(value) = record.get("sessionId") {
+            let id = value
+                .as_str()
+                .ok_or_else(|| "exported Claude sessionId is not a string".to_string())?;
+            if SessionId::new(id)? != *expected_id {
+                return Err("the exported Claude transcript has a different session ID".to_string());
+            }
+            saw_id = true;
+        }
+        if workspace.is_none()
+            && record.get("isSidechain") != Some(&Value::Bool(true))
+            && let Some(cwd) = record.get("cwd").and_then(Value::as_str)
+        {
+            workspace = Some(PathBuf::from(cwd));
+        }
+    }
+    if !saw_id {
+        return Err("the exported Claude transcript has no session ID".to_string());
+    }
+    Ok((
+        expected_id.clone(),
+        workspace.ok_or_else(|| "the exported Claude transcript has no workspace".to_string())?,
+    ))
+}
+
+pub(crate) fn materialize(
+    home: &Path,
+    agent: Agent,
+    candidate: Candidate,
+) -> Result<Session, String> {
     workspace_relative(home, &candidate.workspace)?;
     let metadata = fs::symlink_metadata(&candidate.transcript).map_err(|error| {
         format!(
@@ -391,44 +464,58 @@ fn materialize(home: &Path, agent: Agent, candidate: Candidate) -> Result<Sessio
     })
 }
 
-fn scan_codex(home: &Path) -> Result<Scan, String> {
+pub(crate) fn scan_codex(home: &Path) -> Result<Scan, String> {
     let root = home.join(".codex/sessions");
     require_safe_directory(&root, "Codex session store")?;
     let mut directories = vec![root];
+    let mut scan = Scan::default();
     for _ in 0..3 {
         let mut next = Vec::new();
         for directory in directories {
-            for entry in sorted_entries(&directory)? {
-                if entry
-                    .file_type()
-                    .map_err(|error| {
-                        format!("could not inspect {}: {error}", entry.path().display())
-                    })?
-                    .is_dir()
-                {
-                    next.push(entry.path());
+            let entries = match sorted_entries(&directory) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    scan.errors.push(error);
+                    continue;
+                }
+            };
+            for entry in entries {
+                match entry.file_type() {
+                    Ok(file_type) if file_type.is_dir() => next.push(entry.path()),
+                    Ok(_) => {}
+                    Err(error) => scan.errors.push(format!(
+                        "could not inspect {}: {error}",
+                        entry.path().display()
+                    )),
                 }
             }
         }
         directories = next;
     }
-    scan_jsonl_files(directories)
+    Ok(scan_jsonl_files(directories, scan))
 }
 
-fn scan_claude(home: &Path) -> Result<Scan, String> {
+pub(crate) fn scan_claude(home: &Path) -> Result<Scan, String> {
     let root = home.join(".claude/projects");
     require_safe_directory(&root, "Claude session store")?;
+    let mut scan = Scan::default();
     let mut projects = Vec::new();
-    for entry in sorted_entries(&root)? {
-        if entry
-            .file_type()
-            .map_err(|error| format!("could not inspect {}: {error}", entry.path().display()))?
-            .is_dir()
-        {
-            projects.push(entry.path());
+    match sorted_entries(&root) {
+        Ok(entries) => {
+            for entry in entries {
+                match entry.file_type() {
+                    Ok(file_type) if file_type.is_dir() => projects.push(entry.path()),
+                    Ok(_) => {}
+                    Err(error) => scan.errors.push(format!(
+                        "could not inspect {}: {error}",
+                        entry.path().display()
+                    )),
+                }
+            }
         }
+        Err(error) => scan.errors.push(error),
     }
-    scan_jsonl_files(projects)
+    Ok(scan_jsonl_files(projects, scan))
 }
 
 fn require_safe_directory(path: &Path, label: &str) -> Result<(), String> {
@@ -452,17 +539,28 @@ fn sorted_entries(directory: &Path) -> Result<Vec<fs::DirEntry>, String> {
     Ok(entries)
 }
 
-fn scan_jsonl_files(directories: Vec<PathBuf>) -> Result<Scan, String> {
-    let mut scan = Scan::default();
+fn scan_jsonl_files(directories: Vec<PathBuf>, mut scan: Scan) -> Scan {
     for directory in directories {
-        for entry in sorted_entries(&directory)? {
+        let entries = match sorted_entries(&directory) {
+            Ok(entries) => entries,
+            Err(error) => {
+                scan.errors.push(error);
+                continue;
+            }
+        };
+        for entry in entries {
             let path = entry.path();
             if path.extension() != Some(OsStr::new("jsonl")) {
                 continue;
             }
-            let file_type = entry
-                .file_type()
-                .map_err(|error| format!("could not inspect {}: {error}", path.display()))?;
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(error) => {
+                    scan.errors
+                        .push(format!("could not inspect {}: {error}", path.display()));
+                    continue;
+                }
+            };
             if file_type.is_file() {
                 scan.regular.push(path);
             } else {
@@ -472,10 +570,10 @@ fn scan_jsonl_files(directories: Vec<PathBuf>) -> Result<Scan, String> {
     }
     scan.regular.sort();
     scan.unsafe_entries.sort();
-    Ok(scan)
+    scan
 }
 
-fn path_matches(agent: Agent, path: &Path, id: &SessionId) -> bool {
+pub(crate) fn path_matches(agent: Agent, path: &Path, id: &SessionId) -> bool {
     let Some(filename) = path.file_name().and_then(OsStr::to_str) else {
         return false;
     };
@@ -568,6 +666,22 @@ mod tests {
             .unwrap()
             .set_modified(UNIX_EPOCH + Duration::from_secs(seconds))
             .unwrap();
+    }
+
+    #[test]
+    fn unreadable_or_missing_sibling_directories_do_not_hide_healthy_sessions() {
+        let (temporary, home) = home();
+        let healthy = temporary.path().join("healthy");
+        fs::create_dir(&healthy).unwrap();
+        let transcript = healthy.join("session.jsonl");
+        fs::write(&transcript, "{}\n").unwrap();
+        let scan = scan_jsonl_files(
+            vec![temporary.path().join("missing"), healthy],
+            Scan::default(),
+        );
+        assert_eq!(scan.regular, [transcript]);
+        assert_eq!(scan.errors.len(), 1);
+        drop(home);
     }
 
     #[test]

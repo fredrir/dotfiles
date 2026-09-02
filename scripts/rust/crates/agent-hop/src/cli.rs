@@ -1,6 +1,8 @@
 use std::io::{self, IsTerminal};
 
-use clap::{Parser, ValueEnum};
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use workstation::{Completions, Style};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -65,11 +67,13 @@ fn auto_enabled(
 #[command(
     name = "agent-hop",
     version,
-    about = "Move an agent session another other workstation",
+    about = "Move a Codex or Claude Code CLI session between workstations",
     after_long_help = "
+  agent-hop                       Browse, preview, and move your sessions
   agent-hop codex                 Move this directory's latest Codex session
   agent-hop claude                Move this directory's latest Claude Code session
   agent-hop codex SESSION_ID      Move one specific session
+  agent-hop --list                List local and remote sessions without a TUI
   agent-hop --dry-run claude      Show what would be copied and started
   agent-hop --no-connect codex    Copy the session without opening the peer"
 )]
@@ -96,9 +100,15 @@ pub struct Cli {
     pub color: ColorMode,
 
     #[arg(
+        long,
+        conflicts_with_all = ["agent", "session_id", "dry_run", "no_connect"],
+        help = "List available local and remote sessions without opening the picker"
+    )]
+    pub list: bool,
+
+    #[arg(
         value_enum,
         value_name = "AGENT",
-        required_unless_present = "shell",
         help = "Select the coding agent whose session will move"
     )]
     pub agent: Option<Agent>,
@@ -112,6 +122,61 @@ pub struct Cli {
 
     #[command(flatten)]
     pub completions: Completions,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    #[command(name = "__machine", hide = true)]
+    Machine(Machine),
+}
+
+#[derive(Args)]
+pub struct Machine {
+    #[command(subcommand)]
+    pub request: MachineRequest,
+}
+
+#[derive(Subcommand)]
+pub enum MachineRequest {
+    Catalog {
+        #[arg(long, default_value_t = 1)]
+        protocol: u64,
+        #[arg(long)]
+        workspace: Option<PathBuf>,
+        #[arg(long, default_value_t = 1_000)]
+        limit: usize,
+    },
+    Preview {
+        #[arg(long, default_value_t = 1)]
+        protocol: u64,
+        #[arg(long)]
+        agent: Agent,
+        #[arg(long)]
+        session: String,
+        #[arg(long, default_value_t = 12_000)]
+        max_chars: usize,
+    },
+    Export {
+        #[arg(long, default_value_t = 1)]
+        protocol: u64,
+        #[arg(long)]
+        agent: Agent,
+        #[arg(long)]
+        session: String,
+    },
+    ExportCompanion {
+        #[arg(long, default_value_t = 1)]
+        protocol: u64,
+        #[arg(long)]
+        agent: Agent,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        workspace: PathBuf,
+    },
 }
 
 #[cfg(test)]
@@ -125,8 +190,11 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_is_required_for_a_regular_run() {
-        assert!(Cli::try_parse_from(["agent-hop"]).is_err());
+    fn a_bare_invocation_selects_the_interactive_picker() {
+        let cli = Cli::try_parse_from(["agent-hop"]).unwrap();
+        assert!(cli.agent.is_none());
+        assert!(!cli.list);
+        assert!(cli.command.is_none());
     }
 
     #[test]
@@ -169,6 +237,7 @@ mod tests {
             assert_eq!(cli.agent, Some(expected));
             assert!(cli.session_id.is_none());
             assert_eq!(cli.color, ColorMode::Auto);
+            assert!(!cli.list);
         }
     }
 
@@ -187,6 +256,62 @@ mod tests {
     #[test]
     fn completion_output_is_exclusive() {
         assert!(Cli::try_parse_from(["agent-hop", "--completions", "zsh", "codex"]).is_err());
+    }
+
+    #[test]
+    fn plain_listing_is_an_explicit_noninteractive_mode() {
+        let cli = Cli::try_parse_from(["agent-hop", "--list"]).unwrap();
+        assert!(cli.list);
+        assert!(cli.agent.is_none());
+        assert!(Cli::try_parse_from(["agent-hop", "--list", "codex"]).is_err());
+    }
+
+    #[test]
+    fn hidden_machine_requests_are_structured_subcommands() {
+        let cli = Cli::try_parse_from([
+            "agent-hop",
+            "__machine",
+            "preview",
+            "--agent",
+            "codex",
+            "--session",
+            "safe-id",
+            "--max-chars",
+            "20",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Machine(Machine {
+                request: MachineRequest::Preview {
+                    agent: Agent::Codex,
+                    max_chars: 20,
+                    ..
+                }
+            }))
+        ));
+
+        let cli = Cli::try_parse_from([
+            "agent-hop",
+            "__machine",
+            "export-companion",
+            "--agent",
+            "claude",
+            "--session",
+            "safe-id",
+            "--workspace",
+            "/home/fred/project",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Machine(Machine {
+                request: MachineRequest::ExportCompanion {
+                    agent: Agent::Claude,
+                    ..
+                }
+            }))
+        ));
     }
 
     #[test]

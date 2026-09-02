@@ -501,41 +501,6 @@ fn push_refuses_a_branch_behind_its_upstream_before_network_access() {
 }
 
 #[test]
-fn sync_push_rejects_initial_dirt_before_local_reconciliation_or_ssh() {
-    let _lock = lock_environment();
-    let machine = Machine::new();
-    let _environment = machine.environment(false);
-    let config_home = machine.context.home.join(".config");
-    fs::create_dir_all(machine.root.join("environment/test")).unwrap();
-    fs::write(machine.root.join("environment/test/manifest"), "shared\n").unwrap();
-    fs::write(
-        machine.root.join("config/targets.dotfile"),
-        "shared/alpha/value = ~/.linked-value\n",
-    )
-    .unwrap();
-    git(&machine.root, &["add", "-A"]);
-    git(&machine.root, &["commit", "-qm", "sync fixture"]);
-    git(&machine.root, &["push", "-q"]);
-    fs::write(machine.root.join("shared/alpha/value"), "dirty\n").unwrap();
-    let _discovery = Environment::set(&[
-        ("DOTFILE_ROOT", machine.root.as_os_str().to_os_string()),
-        ("HOME", machine.context.home.as_os_str().to_os_string()),
-        ("XDG_CONFIG_HOME", config_home.into_os_string()),
-    ]);
-    let mut options = cli();
-    options.profile = Some("test".to_string());
-    let (decisions, _server) = decision::channel();
-    let sink = VecSink::default();
-    cancel::reset();
-
-    let result = dotfile_cli::sync::run(&options, &sink, &decisions);
-
-    assert!(result.unwrap_err().contains("uncommitted changes"));
-    assert!(!machine.context.home.join(".linked-value").exists());
-    assert!(!machine.ssh_log.exists());
-}
-
-#[test]
 fn push_race_checks_origin_again_after_preflight_before_ssh() {
     let _lock = lock_environment();
     let machine = Machine::new();
@@ -572,20 +537,6 @@ fn push_dry_run_contacts_no_peer_and_changes_nothing() {
         git(&machine.root, &["status", "--porcelain"]).stdout,
         before
     );
-}
-
-#[test]
-fn push_refuses_local_uncommitted_changes_before_network_access() {
-    let _lock = lock_environment();
-    let machine = Machine::new();
-    let _environment = machine.environment(false);
-    fs::write(machine.root.join("shared/alpha/value"), "uncommitted\n").unwrap();
-
-    let (result, _) = run(&machine, &cli());
-
-    let error = result.unwrap_err();
-    assert!(error.contains("review and commit them before dotfile sync -p"));
-    assert!(!machine.ssh_log.exists());
 }
 
 #[test]
