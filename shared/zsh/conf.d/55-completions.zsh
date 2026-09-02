@@ -8,6 +8,23 @@ if command -v pnpm >/dev/null; then
   unset _pnpm_comp_cache
 fi
 
+typeset -U fpath
+fpath=("$HOME/.zfunc" $fpath)
+
+if ! (($+functions[compdef])); then
+  autoload -Uz compinit
+  compinit
+fi
+
+if [[ -r "$HOME/.zfunc/_rustup" ]]; then
+  autoload -Uz _rustup
+  compdef _rustup rustup
+fi
+
+if [[ -r "$HOME/.zfunc/_cargo" ]]; then
+  autoload -Uz _cargo
+  compdef _cargo cargo
+fi
 if ! (($+functions[compdef])); then
   autoload -Uz compinit
   compinit

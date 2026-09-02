@@ -78,9 +78,18 @@ pub(crate) fn layout(area: Rect) -> Regions {
         } else {
             0
         };
-        let preview_height = target;
-        let gap = u16::from(preview_height > 0 && content.height > preview_height);
-        regions.list.height = content.height.saturating_sub(preview_height + gap);
+        let gap = u16::from(target > 0 && content.height > target);
+        let proposed_list_height = content.height.saturating_sub(target + gap);
+        let proposed_list = Rect::new(content.x, content.y, content.width, proposed_list_height);
+        regions.list.height = if target > 0 {
+            let card_height = card_height(proposed_list) as u16;
+            proposed_list_height / card_height * card_height
+        } else {
+            proposed_list_height
+        };
+        let preview_height = content
+            .height
+            .saturating_sub(regions.list.height.saturating_add(gap));
         regions.preview = Rect::new(
             content.x,
             content.bottom().saturating_sub(preview_height),
@@ -1355,6 +1364,17 @@ mod tests {
         assert!(text.contains("[Claude]"), "{text:?}");
         assert!(text.contains("Preview Conversation"), "{text:?}");
         assert!(!text.contains('\u{b7}'), "{text:?}");
+    }
+
+    #[test]
+    fn stacked_preview_follows_the_last_complete_card_row() {
+        for area in [Rect::new(0, 0, 80, 24), Rect::new(0, 0, 80, 40)] {
+            let regions = layout(area);
+            let height = card_height(regions.list) as u16;
+
+            assert_eq!(regions.list.height % height, 0);
+            assert_eq!(regions.preview.y, regions.list.bottom().saturating_add(1));
+        }
     }
 
     #[test]

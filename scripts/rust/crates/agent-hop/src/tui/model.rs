@@ -812,6 +812,7 @@ impl Model {
                 self.rebuild_filter(None);
                 Effect::None
             }
+            KeyCode::Up | KeyCode::Char('k') if self.selected == 0 => self.focus_search(),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::PageUp => self.move_selection(-(self.page_size() as isize)),
@@ -1337,6 +1338,23 @@ mod tests {
         assert_eq!(model.toolbar_focus, None);
         assert_eq!(model.selected, 0);
         assert_eq!(model.pane, Pane::List);
+    }
+
+    #[test]
+    fn moving_up_from_the_first_session_focuses_search() {
+        let mut model = loaded();
+
+        assert_eq!(model.apply(key(KeyCode::Up)), Effect::None);
+        assert_eq!(model.toolbar_focus, Some(ToolbarItem::Search));
+
+        model.apply(key(KeyCode::Down));
+        model.apply(key(KeyCode::Down));
+        assert_eq!(model.selected, 1);
+        model.apply(key(KeyCode::Up));
+        assert_eq!(model.selected, 0);
+        assert_eq!(model.toolbar_focus, None);
+        model.apply(key(KeyCode::Char('k')));
+        assert_eq!(model.toolbar_focus, Some(ToolbarItem::Search));
     }
 
     #[test]
