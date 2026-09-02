@@ -5,8 +5,8 @@ alias opencode-stats="$HOME/.opencode/bin/opencode stats --days 7 --models 10 --
 alias cdpw="cd $HOME/projects/wez-plugins/vertical-tabs"
 alias cdwp="cd $HOME/projects/wez-plugins/vertical-tabs"
 
-alias ww='just --justfile /Users/fredrir/projects/wez-plugins/vertical-tabs/justfile'
-alias wwr='just --justfile /Users/fredrir/projects/wez-plugins/vertical-tabs/justfile restart'
+alias ww="just --justfile $HOME/projects/wez-plugins/vertical-tabs/justfile"
+alias wwr="just --justfile $HOME/projects/wez-plugins/vertical-tabs/justfile restart"
 
 alias cdpe="cd $HOME/projects/elvfast"
 
