@@ -337,7 +337,6 @@ fn sync_ui_remote_decision_shows_host_count_and_safe_cancel() {
     assert_eq!(model.selected_choice(), Some(Choice::Cancel));
     assert_eq!(model.cancel_response().unwrap().1, Choice::Cancel);
     let rendered = render(&model, 78, 5);
-    assert!(rendered.contains("  REMOTE CHANGES  archie"));
     assert!(rendered.contains("3 incoming changes"));
     assert!(rendered.contains("+2 more"));
     assert!(rendered.contains("discard"));

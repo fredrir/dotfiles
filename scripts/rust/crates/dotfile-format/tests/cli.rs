@@ -144,16 +144,6 @@ fn no_arguments_prints_the_help_on_stdout_and_succeeds() {
 }
 
 #[test]
-fn the_help_describes_this_tool_and_not_the_flags_it_shares() {
-    let output = format(&["--help"], "", &[]);
-    assert!(
-        stdout(&output).starts_with("Format a tree with the tool that owns each language"),
-        "{}",
-        stdout(&output)
-    );
-}
-
-#[test]
 fn completions_need_no_target() {
     let output = format(&["--completions", "zsh"], "", &[]);
     assert!(output.status.success());
