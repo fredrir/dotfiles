@@ -1,13 +1,15 @@
 -- local wezterm = require "wezterm"
 
--- package.path = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/plugin/?.lua;" .. package.path
+-- local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs/plugin"
+-- package.path = plugin_root .. "/?.lua;" .. plugin_root .. "/?/init.lua;" .. package.path
 
--- local vtabs = require "init"
+-- local vtabs = dofile(plugin_root .. "/init.lua")
 
 -- local M = {}
 
 -- function M.apply_to_config(config)
 --   vtabs.apply_to_config(config, {
+--     dim_inactive_panes = true, -- inactive_pane_hsb is owned by ui/init.lua
 --     backend = {
 --       path = function(domain, host)
 --         if host == "archie" or domain:match "^archie" then
