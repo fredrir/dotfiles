@@ -1,11 +1,9 @@
--- local vtabs = require "plugins.vtabs"
+-- local nardo = require "plugins.nardo"
 
 ---@type Config
 local plugin_config = {}
 
--- To enable a plugin that mutates the builder, return a typed provider function:
 -- return function(config)
---   vtabs.apply_to_config(config)
+--   nardo.apply_to_config(config)
 -- end
-
 return plugin_config

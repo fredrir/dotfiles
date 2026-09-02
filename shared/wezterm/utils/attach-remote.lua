@@ -2,16 +2,13 @@ local wezterm = require "wezterm" ---@type Wezterm
 local hwire_session = require "utils.hwire-session"
 local host = require "domain.hosts"
 
-local act = wezterm.action
-
 local MUX_ROUTE = wezterm.home_dir .. "/.local/bin/mux-route"
 local TOAST_MS = 4000
 local REMOTE_TERM = "xterm-256color"
 local REMOTE_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 ---@param window Window
----@param pane Pane
-local function attach_peer(window, pane)
+local function attach_peer(window)
   local ok, stdout, stderr = wezterm.run_child_process { MUX_ROUTE }
   if not ok then
     local reason = stderr:gsub("%s+$", "")
@@ -40,8 +37,7 @@ local function attach_peer(window, pane)
   table.insert(args, "zsh")
   table.insert(args, "-l")
 
-  local command = { domain = { DomainName = domain }, cwd = home, args = args }
-  window:perform_action(act.SpawnCommandInNewTab(command), pane)
+  window:mux_window():spawn_tab { domain = { DomainName = domain }, cwd = home, args = args }
 end
 
 return wezterm.action_callback(attach_peer)
