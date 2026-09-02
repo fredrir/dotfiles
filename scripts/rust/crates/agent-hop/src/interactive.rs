@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hostkit::Host;
 
-use crate::catalog::{self, DiagnosticKind, SourceState};
+use crate::catalog::{self, SourceState};
 use crate::cli::{Agent, ColorMode};
 use crate::favorites::Favorites;
 use crate::plan;
@@ -49,47 +49,27 @@ impl BrowserSource {
     fn local_entries(&mut self, warnings: &mut Vec<String>) -> Vec<SessionEntry> {
         let found = catalog::scan(&self.home, &self.current_cwd);
         for source in &found.sources {
-            if let SourceState::Disabled(reason) = &source.state {
-                warnings.push(format!(
+            match &source.state {
+                SourceState::Available { .. } | SourceState::Absent => {}
+                SourceState::Disabled(reason) => warnings.push(format!(
                     "{} sessions unavailable on {}: {reason}",
                     source.agent.name(),
                     self.this.name()
-                ));
+                )),
             }
         }
-        let duplicate = found
-            .diagnostics
-            .iter()
-            .filter(|item| item.kind == DiagnosticKind::Duplicate)
-            .count();
-        let unsafe_count = found
-            .diagnostics
-            .iter()
-            .filter(|item| item.kind == DiagnosticKind::Unsafe)
-            .count();
-        let invalid = found
-            .diagnostics
-            .iter()
-            .filter(|item| item.kind == DiagnosticKind::Invalid)
-            .count();
-        if duplicate + unsafe_count + invalid > 0 {
-            warnings.push(format!(
-                "{} hidden local session issue{}: {duplicate} duplicate, {unsafe_count} unsafe, {invalid} invalid",
-                duplicate + unsafe_count + invalid,
-                if duplicate + unsafe_count + invalid == 1 { "" } else { "s" }
-            ));
-        }
+        append_diagnostic_warnings(&found.diagnostics, self.this.name(), warnings);
 
         found
             .sessions
             .into_iter()
             .map(|entry| {
+                let project = entry.project;
                 let session = entry.session;
                 let key = key(self.this, session.agent, session.id.as_str());
                 let title = short_title(&session);
                 let favorite = self.favorites.contains(&key);
                 let workspace = plan::display(&session.workspace, &self.home);
-                let project = project_label(&session.workspace, &self.home);
                 let row = SessionEntry {
                     key: key.clone(),
                     id: session.id.as_str().to_string(),
@@ -109,34 +89,6 @@ impl BrowserSource {
                 self.targets.insert(key, session);
                 row
             })
-            .chain(found.diagnostics.iter().enumerate().map(|(index, item)| {
-                let reason = item.message.clone();
-                SessionEntry {
-                    key: format!(
-                        "{}:diagnostic:{}:{index}",
-                        self.this.name(),
-                        item.agent.name()
-                    ),
-                    id: "diagnostic".to_string(),
-                    agent: item.agent,
-                    origin: Origin::Local,
-                    host: Some(self.this.name().to_string()),
-                    project: "session store".to_string(),
-                    workspace: "diagnostic".to_string(),
-                    title: match item.kind {
-                        DiagnosticKind::Duplicate => "Duplicate session entry",
-                        DiagnosticKind::Unsafe => "Unsafe session entry",
-                        DiagnosticKind::Invalid => "Unreadable session entry",
-                    }
-                    .to_string(),
-                    updated: "—".to_string(),
-                    current_project: false,
-                    favorite: false,
-                    disabled_reason: Some(reason),
-                    warning: None,
-                    sort_timestamp: 0,
-                }
-            }))
             .collect()
     }
 
@@ -169,7 +121,12 @@ impl BrowserSource {
                 return Vec::new();
             }
         };
-        warnings.extend(found.warnings);
+        warnings.extend(
+            found
+                .warnings
+                .into_iter()
+                .map(|warning| remote_warning(self.peer, warning)),
+        );
         found
             .sessions
             .into_iter()
@@ -185,7 +142,7 @@ impl BrowserSource {
                     agent: session.agent,
                     origin: Origin::Remote,
                     host: Some(self.peer.name().to_string()),
-                    project: project_label(&session.workspace, &remote_home),
+                    project: session.project,
                     workspace: plan::display(&session.workspace, &remote_home),
                     title: session.title,
                     updated: relative_age(UNIX_EPOCH + Duration::from_millis(session.modified_ms)),
@@ -342,16 +299,19 @@ fn short_title(session: &Session) -> String {
         .unwrap_or_else(|_| "Untitled session".to_string())
 }
 
-fn project_label(workspace: &Path, home: &Path) -> String {
-    if workspace == home {
-        return "~".to_string();
+fn append_diagnostic_warnings(
+    diagnostics: &[crate::catalog::CatalogDiagnostic],
+    host: &str,
+    warnings: &mut Vec<String>,
+) {
+    for agent in [Agent::Codex, Agent::Claude] {
+        if let Some(summary) = catalog::diagnostic_summary(diagnostics, agent) {
+            warnings.push(format!(
+                "{} session store on {host}: {summary}",
+                agent.name()
+            ));
+        }
     }
-    workspace
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(preview::sanitize)
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| plan::display(workspace, home))
 }
 
 fn key(host: Host, agent: Agent, id: &str) -> String {
@@ -372,6 +332,10 @@ fn remote_key(peer: Host, key: &str) -> Result<(Agent, &str), String> {
     };
     crate::session::SessionId::new(id)?;
     Ok((agent, id))
+}
+
+fn remote_warning(peer: Host, warning: String) -> String {
+    format!("{}: {warning}", peer.name())
 }
 
 fn relative_age(modified: SystemTime) -> String {
@@ -424,6 +388,14 @@ mod tests {
         let (agent, id) = remote_key(Host::Archie, "archie:claude:id:with:colons").unwrap();
         assert_eq!(agent, Agent::Claude);
         assert_eq!(id, "id:with:colons");
+    }
+
+    #[test]
+    fn remote_warnings_name_the_owning_host() {
+        assert_eq!(
+            remote_warning(Host::Archie, "codex session store: read failure".to_owned()),
+            "archie: codex session store: read failure"
+        );
     }
 
     #[test]

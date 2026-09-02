@@ -2,9 +2,9 @@ use std::io::{self, Stdout, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event as TerminalEvent};
+use crossterm::event::{self, Event as TerminalEvent};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -19,6 +19,7 @@ use super::{
 };
 
 const INPUT_POLL: Duration = Duration::from_millis(25);
+const ANIMATION_FRAME: Duration = Duration::from_millis(16);
 const MAX_PREVIEW_JOBS: usize = 2;
 
 /// Run the picker with discovery and preview reads on a dedicated worker.
@@ -48,11 +49,14 @@ pub(crate) fn run(
         .size()
         .map_err(|error| format!("could not inspect the terminal: {error}"))?;
     model.area = area.into();
+    model.set_reduced_motion(options.reduced_motion);
     model.set_initial_action(options.initial_action);
     model.set_view(options.initial_view);
     terminal.draw(&model, options)?;
     worker.send(WorkerRequest::Refresh)?;
     let mut effect = Effect::None;
+    let mut redraw = false;
+    let mut next_animation_frame: Option<Instant> = None;
 
     loop {
         if termination_requested() {
@@ -60,6 +64,7 @@ pub(crate) fn run(
         }
 
         if effect != Effect::None {
+            redraw = true;
             match handle_effect(effect, &worker, &mut favorites, &mut model)? {
                 LoopState::Continue(next) => {
                     effect = next;
@@ -72,6 +77,7 @@ pub(crate) fn run(
         }
 
         while let Some(response) = worker.try_response()? {
+            redraw = true;
             let response_effect = handle_response(response, &mut model);
             if response_effect != Effect::None {
                 effect = response_effect;
@@ -79,34 +85,63 @@ pub(crate) fn run(
             }
         }
 
-        terminal.draw(&model, options)?;
+        redraw |= advance_animation_if_due(&mut model, &mut next_animation_frame, Instant::now());
+
+        if redraw {
+            terminal.draw(&model, options)?;
+            redraw = false;
+        }
         if effect != Effect::None {
             continue;
         }
 
-        if !event::poll(INPUT_POLL)
+        let poll_timeout = next_animation_frame
+            .map(|deadline| {
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .min(INPUT_POLL)
+            })
+            .unwrap_or(INPUT_POLL);
+        if !event::poll(poll_timeout)
             .map_err(|error| format!("could not poll terminal input: {error}"))?
         {
-            if !options.reduced_motion {
-                model.advance_animation();
-            }
             continue;
         }
         let terminal_event =
             event::read().map_err(|error| format!("could not read terminal input: {error}"))?;
         effect = match terminal_event {
-            TerminalEvent::Key(key) => model.apply(UiEvent::Key(key)),
-            TerminalEvent::Mouse(mouse) => model.apply(UiEvent::Mouse {
-                kind: mouse.kind,
-                column: mouse.column,
-                row: mouse.row,
-            }),
-            TerminalEvent::Resize(width, height) => model.apply(UiEvent::Resize(width, height)),
-            TerminalEvent::FocusGained | TerminalEvent::FocusLost | TerminalEvent::Paste(_) => {
-                Effect::None
+            TerminalEvent::Key(key) => {
+                redraw = true;
+                model.apply(UiEvent::Key(key))
             }
+            TerminalEvent::Resize(width, height) => {
+                redraw = true;
+                model.apply(UiEvent::Resize(width, height))
+            }
+            TerminalEvent::Mouse(_)
+            | TerminalEvent::FocusGained
+            | TerminalEvent::FocusLost
+            | TerminalEvent::Paste(_) => Effect::None,
         };
     }
+}
+
+fn advance_animation_if_due(
+    model: &mut Model,
+    next_frame: &mut Option<Instant>,
+    now: Instant,
+) -> bool {
+    if !model.is_animating() {
+        *next_frame = None;
+        return false;
+    }
+    let deadline = next_frame.get_or_insert_with(|| now + ANIMATION_FRAME);
+    if now < *deadline {
+        return false;
+    }
+    let changed = model.tick_animation();
+    *deadline = now + ANIMATION_FRAME;
+    changed
 }
 
 enum LoopState {
@@ -125,7 +160,7 @@ fn handle_effect(
         Effect::Cancel => Ok(LoopState::Finish(PickerOutcome::Cancelled(model.view()))),
         Effect::Pick(action) => {
             let session = model
-                .selected_entry()
+                .preview_entry()
                 .cloned()
                 .ok_or_else(|| "the selected session disappeared".to_string())?;
             if let Some(reason) = &session.disabled_reason {
@@ -152,7 +187,9 @@ fn handle_effect(
         Effect::SetFavorite { key, favorite } => {
             if let Err(error) = favorites.set_favorite(&key, favorite) {
                 model.favorite_failed(&key, !favorite, error);
-            } else {
+            } else if model.status.as_deref()
+                != Some("Session no longer matches the active filters")
+            {
                 model.status = Some(if favorite {
                     "Added to favorites".into()
                 } else {
@@ -161,8 +198,8 @@ fn handle_effect(
             }
             Ok(LoopState::Continue(Effect::None))
         }
-        Effect::CopySessionId(id) => {
-            match copy_with_dclip(&id) {
+        Effect::CopySessionDescription(description) => {
+            match copy_with_dclip(&description) {
                 Ok(()) => model.copied(),
                 Err(error) => model.copy_failed(error),
             }
@@ -453,7 +490,6 @@ struct PickerTerminal {
     terminal: Terminal<CrosstermBackend<Stdout>>,
     raw: bool,
     alternate: bool,
-    mouse: bool,
 }
 
 impl PickerTerminal {
@@ -464,28 +500,19 @@ impl PickerTerminal {
             let _ = disable_raw_mode();
             return Err(error);
         }
-        if let Err(error) = execute!(stdout, EnableMouseCapture) {
-            let _ = execute!(stdout, LeaveAlternateScreen);
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = match Terminal::new(backend) {
             Ok(terminal) => terminal,
             Err(error) => {
                 let mut stdout = io::stdout();
-                let _ = execute!(stdout, DisableMouseCapture, LeaveAlternateScreen);
+                let _ = execute!(stdout, LeaveAlternateScreen);
                 let _ = disable_raw_mode();
                 return Err(error);
             }
         };
         if let Err(error) = terminal.hide_cursor() {
             let _ = terminal.show_cursor();
-            let _ = execute!(
-                terminal.backend_mut(),
-                DisableMouseCapture,
-                LeaveAlternateScreen
-            );
+            let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
             let _ = disable_raw_mode();
             return Err(error);
         }
@@ -493,7 +520,6 @@ impl PickerTerminal {
             terminal,
             raw: true,
             alternate: true,
-            mouse: true,
         })
     }
 
@@ -508,10 +534,6 @@ impl PickerTerminal {
 impl Drop for PickerTerminal {
     fn drop(&mut self) {
         let _ = self.terminal.show_cursor();
-        if self.mouse {
-            let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture);
-            self.mouse = false;
-        }
         if self.alternate {
             let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
             self.alternate = false;
@@ -535,7 +557,7 @@ fn copy_with_dclip(value: &str) -> Result<(), String> {
         .take()
         .ok_or_else(|| "dclip did not accept input".to_string())?
         .write_all(value.as_bytes())
-        .map_err(|error| format!("could not send the ID to dclip: {error}"))?;
+        .map_err(|error| format!("could not send the session description to dclip: {error}"))?;
     let output = child
         .wait_with_output()
         .map_err(|error| format!("could not wait for dclip: {error}"))?;
@@ -556,6 +578,40 @@ mod tests {
     use std::sync::{Arc, Condvar, Mutex};
 
     use super::*;
+
+    #[test]
+    fn animation_scheduler_redraws_only_on_due_active_frames() {
+        let start = Instant::now();
+        let mut model = Model::new();
+        let mut next_frame = None;
+
+        assert!(!advance_animation_if_due(
+            &mut model,
+            &mut next_frame,
+            start
+        ));
+        assert!(next_frame.is_none(), "idle UI must stay event-driven");
+
+        model.pane = super::super::model::Pane::List;
+        model.preview_transition = 500;
+        assert!(!advance_animation_if_due(
+            &mut model,
+            &mut next_frame,
+            start
+        ));
+        let deadline = next_frame.expect("active animation schedules a frame");
+        assert!(!advance_animation_if_due(
+            &mut model,
+            &mut next_frame,
+            deadline - Duration::from_millis(1)
+        ));
+        assert!(advance_animation_if_due(
+            &mut model,
+            &mut next_frame,
+            deadline
+        ));
+        assert_eq!(model.preview_transition, 400);
+    }
 
     #[derive(Clone)]
     struct Source;

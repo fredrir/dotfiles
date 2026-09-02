@@ -122,16 +122,22 @@ fn catalog_response(
         .sources
         .iter()
         .filter_map(|source| match &source.state {
-            crate::catalog::SourceState::Available { .. } => None,
+            crate::catalog::SourceState::Available { .. } | crate::catalog::SourceState::Absent => {
+                None
+            }
             crate::catalog::SourceState::Disabled(error) => Some(format!(
                 "{} session store unavailable: {error}",
                 source.agent.name()
             )),
         })
-        .chain(found.diagnostics.iter().map(|item| item.message.clone()))
         .map(|warning| preview::sanitize(&warning))
         .filter(|warning| !warning.is_empty())
         .collect::<Vec<_>>();
+    for agent in [crate::cli::Agent::Codex, crate::cli::Agent::Claude] {
+        if let Some(summary) = catalog::diagnostic_summary(&found.diagnostics, agent) {
+            warnings.push(format!("{} session store: {summary}", agent.name()));
+        }
+    }
     warnings.sort();
     warnings.dedup();
     warnings.truncate(MAX_REMOTE_WARNINGS);
@@ -161,6 +167,7 @@ fn catalog_response(
                 agent: entry.session.agent,
                 id: entry.session.id.as_str().to_string(),
                 title,
+                project: entry.project,
                 workspace: entry.session.workspace,
                 transcript: entry.session.transcript,
                 companion: entry.session.companion,

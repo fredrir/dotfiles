@@ -25,6 +25,7 @@ const MAX_CATALOG_OUTPUT: usize = 4 * 1024 * 1024;
 const MAX_PREVIEW_OUTPUT: usize = 256 * 1024;
 const MAX_ERROR_OUTPUT: usize = 16 * 1024;
 const MAX_WIRE_PATH: usize = 16 * 1024;
+const MAX_WIRE_PROJECT_CHARS: usize = 256;
 const MAX_COMPANION_HEADER: usize = 32 * 1024;
 const MAX_COMPANION_ENTRIES: usize = 100_000;
 const MAX_WIRE_TITLE_CHARS: usize = 512;
@@ -44,6 +45,7 @@ pub(crate) struct RemoteSession {
     pub(crate) agent: Agent,
     pub(crate) id: String,
     pub(crate) title: String,
+    pub(crate) project: String,
     pub(crate) workspace: PathBuf,
     /// Kept for transfer, and never intended for normal UI rendering.
     pub(crate) transcript: PathBuf,
@@ -505,6 +507,7 @@ pub(crate) fn encode_catalog_response(catalog: &RemoteCatalog) -> Result<String,
                 "agent": session.agent.name(),
                 "id": session.id,
                 "title": session.title,
+                "project": session.project,
                 "workspace": wire_path(&session.workspace)?,
                 "transcript": wire_path(&session.transcript)?,
                 "companion": session.companion.as_deref().map(wire_path).transpose()?,
@@ -621,6 +624,21 @@ fn parse_catalog_response(
         let (title, _) = clean_wire_text(title, MAX_WIRE_TITLE_CHARS, false);
         let workspace = parse_wire_path(record.get("workspace"), "session workspace")?;
         validate_workspace(remote_home, &workspace)?;
+        let fallback_project = fallback_project_label(&workspace);
+        let project = match record.get("project") {
+            None | Some(Value::Null) => fallback_project,
+            Some(value) => {
+                let raw = value.as_str().ok_or_else(|| {
+                    "the remote catalog contains a non-string project label".to_owned()
+                })?;
+                let (project, _) = clean_wire_text(raw, MAX_WIRE_PROJECT_CHARS, false);
+                if project.is_empty() {
+                    fallback_project
+                } else {
+                    project
+                }
+            }
+        };
         let transcript = parse_wire_path(record.get("transcript"), "session transcript")?;
         validate_remote_source(
             remote_home,
@@ -653,6 +671,7 @@ fn parse_catalog_response(
             agent,
             id: id.to_owned(),
             title,
+            project,
             workspace,
             transcript,
             companion,
@@ -660,6 +679,14 @@ fn parse_catalog_response(
         });
     }
     Ok(RemoteCatalog { sessions, warnings })
+}
+
+fn fallback_project_label(workspace: &Path) -> String {
+    let raw = workspace
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| workspace.display().to_string());
+    clean_wire_text(&raw, MAX_WIRE_PROJECT_CHARS, false).0
 }
 
 fn parse_preview_response(bytes: &[u8], max_chars: usize) -> Result<RemotePreview, String> {
@@ -1412,6 +1439,7 @@ mod tests {
                 agent: Agent::Codex,
                 id: "safe-id".to_owned(),
                 title: "A useful session".to_owned(),
+                project: "app".to_owned(),
                 workspace: PathBuf::from("/Users/fred/work/app"),
                 transcript: PathBuf::from(
                     "/Users/fred/.codex/sessions/2026/09/02/rollout-now-safe-id.jsonl",
@@ -1425,6 +1453,30 @@ mod tests {
         let parsed =
             parse_catalog_response(encoded.as_bytes(), Path::new("/Users/fred"), 10).unwrap();
         assert_eq!(parsed, catalog);
+    }
+
+    #[test]
+    fn older_catalog_without_project_uses_workspace_basename() {
+        let response = json!({
+            "protocol": MACHINE_PROTOCOL,
+            "version": MACHINE_PROTOCOL_VERSION,
+            "kind": "catalog",
+            "ok": true,
+            "data": {"sessions": [{
+                "agent": "codex",
+                "id": "safe-id",
+                "title": "title",
+                "workspace": "/Users/fred/work/app",
+                "transcript": "/Users/fred/.codex/sessions/2026/09/02/rollout-now-safe-id.jsonl",
+                "companion": null,
+                "modified_ms": 1,
+            }], "warnings": []},
+        })
+        .to_string();
+
+        let parsed =
+            parse_catalog_response(response.as_bytes(), Path::new("/Users/fred"), 10).unwrap();
+        assert_eq!(parsed.sessions[0].project, "app");
     }
 
     #[test]

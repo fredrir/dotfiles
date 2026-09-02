@@ -59,12 +59,61 @@ pub(crate) struct Scan {
     pub(crate) errors: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Candidate {
     pub(crate) id: SessionId,
     pub(crate) transcript: PathBuf,
     pub(crate) workspace: PathBuf,
     pub(crate) modified: SystemTime,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CandidateFailureKind {
+    Invalid,
+    Unsafe,
+    Storage,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CandidateFailure {
+    pub(crate) kind: CandidateFailureKind,
+    pub(crate) message: String,
+}
+
+impl CandidateFailure {
+    fn invalid(message: impl Into<String>) -> Self {
+        Self {
+            kind: CandidateFailureKind::Invalid,
+            message: message.into(),
+        }
+    }
+
+    fn unsafe_entry(message: impl Into<String>) -> Self {
+        Self {
+            kind: CandidateFailureKind::Unsafe,
+            message: message.into(),
+        }
+    }
+
+    fn storage(message: impl Into<String>) -> Self {
+        Self {
+            kind: CandidateFailureKind::Storage,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MaterializeFailureKind {
+    Invalid,
+    Unsafe,
+    Storage,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MaterializeFailure {
+    pub(crate) kind: MaterializeFailureKind,
+    pub(crate) message: String,
 }
 
 pub(crate) fn discover(
@@ -235,33 +284,51 @@ pub(crate) fn parse_candidate(
     transcript: PathBuf,
     expected: Option<&SessionId>,
 ) -> Result<Candidate, String> {
+    parse_candidate_classified(agent, transcript, expected).map_err(|failure| failure.message)
+}
+
+fn parse_candidate_classified(
+    agent: Agent,
+    transcript: PathBuf,
+    expected: Option<&SessionId>,
+) -> Result<Candidate, CandidateFailure> {
     let (id, workspace) = match agent {
         Agent::Codex => parse_codex(&transcript)?.ok_or_else(|| {
-            "the first record is not a user-authored Codex CLI session".to_owned()
+            CandidateFailure::invalid("the first record is not a user-authored Codex CLI session")
         })?,
         Agent::Claude => {
-            let filename_id = claude_filename_id(&transcript)?;
+            let filename_id = claude_filename_id(&transcript).map_err(CandidateFailure::invalid)?;
             if expected.is_some_and(|expected| expected != &filename_id) {
-                return Err("the filename does not match the requested session ID".to_owned());
+                return Err(CandidateFailure::invalid(
+                    "the filename does not match the requested session ID",
+                ));
             }
             let workspace = parse_claude(&transcript, &filename_id)?;
             (filename_id, workspace)
         }
     };
     if !path_matches(agent, &transcript, &id) {
-        return Err("the filename does not match the session metadata ID".to_owned());
-    }
-    let metadata = fs::symlink_metadata(&transcript)
-        .map_err(|error| format!("could not inspect {}: {error}", transcript.display()))?;
-    if !metadata.file_type().is_file() {
-        return Err(format!(
-            "the transcript is not a regular file: {}",
-            transcript.display()
+        return Err(CandidateFailure::invalid(
+            "the filename does not match the session metadata ID",
         ));
     }
-    let modified = metadata
-        .modified()
-        .map_err(|error| format!("could not read the transcript modification time: {error}"))?;
+    let metadata = fs::symlink_metadata(&transcript).map_err(|error| {
+        CandidateFailure::storage(format!(
+            "could not inspect {}: {error}",
+            transcript.display()
+        ))
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(CandidateFailure::unsafe_entry(format!(
+            "the transcript is not a regular file: {}",
+            transcript.display()
+        )));
+    }
+    let modified = metadata.modified().map_err(|error| {
+        CandidateFailure::storage(format!(
+            "could not read the transcript modification time: {error}"
+        ))
+    })?;
     Ok(Candidate {
         id,
         transcript,
@@ -270,24 +337,37 @@ pub(crate) fn parse_candidate(
     })
 }
 
-fn parse_codex(path: &Path) -> Result<Option<(SessionId, PathBuf)>, String> {
-    let file =
-        File::open(path).map_err(|error| format!("could not open {}: {error}", path.display()))?;
+pub(crate) fn parse_candidate_for_catalog(
+    agent: Agent,
+    transcript: PathBuf,
+) -> Result<Candidate, CandidateFailure> {
+    parse_candidate_classified(agent, transcript, None)
+}
+
+fn parse_codex(path: &Path) -> Result<Option<(SessionId, PathBuf)>, CandidateFailure> {
+    let file = File::open(path).map_err(|error| {
+        CandidateFailure::storage(format!("could not open {}: {error}", path.display()))
+    })?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
-    let bytes = reader
-        .read_until(b'\n', &mut line)
-        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let bytes = reader.read_until(b'\n', &mut line).map_err(|error| {
+        CandidateFailure::storage(format!("could not read {}: {error}", path.display()))
+    })?;
     if bytes == 0 {
-        return Err("the transcript is empty".to_owned());
+        return Err(CandidateFailure::invalid("the transcript is empty"));
     }
-    let record: Value = serde_json::from_slice(&line)
-        .map_err(|error| format!("the first transcript record is invalid JSON: {error}"))?;
+    let record: Value = serde_json::from_slice(&line).map_err(|error| {
+        CandidateFailure::invalid(format!(
+            "the first transcript record is invalid JSON: {error}"
+        ))
+    })?;
     if record.get("type").and_then(Value::as_str) != Some("session_meta") {
         return Ok(None);
     }
     let Some(payload) = record.get("payload") else {
-        return Err("the Codex session metadata has no payload".to_owned());
+        return Err(CandidateFailure::invalid(
+            "the Codex session metadata has no payload",
+        ));
     };
     if payload.get("thread_source").and_then(Value::as_str) != Some("user")
         || payload.get("source").and_then(Value::as_str) != Some("cli")
@@ -297,41 +377,45 @@ fn parse_codex(path: &Path) -> Result<Option<(SessionId, PathBuf)>, String> {
     let id = payload
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| "the Codex session metadata has no string ID".to_owned())?;
-    let cwd = payload
-        .get("cwd")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "the Codex session metadata has no string workspace".to_owned())?;
-    Ok(Some((SessionId::new(id)?, PathBuf::from(cwd))))
+        .ok_or_else(|| CandidateFailure::invalid("the Codex session metadata has no string ID"))?;
+    let cwd = payload.get("cwd").and_then(Value::as_str).ok_or_else(|| {
+        CandidateFailure::invalid("the Codex session metadata has no string workspace")
+    })?;
+    Ok(Some((
+        SessionId::new(id).map_err(CandidateFailure::invalid)?,
+        PathBuf::from(cwd),
+    )))
 }
 
-fn parse_claude(path: &Path, filename_id: &SessionId) -> Result<PathBuf, String> {
-    let file =
-        File::open(path).map_err(|error| format!("could not open {}: {error}", path.display()))?;
+fn parse_claude(path: &Path, filename_id: &SessionId) -> Result<PathBuf, CandidateFailure> {
+    let file = File::open(path).map_err(|error| {
+        CandidateFailure::storage(format!("could not open {}: {error}", path.display()))
+    })?;
     let mut reader = BufReader::new(file);
     let mut line = Vec::new();
     loop {
         line.clear();
-        let bytes = reader
-            .read_until(b'\n', &mut line)
-            .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+        let bytes = reader.read_until(b'\n', &mut line).map_err(|error| {
+            CandidateFailure::storage(format!("could not read {}: {error}", path.display()))
+        })?;
         if bytes == 0 {
             break;
         }
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        let record: Value = serde_json::from_slice(&line)
-            .map_err(|error| format!("a transcript record is invalid JSON: {error}"))?;
+        let record: Value = serde_json::from_slice(&line).map_err(|error| {
+            CandidateFailure::invalid(format!("a transcript record is invalid JSON: {error}"))
+        })?;
         if let Some(value) = record.get("sessionId") {
-            let value = value
-                .as_str()
-                .ok_or_else(|| "Claude sessionId metadata is not a string".to_owned())?;
-            let record_id = SessionId::new(value)?;
+            let value = value.as_str().ok_or_else(|| {
+                CandidateFailure::invalid("Claude sessionId metadata is not a string")
+            })?;
+            let record_id = SessionId::new(value).map_err(CandidateFailure::invalid)?;
             if &record_id != filename_id {
-                return Err(format!(
+                return Err(CandidateFailure::invalid(format!(
                     "transcript metadata names session {record_id}, not {filename_id}"
-                ));
+                )));
             }
         }
         let Some(cwd) = record.get("cwd") else {
@@ -340,12 +424,14 @@ fn parse_claude(path: &Path, filename_id: &SessionId) -> Result<PathBuf, String>
         if cwd.is_null() || record.get("isSidechain") == Some(&Value::Bool(true)) {
             continue;
         }
-        let cwd = cwd
-            .as_str()
-            .ok_or_else(|| "Claude workspace metadata is not a string".to_owned())?;
+        let cwd = cwd.as_str().ok_or_else(|| {
+            CandidateFailure::invalid("Claude workspace metadata is not a string")
+        })?;
         return Ok(PathBuf::from(cwd));
     }
-    Err("the Claude Code session has no workspace".to_owned())
+    Err(CandidateFailure::invalid(
+        "the Claude Code session has no workspace",
+    ))
 }
 
 pub(crate) fn validate_snapshot_identity(
@@ -355,7 +441,8 @@ pub(crate) fn validate_snapshot_identity(
     expected_workspace: &Path,
 ) -> Result<(), String> {
     let (id, workspace) = match agent {
-        Agent::Codex => parse_codex(path)?
+        Agent::Codex => parse_codex(path)
+            .map_err(|failure| failure.message)?
             .ok_or_else(|| "the exported transcript is not a user Codex CLI session".to_string())?,
         Agent::Claude => parse_claude_snapshot(path, expected_id)?,
     };
@@ -421,35 +508,57 @@ pub(crate) fn materialize(
     agent: Agent,
     candidate: Candidate,
 ) -> Result<Session, String> {
-    workspace_relative(home, &candidate.workspace)?;
-    let metadata = fs::symlink_metadata(&candidate.transcript).map_err(|error| {
-        format!(
-            "could not inspect {}: {error}",
-            candidate.transcript.display()
-        )
+    materialize_for_catalog(home, agent, candidate).map_err(|failure| failure.message)
+}
+
+pub(crate) fn materialize_for_catalog(
+    home: &Path,
+    agent: Agent,
+    candidate: Candidate,
+) -> Result<Session, MaterializeFailure> {
+    workspace_relative(home, &candidate.workspace).map_err(|message| MaterializeFailure {
+        kind: MaterializeFailureKind::Invalid,
+        message,
     })?;
+    let metadata =
+        fs::symlink_metadata(&candidate.transcript).map_err(|error| MaterializeFailure {
+            kind: MaterializeFailureKind::Storage,
+            message: format!(
+                "could not inspect {}: {error}",
+                candidate.transcript.display()
+            ),
+        })?;
     if !metadata.file_type().is_file() {
-        return Err(format!(
-            "the transcript is not a regular file: {}",
-            candidate.transcript.display()
-        ));
+        return Err(MaterializeFailure {
+            kind: MaterializeFailureKind::Unsafe,
+            message: format!(
+                "the transcript is not a regular file: {}",
+                candidate.transcript.display()
+            ),
+        });
     }
     let companion = if agent == Agent::Claude {
         let path = candidate.transcript.with_extension("");
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata.file_type().is_dir() => Some(path),
             Ok(_) => {
-                return Err(format!(
-                    "the Claude session companion is not a safe directory: {}",
-                    path.display()
-                ));
+                return Err(MaterializeFailure {
+                    kind: MaterializeFailureKind::Unsafe,
+                    message: format!(
+                        "the Claude session companion is not a safe directory: {}",
+                        path.display()
+                    ),
+                });
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => {
-                return Err(format!(
-                    "could not inspect Claude session companion {}: {error}",
-                    path.display()
-                ));
+                return Err(MaterializeFailure {
+                    kind: MaterializeFailureKind::Storage,
+                    message: format!(
+                        "could not inspect Claude session companion {}: {error}",
+                        path.display()
+                    ),
+                });
             }
         }
     } else {
@@ -812,6 +921,26 @@ mod tests {
             ),
         );
         assert!(discover(&home, &workspace, Agent::Codex, Some(id)).is_err());
+    }
+
+    #[test]
+    fn catalog_candidate_failures_distinguish_invalid_records_from_storage_failures() {
+        let (_temporary, home) = home();
+        let invalid = codex_path(&home, "01", "invalid");
+        write(&invalid, "not json\n");
+        assert_eq!(
+            parse_candidate_for_catalog(Agent::Codex, invalid)
+                .unwrap_err()
+                .kind,
+            CandidateFailureKind::Invalid
+        );
+
+        assert_eq!(
+            parse_candidate_for_catalog(Agent::Codex, home.join("missing.jsonl"))
+                .unwrap_err()
+                .kind,
+            CandidateFailureKind::Storage
+        );
     }
 
     #[test]

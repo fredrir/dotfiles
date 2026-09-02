@@ -83,7 +83,7 @@ fn a_bare_noninteractive_invocation_prints_help_and_succeeds() {
 }
 
 #[test]
-fn the_hidden_catalog_protocol_is_machine_readable_without_session_stores() {
+fn the_hidden_catalog_treats_absent_optional_stores_as_a_clean_empty_catalog() {
     let directory = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args(["__machine", "catalog", "--protocol", "1", "--limit", "10"])
@@ -98,7 +98,7 @@ fn the_hidden_catalog_protocol_is_machine_readable_without_session_stores() {
     assert_eq!(value["kind"], "catalog");
     assert_eq!(value["ok"], true);
     assert_eq!(value["data"]["sessions"].as_array().unwrap().len(), 0);
-    assert_eq!(value["data"]["warnings"].as_array().unwrap().len(), 2);
+    assert!(value["data"]["warnings"].as_array().unwrap().is_empty());
 }
 
 #[test]

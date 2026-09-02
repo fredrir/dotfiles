@@ -29,13 +29,6 @@ impl Origin {
             Self::Remote => "remote",
         }
     }
-
-    pub(crate) fn short_label(self) -> &'static str {
-        match self {
-            Self::Local => "L",
-            Self::Remote => "R",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,7 +87,7 @@ pub(crate) struct SessionEntry {
 impl SessionEntry {
     pub(crate) fn searchable_text(&self) -> String {
         format!(
-            "{} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {} {}",
             self.title,
             self.project,
             self.workspace,
@@ -102,6 +95,33 @@ impl SessionEntry {
             self.agent.name(),
             self.origin.label(),
             self.host.as_deref().unwrap_or_default(),
+            self.updated,
+            if self.favorite {
+                "favorite starred"
+            } else {
+                ""
+            },
+        )
+    }
+
+    /// A plain-text description suitable for both terminal display and the
+    /// clipboard. Catalog strings are cleaned at this boundary as a final
+    /// guard against control characters reaching the user's terminal.
+    pub(crate) fn complete_description(&self) -> String {
+        format!(
+            "Summary: {}\nAgent: {}\nUpdated: {}\nProject: {}\nOrigin: {}\nHost: {}\nWorkspace: {}\nFavorite: {}\nSession ID: {}",
+            clean(&self.title),
+            self.agent.name(),
+            clean(&self.updated),
+            clean(&self.project),
+            self.origin.label(),
+            self.host
+                .as_deref()
+                .map(clean)
+                .unwrap_or_else(|| "local".into()),
+            clean(&self.workspace),
+            if self.favorite { "yes" } else { "no" },
+            clean(&self.id),
         )
     }
 }
@@ -118,9 +138,8 @@ impl CatalogSnapshot {
         self.warnings.append(&mut other.warnings);
         self.sessions.sort_by(|left, right| {
             right
-                .current_project
-                .cmp(&left.current_project)
-                .then_with(|| right.sort_timestamp.cmp(&left.sort_timestamp))
+                .sort_timestamp
+                .cmp(&left.sort_timestamp)
                 .then_with(|| left.host.cmp(&right.host))
                 .then_with(|| left.agent.name().cmp(right.agent.name()))
                 .then_with(|| left.id.cmp(&right.id))
@@ -156,8 +175,6 @@ impl Default for PickerOptions {
     fn default() -> Self {
         Self {
             color: std::env::var_os("NO_COLOR").is_none(),
-            // The UI currently has no animation. Keeping this explicit makes
-            // that accessibility contract durable if effects are added later.
             reduced_motion: reduced_motion_requested(),
             initial_action: PickerAction::HopAndOpen,
             initial_view: PickerView::default(),
@@ -181,14 +198,6 @@ impl OriginFilter {
             Self::Remote => Self::All,
         }
     }
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::All => "origin:all",
-            Self::Local => "origin:local",
-            Self::Remote => "origin:remote",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -207,14 +216,6 @@ impl AgentFilter {
             Self::Claude => Self::All,
         }
     }
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::All => "agent:all",
-            Self::Codex => "agent:codex",
-            Self::Claude => "agent:claude",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -231,14 +232,6 @@ impl ScopeFilter {
             Self::All => Self::CurrentProject,
             Self::CurrentProject => Self::Favorites,
             Self::Favorites => Self::All,
-        }
-    }
-
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::All => "scope:all",
-            Self::CurrentProject => "scope:project",
-            Self::Favorites => "scope:favorites",
         }
     }
 }

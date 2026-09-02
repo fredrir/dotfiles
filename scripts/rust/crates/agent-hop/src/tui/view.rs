@@ -2,67 +2,119 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
-use super::model::{Mode, Pane, PreviewState};
-use super::{Model, PickerAction, PickerOptions, PreviewDensity, SessionEntry, clean};
+use super::model::{Mode, PreviewState, ToolbarItem};
+use super::{
+    AgentFilter, Model, OriginFilter, PickerAction, PickerOptions, PreviewDensity, ScopeFilter,
+    SessionEntry, clean,
+};
 
-const WIDE: u16 = 110;
-const TINY: u16 = 70;
+const SIDE_BY_SIDE_WIDTH: u16 = 92;
+const FULL_CARD_WIDTH: u16 = 66;
+const FULL_CARD_HEIGHT: u16 = 5;
+const COMPACT_CARD_HEIGHT: u16 = 4;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Regions {
     pub(crate) header: Rect,
-    pub(crate) banner: Rect,
     pub(crate) list: Rect,
     pub(crate) preview: Rect,
     pub(crate) footer: Rect,
 }
 
-pub(crate) fn layout(area: Rect, focused: Pane) -> Regions {
-    let banner_height = 2.min(area.height.saturating_sub(1));
+pub(crate) fn layout(area: Rect) -> Regions {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3.min(area.height)),
-            Constraint::Length(banner_height),
-            Constraint::Min(3),
-            Constraint::Length(2.min(area.height)),
+            Constraint::Length(4.min(area.height)),
+            Constraint::Min(0),
+            Constraint::Length(1.min(area.height.saturating_sub(4))),
         ])
         .split(area);
     let mut regions = Regions {
         header: vertical[0],
-        banner: vertical[1],
-        list: Rect::default(),
+        list: vertical[1],
         preview: Rect::default(),
-        footer: vertical[3],
+        footer: vertical[2],
     };
-    if area.width < TINY || area.height < 16 {
-        match focused {
-            Pane::List => regions.list = vertical[2],
-            Pane::Preview => regions.preview = vertical[2],
-        }
+    let content = vertical[1];
+    if content.is_empty() {
+        return regions;
+    }
+
+    if area.width >= SIDE_BY_SIDE_WIDTH {
+        let target = (content.width.saturating_mul(58) / 100)
+            .max(40)
+            .min(content.width.saturating_sub(32));
+        let preview_width = target;
+        let gap = u16::from(preview_width > 0 && content.width > preview_width);
+        regions.list.width = content.width.saturating_sub(preview_width + gap);
+        regions.preview = Rect::new(
+            content.right().saturating_sub(preview_width),
+            content.y,
+            preview_width,
+            content.height,
+        );
     } else {
-        let percentage = if area.width >= WIDE { 42 } else { 48 };
-        let horizontal = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(percentage),
-                Constraint::Percentage(100 - percentage),
-            ])
-            .split(vertical[2]);
-        regions.list = horizontal[0];
-        regions.preview = horizontal[1];
+        let available = content
+            .height
+            .saturating_sub(COMPACT_CARD_HEIGHT.saturating_add(1));
+        let target = if available >= 3 {
+            (content.height.saturating_mul(58) / 100)
+                .max(3)
+                .min(available)
+        } else {
+            0
+        };
+        let preview_height = target;
+        let gap = u16::from(preview_height > 0 && content.height > preview_height);
+        regions.list.height = content.height.saturating_sub(preview_height + gap);
+        regions.preview = Rect::new(
+            content.x,
+            content.bottom().saturating_sub(preview_height),
+            content.width,
+            preview_height,
+        );
     }
     regions
 }
 
+fn ease_in_out(progress: f32) -> f32 {
+    progress * progress * (3.0 - 2.0 * progress)
+}
+
+fn animated_extent(target: u16, progress: f32) -> u16 {
+    ((f32::from(target) * progress).round() as u16)
+        .max(1)
+        .min(target)
+}
+
+fn compact_cards(list_area: Rect) -> bool {
+    list_area.width < FULL_CARD_WIDTH || list_area.height < FULL_CARD_HEIGHT.saturating_mul(3)
+}
+
+fn card_height(list_area: Rect) -> usize {
+    if compact_cards(list_area) {
+        usize::from(COMPACT_CARD_HEIGHT)
+    } else {
+        usize::from(FULL_CARD_HEIGHT)
+    }
+}
+
+pub(crate) fn list_page_size(area: Rect) -> usize {
+    let list = layout(area).list;
+    usize::from(list.height)
+        .checked_div(card_height(list))
+        .unwrap_or(0)
+        .max(1)
+}
+
 pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
     let area = frame.area();
-    let regions = layout(area, model.pane);
+    let regions = layout(area);
     frame.render_widget(Block::default().style(base(options)), area);
     render_header(frame, regions.header, model, options);
-    render_banner(frame, regions.banner, model, options);
     if regions.list.width > 0 && regions.list.height > 0 {
         render_list(frame, regions.list, model, options);
     }
@@ -82,143 +134,184 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
     if area.is_empty() {
         return;
     }
-    let title = Line::from(vec![
-        Span::styled(" agent-hop ", accent(options).add_modifier(Modifier::BOLD)),
-        Span::styled("session switcher", muted(options)),
-    ]);
-    let query = if model.mode == Mode::Search {
-        format!("/{}▏", clean(&model.query))
-    } else if model.query.is_empty() {
-        "/ search".into()
-    } else {
-        format!("/{}", clean(&model.query))
-    };
-    let chips = format!(
-        "[1 {}] [2 {}] [3 {}]",
-        model.origin_filter.label(),
-        model.agent_filter.label(),
-        model.scope_filter.label()
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area);
+    let heading = format!(
+        "Sessions  {} / {}",
+        if model.filtered.is_empty() {
+            0
+        } else {
+            model.selected + 1
+        },
+        model.filtered.len()
     );
-    let width = usize::from(area.width);
-    let line = if width >= 88 {
-        Line::from(vec![
+    let mut spans = vec![Span::styled(
+        format!(" {heading} "),
+        accent(options).add_modifier(Modifier::BOLD),
+    )];
+    if let Some(error) = &model.fatal_error {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            "Error: ",
+            danger(options).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(clean(error), normal(options)));
+        spans.push(Span::styled("  [r] retry", muted(options)));
+    } else {
+        if model.loading {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled("Updating…", muted(options)));
+        } else if let Some(status) = &model.status {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(clean(status), muted(options)));
+        }
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), rows[0]);
+    render_toolbar(frame, rows[1], model, options);
+}
+
+fn render_toolbar(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+    if area.is_empty() {
+        return;
+    }
+    let active = model.pane == super::model::Pane::List && model.mode == Mode::Browse;
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(if active && model.toolbar_focus.is_some() {
+            accent(options)
+        } else {
+            dim(options)
+        })
+        .title(Span::styled(
+            " Find sessions ",
+            if active && model.toolbar_focus == Some(ToolbarItem::Search) {
+                accent(options).add_modifier(Modifier::BOLD)
+            } else {
+                muted(options)
+            },
+        ));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.is_empty() {
+        return;
+    }
+
+    let compact = inner.width < 86;
+    let filter_width = if compact { 11 } else { 17 };
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(filter_width),
+            Constraint::Length(filter_width),
+            Constraint::Length(filter_width),
+        ])
+        .split(inner);
+    let search_focused = active && model.toolbar_focus == Some(ToolbarItem::Search);
+    let search_text = if model.query.is_empty() {
+        "Type to search".to_owned()
+    } else {
+        clean(&model.query)
+    };
+    let cursor = if search_focused { "▏" } else { "" };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("⌕ ", accent(options)),
             Span::styled(
-                query,
-                if model.mode == Mode::Search {
-                    selected(options)
+                truncate_tail(
+                    &search_text,
+                    usize::from(columns[0].width).saturating_sub(2 + cursor.chars().count()),
+                ),
+                if model.query.is_empty() {
+                    muted(options)
                 } else {
                     normal(options)
                 },
             ),
-            Span::raw("  "),
-            Span::styled(chips, muted(options)),
-        ])
-    } else if model.mode == Mode::Search {
-        Line::from(Span::styled(query, normal(options)))
-    } else if width >= 54 {
-        Line::from(Span::styled(chips, muted(options)))
-    } else {
-        Line::from(Span::styled(query, normal(options)))
-    };
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(area);
-    frame.render_widget(Paragraph::new(title), rows[0]);
-    frame.render_widget(Paragraph::new(line), rows[1]);
+            Span::styled(cursor, accent(options)),
+        ]))
+        .style(if search_focused {
+            selected_field(options)
+        } else {
+            normal(options)
+        }),
+        columns[0],
+    );
+
+    let filters = [
+        (
+            ToolbarItem::Origin,
+            filter_label(
+                if compact { "O" } else { "Origin" },
+                origin_filter_label(model.origin_filter),
+            ),
+        ),
+        (
+            ToolbarItem::Agent,
+            filter_label(
+                if compact { "A" } else { "Agent" },
+                agent_filter_label(model.agent_filter),
+            ),
+        ),
+        (
+            ToolbarItem::Scope,
+            filter_label(
+                if compact { "S" } else { "Scope" },
+                scope_filter_label(model.scope_filter),
+            ),
+        ),
+    ];
+    for ((item, label), area) in filters.into_iter().zip(columns[1..].iter().copied()) {
+        let focused = active && model.toolbar_focus == Some(item);
+        frame.render_widget(
+            Paragraph::new(label)
+                .alignment(Alignment::Center)
+                .style(if focused {
+                    selected(options)
+                } else {
+                    muted(options)
+                }),
+            area,
+        );
+    }
 }
 
-fn render_banner(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
-    if area.is_empty() {
-        return;
+fn filter_label(name: &str, value: &str) -> String {
+    format!("[{name} {value}]")
+}
+
+fn origin_filter_label(filter: OriginFilter) -> &'static str {
+    match filter {
+        OriginFilter::All => "All",
+        OriginFilter::Local => "Local",
+        OriginFilter::Remote => "Remote",
     }
-    let line = if model.loading {
-        let loading = if options.reduced_motion {
-            " LOADING ".to_string()
-        } else {
-            const SPINNER: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
-            let frame = usize::try_from((model.animation_frame / 4) % 8).unwrap_or(0);
-            format!(" {} LOADING ", SPINNER[frame])
-        };
-        Line::from(vec![
-            Span::styled(loading, accent(options).add_modifier(Modifier::BOLD)),
-            Span::styled(
-                if model.entries.is_empty() {
-                    "Discovering local sessions…"
-                } else {
-                    "Local sessions ready; fetching remote sessions…"
-                },
-                normal(options),
-            ),
-        ])
-    } else if let Some(error) = &model.fatal_error {
-        Line::from(vec![
-            Span::styled(" ERROR ", danger(options).add_modifier(Modifier::BOLD)),
-            Span::styled(clean(error), normal(options)),
-            Span::styled("  r retry", muted(options)),
-        ])
-    } else if let Some(status) = &model.status {
-        Line::from(vec![
-            Span::styled(" NOTE ", accent(options).add_modifier(Modifier::BOLD)),
-            Span::styled(clean(status), normal(options)),
-        ])
-    } else if !model.warnings.is_empty() {
-        let more = if model.warnings.len() > 1 {
-            format!(" (+{} more)", model.warnings.len() - 1)
-        } else {
-            String::new()
-        };
-        Line::from(vec![
-            Span::styled(" WARNING ", warning(options).add_modifier(Modifier::BOLD)),
-            Span::styled(clean(&model.warnings[0]), normal(options)),
-            Span::styled(more, muted(options)),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled(" READY ", success(options).add_modifier(Modifier::BOLD)),
-            Span::styled(
-                format!(
-                    "{} session{} · {} shown",
-                    model.entries.len(),
-                    if model.entries.len() == 1 { "" } else { "s" },
-                    model.filtered.len()
-                ),
-                muted(options),
-            ),
-        ])
-    };
-    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn agent_filter_label(filter: AgentFilter) -> &'static str {
+    match filter {
+        AgentFilter::All => "All",
+        AgentFilter::Codex => "Codex",
+        AgentFilter::Claude => "Claude",
+    }
+}
+
+fn scope_filter_label(filter: ScopeFilter) -> &'static str {
+    match filter {
+        ScopeFilter::All => "All",
+        ScopeFilter::CurrentProject => "Project",
+        ScopeFilter::Favorites => "Starred",
+    }
 }
 
 fn render_list(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
-    let focused = model.pane == Pane::List;
-    let border = if focused {
-        accent(options)
-    } else {
-        dim(options)
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(border)
-        .title(format!(
-            " Sessions {}/{} ",
-            if model.filtered.is_empty() {
-                0
-            } else {
-                model.selected + 1
-            },
-            model.filtered.len()
-        ));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
     if model.loading && model.entries.is_empty() {
         frame.render_widget(
             Paragraph::new("Scanning session indexes…").style(muted(options)),
-            inner,
+            area,
         );
         return;
     }
@@ -233,112 +326,268 @@ fn render_list(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Picker
                 .style(muted(options))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true }),
-            inner,
+            area,
         );
         return;
     }
+    let compact = compact_cards(area);
+    let height = card_height(area);
+    let page_size = usize::from(area.height)
+        .checked_div(height)
+        .unwrap_or(0)
+        .max(1);
     let end = model
         .list_offset
-        .saturating_add(usize::from(inner.height))
+        .saturating_add(page_size)
         .min(model.filtered.len());
-    let lines = model.filtered[model.list_offset..end]
-        .iter()
-        .enumerate()
-        .map(|(visible, index)| {
-            session_line(
-                &model.entries[*index],
-                model.list_offset + visible == model.selected,
-                inner.width,
-                options,
-            )
-        })
-        .collect::<Vec<_>>();
-    frame.render_widget(Paragraph::new(lines), inner);
+    for (visible, index) in model.filtered[model.list_offset..end].iter().enumerate() {
+        let y = area.y.saturating_add((visible * height) as u16);
+        let visible_height = area.bottom().saturating_sub(y).min(height as u16);
+        let card_area = Rect::new(area.x, y, area.width, visible_height);
+        render_session_card(
+            frame,
+            card_area,
+            &model.entries[*index],
+            model.list_offset + visible == model.selected,
+            compact,
+            options,
+        );
+    }
 }
 
-fn session_line(
+fn render_session_card(
+    frame: &mut Frame<'_>,
+    area: Rect,
     entry: &SessionEntry,
     is_selected: bool,
-    width: u16,
+    compact: bool,
     options: PickerOptions,
-) -> Line<'static> {
-    let cursor = if is_selected { "›" } else { " " };
-    let agent = match entry.agent.name() {
-        "codex" => "C",
-        _ => "A",
-    };
-    let favorite = if entry.favorite { "★" } else { " " };
-    let state = if entry.disabled_reason.is_some() {
-        "×"
-    } else if entry.warning.is_some() {
-        "!"
-    } else if entry.current_project {
-        "●"
+) {
+    if area.is_empty() {
+        return;
+    }
+    let title_style = if is_selected {
+        accent(options).add_modifier(Modifier::BOLD)
     } else {
-        " "
+        muted(options)
     };
-    let prefix = format!(
-        "{cursor} [{agent}{}] {favorite}{state} ",
-        entry.origin.short_label()
-    );
-    let suffix = format!("  {}", clean(&entry.updated));
-    let available = usize::from(width)
-        .saturating_sub(prefix.chars().count())
-        .saturating_sub(suffix.chars().count());
-    let title = truncate(&clean(&entry.title), available.max(1));
-    let line_style = if is_selected {
-        selected(options)
-    } else if entry.disabled_reason.is_some() {
-        dim(options)
-    } else {
-        normal(options)
-    };
-    Line::from(vec![
-        Span::styled(prefix, line_style.add_modifier(Modifier::BOLD)),
-        Span::styled(title, line_style),
-        Span::styled(suffix, line_style),
-    ])
-}
-
-fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
-    let focused = model.pane == Pane::Preview;
+    let mut card_title = vec![Span::styled(
+        if is_selected { " ◆ " } else { "   " },
+        title_style,
+    )];
+    card_title.push(badge(
+        agent_label(entry.agent.name()),
+        agent_badge(entry.agent.name(), options),
+        options,
+    ));
+    card_title.push(Span::raw("  "));
+    card_title.push(Span::styled(clean(&entry.updated), muted(options)));
+    if entry.favorite {
+        card_title.push(Span::raw("  "));
+        card_title.push(Span::styled("★", warning(options)));
+    }
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(if focused {
+        .border_type(BorderType::Rounded)
+        .style(if is_selected {
+            selected_card(options)
+        } else {
+            normal(options)
+        })
+        .border_style(if is_selected {
             accent(options)
         } else {
             dim(options)
         })
-        .title(format!(" Preview · {} ", model.preview_density.label()));
+        .title(Line::from(card_title));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let Some(entry) = model.selected_entry() else {
+    if inner.is_empty() {
+        return;
+    }
+    let cursor = if is_selected { "› " } else { "  " };
+    let available = usize::from(inner.width).saturating_sub(cursor.chars().count());
+    let title = truncate(&clean(&entry.title), available.max(1));
+    let title_style = if entry.disabled_reason.is_some() {
+        dim(options)
+    } else if is_selected {
+        normal(options).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+    } else {
+        normal(options).add_modifier(Modifier::BOLD)
+    };
+    let mut lines = vec![Line::from(vec![
+        Span::styled(cursor, accent(options)),
+        Span::styled(title, title_style),
+    ])];
+    let host = entry.host.as_deref().unwrap_or("This host");
+    if compact {
+        let location = format!(
+            "  {}  {}  {}",
+            clean(&entry.project),
+            clean(host),
+            clean(&entry.workspace),
+        );
+        lines.push(Line::from(vec![
+            Span::styled("  ", muted(options)),
+            Span::styled(
+                truncate(&location[2..], usize::from(inner.width).saturating_sub(2)),
+                muted(options),
+            ),
+        ]));
+    } else {
+        lines.push(labelled_line(
+            "PROJECT",
+            &clean(&entry.project),
+            inner.width,
+            options,
+        ));
+        lines.push(labelled_line(
+            "LOCATION",
+            &format!("{}  {}", clean(host), clean(&entry.workspace)),
+            inner.width,
+            options,
+        ));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn labelled_line(
+    label: &'static str,
+    value: &str,
+    width: u16,
+    options: PickerOptions,
+) -> Line<'static> {
+    let prefix = format!("  {label:<10}");
+    let available = usize::from(width).saturating_sub(prefix.chars().count());
+    Line::from(vec![
+        Span::styled(prefix, dim(options).add_modifier(Modifier::BOLD)),
+        Span::styled(truncate(value, available), muted(options)),
+    ])
+}
+
+fn badge(label: impl Into<String>, style: Style, options: PickerOptions) -> Span<'static> {
+    let label = label.into();
+    if options.color {
+        Span::styled(format!(" {label} "), style.add_modifier(Modifier::BOLD))
+    } else {
+        Span::styled(format!("[{label}]"), style.add_modifier(Modifier::BOLD))
+    }
+}
+
+fn agent_badge(name: &str, options: PickerOptions) -> Style {
+    if !options.color {
+        return Style::default().add_modifier(Modifier::BOLD);
+    }
+    match name {
+        "codex" => Style::default()
+            .fg(Color::Rgb(216, 180, 254))
+            .bg(Color::Rgb(76, 29, 149)),
+        "claude" => Style::default()
+            .fg(Color::Rgb(254, 215, 170))
+            .bg(Color::Rgb(124, 45, 18)),
+        _ => Style::default()
+            .fg(Color::Rgb(203, 213, 225))
+            .bg(Color::Rgb(51, 65, 85)),
+    }
+}
+
+fn agent_label(name: &str) -> &'static str {
+    match name {
+        "codex" => "Codex",
+        "claude" => "Claude",
+        _ => "Agent",
+    }
+}
+
+fn density_label(density: PreviewDensity) -> &'static str {
+    match density {
+        PreviewDensity::Conversation => "Conversation",
+        PreviewDensity::Compact => "Compact conversation",
+        PreviewDensity::Metadata => "Details only",
+    }
+}
+
+fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+    let selected_session = model.preview_entry().is_some();
+    let mut title = vec![Span::styled(
+        " Preview ",
+        if selected_session {
+            accent(options).add_modifier(Modifier::BOLD)
+        } else {
+            muted(options).add_modifier(Modifier::BOLD)
+        },
+    )];
+    if selected_session {
+        title.push(Span::styled(
+            density_label(model.preview_density),
+            muted(options),
+        ));
+        title.push(Span::raw(" "));
+    }
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(if selected_session {
+            accent(options)
+        } else {
+            dim(options)
+        })
+        .title(Line::from(title));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.is_empty() {
+        return;
+    }
+    let Some(entry) = model.preview_entry() else {
+        let message_area = centered(inner, inner.width.saturating_sub(2), 3.min(inner.height));
         frame.render_widget(
-            Paragraph::new("Select a session to preview it.")
-                .style(muted(options))
-                .alignment(Alignment::Center),
-            inner,
+            Paragraph::new(vec![
+                Line::from(Span::styled(
+                    "Latest session highlighted",
+                    normal(options).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled("Press ↓ to enter the list", muted(options))),
+                Line::from(Span::styled("Press Enter to preview", accent(options))),
+            ])
+            .alignment(Alignment::Center),
+            message_area,
         );
         return;
     };
-    let host = entry.host.as_deref().unwrap_or("this host");
+    let reveal = preview_reveal(inner, ease_in_out(model.preview_progress()));
+    if reveal.is_empty() {
+        return;
+    }
+    let host = entry.host.as_deref().unwrap_or("This host");
     let mut lines = vec![
         Line::from(Span::styled(
             clean(&entry.title),
-            accent(options).add_modifier(Modifier::BOLD),
+            normal(options).add_modifier(Modifier::BOLD),
         )),
+        Line::default(),
         Line::from(vec![
-            Span::styled(
-                format!("{} · {} · ", entry.agent.name(), entry.origin.label()),
-                muted(options),
+            badge(
+                agent_label(entry.agent.name()),
+                agent_badge(entry.agent.name(), options),
+                options,
             ),
-            Span::styled(clean(host), normal(options)),
+            Span::raw("  "),
+            badge(clean(&entry.updated), muted(options), options),
+            Span::raw("  "),
+            badge(clean(&entry.project), muted(options), options),
         ]),
-        Line::from(Span::styled(clean(&entry.workspace), muted(options))),
-        Line::from(Span::styled(
-            format!("id {}", clean(&entry.id)),
-            dim(options),
-        )),
+        Line::default(),
+        Line::from(vec![
+            Span::styled("LOCATION   ", dim(options).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{}  {}", clean(host), clean(&entry.workspace)),
+                normal(options),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("SESSION    ", dim(options).add_modifier(Modifier::BOLD)),
+            Span::styled(clean(&entry.id), dim(options)),
+        ]),
         Line::default(),
     ];
     if let Some(reason) = &entry.disabled_reason {
@@ -353,42 +602,40 @@ fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pic
     }
     if let Some(warning_text) = &entry.warning {
         lines.push(Line::from(vec![
-            Span::styled("Warning: ", warning(options).add_modifier(Modifier::BOLD)),
-            Span::styled(clean(warning_text), normal(options)),
+            Span::styled("! ", warning(options).add_modifier(Modifier::BOLD)),
+            Span::styled(clean(warning_text), muted(options)),
         ]));
         lines.push(Line::default());
     }
     if model.preview_density == PreviewDensity::Metadata {
-        lines.extend([
-            Line::from(vec![
-                Span::styled("project  ", muted(options)),
-                Span::styled(clean(&entry.project), normal(options)),
-            ]),
-            Line::from(vec![
-                Span::styled("updated  ", muted(options)),
-                Span::styled(clean(&entry.updated), normal(options)),
-            ]),
-            Line::from(vec![
-                Span::styled("favorite ", muted(options)),
-                Span::styled(if entry.favorite { "yes" } else { "no" }, normal(options)),
-            ]),
-            Line::default(),
-            Line::from(Span::styled(
-                "Press v for a transcript preview.",
-                muted(options),
-            )),
-        ]);
+        lines.push(Line::from(Span::styled(
+            "Press v to show conversation text.",
+            muted(options),
+        )));
     } else {
         render_conversation(&mut lines, model, options);
     }
     let paragraph = Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false });
     let maximum = paragraph
-        .line_count(inner.width)
-        .saturating_sub(usize::from(inner.height));
+        .line_count(reveal.width)
+        .saturating_sub(usize::from(reveal.height));
     let scroll = usize::from(model.preview_scroll)
         .min(maximum)
         .min(usize::from(u16::MAX)) as u16;
-    frame.render_widget(paragraph.scroll((scroll, 0)), inner);
+    frame.render_widget(paragraph.scroll((scroll, 0)), reveal);
+}
+
+fn preview_reveal(area: Rect, progress: f32) -> Rect {
+    if area.is_empty() || progress <= f32::EPSILON {
+        return Rect::default();
+    }
+    let width = animated_extent(area.width, progress);
+    Rect::new(
+        area.right().saturating_sub(width),
+        area.y,
+        width,
+        area.height,
+    )
 }
 
 fn render_conversation(lines: &mut Vec<Line<'static>>, model: &Model, options: PickerOptions) {
@@ -404,7 +651,7 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, model: &Model, options: P
         Some(PreviewState::Ready(preview)) => {
             if let Some(preview_warning) = &preview.warning {
                 lines.push(Line::from(vec![
-                    Span::styled("Preview warning: ", warning(options)),
+                    Span::styled("! ", warning(options)),
                     Span::styled(clean(preview_warning), muted(options)),
                 ]));
                 lines.push(Line::default());
@@ -448,68 +695,69 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
     if area.is_empty() {
         return;
     }
-    let compact = area.width < 72;
-    let hints = if model.mode == Mode::Search {
-        "type to filter · Enter done · Ctrl-U clear · Esc done"
-    } else if compact {
-        "↕ move · Enter review · x reset · ! warnings · ? help"
+    let hints = if model.preview_actions_enabled() {
+        "[Esc] close   [Space] actions   [?] shortcuts"
+    } else if model.toolbar_focus == Some(ToolbarItem::Search) {
+        "Type to search   [←→] filters   [↓] sessions"
+    } else if model.toolbar_focus.is_some() {
+        "[←→] choose filter   [Enter] change   [↓] sessions"
     } else {
-        "↑↓/jk move · Tab pane · Enter review · v preview · f favorite · y copy ID · ! warnings · r refresh · ? help · q quit"
+        "[↑] search   [Enter] preview   [?] shortcuts"
     };
-    let pane = match model.pane {
-        Pane::List => "LIST",
-        Pane::Preview => "PREVIEW",
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!(" {pane} "),
-                selected(options).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(hints, muted(options)),
-        ])),
-        area,
-    );
+    let issue_width = if model.warnings.is_empty() { 0 } else { 8 };
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(issue_width)])
+        .split(area);
+    frame.render_widget(Paragraph::new(hints).style(muted(options)), columns[0]);
+    if issue_width > 0 {
+        frame.render_widget(
+            Paragraph::new(format!("! {}", model.warnings.len()))
+                .style(warning(options))
+                .alignment(Alignment::Right),
+            columns[1],
+        );
+    }
 }
 
 fn render_help(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
     let popup = centered(
         area,
         72.min(area.width.saturating_sub(2)),
-        21.min(area.height.saturating_sub(2)),
+        24.min(area.height.saturating_sub(2)),
     );
     frame.render_widget(Clear, popup);
     let text = Text::from(vec![
         Line::from(Span::styled(
-            "Move",
+            "Search and filter",
             accent(options).add_modifier(Modifier::BOLD),
         )),
-        Line::from("  ↑/↓, j/k, Ctrl-N/P   one row"),
-        Line::from("  PageUp/Down, Home/End page or edge"),
-        Line::from("  Tab                   switch list/preview"),
+        Line::from("  Type                  search immediately"),
+        Line::from("  ←/→ choose; Enter/Space change a filter"),
+        Line::from("  ↓                     enter the session list"),
         Line::default(),
         Line::from(Span::styled(
-            "Find and filter",
+            "Browse sessions",
             accent(options).add_modifier(Modifier::BOLD),
         )),
-        Line::from("  /                     fuzzy token search"),
-        Line::from("  1/o, 2/a, 3/s         origin, agent, scope"),
-        Line::from("  v                     preview density"),
-        Line::from("  x                     reset search + filters"),
-        Line::default(),
-        Line::from(Span::styled(
-            "Act",
-            accent(options).add_modifier(Modifier::BOLD),
-        )),
-        Line::from("  Enter                 review, then apply"),
-        Line::from("  f                     favorite/unfavorite"),
-        Line::from("  y                     copy session ID"),
+        Line::from("  ↑/↓, j/k, Ctrl-N/P   one session"),
+        Line::from("  PageUp/Down, Home/End page or first/last"),
+        Line::from("  /                     return to search"),
+        Line::from("  Enter                 explicitly open preview"),
         Line::from("  r                     refresh local + remote"),
-        Line::from("  ! / w                 inspect all warnings"),
-        Line::from("  q / Esc / Ctrl-C      cancel safely"),
         Line::default(),
         Line::from(Span::styled(
-            "Click rows or scroll with the mouse.  ? closes help.",
+            "Selected session preview",
+            accent(options).add_modifier(Modifier::BOLD),
+        )),
+        Line::from("  Space                 show transfer actions"),
+        Line::from("  f favorite   y copy complete session details   v detail"),
+        Line::from("  ↑/↓, j/k scroll       Esc return to sessions"),
+        Line::from("  ! / w                 inspect actionable issues"),
+        Line::from("  Ctrl-C                cancel from anywhere"),
+        Line::default(),
+        Line::from(Span::styled(
+            "Drag to select terminal text.  ? closes help.",
             muted(options),
         )),
     ]);
@@ -533,7 +781,7 @@ fn render_diagnostics(frame: &mut Frame<'_>, area: Rect, model: &Model, options:
     );
     frame.render_widget(Clear, popup);
     let mut lines = vec![Line::from(Span::styled(
-        "All catalog warnings",
+        "Actionable catalog issues",
         warning(options).add_modifier(Modifier::BOLD),
     ))];
     for (index, item) in model.warnings.iter().enumerate() {
@@ -545,13 +793,13 @@ fn render_diagnostics(frame: &mut Frame<'_>, area: Rect, model: &Model, options:
     }
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
-        "↑/↓ scroll · !, w, Enter, or Esc closes",
+        "[↑↓] scroll   [!] [w] [Enter] [Esc] close",
         muted(options),
     )));
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
-                .title(" Diagnostics ")
+                .title(" Issues ")
                 .borders(Borders::ALL)
                 .border_style(warning(options)),
         )
@@ -578,11 +826,11 @@ fn overlay_scroll(paragraph: &Paragraph<'_>, area: Rect, requested: u16) -> u16 
 fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
     let popup = review_area(area);
     frame.render_widget(Clear, popup);
-    let Some(entry) = model.selected_entry() else {
+    let Some(entry) = model.preview_entry() else {
         return;
     };
     let block = Block::default()
-        .title(" Review transfer ")
+        .title(" Transfer actions ")
         .borders(Borders::ALL)
         .border_style(accent(options));
     let inner = block.inner(popup);
@@ -608,7 +856,7 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
                     PickerAction::ALL[model.review_action].description(),
                     muted(options),
                 )),
-                Line::from("←/→ choose · Enter apply · Esc back"),
+                Line::from("[Space] opened actions   [←→] choose   [Enter] apply   [Esc] back"),
             ]
         } else if inner.height >= 2 {
             vec![
@@ -616,7 +864,7 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
                     format!("Apply: {action}"),
                     selected(options).add_modifier(Modifier::BOLD),
                 )),
-                Line::from("←/→ choose · Enter apply · Esc back"),
+                Line::from("[←→] choose   [Enter] apply   [Esc] back"),
             ]
         } else {
             vec![Line::from(Span::styled(
@@ -644,8 +892,8 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
             )),
             Line::from(Span::styled(
                 format!(
-                    "{} · {} · {}",
-                    entry.agent.name(),
+                    "{}   {}   {}",
+                    agent_label(entry.agent.name()),
                     entry.origin.label(),
                     clean(&entry.project)
                 ),
@@ -677,35 +925,10 @@ fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
         );
     }
     frame.render_widget(
-        Paragraph::new("←/→ choose · Enter apply · Esc back").style(muted(options)),
+        Paragraph::new("[Space] opened actions   [←→] choose   [Enter] apply   [Esc] back")
+            .style(muted(options)),
         rows[3],
     );
-}
-
-pub(crate) fn review_hit(area: Rect, column: u16, row: u16) -> Option<usize> {
-    if !review_can_apply(area) {
-        return None;
-    }
-    let popup = review_area(area);
-    if popup.height < 10 {
-        return None;
-    }
-    let inner = popup.inner(Margin {
-        horizontal: 1,
-        vertical: 1,
-    });
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(3),
-            Constraint::Min(1),
-        ])
-        .split(inner);
-    review_buttons(rows[2])
-        .into_iter()
-        .position(|button| button.contains((column, row).into()))
 }
 
 pub(crate) fn review_can_apply(area: Rect) -> bool {
@@ -754,6 +977,21 @@ fn truncate(value: &str, width: usize) -> String {
     let mut result = value.chars().take(width - 1).collect::<String>();
     result.push('…');
     result
+}
+
+fn truncate_tail(value: &str, width: usize) -> String {
+    let count = value.chars().count();
+    if count <= width {
+        return value.to_string();
+    }
+    if width <= 1 {
+        return "…".chars().take(width).collect();
+    }
+    let tail = value
+        .chars()
+        .skip(count.saturating_sub(width - 1))
+        .collect::<String>();
+    format!("…{tail}")
 }
 
 fn base(options: PickerOptions) -> Style {
@@ -833,14 +1071,33 @@ fn selected(options: PickerOptions) -> Style {
     }
 }
 
+fn selected_field(options: PickerOptions) -> Style {
+    if options.color {
+        Style::default().bg(Color::Rgb(21, 28, 48))
+    } else {
+        Style::default().add_modifier(Modifier::BOLD)
+    }
+}
+
+fn selected_card(options: PickerOptions) -> Style {
+    if options.color {
+        Style::default()
+            .fg(Color::Rgb(241, 245, 249))
+            .bg(Color::Rgb(21, 28, 48))
+    } else {
+        Style::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
     use super::*;
     use crate::cli::Agent;
-    use crate::tui::{CatalogSnapshot, Origin};
+    use crate::tui::{CatalogSnapshot, Origin, UiEvent};
 
     fn model() -> Model {
         let mut model = Model::new();
@@ -891,56 +1148,157 @@ mod tests {
             .backend()
             .buffer()
             .content()
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect()
+            .chunks(usize::from(width))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn with_open_preview(mut model: Model, transition: u16) -> Model {
+        model.set_reduced_motion(true);
+        let _ = model.apply(UiEvent::Key(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )));
+        let _ = model.apply(UiEvent::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        model.preview_transition = transition;
+        model
     }
 
     #[test]
-    fn wide_layout_renders_list_preview_diagnostics_and_explicit_labels() {
+    fn default_workspace_has_search_filters_compact_list_and_empty_preview() {
         let text = rendered(120, 28, model());
-        assert!(text.contains("agent-hop"), "{text:?}");
-        assert!(text.contains("Sessions 1/1"), "{text:?}");
+        assert!(text.contains("Sessions  1 / 1"), "{text:?}");
+        assert!(
+            text.contains("Make the session picker beautiful"),
+            "{text:?}"
+        );
+        assert!(text.contains("╭"), "{text:?}");
+        assert!(text.contains("╰"), "{text:?}");
+        assert!(text.contains("[Claude]"), "{text:?}");
+        assert!(text.contains("Find sessions"), "{text:?}");
+        assert!(text.contains("Type to search"), "{text:?}");
+        assert!(text.contains("[Origin All]"), "{text:?}");
+        assert!(text.contains("[Agent All]"), "{text:?}");
+        assert!(text.contains("[Scope All]"), "{text:?}");
+        assert!(text.contains("dotfiles"), "{text:?}");
+        assert!(text.contains("archie"), "{text:?}");
+        assert!(text.contains("! 1"), "{text:?}");
         assert!(text.contains("Preview"), "{text:?}");
-        assert!(text.contains("WARNING"), "{text:?}");
-        assert!(text.contains("[AR]"), "{text:?}");
+        assert!(text.contains("Latest session highlighted"), "{text:?}");
+        assert!(text.contains("Press Enter to preview"), "{text:?}");
+        assert!(!text.contains("Preview Conversation"), "{text:?}");
+        assert!(!text.contains("agent-hop"), "{text:?}");
+        assert!(!text.contains("WARNING"), "{text:?}");
+        assert!(!text.contains('\u{b7}'), "{text:?}");
     }
 
     #[test]
-    fn tiny_layout_shows_only_the_focused_pane() {
-        let mut list = model();
-        list.pane = Pane::List;
-        let list_text = rendered(48, 14, list);
-        assert!(list_text.contains("Sessions"));
-        assert!(!list_text.contains("Preview"));
+    fn open_preview_keeps_list_visible_and_compacts_it_on_the_left() {
+        let model = with_open_preview(model(), 1_000);
+        let regions = layout(Rect::new(0, 0, 120, 28));
+        assert!(regions.list.width > 0);
+        assert!(regions.preview.width > regions.list.width);
+        assert_eq!(regions.list.y, regions.preview.y);
 
-        let mut preview = model();
-        preview.pane = Pane::Preview;
-        let preview_text = rendered(48, 14, preview);
-        assert!(preview_text.contains("Preview"));
-        assert!(!preview_text.contains("Sessions 1/1"));
+        let text = rendered(120, 28, model);
+        assert!(text.contains("Sessions  1 / 1"), "{text:?}");
+        assert!(text.contains("Preview Conversation"), "{text:?}");
+        assert!(
+            text.contains("Make the session picker beautiful"),
+            "{text:?}"
+        );
+        assert!(text.contains("dotfiles  archie"), "{text:?}");
+        assert!(text.contains("[Esc] close"), "{text:?}");
+        assert!(!text.contains('\u{b7}'), "{text:?}");
+    }
+
+    #[test]
+    fn narrow_preview_stacks_below_a_visible_two_line_card() {
+        let model = with_open_preview(model(), 1_000);
+        let regions = layout(Rect::new(0, 0, 48, 14));
+        assert!(regions.list.height >= COMPACT_CARD_HEIGHT);
+        assert!(regions.preview.height > 0);
+        assert!(regions.preview.y > regions.list.y);
+        assert_eq!(regions.list.width, regions.preview.width);
+
+        let text = rendered(48, 14, model);
+        assert!(text.contains("Sessions"), "{text:?}");
+        assert!(text.contains("[Claude]"), "{text:?}");
+        assert!(text.contains("Preview Conversation"), "{text:?}");
+        assert!(!text.contains('\u{b7}'), "{text:?}");
+    }
+
+    #[test]
+    fn split_workspace_is_stable_before_and_after_explicit_preview() {
+        let area = Rect::new(0, 0, 120, 28);
+        let workspace = layout(area);
+        assert!(workspace.list.width > 0);
+        assert!(workspace.preview.width > workspace.list.width);
+        assert!(workspace.list.right() < workspace.preview.x);
+
+        let inner = Rect::new(0, 0, 60, 20);
+        let hidden = preview_reveal(inner, 0.0);
+        let midpoint = preview_reveal(inner, 0.5);
+        let shown = preview_reveal(inner, 1.0);
+        assert!(hidden.is_empty());
+        assert!(midpoint.width > 0 && midpoint.width < shown.width);
+        assert_eq!(shown, inner);
+    }
+
+    #[test]
+    fn page_size_tracks_responsive_card_and_preview_geometry() {
+        assert_eq!(list_page_size(Rect::new(0, 0, 120, 24)), 4);
+        assert_eq!(list_page_size(Rect::new(0, 0, 100, 24)), 4);
+        assert_eq!(list_page_size(Rect::new(0, 0, 80, 24)), 1);
+        assert_eq!(list_page_size(Rect::new(0, 0, 48, 14)), 1);
+    }
+
+    #[test]
+    fn toolbar_shows_search_and_current_filter_values() {
+        let all = rendered(100, 24, model());
+        assert!(all.contains("[Origin All]"), "{all:?}");
+        assert!(all.contains("[Agent All]"), "{all:?}");
+        assert!(all.contains("[Scope All]"), "{all:?}");
+
+        let mut filtered = model();
+        filtered.origin_filter = OriginFilter::Remote;
+        filtered.agent_filter = AgentFilter::Claude;
+        filtered.scope_filter = ScopeFilter::Favorites;
+        let text = rendered(100, 24, filtered);
+        assert!(text.contains("[Origin Remote]"), "{text:?}");
+        assert!(text.contains("[Agent Claude]"), "{text:?}");
+        assert!(text.contains("[Scope Starred]"), "{text:?}");
     }
 
     #[test]
     fn review_and_help_are_rendered_as_modal_overlays() {
-        let mut review = model();
+        let mut review = with_open_preview(model(), 1_000);
         review.mode = Mode::Review;
         let review_text = rendered(100, 26, review);
-        assert!(review_text.contains("Review transfer"));
+        assert!(review_text.contains("Transfer actions"));
         assert!(review_text.contains("Hop & open"));
         assert!(review_text.contains("Copy only"));
         assert!(review_text.contains("Dry run"));
+        assert!(review_text.contains("[Space] opened actions"));
+        assert!(!review_text.contains('\u{b7}'), "{review_text:?}");
 
         let mut help = model();
         help.mode = Mode::Help;
         let help_text = rendered(100, 26, help);
-        assert!(help_text.contains("fuzzy token search"));
+        assert!(help_text.contains("search immediately"));
+        assert!(help_text.contains("explicitly open preview"));
+        assert!(help_text.contains("copy complete session details"));
+        assert!(help_text.contains("Drag to select terminal text"));
+        assert!(!help_text.contains('\u{b7}'), "{help_text:?}");
     }
 
     #[test]
     fn wrapped_preview_can_scroll_all_the_way_to_its_tail() {
-        let mut model = model();
-        model.pane = Pane::Preview;
+        let mut model = with_open_preview(model(), 1_000);
         model.preview_scroll = u16::MAX;
         model.previews.insert(
             "remote:one".into(),
@@ -962,26 +1320,23 @@ mod tests {
         let mut diagnostics = model();
         diagnostics.mode = Mode::Diagnostics;
         let diagnostic_text = rendered(64, 14, diagnostics);
-        assert!(diagnostic_text.contains("Diagnostics"));
+        assert!(diagnostic_text.contains("Issues"));
         assert!(diagnostic_text.contains("remote host"));
 
-        let mut review = model();
+        let mut review = with_open_preview(model(), 1_000);
         review.mode = Mode::Review;
         let review_text = rendered(64, 9, review);
         assert!(review_text.contains("Hop & open"));
-        assert!(review_text.contains("Enter apply"));
+        assert!(review_text.contains("[Enter]"));
 
-        let mut very_short = model();
+        let mut very_short = with_open_preview(model(), 1_000);
         very_short.mode = Mode::Review;
         let very_short_text = rendered(30, 6, very_short);
         assert!(
             very_short_text.contains("Hop & open"),
             "{very_short_text:?}"
         );
-        assert!(
-            very_short_text.contains("Enter apply"),
-            "{very_short_text:?}"
-        );
+        assert!(very_short_text.contains("[Enter]"), "{very_short_text:?}");
     }
 
     #[test]
