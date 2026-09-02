@@ -7,6 +7,6 @@ return {
   opts = {
     delay = 0,
     icons = { mappings = vim.g.have_nerd_font },
-    spec = require("core.keymaps").which_key_groups,
+    spec = require("core.keymap").which_key_groups,
   },
 }

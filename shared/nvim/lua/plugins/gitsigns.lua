@@ -11,6 +11,6 @@ return {
       topdelete = { text = "‾" }, ---@diagnostic disable-line: missing-fields
       changedelete = { text = "~" }, ---@diagnostic disable-line: missing-fields
     },
-    on_attach = require("core.keymaps").gitsigns,
+    on_attach = require("core.keymap").gitsigns,
   },
 }

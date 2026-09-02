@@ -18,7 +18,7 @@ return {
         hide_dotfiles = false,
       },
       window = {
-        mappings = require("core.keymaps").neo_tree_window,
+        mappings = require("core.keymap").neo_tree_window,
       },
     },
   },

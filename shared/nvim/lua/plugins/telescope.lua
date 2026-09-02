@@ -1,4 +1,4 @@
-local keymaps = require "core.keymaps"
+local keymaps = require "core.keymap"
 
 return {
   "nvim-telescope/telescope.nvim",

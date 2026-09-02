@@ -44,6 +44,15 @@ M.neo_tree_window = {
   ["\\"] = "close_window",
 }
 
+if vim.fn.has "macunix" == 1 then
+  map("n", "'", "<cmd>Neotree toggle<CR>", {
+    desc = "Toggle NeoTree",
+    silent = true,
+  })
+
+  M.neo_tree_window["'"] = "close_window"
+end
+
 -- Diagnostics --
 
 map("n", "<leader>q", vim.diagnostic.setloclist, { desc = "Open diagnostic [Q]uickfix list" })

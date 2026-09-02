@@ -5,7 +5,7 @@ if profile.minimal then
 end
 
 local language_servers = require "languages.servers"
-local keymaps = require "core.keymaps"
+local keymaps = require "core.keymap"
 
 return {
   "neovim/nvim-lspconfig",
