@@ -11,6 +11,7 @@
 ---@class Host
 ---@field hostname Hostname
 ---@field target Hostname
+---@field home string
 ---@field pem Pem
 ---@field ip IpAddress[]
 

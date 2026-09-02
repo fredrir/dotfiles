@@ -19,6 +19,7 @@ local hosts = {
   macie = {
     hostname = "macie",
     target = "archie",
+    home = "/Users/fredrir",
     pem = pem,
     ip = {
       { name = "cable", address = "10.77.77.1", bind = "127.0.0.1:8443" },
@@ -30,6 +31,7 @@ local hosts = {
   archie = {
     hostname = "archie",
     target = "macie",
+    home = "/home/fredrir",
     pem = pem,
     ip = {
       { name = "cable", address = "10.77.77.2", bind = "10.77.77.2:8443" },

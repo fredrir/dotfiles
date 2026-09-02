@@ -1,5 +1,6 @@
 local wezterm = require "wezterm" ---@type Wezterm
 local hwire_session = require "utils.hwire-session"
+local host = require "domain.hosts"
 
 local act = wezterm.action
 
@@ -27,7 +28,7 @@ local function attach_peer(window, pane)
     return
   end
 
-  local command = { domain = { DomainName = domain } }
+  local command = { domain = { DomainName = domain }, cwd = host.target.home }
   local session = hwire_session.for_domain(domain)
   if session then
     command.args = { "zsh", "-l" }

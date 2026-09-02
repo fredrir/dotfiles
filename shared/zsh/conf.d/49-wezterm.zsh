@@ -44,7 +44,7 @@ mux() {
     return
   fi
 
-  local domain from route session to
+  local domain from route session to home
   domain=$(mux-route $1) || return
 
   from=${HOST%%.*}
@@ -62,6 +62,11 @@ mux() {
       ;;
   esac
 
+  case $to in
+    archie) home=/home/fredrir ;;
+    macie) home=/Users/fredrir ;;
+  esac
+
   if [[ -z $WEZTERM_PANE ]]; then
     print -ru2 "mux: not a wezterm pane; $domain"
     return 1
@@ -69,11 +74,11 @@ mux() {
 
   local gui pane
   if gui=$(_wezterm_gui_socket); then
-    pane=$(WEZTERM_UNIX_SOCKET=$gui wezterm cli spawn --domain-name "$domain" -- env "HWIRE_SESSION=$session" zsh -l) || return
+    pane=$(WEZTERM_UNIX_SOCKET=$gui wezterm cli spawn --domain-name "$domain" --cwd "$home" -- env "HWIRE_SESSION=$session" zsh -l) || return
     WEZTERM_UNIX_SOCKET=$gui wezterm cli activate-pane --pane-id "$pane"
   else
     print -ru2 "mux: no live wezterm gui; attaching through the local mux server (two hops)"
-    pane=$(wezterm cli spawn --domain-name "$domain" -- env "HWIRE_SESSION=$session" zsh -l) || return
+    pane=$(wezterm cli spawn --domain-name "$domain" --cwd "$home" -- env "HWIRE_SESSION=$session" zsh -l) || return
     wezterm cli activate-pane --pane-id "$pane"
   fi
 
