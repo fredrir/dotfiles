@@ -6,6 +6,8 @@ CONTRAST = "contrast("
 INTEGER = re.compile(r"[+-]?\d+")
 PERCENT = re.compile(r"\d+(\.\d+)?")
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
+BACKGROUND_NAMES = ("bg", "background", "ui.background")
+FOREGROUND_NAMES = ("fg", "foreground", "ui.foreground")
 
 
 class Resolved:
@@ -23,9 +25,9 @@ class _Scope:
     def named(self, name):
         if HEX.fullmatch(name):
             return name.lower()
-        if name == "bg":
+        if name in BACKGROUND_NAMES:
             return self.background
-        if name == "fg":
+        if name in FOREGROUND_NAMES:
             return self.foreground
         return self.lookup(name)
 
@@ -73,9 +75,11 @@ def _mixed(pair, step, expression, scope):
 def _ladder(name, step, expression, scope):
     if step is None:
         return scope.named(name)
-    if name not in ("bg", "fg"):
-        raise SystemExit(f"ladder needs bg or fg: {expression} (write {name}~fg/{step})")
-    from_background = name == "bg"
+    if name not in (*BACKGROUND_NAMES, *FOREGROUND_NAMES):
+        raise SystemExit(
+            f"ladder needs background or foreground: {expression} (write {name}~foreground/{step})"
+        )
+    from_background = name in BACKGROUND_NAMES
     if from_background:
         start, other = scope.background, scope.foreground
     else:

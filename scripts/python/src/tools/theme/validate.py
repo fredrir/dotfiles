@@ -23,6 +23,14 @@ def _expressions(theme):
     for key, value in load_map("nvim")["colors"].items():
         yield f"maps/nvim.toml {key}", value
 
+    kde = load_map("kde")
+    for group, names in kde["groups"].items():
+        for name in names:
+            yield f"maps/kde.toml {group}", name
+    for table in ("foregrounds", "selection_foregrounds"):
+        for key, value in kde[table].items():
+            yield f"maps/kde.toml [{table}] {key}", value
+
     obsidian = load_map("obsidian")
     yield "maps/obsidian.toml [derived] source", obsidian["derived"]["source"]
     for key, value in obsidian["variables"].items():
@@ -32,6 +40,24 @@ def _expressions(theme):
             yield f"maps/obsidian.toml {key}", value["rgb"]
         elif "color" in value:
             yield f"maps/obsidian.toml {key}", value["color"]
+
+    yield from _yazi_expressions(load_map("yazi"))
+
+    for key, value in load_map("catppuccin")["colors"].items():
+        yield f"maps/catppuccin.toml {key}", value
+
+
+def _yazi_expressions(value, where="maps/yazi.toml"):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            current = f"{where} {key}"
+            if key in ("fg", "bg") and isinstance(child, str) and child != "reset":
+                yield current, child
+            else:
+                yield from _yazi_expressions(child, current)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _yazi_expressions(child, f"{where}[{index}]")
 
 
 def _check_expressions(theme, problems):
@@ -51,9 +77,13 @@ def _accents():
 
 def _check_contrast(theme, warnings):
     floors = load_toml(RAMP_FILE)["contrast"]
-    background = theme.hex("bg")
-    checked = [("fg_on_bg", "fg"), ("muted_on_bg", "muted")]
-    checked += [("ansi_on_bg", name) for name in _accents()]
+    background = theme.hex("background")
+    checked = [
+        ("foreground_on_background", "foreground"),
+        ("muted_on_background", "muted"),
+        ("primary_on_background", "primary"),
+    ]
+    checked += [("ansi_on_background", name) for name in _accents()]
     for floor, name in checked:
         try:
             value = theme.hex(name)
@@ -61,7 +91,9 @@ def _check_contrast(theme, warnings):
             continue
         ratio = oklab.contrast_ratio(value, background)
         if ratio < floors[floor]:
-            warnings.append(f"{name} {value} on bg is {ratio:.2f}:1, under {floors[floor]}:1")
+            warnings.append(
+                f"{name} {value} on background is {ratio:.2f}:1, under {floors[floor]}:1"
+            )
 
 
 def _check_eza_categories(theme, problems):

@@ -139,7 +139,7 @@ def test_alpha_may_follow_contrast():
 def test_a_ladder_step_on_a_palette_color_asks_for_an_explicit_mix():
     with pytest.raises(SystemExit) as error:
         mocha("magenta/250")
-    assert "magenta~fg/250" in str(error.value)
+    assert "magenta~foreground/250" in str(error.value)
 
 
 def test_malformed_expressions_are_rejected_by_name():

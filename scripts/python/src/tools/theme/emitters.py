@@ -6,6 +6,7 @@ import sys
 
 from tools.theme import derive
 from tools.theme.model import (
+    ANSI,
     FONTS_FILE,
     Theme,
     list_profiles,
@@ -20,7 +21,7 @@ from tools.theme.render import (
     set_ini_key,
 )
 
-ANSI_NORMAL = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+ANSI_NORMAL = ANSI
 
 FASTFETCH_SECTIONS = ["section_system", "section_hardware", "section_desktop", "section_network"]
 
@@ -451,7 +452,9 @@ def _yazi_theme(theme):
         def lookup(name):
             return theme.hex(aliases.get(name, name))
 
-        return derive.resolve(expression, lookup, theme.hex("bg"), theme.hex("fg")).hex
+        return derive.resolve(
+            expression, lookup, theme.hex("background"), theme.hex("foreground")
+        ).hex
 
     def replace(match):
         expression = match.group(2)

@@ -3,4 +3,4 @@ Description=Regenerate the theme from the profiles named in profiles.dotfile
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/dotfile theme apply
+ExecStart=%h/.local/bin/dotfile theme sync

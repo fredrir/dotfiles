@@ -6,9 +6,9 @@ return {
   colors = {
     foreground = "#cdd6f4",
     background = "#1e1e2e",
-    cursor_bg = "#f2cdcd",
+    cursor_bg = "#cdd6f4",
     cursor_fg = "#1e1e2e",
-    cursor_border = "#f2cdcd",
+    cursor_border = "#cdd6f4",
     selection_fg = "#1e1e2e",
     selection_bg = "#f2cdcd",
     ansi = { "#45475a", "#f38ba8", "#7cff6b", "#f9e2af", "#3daee9", "#cba6f7", "#1abc9c", "#bac2de" },

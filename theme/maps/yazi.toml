@@ -1,8 +1,8 @@
 [app]
-overall = { bg = "bg" }
+overall = { bg = "background" }
 
 [mgr]
-cwd = { fg = "fg" }
+cwd = { fg = "foreground" }
 
 find_keyword  = { fg = "contrast(yellow)", bg = "yellow", italic = true }
 find_position = { fg = "bright_yellow", bg = "reset", italic = true }
@@ -28,26 +28,26 @@ padding = { open = "█", close = "█" }
 
 [tabs]
 active    = { fg = "contrast(primary)", bg = "primary", bold = true, italic = true, underline = true }
-inactive  = { fg = "fg", bg = "sunken", bold = false, underline = true }
+inactive  = { fg = "foreground", bg = "sunken", bold = false, underline = true }
 sep_inner = { open = "", close = "" }
 sep_outer = { open = "", close = "" }
 
 [mode]
 normal_main = { fg = "contrast(primary)", bg = "primary", bold = true }
-normal_alt  = { fg = "muted", bg = "panel" }
+normal_alt  = { fg = "muted", bg = "sidebar" }
 select_main = { fg = "contrast(bright_yellow)", bg = "bright_yellow", bold = true }
-select_alt  = { fg = "muted", bg = "panel" }
+select_alt  = { fg = "muted", bg = "sidebar" }
 unset_main  = { fg = "contrast(green)", bg = "green", bold = true }
-unset_alt   = { fg = "muted", bg = "panel" }
+unset_alt   = { fg = "muted", bg = "sidebar" }
 
 [status]
 overall   = { fg = "muted", bg = "sunken" }
 sep_left  = { open = "", close = "" }
 sep_right = { open = "", close = "" }
 
-progress_label  = { fg = "fg", bold = true }
-progress_normal = { fg = "border", bg = "panel" }
-progress_error  = { fg = "red", bg = "panel" }
+progress_label  = { fg = "foreground", bold = true }
+progress_normal = { fg = "border", bg = "sidebar" }
+progress_error  = { fg = "error", bg = "sidebar" }
 
 perm_type  = { fg = "muted" }
 perm_read  = { fg = "blue" }
@@ -73,7 +73,7 @@ hovered = { underline = true }
 
 [which]
 cols            = 3
-mask            = { bg = "panel" }
+mask            = { bg = "sidebar" }
 cand            = { fg = "primary" }
 rest            = { fg = "disabled" }
 desc            = { fg = "bright_yellow" }
@@ -85,18 +85,18 @@ on      = { fg = "primary" }
 run     = { fg = "primary" }
 desc    = { fg = "disabled" }
 hovered = { reversed = true, bold = true }
-footer  = { fg = "panel", bg = "muted" }
+footer  = { fg = "sidebar", bg = "muted" }
 
 [notify]
 title_info  = { fg = "primary" }
-title_warn  = { fg = "fg" }
-title_error = { fg = "red" }
+title_warn  = { fg = "warning" }
+title_error = { fg = "error" }
 
 [confirm]
 border     = { fg = "primary" }
 title      = { fg = "primary" }
-body       = { fg = "fg" }
-list       = { fg = "fg" }
+body       = { fg = "foreground" }
+list       = { fg = "foreground" }
 btn_yes    = { reversed = true, fg = "primary" }
 btn_no     = {}
 btn_labels = ["  [Y]es  ", "  (N)o  "]
@@ -109,19 +109,19 @@ rules = [
   { mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", fg = "red" },
   { mime = "application/{pdf,doc,rtf,vnd.*}", fg = "cyan" },
   { url = "*/", fg = "primary" },
-  { url = "*", fg = "fg" },
+  { url = "*", fg = "foreground" },
 ]
 
 [spot]
 border   = { fg = "primary" }
 title    = { fg = "primary" }
 tbl_col  = { fg = "primary", bold = true }
-tbl_cell = { fg = "fg" }
+tbl_cell = { fg = "foreground" }
 
 [cmp]
 border       = { fg = "primary" }
 active       = { reversed = true, fg = "primary" }
-inactive     = { fg = "fg" }
+inactive     = { fg = "foreground" }
 icon_file    = ""
 icon_folder  = ""
 icon_command = ""

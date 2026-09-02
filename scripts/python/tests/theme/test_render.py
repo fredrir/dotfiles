@@ -250,14 +250,14 @@ def test_yazi_uses_semantic_colors_and_keeps_reset_literal():
     theme = Theme.load("mocha")
     emit_yazi(theme, out)
     rendered = out.files[YAZI_THEME_FILE]
-    assert f'overall = {{ bg = "{theme.hex("bg")}" }}' in rendered
-    assert f'cwd = {{ fg = "{theme.hex("white")}", italic = true }}' in rendered
+    assert f'overall = {{ bg = "{theme.hex("background")}" }}' in rendered
+    assert f'cwd = {{ fg = "{theme.hex("foreground")}" }}' in rendered
     assert (
         f'count_copied   = {{ fg = "{theme.hex("contrast(cyan)")}", bg = "{theme.hex("cyan")}" }}'
     ) in rendered
     assert (
-        f'current = {{ fg = "{theme.hex("contrast(magenta)")}", '
-        f'bg = "{theme.hex("magenta")}", bold = true }}'
+        f'current = {{ fg = "{theme.hex("contrast(primary)")}", '
+        f'bg = "{theme.hex("primary")}", bold = true }}'
     ) in rendered
     assert 'find_position = { fg = "#fab387", bg = "reset", italic = true }' in rendered
 
@@ -298,5 +298,5 @@ def test_theme_lives_under_dotfile():
 
     commands = typer.main.get_command(app).commands
     assert "theme" in commands
-    expected = {"sync", "dry", "status", "preview", "switch", "outputs"}
+    expected = {"sync", "check", "dry", "status", "preview", "switch", "outputs"}
     assert expected <= set(commands["theme"].commands)

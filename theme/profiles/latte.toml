@@ -1,20 +1,14 @@
-name  = "Catppuccin Latte"
-dark  = false
-icons = "breeze"
+name = "Catppuccin Latte"
+dark = false
 
-[colors.primary]
-background = "#eff1f5"
-foreground = "#4c4f69"
+[ui] # Mandatory
+background = "#eff1f5" # Main background / Secondary-Sidebar- Colors
+primary     = "#dd7878" # Active / Highlight / Primary- Colors
+accent      = "#e6e8ee" # Sidebar Background / Support- Colors
+surface     = "#d5d7df" # Dimmed / Border- Colors
+foreground  = "#4c4f69" # Text colors / brightest foreground
 
-[colors.cursor]
-cursor = "#dd7878"
-text   = "#eff1f5"
-
-[colors.selection]
-background = "#dd7878"
-text       = "#eff1f5"
-
-[colors.normal]
+[ansi.normal] # Mandatory
 black   = "#bcc0cc"
 red     = "#d20f39"
 green   = "#40a02b"
@@ -24,7 +18,7 @@ magenta = "#8839ef"
 cyan    = "#179299"
 white   = "#5c5f77"
 
-[colors.bright]
+[ansi.bright] # Mandatory
 black   = "#acb0be"
 red     = "#dd7878"
 green   = "#459042"

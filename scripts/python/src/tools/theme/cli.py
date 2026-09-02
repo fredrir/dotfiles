@@ -53,13 +53,26 @@ def _owned():
     return seen
 
 
+def _load_all_themes():
+    themes = {}
+    display_names = {}
+    for name in list_profiles():
+        theme = Theme.load(name)
+        validate(theme)
+        if theme.name in display_names:
+            other = display_names[theme.name]
+            raise SystemExit(
+                f"dotfile theme: profiles '{other}' and '{name}' share the name {theme.name!r}"
+            )
+        display_names[theme.name] = name
+        themes[name] = theme
+    return themes
+
+
 def _generate(dry):
     owned = _owned()
     selection = read_selection(owned)
-    themes = {}
-    for name in sorted({selection.for_path(target) for target in owned}):
-        themes[name] = Theme.load(name)
-        validate(themes[name])
+    themes = _load_all_themes()
     output = Output(dry=dry)
     for emitter in EMITTERS:
         by_theme = {}
@@ -120,6 +133,12 @@ def main(ctx: typer.Context):
 def sync():
     _selection, changed = _generate(False)
     preview.render_changes(changed, False)
+
+
+@app.command(help="Validate every profile and color mapping")
+def check():
+    themes = _load_all_themes()
+    out(f"{len(themes)} profiles valid")
 
 
 @app.command(help="Prints dry-run of sync")

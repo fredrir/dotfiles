@@ -15,11 +15,11 @@ frequency_ranking      = true
 source = "custom"
 # theme:quicklaunch
 # Generated from theme/profiles/sexy-purple.toml
-accent     = "#81a1c1"
+accent     = "#380d6a"
 background = "#15152b"
 text       = "#ffffff"
 muted      = "#b0b1ba"
-selection  = "#b48ead"
+selection  = "#380d6a"
 # theme:quicklaunch:end
 
 [font]

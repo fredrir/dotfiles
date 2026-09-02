@@ -1,7 +1,7 @@
 version = 1
 
 [contrast]
-fg_on_bg     = 7.0
-muted_on_bg  = 4.5
-ansi_on_bg   = 3.0
-accent_on_bg = 4.5
+foreground_on_background = 7.0
+muted_on_background      = 4.5
+ansi_on_background       = 3.0
+primary_on_background    = 4.5

@@ -56,6 +56,7 @@ COMMANDS = {
     "dotfile system add": "Copies a root-owned file into the repository.",
     "dotfile theme": "Stamps selected theme profiles into generated configuration files.",
     "dotfile theme sync": "Regenerates every config from the selected theme profiles.",
+    "dotfile theme check": "Validates every theme profile and color mapping.",
     "dotfile theme dry": "Reports what theme generation would change without writing.",
     "dotfile theme status": (
         "Shows each group's resolved profile and whether generated files have drifted."

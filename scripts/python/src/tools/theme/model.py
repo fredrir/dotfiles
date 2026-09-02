@@ -1,10 +1,11 @@
-import copy
 import glob
 import os
 import tomllib
 
 from tools.core.paths import repo_root
 from tools.theme import derive
+from tools.theme.schema import ANSI_KEYS, parse_profile
+from tools.theme.semantic import resolve_semantics
 
 ROOT = str(repo_root())
 THEME_DIR = os.path.join(ROOT, "theme")
@@ -17,8 +18,9 @@ RAMP_FILE = os.path.join(THEME_DIR, "ramp.toml")
 
 COLOR_TABLES = ("roles", "terminal", "eza", "kde", "konsole", "yazi")
 FONT_SIZES = ("terminal", "interface")
-ANSI = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
+ANSI = ANSI_KEYS
 ALIASES = ("cursor", "cursor_text", "selection_bg", "selection_fg")
+ICON_THEMES = {True: "Breeze Chameleon Dark", False: "breeze"}
 
 
 def path(*parts):
@@ -34,16 +36,6 @@ def load_map(name):
     return load_toml(os.path.join(MAPS_DIR, f"{name}.toml"))
 
 
-def merge(base, override):
-    result = copy.deepcopy(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merge(result[key], value)
-        else:
-            result[key] = copy.deepcopy(value)
-    return result
-
-
 def profile_file(name):
     return os.path.join(PROFILES_DIR, f"{name}.toml")
 
@@ -53,33 +45,27 @@ def list_profiles():
     return sorted(os.path.basename(target)[: -len(".toml")] for target in found)
 
 
-def anchor_palette(colors):
-    palette = {
-        "bg": colors["primary"]["background"],
-        "fg": colors["primary"]["foreground"],
-        "cursor": colors["cursor"]["cursor"],
-        "cursor_text": colors["cursor"]["text"],
-        "selection_bg": colors["selection"]["background"],
-        "selection_fg": colors["selection"]["text"],
-    }
-    for name in ANSI:
-        palette[name] = colors["normal"][name]
-        palette[f"bright_{name}"] = colors["bright"][name]
-    return palette
+def profile_definition(name):
+    target = profile_file(name)
+    try:
+        data = load_toml(target)
+    except tomllib.TOMLDecodeError as error:
+        raise SystemExit(f"dotfile theme: profile '{name}' is not valid TOML: {error}")
+    return parse_profile(data, name)
 
 
 def profile_palette(name):
-    palette = anchor_palette(load_toml(profile_file(name))["colors"])
+    palette = resolve_semantics(profile_definition(name).primitives)
     return {key: value for key, value in palette.items() if key not in ALIASES}
 
 
 class Theme:
-    def __init__(self, profile, data, fonts):
+    def __init__(self, profile, definition, data, fonts):
         self.profile = profile
+        self.definition = definition
         self.data = data
-        self.palette = anchor_palette(data["colors"])
-        for name, expression in data.get("tokens", {}).items():
-            self.palette[name] = self.hex(expression)
+        self.primitives = definition.primitives
+        self.palette = resolve_semantics(self.primitives)
         self.fonts = fonts["fonts"]
         self.sizes = fonts.get("sizes", {})
         self.font_applications = fonts.get("applications", {})
@@ -95,25 +81,22 @@ class Theme:
         if not os.path.exists(target):
             available = ", ".join(list_profiles()) or "none"
             raise SystemExit(f"dotfile theme: unknown profile '{name}' (available: {available})")
-        overrides = load_toml(target)
-        data = merge(load_toml(ROLES_FILE), overrides)
-        fonts = merge(
-            load_toml(FONTS_FILE),
-            {key: overrides[key] for key in ("fonts", "sizes", "applications") if key in overrides},
-        )
-        return cls(name, data, fonts)
+        definition = profile_definition(name)
+        data = load_toml(ROLES_FILE)
+        fonts = load_toml(FONTS_FILE)
+        return cls(name, definition, data, fonts)
 
     @property
     def name(self):
-        return self.data["name"]
+        return self.definition.name
 
     @property
     def dark(self):
-        return bool(self.data.get("dark", True))
+        return self.definition.dark
 
     @property
     def icons(self):
-        return self.data.get("icons", "")
+        return ICON_THEMES[self.dark]
 
     @property
     def header(self):
@@ -123,13 +106,16 @@ class Theme:
         return self.resolved(name).hex
 
     def resolved(self, name):
-        return derive.resolve(name, self._lookup, self.palette["bg"], self.palette["fg"])
+        return derive.resolve(
+            name, self._lookup, self.palette["background"], self.palette["foreground"]
+        )
 
     def _lookup(self, name):
-        try:
+        if name in self.primitives:
+            return self.primitives[name]
+        if name in self.palette:
             return self.palette[name]
-        except KeyError:
-            raise SystemExit(f"unknown palette color: {name}")
+        raise SystemExit(f"unknown palette color: {name}")
 
     def role(self, name):
         try:

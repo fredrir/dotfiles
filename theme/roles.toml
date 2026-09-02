@@ -1,15 +1,3 @@
-[tokens]
-sunken      = "bg/-100"
-panel       = "bg/-50"
-surface     = "bg/150"
-surface_alt = "bg/250"
-border      = "bg/400"
-separator   = "bg/500"
-disabled    = "bg/700"
-muted       = "bg/900"
-accent      = "bright_blue"
-orange      = "bright_yellow~yellow/400"
-
 [roles]
 
 # fastfetch
@@ -26,19 +14,19 @@ prompt_dir      = "cyan"
 prompt_duration = "yellow"
 prompt_char     = "blue"
 
-sudo = "red" # shell
+sudo = "error" # shell
 
 [terminal]
-foreground           = "fg"
-background           = "bg"
+foreground           = "foreground"
+background           = "background"
 cursor               = "cursor"
 cursor_text          = "cursor_text"
 selection_foreground = "selection_fg"
 selection_background = "selection_bg"
-url                  = "bright_red"
+url                  = "info"
 
 [yazi]
-primary = "magenta"
+primary = "primary"
 
 [eza]
 fi = "muted" # fallback
@@ -66,41 +54,41 @@ temp     = "separator"
 compiled = "separator"
 
 [kde]
-accent = "bright_blue"
+accent = "primary"
 
-window_bg   = "bg"
-window_alt  = "panel"
+window_bg   = "background"
+window_alt  = "sidebar"
 button_bg   = "surface"
-button_alt  = "surface_alt"
-view_bg     = "bg"
-view_alt    = "panel"
+button_alt  = "sidebar"
+view_bg     = "background"
+view_alt    = "sidebar"
 tooltip_bg  = "surface"
-tooltip_alt = "surface_alt"
-header_bg   = "panel"
-header_alt  = "bg"
+tooltip_alt = "sidebar"
+header_bg   = "sidebar"
+header_alt  = "background"
 
-selection_bg = "magenta"
-selection_fg = "contrast(magenta)"
+selection_bg = "selection_bg"
+selection_fg = "selection_fg"
 
-foreground = "fg"
+foreground = "foreground"
 inactive   = "disabled"
-active     = "bright_blue"
+active     = "primary"
 link       = "blue"
 visited    = "magenta"
-negative   = "red"
-neutral    = "bright_yellow"
-positive   = "green"
-decoration = "bright_blue"
+negative   = "error"
+neutral    = "warning"
+positive   = "success"
+decoration = "primary"
 
 # window manager titlebar
-wm_active_bg      = "bg"
-wm_active_fg      = "fg"
-wm_active_blend   = "fg"
-wm_inactive_bg    = "panel"
+wm_active_bg      = "background"
+wm_active_fg      = "foreground"
+wm_active_blend   = "foreground"
+wm_inactive_bg    = "sidebar"
 wm_inactive_fg    = "disabled"
 wm_inactive_blend = "disabled"
 
 [konsole]
-tab          = "bg"
-focus_border = "sunken"
-tab_activity = "fg"
+tab          = "background"
+focus_border = "border"
+tab_activity = "foreground"

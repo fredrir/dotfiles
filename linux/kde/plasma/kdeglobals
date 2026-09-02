@@ -21,11 +21,11 @@ IntensityAmount=0
 IntensityEffect=0
 
 [Colors:Button]
-BackgroundAlternate=70,71,91
+BackgroundAlternate=16,16,32
 BackgroundNormal=49,50,71
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -35,11 +35,11 @@ ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [Colors:Complementary]
-BackgroundAlternate=13,12,34
+BackgroundAlternate=16,16,32
 BackgroundNormal=21,21,43
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -50,10 +50,10 @@ ForegroundVisited=180,142,173
 
 [Colors:Header]
 BackgroundAlternate=21,21,43
-BackgroundNormal=13,12,34
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+BackgroundNormal=16,16,32
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -63,11 +63,11 @@ ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [Colors:Header][Inactive]
-BackgroundAlternate=13,12,34
+BackgroundAlternate=16,16,32
 BackgroundNormal=21,21,43
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -77,25 +77,25 @@ ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [Colors:Selection]
-BackgroundAlternate=180,142,173
-BackgroundNormal=180,142,173
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=21,21,43
-ForegroundInactive=21,21,43
+BackgroundAlternate=56,13,106
+BackgroundNormal=56,13,106
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=255,255,255
+ForegroundInactive=255,255,255
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
 ForegroundNeutral=235,203,139
-ForegroundNormal=21,21,43
+ForegroundNormal=255,255,255
 ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [Colors:Tooltip]
-BackgroundAlternate=70,71,91
+BackgroundAlternate=16,16,32
 BackgroundNormal=49,50,71
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -105,11 +105,11 @@ ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [Colors:View]
-BackgroundAlternate=13,12,34
+BackgroundAlternate=16,16,32
 BackgroundNormal=21,21,43
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -119,11 +119,11 @@ ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [Colors:Window]
-BackgroundAlternate=13,12,34
+BackgroundAlternate=16,16,32
 BackgroundNormal=21,21,43
-DecorationFocus=129,161,193
-DecorationHover=129,161,193
-ForegroundActive=129,161,193
+DecorationFocus=56,13,106
+DecorationHover=56,13,106
+ForegroundActive=56,13,106
 ForegroundInactive=176,177,186
 ForegroundLink=129,161,193
 ForegroundNegative=191,97,106
@@ -133,10 +133,10 @@ ForegroundPositive=163,190,140
 ForegroundVisited=180,142,173
 
 [General]
-AccentColor=129,161,193
+AccentColor=56,13,106
 BrowserApplication=brave-browser.desktop
 ColorSchemeHash=9d38eb71ded8ff549da26d57d7cbab9164da243a
-LastUsedCustomAccentColor=129,161,193
+LastUsedCustomAccentColor=56,13,106
 XftAntialias=true
 XftHintStyle=hintslight
 XftSubPixel=none
@@ -177,6 +177,6 @@ BinaryUnitDialect=2
 activeBackground=21,21,43
 activeBlend=255,255,255
 activeForeground=255,255,255
-inactiveBackground=13,12,34
+inactiveBackground=16,16,32
 inactiveBlend=176,177,186
 inactiveForeground=176,177,186

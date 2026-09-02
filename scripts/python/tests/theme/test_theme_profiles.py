@@ -4,8 +4,10 @@ import pytest
 
 from tools.theme import oklab
 from tools.theme import profiles as profiles_module
-from tools.theme.model import Theme, list_profiles, merge
+from tools.theme.model import Theme, list_profiles, path
 from tools.theme.profiles import Selection, group_of, inventory, package_of
+from tools.theme.schema import parse_profile
+from tools.theme.semantic import SEMANTIC_COLORS, resolve_semantics
 from tools.theme.validate import (
     _check_contrast,
     _check_fonts,
@@ -22,28 +24,105 @@ def fake(data=None, fonts=None, sizes=None):
     )
 
 
-def test_merge_overrides_single_keys_inside_nested_tables():
-    base = {"terminal": {"tabs": {"bar_background": "panel", "active_background": "magenta"}}}
-    result = merge(base, {"terminal": {"tabs": {"bar_background": "sunken"}}})
-    assert result["terminal"]["tabs"] == {
-        "bar_background": "sunken",
-        "active_background": "magenta",
+def raw_profile():
+    colors = {
+        name: "#123456"
+        for name in ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
+    }
+    return {
+        "name": "Test",
+        "dark": True,
+        "ui": {
+            "background": "#101010",
+            "primary": "#202020",
+            "accent": "#303030",
+            "surface": "#404040",
+            "foreground": "#f0f0f0",
+        },
+        "ansi": {"normal": dict(colors), "bright": dict(colors)},
     }
 
 
-def test_merge_does_not_mutate_or_alias_the_base():
-    base = {"eza": {"categories": {"image": "magenta"}}}
-    result = merge(base, {"eza": {"categories": {"image": "bright_magenta"}}})
-    assert base["eza"]["categories"]["image"] == "magenta"
-    result["eza"]["categories"]["video"] = "red"
-    assert "video" not in base["eza"]["categories"]
+@pytest.mark.parametrize(
+    ("role", "source"),
+    [
+        ("background", "ui.background"),
+        ("primary", "ui.primary"),
+        ("accent", "ui.accent"),
+        ("sidebar", "ui.accent"),
+        ("surface", "ui.surface"),
+        ("border", "ui.surface"),
+        ("foreground", "ui.foreground"),
+        ("error", "ansi.normal.red"),
+        ("warning", "ansi.normal.yellow"),
+        ("success", "ansi.normal.green"),
+        ("info", "ansi.normal.blue"),
+    ],
+)
+def test_semantic_colors_have_one_source_owned_mapping(role, source):
+    assert SEMANTIC_COLORS[role] == source
 
 
-def test_merge_replaces_a_scalar_with_a_scalar():
-    assert merge({"name": "Dark", "dark": True}, {"name": "Light", "dark": False}) == {
-        "name": "Light",
-        "dark": False,
-    }
+def test_surface_alt_is_not_a_profile_or_semantic_color():
+    profile = parse_profile(raw_profile(), "test")
+    assert "ui.surface_alt" not in profile.primitives
+    assert "surface_alt" not in SEMANTIC_COLORS
+
+
+def test_semantic_cycles_are_rejected():
+    primitives = parse_profile(raw_profile(), "test").primitives
+    with pytest.raises(SystemExit) as error:
+        resolve_semantics(primitives, {"one": "two", "two": "one"})
+    assert "semantic color cycle: one -> two -> one" in str(error.value)
+
+
+def test_unknown_semantic_sources_are_rejected():
+    primitives = parse_profile(raw_profile(), "test").primitives
+    with pytest.raises(SystemExit) as error:
+        resolve_semantics(primitives, {"broken": "missing"})
+    assert "unknown palette color: missing" in str(error.value)
+
+
+def test_profile_schema_reports_missing_and_unknown_fields_together():
+    data = raw_profile()
+    del data["ui"]["accent"]
+    data["colors"] = {}
+    with pytest.raises(SystemExit) as error:
+        parse_profile(data, "test")
+    message = str(error.value)
+    assert "ui.accent is missing" in message
+    assert "profile.colors is not allowed" in message
+
+
+@pytest.mark.parametrize(
+    ("key", "value"), [("dark", "true"), ("color", "123456"), ("color", "#ABCDEF")]
+)
+def test_profile_schema_rejects_invalid_scalar_values(key, value):
+    data = raw_profile()
+    if key == "dark":
+        data["dark"] = value
+    else:
+        data["ui"]["primary"] = value
+    with pytest.raises(SystemExit):
+        parse_profile(data, "test")
+
+
+def test_cursor_and_selection_are_deterministic_for_every_profile():
+    for name in list_profiles():
+        theme = Theme.load(name)
+        assert theme.hex("cursor") == theme.hex("ui.foreground")
+        assert theme.hex("cursor_text") == theme.hex("ui.background")
+        assert theme.hex("selection_bg") == theme.hex("ui.primary")
+        assert theme.hex("selection_fg") == theme.hex("contrast(ui.primary)")
+
+
+def test_theme_watcher_runs_sync_and_tracks_the_selection_file():
+    with open(path("linux/common/theme-watch/theme-watch.service"), encoding="utf-8") as handle:
+        service = handle.read()
+    with open(path("linux/common/theme-watch/theme-watch.path"), encoding="utf-8") as handle:
+        watcher = handle.read()
+    assert "dotfile theme sync" in service
+    assert "PathModified=%h/dotfiles/config/profiles.dotfile" in watcher
 
 
 def test_a_bright_matching_its_normal_is_allowed():
@@ -58,9 +137,10 @@ def test_tokens_resolve_into_the_palette_at_load():
     assert theme.hex("sunken") == theme.hex("bg/-100")
 
 
-def test_sexy_purple_has_a_profile_specific_purple():
+def test_sexy_purple_has_profile_specific_primary_and_sidebar_colors():
     theme = Theme.load("sexy-purple")
-    assert theme.hex(theme.data["yazi"]["primary"]) == "#101020"
+    assert theme.hex("primary") == "#380d6a"
+    assert theme.hex("sidebar") == "#101020"
 
 
 def test_the_ladder_steps_away_from_the_background_in_both_directions():
@@ -146,7 +226,7 @@ def test_hex_remapping_lets_the_active_profile_name_a_shared_hex():
     from tools.theme.emitters import _hex_to_name
 
     mapping = _hex_to_name(Theme.load("mocha"))
-    assert mapping["1e1e2e"] == "bg"
+    assert mapping["1e1e2e"] == "background"
     assert mapping["f38ba8"] == "red"
     assert mapping["bf616a"] == "red"
     assert mapping["6c7086"] == "separator"

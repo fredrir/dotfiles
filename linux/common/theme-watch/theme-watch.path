@@ -2,7 +2,7 @@
 Description=Watch the theme sources and regenerate the theme on change
 
 [Path]
-PathModified=%h/dotfiles/profiles.dotfile
+PathModified=%h/dotfiles/config/profiles.dotfile
 PathModified=%h/dotfiles/theme
 PathModified=%h/dotfiles/theme/profiles
 PathModified=%h/dotfiles/theme/maps
