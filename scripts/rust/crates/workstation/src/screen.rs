@@ -59,12 +59,12 @@ mod imp {
 
     static TERMINATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
-    struct SignalGuard {
+    pub struct SignalGuard {
         previous: Vec<(libc::c_int, libc::sigaction)>,
     }
 
     impl SignalGuard {
-        fn new() -> io::Result<Self> {
+        pub fn new() -> io::Result<Self> {
             TERMINATION_SIGNAL.store(0, Ordering::Release);
             let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
             action.sa_sigaction = terminal_signal as *const () as libc::sighandler_t;
@@ -103,7 +103,7 @@ mod imp {
         TERMINATION_SIGNAL.store(signal, Ordering::Release);
     }
 
-    fn termination_requested() -> bool {
+    pub fn termination_requested() -> bool {
         TERMINATION_SIGNAL.load(Ordering::Acquire) != 0
     }
 
@@ -324,6 +324,18 @@ mod imp {
     use super::Key;
     use std::io;
 
+    pub struct SignalGuard;
+
+    impl SignalGuard {
+        pub fn new() -> io::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    pub fn termination_requested() -> bool {
+        false
+    }
+
     pub struct Screen;
 
     impl Screen {
@@ -345,7 +357,7 @@ mod imp {
     }
 }
 
-pub use imp::Screen;
+pub use imp::{Screen, SignalGuard, termination_requested};
 
 #[cfg(test)]
 mod tests {

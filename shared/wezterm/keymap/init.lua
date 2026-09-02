@@ -11,6 +11,7 @@ local close_tab = require "utils.close-tab"
 local close_pane = require "utils.close-pane"
 local mux = require "utils.mux"
 local hwire_session = require "utils.hwire-session"
+local attach_remote = require "utils.attach-remote"
 local MOD = require "keymap.modifiers"
 
 local act = wezterm.action
@@ -104,6 +105,16 @@ local keys = bind_keys {
     key = ".",
     mods = MOD.PRIMARY,
     action = mux.attach_detached,
+  },
+  { -- Attach the best live route to the peer, dialed from the GUI --
+    key = "k",
+    mods = MOD.SUPER_REV,
+    action = attach_remote,
+  },
+  { -- Domain and workspace launcher --
+    key = "d",
+    mods = MOD.SUPER_REV,
+    action = act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" },
   },
 }
 

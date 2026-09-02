@@ -696,6 +696,7 @@ cmd_doctor() {
 	host=$(this_hostname)
 	printf '%s doctor  host %s  dir %s\n\n' "$PROGRAM" "$host" "$MTLS_DIR"
 	d_ok openssl "$OPENSSL_VERSION at $OPENSSL"
+	check_wezterm_version "$peer_name"
 
 	if [ -d "$MTLS_DIR" ]; then
 		mode=$(file_mode "$MTLS_DIR")
@@ -856,6 +857,35 @@ cmd_doctor() {
 	fi
 
 	doctor_verdict
+}
+
+check_wezterm_version() {
+	version_peer=$1
+	wezterm_bin=$(command -v wezterm 2>/dev/null || true)
+	if [ -z "$wezterm_bin" ]; then
+		d_warn wezterm "no wezterm on PATH to report a version"
+		return
+	fi
+
+	local_version=$("$wezterm_bin" --version 2>/dev/null | awk '{ print $2 }')
+	if [ -z "$local_version" ]; then
+		d_warn wezterm "could not read a version from $wezterm_bin"
+		return
+	fi
+	d_ok wezterm "local $local_version"
+
+	if [ -z "$version_peer" ]; then
+		return
+	fi
+
+	peer_version=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$version_peer" 'wezterm --version' 2>/dev/null | awk '{ print $2 }')
+	if [ -z "$peer_version" ]; then
+		d_skip "wezterm peer" "could not read $version_peer version over ssh"
+	elif [ "$peer_version" = "$local_version" ]; then
+		d_ok "wezterm peer" "$version_peer matches at $peer_version"
+	else
+		d_warn "wezterm peer" "$version_peer is $peer_version but this host is $local_version; the mux protocol requires a match"
+	fi
 }
 
 check_expiry() {

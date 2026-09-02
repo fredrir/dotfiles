@@ -27,6 +27,7 @@ for _, route in ipairs(host.target.ip) do
     pem_private_key = pem.key,
     pem_root_certs = { pem.ca },
     connect_automatically = false,
+    local_echo_threshold_ms = 20,
   })
 end
 

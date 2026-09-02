@@ -1,0 +1,62 @@
+#!/bin/sh
+
+set -eu
+
+PROGRAM=wezterm-mux-serve
+
+SERVER=${WEZTERM_MUX_SERVE_BIN:-/opt/homebrew/bin/wezterm-mux-server}
+HEALTH_PORTS=${WEZTERM_MUX_SERVE_PORTS:-8443 8444 8445}
+HEALTH_TRIES=${WEZTERM_MUX_SERVE_HEALTH_TRIES:-40}
+HEALTH_INTERVAL=${WEZTERM_MUX_SERVE_HEALTH_INTERVAL:-0.25}
+
+note() {
+	printf '%s %s: %s\n' "$(date '+%Y/%m/%d %H:%M:%S')" "$PROGRAM" "$*"
+}
+
+fail() {
+	note "$*"
+	exit 1
+}
+
+[ -x "$SERVER" ] || fail "no mux server binary at $SERVER"
+
+port_listening() {
+	nc -z -G 1 127.0.0.1 "$1" >/dev/null 2>&1
+}
+
+all_ports_listening() {
+	for port in $HEALTH_PORTS; do
+		port_listening "$port" || return 1
+	done
+	return 0
+}
+
+"$SERVER" &
+child=$!
+
+terminate() {
+	kill -TERM "$child" 2>/dev/null || true
+}
+trap terminate TERM INT
+
+healthy=0
+tries=0
+while [ "$tries" -lt "$HEALTH_TRIES" ]; do
+	tries=$((tries + 1))
+	kill -0 "$child" 2>/dev/null || break
+	if all_ports_listening; then
+		healthy=1
+		break
+	fi
+	sleep "$HEALTH_INTERVAL"
+done
+
+if [ "$healthy" -ne 1 ]; then
+	note "TLS listeners never came up on ports: $HEALTH_PORTS -- the config likely errored and the server fell back to defaults; exiting non-zero so launchd retries visibly"
+	terminate
+	wait "$child" 2>/dev/null || true
+	exit 1
+fi
+
+note "mux server healthy on ports: $HEALTH_PORTS"
+wait "$child"

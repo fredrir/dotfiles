@@ -38,6 +38,7 @@ linux/arch {
   vscode              = Arch-specific settings overlay merged into the shared VS Code settings
   wezterm-mux         = Mutual-TLS mux server for the link to macie
   wezterm-mux-sysctl  = Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up
+  wifi-powersave      = Disable Wi-Fi power saving on the station link to cut receive-path latency to macie
   zsh
 }
 

@@ -1,5 +1,4 @@
 local wezterm = require "wezterm"
-local gpu_adapters = require "utils.gpu-adapter"
 local performance = require "ui.performance"
 local fonts = require "ui.fonts.fonts"
 local profiles = require "ui.colors.profiles"
@@ -26,7 +25,7 @@ local ui_config = {
   colors = profiles.active.colors,
   color_schemes = profiles.profiles,
   max_fps = performance.max_fps,
-  webgpu_preferred_adapter = gpu_adapters:pick_best(),
+  front_end = performance.front_end,
 }
 
 return ui_config

@@ -1,3 +1,35 @@
+_wezterm_gui_socket() {
+  emulate -L zsh
+
+  local dir=${WEZTERM_GUI_SOCKET_DIR:-$HOME/.local/share/wezterm}
+  local socket pid
+  local -a alive
+
+  for socket in "$dir"/gui-sock-*(N); do
+    [[ -S $socket ]] || continue
+    pid=${socket##*gui-sock-}
+    [[ $pid == <-> ]] || continue
+    kill -0 "$pid" 2>/dev/null && alive+=("$socket")
+  done
+
+  if (( ${#alive} == 1 )); then
+    print -r -- "${alive[1]}"
+    return 0
+  fi
+
+  local default=$dir/default-org.wezfurlong.wezterm
+  if [[ -S $default ]]; then
+    pid=${default:A:t}
+    pid=${pid##*gui-sock-}
+    if [[ $pid == <-> ]] && kill -0 "$pid" 2>/dev/null; then
+      print -r -- "$default"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 mux() {
   emulate -L zsh
 
@@ -35,9 +67,16 @@ mux() {
     return 1
   fi
 
-  local pane
-  pane=$(wezterm cli spawn --domain-name "$domain" -- env "HWIRE_SESSION=$session" zsh -l) || return
-  wezterm cli activate-pane --pane-id "$pane"
+  local gui pane
+  if gui=$(_wezterm_gui_socket); then
+    pane=$(WEZTERM_UNIX_SOCKET=$gui wezterm cli spawn --domain-name "$domain" -- env "HWIRE_SESSION=$session" zsh -l) || return
+    WEZTERM_UNIX_SOCKET=$gui wezterm cli activate-pane --pane-id "$pane"
+  else
+    print -ru2 "mux: no live wezterm gui; attaching through the local mux server (two hops)"
+    pane=$(wezterm cli spawn --domain-name "$domain" -- env "HWIRE_SESSION=$session" zsh -l) || return
+    wezterm cli activate-pane --pane-id "$pane"
+  fi
+
   wezterm cli kill-pane --pane-id "$WEZTERM_PANE"
 }
 

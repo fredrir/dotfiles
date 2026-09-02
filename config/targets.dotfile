@@ -16,6 +16,7 @@ linux/ubuntu/git/.gitconfig = ~/.gitconfig
 linux/arch/macie-usb/etc = /etc
 linux/arch/archie-direct/etc = /etc
 linux/arch/wezterm-mux-sysctl/etc = /etc
+linux/arch/wifi-powersave/etc = /etc
 linux/arch/archie-direct/usr/local/libexec = /usr/local/libexec
 macos/hammerspoon = ~/.hammerspoon
 macos/ssh = ~/.ssh

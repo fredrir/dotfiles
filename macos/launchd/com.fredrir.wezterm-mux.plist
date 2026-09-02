@@ -6,7 +6,7 @@
   <string>com.fredrir.wezterm-mux</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/wezterm-mux-server</string>
+    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-serve</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -19,6 +19,8 @@
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
   <key>StandardOutPath</key>
   <string>/Users/fredrir/Library/Logs/wezterm-mux.log</string>
   <key>StandardErrorPath</key>
