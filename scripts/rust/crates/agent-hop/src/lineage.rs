@@ -14,8 +14,20 @@ use crate::transfer::Snapshot;
 
 const MAX_ANCESTORS: usize = 128;
 const MAX_RECORD_BYTES: usize = 64 * 1024 * 1024;
-type OffsetMap = BTreeMap<u64, u64>;
-type SnapshotTransform = (Snapshot, OffsetMap, Option<HistoryBase>);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Boundary {
+    destination_offset: u64,
+    next_ordinal: u64,
+}
+
+type BoundaryMap = BTreeMap<u64, Boundary>;
+type SnapshotTransform = (Snapshot, BoundaryMap, Option<HistoryBase>);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Projection {
+    byte_offset: u64,
+    next_ordinal: u64,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct HistoryBase {
@@ -129,7 +141,7 @@ impl Lineage {
         destination_home: &Path,
     ) -> Result<TransformedLineage, String> {
         let mut transformed = Vec::with_capacity(self.artifacts.len());
-        let mut parent_boundaries: Option<OffsetMap> = None;
+        let mut parent_boundaries: Option<BoundaryMap> = None;
         for artifact in self.artifacts {
             let source = artifact.descriptor;
             let destination_workspace =
@@ -289,13 +301,7 @@ fn discover_codex(home: &Path, session: &Session) -> Result<Lineage, String> {
         })?;
     }
     validate_ancestry(&reverse)?;
-    validate_projection_offsets(
-        home,
-        &reverse
-            .iter()
-            .map(|artifact| artifact.descriptor.clone())
-            .collect::<Vec<_>>(),
-    )?;
+    validate_projection_offsets(home, &reverse)?;
     Ok(Lineage {
         agent: Agent::Codex,
         artifacts: reverse,
@@ -487,18 +493,24 @@ fn validate_ancestry(artifacts: &[Artifact]) -> Result<(), String> {
                 child.session_id, base.end_byte_offset, parent.session_id, parent.bytes
             ));
         }
-        let ordinal = record_boundary_index(pair[0].snapshot.path(), base.end_byte_offset).map_err(|error| {
-            format!(
-                "refusing to launch Codex session {}: history_base offset {} in parent {} {error}",
-                child.session_id, base.end_byte_offset, parent.session_id
-            )
-        })?;
-        if ordinal as u64 != base.end_ordinal_exclusive {
+        let local_ordinal =
+            record_boundary_index(pair[0].snapshot.path(), base.end_byte_offset).map_err(
+                |error| {
+                    format!(
+                        "refusing to launch Codex session {}: history_base offset {} in parent {} {error}",
+                        child.session_id, base.end_byte_offset, parent.session_id
+                    )
+                },
+            )?;
+        let expected_ordinal = artifact_start_ordinal(parent)
+            .checked_add(local_ordinal as u64)
+            .ok_or_else(|| "Codex history ordinal overflowed u64".to_string())?;
+        if expected_ordinal != base.end_ordinal_exclusive {
             return Err(format!(
                 "refusing to launch Codex session {}: history_base byte offset {} resolves to ordinal {}, not declared ordinal {} in parent {}",
                 child.session_id,
                 base.end_byte_offset,
-                ordinal,
+                expected_ordinal,
                 base.end_ordinal_exclusive,
                 parent.session_id
             ));
@@ -507,10 +519,7 @@ fn validate_ancestry(artifacts: &[Artifact]) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_projection_offsets(
-    home: &Path,
-    artifacts: &[ArtifactDescriptor],
-) -> Result<(), String> {
+fn validate_projection_offsets(home: &Path, artifacts: &[Artifact]) -> Result<(), String> {
     if artifacts.is_empty() {
         return Ok(());
     }
@@ -526,7 +535,7 @@ fn validate_projection_offsets(
             database
                 .to_str()
                 .ok_or_else(|| "Codex projection database path is not UTF-8".to_string())?,
-            "SELECT thread_id, next_rollout_byte_offset FROM thread_history_projection_state;",
+            "SELECT thread_id, next_rollout_byte_offset, next_rollout_ordinal FROM thread_history_projection_state;",
         ])
         .output()
         .map_err(|error| {
@@ -542,34 +551,74 @@ fn validate_projection_offsets(
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    let mut offsets = HashMap::new();
+    let mut projections = HashMap::new();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let Some((id, offset)) = line.split_once('\t') else {
+        let mut fields = line.split('\t');
+        let (Some(id), Some(offset), Some(ordinal), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
             return Err("Codex projection database returned malformed output".to_string());
         };
-        let offset = offset
+        let byte_offset = offset
             .parse::<u64>()
             .map_err(|_| "Codex projection database returned an invalid offset".to_string())?;
-        offsets.insert(id.to_owned(), offset);
+        let next_ordinal = ordinal
+            .parse::<u64>()
+            .map_err(|_| "Codex projection database returned an invalid ordinal".to_string())?;
+        projections.insert(
+            id.to_owned(),
+            Projection {
+                byte_offset,
+                next_ordinal,
+            },
+        );
     }
-    validate_projected_sizes(artifacts, &offsets)
+    validate_projections(artifacts, &projections)
 }
 
-fn validate_projected_sizes(
-    artifacts: &[ArtifactDescriptor],
-    offsets: &HashMap<String, u64>,
+fn validate_projections(
+    artifacts: &[Artifact],
+    projections: &HashMap<String, Projection>,
 ) -> Result<(), String> {
     for artifact in artifacts {
-        if let Some(offset) = offsets.get(artifact.session_id.as_str())
-            && artifact.bytes < *offset
-        {
+        let descriptor = &artifact.descriptor;
+        let Some(projection) = projections.get(descriptor.session_id.as_str()) else {
+            continue;
+        };
+        if descriptor.bytes < projection.byte_offset {
             return Err(format!(
                 "refusing to launch Codex session {}: indexed projection expects byte offset {}, but the immutable rollout snapshot is only {} bytes",
-                artifact.session_id, offset, artifact.bytes
+                descriptor.session_id, projection.byte_offset, descriptor.bytes
+            ));
+        }
+        let local_ordinal = record_boundary_index(artifact.snapshot.path(), projection.byte_offset)
+            .map_err(|error| {
+                format!(
+                    "refusing to launch Codex session {}: indexed projection byte offset {} {error}",
+                    descriptor.session_id, projection.byte_offset
+                )
+            })?;
+        let expected_ordinal = artifact_start_ordinal(descriptor)
+            .checked_add(local_ordinal as u64)
+            .ok_or_else(|| "Codex history ordinal overflowed u64".to_string())?;
+        if projection.next_ordinal != expected_ordinal {
+            return Err(format!(
+                "refusing to launch Codex session {}: indexed projection expects ordinal {}, but byte offset {} resolves to ordinal {}",
+                descriptor.session_id,
+                projection.next_ordinal,
+                projection.byte_offset,
+                expected_ordinal
             ));
         }
     }
     Ok(())
+}
+
+fn artifact_start_ordinal(descriptor: &ArtifactDescriptor) -> u64 {
+    descriptor
+        .history_base
+        .as_ref()
+        .map_or(0, |base| base.end_ordinal_exclusive)
 }
 
 fn transform_snapshot(
@@ -577,7 +626,7 @@ fn transform_snapshot(
     agent: Agent,
     source_home: &Path,
     destination_home: &Path,
-    parent_boundaries: Option<&OffsetMap>,
+    parent_boundaries: Option<&BoundaryMap>,
 ) -> Result<SnapshotTransform, String> {
     let input = File::open(source.path())
         .map_err(|error| format!("could not open rollout snapshot: {error}"))?;
@@ -586,9 +635,11 @@ fn transform_snapshot(
         .map_err(|error| format!("could not create transformed rollout: {error}"))?;
     let mut source_offset = 0u64;
     let mut destination_offset = 0u64;
-    let mut boundaries = BTreeMap::from([(0, 0)]);
+    let mut boundaries = BTreeMap::new();
     let mut line = Vec::new();
     let mut first = true;
+    let mut record_index = 0u64;
+    let mut paginated_start = None;
     let mut transformed_base = None;
     loop {
         line.clear();
@@ -626,19 +677,61 @@ fn transform_snapshot(
                     base.thread_id
                 )
             })?;
-            base.end_byte_offset = *mapping.get(&base.end_byte_offset).ok_or_else(|| {
+            let boundary = mapping.get(&base.end_byte_offset).ok_or_else(|| {
                 format!(
                     "history_base offset {} is not a JSONL record boundary in ancestor {}",
                     base.end_byte_offset, base.thread_id
                 )
             })?;
+            base.end_byte_offset = boundary.destination_offset;
+            base.end_ordinal_exclusive = boundary.next_ordinal;
             if let Some(object) = base_value.as_object_mut() {
                 object.insert(
                     "end_byte_offset".to_string(),
                     Value::Number(base.end_byte_offset.into()),
                 );
+                object.insert(
+                    "end_ordinal_exclusive".to_string(),
+                    Value::Number(base.end_ordinal_exclusive.into()),
+                );
             }
             transformed_base = Some(base);
+        }
+        if agent == Agent::Codex && first {
+            paginated_start = match value.get("ordinal") {
+                Some(value) => {
+                    value.as_u64().ok_or_else(|| {
+                        "Codex rollout metadata has an invalid ordinal".to_string()
+                    })?;
+                    Some(
+                        transformed_base
+                            .as_ref()
+                            .map_or(0, |base| base.end_ordinal_exclusive),
+                    )
+                }
+                None if transformed_base.is_some() => {
+                    return Err(
+                        "Codex rollout with history_base has no paginated ordinal".to_string()
+                    );
+                }
+                None => None,
+            };
+            boundaries.insert(
+                0,
+                Boundary {
+                    destination_offset: 0,
+                    next_ordinal: paginated_start.unwrap_or(0),
+                },
+            );
+        }
+        if let Some(start) = paginated_start {
+            let ordinal = start
+                .checked_add(record_index)
+                .ok_or_else(|| "Codex history ordinal overflowed u64".to_string())?;
+            value
+                .as_object_mut()
+                .ok_or_else(|| "Codex rollout record is not an object".to_string())?
+                .insert("ordinal".to_string(), Value::Number(ordinal.into()));
         }
         transform_structural_paths(&mut value, agent, source_home, destination_home)?;
         if value == before {
@@ -659,7 +752,20 @@ fn transform_snapshot(
                 .len();
         }
         source_offset += count as u64;
-        boundaries.insert(source_offset, destination_offset);
+        record_index = record_index
+            .checked_add(1)
+            .ok_or_else(|| "rollout record count overflowed u64".to_string())?;
+        let next_ordinal = paginated_start
+            .unwrap_or(0)
+            .checked_add(record_index)
+            .ok_or_else(|| "Codex history ordinal overflowed u64".to_string())?;
+        boundaries.insert(
+            source_offset,
+            Boundary {
+                destination_offset,
+                next_ordinal,
+            },
+        );
         first = false;
     }
     output
@@ -846,7 +952,7 @@ mod tests {
 
     #[test]
     fn child_history_offset_tracks_transformed_parent_boundary() {
-        let parent_body = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"parent\",\"cwd\":\"/Users/f/work\"}}\n{\"type\":\"event\"}\n";
+        let parent_body = "{\"type\":\"session_meta\",\"ordinal\":0,\"payload\":{\"id\":\"parent\",\"cwd\":\"/Users/f/work\"}}\n{\"type\":\"event\",\"ordinal\":1}\n";
         let original_offset = parent_body.len() as u64;
         let (_, boundaries, _) = transform_snapshot(
             snapshot(parent_body),
@@ -858,6 +964,7 @@ mod tests {
         .unwrap();
         let mut child = serde_json::json!({
             "type": "session_meta",
+            "ordinal": 2,
             "payload": {
                 "id": "child",
                 "cwd": "/Users/f/work",
@@ -878,7 +985,7 @@ mod tests {
             Some(&boundaries),
         )
         .unwrap();
-        let expected = boundaries[&original_offset];
+        let expected = boundaries[&original_offset].destination_offset;
         assert_eq!(base.unwrap().end_byte_offset, expected);
         let value: Value = serde_json::from_slice(&fs::read(mapped.path()).unwrap()).unwrap();
         assert_eq!(
@@ -971,17 +1078,190 @@ mod tests {
 
     #[test]
     fn projected_offset_beyond_snapshot_is_refused_before_launch() {
-        let artifact = ArtifactDescriptor {
-            session_id: "thread".to_string(),
-            workspace: "/home/f/work".into(),
-            transcript: "/home/f/.codex/sessions/thread.jsonl".into(),
-            history_base: None,
-            bytes: 99,
-            sha256: "0".repeat(64),
+        let artifact = Artifact {
+            descriptor: ArtifactDescriptor {
+                session_id: "thread".to_string(),
+                workspace: "/home/f/work".into(),
+                transcript: "/home/f/.codex/sessions/thread.jsonl".into(),
+                history_base: None,
+                bytes: 99,
+                sha256: "0".repeat(64),
+            },
+            snapshot: snapshot("{\"ordinal\":0}\n"),
         };
-        let offsets = HashMap::from([("thread".to_string(), 100)]);
-        let error = validate_projected_sizes(&[artifact], &offsets).unwrap_err();
+        let projections = HashMap::from([(
+            "thread".to_string(),
+            Projection {
+                byte_offset: 100,
+                next_ordinal: 1,
+            },
+        )]);
+        let error = validate_projections(&[artifact], &projections).unwrap_err();
         assert!(error.contains("expects byte offset 100"));
         assert!(error.contains("only 99 bytes"));
+    }
+
+    #[test]
+    fn paginated_ordinals_are_normalized_without_touching_legacy_rollouts() {
+        let duplicate = "{\"type\":\"session_meta\",\"ordinal\":0,\"payload\":{\"id\":\"root\",\"cwd\":\"/home/f/work\"}}\n{\"type\":\"event_msg\",\"ordinal\":0,\"payload\":{}}\n{\"type\":\"event_msg\",\"ordinal\":1,\"payload\":{}}\n";
+        let (normalized, boundaries, _) = transform_snapshot(
+            snapshot(duplicate),
+            Agent::Codex,
+            Path::new("/home/f"),
+            Path::new("/home/f"),
+            None,
+        )
+        .unwrap();
+        let ordinals = fs::read_to_string(normalized.path())
+            .unwrap()
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<Value>(line).unwrap()["ordinal"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ordinals, [0, 1, 2]);
+        assert_eq!(boundaries[&(duplicate.len() as u64)].next_ordinal, 3);
+
+        let legacy = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"legacy\",\"cwd\":\"/home/f/work\"}}\n{\"type\":\"event_msg\",\"payload\":{}}\n";
+        let (unchanged, _, _) = transform_snapshot(
+            snapshot(legacy),
+            Agent::Codex,
+            Path::new("/home/f"),
+            Path::new("/home/f"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(fs::read(unchanged.path()).unwrap(), legacy.as_bytes());
+    }
+
+    #[test]
+    fn child_ordinals_continue_from_the_transformed_history_boundary() {
+        let parent = "{\"type\":\"session_meta\",\"ordinal\":0,\"payload\":{\"id\":\"parent\",\"cwd\":\"/Users/f/work\"}}\n{\"type\":\"event_msg\",\"ordinal\":0,\"payload\":{}}\n";
+        let (_, parent_boundaries, _) = transform_snapshot(
+            snapshot(parent),
+            Agent::Codex,
+            Path::new("/Users/f"),
+            Path::new("/home/f"),
+            None,
+        )
+        .unwrap();
+        let child = format!(
+            "{}\n{{\"type\":\"event_msg\",\"ordinal\":1,\"payload\":{{}}}}\n",
+            serde_json::json!({
+                "type": "session_meta",
+                "ordinal": 1,
+                "payload": {
+                    "id": "child",
+                    "cwd": "/Users/f/work",
+                    "history_base": {
+                        "thread_id": "parent",
+                        "end_ordinal_exclusive": 1,
+                        "end_byte_offset": parent.len(),
+                    }
+                }
+            })
+        );
+        let (normalized, _, base) = transform_snapshot(
+            snapshot(&child),
+            Agent::Codex,
+            Path::new("/Users/f"),
+            Path::new("/home/f"),
+            Some(&parent_boundaries),
+        )
+        .unwrap();
+        let base = base.unwrap();
+        assert_eq!(base.end_ordinal_exclusive, 2);
+        let ordinals = fs::read_to_string(normalized.path())
+            .unwrap()
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<Value>(line).unwrap()["ordinal"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ordinals, [2, 3]);
+    }
+
+    #[test]
+    fn ancestry_ordinals_are_global_across_more_than_one_fork() {
+        let root_body = "{\"ordinal\":0}\n{\"ordinal\":1}\n";
+        let child_body = "{\"ordinal\":2}\n{\"ordinal\":3}\n";
+        let grandchild_body = "{\"ordinal\":4}\n";
+        let root = snapshot(root_body);
+        let child = snapshot(child_body);
+        let grandchild = snapshot(grandchild_body);
+        let artifacts = vec![
+            Artifact {
+                descriptor: ArtifactDescriptor {
+                    session_id: "root".to_string(),
+                    workspace: "/home/f/work".into(),
+                    transcript: "/home/f/root.jsonl".into(),
+                    history_base: None,
+                    bytes: root_body.len() as u64,
+                    sha256: "a".repeat(64),
+                },
+                snapshot: root,
+            },
+            Artifact {
+                descriptor: ArtifactDescriptor {
+                    session_id: "child".to_string(),
+                    workspace: "/home/f/work".into(),
+                    transcript: "/home/f/child.jsonl".into(),
+                    history_base: Some(HistoryBase {
+                        thread_id: "root".to_string(),
+                        end_ordinal_exclusive: 2,
+                        end_byte_offset: root_body.len() as u64,
+                    }),
+                    bytes: child_body.len() as u64,
+                    sha256: "b".repeat(64),
+                },
+                snapshot: child,
+            },
+            Artifact {
+                descriptor: ArtifactDescriptor {
+                    session_id: "grandchild".to_string(),
+                    workspace: "/home/f/work".into(),
+                    transcript: "/home/f/grandchild.jsonl".into(),
+                    history_base: Some(HistoryBase {
+                        thread_id: "child".to_string(),
+                        end_ordinal_exclusive: 4,
+                        end_byte_offset: child_body.len() as u64,
+                    }),
+                    bytes: grandchild_body.len() as u64,
+                    sha256: "c".repeat(64),
+                },
+                snapshot: grandchild,
+            },
+        ];
+        validate_ancestry(&artifacts).unwrap();
+    }
+
+    #[test]
+    fn projection_offset_and_ordinal_must_resolve_to_the_same_boundary() {
+        let body = "{\"ordinal\":0}\n{\"ordinal\":1}\n";
+        let artifact = Artifact {
+            descriptor: ArtifactDescriptor {
+                session_id: "thread".to_string(),
+                workspace: "/home/f/work".into(),
+                transcript: "/home/f/thread.jsonl".into(),
+                history_base: None,
+                bytes: body.len() as u64,
+                sha256: "a".repeat(64),
+            },
+            snapshot: snapshot(body),
+        };
+        let projections = HashMap::from([(
+            "thread".to_string(),
+            Projection {
+                byte_offset: "{\"ordinal\":0}\n".len() as u64,
+                next_ordinal: 2,
+            },
+        )]);
+        let error = validate_projections(&[artifact], &projections).unwrap_err();
+        assert!(error.contains("expects ordinal 2"));
+        assert!(error.contains("resolves to ordinal 1"));
     }
 }

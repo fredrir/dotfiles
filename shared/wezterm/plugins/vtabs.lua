@@ -4,7 +4,7 @@ local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/old.vertical-tabs
 
 local package_path = plugin_root .. "/plugin/init.lua"
 
-package.path = plugin_root .. package_path .. ";" .. package.path
+package.path = plugin_root .. "/plugin/?.lua;" .. plugin_root .. "/plugin/?/init.lua;" .. package.path
 
 local vtabs = dofile(package_path)
 

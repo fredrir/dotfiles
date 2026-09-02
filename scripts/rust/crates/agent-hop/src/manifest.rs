@@ -9,7 +9,7 @@ use crate::cli::Agent;
 use crate::lineage::TransformedLineage;
 use crate::session::SessionId;
 
-const SCHEMA_VERSION: u64 = 1;
+const SCHEMA_VERSION: u64 = 2;
 pub(crate) const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -34,6 +34,8 @@ pub(crate) struct ManifestArtifact {
     pub(crate) destination_bytes: u64,
     pub(crate) source_history_offset: Option<u64>,
     pub(crate) destination_history_offset: Option<u64>,
+    pub(crate) source_history_ordinal: Option<u64>,
+    pub(crate) destination_history_ordinal: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -107,6 +109,16 @@ impl TransferManifest {
                         .history_base
                         .as_ref()
                         .map(|base| base.end_byte_offset),
+                    source_history_ordinal: artifact
+                        .source
+                        .history_base
+                        .as_ref()
+                        .map(|base| base.end_ordinal_exclusive),
+                    destination_history_ordinal: artifact
+                        .destination
+                        .history_base
+                        .as_ref()
+                        .map(|base| base.end_ordinal_exclusive),
                 })
                 .collect(),
         })
@@ -185,6 +197,8 @@ impl TransferManifest {
                 || !valid_sha256(&artifact.destination_sha256)
                 || artifact.source_history_offset.is_some() != artifact.parent_id.is_some()
                 || artifact.destination_history_offset.is_some() != artifact.parent_id.is_some()
+                || artifact.source_history_ordinal.is_some() != artifact.parent_id.is_some()
+                || artifact.destination_history_ordinal.is_some() != artifact.parent_id.is_some()
             {
                 return Err("transfer manifest artifact lineage is inconsistent".to_string());
             }
@@ -379,6 +393,8 @@ mod tests {
                 destination_bytes: 11,
                 source_history_offset: None,
                 destination_history_offset: None,
+                source_history_ordinal: None,
+                destination_history_ordinal: None,
             }],
         };
         let first = record(home.path(), &installed).unwrap();
