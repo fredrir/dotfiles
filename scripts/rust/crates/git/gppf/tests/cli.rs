@@ -68,7 +68,7 @@ impl Sandbox {
     }
 
     fn gppf(&self, cwd: &Path, arguments: &[&str]) -> Output {
-        self.command(env!("CARGO_BIN_EXE_gpp"), cwd)
+        self.command(env!("CARGO_BIN_EXE_gppf"), cwd)
             .args(arguments)
             .output()
             .expect("gppf runs")

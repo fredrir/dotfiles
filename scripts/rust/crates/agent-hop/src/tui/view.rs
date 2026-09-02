@@ -477,7 +477,7 @@ fn render_session_card(
         muted(options)
     };
     let mut card_title = vec![Span::styled(
-        if is_highlighted { " ◆ " } else { "   " },
+        "   " ,
         title_style,
     )];
     card_title.push(badge(
@@ -488,7 +488,7 @@ fn render_session_card(
     card_title.push(Span::raw("  "));
     card_title.push(Span::styled(clean(&entry.updated), muted(options)));
     if entry.favorite {
-        card_title.push(Span::raw("  "));
+        card_title.push(Span::raw(" "));
         card_title.push(Span::styled("★", warning(options)));
     }
     let block = Block::default()
