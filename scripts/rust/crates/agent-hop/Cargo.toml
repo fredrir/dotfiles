@@ -9,7 +9,7 @@ license.workspace = true
 clap.workspace        = true
 crossterm.workspace   = true
 hostkit.workspace     = true
-ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
+ratatui               = { workspace = true, features = ["unstable-rendered-line-info"] }
 serde_json.workspace  = true
 tempfile.workspace    = true
 workstation.workspace = true
