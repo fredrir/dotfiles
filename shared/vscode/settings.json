@@ -135,7 +135,7 @@
       }
     }
   ],
-  "diffEditor.ignoreTrimWhitespace": false,
+  "diffEditor.ignoreTrimWhitespace": true,
   "github.copilot.enable": {
     "lua": false,
     "*": false,

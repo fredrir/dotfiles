@@ -5,13 +5,11 @@ package.path = plugin_root .. "/?.lua;" .. plugin_root .. "/?/init.lua;" .. pack
 
 local vtabs = dofile(plugin_root .. "/init.lua")
 
-local M = {}
+local M = { plugin = vtabs }
 
 function M.apply_to_config(config)
   vtabs.apply_to_config(config, {
     dim_inactive_panes = true,
-    -- no row highlight under the pointer: no mouse-motion round trips through localmux
-    hover_highlight = false,
     backend = {
       path = function(domain, host)
         if host == "archie" or domain:match "^archie" then

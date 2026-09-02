@@ -38,12 +38,8 @@ end)
 ---@param direction "horizontal" | "vertical"
 ---@return Action
 function hwire_session.split(direction)
-  return wezterm.action_callback(function(window, pane)
-    local command = command_for_pane(pane)
-    local action = direction == "horizontal" and act.SplitHorizontal(command) or act.SplitVertical(command)
-
-    window:perform_action(action, pane)
-  end)
+  local vtabs = require("plugins.vtabs").plugin
+  return vtabs.action.split(direction == "horizontal" and "Right" or "Bottom", command_for_pane)
 end
 
 return hwire_session
