@@ -18,6 +18,7 @@ def sandbox(tmp_path):
         "DOTFILE_ROOT": str(repo),
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
+        "SYSINFO_HOST": "test",
     }
     return repo, home, env
 
@@ -77,12 +78,26 @@ def test_dry_run_changes_nothing(tool, sandbox):
     assert not (home / ".config" / "alpha").exists()
 
 
-def test_status_after_link(tool, sandbox):
+def test_doctor_reports_link_health(tool, sandbox):
     _repo, _home, env = sandbox
     tool("dotfile", "link", "test", env=env)
-    result = tool("dotfile", "status", "test", env=env)
+    result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 0
     assert "1 linked, 0 missing, 0 differing" in result.stdout
+
+
+def test_doctor_fails_when_a_profile_link_is_missing(tool, sandbox):
+    _repo, _home, env = sandbox
+    result = tool("dotfile", "doctor", "test", env=env)
+    assert result.returncode == 1
+    assert "0 linked, 1 missing, 0 differing" in result.stdout
+
+
+def test_status_is_no_longer_a_command(tool, sandbox):
+    _repo, _home, env = sandbox
+    result = tool("dotfile", "status", env=dict(env, PATH=""))
+    assert result.returncode == 2
+    assert "'status' is included in 'dotfile doctor'; run that instead." in result.stderr
 
 
 def test_an_unregistered_name_runs_the_binary_behind_it(tool, tmp_path):

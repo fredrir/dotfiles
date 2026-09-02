@@ -1,5 +1,4 @@
 import os
-import shutil
 
 from tools.dotfile import adoption, mergeconf
 from tools.dotfile import merge as merge_state
@@ -281,55 +280,3 @@ def scan_links(ctx):
         seen = merge_state.review(ctx, entry)
         found.append((seen.state, entry.dst, seen.detail, seen.changes))
     return found
-
-
-GLYPHS = {
-    merge_state.ADD: "+",
-    merge_state.MODIFY: "~",
-    merge_state.DELETE: "-",
-    merge_state.CONFLICT: "!",
-}
-
-STATE_WIDTH = 10
-KEY_INDENT = " " * (STATE_WIDTH + 3)
-
-
-def key_lines(changes):
-    """One line per changed key, so a status tells you what actually moved."""
-    width = max(shutil.get_terminal_size().columns - len(KEY_INDENT) - 4, 20)
-    for change in changes[: merge_state.DETAIL_KEYS]:
-        glyph = GLYPHS.get(change.kind, "|")
-        detail = adoption.render_change(change, width)
-        log(f"{KEY_INDENT}{glyph} {change.key() or '(document)'}{'  ' + detail if detail else ''}")
-    rest = len(changes) - merge_state.DETAIL_KEYS
-    if rest > 0:
-        log(f"{KEY_INDENT}… and {rest} more")
-
-
-def cmd_status(ctx, profile):
-    profile = resolve_profile(ctx, profile or "")
-    manifest = require_manifest(ctx, profile)
-    load_targets(ctx)
-    load_overrides(ctx)
-    collect_groups(ctx, manifest)
-    merge_state.load(ctx)
-
-    ok = missing = differing = 0
-    for state, dst, detail, changes in scan_links(ctx):
-        if state in ("ok", merge_state.CURRENT):
-            ok += 1
-            continue
-        # the summary names the same keys the lines below spell out, so pick one
-        suffix = "  " + detail if detail and not changes else ""
-        log(f"{state:<{STATE_WIDTH}} {shorten(ctx, dst)}{suffix}")
-        key_lines(changes)
-        if state == "missing":
-            missing += 1
-        elif state == merge_state.FORMATTING:
-            ok += 1  # the file says the same thing in its own layout
-        else:
-            differing += 1
-
-    log(f"profile '{profile}': {ok} linked, {missing} missing, {differing} differing")
-    if missing + differing:
-        raise SystemExit(1)

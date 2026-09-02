@@ -1,6 +1,6 @@
 """Shared one-line rendering of JSON config values.
 
-`dotfile status` and `dotfile sync` describe the same thing — a key of a materialised
+`dotfile doctor` and `dotfile sync` describe the same thing — a key of a materialised
 config that no longer matches the repo — so both format it here: `key` for the key
 column, `change` for the detail column, and `value` for a lone value.
 

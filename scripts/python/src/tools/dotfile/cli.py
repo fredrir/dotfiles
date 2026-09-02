@@ -9,7 +9,7 @@ from typer._click.exceptions import UsageError
 from typer.core import TyperGroup
 
 from tools.dotfile import add as add_command
-from tools.dotfile import check as check_command
+from tools.dotfile import doctor as doctor_command
 from tools.dotfile import link as link_command
 from tools.dotfile import merge as merge_command
 from tools.dotfile import profiles as profiles_command
@@ -34,7 +34,9 @@ class Dispatch(TyperGroup):
         try:
             return super().resolve_command(ctx, args)
         except UsageError as error:
-            if name in {"docs", "packages"}:
+            if name == "status":
+                error.message = "'status' is included in 'dotfile doctor'; run that instead."
+            elif name in {"docs", "packages"}:
                 error.message = f"'{name}' is included in 'dotfile sync'; run that instead."
             elif external:
                 error.message += " Run ./setup.sh"
@@ -79,8 +81,6 @@ GROUP_FLAGS = (
 
 RESOLUTIONS = (merge_command.SKIP, merge_command.REPO, merge_command.LIVE)
 
-RESOLVE_HELP = "choose how locally edited merged configs are settled: skip, repo, or live"
-
 
 def checked_resolution(value):
     if value not in RESOLUTIONS:
@@ -100,7 +100,7 @@ def link(
         [], "--override", help="select a machine override with GROUP=NAME|none"
     ),
     force: bool = typer.Option(False, "--force", help="alias for --resolve repo"),
-    resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
+    resolve: str = typer.Option(merge_command.SKIP, "--resolve"),
 ):
     link_command.cmd_link(Context(), profile, dry_run, override, force, checked_resolution(resolve))
 
@@ -197,7 +197,7 @@ def sync(
         "--force",
         help="resolve local edits from the repository; discard remote edits with --push",
     ),
-    resolve: str = typer.Option(merge_command.SKIP, "--resolve", help=RESOLVE_HELP),
+    resolve: str = typer.Option(merge_command.SKIP, "--resolve"),
     push: bool = typer.Option(
         False, "-p", "--push", help="push commits, then pull and sync the peer"
     ),
@@ -213,19 +213,14 @@ def sync(
     die("sync is provided by the native dotfile executable")
 
 
-@app.command(help="Show link state for every file in the profile.")
-def status(profile: str | None = typer.Argument(None)):
-    link_command.cmd_status(Context(), profile)
-
-
 @app.command(help="Check the profile's links, required tools, and packages.")
-def check(
+def doctor(
     profile: str | None = typer.Argument(None),
     show_all: bool = typer.Option(
         False, "--all", help="list every finding instead of the first few"
     ),
 ):
-    check_command.cmd_check(Context(), profile, show_all)
+    doctor_command.cmd_doctor(Context(), profile, show_all)
 
 
 @app.command(hidden=True)

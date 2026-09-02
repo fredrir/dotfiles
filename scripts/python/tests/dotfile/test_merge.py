@@ -46,6 +46,7 @@ def sandbox(tmp_path):
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
         "DOTFILE_PLATFORM": "macos",
+        "SYSINFO_HOST": "test",
     }
     return repo, home, env
 
@@ -155,17 +156,19 @@ def test_link_blocks_on_drift_and_force_restores(tool, sandbox):
     assert "shellformat.path" in settings.read_text()
 
 
-def test_status_reports_merge_state(tool, sandbox):
+def test_doctor_reports_merge_state(tool, sandbox):
     _repo, home, env = sandbox
     settings = home / ".config" / "Code" / "User" / "settings.json"
     tool("dotfile", "link", "test", env=env)
-    result = tool("dotfile", "status", "test", env=env)
+    result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 0
     assert "2 linked, 0 missing, 0 differing" in result.stdout
     settings.write_text("{}\n")
-    result = tool("dotfile", "status", "test", env=env)
+    result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 1
     assert "1 linked, 0 missing, 1 differing" in result.stdout
+    assert "drifted" in result.stdout
+    assert "shellformat.path" in result.stdout
 
 
 def test_overlay_without_a_base_fails(tool, sandbox):
@@ -381,11 +384,11 @@ def test_a_reformatted_file_is_left_exactly_as_it_is(tool, sandbox):
     assert settings.read_text() == text
 
 
-def test_status_counts_a_reformatted_file_as_linked(tool, sandbox):
+def test_doctor_counts_a_reformatted_file_as_linked(tool, sandbox):
     _repo, home, env = sandbox
     tool("dotfile", "link", "test", env=env)
     reformat(settings_of(home))
-    result = tool("dotfile", "status", "test", env=env)
+    result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 0
     assert "formatting" in result.stdout
     assert "2 linked, 0 missing, 0 differing" in result.stdout
@@ -485,7 +488,7 @@ def test_merge_dotfile_is_never_linked(tool, sandbox):
     assert result.returncode == 0
     assert not os.path.lexists(home / ".config" / "Code" / "User" / "merge.dotfile")
     assert not os.path.lexists(home / ".config" / "vscode")
-    result = tool("dotfile", "status", "test", env=env)
+    result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 0
     assert "2 linked, 0 missing, 0 differing" in result.stdout
 

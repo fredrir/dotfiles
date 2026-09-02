@@ -7,6 +7,9 @@ import tomllib
 from tools.core import blocks
 from tools.core.console import colors_enabled
 from tools.core.process import capture
+from tools.dotfile import adoption
+from tools.dotfile import link as link_command
+from tools.dotfile import merge as merge_state
 from tools.dotfile.profiles import detect_platform
 from tools.dotfile.report import (
     BOLD,
@@ -17,6 +20,7 @@ from tools.dotfile.report import (
     row,
 )
 from tools.dotfile.state import (
+    collect_groups,
     die,
     load_overrides,
     log,
@@ -27,6 +31,7 @@ from tools.dotfile.state import (
     shorten,
     trim,
 )
+from tools.dotfile.targets import load_targets
 
 KINDS = ("command", "font", "file")
 
@@ -69,6 +74,14 @@ PLUGIN_PATTERNS = (
 )
 
 PLUGIN_DIRS = ("/usr/share/zsh/plugins", "/usr/share", "/usr/local/share")
+
+LINK_GLYPHS = {
+    merge_state.ADD: "+",
+    merge_state.MODIFY: "~",
+    merge_state.DELETE: "-",
+    merge_state.CONFLICT: "!",
+}
+LINK_STATE_WIDTH = 10
 
 
 def read_requirement_entries(ctx):
@@ -468,15 +481,58 @@ def benchmark_rows(ctx):
     return [row("ok", "benchmark", f"{len(runs)} clean {noun}, newest {age} days old")], 0
 
 
-def cmd_check(ctx, profile, show_all):
+def link_items(ctx, findings):
+    width = max(shutil.get_terminal_size().columns - LINK_STATE_WIDTH - 12, 20)
+    items = []
+    for state, dst, detail, changes in findings:
+        suffix = "  " + detail if detail and not changes else ""
+        items.append((f"{state:<{LINK_STATE_WIDTH}} {shorten(ctx, dst)}{suffix}", ""))
+        for change in changes[: merge_state.DETAIL_KEYS]:
+            glyph = LINK_GLYPHS.get(change.kind, "|")
+            rendered = adoption.render_change(change, width)
+            key = change.key() or "(document)"
+            suffix = "  " + rendered if rendered else ""
+            items.append((f"{'':<{LINK_STATE_WIDTH}} {glyph} {key}{suffix}", ""))
+        rest = len(changes) - merge_state.DETAIL_KEYS
+        if rest > 0:
+            items.append((f"{'':<{LINK_STATE_WIDTH}} … and {rest} more", ""))
+    return items
+
+
+def link_rows(ctx, show_all):
+    load_targets(ctx)
+    merge_state.load(ctx)
+
+    linked = missing = differing = 0
+    findings = []
+    for state, dst, detail, changes in link_command.scan_links(ctx):
+        if state in ("ok", merge_state.CURRENT):
+            linked += 1
+            continue
+        findings.append((state, dst, detail, changes))
+        if state == "missing":
+            missing += 1
+        elif state == merge_state.FORMATTING:
+            linked += 1
+        else:
+            differing += 1
+
+    summary = f"{linked} linked, {missing} missing, {differing} differing"
+    kind = "bad" if missing + differing else "ok"
+    return [row(kind, "links", summary, link_items(ctx, findings), show_all)], missing + differing
+
+
+def cmd_doctor(ctx, profile, show_all):
     profile = resolve_profile(ctx, profile or "")
     manifest = require_manifest(ctx, profile)
     load_overrides(ctx)
+    collect_groups(ctx, manifest, notes=False)
     groups = manifest_groups(manifest)
 
     rows = []
     problems = 0
     for section, count in (
+        link_rows(ctx, show_all),
         environment_rows(ctx, profile, manifest, detect_platform()),
         requirement_rows(ctx, groups, show_all),
         pin_rows(ctx, groups, show_all),
@@ -489,7 +545,7 @@ def cmd_check(ctx, profile, show_all):
 
     color_on = colors_enabled()
     log("")
-    log(INDENT + paint("check", DIM, color_on) + "  " + paint(profile, BOLD, color_on))
+    log(INDENT + paint("doctor", DIM, color_on) + "  " + paint(profile, BOLD, color_on))
     log("")
     for entry in rows:
         emit(entry, color_on)

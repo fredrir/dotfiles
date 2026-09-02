@@ -53,7 +53,7 @@ def load_run(path):
     # ValueError covers JSONDecodeError and UnicodeDecodeError; AttributeError
     # and TypeError cover a file holding a JSON scalar rather than an object.
     # One corrupt byte in one run used to take down list, show, compare, trend,
-    # health, prune and dotfile check alike.
+    # health, prune and dotfile doctor alike.
     try:
         with open(path, encoding="utf-8") as handle:
             return Run.from_json(json.load(handle))

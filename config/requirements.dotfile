@@ -1,6 +1,3 @@
-# What the configs in each group expect to find on the machine. `dotfile check`
-# keeps the blocks the selected profile links and reports what is missing.
-#
 #   name                a command that has to be on PATH
 #   name = package      ... installed under a different package name
 #   font <family>       a font family the configs ask for by name

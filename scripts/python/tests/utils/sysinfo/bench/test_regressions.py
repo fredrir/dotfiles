@@ -81,7 +81,7 @@ class TestLoadRun:
     )
     def test_a_corrupt_run_is_skipped_rather_than_fatal(self, benchmarks, name, payload):
         # One bad byte in one file used to raise out of list, show, compare,
-        # trend, health, prune and dotfile check alike.
+        # trend, health, prune and dotfile doctor alike.
         directory = store.host_dir("archie")
         directory.mkdir(parents=True, exist_ok=True)
         (directory / name).write_bytes(payload)
