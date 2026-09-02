@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use workstation::{Completions, Style};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, ValueEnum)]
 pub enum Agent {
     Codex,
     Claude,
@@ -142,7 +142,7 @@ pub struct Machine {
 #[derive(Subcommand)]
 pub enum MachineRequest {
     Catalog {
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
         protocol: u64,
         #[arg(long)]
         workspace: Option<PathBuf>,
@@ -150,7 +150,7 @@ pub enum MachineRequest {
         limit: usize,
     },
     Preview {
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
         protocol: u64,
         #[arg(long)]
         agent: Agent,
@@ -160,15 +160,45 @@ pub enum MachineRequest {
         max_chars: usize,
     },
     Export {
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
+        protocol: u64,
+        #[arg(long)]
+        agent: Agent,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        sha256: String,
+        #[arg(long)]
+        bytes: u64,
+    },
+    Lineage {
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
         protocol: u64,
         #[arg(long)]
         agent: Agent,
         #[arg(long)]
         session: String,
     },
+    Import {
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
+        protocol: u64,
+        #[arg(long)]
+        agent: Agent,
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        destination: PathBuf,
+        #[arg(long)]
+        sha256: String,
+        #[arg(long)]
+        bytes: u64,
+    },
+    RecordManifest {
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
+        protocol: u64,
+    },
     ExportCompanion {
-        #[arg(long, default_value_t = 1)]
+        #[arg(long, default_value_t = crate::remote::MACHINE_PROTOCOL_VERSION)]
         protocol: u64,
         #[arg(long)]
         agent: Agent,

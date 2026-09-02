@@ -1,5 +1,5 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufReader, Read, Write};
+use std::fs::{self, File};
+use std::io::{BufReader, Read};
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 
@@ -21,7 +21,19 @@ pub(crate) fn receive(
     let remote = Remote::new(peer);
     let home = crate::local_home()?;
     let remote_home = remote.home()?;
-    let (snapshot, session) = pull_snapshot(remote, &remote_home, agent, session_id)?;
+    let (mut lineage, session) = pull_lineage(remote, &remote_home, &home, agent, session_id)?;
+    for artifact in &mut lineage.artifacts {
+        let mapped = plan::destination(
+            session.agent,
+            &artifact.source.session_id,
+            &artifact.source.transcript,
+            &artifact.source.workspace,
+            &remote_home,
+            &home,
+            false,
+        )?;
+        artifact.destination.transcript = mapped.transcript;
+    }
     let destination = plan::destination(
         session.agent,
         &session.id,
@@ -31,6 +43,15 @@ pub(crate) fn receive(
         &home,
         session.companion.is_some(),
     )?;
+    let selected = lineage
+        .artifacts
+        .last()
+        .ok_or_else(|| "remote session lineage is empty".to_string())?;
+    if selected.destination.transcript != destination.transcript
+        || selected.destination.workspace != destination.workspace
+    {
+        return Err("lineage transformer produced an inconsistent local destination".to_string());
+    }
     local_preflight(&destination.workspace, session.agent)?;
 
     let route_peer = peer.name().to_string();
@@ -58,25 +79,65 @@ pub(crate) fn receive(
     }
     println!();
 
-    let bytes = fs::metadata(snapshot.path())
-        .map_err(|error| format!("could not inspect the session snapshot: {error}"))?
-        .len();
-    let reused = verify_local_destination(snapshot.path(), &destination.transcript)?;
+    if !options.dry_run
+        && !options.no_connect
+        && let Some(child_id) = crate::manifest::latest_child(
+            &home,
+            peer.name(),
+            this.name(),
+            session.agent,
+            &session.id,
+            &selected.source.sha256,
+        )?
+        && local_child_is_resumable(
+            &home,
+            session.agent,
+            &child_id,
+            &destination.workspace,
+            &selected.destination,
+        )?
+        && crate::offer_resume(this.name(), session.agent, &child_id)?
+    {
+        println!(
+            "Resuming existing child session {child_id} on {}.",
+            this.name()
+        );
+        return resume_local(&destination.workspace, session.agent, &child_id);
+    }
+
+    let bytes = lineage
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.destination.bytes)
+        .sum();
+    let reused = verify_local_lineage(&lineage)?;
     if options.dry_run {
-        if reused {
+        if reused == lineage.artifacts.len() {
             println!("{}", crate::report::reused(&style));
         }
+        println!(
+            "Validated {} immutable history object{}.",
+            lineage.artifacts.len(),
+            if lineage.artifacts.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        );
         println!("{}", crate::report::dry_run(&style));
         return Ok(());
     }
 
-    let destination_directory = destination
-        .transcript
-        .parent()
-        .ok_or_else(|| "the destination transcript has no parent directory".to_string())?;
-    ensure_directory_tree(&home, destination_directory)?;
-    if !reused {
-        install_new_file(snapshot.path(), &destination.transcript)?;
+    for artifact in &lineage.artifacts {
+        let destination_directory = artifact
+            .destination
+            .transcript
+            .parent()
+            .ok_or_else(|| "a destination transcript has no parent directory".to_string())?;
+        ensure_directory_tree(&home, destination_directory)?;
+        if !verify_local_destination(artifact.snapshot.path(), &artifact.destination.transcript)? {
+            install_new_file(artifact.snapshot.path(), &artifact.destination.transcript)?;
+        }
     }
 
     if let Some(companion) = destination.companion.as_deref() {
@@ -87,8 +148,9 @@ pub(crate) fn receive(
             )
         })?;
     }
+    validate_local_install(&home, session.agent, &session.id, &lineage)?;
     let attachment_count = crate::count_companion(destination.companion.as_deref())?;
-    if reused {
+    if reused == lineage.artifacts.len() {
         println!("{}", crate::report::reused(&style));
         if attachment_count > 0 {
             println!("{}", crate::report::attachments(&style, attachment_count));
@@ -96,6 +158,17 @@ pub(crate) fn receive(
     } else {
         println!("{}", crate::report::copied(&style, bytes, attachment_count));
     }
+
+    let manifest = crate::manifest::TransferManifest::installed(
+        peer.name(),
+        this.name(),
+        &remote_home,
+        &home,
+        &lineage,
+    )?;
+    let manifest_path = crate::manifest::record(&home, &manifest)?;
+    remote.record_manifest(&manifest)?;
+    println!("Transfer manifest: {}", manifest_path.display());
 
     if options.no_connect {
         println!(
@@ -108,7 +181,70 @@ pub(crate) fn receive(
         "{}",
         crate::report::launching(&style, session.agent, this.name())
     );
-    launch_local(&destination.workspace, session.agent, &session.id)
+    let before = local_session_ids(&home, session.agent, &destination.workspace);
+    launch_local(&destination.workspace, session.agent, &session.id)?;
+    let after = local_session_ids(&home, session.agent, &destination.workspace);
+    let mut created = after
+        .difference(&before)
+        .filter(|id| id.as_str() != session.id)
+        .cloned()
+        .collect::<Vec<_>>();
+    created.sort();
+    if created.len() == 1
+        && local_child_is_resumable(
+            &home,
+            session.agent,
+            &created[0],
+            &destination.workspace,
+            &selected.destination,
+        )?
+    {
+        let child_id = created.pop().unwrap();
+        let launched = manifest.launched(child_id.clone())?;
+        let path = crate::manifest::record(&home, &launched)?;
+        remote.record_manifest(&launched)?;
+        println!("Captured child session {child_id} in {}", path.display());
+    } else {
+        eprintln!("warning: the agent exited, but no unique child session ID could be identified");
+    }
+    Ok(())
+}
+
+fn local_child_is_resumable(
+    home: &Path,
+    agent: Agent,
+    child_id: &str,
+    workspace: &Path,
+    expected_parent: &crate::lineage::ArtifactDescriptor,
+) -> Result<bool, String> {
+    if !local_session_ids(home, agent, workspace).contains(child_id) {
+        return Ok(false);
+    }
+    let session = crate::session::discover(home, home, agent, Some(child_id))?;
+    if session.workspace != workspace {
+        return Ok(false);
+    }
+    let child_lineage = crate::lineage::Lineage::discover(home, &session)?;
+    let Some(child) = child_lineage.artifacts.last() else {
+        return Ok(false);
+    };
+    if agent == Agent::Claude {
+        return Ok(true);
+    }
+    let directly_forked = child
+        .descriptor
+        .history_base
+        .as_ref()
+        .is_some_and(|base| base.thread_id == expected_parent.session_id);
+    let immutable_parent_matches = child_lineage.artifacts.iter().any(|artifact| {
+        artifact.descriptor.session_id == expected_parent.session_id
+            && artifact.descriptor.transcript == expected_parent.transcript
+            && artifact.descriptor.workspace == expected_parent.workspace
+            && artifact.descriptor.history_base == expected_parent.history_base
+            && artifact.descriptor.bytes == expected_parent.bytes
+            && artifact.descriptor.sha256 == expected_parent.sha256
+    });
+    Ok(directly_forked && immutable_parent_matches)
 }
 
 fn revalidate(
@@ -138,12 +274,13 @@ fn revalidate(
     Ok(session)
 }
 
-fn pull_snapshot(
+fn pull_lineage(
     remote: Remote,
     remote_home: &Path,
+    local_home: &Path,
     agent: Agent,
     session_id: &str,
-) -> Result<(Snapshot, RemoteSession), String> {
+) -> Result<(crate::lineage::TransformedLineage, RemoteSession), String> {
     let mut last_error = String::new();
     for _ in 0..3 {
         let session = match revalidate(remote, remote_home, agent, session_id) {
@@ -153,21 +290,43 @@ fn pull_snapshot(
                 continue;
             }
         };
-        let temporary = NamedTempFile::new()
-            .map_err(|error| format!("could not create a temporary snapshot: {error}"))?;
-        match remote
-            .pull_transcript(remote_home, &session, temporary.path())
-            .and_then(|()| Snapshot::from_temporary(temporary))
-            .and_then(|snapshot| {
-                crate::session::validate_snapshot_identity(
-                    snapshot.path(),
-                    session.agent,
-                    &crate::session::SessionId::new(&session.id)?,
-                    &session.workspace,
-                )?;
-                Ok(snapshot)
-            }) {
-            Ok(snapshot) => return Ok((snapshot, session)),
+        let described = match remote.lineage(remote_home, agent, session_id) {
+            Ok(lineage) => lineage,
+            Err(error) => {
+                last_error = error;
+                continue;
+            }
+        };
+        if described.artifacts.last().is_none_or(|artifact| {
+            artifact.transcript != session.transcript || artifact.workspace != session.workspace
+        }) {
+            last_error = "selected session changed during lineage discovery".to_string();
+            continue;
+        }
+        let mut snapshots = Vec::with_capacity(described.artifacts.len());
+        let mut failed = None;
+        for artifact in &described.artifacts {
+            let temporary = NamedTempFile::new()
+                .map_err(|error| format!("could not create a temporary snapshot: {error}"))?;
+            match remote
+                .pull_artifact(remote_home, agent, artifact, temporary.path())
+                .and_then(|()| Snapshot::from_temporary(temporary))
+            {
+                Ok(snapshot) => snapshots.push(snapshot),
+                Err(error) => {
+                    failed = Some(error);
+                    break;
+                }
+            }
+        }
+        if let Some(error) = failed {
+            last_error = error;
+            continue;
+        }
+        match crate::lineage::Lineage::from_snapshots(agent, described.artifacts, snapshots)
+            .and_then(|lineage| lineage.transform(remote_home, local_home))
+        {
+            Ok(lineage) => return Ok((lineage, session)),
             Err(error) => last_error = error,
         }
     }
@@ -175,6 +334,59 @@ fn pull_snapshot(
         "could not pull a valid snapshot from {} after 3 attempts: {last_error}",
         remote.peer().name()
     ))
+}
+
+fn verify_local_lineage(lineage: &crate::lineage::TransformedLineage) -> Result<usize, String> {
+    let mut reused = 0;
+    for artifact in &lineage.artifacts {
+        if verify_local_destination(artifact.snapshot.path(), &artifact.destination.transcript)? {
+            reused += 1;
+        }
+    }
+    Ok(reused)
+}
+
+fn validate_local_install(
+    home: &Path,
+    agent: Agent,
+    selected_id: &str,
+    expected: &crate::lineage::TransformedLineage,
+) -> Result<(), String> {
+    let session = crate::session::discover(home, home, agent, Some(selected_id))?;
+    let actual = crate::lineage::Lineage::discover(home, &session)?.descriptors();
+    if actual.len() != expected.artifacts.len() {
+        return Err(
+            "local destination did not retain the complete transferred lineage".to_string(),
+        );
+    }
+    for (actual, expected) in actual.iter().zip(&expected.artifacts) {
+        if actual.session_id != expected.destination.session_id
+            || actual.transcript != expected.destination.transcript
+            || actual.workspace != expected.destination.workspace
+            || actual.history_base != expected.destination.history_base
+            || actual.bytes != expected.destination.bytes
+            || actual.sha256 != expected.destination.sha256
+        {
+            return Err(format!(
+                "local rollout {} does not match the immutable transferred object",
+                expected.destination.session_id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn local_session_ids(
+    home: &Path,
+    agent: Agent,
+    workspace: &Path,
+) -> std::collections::BTreeSet<String> {
+    crate::catalog::scan(home, home)
+        .sessions
+        .into_iter()
+        .filter(|entry| entry.session.agent == agent && entry.session.workspace == workspace)
+        .map(|entry| entry.session.id.as_str().to_string())
+        .collect()
 }
 
 fn install_companion(
@@ -417,47 +629,39 @@ fn ensure_directory_tree(home: &Path, target: &Path) -> Result<(), String> {
 }
 
 fn install_new_file(source: &Path, destination: &Path) -> Result<(), String> {
-    let mut input = File::open(source)
-        .map_err(|error| format!("could not open {}: {error}", source.display()))?;
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut output = options.open(destination).map_err(|error| {
-        format!(
-            "could not create destination session {}: {error}",
-            destination.display()
-        )
-    })?;
-    let result = std::io::copy(&mut input, &mut output)
-        .and_then(|_| output.flush())
-        .and_then(|_| output.sync_all());
-    if let Err(error) = result {
-        drop(output);
-        let _ = fs::remove_file(destination);
-        return Err(format!(
-            "could not install destination session {}: {error}",
-            destination.display()
-        ));
-    }
+    crate::transfer::install_immutable_file(source, destination)?;
     Ok(())
 }
 
 fn launch_local(workspace: &Path, agent: Agent, session_id: &str) -> Result<(), String> {
+    connect_local(workspace, agent, session_id, true)
+}
+
+fn resume_local(workspace: &Path, agent: Agent, session_id: &str) -> Result<(), String> {
+    connect_local(workspace, agent, session_id, false)
+}
+
+fn connect_local(
+    workspace: &Path,
+    agent: Agent,
+    session_id: &str,
+    fork: bool,
+) -> Result<(), String> {
     let mut command = Command::new(agent.name());
     command.current_dir(workspace);
     match agent {
         Agent::Codex => {
-            command.arg("fork").arg(session_id).arg("-C").arg(workspace);
+            command
+                .arg(if fork { "fork" } else { "resume" })
+                .arg(session_id)
+                .arg("-C")
+                .arg(workspace);
         }
         Agent::Claude => {
-            command
-                .arg("--resume")
-                .arg(session_id)
-                .arg("--fork-session");
+            command.arg("--resume").arg(session_id);
+            if fork {
+                command.arg("--fork-session");
+            }
         }
     }
     let status = command
@@ -507,12 +711,18 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("source");
         let destination = directory.path().join("destination");
-        fs::write(&source, "one").unwrap();
+        fs::write(&source, "{\"value\":\"one\"}\n").unwrap();
         install_new_file(&source, &destination).unwrap();
-        assert_eq!(fs::read_to_string(&destination).unwrap(), "one");
-        fs::write(&source, "two").unwrap();
+        assert_eq!(
+            fs::read_to_string(&destination).unwrap(),
+            "{\"value\":\"one\"}\n"
+        );
+        fs::write(&source, "{\"value\":\"two\"}\n").unwrap();
         assert!(install_new_file(&source, &destination).is_err());
-        assert_eq!(fs::read_to_string(&destination).unwrap(), "one");
+        assert_eq!(
+            fs::read_to_string(&destination).unwrap(),
+            "{\"value\":\"one\"}\n"
+        );
     }
 
     #[test]

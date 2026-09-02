@@ -10,7 +10,9 @@ clap.workspace        = true
 crossterm.workspace   = true
 hostkit.workspace     = true
 ratatui               = { workspace = true, features = ["unstable-rendered-line-info"] }
-serde_json.workspace  = true
+serde.workspace       = true
+serde_json             = { workspace = true, features = ["preserve_order"] }
+sha2                  = "0.10"
 tempfile.workspace    = true
 unicode-width.workspace = true
 workstation.workspace = true

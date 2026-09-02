@@ -604,6 +604,65 @@ pub(crate) fn scan_codex(home: &Path) -> Result<Scan, String> {
     Ok(scan_jsonl_files(directories, scan))
 }
 
+/// History bases can point at an archived backing rollout even though archived
+/// sessions are intentionally omitted from the interactive catalog.
+pub(crate) fn scan_codex_lineage(home: &Path) -> Result<Scan, String> {
+    let mut scan = scan_codex(home)?;
+    let root = home.join(".codex/archived_sessions");
+    match fs::symlink_metadata(&root) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(scan),
+        Err(error) => {
+            return Err(format!(
+                "Codex archived session store is unavailable at {}: {error}",
+                root.display()
+            ));
+        }
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => {
+            return Err(format!(
+                "Codex archived session store is not a safe directory: {}",
+                root.display()
+            ));
+        }
+    }
+    let mut directories = vec![root];
+    for _ in 0..4 {
+        let mut next = Vec::new();
+        for directory in directories {
+            let entries = match sorted_entries(&directory) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    scan.errors.push(error);
+                    continue;
+                }
+            };
+            for entry in entries {
+                let path = entry.path();
+                match entry.file_type() {
+                    Ok(file_type) if file_type.is_dir() => next.push(path),
+                    Ok(file_type) if path.extension() == Some(OsStr::new("jsonl")) => {
+                        if file_type.is_file() {
+                            scan.regular.push(path);
+                        } else {
+                            scan.unsafe_entries.push(path);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => scan
+                        .errors
+                        .push(format!("could not inspect {}: {error}", path.display())),
+                }
+            }
+        }
+        directories = next;
+    }
+    scan.regular.sort();
+    scan.regular.dedup();
+    scan.unsafe_entries.sort();
+    scan.unsafe_entries.dedup();
+    Ok(scan)
+}
+
 pub(crate) fn scan_claude(home: &Path) -> Result<Scan, String> {
     let root = home.join(".claude/projects");
     require_safe_directory(&root, "Claude session store")?;

@@ -10,6 +10,8 @@ use hostkit::Host;
 use serde_json::{Value, json};
 
 use crate::cli::Agent;
+use crate::lineage::{ArtifactDescriptor, HistoryBase};
+use crate::manifest::TransferManifest;
 use crate::preview::sanitize;
 use crate::session::SessionId;
 use tempfile::NamedTempFile;
@@ -17,12 +19,14 @@ use tempfile::NamedTempFile;
 const CONNECT_TIMEOUT: &str = "ConnectTimeout=8";
 const LOG_LEVEL: &str = "LogLevel=ERROR";
 const MACHINE_PROTOCOL: &str = "agent-hop-machine";
-pub(crate) const MACHINE_PROTOCOL_VERSION: u64 = 1;
+pub(crate) const MACHINE_PROTOCOL_VERSION: u64 = 2;
 pub(crate) const MAX_REMOTE_SESSIONS: usize = 2_000;
+pub(crate) const MAX_LINEAGE_ARTIFACTS: usize = 128;
 pub(crate) const MAX_REMOTE_PREVIEW_CHARS: usize = 64 * 1024;
 pub(crate) const MAX_REMOTE_WARNINGS: usize = 128;
 const MAX_CATALOG_OUTPUT: usize = 4 * 1024 * 1024;
 const MAX_PREVIEW_OUTPUT: usize = 256 * 1024;
+const MAX_LINEAGE_OUTPUT: usize = 256 * 1024;
 const MAX_ERROR_OUTPUT: usize = 16 * 1024;
 const MAX_WIRE_PATH: usize = 16 * 1024;
 const MAX_WIRE_PROJECT_CHARS: usize = 256;
@@ -52,6 +56,13 @@ pub(crate) struct RemoteSession {
     /// Kept for transfer, and never intended for normal UI rendering.
     pub(crate) companion: Option<PathBuf>,
     pub(crate) modified_ms: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RemoteLineage {
+    pub(crate) agent: Agent,
+    pub(crate) selected_id: String,
+    pub(crate) artifacts: Vec<ArtifactDescriptor>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -163,18 +174,40 @@ impl Remote {
         parse_preview_response(&bytes, max_chars)
     }
 
-    pub(crate) fn pull_transcript(
+    pub(crate) fn lineage(
         self,
         remote_home: &Path,
-        session: &RemoteSession,
+        agent: Agent,
+        session_id: &str,
+    ) -> Result<RemoteLineage, String> {
+        SessionId::new(session_id)?;
+        let arguments = [
+            "__machine".to_owned(),
+            "lineage".to_owned(),
+            "--protocol".to_owned(),
+            MACHINE_PROTOCOL_VERSION.to_string(),
+            "--agent".to_owned(),
+            agent.name().to_owned(),
+            "--session".to_owned(),
+            session_id.to_owned(),
+        ];
+        let bytes = self.machine(&arguments, MAX_LINEAGE_OUTPUT)?;
+        parse_lineage_response(&bytes, remote_home, agent, session_id)
+    }
+
+    pub(crate) fn pull_artifact(
+        self,
+        remote_home: &Path,
+        agent: Agent,
+        artifact: &ArtifactDescriptor,
         destination: &Path,
     ) -> Result<(), String> {
-        SessionId::new(&session.id)?;
-        validate_transcript_name(session.agent, &session.id, &session.transcript)?;
+        SessionId::new(&artifact.session_id)?;
+        validate_transcript_name(agent, &artifact.session_id, &artifact.transcript)?;
         validate_remote_source(
             remote_home,
-            session.agent,
-            &session.transcript,
+            agent,
+            &artifact.transcript,
             RemoteSourceKind::Transcript,
         )?;
         let arguments = [
@@ -183,9 +216,13 @@ impl Remote {
             "--protocol".to_owned(),
             MACHINE_PROTOCOL_VERSION.to_string(),
             "--agent".to_owned(),
-            session.agent.name().to_owned(),
+            agent.name().to_owned(),
             "--session".to_owned(),
-            session.id.clone(),
+            artifact.session_id.clone(),
+            "--sha256".to_owned(),
+            artifact.sha256.clone(),
+            "--bytes".to_owned(),
+            artifact.bytes.to_string(),
         ];
         let output = File::options()
             .write(true)
@@ -202,6 +239,93 @@ impl Remote {
             .stdout(Stdio::from(output))
             .stderr(Stdio::piped());
         let output = redirected_output_with_timeout(command, TRANSFER_TIMEOUT)?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(captured_stderr_error(
+                self.peer,
+                &output.stderr,
+                output.status,
+            ))
+        }
+    }
+
+    pub(crate) fn install_artifact(
+        self,
+        agent: Agent,
+        artifact: &ArtifactDescriptor,
+        source: &Path,
+    ) -> Result<(), String> {
+        SessionId::new(&artifact.session_id)?;
+        let destination = artifact
+            .transcript
+            .to_str()
+            .ok_or_else(|| "rollout destination is not UTF-8".to_string())?;
+        let arguments = [
+            "__machine".to_owned(),
+            "import".to_owned(),
+            "--protocol".to_owned(),
+            MACHINE_PROTOCOL_VERSION.to_string(),
+            "--agent".to_owned(),
+            agent.name().to_owned(),
+            "--session".to_owned(),
+            artifact.session_id.clone(),
+            "--destination".to_owned(),
+            destination.to_owned(),
+            "--sha256".to_owned(),
+            artifact.sha256.clone(),
+            "--bytes".to_owned(),
+            artifact.bytes.to_string(),
+        ];
+        let input = File::open(source)
+            .map_err(|error| format!("could not open rollout snapshot: {error}"))?;
+        let mut command = Command::new("ssh");
+        command
+            .args(machine_ssh_arguments(
+                self.peer,
+                &machine_script(&arguments),
+            ))
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        let output = redirected_output_with_timeout(command, TRANSFER_TIMEOUT)?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(captured_stderr_error(
+                self.peer,
+                &output.stderr,
+                output.status,
+            ))
+        }
+    }
+
+    pub(crate) fn record_manifest(self, manifest: &TransferManifest) -> Result<(), String> {
+        let bytes = manifest.encode()?;
+        let arguments = [
+            "__machine".to_owned(),
+            "record-manifest".to_owned(),
+            "--protocol".to_owned(),
+            MACHINE_PROTOCOL_VERSION.to_string(),
+        ];
+        let mut staged = NamedTempFile::new()
+            .map_err(|error| format!("could not stage transfer manifest: {error}"))?;
+        staged
+            .write_all(&bytes)
+            .map_err(|error| format!("could not stage transfer manifest: {error}"))?;
+        let input = staged
+            .reopen()
+            .map_err(|error| format!("could not stage transfer manifest: {error}"))?;
+        let mut command = Command::new("ssh");
+        command
+            .args(machine_ssh_arguments(
+                self.peer,
+                &machine_script(&arguments),
+            ))
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        let output = redirected_output_with_timeout(command, MACHINE_TIMEOUT)?;
         if output.status.success() {
             Ok(())
         } else {
@@ -313,15 +437,19 @@ impl Remote {
         }
     }
 
-    pub fn mkdir(self, path: &Path) -> Result<(), String> {
-        self.output(&mkdir_script(path)?)?;
-        Ok(())
-    }
-
     pub fn launch(self, workspace: &Path, agent: Agent, session_id: &str) -> Result<(), String> {
         let script = launch_script(workspace, agent, session_id)?;
+        self.run_interactive(&script, agent)
+    }
+
+    pub fn resume(self, workspace: &Path, agent: Agent, session_id: &str) -> Result<(), String> {
+        let script = resume_script(workspace, agent, session_id)?;
+        self.run_interactive(&script, agent)
+    }
+
+    fn run_interactive(self, script: &str, agent: Agent) -> Result<(), String> {
         let status = Command::new("ssh")
-            .args(ssh_arguments(self.peer, &script, true))
+            .args(ssh_arguments(self.peer, script, true))
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -331,8 +459,16 @@ impl Remote {
             Ok(())
         } else {
             Err(match status.code() {
-                Some(code) => format!("{} session exited with status {code}", self.peer.name()),
-                None => format!("{} session was interrupted", self.peer.name()),
+                Some(code) => format!(
+                    "{} {} session exited with status {code}",
+                    self.peer.name(),
+                    agent.name()
+                ),
+                None => format!(
+                    "{} {} session was interrupted",
+                    self.peer.name(),
+                    agent.name()
+                ),
             })
         }
     }
@@ -425,6 +561,7 @@ pub fn compare_script(path: &Path) -> Result<String, String> {
     Ok(format!("cmp -s - {}", quote_path(path)?))
 }
 
+#[cfg(test)]
 pub fn mkdir_script(path: &Path) -> Result<String, String> {
     Ok(format!("mkdir -p -- {}", quote_path(path)?))
 }
@@ -439,6 +576,23 @@ pub fn fork_command(workspace: &Path, agent: Agent, session_id: &str) -> Result<
 
 pub fn launch_script(workspace: &Path, agent: Agent, session_id: &str) -> Result<String, String> {
     let inner = fork_command(workspace, agent, session_id)?;
+    Ok(format!(
+        "cd -- {} && exec zsh -lic {}",
+        quote_path(workspace)?,
+        shell_quote(&inner)
+    ))
+}
+
+pub fn resume_command(workspace: &Path, agent: Agent, session_id: &str) -> Result<String, String> {
+    let session_id = shell_quote(session_id);
+    Ok(match agent {
+        Agent::Codex => format!("codex resume {session_id} -C {}", quote_path(workspace)?),
+        Agent::Claude => format!("claude --resume {session_id}"),
+    })
+}
+
+pub fn resume_script(workspace: &Path, agent: Agent, session_id: &str) -> Result<String, String> {
+    let inner = resume_command(workspace, agent, session_id)?;
     Ok(format!(
         "cd -- {} && exec zsh -lic {}",
         quote_path(workspace)?,
@@ -529,6 +683,40 @@ pub(crate) fn encode_catalog_response(catalog: &RemoteCatalog) -> Result<String,
         "data": { "sessions": sessions, "warnings": warnings },
     }))
     .map_err(|error| format!("could not encode the remote catalog: {error}"))
+}
+
+pub(crate) fn encode_lineage_response(lineage: &RemoteLineage) -> Result<String, String> {
+    if lineage.artifacts.is_empty() || lineage.artifacts.len() > MAX_LINEAGE_ARTIFACTS {
+        return Err(format!(
+            "lineage must contain between 1 and {MAX_LINEAGE_ARTIFACTS} artifacts"
+        ));
+    }
+    let artifacts = lineage
+        .artifacts
+        .iter()
+        .map(|artifact| {
+            Ok(json!({
+                "session_id": artifact.session_id,
+                "workspace": wire_path(&artifact.workspace)?,
+                "transcript": wire_path(&artifact.transcript)?,
+                "history_base": artifact.history_base,
+                "bytes": artifact.bytes,
+                "sha256": artifact.sha256,
+            }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    serde_json::to_string(&json!({
+        "protocol": MACHINE_PROTOCOL,
+        "version": MACHINE_PROTOCOL_VERSION,
+        "kind": "lineage",
+        "ok": true,
+        "data": {
+            "agent": lineage.agent.name(),
+            "selected_id": lineage.selected_id,
+            "artifacts": artifacts,
+        },
+    }))
+    .map_err(|error| format!("could not encode remote lineage: {error}"))
 }
 
 pub(crate) fn encode_preview_response(preview: &RemotePreview) -> Result<String, String> {
@@ -679,6 +867,96 @@ fn parse_catalog_response(
         });
     }
     Ok(RemoteCatalog { sessions, warnings })
+}
+
+fn parse_lineage_response(
+    bytes: &[u8],
+    remote_home: &Path,
+    expected_agent: Agent,
+    expected_selected_id: &str,
+) -> Result<RemoteLineage, String> {
+    let root = response_data(bytes, "lineage")?;
+    let agent = parse_agent(required_string(root.get("agent"), "lineage agent")?)?;
+    if agent != expected_agent {
+        return Err("the peer returned lineage for the wrong agent".to_string());
+    }
+    let selected_id = required_string(root.get("selected_id"), "selected session ID")?;
+    SessionId::new(selected_id)?;
+    if selected_id != expected_selected_id {
+        return Err("the peer returned lineage for the wrong session".to_string());
+    }
+    let records = root
+        .get("artifacts")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "the remote lineage has no artifacts array".to_string())?;
+    if records.is_empty() || records.len() > MAX_LINEAGE_ARTIFACTS {
+        return Err("the remote lineage has an invalid number of artifacts".to_string());
+    }
+    let mut artifacts = Vec::with_capacity(records.len());
+    for record in records {
+        let record = record
+            .as_object()
+            .ok_or_else(|| "the remote lineage contains a non-object artifact".to_string())?;
+        let session_id = required_string(record.get("session_id"), "lineage session ID")?;
+        SessionId::new(session_id)?;
+        let workspace = parse_wire_path(record.get("workspace"), "lineage workspace")?;
+        validate_workspace(remote_home, &workspace)?;
+        let transcript = parse_wire_path(record.get("transcript"), "lineage transcript")?;
+        validate_remote_source(
+            remote_home,
+            agent,
+            &transcript,
+            RemoteSourceKind::Transcript,
+        )?;
+        validate_transcript_name(agent, session_id, &transcript)?;
+        let bytes = record
+            .get("bytes")
+            .and_then(Value::as_u64)
+            .filter(|bytes| *bytes > 0)
+            .ok_or_else(|| "remote lineage artifact has no valid size".to_string())?;
+        let sha256 = required_string(record.get("sha256"), "lineage SHA-256")?;
+        if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("remote lineage artifact has an invalid SHA-256".to_string());
+        }
+        let history_base = match record.get("history_base") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                serde_json::from_value::<HistoryBase>(value.clone())
+                    .map_err(|_| "remote lineage has invalid history_base metadata".to_string())?,
+            ),
+        };
+        artifacts.push(ArtifactDescriptor {
+            session_id: session_id.to_string(),
+            workspace,
+            transcript,
+            history_base,
+            bytes,
+            sha256: sha256.to_ascii_lowercase(),
+        });
+    }
+    if artifacts
+        .last()
+        .is_none_or(|artifact| artifact.session_id != selected_id)
+    {
+        return Err("remote lineage does not end at the selected session".to_string());
+    }
+    if agent == Agent::Claude && artifacts.len() != 1 {
+        return Err("remote Claude lineage unexpectedly contains ancestors".to_string());
+    }
+    for pair in artifacts.windows(2) {
+        if pair[1]
+            .history_base
+            .as_ref()
+            .is_none_or(|base| base.thread_id != pair[0].session_id)
+        {
+            return Err("remote Codex lineage is disconnected".to_string());
+        }
+    }
+    Ok(RemoteLineage {
+        agent,
+        selected_id: selected_id.to_string(),
+        artifacts,
+    })
 }
 
 fn fallback_project_label(workspace: &Path) -> String {
@@ -841,17 +1119,20 @@ fn validate_remote_source(
 ) -> Result<(), String> {
     require_normal_absolute(remote_home, "the other machine's home directory")?;
     require_normal_absolute(source, "the remote session source")?;
-    let root = match agent {
-        Agent::Codex => remote_home.join(".codex/sessions"),
-        Agent::Claude => remote_home.join(".claude/projects"),
+    let roots = match agent {
+        Agent::Codex => vec![
+            remote_home.join(".codex/sessions"),
+            remote_home.join(".codex/archived_sessions"),
+        ],
+        Agent::Claude => vec![remote_home.join(".claude/projects")],
     };
-    source.strip_prefix(&root).map_err(|_| {
-        format!(
-            "the remote session source is outside {}: {}",
-            root.display(),
+    if !roots.iter().any(|root| source.starts_with(root)) {
+        return Err(format!(
+            "the remote session source is outside the {} session stores: {}",
+            agent.name(),
             source.display()
-        )
-    })?;
+        ));
+    }
     match kind {
         RemoteSourceKind::Transcript
             if source.extension().and_then(|value| value.to_str()) != Some("jsonl") =>
@@ -1453,6 +1734,53 @@ mod tests {
         let parsed =
             parse_catalog_response(encoded.as_bytes(), Path::new("/Users/fred"), 10).unwrap();
         assert_eq!(parsed, catalog);
+    }
+
+    #[test]
+    fn lineage_protocol_round_trips_archived_ancestors_and_offsets() {
+        let parent_id = "01999999-1111-7222-8333-444444444444";
+        let child_id = "01999999-1111-7222-8333-555555555555";
+        let lineage = RemoteLineage {
+            agent: Agent::Codex,
+            selected_id: child_id.to_string(),
+            artifacts: vec![
+                ArtifactDescriptor {
+                    session_id: parent_id.to_string(),
+                    workspace: "/Users/fred/work/app".into(),
+                    transcript: format!(
+                        "/Users/fred/.codex/archived_sessions/rollout-{parent_id}.jsonl"
+                    )
+                    .into(),
+                    history_base: None,
+                    bytes: 200,
+                    sha256: "a".repeat(64),
+                },
+                ArtifactDescriptor {
+                    session_id: child_id.to_string(),
+                    workspace: "/Users/fred/work/app".into(),
+                    transcript: format!(
+                        "/Users/fred/.codex/sessions/2026/09/02/rollout-{child_id}.jsonl"
+                    )
+                    .into(),
+                    history_base: Some(HistoryBase {
+                        thread_id: parent_id.to_string(),
+                        end_ordinal_exclusive: 2,
+                        end_byte_offset: 200,
+                    }),
+                    bytes: 100,
+                    sha256: "b".repeat(64),
+                },
+            ],
+        };
+        let encoded = encode_lineage_response(&lineage).unwrap();
+        let parsed = parse_lineage_response(
+            encoded.as_bytes(),
+            Path::new("/Users/fred"),
+            Agent::Codex,
+            child_id,
+        )
+        .unwrap();
+        assert_eq!(parsed, lineage);
     }
 
     #[test]

@@ -1,9 +1,12 @@
 local wezterm = require "wezterm"
 
-local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/old.vertical-tabs/plugin"
-package.path = plugin_root .. "/?.lua;" .. plugin_root .. "/?/init.lua;" .. package.path
+local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/old.vertical-tabs"
 
-local vtabs = dofile(plugin_root .. "/init.lua")
+local package_path = plugin_root .. "/plugin/init.lua"
+
+package.path = plugin_root .. package_path .. ";" .. package.path
+
+local vtabs = dofile(package_path)
 
 local M = { plugin = vtabs }
 
@@ -11,12 +14,7 @@ function M.apply_to_config(config)
   vtabs.apply_to_config(config, {
     dim_inactive_panes = true,
     backend = {
-      path = function(domain, host)
-        if host == "archie" or domain:match "^archie" then
-          return "/home/fredrir/projects/wez-plugins/old.vertical-tabs/backend/target/release/wez-vtabs"
-        end
-        return wezterm.home_dir .. "/projects/wez-plugins/old.vertical-tabs/backend/target/release/wez-vtabs"
-      end,
+      path = plugin_root .. "/backend/target/release/wez-vtabs",
     },
     keys = {
       new_tab = false,

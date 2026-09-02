@@ -6,6 +6,7 @@ use std::process::{Command, Output};
 
 use hostkit::Host;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
 use crate::remote::shell_quote;
@@ -37,17 +38,95 @@ impl Snapshot {
         self.file.path()
     }
 
+    pub(crate) fn size(&self) -> Result<u64, String> {
+        self.file
+            .as_file()
+            .metadata()
+            .map(|metadata| metadata.len())
+            .map_err(|error| format!("could not inspect the session snapshot: {error}"))
+    }
+
+    pub(crate) fn sha256(&self) -> Result<String, String> {
+        sha256_file(self.path())
+    }
+
     pub(crate) fn from_temporary(mut file: NamedTempFile) -> Result<Snapshot, String> {
         finish_snapshot(&mut file)?;
         Ok(Snapshot { file })
     }
+
+    fn persist_noclobber(self, destination: &Path) -> Result<bool, String> {
+        match self.file.persist_noclobber(destination) {
+            Ok(file) => {
+                file.sync_all().map_err(|error| {
+                    format!(
+                        "could not sync installed rollout {}: {error}",
+                        destination.display()
+                    )
+                })?;
+                Ok(false)
+            }
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if files_equal(error.file.path(), destination)? {
+                    Ok(true)
+                } else {
+                    Err(format!(
+                        "immutable rollout already exists with different contents: {}",
+                        destination.display()
+                    ))
+                }
+            }
+            Err(error) => Err(format!(
+                "could not atomically install rollout {}: {}",
+                destination.display(),
+                error.error
+            )),
+        }
+    }
 }
 
-pub fn copy_transcript(peer: Host, source: &Path, destination: &Path) -> Result<(), String> {
-    run_rsync(
-        &file_arguments(peer, source, destination)?,
-        "session transcript",
+pub(crate) fn install_immutable_file(source: &Path, destination: &Path) -> Result<bool, String> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "rollout destination has no parent directory".to_string())?;
+    let mut staged = NamedTempFile::new_in(parent)
+        .map_err(|error| format!("could not stage immutable rollout: {error}"))?;
+    let mut input = File::open(source)
+        .map_err(|error| format!("could not open {}: {error}", source.display()))?;
+    std::io::copy(&mut input, staged.as_file_mut())
+        .map_err(|error| format!("could not stage immutable rollout: {error}"))?;
+    Snapshot::from_temporary(staged)?.persist_noclobber(destination)
+}
+
+pub(crate) fn install_immutable_stream(
+    mut input: impl Read,
+    destination: &Path,
+    expected_bytes: u64,
+    expected_sha256: &str,
+) -> Result<bool, String> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "rollout destination has no parent directory".to_string())?;
+    let mut staged = NamedTempFile::new_in(parent)
+        .map_err(|error| format!("could not stage immutable rollout: {error}"))?;
+    let count = std::io::copy(
+        &mut input.by_ref().take(expected_bytes.saturating_add(1)),
+        staged.as_file_mut(),
     )
+    .map_err(|error| format!("could not receive immutable rollout: {error}"))?;
+    if count != expected_bytes {
+        return Err(format!(
+            "immutable rollout transfer size mismatch: expected {expected_bytes} bytes, received {count}"
+        ));
+    }
+    let snapshot = Snapshot::from_temporary(staged)?;
+    let actual = snapshot.sha256()?;
+    if actual != expected_sha256 {
+        return Err(format!(
+            "immutable rollout transfer hash mismatch: expected {expected_sha256}, received {actual}"
+        ));
+    }
+    snapshot.persist_noclobber(destination)
 }
 
 pub fn copy_companion(peer: Host, source: &Path, destination: &Path) -> Result<(), String> {
@@ -65,6 +144,7 @@ pub fn copy_companion(peer: Host, source: &Path, destination: &Path) -> Result<(
     )
 }
 
+#[cfg(test)]
 pub fn file_arguments(
     peer: Host,
     source: &Path,
@@ -106,14 +186,60 @@ pub fn valid_jsonl(bytes: &[u8]) -> bool {
 }
 
 fn snapshot_once(source: &Path) -> Result<NamedTempFile, String> {
+    let before = fs::metadata(source)
+        .map_err(|error| format!("could not inspect {}: {error}", source.display()))?;
     let input = File::open(source)
         .map_err(|error| format!("could not read {}: {error}", source.display()))?;
     let mut snapshot = NamedTempFile::new()
         .map_err(|error| format!("could not create a temporary snapshot: {error}"))?;
     std::io::copy(&mut BufReader::new(input), snapshot.as_file_mut())
         .map_err(|error| format!("could not copy {}: {error}", source.display()))?;
+    let after = fs::metadata(source)
+        .map_err(|error| format!("could not inspect {}: {error}", source.display()))?;
+    if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
+        return Err("the transcript changed while it was being snapshotted".to_string());
+    }
     finish_snapshot(&mut snapshot)?;
     Ok(snapshot)
+}
+
+pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
+    let input =
+        File::open(path).map_err(|error| format!("could not hash {}: {error}", path.display()))?;
+    let mut reader = BufReader::new(input);
+    let mut digest = Sha256::new();
+    std::io::copy(&mut reader, &mut digest)
+        .map_err(|error| format!("could not hash {}: {error}", path.display()))?;
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+pub(crate) fn files_equal(left: &Path, right: &Path) -> Result<bool, String> {
+    let mut left = BufReader::new(
+        File::open(left).map_err(|error| format!("could not open {}: {error}", left.display()))?,
+    );
+    let mut right = BufReader::new(
+        File::open(right)
+            .map_err(|error| format!("could not open {}: {error}", right.display()))?,
+    );
+    let mut left_buffer = [0_u8; 64 * 1024];
+    let mut right_buffer = [0_u8; 64 * 1024];
+    loop {
+        let left_count = left
+            .read(&mut left_buffer)
+            .map_err(|error| format!("could not compare immutable rollouts: {error}"))?;
+        let right_count = right
+            .read(&mut right_buffer)
+            .map_err(|error| format!("could not compare immutable rollouts: {error}"))?;
+        if left_count != right_count {
+            return Ok(false);
+        }
+        if left_count == 0 {
+            return Ok(true);
+        }
+        if left_buffer[..left_count] != right_buffer[..right_count] {
+            return Ok(false);
+        }
+    }
 }
 
 fn finish_snapshot(snapshot: &mut NamedTempFile) -> Result<(), String> {
@@ -367,5 +493,22 @@ mod tests {
             file_arguments(Host::Archie, &local, &destination).unwrap()[5],
             "archie:'/Users/fredrir/session'"
         );
+    }
+
+    #[test]
+    fn immutable_install_reuses_exact_objects_and_refuses_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.jsonl");
+        let destination = directory.path().join("destination.jsonl");
+        fs::write(&source, "{\"value\":1}\n").unwrap();
+        assert!(!install_immutable_file(&source, &destination).unwrap());
+        assert!(install_immutable_file(&source, &destination).unwrap());
+        fs::write(&source, "{\"value\":2}\n").unwrap();
+        assert!(
+            install_immutable_file(&source, &destination)
+                .unwrap_err()
+                .contains("different contents")
+        );
+        assert_eq!(fs::read_to_string(destination).unwrap(), "{\"value\":1}\n");
     }
 }

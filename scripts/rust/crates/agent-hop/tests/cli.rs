@@ -1,5 +1,9 @@
 use std::process::{Command, Output};
 
+use sha2::{Digest, Sha256};
+
+const MACHINE_PROTOCOL: &str = "2";
+
 fn agent_hop(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args(args)
@@ -86,7 +90,14 @@ fn a_bare_noninteractive_invocation_prints_help_and_succeeds() {
 fn the_hidden_catalog_treats_absent_optional_stores_as_a_clean_empty_catalog() {
     let directory = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
-        .args(["__machine", "catalog", "--protocol", "1", "--limit", "10"])
+        .args([
+            "__machine",
+            "catalog",
+            "--protocol",
+            MACHINE_PROTOCOL,
+            "--limit",
+            "10",
+        ])
         .env("HOME", directory.path())
         .output()
         .expect("agent-hop machine catalog runs");
@@ -94,7 +105,7 @@ fn the_hidden_catalog_treats_absent_optional_stores_as_a_clean_empty_catalog() {
     assert!(stderr(&output).is_empty(), "{output:?}");
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["protocol"], "agent-hop-machine");
-    assert_eq!(value["version"], 1);
+    assert_eq!(value["version"], 2);
     assert_eq!(value["kind"], "catalog");
     assert_eq!(value["ok"], true);
     assert_eq!(value["data"]["sessions"].as_array().unwrap().len(), 0);
@@ -119,16 +130,22 @@ fn the_hidden_export_protocol_streams_a_validated_stable_session() {
         serde_json::json!({"type":"event_msg","payload":{"type":"user_message","message":"hello"}}),
     );
     std::fs::write(&transcript, &content).unwrap();
+    let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
+    let bytes = content.len().to_string();
     let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args([
             "__machine",
             "export",
             "--protocol",
-            "1",
+            MACHINE_PROTOCOL,
             "--agent",
             "codex",
             "--session",
             id,
+            "--sha256",
+            &hash,
+            "--bytes",
+            &bytes,
         ])
         .env("HOME", &home)
         .output()
@@ -165,7 +182,7 @@ fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
             "__machine",
             "export-companion",
             "--protocol",
-            "1",
+            MACHINE_PROTOCOL,
             "--agent",
             "claude",
             "--session",
@@ -193,7 +210,7 @@ fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
             "__machine",
             "export-companion",
             "--protocol",
-            "1",
+            MACHINE_PROTOCOL,
             "--agent",
             "claude",
             "--session",
