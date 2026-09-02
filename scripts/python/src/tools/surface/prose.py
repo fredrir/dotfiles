@@ -71,7 +71,7 @@ COMMANDS = {
         "files and nested repositories."
     ),
     "gget": ("Downloads a file or directory from a GitHub repository into the current directory."),
-    "gpp": "Stages everything, commits with the supplied message, and pushes the commit.",
+    "gppf": "Stages everything, commits with the supplied message, and pushes the commit.",
     "hpull": "Copies a path from the other machine to the same place on this one.",
     "hpush": "Copies a path from this machine to the same place on the other one.",
     "hwire": "Inspects connections or measures latency and throughput between two machines.",

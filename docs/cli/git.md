@@ -7,7 +7,7 @@
 | ------- | ----------------------------------------------------------------------------------------------------------- |
 | `gdd`   | Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories. |
 | `gget`  | Downloads a file or directory from a GitHub repository into the current directory.                          |
-| `gpp`   | Stages everything, commits with the supplied message, and pushes the commit.                                |
+| `gppf`  | Stages everything, commits with the supplied message, and pushes the commit.                                |
 <!-- cli:commands:end -->
 
 ## Flags

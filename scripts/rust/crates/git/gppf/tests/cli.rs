@@ -67,11 +67,11 @@ impl Sandbox {
             .to_string()
     }
 
-    fn gpp(&self, cwd: &Path, arguments: &[&str]) -> Output {
+    fn gppf(&self, cwd: &Path, arguments: &[&str]) -> Output {
         self.command(env!("CARGO_BIN_EXE_gpp"), cwd)
             .args(arguments)
             .output()
-            .expect("gpp runs")
+            .expect("gppf runs")
     }
 }
 
@@ -81,7 +81,7 @@ fn stages_commits_and_pushes() {
     let work = sandbox.work();
     fs::write(work.join("new.txt"), "content\n").unwrap();
 
-    let output = sandbox.gpp(&work, &["add", "the", "file"]);
+    let output = sandbox.gppf(&work, &["add", "the", "file"]);
     assert!(output.status.success());
     assert_eq!(
         sandbox.read(&work, &["log", "-1", "--format=%s"]),
@@ -102,7 +102,7 @@ fn untracked_files_are_staged_too() {
 
     assert!(
         sandbox
-            .gpp(&work, &["add", "a", "directory"])
+            .gppf(&work, &["add", "a", "directory"])
             .status
             .success()
     );
@@ -120,7 +120,7 @@ fn a_message_may_contain_flags() {
 
     assert!(
         sandbox
-            .gpp(&work, &["teach", "-n", "to", "count"])
+            .gppf(&work, &["teach", "-n", "to", "count"])
             .status
             .success()
     );
@@ -136,7 +136,7 @@ fn nothing_to_commit_stops_before_committing() {
     let work = sandbox.work();
     let before = sandbox.read(&work, &["rev-parse", "HEAD"]);
 
-    let output = sandbox.gpp(&work, &["empty"]);
+    let output = sandbox.gppf(&work, &["empty"]);
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("nothing to commit"));
     assert_eq!(sandbox.read(&work, &["rev-parse", "HEAD"]), before);
@@ -150,7 +150,7 @@ fn staging_starts_at_the_repository_root() {
     fs::write(work.join("nested/inner.txt"), "inner\n").unwrap();
     fs::write(work.join("root.txt"), "root\n").unwrap();
 
-    let output = sandbox.gpp(&work.join("nested"), &["from", "a", "subdirectory"]);
+    let output = sandbox.gppf(&work.join("nested"), &["from", "a", "subdirectory"]);
     assert!(output.status.success());
     assert_eq!(
         sandbox.read(&work, &["show", "--name-only", "--format=", "HEAD"]),
@@ -165,7 +165,7 @@ fn something_staged_earlier_is_still_committed() {
     fs::write(work.join("new.txt"), "content\n").unwrap();
     sandbox.git(&work, &["add", "new.txt"]);
 
-    let output = sandbox.gpp(&work, &["stage", "then", "commit"]);
+    let output = sandbox.gppf(&work, &["stage", "then", "commit"]);
     assert!(output.status.success());
     assert_eq!(
         sandbox.read(&work, &["log", "-1", "--format=%s"]),
@@ -195,7 +195,7 @@ fn a_conflicted_merge_is_committed_as_it_stands() {
     assert!(!merge.status.success(), "the merge should conflict");
     fs::write(work.join("elsewhere/other.txt"), "changed\n").unwrap();
 
-    let output = sandbox.gpp(&work.join("elsewhere"), &["commit", "from", "here"]);
+    let output = sandbox.gppf(&work.join("elsewhere"), &["commit", "from", "here"]);
     assert!(output.status.success());
     assert_eq!(
         sandbox.read(&work, &["log", "-1", "--format=%s"]),
@@ -211,7 +211,7 @@ fn a_missing_message_defaults_to_dot() {
     let work = sandbox.work();
     fs::write(work.join("new.txt"), "content\n").unwrap();
 
-    assert!(sandbox.gpp(&work, &[]).status.success());
+    assert!(sandbox.gppf(&work, &[]).status.success());
     assert_eq!(sandbox.read(&work, &["log", "-1", "--format=%s"]), ".");
     assert_eq!(
         sandbox.read(&work, &["rev-parse", "HEAD"]),
@@ -222,14 +222,14 @@ fn a_missing_message_defaults_to_dot() {
 #[test]
 fn outside_a_repository_git_decides_the_status() {
     let sandbox = Sandbox::new();
-    let output = sandbox.gpp(sandbox.home.path(), &["nowhere"]);
+    let output = sandbox.gppf(sandbox.home.path(), &["nowhere"]);
     assert_eq!(output.status.code(), Some(128));
 }
 
 #[test]
 fn completions_need_no_message() {
     let sandbox = Sandbox::new();
-    let output = sandbox.gpp(&sandbox.work(), &["--completions", "zsh"]);
+    let output = sandbox.gppf(&sandbox.work(), &["--completions", "zsh"]);
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("#compdef gpp"));
 }
@@ -237,11 +237,11 @@ fn completions_need_no_message() {
 #[test]
 fn help_advertises_the_default_message() {
     let sandbox = Sandbox::new();
-    let output = sandbox.gpp(&sandbox.work(), &["--help"]);
+    let output = sandbox.gppf(&sandbox.work(), &["--help"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("Stage everything, commit with the given message, and push"));
     assert!(
-        stdout.contains("Usage: gpp [OPTIONS] [MESSAGE]..."),
+        stdout.contains("Usage: gppf [OPTIONS] [MESSAGE]..."),
         "{stdout}"
     );
     assert!(stdout.contains("[default: .]"), "{stdout}");

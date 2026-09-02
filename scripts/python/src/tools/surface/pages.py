@@ -29,7 +29,7 @@ PAGES = (
     ),
     Page("dotfmt", "dotfmt", ("dotfmt",), "scripts/rust/crates/dotfmt/"),
     Page("flatten", "flatten", ("flatten",), "scripts/rust/crates/flatten/"),
-    Page("git", "Git CLI", ("gdd", "gget", "gpp"), "scripts/rust/crates/git/"),
+    Page("git", "Git CLI", ("gdd", "gget", "gppf"), "scripts/rust/crates/git/"),
     Page(
         "home-copy",
         "hpush and hpull",
@@ -56,7 +56,7 @@ RUST = (
     "flatten",
     "gdd",
     "gget",
-    "gpp",
+    "gppf",
     "hpull",
     "hpush",
     "hwire",

@@ -1,5 +1,5 @@
 [package]
-name              = "gpp"
+name              = "gppf"
 version           = "0.1.0"
 description       = "Stage everything, commit with the given message, and push"
 edition.workspace = true

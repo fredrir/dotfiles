@@ -18,7 +18,7 @@ RUST_BINARIES = [
     "flatten",
     "gget",
     "git-discard",
-    "gpp",
+    "gppf",
     "hpull",
     "hpush",
     "hwire",

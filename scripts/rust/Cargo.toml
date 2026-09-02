@@ -15,7 +15,7 @@ members = [
   "crates/git/gdd",
   "crates/git/gget",
   "crates/git/gitkit",
-  "crates/git/gpp",
+  "crates/git/gppf",
   "crates/hcopy",
   "crates/hostkit",
   "crates/hwire",

@@ -4,7 +4,7 @@ use clap::Parser;
 use gitkit::Repo;
 use workstation::Completions;
 
-const PROGRAM: &str = "gpp";
+const PROGRAM: &str = "gppf";
 
 #[derive(Parser)]
 #[command(
