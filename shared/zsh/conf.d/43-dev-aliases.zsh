@@ -2,6 +2,12 @@
 alias opencode-stats="$HOME/.opencode/bin/opencode stats --days 7 --models 10 --tools 20"
 
 # Projects
+alias cdpw="cd $HOME/projects/wez-plugins"
+alias cdwp="cd $HOME/projects/wez-plugins"
+
+alias cdpe="cd $HOME/projects/elvfast"
+
+# Tooling
 alias docku="docker compose up --build"
 alias dockd="docker compose down -v"
 alias dockseed="docker compose exec backend pnpm db:seed"

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::layout::Rect;
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
+use ratatui::layout::{Position, Rect};
 
 use super::{
     AgentFilter, CatalogSnapshot, Origin, OriginFilter, PickerAction, PickerView, Preview,
@@ -52,6 +54,63 @@ pub(crate) enum PreviewState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TextSelection {
+    pub(crate) anchor: Position,
+    pub(crate) head: Position,
+    dragged: bool,
+}
+
+impl TextSelection {
+    fn new(anchor: Position) -> Self {
+        Self {
+            anchor,
+            head: anchor,
+            dragged: false,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn between(anchor: Position, head: Position) -> Self {
+        Self {
+            anchor,
+            head,
+            dragged: anchor != head,
+        }
+    }
+
+    pub(crate) fn dragged(self) -> bool {
+        self.dragged
+    }
+
+    pub(crate) fn ordered(self) -> (Position, Position) {
+        if (self.anchor.y, self.anchor.x) <= (self.head.y, self.head.x) {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    pub(crate) fn contains(self, point: Position, area: Rect) -> bool {
+        if !area.contains(point) {
+            return false;
+        }
+        let (start, end) = self.ordered();
+        if point.y < start.y || point.y > end.y {
+            return false;
+        }
+        if start.y == end.y {
+            point.x >= start.x && point.x <= end.x
+        } else if point.y == start.y {
+            point.x >= start.x
+        } else if point.y == end.y {
+            point.x <= end.x
+        } else {
+            true
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Mode {
     Browse,
     Help,
@@ -62,6 +121,11 @@ pub(crate) enum Mode {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum UiEvent {
     Key(KeyEvent),
+    Mouse {
+        kind: MouseEventKind,
+        column: u16,
+        row: u16,
+    },
     Resize(u16, u16),
 }
 
@@ -97,10 +161,12 @@ pub(crate) struct Model {
     pub(crate) toolbar_focus: Option<ToolbarItem>,
     /// Linear, normalized drawer progress. The renderer owns visual easing.
     pub(crate) preview_transition: u16,
+    preview_target_open: bool,
     pub(crate) mode: Mode,
     pub(crate) review_action: usize,
     initial_review_action: usize,
     pub(crate) previews: HashMap<String, PreviewState>,
+    pub(crate) text_selection: Option<TextSelection>,
     favorite_overrides: HashMap<String, bool>,
     preview_session: Option<SessionEntry>,
     selection_touched: bool,
@@ -133,12 +199,14 @@ impl Model {
             preview_scroll: 0,
             overlay_scroll: 0,
             pane: Pane::List,
-            toolbar_focus: Some(ToolbarItem::Search),
+            toolbar_focus: None,
             preview_transition: 0,
+            preview_target_open: false,
             mode: Mode::Browse,
             review_action: 0,
             initial_review_action: 0,
             previews: HashMap::new(),
+            text_selection: None,
             favorite_overrides: HashMap::new(),
             preview_session: None,
             selection_touched: false,
@@ -150,12 +218,12 @@ impl Model {
     pub(crate) fn set_reduced_motion(&mut self, reduced_motion: bool) {
         self.reduced_motion = reduced_motion;
         if reduced_motion {
-            self.preview_transition = if self.pane == Pane::Preview {
+            self.preview_transition = if self.preview_target_open {
                 PREVIEW_TRANSITION_MAX
             } else {
                 0
             };
-            if self.pane == Pane::List {
+            if !self.preview_target_open {
                 self.forget_preview_session();
             }
             self.keep_selection_visible();
@@ -168,17 +236,17 @@ impl Model {
             / f32::from(PREVIEW_TRANSITION_MAX)
     }
 
-    /// Preview actions become available immediately after an explicit Enter.
+    /// Preview actions are available while the displayed preview has focus.
     pub(crate) fn preview_actions_enabled(&self) -> bool {
         self.pane == Pane::Preview && self.preview_session.is_some()
     }
 
     pub(crate) fn preview_is_opening(&self) -> bool {
-        self.pane == Pane::Preview && self.preview_transition < PREVIEW_TRANSITION_MAX
+        self.preview_target_open && self.preview_transition < PREVIEW_TRANSITION_MAX
     }
 
     pub(crate) fn preview_is_closing(&self) -> bool {
-        self.pane == Pane::List && self.preview_transition > 0
+        !self.preview_target_open && self.preview_transition > 0
     }
 
     pub(crate) fn is_animating(&self) -> bool {
@@ -191,7 +259,7 @@ impl Model {
             return false;
         }
         let previous = self.preview_transition;
-        if self.pane == Pane::Preview {
+        if self.preview_target_open {
             self.preview_transition = self
                 .preview_transition
                 .saturating_add(PREVIEW_TRANSITION_STEP)
@@ -247,11 +315,10 @@ impl Model {
 
     pub(crate) fn load(&mut self, mut snapshot: CatalogSnapshot, complete: bool) -> Effect {
         let preview_key = self.preview_session.as_ref().map(|entry| entry.key.clone());
-        let selected_key = preview_key.clone().or_else(|| {
-            self.selection_touched
-                .then(|| self.selected_entry().map(|entry| entry.key.clone()))
-                .flatten()
-        });
+        let selected_key = self
+            .selection_touched
+            .then(|| self.selected_entry().map(|entry| entry.key.clone()))
+            .flatten();
         // Keep the previous remote half visible while its replacement is in
         // flight.  Besides avoiding a distracting list collapse, this keeps a
         // selected remote session stable across the local-first refresh.
@@ -286,20 +353,29 @@ impl Model {
         self.loading = !complete;
         self.fatal_error = None;
         self.status = (!complete).then(|| "Local sessions ready; fetching remote sessions…".into());
-        self.previews.retain(|key, _| {
-            self.entries.iter().any(|entry| entry.key == *key)
-                || preview_key.as_deref() == Some(key.as_str())
-        });
+        self.previews
+            .retain(|key, _| self.entries.iter().any(|entry| entry.key == *key));
         self.rebuild_filter(selected_key.as_deref());
-        if let Some(key) = preview_key {
-            if let Some(entry) = self.entries.iter().find(|entry| entry.key == key) {
-                self.preview_session = Some(entry.clone());
-            } else {
-                self.close_preview();
-                self.status = Some("The selected session is no longer available".into());
-            }
+        let preview_was_removed = preview_key
+            .as_ref()
+            .is_some_and(|key| self.entries.iter().all(|entry| entry.key != *key));
+        let displayed = if !self.selection_touched || preview_was_removed {
+            self.selected_entry()
+                .cloned()
+                .or_else(|| self.entries.first().cloned())
+        } else {
+            preview_key
+                .as_deref()
+                .and_then(|key| self.entries.iter().find(|entry| entry.key == key))
+                .cloned()
+                .or_else(|| self.selected_entry().cloned())
+                .or_else(|| self.entries.first().cloned())
+        };
+        self.display_preview(displayed);
+        if preview_was_removed {
+            self.status = Some("The selected session is no longer available".into());
         }
-        Effect::None
+        self.request_preview()
     }
 
     pub(crate) fn load_failed(&mut self, error: String, complete: bool) {
@@ -330,6 +406,7 @@ impl Model {
         self.previews.insert(key.to_string(), state);
         if selected {
             self.preview_scroll = 0;
+            self.text_selection = None;
         }
     }
 
@@ -337,9 +414,7 @@ impl Model {
         if matches!(self.previews.get(key), Some(PreviewState::Loading)) {
             self.previews.remove(key);
         }
-        if self.preview_actions_enabled()
-            && self.preview_entry().is_some_and(|entry| entry.key == key)
-        {
+        if self.preview_entry().is_some_and(|entry| entry.key == key) {
             self.request_preview()
         } else {
             Effect::None
@@ -366,6 +441,14 @@ impl Model {
         ));
     }
 
+    pub(crate) fn selected_text_copied(&mut self) {
+        self.status = Some("Selected preview text copied".into());
+    }
+
+    pub(crate) fn selected_text_copy_failed(&mut self, error: String) {
+        self.status = Some(format!("Could not copy selected text: {}", clean(&error)));
+    }
+
     pub(crate) fn selected_entry(&self) -> Option<&SessionEntry> {
         self.filtered
             .get(self.selected)
@@ -377,7 +460,7 @@ impl Model {
             .and_then(|entry| self.previews.get(&entry.key))
     }
 
-    /// The explicitly Enter-selected entry remains stable while the drawer closes.
+    /// The session currently displayed in the persistent preview pane.
     pub(crate) fn preview_entry(&self) -> Option<&SessionEntry> {
         self.preview_session.as_ref()
     }
@@ -390,11 +473,16 @@ impl Model {
         match event {
             UiEvent::Resize(width, height) => {
                 self.area = Rect::new(0, 0, width, height);
+                self.text_selection = None;
                 self.keep_selection_visible();
                 Effect::None
             }
             UiEvent::Key(key) if key.kind != KeyEventKind::Press => Effect::None,
-            UiEvent::Key(key) => self.key(key),
+            UiEvent::Key(key) => {
+                self.text_selection = None;
+                self.key(key)
+            }
+            UiEvent::Mouse { kind, column, row } => self.mouse(kind, Position::new(column, row)),
         }
     }
 
@@ -423,12 +511,16 @@ impl Model {
                         && self.toolbar_focus.is_some() =>
                 {
                     self.query.clear();
-                    self.selection_touched = false;
+                    self.selection_touched = true;
                     self.rebuild_filter(None);
                     Effect::None
                 }
                 _ => Effect::None,
             };
+        }
+
+        if key.code == KeyCode::Char('/') {
+            return self.focus_search();
         }
 
         match self.mode {
@@ -478,6 +570,7 @@ impl Model {
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.mode = Mode::Browse;
                 self.pane = Pane::Preview;
+                self.preview_target_open = true;
                 if self.reduced_motion {
                     self.preview_transition = PREVIEW_TRANSITION_MAX;
                 }
@@ -510,6 +603,132 @@ impl Model {
         }
     }
 
+    fn mouse(&mut self, kind: MouseEventKind, point: Position) -> Effect {
+        if self.mode != Mode::Browse {
+            if matches!(self.mode, Mode::Help | Mode::Diagnostics) {
+                match kind {
+                    MouseEventKind::ScrollUp => {
+                        self.overlay_scroll = self.overlay_scroll.saturating_sub(3);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        self.overlay_scroll = self.overlay_scroll.saturating_add(3);
+                    }
+                    _ => {}
+                }
+            }
+            return Effect::None;
+        }
+        match kind {
+            MouseEventKind::Down(MouseButton::Left) => self.mouse_down(point),
+            MouseEventKind::Drag(MouseButton::Left) => {
+                self.update_text_selection(point);
+                Effect::None
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                self.update_text_selection(point);
+                if self
+                    .text_selection
+                    .is_some_and(|selection| !selection.dragged())
+                {
+                    self.text_selection = None;
+                }
+                Effect::None
+            }
+            MouseEventKind::ScrollUp => self.mouse_scroll(point, -1),
+            MouseEventKind::ScrollDown => self.mouse_scroll(point, 1),
+            _ => Effect::None,
+        }
+    }
+
+    fn mouse_down(&mut self, point: Position) -> Effect {
+        self.text_selection = None;
+        match super::view::hit_test(self, point) {
+            super::view::HitTarget::Toolbar(item) => {
+                if self.pane == Pane::Preview {
+                    self.focus_session_list();
+                }
+                self.toolbar_focus = Some(item);
+                if item == ToolbarItem::Search {
+                    Effect::None
+                } else {
+                    self.cycle_toolbar_filter(item)
+                }
+            }
+            super::view::HitTarget::Session(position) => {
+                self.pane = Pane::List;
+                self.toolbar_focus = None;
+                self.select_absolute(position);
+                self.open_preview()
+            }
+            super::view::HitTarget::PreviewText => {
+                self.pane = Pane::Preview;
+                self.toolbar_focus = None;
+                if let Some(point) = clamp_point(super::view::preview_text_area(self), point) {
+                    self.text_selection = Some(TextSelection::new(point));
+                }
+                Effect::None
+            }
+            super::view::HitTarget::Issues if !self.warnings.is_empty() => {
+                self.mode = Mode::Diagnostics;
+                self.overlay_scroll = 0;
+                Effect::None
+            }
+            super::view::HitTarget::List => {
+                if self.pane == Pane::Preview {
+                    self.focus_session_list();
+                }
+                self.toolbar_focus = None;
+                Effect::None
+            }
+            super::view::HitTarget::Preview => {
+                if self.preview_session.is_some() {
+                    self.pane = Pane::Preview;
+                    self.toolbar_focus = None;
+                }
+                Effect::None
+            }
+            super::view::HitTarget::Issues | super::view::HitTarget::None => Effect::None,
+        }
+    }
+
+    fn mouse_scroll(&mut self, point: Position, amount: isize) -> Effect {
+        self.text_selection = None;
+        match super::view::hit_test(self, point) {
+            super::view::HitTarget::Preview | super::view::HitTarget::PreviewText
+                if self.preview_session.is_some() =>
+            {
+                self.pane = Pane::Preview;
+                self.toolbar_focus = None;
+                self.preview_scroll = if amount < 0 {
+                    self.preview_scroll.saturating_sub(3)
+                } else {
+                    self.preview_scroll.saturating_add(3)
+                };
+                Effect::None
+            }
+            super::view::HitTarget::Session(_) | super::view::HitTarget::List => {
+                self.text_selection = None;
+                if self.pane == Pane::Preview {
+                    self.focus_session_list();
+                }
+                self.toolbar_focus = None;
+                self.move_selection(amount.saturating_mul(3))
+            }
+            _ => Effect::None,
+        }
+    }
+
+    fn update_text_selection(&mut self, point: Position) {
+        let area = super::view::preview_text_area(self);
+        let Some(point) = clamp_point(area, point) else {
+            return;
+        };
+        if let Some(selection) = &mut self.text_selection {
+            selection.head = point;
+            selection.dragged |= selection.anchor != point;
+        }
+    }
+
     fn toolbar_key(&mut self, item: ToolbarItem, code: KeyCode) -> Effect {
         match code {
             KeyCode::Left | KeyCode::BackTab => {
@@ -528,13 +747,13 @@ impl Model {
             KeyCode::Backspace => {
                 self.toolbar_focus = Some(ToolbarItem::Search);
                 self.query.pop();
-                self.selection_touched = false;
+                self.selection_touched = true;
                 self.rebuild_filter(None);
                 Effect::None
             }
             KeyCode::Esc if !self.query.is_empty() => {
                 self.query.clear();
-                self.selection_touched = false;
+                self.selection_touched = true;
                 self.rebuild_filter(None);
                 Effect::None
             }
@@ -542,7 +761,7 @@ impl Model {
             KeyCode::Char(character) if !character.is_control() => {
                 self.toolbar_focus = Some(ToolbarItem::Search);
                 self.query.push(character);
-                self.selection_touched = false;
+                self.selection_touched = true;
                 self.rebuild_filter(None);
                 Effect::None
             }
@@ -551,6 +770,7 @@ impl Model {
     }
 
     fn focus_list(&mut self) -> Effect {
+        self.pane = Pane::List;
         self.toolbar_focus = None;
         self.selection_touched = true;
         self.selected = 0;
@@ -565,7 +785,7 @@ impl Model {
             ToolbarItem::Agent => self.agent_filter = self.agent_filter.next(),
             ToolbarItem::Scope => self.scope_filter = self.scope_filter.next(),
         }
-        self.selection_touched = false;
+        self.selection_touched = true;
         self.rebuild_filter(None);
         Effect::None
     }
@@ -583,21 +803,13 @@ impl Model {
                 self.overlay_scroll = 0;
                 Effect::None
             }
-            KeyCode::Char('/') => {
-                self.toolbar_focus = Some(ToolbarItem::Search);
-                Effect::None
-            }
             KeyCode::Char('x') => {
                 self.query.clear();
                 self.origin_filter = OriginFilter::All;
                 self.agent_filter = AgentFilter::All;
                 self.scope_filter = ScopeFilter::All;
-                self.selection_touched = false;
+                self.selection_touched = true;
                 self.rebuild_filter(None);
-                Effect::None
-            }
-            KeyCode::Up | KeyCode::Char('k') if self.selected == 0 => {
-                self.toolbar_focus = Some(ToolbarItem::Search);
                 Effect::None
             }
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
@@ -606,20 +818,24 @@ impl Model {
             KeyCode::PageDown => self.move_selection(self.page_size() as isize),
             KeyCode::Home => self.select_absolute(0),
             KeyCode::End => self.select_absolute(self.filtered.len().saturating_sub(1)),
+            KeyCode::Left | KeyCode::Right => self.focus_preview(),
             KeyCode::Enter => self.open_preview(),
             KeyCode::Char('r') => Effect::Refresh,
             KeyCode::Char('1') | KeyCode::Char('o') => {
                 self.origin_filter = self.origin_filter.next();
+                self.selection_touched = true;
                 self.rebuild_filter(None);
                 Effect::None
             }
             KeyCode::Char('2') | KeyCode::Char('a') => {
                 self.agent_filter = self.agent_filter.next();
+                self.selection_touched = true;
                 self.rebuild_filter(None);
                 Effect::None
             }
             KeyCode::Char('3') | KeyCode::Char('s') => {
                 self.scope_filter = self.scope_filter.next();
+                self.selection_touched = true;
                 self.rebuild_filter(None);
                 Effect::None
             }
@@ -629,10 +845,11 @@ impl Model {
 
     fn preview_key(&mut self, code: KeyCode) -> Effect {
         match code {
-            KeyCode::Esc => {
-                self.close_preview();
+            KeyCode::Left | KeyCode::Right => {
+                self.focus_session_list();
                 Effect::None
             }
+            KeyCode::Esc => Effect::Cancel,
             KeyCode::Char('q') => Effect::Cancel,
             KeyCode::Char('?') => {
                 self.mode = Mode::Help;
@@ -692,25 +909,56 @@ impl Model {
         let Some(entry) = self.selected_entry().cloned() else {
             return Effect::None;
         };
-        self.preview_session = Some(entry);
+        self.display_preview(Some(entry));
         self.pane = Pane::Preview;
         self.toolbar_focus = None;
         self.selection_touched = true;
-        if self.reduced_motion {
-            self.preview_transition = PREVIEW_TRANSITION_MAX;
-        }
         self.preview_scroll = 0;
         self.keep_selection_visible();
         self.request_preview()
     }
 
-    fn close_preview(&mut self) {
-        self.pane = Pane::List;
-        self.preview_scroll = 0;
-        if self.reduced_motion {
-            self.preview_transition = 0;
-            self.forget_preview_session();
+    fn display_preview(&mut self, entry: Option<SessionEntry>) {
+        let changed = self
+            .preview_session
+            .as_ref()
+            .map(|entry| entry.key.as_str())
+            != entry.as_ref().map(|entry| entry.key.as_str());
+        self.preview_session = entry;
+        self.preview_target_open = self.preview_session.is_some();
+        self.preview_transition = if self.preview_target_open {
+            PREVIEW_TRANSITION_MAX
+        } else {
+            self.pane = Pane::List;
+            0
+        };
+        if changed {
+            self.preview_scroll = 0;
         }
+        self.text_selection = None;
+    }
+
+    fn focus_search(&mut self) -> Effect {
+        self.mode = Mode::Browse;
+        self.pane = Pane::List;
+        self.toolbar_focus = Some(ToolbarItem::Search);
+        self.text_selection = None;
+        Effect::None
+    }
+
+    fn focus_preview(&mut self) -> Effect {
+        if self.preview_session.is_some() {
+            self.pane = Pane::Preview;
+            self.toolbar_focus = None;
+            self.text_selection = None;
+        }
+        Effect::None
+    }
+
+    fn focus_session_list(&mut self) {
+        self.pane = Pane::List;
+        self.toolbar_focus = None;
+        self.text_selection = None;
         self.keep_selection_visible();
     }
 
@@ -764,7 +1012,7 @@ impl Model {
             .iter()
             .any(|index| self.entries[*index].key == key);
         if self.preview_actions_enabled() && !still_visible {
-            self.close_preview();
+            self.pane = Pane::List;
             self.status = Some("Session no longer matches the active filters".into());
         }
         effect
@@ -867,7 +1115,7 @@ impl Model {
     }
 
     fn request_preview(&mut self) -> Effect {
-        if !self.preview_actions_enabled() || self.preview_density == PreviewDensity::Metadata {
+        if self.preview_density == PreviewDensity::Metadata {
             return Effect::None;
         }
         let Some(entry) = self.preview_entry() else {
@@ -883,6 +1131,16 @@ impl Model {
         self.previews.insert(key.clone(), PreviewState::Loading);
         Effect::LoadPreview(key)
     }
+}
+
+fn clamp_point(area: Rect, point: Position) -> Option<Position> {
+    if area.is_empty() {
+        return None;
+    }
+    Some(Position::new(
+        point.x.clamp(area.x, area.right().saturating_sub(1)),
+        point.y.clamp(area.y, area.bottom().saturating_sub(1)),
+    ))
 }
 
 /// Token-aware fuzzy match. Every token must be a case-insensitive
@@ -967,6 +1225,14 @@ mod tests {
         UiEvent::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
+    fn mouse(kind: MouseEventKind, point: Position) -> UiEvent {
+        UiEvent::Mouse {
+            kind,
+            column: point.x,
+            row: point.y,
+        }
+    }
+
     #[test]
     fn newest_session_is_first_and_navigation_is_bounded() {
         let mut model = loaded();
@@ -1038,14 +1304,16 @@ mod tests {
     }
 
     #[test]
-    fn launch_toolbar_supports_typing_filter_navigation_and_list_entry() {
+    fn launch_focuses_the_first_session_and_toolbar_supports_search_and_filters() {
         assert_eq!(
             Model::new().toolbar_focus,
-            Some(ToolbarItem::Search),
-            "launch focus belongs to the persistent search toolbar"
+            None,
+            "launch focus belongs to the first session"
         );
         let mut model = loaded();
-        model.toolbar_focus = Some(ToolbarItem::Search);
+        assert_eq!(model.selected_entry().unwrap().key, "current");
+        assert_eq!(model.preview_entry().unwrap().key, "current");
+        model.apply(key(KeyCode::Char('/')));
 
         for character in "rmte pckr".chars() {
             model.apply(key(KeyCode::Char(character)));
@@ -1072,18 +1340,70 @@ mod tests {
     }
 
     #[test]
-    fn enter_from_search_enters_list_before_it_can_preview() {
+    fn enter_from_search_returns_to_the_already_previewed_first_session() {
         let mut model = loaded();
-        model.toolbar_focus = Some(ToolbarItem::Search);
+        model.apply(key(KeyCode::Char('/')));
         assert_eq!(model.apply(key(KeyCode::Enter)), Effect::None);
         assert_eq!(model.toolbar_focus, None);
-        assert!(model.preview_entry().is_none());
+        assert_eq!(model.preview_entry().unwrap().key, "current");
 
-        assert!(matches!(
+        assert_eq!(model.apply(key(KeyCode::Enter)), Effect::None);
+        assert_eq!(model.pane, Pane::Preview);
+    }
+
+    #[test]
+    fn horizontal_arrows_only_move_focus_and_enter_selects_the_highlighted_session() {
+        let mut model = loaded();
+        model.apply(key(KeyCode::Down));
+        assert_eq!(model.selected_entry().unwrap().key, "favorite");
+        assert_eq!(model.preview_entry().unwrap().key, "current");
+
+        assert_eq!(model.apply(key(KeyCode::Right)), Effect::None);
+        assert_eq!(model.pane, Pane::Preview);
+        assert_eq!(model.preview_entry().unwrap().key, "current");
+
+        assert_eq!(model.apply(key(KeyCode::Right)), Effect::None);
+        assert_eq!(model.pane, Pane::List);
+        assert_eq!(model.preview_entry().unwrap().key, "current");
+
+        assert_eq!(
             model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview(_)
-        ));
-        assert!(model.preview_entry().is_some());
+            Effect::LoadPreview("favorite".into())
+        );
+        assert_eq!(model.pane, Pane::Preview);
+        assert_eq!(model.preview_entry().unwrap().key, "favorite");
+
+        assert_eq!(model.apply(key(KeyCode::Left)), Effect::None);
+        assert_eq!(model.pane, Pane::List);
+        assert_eq!(model.preview_entry().unwrap().key, "favorite");
+    }
+
+    #[test]
+    fn clicking_a_card_opens_it_and_preview_drag_stays_inside_the_pane() {
+        let mut model = loaded();
+        model.area = Rect::new(0, 0, 120, 28);
+        model.set_reduced_motion(true);
+        let list = super::super::view::layout(model.area).list;
+        let card = Position::new(list.x.saturating_add(2), list.y.saturating_add(5));
+        assert_eq!(
+            model.apply(mouse(MouseEventKind::Down(MouseButton::Left), card)),
+            Effect::LoadPreview("favorite".into())
+        );
+        assert_eq!(model.pane, Pane::Preview);
+        assert_eq!(model.preview_entry().unwrap().key, "favorite");
+
+        let preview = super::super::view::preview_text_area(&model);
+        let start = Position::new(preview.x.saturating_add(1), preview.y);
+        let outside = Position::new(list.x, preview.y.saturating_add(1));
+        model.apply(mouse(MouseEventKind::Down(MouseButton::Left), start));
+        model.apply(mouse(MouseEventKind::Drag(MouseButton::Left), outside));
+        model.apply(mouse(MouseEventKind::Up(MouseButton::Left), outside));
+
+        let selection = model.text_selection.expect("drag remains selected");
+        assert!(selection.dragged());
+        assert!(preview.contains(selection.anchor));
+        assert!(preview.contains(selection.head));
+        assert!(!selection.contains(Position::new(list.x, list.y), preview));
     }
 
     #[test]
@@ -1116,150 +1436,72 @@ mod tests {
     }
 
     #[test]
-    fn preview_animation_progresses_in_deterministic_normalized_steps() {
-        let mut model = loaded();
-        assert_eq!(model.preview_progress(), 0.0);
-        assert_eq!(
-            model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview("current".into())
-        );
-        assert!(model.preview_is_opening());
-        assert!(model.preview_actions_enabled());
-
-        for expected in 1..=10 {
-            assert!(model.tick_animation());
-            assert_eq!(model.preview_transition, expected * 100);
-        }
-        assert_eq!(model.preview_progress(), 1.0);
-        assert!(model.preview_transition > 0);
-        assert!(!model.is_animating());
-        assert!(!model.tick_animation());
-    }
-
-    #[test]
-    fn preview_animation_reverses_without_switching_drawer_content() {
-        let mut model = loaded();
-        model.apply(key(KeyCode::Enter));
-        for _ in 0..4 {
-            model.tick_animation();
-        }
-        assert_eq!(model.preview_transition, 400);
-
-        model.apply(key(KeyCode::Esc));
-        assert!(model.preview_is_closing());
-        model.apply(key(KeyCode::Down));
-        assert_eq!(model.selected_entry().unwrap().key, "favorite");
+    fn initial_preview_is_present_immediately() {
+        let model = loaded();
         assert_eq!(model.preview_entry().unwrap().key, "current");
-        model.tick_animation();
-        assert_eq!(model.preview_transition, 300);
-
-        assert_eq!(
-            model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview("favorite".into())
-        );
-        assert!(model.preview_is_opening());
-        assert_eq!(model.preview_entry().unwrap().key, "favorite");
-        model.tick_animation();
-        assert_eq!(model.preview_transition, 400);
-    }
-
-    #[test]
-    fn reduced_motion_snaps_preview_open_and_closed() {
-        let mut model = loaded();
-        model.set_reduced_motion(true);
-        model.apply(key(KeyCode::Enter));
-        assert_eq!(model.preview_transition, PREVIEW_TRANSITION_MAX);
         assert_eq!(model.preview_progress(), 1.0);
+        assert_eq!(model.preview_transition, PREVIEW_TRANSITION_MAX);
+        assert!(matches!(
+            model.selected_preview(),
+            Some(PreviewState::Loading)
+        ));
         assert!(!model.is_animating());
-        assert!(!model.tick_animation());
-
-        model.apply(key(KeyCode::Esc));
-        assert_eq!(model.preview_transition, 0);
-        assert_eq!(model.preview_transition, 0);
-        assert!(model.preview_entry().is_none());
     }
 
     #[test]
-    fn preview_actions_disable_as_soon_as_close_begins() {
+    fn slash_focuses_search_from_every_mode_without_entering_a_slash() {
         let mut model = loaded();
         model.apply(key(KeyCode::Enter));
-        model.tick_animation();
-        model.apply(key(KeyCode::Esc));
-        assert!(model.preview_transition > 0);
-        assert!(!model.preview_actions_enabled());
-        let density = model.preview_density;
-        let favorite = model.preview_entry().unwrap().favorite;
-
-        for code in [
-            KeyCode::Char('f'),
-            KeyCode::Char('y'),
-            KeyCode::Char('v'),
-            KeyCode::Char(' '),
-        ] {
-            assert_eq!(model.apply(key(code)), Effect::None);
+        for mode in [Mode::Browse, Mode::Help, Mode::Diagnostics, Mode::Review] {
+            model.mode = mode;
+            model.pane = Pane::Preview;
+            assert_eq!(model.apply(key(KeyCode::Char('/'))), Effect::None);
+            assert_eq!(model.toolbar_focus, Some(ToolbarItem::Search));
+            assert_eq!(model.pane, Pane::List);
+            assert!(model.query.is_empty());
         }
-        assert_eq!(model.preview_density, density);
-        assert_eq!(model.preview_entry().unwrap().favorite, favorite);
         assert_eq!(model.mode, Mode::Browse);
     }
 
     #[test]
-    fn preview_completion_is_visible_during_open_animation() {
+    fn escape_cancels_from_preview_without_clearing_it() {
         let mut model = loaded();
-        model.apply(key(KeyCode::Enter));
-        model.tick_animation();
-        model.preview_loaded(
-            "current",
-            Ok(Preview {
-                lines: Vec::new(),
-                truncated: false,
-                warning: None,
-            }),
-        );
-        assert!(matches!(
-            model.selected_preview(),
-            Some(PreviewState::Ready(_))
-        ));
-        assert!(model.preview_is_opening());
+        model.apply(key(KeyCode::Right));
+        assert_eq!(model.pane, Pane::Preview);
+        assert_eq!(model.apply(key(KeyCode::Esc)), Effect::Cancel);
+        assert_eq!(model.pane, Pane::Preview);
+        assert_eq!(model.preview_entry().unwrap().key, "current");
     }
 
     #[test]
-    fn removed_session_content_survives_close_then_is_forgotten() {
+    fn removed_session_immediately_falls_back_to_an_available_preview() {
         let mut model = loaded();
-        model.apply(key(KeyCode::Enter));
-        model.tick_animation();
         model.preview_loaded("current", Ok(Preview::default()));
+        model.selection_touched = true;
 
-        model.load(
-            CatalogSnapshot {
-                sessions: vec![entry("old", "write parser", Origin::Local)],
-                warnings: Vec::new(),
-            },
-            true,
+        assert_eq!(
+            model.load(
+                CatalogSnapshot {
+                    sessions: vec![entry("old", "write parser", Origin::Local)],
+                    warnings: Vec::new(),
+                },
+                true,
+            ),
+            Effect::LoadPreview("old".into())
         );
         assert_eq!(model.pane, Pane::List);
-        assert!(model.preview_is_closing());
-        assert_eq!(model.preview_entry().unwrap().key, "current");
+        assert_eq!(model.preview_entry().unwrap().key, "old");
         assert!(matches!(
             model.selected_preview(),
-            Some(PreviewState::Ready(_))
+            Some(PreviewState::Loading)
         ));
-
-        while model.tick_animation() {}
-        assert_eq!(model.preview_transition, 0);
-        assert!(model.preview_entry().is_none());
         assert!(!model.previews.contains_key("current"));
     }
 
     #[test]
     fn preview_density_cycles_and_metadata_avoids_transcript_reads() {
         let mut model = loaded();
-        assert_eq!(model.apply(key(KeyCode::Char('v'))), Effect::None);
-        assert_eq!(model.preview_density, PreviewDensity::Conversation);
-        assert_eq!(
-            model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview("current".into())
-        );
+        model.apply(key(KeyCode::Right));
         model.previews.clear();
         assert_eq!(
             model.apply(key(KeyCode::Char('v'))),
@@ -1292,11 +1534,13 @@ mod tests {
     #[test]
     fn enter_locks_preview_and_space_opens_review() {
         let mut model = loaded();
+        model.apply(key(KeyCode::Down));
         assert_eq!(
             model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview("current".into())
+            Effect::LoadPreview("favorite".into())
         );
         assert_eq!(model.pane, Pane::Preview);
+        assert_eq!(model.preview_entry().unwrap().key, "favorite");
         assert_eq!(model.mode, Mode::Browse);
         assert_eq!(model.apply(key(KeyCode::Enter)), Effect::None);
         assert_eq!(model.mode, Mode::Browse);
@@ -1343,17 +1587,13 @@ mod tests {
     fn previews_are_requested_once_and_cached() {
         let mut model = loaded();
         let session_key = model.selected_entry().unwrap().key.clone();
-        assert!(model.previews.is_empty());
-        assert_eq!(
-            model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview(session_key.clone())
-        );
         assert!(matches!(
             model.previews.get(&session_key),
             Some(PreviewState::Loading)
         ));
         model.preview_loaded(&session_key, Ok(Preview::default()));
-        assert_eq!(model.apply(key(KeyCode::Esc)), Effect::None);
+        assert_eq!(model.apply(key(KeyCode::Right)), Effect::None);
+        assert_eq!(model.apply(key(KeyCode::Left)), Effect::None);
         assert_eq!(model.pane, Pane::List);
         assert_eq!(model.apply(key(KeyCode::Enter)), Effect::None);
         assert!(matches!(
@@ -1366,6 +1606,13 @@ mod tests {
     fn refresh_keeps_remote_selection_and_invalidates_cached_previews() {
         let mut model = loaded();
         model.rebuild_filter(Some("favorite"));
+        model.selection_touched = true;
+        assert_eq!(
+            model.apply(key(KeyCode::Enter)),
+            Effect::LoadPreview("favorite".into())
+        );
+        model.preview_loaded("favorite", Ok(Preview::default()));
+        model.focus_session_list();
         assert_eq!(model.selected_entry().unwrap().key, "favorite");
         model
             .previews
@@ -1382,8 +1629,11 @@ mod tests {
         );
 
         assert_eq!(model.selected_entry().unwrap().key, "favorite");
-        assert_eq!(effect, Effect::None);
-        assert!(model.previews.is_empty());
+        assert_eq!(effect, Effect::LoadPreview("favorite".into()));
+        assert!(matches!(
+            model.previews.get("favorite"),
+            Some(PreviewState::Loading)
+        ));
     }
 
     #[test]
@@ -1416,10 +1666,6 @@ mod tests {
     fn skipped_background_previews_can_be_requested_again() {
         let mut model = loaded();
         let session_key = model.selected_entry().unwrap().key.clone();
-        assert_eq!(
-            model.apply(key(KeyCode::Enter)),
-            Effect::LoadPreview(session_key.clone())
-        );
         assert_eq!(
             model.preview_skipped(&session_key),
             Effect::LoadPreview(session_key.clone())
@@ -1508,7 +1754,7 @@ mod tests {
     }
 
     #[test]
-    fn search_covers_updated_and_favorite_state_without_loading_previews() {
+    fn search_changes_the_highlight_without_changing_the_displayed_preview() {
         let mut model = loaded();
         let favorite = model
             .entries
@@ -1522,7 +1768,9 @@ mod tests {
             assert_eq!(model.apply(key(KeyCode::Char(character))), Effect::None);
         }
         assert_eq!(model.selected_entry().unwrap().key, "favorite");
-        assert!(model.previews.is_empty());
+        assert_eq!(model.preview_entry().unwrap().key, "current");
+        assert_eq!(model.previews.len(), 1);
+        assert!(model.previews.contains_key("current"));
 
         model.apply(UiEvent::Key(KeyEvent::new(
             KeyCode::Char('u'),
@@ -1532,7 +1780,8 @@ mod tests {
             model.apply(key(KeyCode::Char(character)));
         }
         assert_eq!(model.selected_entry().unwrap().key, "favorite");
-        assert!(model.previews.is_empty());
+        assert_eq!(model.preview_entry().unwrap().key, "current");
+        assert_eq!(model.previews.len(), 1);
     }
 
     #[test]
@@ -1556,7 +1805,7 @@ mod tests {
     }
 
     #[test]
-    fn escape_returns_from_review_to_preview_then_from_preview_to_list() {
+    fn escape_returns_from_review_then_cancels_without_closing_preview() {
         let mut model = loaded();
         model.apply(key(KeyCode::Enter));
         model.apply(key(KeyCode::Char(' ')));
@@ -1564,8 +1813,8 @@ mod tests {
         model.apply(key(KeyCode::Esc));
         assert_eq!(model.mode, Mode::Browse);
         assert_eq!(model.pane, Pane::Preview);
-        model.apply(key(KeyCode::Esc));
-        assert_eq!(model.pane, Pane::List);
         assert_eq!(model.apply(key(KeyCode::Esc)), Effect::Cancel);
+        assert_eq!(model.pane, Pane::Preview);
+        assert!(model.preview_entry().is_some());
     }
 }

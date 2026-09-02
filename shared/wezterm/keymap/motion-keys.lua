@@ -7,10 +7,17 @@ local act = wezterm.action
 local ctrl_a = "\x01"
 local ctrl_b = "\x02"
 local ctrl_e = "\x05"
+local ctrl_u = "\x15"
+local ctrl_k = "\x0b"
+
 local shift_enter_sequence = "\x1b[13;2u"
 local shift_enter = act.SendString(shift_enter_sequence)
+
 local open_line_below = act.SendString(ctrl_e .. shift_enter_sequence)
 local open_line_above = act.SendString(ctrl_a .. shift_enter_sequence .. ctrl_b)
+
+local delete_to_start = act.SendString(ctrl_u)
+local delete_to_end = act.SendString(ctrl_k)
 
 ---@type KeySpec[]
 local motion_keys = {
@@ -32,6 +39,16 @@ local motion_keys = {
     key = "Enter",
     mods = MOD.PRIMARY .. "|SHIFT",
     action = open_line_above,
+  },
+  {
+    key = "Backspace",
+    mods = MOD.SUPER_REV,
+    action = delete_to_start,
+  },
+  {
+    key = "Backspace",
+    mods = MOD.SUPER_REV,
+    action = delete_to_end,
   },
 }
 

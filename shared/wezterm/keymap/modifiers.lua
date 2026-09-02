@@ -10,7 +10,7 @@ if platform.is_mac then
     UNIQUE = "OPT",
     EDGE = "CMD",
     ---
-    SUPER_REV = { "CMD|SHIFT", "CTRL|SHIFT" },
+    SUPER_REV = "CMD|SHIFT",
     SUPER_REV_2 = "CTRL|CMD",
     ---
     SPLITBELOW = "'",

@@ -26,6 +26,7 @@ local ui_config = {
   color_schemes = profiles.profiles,
   max_fps = performance.max_fps,
   front_end = performance.front_end,
+  hyperlink_rules = performance.hyperlink_rules,
 }
 
 return ui_config

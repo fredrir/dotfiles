@@ -51,6 +51,15 @@ map("n", "'", "<cmd>Neotree toggle<CR>", {
 
 M.neo_tree_window["'"] = "close_window"
 
+-- Navigation --
+
+map("n", "<leader>n<Left>", "<cmd>leftabove vnew<CR>")
+map("n", "<leader>n<Right>", "<cmd>rightbelow vnew<CR>")
+map("n", "<leader>n<Up>", "<cmd>leftabove new<CR>")
+map("n", "<leader>n<Down>", "<cmd>rightbelow new<CR>")
+
+map("n", "<leader>nq", "<cmd>close<CR>", { desc = "Close current window" })
+
 -- Diagnostics --
 
 map("n", "<leader>q", vim.diagnostic.setloclist, { desc = "Open diagnostic [Q]uickfix list" })
@@ -318,13 +327,13 @@ end
 M.blink = { preset = "default" }
 
 -- Which Key --
-
 M.which_key_groups = {
   { "<leader>s", group = "[S]earch", mode = { "n", "v" } },
   { "<leader>t", group = "[T]oggle" },
   { "<leader>g", group = "[G]it" },
   { "<leader>h", group = "Git [H]unk", mode = { "n", "v" } },
   { "<leader>r", group = "[R]efactor / Restart" },
+  { "<leader>n", group = "Window [N]avigation" },
   { "gr", group = "LSP Actions", mode = { "n" } },
 }
 

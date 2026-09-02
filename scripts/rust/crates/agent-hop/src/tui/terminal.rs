@@ -4,13 +4,19 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event as TerminalEvent};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event as TerminalEvent, KeyCode, KeyModifiers,
+    MouseButton, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use unicode_width::UnicodeWidthStr;
 use workstation::screen::{SignalGuard, termination_requested};
 
 use super::{
@@ -110,6 +116,17 @@ pub(crate) fn run(
         let terminal_event =
             event::read().map_err(|error| format!("could not read terminal input: {error}"))?;
         effect = match terminal_event {
+            TerminalEvent::Key(key)
+                if key.code == KeyCode::Char('c')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                    && model
+                        .text_selection
+                        .is_some_and(|selection| selection.dragged()) =>
+            {
+                redraw = true;
+                copy_selected_preview(&terminal, &mut model);
+                Effect::None
+            }
             TerminalEvent::Key(key) => {
                 redraw = true;
                 model.apply(UiEvent::Key(key))
@@ -118,11 +135,36 @@ pub(crate) fn run(
                 redraw = true;
                 model.apply(UiEvent::Resize(width, height))
             }
-            TerminalEvent::Mouse(_)
-            | TerminalEvent::FocusGained
-            | TerminalEvent::FocusLost
-            | TerminalEvent::Paste(_) => Effect::None,
+            TerminalEvent::Mouse(mouse) => {
+                redraw = true;
+                let effect = model.apply(UiEvent::Mouse {
+                    kind: mouse.kind,
+                    column: mouse.column,
+                    row: mouse.row,
+                });
+                if mouse.kind == MouseEventKind::Up(MouseButton::Left)
+                    && model
+                        .text_selection
+                        .is_some_and(|selection| selection.dragged())
+                {
+                    copy_selected_preview(&terminal, &mut model);
+                }
+                effect
+            }
+            TerminalEvent::FocusGained | TerminalEvent::FocusLost | TerminalEvent::Paste(_) => {
+                Effect::None
+            }
         };
+    }
+}
+
+fn copy_selected_preview(terminal: &PickerTerminal, model: &mut Model) {
+    let Some(text) = terminal.selected_text(model) else {
+        return;
+    };
+    match copy_with_dclip(&text) {
+        Ok(()) => model.selected_text_copied(),
+        Err(error) => model.selected_text_copy_failed(error),
     }
 }
 
@@ -488,15 +530,18 @@ impl Drop for SourceWorker {
 
 struct PickerTerminal {
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    last_frame: Buffer,
     raw: bool,
     alternate: bool,
+    mouse: bool,
 }
 
 impl PickerTerminal {
     fn new() -> io::Result<Self> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        if let Err(error) = execute!(stdout, EnterAlternateScreen) {
+        if let Err(error) = execute!(stdout, EnterAlternateScreen, EnableMouseCapture) {
+            let _ = execute!(stdout, DisableMouseCapture, LeaveAlternateScreen);
             let _ = disable_raw_mode();
             return Err(error);
         }
@@ -505,35 +550,86 @@ impl PickerTerminal {
             Ok(terminal) => terminal,
             Err(error) => {
                 let mut stdout = io::stdout();
-                let _ = execute!(stdout, LeaveAlternateScreen);
+                let _ = execute!(stdout, DisableMouseCapture, LeaveAlternateScreen);
                 let _ = disable_raw_mode();
                 return Err(error);
             }
         };
         if let Err(error) = terminal.hide_cursor() {
             let _ = terminal.show_cursor();
-            let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+            let _ = execute!(
+                terminal.backend_mut(),
+                DisableMouseCapture,
+                LeaveAlternateScreen
+            );
             let _ = disable_raw_mode();
             return Err(error);
         }
         Ok(Self {
             terminal,
+            last_frame: Buffer::empty(Rect::default()),
             raw: true,
             alternate: true,
+            mouse: true,
         })
     }
 
     fn draw(&mut self, model: &Model, options: PickerOptions) -> Result<(), String> {
-        self.terminal
+        let frame = self
+            .terminal
             .draw(|frame| render(frame, model, options))
-            .map(|_| ())
-            .map_err(|error| format!("could not render the session picker: {error}"))
+            .map_err(|error| format!("could not render the session picker: {error}"))?;
+        self.last_frame = frame.buffer.clone();
+        Ok(())
     }
+
+    fn selected_text(&self, model: &Model) -> Option<String> {
+        let selection = model
+            .text_selection
+            .filter(|selection| selection.dragged())?;
+        let area = super::view::preview_text_area(model);
+        selected_text_from_buffer(&self.last_frame, selection, area)
+    }
+}
+
+fn selected_text_from_buffer(
+    buffer: &Buffer,
+    selection: super::model::TextSelection,
+    area: Rect,
+) -> Option<String> {
+    if area.is_empty() {
+        return None;
+    }
+    let (start, end) = selection.ordered();
+    let mut rows = Vec::with_capacity(usize::from(end.y.saturating_sub(start.y)) + 1);
+    for y in start.y..=end.y {
+        let mut row = String::new();
+        let mut x = area.x;
+        while x < area.right() {
+            let point = ratatui::layout::Position::new(x, y);
+            let Some(cell) = buffer.cell(point) else {
+                break;
+            };
+            let symbol = cell.symbol();
+            if selection.contains(point, area) {
+                row.push_str(symbol);
+            }
+            x = x.saturating_add(UnicodeWidthStr::width(symbol).max(1) as u16);
+        }
+        rows.push(row.trim_end_matches(' ').to_owned());
+    }
+    let text = rows.join("\n");
+    let text = text.trim_matches([' ', '\n']);
+    (!text.is_empty()).then(|| text.to_owned())
 }
 
 impl Drop for PickerTerminal {
     fn drop(&mut self) {
         let _ = self.terminal.show_cursor();
+        if self.mouse {
+            let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture);
+            self.mouse = false;
+        }
         if self.alternate {
             let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
             self.alternate = false;
@@ -557,7 +653,7 @@ fn copy_with_dclip(value: &str) -> Result<(), String> {
         .take()
         .ok_or_else(|| "dclip did not accept input".to_string())?
         .write_all(value.as_bytes())
-        .map_err(|error| format!("could not send the session description to dclip: {error}"))?;
+        .map_err(|error| format!("could not send clipboard text to dclip: {error}"))?;
     let output = child
         .wait_with_output()
         .map_err(|error| format!("could not wait for dclip: {error}"))?;
@@ -578,6 +674,23 @@ mod tests {
     use std::sync::{Arc, Condvar, Mutex};
 
     use super::*;
+
+    #[test]
+    fn preview_selection_extracts_only_pane_cells_and_handles_wide_text() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 24, 2));
+        buffer.set_string(0, 0, "LIST   preview one", ratatui::style::Style::default());
+        buffer.set_string(0, 1, "OTHER  日本 test", ratatui::style::Style::default());
+        let area = Rect::new(7, 0, 12, 2);
+        let selection = super::super::model::TextSelection::between(
+            ratatui::layout::Position::new(7, 0),
+            ratatui::layout::Position::new(17, 1),
+        );
+
+        let text = selected_text_from_buffer(&buffer, selection, area).unwrap();
+        assert_eq!(text, "preview one\n日本 test");
+        assert!(!text.contains("LIST"));
+        assert!(!text.contains("OTHER"));
+    }
 
     #[test]
     fn animation_scheduler_redraws_only_on_due_active_frames() {

@@ -94,6 +94,12 @@ fn termination_restores_raw_mode_cursor_and_alternate_screen() {
             .any(|window| window == b"\x1b[?25h"),
         "cursor was not restored"
     );
+    assert!(
+        captured
+            .windows(b"\x1b[?1000l".len())
+            .any(|window| window == b"\x1b[?1000l"),
+        "mouse capture was not released"
+    );
 }
 
 fn open_pty() -> (File, File, libc::termios) {

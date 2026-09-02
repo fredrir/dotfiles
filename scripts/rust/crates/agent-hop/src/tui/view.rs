@@ -15,6 +15,17 @@ const FULL_CARD_WIDTH: u16 = 66;
 const FULL_CARD_HEIGHT: u16 = 5;
 const COMPACT_CARD_HEIGHT: u16 = 4;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum HitTarget {
+    Toolbar(ToolbarItem),
+    Session(usize),
+    List,
+    PreviewText,
+    Preview,
+    Issues,
+    None,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Regions {
     pub(crate) header: Rect,
@@ -110,6 +121,62 @@ pub(crate) fn list_page_size(area: Rect) -> usize {
         .max(1)
 }
 
+pub(crate) fn preview_text_area(model: &Model) -> Rect {
+    if model.preview_entry().is_none() || model.preview_progress() <= f32::EPSILON {
+        return Rect::default();
+    }
+    let inner = layout(model.area).preview.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    preview_reveal(inner, ease_in_out(model.preview_progress()))
+}
+
+pub(crate) fn hit_test(model: &Model, point: ratatui::layout::Position) -> HitTarget {
+    let regions = layout(model.area);
+    if let Some(columns) = toolbar_columns(toolbar_area(regions.header))
+        && let Some((index, _)) = columns
+            .iter()
+            .enumerate()
+            .find(|(_, area)| area.contains(point))
+    {
+        return HitTarget::Toolbar(
+            [
+                ToolbarItem::Search,
+                ToolbarItem::Origin,
+                ToolbarItem::Agent,
+                ToolbarItem::Scope,
+            ][index],
+        );
+    }
+    if regions.list.contains(point) {
+        let height = card_height(regions.list).max(1);
+        let row = usize::from(point.y.saturating_sub(regions.list.y)) / height;
+        let position = model.list_offset.saturating_add(row);
+        let visible_rows = usize::from(regions.list.height)
+            .checked_div(height)
+            .unwrap_or(0)
+            .max(1);
+        if row < visible_rows && position < model.filtered.len() {
+            return HitTarget::Session(position);
+        }
+        return HitTarget::List;
+    }
+    if preview_text_area(model).contains(point) {
+        return HitTarget::PreviewText;
+    }
+    if regions.preview.contains(point) {
+        return HitTarget::Preview;
+    }
+    if !model.warnings.is_empty()
+        && regions.footer.contains(point)
+        && point.x >= regions.footer.right().saturating_sub(8)
+    {
+        return HitTarget::Issues;
+    }
+    HitTarget::None
+}
+
 pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
     let area = frame.area();
     let regions = layout(area);
@@ -121,6 +188,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOption
     if regions.preview.width > 0 && regions.preview.height > 0 {
         render_preview(frame, regions.preview, model, options);
     }
+    render_text_selection(frame, model, options);
     render_footer(frame, regions.footer, model, options);
     match model.mode {
         Mode::Help => render_help(frame, area, model, options),
@@ -200,18 +268,11 @@ fn render_toolbar(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pic
     }
 
     let compact = inner.width < 86;
-    let filter_width = if compact { 11 } else { 17 };
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(filter_width),
-            Constraint::Length(filter_width),
-            Constraint::Length(filter_width),
-        ])
-        .split(inner);
+    let Some(columns) = toolbar_columns(area) else {
+        return;
+    };
     let search_focused = active && model.toolbar_focus == Some(ToolbarItem::Search);
-    let search_text = if model.query.is_empty() {
+    let search_text = if model.query.is_empty() && !search_focused {
         "Type to search".to_owned()
     } else {
         clean(&model.query)
@@ -279,6 +340,36 @@ fn render_toolbar(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pic
     }
 }
 
+fn toolbar_columns(header: Rect) -> Option<[Rect; 4]> {
+    let inner = header.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    if inner.is_empty() {
+        return None;
+    }
+    let filter_width = if inner.width < 86 { 11 } else { 17 };
+    let columns = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(filter_width),
+            Constraint::Length(filter_width),
+            Constraint::Length(filter_width),
+        ])
+        .split(inner);
+    Some([columns[0], columns[1], columns[2], columns[3]])
+}
+
+fn toolbar_area(header: Rect) -> Rect {
+    Rect::new(
+        header.x,
+        header.y.saturating_add(1),
+        header.width,
+        header.height.saturating_sub(1),
+    )
+}
+
 fn filter_label(name: &str, value: &str) -> String {
     format!("[{name} {value}]")
 }
@@ -340,6 +431,9 @@ fn render_list(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Picker
         .list_offset
         .saturating_add(page_size)
         .min(model.filtered.len());
+    let list_focused = model.mode == Mode::Browse
+        && model.pane == super::model::Pane::List
+        && model.toolbar_focus.is_none();
     for (visible, index) in model.filtered[model.list_offset..end].iter().enumerate() {
         let y = area.y.saturating_add((visible * height) as u16);
         let visible_height = area.bottom().saturating_sub(y).min(height as u16);
@@ -349,6 +443,7 @@ fn render_list(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Picker
             card_area,
             &model.entries[*index],
             model.list_offset + visible == model.selected,
+            list_focused && model.list_offset + visible == model.selected,
             compact,
             options,
         );
@@ -359,20 +454,21 @@ fn render_session_card(
     frame: &mut Frame<'_>,
     area: Rect,
     entry: &SessionEntry,
-    is_selected: bool,
+    is_highlighted: bool,
+    is_focused: bool,
     compact: bool,
     options: PickerOptions,
 ) {
     if area.is_empty() {
         return;
     }
-    let title_style = if is_selected {
+    let title_style = if is_focused {
         accent(options).add_modifier(Modifier::BOLD)
     } else {
         muted(options)
     };
     let mut card_title = vec![Span::styled(
-        if is_selected { " ◆ " } else { "   " },
+        if is_highlighted { " ◆ " } else { "   " },
         title_style,
     )];
     card_title.push(badge(
@@ -389,12 +485,12 @@ fn render_session_card(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .style(if is_selected {
+        .style(if is_highlighted {
             selected_card(options)
         } else {
             normal(options)
         })
-        .border_style(if is_selected {
+        .border_style(if is_focused {
             accent(options)
         } else {
             dim(options)
@@ -405,12 +501,12 @@ fn render_session_card(
     if inner.is_empty() {
         return;
     }
-    let cursor = if is_selected { "› " } else { "  " };
+    let cursor = if is_highlighted { "› " } else { "  " };
     let available = usize::from(inner.width).saturating_sub(cursor.chars().count());
     let title = truncate(&clean(&entry.title), available.max(1));
     let title_style = if entry.disabled_reason.is_some() {
         dim(options)
-    } else if is_selected {
+    } else if is_highlighted {
         normal(options).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
     } else {
         normal(options).add_modifier(Modifier::BOLD)
@@ -509,9 +605,11 @@ fn density_label(density: PreviewDensity) -> &'static str {
 
 fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
     let selected_session = model.preview_entry().is_some();
+    let preview_focused =
+        model.mode == Mode::Browse && model.pane == super::model::Pane::Preview && selected_session;
     let mut title = vec![Span::styled(
         " Preview ",
-        if selected_session {
+        if preview_focused {
             accent(options).add_modifier(Modifier::BOLD)
         } else {
             muted(options).add_modifier(Modifier::BOLD)
@@ -527,7 +625,7 @@ fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pic
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(if selected_session {
+        .border_style(if preview_focused {
             accent(options)
         } else {
             dim(options)
@@ -541,14 +639,14 @@ fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pic
     let Some(entry) = model.preview_entry() else {
         let message_area = centered(inner, inner.width.saturating_sub(2), 3.min(inner.height));
         frame.render_widget(
-            Paragraph::new(vec![
-                Line::from(Span::styled(
-                    "Latest session highlighted",
-                    normal(options).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(Span::styled("Press ↓ to enter the list", muted(options))),
-                Line::from(Span::styled("Press Enter to preview", accent(options))),
-            ])
+            Paragraph::new(vec![Line::from(Span::styled(
+                if model.loading {
+                    "Scanning for a session to preview…"
+                } else {
+                    "No session is available to preview."
+                },
+                normal(options).add_modifier(Modifier::BOLD),
+            ))])
             .alignment(Alignment::Center),
             message_area,
         );
@@ -638,6 +736,34 @@ fn preview_reveal(area: Rect, progress: f32) -> Rect {
     )
 }
 
+fn render_text_selection(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
+    let Some(selection) = model.text_selection else {
+        return;
+    };
+    let area = preview_text_area(model);
+    if area.is_empty() {
+        return;
+    }
+    let style = if options.color {
+        Style::default()
+            .fg(Color::Rgb(15, 23, 42))
+            .bg(Color::Rgb(196, 181, 253))
+    } else {
+        Style::default().add_modifier(Modifier::REVERSED)
+    };
+    let buffer = frame.buffer_mut();
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            let point = ratatui::layout::Position::new(x, y);
+            if selection.contains(point, area)
+                && let Some(cell) = buffer.cell_mut(point)
+            {
+                cell.set_style(style);
+            }
+        }
+    }
+}
+
 fn render_conversation(lines: &mut Vec<Line<'static>>, model: &Model, options: PickerOptions) {
     match model.selected_preview() {
         Some(PreviewState::Loading) | None => lines.push(Line::from(Span::styled(
@@ -696,13 +822,13 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
         return;
     }
     let hints = if model.preview_actions_enabled() {
-        "[Esc] close   [Space] actions   [?] shortcuts"
+        "[←→] sessions   [Space] actions   [?] shortcuts"
     } else if model.toolbar_focus == Some(ToolbarItem::Search) {
-        "Type to search   [←→] filters   [↓] sessions"
+        "Search active   [←→] filters   [↓] sessions"
     } else if model.toolbar_focus.is_some() {
         "[←→] choose filter   [Enter] change   [↓] sessions"
     } else {
-        "[↑] search   [Enter] preview   [?] shortcuts"
+        "[/] search   [←→] preview   [Enter] select"
     };
     let issue_width = if model.warnings.is_empty() { 0 } else { 8 };
     let columns = Layout::default()
@@ -732,18 +858,19 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Picker
             "Search and filter",
             accent(options).add_modifier(Modifier::BOLD),
         )),
-        Line::from("  Type                  search immediately"),
-        Line::from("  ←/→ choose; Enter/Space change a filter"),
+        Line::from("  /                     focus search from anywhere"),
+        Line::from("  Type                  filter after focusing search"),
+        Line::from("  ←/→ or click; Enter/Space changes a filter"),
         Line::from("  ↓                     enter the session list"),
         Line::default(),
         Line::from(Span::styled(
             "Browse sessions",
             accent(options).add_modifier(Modifier::BOLD),
         )),
-        Line::from("  ↑/↓, j/k, Ctrl-N/P   one session"),
+        Line::from("  ↑/↓, j/k, click      choose a session"),
         Line::from("  PageUp/Down, Home/End page or first/last"),
-        Line::from("  /                     return to search"),
-        Line::from("  Enter                 explicitly open preview"),
+        Line::from("  ←/→                   move focus between list and preview"),
+        Line::from("  Enter                 select highlighted session for preview"),
         Line::from("  r                     refresh local + remote"),
         Line::default(),
         Line::from(Span::styled(
@@ -752,12 +879,12 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Picker
         )),
         Line::from("  Space                 show transfer actions"),
         Line::from("  f favorite   y copy complete session details   v detail"),
-        Line::from("  ↑/↓, j/k scroll       Esc return to sessions"),
+        Line::from("  ↑/↓, j/k scroll       ←/→ focus the session list"),
         Line::from("  ! / w                 inspect actionable issues"),
         Line::from("  Ctrl-C                cancel from anywhere"),
         Line::default(),
         Line::from(Span::styled(
-            "Drag to select terminal text.  ? closes help.",
+            "Drag inside Preview to select and copy only that text.",
             muted(options),
         )),
     ]);
@@ -1169,7 +1296,7 @@ mod tests {
     }
 
     #[test]
-    fn default_workspace_has_search_filters_compact_list_and_empty_preview() {
+    fn default_workspace_focuses_first_card_and_displays_its_preview() {
         let text = rendered(120, 28, model());
         assert!(text.contains("Sessions  1 / 1"), "{text:?}");
         assert!(
@@ -1187,10 +1314,8 @@ mod tests {
         assert!(text.contains("dotfiles"), "{text:?}");
         assert!(text.contains("archie"), "{text:?}");
         assert!(text.contains("! 1"), "{text:?}");
-        assert!(text.contains("Preview"), "{text:?}");
-        assert!(text.contains("Latest session highlighted"), "{text:?}");
-        assert!(text.contains("Press Enter to preview"), "{text:?}");
-        assert!(!text.contains("Preview Conversation"), "{text:?}");
+        assert!(text.contains("Preview Conversation"), "{text:?}");
+        assert!(text.contains("Loading transcript preview"), "{text:?}");
         assert!(!text.contains("agent-hop"), "{text:?}");
         assert!(!text.contains("WARNING"), "{text:?}");
         assert!(!text.contains('\u{b7}'), "{text:?}");
@@ -1212,7 +1337,7 @@ mod tests {
             "{text:?}"
         );
         assert!(text.contains("dotfiles  archie"), "{text:?}");
-        assert!(text.contains("[Esc] close"), "{text:?}");
+        assert!(text.contains("[←→] sessions"), "{text:?}");
         assert!(!text.contains('\u{b7}'), "{text:?}");
     }
 
@@ -1275,6 +1400,123 @@ mod tests {
     }
 
     #[test]
+    fn slash_focuses_an_empty_search_without_leaving_placeholder_text() {
+        let mut focused = model();
+        focused.apply(UiEvent::Key(KeyEvent::new(
+            KeyCode::Char('/'),
+            KeyModifiers::NONE,
+        )));
+        let text = rendered(100, 24, focused);
+        assert!(!text.contains("Type to search"), "{text:?}");
+        assert!(text.contains('▏'), "{text:?}");
+    }
+
+    #[test]
+    fn horizontal_focus_moves_the_accent_border_between_card_and_preview() {
+        fn border_colors(mut model: Model) -> (Color, Color) {
+            model.area = Rect::new(0, 0, 120, 28);
+            let regions = layout(model.area);
+            let backend = TestBackend::new(model.area.width, model.area.height);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(
+                        frame,
+                        &model,
+                        PickerOptions {
+                            color: true,
+                            ..PickerOptions::default()
+                        },
+                    )
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            (
+                buffer
+                    .cell(ratatui::layout::Position::new(
+                        regions.list.x,
+                        regions.list.y,
+                    ))
+                    .unwrap()
+                    .fg,
+                buffer
+                    .cell(ratatui::layout::Position::new(
+                        regions.preview.x,
+                        regions.preview.y,
+                    ))
+                    .unwrap()
+                    .fg,
+            )
+        }
+
+        let mut model = model();
+        assert_eq!(
+            border_colors(model.clone()),
+            (Color::Rgb(167, 139, 250), Color::Rgb(71, 85, 105))
+        );
+        model.apply(UiEvent::Key(KeyEvent::new(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(
+            border_colors(model.clone()),
+            (Color::Rgb(71, 85, 105), Color::Rgb(167, 139, 250))
+        );
+        model.apply(UiEvent::Key(KeyEvent::new(
+            KeyCode::Left,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(
+            border_colors(model),
+            (Color::Rgb(167, 139, 250), Color::Rgb(71, 85, 105))
+        );
+    }
+
+    #[test]
+    fn mouse_hit_testing_covers_toolbar_cards_preview_and_issues() {
+        let mut model = model();
+        model.area = Rect::new(0, 0, 120, 28);
+        let regions = layout(model.area);
+        let columns = toolbar_columns(toolbar_area(regions.header)).unwrap();
+        for (area, item) in columns.into_iter().zip([
+            ToolbarItem::Search,
+            ToolbarItem::Origin,
+            ToolbarItem::Agent,
+            ToolbarItem::Scope,
+        ]) {
+            assert_eq!(
+                hit_test(&model, ratatui::layout::Position::new(area.x, area.y)),
+                HitTarget::Toolbar(item)
+            );
+        }
+        assert_eq!(
+            hit_test(
+                &model,
+                ratatui::layout::Position::new(regions.list.x, regions.list.y)
+            ),
+            HitTarget::Session(0)
+        );
+        assert_eq!(
+            hit_test(
+                &model,
+                ratatui::layout::Position::new(
+                    regions.footer.right().saturating_sub(1),
+                    regions.footer.y,
+                )
+            ),
+            HitTarget::Issues
+        );
+
+        let mut open = with_open_preview(model, 1_000);
+        open.area = Rect::new(0, 0, 120, 28);
+        let text = preview_text_area(&open);
+        assert_eq!(
+            hit_test(&open, ratatui::layout::Position::new(text.x, text.y)),
+            HitTarget::PreviewText
+        );
+    }
+
+    #[test]
     fn review_and_help_are_rendered_as_modal_overlays() {
         let mut review = with_open_preview(model(), 1_000);
         review.mode = Mode::Review;
@@ -1289,10 +1531,10 @@ mod tests {
         let mut help = model();
         help.mode = Mode::Help;
         let help_text = rendered(100, 26, help);
-        assert!(help_text.contains("search immediately"));
-        assert!(help_text.contains("explicitly open preview"));
+        assert!(help_text.contains("focus search from anywhere"));
+        assert!(help_text.contains("select highlighted session"));
         assert!(help_text.contains("copy complete session details"));
-        assert!(help_text.contains("Drag to select terminal text"));
+        assert!(help_text.contains("copy only that text"));
         assert!(!help_text.contains('\u{b7}'), "{help_text:?}");
     }
 
@@ -1355,6 +1597,6 @@ mod tests {
         help.mode = Mode::Help;
         help.overlay_scroll = u16::MAX;
         let help_text = rendered(36, 9, help);
-        assert!(help_text.contains("closes help"), "{help_text:?}");
+        assert!(help_text.contains("copy only that text"), "{help_text:?}");
     }
 }
