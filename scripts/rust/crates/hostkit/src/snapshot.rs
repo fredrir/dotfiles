@@ -7,10 +7,6 @@ use crate::host::{self, Host, PROBE, Route};
 use crate::socket;
 
 /// The result of asking one route in a [`RouteSnapshot`].
-///
-/// Resolution failures are kept in-band so a caller can render every route,
-/// including a LAN that is not currently resolvable. Static routes always
-/// carry both addresses; a failed dynamic LAN route carries neither.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteProbe {
     pub route: Route,
@@ -73,10 +69,6 @@ pub fn probe_with_timeout(local: Host, peer: Host, port: u16, timeout: Duration)
 }
 
 /// Probe the requested routes concurrently while preserving their input order.
-///
-/// LAN endpoint discovery is lazy and shared by every worker in this snapshot,
-/// so it runs at most once. Its resolution time is included in the LAN probe's
-/// elapsed time and overlaps the probes for static routes.
 pub fn probe_routes(local: Host, peer: Host, port: u16, routes: &[Route]) -> RouteSnapshot {
     probe_routes_with_timeout(local, peer, port, routes, PROBE)
 }
@@ -138,15 +130,7 @@ where
                         let (local_address, peer_address, up, error) = match addresses {
                             Ok((local_address, peer_address)) => {
                                 let target = SocketAddrV4::new(peer_address, port);
-                                let remaining = timeout.saturating_sub(started.elapsed());
-                                let connected = if remaining.is_zero() {
-                                    Err(io::Error::new(
-                                        io::ErrorKind::TimedOut,
-                                        "route budget elapsed during address resolution",
-                                    ))
-                                } else {
-                                    connect(local_address, target, remaining)
-                                };
+                                let connected = connect(local_address, target, timeout);
                                 match connected {
                                     Ok(()) => (Some(local_address), Some(peer_address), true, None),
                                     Err(error) => (
@@ -325,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn lan_resolution_and_connect_share_one_route_budget() {
+    fn lan_resolution_does_not_consume_the_connection_budget() {
         let connected = AtomicUsize::new(0);
         let budget = Duration::from_millis(15);
         let snapshot = probe_routes_using(
@@ -335,22 +319,17 @@ mod tests {
             &[Route::Lan],
             budget,
             |_| {
-                std::thread::sleep(Duration::from_millis(20));
+                std::thread::sleep(Duration::from_millis(10));
                 Ok((LOCAL_LAN, PEER_LAN))
             },
-            |_, _, _| {
+            |_, _, timeout| {
+                assert_eq!(timeout, budget);
                 connected.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             },
         );
-        assert_eq!(connected.load(Ordering::Relaxed), 0);
-        assert!(!snapshot.routes[0].up);
-        assert!(
-            snapshot.routes[0]
-                .error
-                .as_deref()
-                .is_some_and(|error| error.contains("budget elapsed"))
-        );
+        assert_eq!(connected.load(Ordering::Relaxed), 1);
+        assert!(snapshot.routes[0].up);
         assert!(snapshot.elapsed < Duration::from_millis(100));
     }
 

@@ -8,7 +8,7 @@ use clap::ValueEnum;
 
 use crate::socket;
 
-pub const PROBE: Duration = Duration::from_millis(400);
+pub const PROBE: Duration = Duration::from_secs(1);
 
 const PROBE_PORT: u16 = 22;
 
@@ -200,7 +200,11 @@ fn parse_lan_pair(text: &str) -> Result<(Ipv4Addr, Ipv4Addr), String> {
 }
 
 pub fn best(this: Host) -> Option<Route> {
-    crate::snapshot::probe(this, this.peer(), PROBE_PORT).best()
+    best_using(this, crate::ssh::resolved)
+}
+
+fn best_using(this: Host, resolve: impl FnOnce(&str) -> Option<Route>) -> Option<Route> {
+    resolve(this.peer().name())
 }
 
 #[cfg(test)]
@@ -222,6 +226,15 @@ mod tests {
         }
         assert!(Host::from_name("Macie").is_err());
         assert!(Host::from_name("").is_err());
+    }
+
+    #[test]
+    fn the_best_route_is_the_one_openssh_resolves() {
+        let route = best_using(Host::Macie, |name| {
+            assert_eq!(name, "archie");
+            Some(Route::Lan)
+        });
+        assert_eq!(route, Some(Route::Lan));
     }
 
     #[test]
