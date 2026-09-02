@@ -1,2 +1,146 @@
-[flavor]
-dark = "r4ppz-gruvbox"
+#:schema https://yazi-rs.github.io/schemas/theme.json
+
+# Generated from theme/profiles/sexy-purple.toml
+
+[app]
+overall = {}
+
+[mgr]
+cwd = { fg = "#81a1c1", italic = true }
+
+find_keyword  = { fg = "#15152b", bg = "#ebcb8b", italic = true }
+find_position = { fg = "#ebcb8b", bg = "reset", italic = true }
+
+marker_copied   = { fg = "#88c0d0", bg = "#88c0d0" }
+marker_cut      = { fg = "#b48ead", bg = "#b48ead" }
+marker_marked   = { fg = "#ebcb8b", bg = "#ebcb8b" }
+marker_selected = { fg = "#ebcb8b", bg = "#ebcb8b" }
+
+count_copied   = { fg = "#15152b", bg = "#88c0d0" }
+count_cut      = { fg = "#15152b", bg = "#b48ead" }
+count_selected = { fg = "#15152b", bg = "#ebcb8b" }
+
+border_symbol = " "
+border_style  = { fg = "#81a1c1" }
+syntect_theme = ""
+
+[indicator]
+parent  = { fg = "#88c0d0" }
+current = { fg = "#15152b", bg = "#88c0d0", bold = true }
+preview = { fg = "#88c0d0" }
+padding = { open = "█", close = "█" }
+
+[tabs]
+active    = { fg = "#15152b", bg = "#88c0d0", bold = true, italic = true, underline = true }
+inactive  = { fg = "#ffffff", bg = "#15152b", bold = false, underline = true }
+sep_inner = { open = "", close = "" }
+sep_outer = { open = "", close = "" }
+
+[mode]
+normal_main = { fg = "#15152b", bg = "#81a1c1", bold = true }
+normal_alt  = { fg = "#e4e4e8", bg = "#313247" }
+select_main = { fg = "#15152b", bg = "#ebcb8b", bold = true }
+select_alt  = { fg = "#e4e4e8", bg = "#313247" }
+unset_main  = { fg = "#15152b", bg = "#a3be8c", bold = true }
+unset_alt   = { fg = "#e4e4e8", bg = "#313247" }
+
+[status]
+overall   = { fg = "#e4e4e8", bg = "#0d0c22" }
+sep_left  = { open = "", close = "" }
+sep_right = { open = "", close = "" }
+
+progress_label  = { fg = "#ffffff", bold = true }
+progress_normal = { fg = "#686979", bg = "#46475b" }
+progress_error  = { fg = "#bf616a", bg = "#46475b" }
+
+perm_type  = { fg = "#e4e4e8" }
+perm_read  = { fg = "#81a1c1" }
+perm_write = { fg = "#a3be8c" }
+perm_exec  = { fg = "#bf616a" }
+perm_sep   = { fg = "#e4e4e8" }
+
+[pick]
+border   = { fg = "#81a1c1" }
+active   = { fg = "#b48ead", bold = true }
+inactive = {}
+
+[input]
+border   = { fg = "#81a1c1" }
+title    = {}
+value    = {}
+selected = { reversed = true }
+
+[tasks]
+border  = { fg = "#81a1c1" }
+title   = {}
+hovered = { underline = true }
+
+[which]
+cols            = 3
+mask            = { bg = "#46475b" }
+cand            = { fg = "#81a1c1" }
+rest            = { fg = "#b0b1ba" }
+desc            = { fg = "#ebcb8b" }
+separator       = "  "
+separator_style = { fg = "#81a1c1" }
+
+[help]
+on      = { fg = "#81a1c1" }
+run     = { fg = "#b48ead" }
+desc    = { fg = "#b0b1ba" }
+hovered = { reversed = true, bold = true }
+footer  = { fg = "#46475b", bg = "#e4e4e8" }
+
+[notify]
+title_info  = { fg = "#81a1c1" }
+title_warn  = { fg = "#ffffff" }
+title_error = { fg = "#b48ead" }
+
+[confirm]
+border     = { fg = "#81a1c1" }
+title      = { fg = "#81a1c1" }
+body       = { fg = "#ffffff" }
+list       = { fg = "#ffffff" }
+btn_yes    = { reversed = true, fg = "#81a1c1" }
+btn_no     = {}
+btn_labels = ["  [Y]es  ", "  (N)o  "]
+
+[filetype]
+rules = [
+  { mime = "image/*", fg = "#b48ead" },
+  { mime = "{audio,video}/*", fg = "#ebcb8b" },
+  { mime = "application/*zip", fg = "#bf616a" },
+  { mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", fg = "#bf616a" },
+  { mime = "application/{pdf,doc,rtf,vnd.*}", fg = "#88c0d0" },
+  { url = "*/", fg = "#88c0d0" },
+  { url = "*", fg = "#ffffff" },
+]
+
+[spot]
+border   = { fg = "#81a1c1" }
+title    = { fg = "#81a1c1" }
+tbl_col  = { fg = "#81a1c1", bold = true }
+tbl_cell = { fg = "#ffffff" }
+
+[cmp]
+border       = { fg = "#81a1c1" }
+active       = { reversed = true, fg = "#81a1c1" }
+inactive     = { fg = "#ffffff" }
+icon_file    = ""
+icon_folder  = ""
+icon_command = ""
+
+[icon]
+dirs = []
+prepend_conds = [{ if = "dir", text = "", fg = "#88c0d0" }]
+prepend_dirs = [
+  { name = "Desktop", text = "", fg = "#88c0d0" },
+  { name = "Downloads", text = "", fg = "#88c0d0" },
+  { name = "Documents", text = "", fg = "#88c0d0" },
+  { name = "Music", text = "", fg = "#88c0d0" },
+  { name = "Pictures", text = "", fg = "#88c0d0" },
+  { name = "Videos", text = "", fg = "#88c0d0" },
+  { name = "Books", text = "", fg = "#88c0d0" },
+  { name = "Arch-dotfiles", text = "", fg = "#88c0d0" },
+  { name = "Project", text = "", fg = "#88c0d0" },
+]

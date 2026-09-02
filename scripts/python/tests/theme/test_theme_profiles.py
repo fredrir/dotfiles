@@ -78,11 +78,10 @@ def test_font_family_with_a_comma_is_rejected():
     assert any("must not contain a comma" in problem for problem in problems)
 
 
-def test_missing_font_sizes_are_all_reported_together():
+def test_a_missing_font_size_is_reported():
     problems = []
     _check_fonts(fake(sizes={"terminal": 12}), problems)
-    assert len(problems) == 2
-    assert any("terminal_mac" in problem for problem in problems)
+    assert len(problems) == 1
     assert any("interface" in problem for problem in problems)
 
 

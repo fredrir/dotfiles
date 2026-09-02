@@ -1,0 +1,142 @@
+[app]
+overall = {}
+
+[mgr]
+cwd = { fg = "blue", italic = true }
+
+find_keyword  = { fg = "contrast(yellow)", bg = "yellow", italic = true }
+find_position = { fg = "bright_yellow", bg = "reset", italic = true }
+
+marker_copied   = { fg = "cyan", bg = "cyan" }
+marker_cut      = { fg = "magenta", bg = "magenta" }
+marker_marked   = { fg = "bright_yellow", bg = "bright_yellow" }
+marker_selected = { fg = "yellow", bg = "yellow" }
+
+count_copied   = { fg = "contrast(cyan)", bg = "cyan" }
+count_cut      = { fg = "contrast(magenta)", bg = "magenta" }
+count_selected = { fg = "contrast(yellow)", bg = "yellow" }
+
+border_symbol = " "
+border_style  = { fg = "blue" }
+syntect_theme = ""
+
+[indicator]
+parent  = { fg = "cyan" }
+current = { fg = "contrast(cyan)", bg = "cyan", bold = true }
+preview = { fg = "cyan" }
+padding = { open = "█", close = "█" }
+
+[tabs]
+active    = { fg = "contrast(cyan)", bg = "cyan", bold = true, italic = true, underline = true }
+inactive  = { fg = "fg", bg = "bg", bold = false, underline = true }
+sep_inner = { open = "", close = "" }
+sep_outer = { open = "", close = "" }
+
+[mode]
+normal_main = { fg = "contrast(blue)", bg = "blue", bold = true }
+normal_alt  = { fg = "muted", bg = "surface" }
+select_main = { fg = "contrast(bright_yellow)", bg = "bright_yellow", bold = true }
+select_alt  = { fg = "muted", bg = "surface" }
+unset_main  = { fg = "contrast(green)", bg = "green", bold = true }
+unset_alt   = { fg = "muted", bg = "surface" }
+
+[status]
+overall   = { fg = "muted", bg = "panel" }
+sep_left  = { open = "", close = "" }
+sep_right = { open = "", close = "" }
+
+progress_label  = { fg = "fg", bold = true }
+progress_normal = { fg = "border", bg = "surface_alt" }
+progress_error  = { fg = "red", bg = "surface_alt" }
+
+perm_type  = { fg = "muted" }
+perm_read  = { fg = "blue" }
+perm_write = { fg = "green" }
+perm_exec  = { fg = "red" }
+perm_sep   = { fg = "muted" }
+
+[pick]
+border   = { fg = "blue" }
+active   = { fg = "magenta", bold = true }
+inactive = {}
+
+[input]
+border   = { fg = "blue" }
+title    = {}
+value    = {}
+selected = { reversed = true }
+
+[tasks]
+border  = { fg = "blue" }
+title   = {}
+hovered = { underline = true }
+
+[which]
+cols            = 3
+mask            = { bg = "surface_alt" }
+cand            = { fg = "blue" }
+rest            = { fg = "disabled" }
+desc            = { fg = "bright_yellow" }
+separator       = "  "
+separator_style = { fg = "blue" }
+
+[help]
+on      = { fg = "blue" }
+run     = { fg = "magenta" }
+desc    = { fg = "disabled" }
+hovered = { reversed = true, bold = true }
+footer  = { fg = "surface_alt", bg = "muted" }
+
+[notify]
+title_info  = { fg = "blue" }
+title_warn  = { fg = "fg" }
+title_error = { fg = "magenta" }
+
+[confirm]
+border     = { fg = "blue" }
+title      = { fg = "blue" }
+body       = { fg = "fg" }
+list       = { fg = "fg" }
+btn_yes    = { reversed = true, fg = "blue" }
+btn_no     = {}
+btn_labels = ["  [Y]es  ", "  (N)o  "]
+
+[filetype]
+rules = [
+  { mime = "image/*", fg = "magenta" },
+  { mime = "{audio,video}/*", fg = "yellow" },
+  { mime = "application/*zip", fg = "red" },
+  { mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", fg = "red" },
+  { mime = "application/{pdf,doc,rtf,vnd.*}", fg = "cyan" },
+  { url = "*/", fg = "cyan" },
+  { url = "*", fg = "fg" },
+]
+
+[spot]
+border   = { fg = "blue" }
+title    = { fg = "blue" }
+tbl_col  = { fg = "blue", bold = true }
+tbl_cell = { fg = "fg" }
+
+[cmp]
+border       = { fg = "blue" }
+active       = { reversed = true, fg = "blue" }
+inactive     = { fg = "fg" }
+icon_file    = ""
+icon_folder  = ""
+icon_command = ""
+
+[icon]
+dirs = []
+prepend_conds = [{ if = "dir", text = "", fg = "cyan" }]
+prepend_dirs = [
+  { name = "Desktop", text = "", fg = "cyan" },
+  { name = "Downloads", text = "", fg = "cyan" },
+  { name = "Documents", text = "", fg = "cyan" },
+  { name = "Music", text = "", fg = "cyan" },
+  { name = "Pictures", text = "", fg = "cyan" },
+  { name = "Videos", text = "", fg = "cyan" },
+  { name = "Books", text = "", fg = "cyan" },
+  { name = "Arch-dotfiles", text = "", fg = "cyan" },
+  { name = "Project", text = "", fg = "cyan" },
+]

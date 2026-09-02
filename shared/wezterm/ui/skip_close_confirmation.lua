@@ -8,7 +8,6 @@ local skip_close_confirmation = {
   "cmd.exe",
   "pwsh.exe",
   "powershell.exe",
-
   "mux",
 }
 

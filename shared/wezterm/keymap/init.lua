@@ -13,6 +13,7 @@ local mux = require "utils.mux"
 local hwire_session = require "utils.hwire-session"
 local attach_remote = require "utils.attach-remote"
 local MOD = require "keymap.modifiers"
+local open_vscode = require "utils.open-vscode"
 
 local act = wezterm.action
 
@@ -106,7 +107,7 @@ local keys = bind_keys {
     mods = MOD.PRIMARY,
     action = mux.attach_detached,
   },
-  { -- Attach the best live route to the peer, dialed from the GUI --
+  { -- Attach the best live route to archie/macie --
     key = "k",
     mods = MOD.SUPER_REV,
     action = attach_remote,
@@ -115,6 +116,11 @@ local keys = bind_keys {
     key = "d",
     mods = MOD.SUPER_REV,
     action = act.ShowLauncherArgs { flags = "DOMAINS|WORKSPACES" },
+  },
+  { -- Open Vscode --
+    key = "o",
+    mods = MOD.SUPER_REV,
+    action = open_vscode,
   },
 }
 

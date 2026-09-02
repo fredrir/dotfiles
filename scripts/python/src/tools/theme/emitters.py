@@ -46,6 +46,12 @@ PANEL_PRESETS_DIR = "linux/kde/panel-colorizer/presets"
 
 NVIM_CATPPUCCIN = "shared/nvim/lua/plugins/catppuccin.lua"
 
+YAZI_MAP = "theme/maps/yazi.toml"
+
+YAZI_THEME_FILE = "shared/yazi/theme.toml"
+
+YAZI_SCHEMA = "https://yazi-rs.github.io/schemas/theme.json"
+
 WEZTERM_COLORS_DIR = "shared/wezterm/ui/colors"
 
 WEZTERM_FONTS_DIR = "shared/wezterm/ui/fonts"
@@ -100,6 +106,8 @@ QUICKLAUNCH_KEYS = (
     ("muted", "inactive"),
     ("selection", "selection_bg"),
 )
+
+YAZI_COLOR = re.compile(r'(\b(?:fg|bg)\s*=\s*")([^"]+)(")')
 
 
 def _lua_string(value):
@@ -397,12 +405,55 @@ def emit_nvim(theme, out):
 
     def transform(text):
         unit = "\t" if "\n\t" in text else "  "
-        lines = [f'flavour = "{flavour}",', "color_overrides = {", f"{unit}all = {{"]
-        lines += [f'{unit * 2}{name} = "{value}",' for name, value in colors.items()]
-        lines += [f"{unit}}},", "},"]
-        return replace_between(text, "palette", lines)
+        body = [f'flavour = "{flavour}",', "color_overrides = {", f"{unit}all = {{"]
+        body += [f'{unit * 2}{name} = "{value}",' for name, value in colors.items()]
+        body += [f"{unit}}},", "},"]
+        lines = text.split("\n")
+        first = next(
+            (index for index, line in enumerate(lines) if line.lstrip().startswith("flavour =")),
+            None,
+        )
+        if first is None:
+            raise SystemExit(f"dotfile theme: {NVIM_CATPPUCCIN}: 'flavour' setting not found")
+        table = first + 1
+        while table < len(lines) and not lines[table].strip():
+            table += 1
+        if table == len(lines) or not lines[table].lstrip().startswith("color_overrides = {"):
+            raise SystemExit(
+                f"dotfile theme: {NVIM_CATPPUCCIN}: 'color_overrides' must follow 'flavour'"
+            )
+        depth = 0
+        last = None
+        for index in range(table, len(lines)):
+            depth += lines[index].count("{") - lines[index].count("}")
+            if depth == 0:
+                last = index
+                break
+        if last is None:
+            raise SystemExit(
+                f"dotfile theme: {NVIM_CATPPUCCIN}: 'color_overrides' table is not closed"
+            )
+        indent = lines[first][: len(lines[first]) - len(lines[first].lstrip())]
+        rendered = [indent + line if line else line for line in body]
+        return "\n".join(lines[:first] + rendered + lines[last + 1 :])
 
     out.edit(path(NVIM_CATPPUCCIN), transform)
+
+
+def _yazi_theme(theme):
+    with open(path(YAZI_MAP), encoding="utf-8") as handle:
+        template = handle.read()
+
+    def replace(match):
+        expression = match.group(2)
+        value = expression if expression == "reset" else theme.hex(expression)
+        return f"{match.group(1)}{value}{match.group(3)}"
+
+    return f"#:schema {YAZI_SCHEMA}\n\n# {theme.header}\n\n" + YAZI_COLOR.sub(replace, template)
+
+
+def emit_yazi(theme, out):
+    out.write(path(YAZI_THEME_FILE), _yazi_theme(theme))
 
 
 def emit_kde_colorscheme(theme, out):

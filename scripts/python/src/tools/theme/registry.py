@@ -28,6 +28,7 @@ EMITTERS = [
     Emitter("zsh", emitters.emit_zsh, ["shared/zsh/conf.d/03-theme.zsh"]),
     Emitter("obsidian", emitters.emit_obsidian, [f"{emitters.OBSIDIAN_DIR}/theme.css"]),
     Emitter("nvim", emitters.emit_nvim, [emitters.NVIM_CATPPUCCIN]),
+    Emitter("yazi", emitters.emit_yazi, [emitters.YAZI_THEME_FILE]),
     Emitter(
         "gtk",
         emitters.emit_gtk,

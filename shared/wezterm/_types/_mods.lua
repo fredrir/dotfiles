@@ -3,6 +3,6 @@
 ---@field SECONDARY string
 ---@field UNIQUE string
 ---@field EDGE string
----@field SUPER_REV string | string[]
+---@field SUPER_REV string
 ---@field SUPER_REV_2 string
 ---@field SPLITBELOW string

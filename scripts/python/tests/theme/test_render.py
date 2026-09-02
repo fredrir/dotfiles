@@ -1,4 +1,5 @@
 import os
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -6,9 +7,11 @@ import pytest
 from tools.theme import registry
 from tools.theme.emitters import (
     WEZTERM_COLORS_DIR,
+    YAZI_THEME_FILE,
     emit_nvim,
     emit_starship,
     emit_wezterm,
+    emit_yazi,
     wezterm_font_roles,
     wezterm_outputs,
 )
@@ -34,6 +37,30 @@ class Written:
         self.files[os.path.relpath(target, path(WEZTERM_COLORS_DIR, ".."))] = content
 
 
+class RootWritten:
+    def __init__(self):
+        self.files = {}
+
+    def write(self, target, content):
+        self.files[os.path.relpath(target, path())] = content
+
+
+def nvim_config(unit="  "):
+    return "\n".join(
+        [
+            "setup {",
+            f'{unit}flavour = "mocha",',
+            f"{unit}color_overrides = {{",
+            f"{unit * 2}all = {{",
+            f'{unit * 3}base = "#000000",',
+            f"{unit * 2}}},",
+            f"{unit}}},",
+            f"{unit}no_italic = true,",
+            "}",
+        ]
+    )
+
+
 def test_replace_between_swaps_the_marked_block():
     text = "before\n# theme:palette\nold\n# theme:palette:end\nafter"
     updated = replace_between(text, "palette", ["new1", "new2"])
@@ -53,17 +80,24 @@ def test_replace_between_leaves_a_blank_line_blank():
 
 
 def test_the_nvim_palette_is_quoted_the_way_stylua_wants_it():
-    out = Captured("\t\t\t-- theme:palette\n\t\t\told\n\t\t\t-- theme:palette:end")
+    out = Captured(nvim_config("\t"))
     emit_nvim(Theme.load("mocha"), out)
-    assert '\n\t\t\tflavour = "mocha",\n' in out.text
-    assert '\n\t\t\t\t\tbase = "#1e1e2e",\n' in out.text
-    assert out.text.endswith("\t\t\t},\n\t\t\t-- theme:palette:end")
+    assert '\n\tflavour = "mocha",\n' in out.text
+    assert '\n\t\t\tbase = "#1e1e2e",\n' in out.text
+    assert "\n\tno_italic = true,\n" in out.text
 
 
 def test_the_nvim_flavour_follows_the_profile_lightness():
-    out = Captured("-- theme:palette\nold\n-- theme:palette:end")
+    out = Captured(nvim_config())
     emit_nvim(Theme.load("latte"), out)
     assert 'flavour = "latte",' in out.text
+
+
+def test_the_nvim_palette_does_not_require_marker_comments():
+    out = Captured(nvim_config())
+    emit_nvim(Theme.load("mocha"), out)
+    assert "theme:palette" not in out.text
+    assert "no_italic = true" in out.text
 
 
 def test_starship_aligns_each_run_of_entries_on_its_own():
@@ -169,10 +203,11 @@ def test_a_wezterm_font_role_file_is_inert_data():
 
 def test_the_wezterm_fonts_file_contains_the_selected_font_settings():
     out = Written()
-    emit_wezterm(Theme.load("mocha"), out)
+    theme = Theme.load("mocha")
+    emit_wezterm(theme, out)
     fonts = out.files["fonts/fonts.lua"]
-    assert "  font_size = 12," in fonts
-    assert "  interface_font_size = 10," in fonts
+    assert f"  font_size = {theme.size('terminal')}," in fonts
+    assert f"  interface_font_size = {theme.size('interface')}," in fonts
     assert '  nerd_family = "Hack Nerd Font Mono",' in fonts
     assert '  general_family = "Noto Sans",' in fonts
 
@@ -193,6 +228,33 @@ def test_a_wezterm_key_that_is_not_a_lua_identifier_is_bracketed():
     assert _lua_key("bright_black") == "bright_black"
     assert _lua_key("*.toml") == '["*.toml"]'
     assert _lua_key("end") == '["end"]'
+
+
+@pytest.mark.parametrize("profile", list_profiles())
+def test_yazi_renders_every_profile_as_a_complete_theme(profile):
+    out = RootWritten()
+    emit_yazi(Theme.load(profile), out)
+    rendered = out.files[YAZI_THEME_FILE]
+    assert f"# Generated from theme/profiles/{profile}.toml\n" in rendered
+    assert "[app]" in rendered
+    assert "[mgr]" in rendered
+    assert "[filetype]" in rendered
+    assert "[icon]" in rendered
+    colors = re.findall(r'\b(?:fg|bg)\s*=\s*"([^"]+)"', rendered)
+    assert colors
+    assert all(re.fullmatch(r"#[0-9a-f]{6}|reset", color) for color in colors)
+
+
+def test_yazi_uses_semantic_colors_and_keeps_reset_literal():
+    out = RootWritten()
+    theme = Theme.load("mocha")
+    emit_yazi(theme, out)
+    rendered = out.files[YAZI_THEME_FILE]
+    assert f'cwd = {{ fg = "{theme.hex("blue")}", italic = true }}' in rendered
+    assert (
+        f'count_copied   = {{ fg = "{theme.hex("contrast(cyan)")}", bg = "{theme.hex("cyan")}" }}'
+    ) in rendered
+    assert 'find_position = { fg = "#fab387", bg = "reset", italic = true }' in rendered
 
 
 def test_replace_between_requires_markers():
