@@ -6,6 +6,8 @@ local act = wezterm.action
 
 local MUX_ROUTE = wezterm.home_dir .. "/.local/bin/mux-route"
 local TOAST_MS = 4000
+local REMOTE_TERM = "xterm-256color"
+local REMOTE_PATH = "/usr/local/bin:/usr/bin:/bin"
 
 ---@param window Window
 ---@param pane Pane
@@ -28,13 +30,17 @@ local function attach_peer(window, pane)
     return
   end
 
-  local command = { domain = { DomainName = domain }, cwd = host.target.home }
+  local home = host.target.home
+  local args = { "env", "-i", "HOME=" .. home, "TERM=" .. REMOTE_TERM, "PATH=" .. REMOTE_PATH }
+
   local session = hwire_session.for_domain(domain)
   if session then
-    command.args = { "zsh", "-l" }
-    command.set_environment_variables = { HWIRE_SESSION = session }
+    table.insert(args, "HWIRE_SESSION=" .. session)
   end
+  table.insert(args, "zsh")
+  table.insert(args, "-l")
 
+  local command = { domain = { DomainName = domain }, cwd = home, args = args }
   window:perform_action(act.SpawnCommandInNewTab(command), pane)
 end
 

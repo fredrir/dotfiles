@@ -72,13 +72,16 @@ mux() {
     return 1
   fi
 
+  local -a remote_shell
+  remote_shell=(env -i "HOME=$home" "TERM=xterm-256color" "PATH=/usr/local/bin:/usr/bin:/bin" "HWIRE_SESSION=$session" zsh -l)
+
   local gui pane
   if gui=$(_wezterm_gui_socket); then
-    pane=$(WEZTERM_UNIX_SOCKET=$gui wezterm cli spawn --domain-name "$domain" --cwd "$home" -- env "HWIRE_SESSION=$session" zsh -l) || return
+    pane=$(WEZTERM_UNIX_SOCKET=$gui wezterm cli spawn --domain-name "$domain" --cwd "$home" -- $remote_shell) || return
     WEZTERM_UNIX_SOCKET=$gui wezterm cli activate-pane --pane-id "$pane"
   else
     print -ru2 "mux: no live wezterm gui; attaching through the local mux server (two hops)"
-    pane=$(wezterm cli spawn --domain-name "$domain" --cwd "$home" -- env "HWIRE_SESSION=$session" zsh -l) || return
+    pane=$(wezterm cli spawn --domain-name "$domain" --cwd "$home" -- $remote_shell) || return
     wezterm cli activate-pane --pane-id "$pane"
   fi
 
