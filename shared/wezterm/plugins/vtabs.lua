@@ -1,6 +1,6 @@
 local wezterm = require "wezterm"
 
-local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/old.vertical-tabs"
+local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs"
 
 local package_path = plugin_root .. "/plugin/init.lua"
 

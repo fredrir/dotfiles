@@ -6,7 +6,7 @@ format = '$python$git_branch$directory$character'
 right_format = '$cmd_duration'
 
 [python]
-format            = '([$symbol\($virtualenv\)]($style))'
+format            = '[\(.venv\)](prompt_python)$git_branch$directory$character'
 symbol            = ''
 style             = 'prompt_python'
 detect_extensions = []

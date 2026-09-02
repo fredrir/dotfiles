@@ -151,7 +151,14 @@ end
 ---@param err any
 ---@return string
 local function with_traceback(err)
-  return debug.traceback(tostring(err), 2)
+  local message = tostring(err)
+  if type(debug) == "table" and type(debug.traceback) == "function" then
+    local ok, traceback = pcall(debug.traceback, message, 2)
+    if ok then
+      return traceback
+    end
+  end
+  return message
 end
 
 ---@type fun(config: Config, provider: any, source: string, state: ConfigMergeState, depth: integer)
