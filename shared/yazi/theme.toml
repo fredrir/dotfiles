@@ -3,10 +3,10 @@
 # Generated from theme/profiles/sexy-purple.toml
 
 [app]
-overall = {}
+overall = { bg = "#15152b" }
 
 [mgr]
-cwd = { fg = "#81a1c1", italic = true }
+cwd = { fg = "#ffffff" }
 
 find_keyword  = { fg = "#15152b", bg = "#ebcb8b", italic = true }
 find_position = { fg = "#ebcb8b", bg = "reset", italic = true }
@@ -21,37 +21,37 @@ count_cut      = { fg = "#15152b", bg = "#b48ead" }
 count_selected = { fg = "#15152b", bg = "#ebcb8b" }
 
 border_symbol = " "
-border_style  = { fg = "#81a1c1" }
+border_style  = { fg = "#101020" }
 syntect_theme = ""
 
 [indicator]
-parent  = { fg = "#88c0d0" }
-current = { fg = "#15152b", bg = "#88c0d0", bold = true }
-preview = { fg = "#88c0d0" }
+parent  = { fg = "#101020" }
+current = { fg = "#ffffff", bg = "#101020", bold = true }
+preview = { fg = "#101020" }
 padding = { open = "█", close = "█" }
 
 [tabs]
-active    = { fg = "#15152b", bg = "#88c0d0", bold = true, italic = true, underline = true }
-inactive  = { fg = "#ffffff", bg = "#15152b", bold = false, underline = true }
+active    = { fg = "#ffffff", bg = "#101020", bold = true, italic = true, underline = true }
+inactive  = { fg = "#ffffff", bg = "#060419", bold = false, underline = true }
 sep_inner = { open = "", close = "" }
 sep_outer = { open = "", close = "" }
 
 [mode]
-normal_main = { fg = "#15152b", bg = "#81a1c1", bold = true }
-normal_alt  = { fg = "#e4e4e8", bg = "#313247" }
+normal_main = { fg = "#ffffff", bg = "#101020", bold = true }
+normal_alt  = { fg = "#e4e4e8", bg = "#0d0c22" }
 select_main = { fg = "#15152b", bg = "#ebcb8b", bold = true }
-select_alt  = { fg = "#e4e4e8", bg = "#313247" }
+select_alt  = { fg = "#e4e4e8", bg = "#0d0c22" }
 unset_main  = { fg = "#15152b", bg = "#a3be8c", bold = true }
-unset_alt   = { fg = "#e4e4e8", bg = "#313247" }
+unset_alt   = { fg = "#e4e4e8", bg = "#0d0c22" }
 
 [status]
-overall   = { fg = "#e4e4e8", bg = "#0d0c22" }
+overall   = { fg = "#e4e4e8", bg = "#060419" }
 sep_left  = { open = "", close = "" }
 sep_right = { open = "", close = "" }
 
 progress_label  = { fg = "#ffffff", bold = true }
-progress_normal = { fg = "#686979", bg = "#46475b" }
-progress_error  = { fg = "#bf616a", bg = "#46475b" }
+progress_normal = { fg = "#686979", bg = "#0d0c22" }
+progress_error  = { fg = "#bf616a", bg = "#0d0c22" }
 
 perm_type  = { fg = "#e4e4e8" }
 perm_read  = { fg = "#81a1c1" }
@@ -60,48 +60,48 @@ perm_exec  = { fg = "#bf616a" }
 perm_sep   = { fg = "#e4e4e8" }
 
 [pick]
-border   = { fg = "#81a1c1" }
-active   = { fg = "#b48ead", bold = true }
+border   = { fg = "#101020" }
+active   = { fg = "#101020", bold = true }
 inactive = {}
 
 [input]
-border   = { fg = "#81a1c1" }
+border   = { fg = "#101020" }
 title    = {}
 value    = {}
 selected = { reversed = true }
 
 [tasks]
-border  = { fg = "#81a1c1" }
+border  = { fg = "#101020" }
 title   = {}
 hovered = { underline = true }
 
 [which]
 cols            = 3
-mask            = { bg = "#46475b" }
-cand            = { fg = "#81a1c1" }
+mask            = { bg = "#0d0c22" }
+cand            = { fg = "#101020" }
 rest            = { fg = "#b0b1ba" }
 desc            = { fg = "#ebcb8b" }
 separator       = "  "
-separator_style = { fg = "#81a1c1" }
+separator_style = { fg = "#101020" }
 
 [help]
-on      = { fg = "#81a1c1" }
-run     = { fg = "#b48ead" }
+on      = { fg = "#101020" }
+run     = { fg = "#101020" }
 desc    = { fg = "#b0b1ba" }
 hovered = { reversed = true, bold = true }
-footer  = { fg = "#46475b", bg = "#e4e4e8" }
+footer  = { fg = "#0d0c22", bg = "#e4e4e8" }
 
 [notify]
-title_info  = { fg = "#81a1c1" }
+title_info  = { fg = "#101020" }
 title_warn  = { fg = "#ffffff" }
-title_error = { fg = "#b48ead" }
+title_error = { fg = "#bf616a" }
 
 [confirm]
-border     = { fg = "#81a1c1" }
-title      = { fg = "#81a1c1" }
+border     = { fg = "#101020" }
+title      = { fg = "#101020" }
 body       = { fg = "#ffffff" }
 list       = { fg = "#ffffff" }
-btn_yes    = { reversed = true, fg = "#81a1c1" }
+btn_yes    = { reversed = true, fg = "#101020" }
 btn_no     = {}
 btn_labels = ["  [Y]es  ", "  (N)o  "]
 
@@ -112,19 +112,19 @@ rules = [
   { mime = "application/*zip", fg = "#bf616a" },
   { mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", fg = "#bf616a" },
   { mime = "application/{pdf,doc,rtf,vnd.*}", fg = "#88c0d0" },
-  { url = "*/", fg = "#88c0d0" },
+  { url = "*/", fg = "#101020" },
   { url = "*", fg = "#ffffff" },
 ]
 
 [spot]
-border   = { fg = "#81a1c1" }
-title    = { fg = "#81a1c1" }
-tbl_col  = { fg = "#81a1c1", bold = true }
+border   = { fg = "#101020" }
+title    = { fg = "#101020" }
+tbl_col  = { fg = "#101020", bold = true }
 tbl_cell = { fg = "#ffffff" }
 
 [cmp]
-border       = { fg = "#81a1c1" }
-active       = { reversed = true, fg = "#81a1c1" }
+border       = { fg = "#101020" }
+active       = { reversed = true, fg = "#101020" }
 inactive     = { fg = "#ffffff" }
 icon_file    = ""
 icon_folder  = ""
@@ -132,15 +132,15 @@ icon_command = ""
 
 [icon]
 dirs = []
-prepend_conds = [{ if = "dir", text = "", fg = "#88c0d0" }]
+prepend_conds = [{ if = "dir", text = "", fg = "#101020" }]
 prepend_dirs = [
-  { name = "Desktop", text = "", fg = "#88c0d0" },
-  { name = "Downloads", text = "", fg = "#88c0d0" },
-  { name = "Documents", text = "", fg = "#88c0d0" },
-  { name = "Music", text = "", fg = "#88c0d0" },
-  { name = "Pictures", text = "", fg = "#88c0d0" },
-  { name = "Videos", text = "", fg = "#88c0d0" },
-  { name = "Books", text = "", fg = "#88c0d0" },
-  { name = "Arch-dotfiles", text = "", fg = "#88c0d0" },
-  { name = "Project", text = "", fg = "#88c0d0" },
+  { name = "Desktop", text = "", fg = "#101020" },
+  { name = "Downloads", text = "", fg = "#101020" },
+  { name = "Documents", text = "", fg = "#101020" },
+  { name = "Music", text = "", fg = "#101020" },
+  { name = "Pictures", text = "", fg = "#101020" },
+  { name = "Videos", text = "", fg = "#101020" },
+  { name = "Books", text = "", fg = "#101020" },
+  { name = "Arch-dotfiles", text = "", fg = "#101020" },
+  { name = "Project", text = "", fg = "#101020" },
 ]

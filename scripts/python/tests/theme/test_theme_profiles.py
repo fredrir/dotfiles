@@ -58,6 +58,11 @@ def test_tokens_resolve_into_the_palette_at_load():
     assert theme.hex("sunken") == theme.hex("bg/-100")
 
 
+def test_sexy_purple_has_a_profile_specific_purple():
+    theme = Theme.load("sexy-purple")
+    assert theme.hex(theme.data["yazi"]["primary"]) == "#101020"
+
+
 def test_the_ladder_steps_away_from_the_background_in_both_directions():
     dark = Theme.load("mocha")
     light = Theme.load("latte")

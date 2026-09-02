@@ -38,6 +38,10 @@ def test_a_bare_name_comes_from_the_palette():
     assert mocha("magenta").alpha is None
 
 
+def test_a_hex_literal_is_a_color():
+    assert mocha("#A1B2C3").hex == "#a1b2c3"
+
+
 def test_bg_and_fg_name_the_two_anchors():
     assert mocha("bg").hex == "#1e1e2e"
     assert mocha("fg").hex == "#cdd6f4"

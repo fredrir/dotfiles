@@ -15,7 +15,7 @@ ROLES_FILE = os.path.join(THEME_DIR, "roles.toml")
 FONTS_FILE = os.path.join(THEME_DIR, "fonts.toml")
 RAMP_FILE = os.path.join(THEME_DIR, "ramp.toml")
 
-COLOR_TABLES = ("roles", "terminal", "eza", "kde", "konsole")
+COLOR_TABLES = ("roles", "terminal", "eza", "kde", "konsole", "yazi")
 FONT_SIZES = ("terminal", "interface")
 ANSI = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
 ALIASES = ("cursor", "cursor_text", "selection_bg", "selection_fg")

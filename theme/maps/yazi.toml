@@ -1,8 +1,8 @@
 [app]
-overall = {}
+overall = { bg = "bg" }
 
 [mgr]
-cwd = { fg = "blue", italic = true }
+cwd = { fg = "fg" }
 
 find_keyword  = { fg = "contrast(yellow)", bg = "yellow", italic = true }
 find_position = { fg = "bright_yellow", bg = "reset", italic = true }
@@ -17,37 +17,37 @@ count_cut      = { fg = "contrast(magenta)", bg = "magenta" }
 count_selected = { fg = "contrast(yellow)", bg = "yellow" }
 
 border_symbol = " "
-border_style  = { fg = "blue" }
+border_style  = { fg = "primary" }
 syntect_theme = ""
 
 [indicator]
-parent  = { fg = "cyan" }
-current = { fg = "contrast(cyan)", bg = "cyan", bold = true }
-preview = { fg = "cyan" }
+parent  = { fg = "primary" }
+current = { fg = "contrast(primary)", bg = "primary", bold = true }
+preview = { fg = "primary" }
 padding = { open = "█", close = "█" }
 
 [tabs]
-active    = { fg = "contrast(cyan)", bg = "cyan", bold = true, italic = true, underline = true }
-inactive  = { fg = "fg", bg = "bg", bold = false, underline = true }
+active    = { fg = "contrast(primary)", bg = "primary", bold = true, italic = true, underline = true }
+inactive  = { fg = "fg", bg = "sunken", bold = false, underline = true }
 sep_inner = { open = "", close = "" }
 sep_outer = { open = "", close = "" }
 
 [mode]
-normal_main = { fg = "contrast(blue)", bg = "blue", bold = true }
-normal_alt  = { fg = "muted", bg = "surface" }
+normal_main = { fg = "contrast(primary)", bg = "primary", bold = true }
+normal_alt  = { fg = "muted", bg = "panel" }
 select_main = { fg = "contrast(bright_yellow)", bg = "bright_yellow", bold = true }
-select_alt  = { fg = "muted", bg = "surface" }
+select_alt  = { fg = "muted", bg = "panel" }
 unset_main  = { fg = "contrast(green)", bg = "green", bold = true }
-unset_alt   = { fg = "muted", bg = "surface" }
+unset_alt   = { fg = "muted", bg = "panel" }
 
 [status]
-overall   = { fg = "muted", bg = "panel" }
+overall   = { fg = "muted", bg = "sunken" }
 sep_left  = { open = "", close = "" }
 sep_right = { open = "", close = "" }
 
 progress_label  = { fg = "fg", bold = true }
-progress_normal = { fg = "border", bg = "surface_alt" }
-progress_error  = { fg = "red", bg = "surface_alt" }
+progress_normal = { fg = "border", bg = "panel" }
+progress_error  = { fg = "red", bg = "panel" }
 
 perm_type  = { fg = "muted" }
 perm_read  = { fg = "blue" }
@@ -56,48 +56,48 @@ perm_exec  = { fg = "red" }
 perm_sep   = { fg = "muted" }
 
 [pick]
-border   = { fg = "blue" }
-active   = { fg = "magenta", bold = true }
+border   = { fg = "primary" }
+active   = { fg = "primary", bold = true }
 inactive = {}
 
 [input]
-border   = { fg = "blue" }
+border   = { fg = "primary" }
 title    = {}
 value    = {}
 selected = { reversed = true }
 
 [tasks]
-border  = { fg = "blue" }
+border  = { fg = "primary" }
 title   = {}
 hovered = { underline = true }
 
 [which]
 cols            = 3
-mask            = { bg = "surface_alt" }
-cand            = { fg = "blue" }
+mask            = { bg = "panel" }
+cand            = { fg = "primary" }
 rest            = { fg = "disabled" }
 desc            = { fg = "bright_yellow" }
 separator       = "  "
-separator_style = { fg = "blue" }
+separator_style = { fg = "primary" }
 
 [help]
-on      = { fg = "blue" }
-run     = { fg = "magenta" }
+on      = { fg = "primary" }
+run     = { fg = "primary" }
 desc    = { fg = "disabled" }
 hovered = { reversed = true, bold = true }
-footer  = { fg = "surface_alt", bg = "muted" }
+footer  = { fg = "panel", bg = "muted" }
 
 [notify]
-title_info  = { fg = "blue" }
+title_info  = { fg = "primary" }
 title_warn  = { fg = "fg" }
-title_error = { fg = "magenta" }
+title_error = { fg = "red" }
 
 [confirm]
-border     = { fg = "blue" }
-title      = { fg = "blue" }
+border     = { fg = "primary" }
+title      = { fg = "primary" }
 body       = { fg = "fg" }
 list       = { fg = "fg" }
-btn_yes    = { reversed = true, fg = "blue" }
+btn_yes    = { reversed = true, fg = "primary" }
 btn_no     = {}
 btn_labels = ["  [Y]es  ", "  (N)o  "]
 
@@ -108,19 +108,19 @@ rules = [
   { mime = "application/*zip", fg = "red" },
   { mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", fg = "red" },
   { mime = "application/{pdf,doc,rtf,vnd.*}", fg = "cyan" },
-  { url = "*/", fg = "cyan" },
+  { url = "*/", fg = "primary" },
   { url = "*", fg = "fg" },
 ]
 
 [spot]
-border   = { fg = "blue" }
-title    = { fg = "blue" }
-tbl_col  = { fg = "blue", bold = true }
+border   = { fg = "primary" }
+title    = { fg = "primary" }
+tbl_col  = { fg = "primary", bold = true }
 tbl_cell = { fg = "fg" }
 
 [cmp]
-border       = { fg = "blue" }
-active       = { reversed = true, fg = "blue" }
+border       = { fg = "primary" }
+active       = { reversed = true, fg = "primary" }
 inactive     = { fg = "fg" }
 icon_file    = ""
 icon_folder  = ""
@@ -128,15 +128,15 @@ icon_command = ""
 
 [icon]
 dirs = []
-prepend_conds = [{ if = "dir", text = "", fg = "cyan" }]
+prepend_conds = [{ if = "dir", text = "", fg = "primary" }]
 prepend_dirs = [
-  { name = "Desktop", text = "", fg = "cyan" },
-  { name = "Downloads", text = "", fg = "cyan" },
-  { name = "Documents", text = "", fg = "cyan" },
-  { name = "Music", text = "", fg = "cyan" },
-  { name = "Pictures", text = "", fg = "cyan" },
-  { name = "Videos", text = "", fg = "cyan" },
-  { name = "Books", text = "", fg = "cyan" },
-  { name = "Arch-dotfiles", text = "", fg = "cyan" },
-  { name = "Project", text = "", fg = "cyan" },
+  { name = "Desktop", text = "", fg = "primary" },
+  { name = "Downloads", text = "", fg = "primary" },
+  { name = "Documents", text = "", fg = "primary" },
+  { name = "Music", text = "", fg = "primary" },
+  { name = "Pictures", text = "", fg = "primary" },
+  { name = "Videos", text = "", fg = "primary" },
+  { name = "Books", text = "", fg = "primary" },
+  { name = "Arch-dotfiles", text = "", fg = "primary" },
+  { name = "Project", text = "", fg = "primary" },
 ]

@@ -152,4 +152,8 @@
     "*.copilotmd": "vscode.markdown.preview.editor",
     "*.md": "default"
   },
+  "chat.disableAIFeatures": true,
+  "settingsSync.ignoredExtensions": [
+    "github.copilot-chat"
+  ]
 }

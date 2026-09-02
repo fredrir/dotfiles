@@ -4,6 +4,7 @@ import os
 import re
 import sys
 
+from tools.theme import derive
 from tools.theme.model import (
     FONTS_FILE,
     Theme,
@@ -444,9 +445,17 @@ def _yazi_theme(theme):
     with open(path(YAZI_MAP), encoding="utf-8") as handle:
         template = handle.read()
 
+    def resolve(expression):
+        aliases = theme.data.get("yazi", {})
+
+        def lookup(name):
+            return theme.hex(aliases.get(name, name))
+
+        return derive.resolve(expression, lookup, theme.hex("bg"), theme.hex("fg")).hex
+
     def replace(match):
         expression = match.group(2)
-        value = expression if expression == "reset" else theme.hex(expression)
+        value = expression if expression == "reset" else resolve(expression)
         return f"{match.group(1)}{value}{match.group(3)}"
 
     return f"#:schema {YAZI_SCHEMA}\n\n# {theme.header}\n\n" + YAZI_COLOR.sub(replace, template)

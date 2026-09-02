@@ -4,6 +4,7 @@ dark = true
 [colors.primary]
 background = "#15152b"
 foreground = "#ffffff"
+sidebar    = "#101020"
 
 [colors.cursor]
 cursor = "#ffffff"

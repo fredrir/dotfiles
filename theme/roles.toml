@@ -37,6 +37,9 @@ selection_foreground = "selection_fg"
 selection_background = "selection_bg"
 url                  = "bright_red"
 
+[yazi]
+primary = "magenta"
+
 [eza]
 fi = "muted" # fallback
 di = "blue"  # directories

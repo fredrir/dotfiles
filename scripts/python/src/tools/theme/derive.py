@@ -5,6 +5,7 @@ from tools.theme import oklab
 CONTRAST = "contrast("
 INTEGER = re.compile(r"[+-]?\d+")
 PERCENT = re.compile(r"\d+(\.\d+)?")
+HEX = re.compile(r"#[0-9a-fA-F]{6}")
 
 
 class Resolved:
@@ -20,6 +21,8 @@ class _Scope:
         self.foreground = foreground
 
     def named(self, name):
+        if HEX.fullmatch(name):
+            return name.lower()
         if name == "bg":
             return self.background
         if name == "fg":

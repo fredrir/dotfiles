@@ -250,9 +250,14 @@ def test_yazi_uses_semantic_colors_and_keeps_reset_literal():
     theme = Theme.load("mocha")
     emit_yazi(theme, out)
     rendered = out.files[YAZI_THEME_FILE]
-    assert f'cwd = {{ fg = "{theme.hex("blue")}", italic = true }}' in rendered
+    assert f'overall = {{ bg = "{theme.hex("bg")}" }}' in rendered
+    assert f'cwd = {{ fg = "{theme.hex("white")}", italic = true }}' in rendered
     assert (
         f'count_copied   = {{ fg = "{theme.hex("contrast(cyan)")}", bg = "{theme.hex("cyan")}" }}'
+    ) in rendered
+    assert (
+        f'current = {{ fg = "{theme.hex("contrast(magenta)")}", '
+        f'bg = "{theme.hex("magenta")}", bold = true }}'
     ) in rendered
     assert 'find_position = { fg = "#fab387", bg = "reset", italic = true }' in rendered
 
