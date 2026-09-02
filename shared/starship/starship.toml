@@ -7,7 +7,7 @@ right_format = '$cmd_duration'
 
 [python]
 format            = '([$symbol\($virtualenv\)]($style))'
-symbol            = ' '
+symbol            = ''
 style             = 'prompt_python'
 detect_extensions = []
 detect_files      = []
