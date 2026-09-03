@@ -93,3 +93,81 @@ def contrast_ratio(a, b):
 
 def is_dark(background, foreground):
     return relative_luminance(foreground) > relative_luminance(background)
+
+
+def on_color(fill, foreground, background, floor=4.5):
+    """Choose a deterministic readable anchor for text placed on ``fill``."""
+    for candidate in (foreground, background):
+        if contrast_ratio(candidate, fill) >= floor:
+            return candidate.lower()
+    fallback = max(("#000000", "#ffffff"), key=lambda value: contrast_ratio(value, fill))
+    if contrast_ratio(fallback, fill) < floor:
+        raise SystemExit(f"cannot reach {floor}:1 on {fill}")
+    return fallback
+
+
+def ensure_contrast(seed, against, floor):
+    """Move only as far along OKLab lightness as needed to meet ``floor``."""
+    if contrast_ratio(seed, against) >= floor:
+        return seed.lower()
+
+    L, a, b = to_oklab(seed)
+    candidates = []
+
+    def candidate(lightness):
+        return from_oklab(lightness, a, b)
+
+    if contrast_ratio(candidate(0.0), against) >= floor:
+        low, high = 0.0, L
+        for _ in range(24):
+            middle = (low + high) / 2
+            if contrast_ratio(candidate(middle), against) >= floor:
+                low = middle
+            else:
+                high = middle
+        value = candidate(low)
+        candidates.append((abs(to_oklab(value)[0] - L), value))
+
+    if contrast_ratio(candidate(1.0), against) >= floor:
+        low, high = L, 1.0
+        for _ in range(24):
+            middle = (low + high) / 2
+            if contrast_ratio(candidate(middle), against) >= floor:
+                high = middle
+            else:
+                low = middle
+        value = candidate(high)
+        candidates.append((abs(to_oklab(value)[0] - L), value))
+
+    if not candidates:
+        poles = ("#000000", "#ffffff")
+        value = max(poles, key=lambda color: contrast_ratio(color, against))
+        if contrast_ratio(value, against) < floor:
+            raise SystemExit(f"cannot reach {floor}:1 against {against}")
+        return value
+    return min(candidates, key=lambda item: (item[0], item[1]))[1]
+
+
+def ensure_contrast_many(seed, backgrounds, floor):
+    backgrounds = tuple(backgrounds)
+    if all(contrast_ratio(seed, background) >= floor for background in backgrounds):
+        return seed.lower()
+    original = to_oklab(seed)
+    choices = []
+    for step in range(1001):
+        value = from_oklab(step / 1000, original[1], original[2])
+        if all(contrast_ratio(value, background) >= floor for background in backgrounds):
+            distance = abs(to_oklab(value)[0] - original[0])
+            choices.append((distance, value))
+    if choices:
+        return min(choices, key=lambda item: (item[0], item[1]))[1]
+    poles = ("#000000", "#ffffff")
+    viable = [
+        value
+        for value in poles
+        if all(contrast_ratio(value, background) >= floor for background in backgrounds)
+    ]
+    if not viable:
+        joined = ", ".join(backgrounds)
+        raise SystemExit(f"cannot reach {floor}:1 against {joined}")
+    return max(viable, key=lambda value: min(contrast_ratio(value, bg) for bg in backgrounds))

@@ -4,13 +4,10 @@ import pytest
 
 from tools.theme import oklab
 from tools.theme import profiles as profiles_module
-from tools.theme.model import Theme, list_profiles, merge
+from tools.theme.model import Theme, list_profiles, load_toml, profile_file
 from tools.theme.profiles import Selection, group_of, inventory, package_of
-from tools.theme.validate import (
-    _check_contrast,
-    _check_fonts,
-    validate,
-)
+from tools.theme.schema import ANSI_KEYS, UI_KEYS
+from tools.theme.validate import _check_contrast, _check_fonts, validate, validate_all
 
 
 def fake(data=None, fonts=None, sizes=None):
@@ -22,59 +19,51 @@ def fake(data=None, fonts=None, sizes=None):
     )
 
 
-def test_merge_overrides_single_keys_inside_nested_tables():
-    base = {"terminal": {"tabs": {"bar_background": "panel", "active_background": "magenta"}}}
-    result = merge(base, {"terminal": {"tabs": {"bar_background": "sunken"}}})
-    assert result["terminal"]["tabs"] == {
-        "bar_background": "sunken",
-        "active_background": "magenta",
-    }
-
-
-def test_merge_does_not_mutate_or_alias_the_base():
-    base = {"eza": {"categories": {"image": "magenta"}}}
-    result = merge(base, {"eza": {"categories": {"image": "bright_magenta"}}})
-    assert base["eza"]["categories"]["image"] == "magenta"
-    result["eza"]["categories"]["video"] = "red"
-    assert "video" not in base["eza"]["categories"]
-
-
-def test_merge_replaces_a_scalar_with_a_scalar():
-    assert merge({"name": "Dark", "dark": True}, {"name": "Light", "dark": False}) == {
-        "name": "Light",
-        "dark": False,
-    }
-
-
 def test_a_bright_matching_its_normal_is_allowed():
     theme = Theme.load("sexy-purple")
     assert theme.hex("red") == theme.hex("bright_red")
     validate(theme)
 
 
-def test_tokens_resolve_into_the_palette_at_load():
+def test_semantics_resolve_into_the_palette_at_load():
     theme = Theme.load("mocha")
-    assert theme.hex("surface") == theme.hex("bg/150")
-    assert theme.hex("sunken") == theme.hex("bg/-100")
+    assert theme.hex("surface") == theme.hex("ui.surface")
+    assert theme.hex("sidebar") == theme.hex("ui.accent")
+    assert theme.hex("sunken") == theme.hex("background/-100")
 
 
-def test_sexy_purple_has_a_profile_specific_purple():
-    theme = Theme.load("sexy-purple")
-    assert theme.hex(theme.data["yazi"]["primary"]) == "#101020"
+def test_profiles_have_only_the_canonical_schema():
+    for name in list_profiles():
+        raw = load_toml(profile_file(name))
+        assert set(raw) == {"name", "dark", "ui", "ansi"}
+        assert set(raw["ui"]) == set(UI_KEYS)
+        assert set(raw["ansi"]) == {"normal", "bright"}
+        assert set(raw["ansi"]["normal"]) == set(ANSI_KEYS)
+        assert set(raw["ansi"]["bright"]) == set(ANSI_KEYS)
+
+
+def test_no_surface_alt_semantic_exists():
+    with pytest.raises(SystemExit):
+        Theme.load("sexy-purple").hex("surface_alt")
 
 
 def test_the_ladder_steps_away_from_the_background_in_both_directions():
     dark = Theme.load("mocha")
     light = Theme.load("latte")
-    assert oklab.relative_luminance(dark.hex("sunken")) < oklab.relative_luminance(dark.hex("bg"))
-    assert oklab.relative_luminance(light.hex("sunken")) < oklab.relative_luminance(light.hex("bg"))
+    assert oklab.relative_luminance(dark.hex("sunken")) < oklab.relative_luminance(
+        dark.hex("background")
+    )
+    assert oklab.relative_luminance(light.hex("sunken")) < oklab.relative_luminance(
+        light.hex("background")
+    )
 
 
-def test_low_contrast_accents_warn_instead_of_failing():
-    warnings = []
-    _check_contrast(Theme.load("latte"), warnings)
-    assert any("yellow" in warning for warning in warnings)
-    validate(Theme.load("latte"))
+def test_contextual_contrast_pairs_are_hard_requirements():
+    theme = Theme.load("latte")
+    problems = []
+    _check_contrast(theme, problems)
+    assert problems == []
+    assert oklab.contrast_ratio(theme.hex("on_primary"), theme.hex("primary_fill")) >= 4.5
 
 
 def test_font_family_with_a_comma_is_rejected():
@@ -92,6 +81,8 @@ def test_a_missing_font_size_is_reported():
 
 def test_validate_lists_every_missing_palette_color_at_once():
     theme = Theme.load("mocha")
+    del theme.semantic["magenta"]
+    del theme.semantic["cyan"]
     del theme.palette["magenta"]
     del theme.palette["cyan"]
     with pytest.raises(SystemExit) as error:
@@ -106,6 +97,7 @@ def test_every_shipped_profile_is_valid():
     assert names
     for name in names:
         validate(Theme.load(name))
+    assert len(validate_all()) == len(names)
 
 
 def test_group_and_package_come_from_the_output_path():
@@ -146,7 +138,7 @@ def test_hex_remapping_lets_the_active_profile_name_a_shared_hex():
     from tools.theme.emitters import _hex_to_name
 
     mapping = _hex_to_name(Theme.load("mocha"))
-    assert mapping["1e1e2e"] == "bg"
+    assert mapping["1e1e2e"] == "background"
     assert mapping["f38ba8"] == "red"
     assert mapping["bf616a"] == "red"
     assert mapping["6c7086"] == "separator"

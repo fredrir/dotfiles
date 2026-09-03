@@ -4,7 +4,7 @@ import os
 import re
 import sys
 
-from tools.theme import derive
+from tools.theme import contrast, yazi
 from tools.theme.model import (
     FONTS_FILE,
     Theme,
@@ -51,7 +51,9 @@ YAZI_MAP = "theme/maps/yazi.toml"
 
 YAZI_THEME_FILE = "shared/yazi/theme.toml"
 
-YAZI_SCHEMA = "https://yazi-rs.github.io/schemas/theme.json"
+YAZI_SNAPSHOT_DIR = "theme/snapshots/yazi"
+
+CONTRAST_DIR = "theme/contrast"
 
 WEZTERM_COLORS_DIR = "shared/wezterm/ui/colors"
 
@@ -107,8 +109,6 @@ QUICKLAUNCH_KEYS = (
     ("muted", "inactive"),
     ("selection", "selection_bg"),
 )
-
-YAZI_COLOR = re.compile(r'(\b(?:fg|bg)\s*=\s*")([^"]+)(")')
 
 
 def _lua_string(value):
@@ -368,7 +368,7 @@ def obsidian_variables(theme, derived):
     lines = []
     for name, value in load_map("obsidian")["variables"].items():
         if isinstance(value, str):
-            lines.append(f"{name}: {theme.hex(value)};")
+            lines.append(f"{name}: {theme.css(value)};")
         elif "literal" in value:
             lines.append(f"{name}: {value['literal']};")
         elif "derived" in value:
@@ -445,24 +445,34 @@ def _yazi_theme(theme):
     with open(path(YAZI_MAP), encoding="utf-8") as handle:
         template = handle.read()
 
-    def resolve(expression):
-        aliases = theme.data.get("yazi", {})
-
-        def lookup(name):
-            return theme.hex(aliases.get(name, name))
-
-        return derive.resolve(expression, lookup, theme.hex("bg"), theme.hex("fg")).hex
-
-    def replace(match):
-        expression = match.group(2)
-        value = expression if expression == "reset" else resolve(expression)
-        return f"{match.group(1)}{value}{match.group(3)}"
-
-    return f"#:schema {YAZI_SCHEMA}\n\n# {theme.header}\n\n" + YAZI_COLOR.sub(replace, template)
+    body = yazi.render(theme, template)
+    return f"# Yazi theme contract: {yazi.YAZI_CONTRACT}\n\n# {theme.header}\n\n{body}"
 
 
 def emit_yazi(theme, out):
     out.write(path(YAZI_THEME_FILE), _yazi_theme(theme))
+
+
+def yazi_snapshot_outputs():
+    return [f"{YAZI_SNAPSHOT_DIR}/{profile}.toml" for profile in list_profiles()]
+
+
+def emit_yazi_snapshots(_theme, out):
+    for profile in list_profiles():
+        theme = Theme.load(profile)
+        out.write(path(YAZI_SNAPSHOT_DIR, f"{profile}.toml"), _yazi_theme(theme))
+
+
+def contrast_outputs():
+    return [f"{CONTRAST_DIR}/{profile}.md" for profile in list_profiles()]
+
+
+def emit_contrast_matrices(_theme, out):
+    with open(path(YAZI_MAP), encoding="utf-8") as handle:
+        template = handle.read()
+    for profile in list_profiles():
+        theme = Theme.load(profile)
+        out.write(path(CONTRAST_DIR, f"{profile}.md"), contrast.matrix(theme, template))
 
 
 def emit_kde_colorscheme(theme, out):
@@ -474,14 +484,22 @@ def emit_kde_colorscheme(theme, out):
     sections = {}
     for group, (background, alternate) in groups.items():
         overrides = selection if group == "Colors:Selection" else {}
+        background_colors = (theme.kde(background), theme.kde(alternate))
+        decoration = theme.readable_many(theme.data["kde"]["decoration"], background_colors, 3.0)
         body = [
-            f"BackgroundAlternate={theme.rgb_csv(theme.kde(alternate))}",
-            f"BackgroundNormal={theme.rgb_csv(theme.kde(background))}",
-            f"DecorationFocus={theme.rgb_csv(theme.kde('decoration'))}",
-            f"DecorationHover={theme.rgb_csv(theme.kde('decoration'))}",
+            f"BackgroundAlternate={theme.rgb_csv(background_colors[1])}",
+            f"BackgroundNormal={theme.rgb_csv(background_colors[0])}",
+            f"DecorationFocus={theme.rgb_csv(decoration)}",
+            f"DecorationHover={theme.rgb_csv(decoration)}",
         ]
         for key, role in foregrounds.items():
-            body.append(f"{key}={theme.rgb_csv(theme.kde(overrides.get(key, role)))}")
+            selected = overrides.get(key)
+            if selected:
+                color = theme.kde(selected)
+            else:
+                floor = 3.0 if role == "inactive" else 4.5
+                color = theme.readable_many(theme.data["kde"][role], background_colors, floor)
+            body.append(f"{key}={theme.rgb_csv(color)}")
         sections[group] = body
     sections["WM"] = [
         f"activeBackground={theme.rgb_csv(theme.kde('wm_active_bg'))}",
@@ -514,7 +532,8 @@ def emit_gtk(theme, out):
                 variable = match.group(2)
                 base = variable.removesuffix("_breeze")
                 if base in mapping:
-                    line = f"{match.group(1)}{variable}{match.group(3)}{theme.color(mapping[base])}{match.group(5)}"
+                    color = theme.mapped_color("kde", mapping[base])
+                    line = f"{match.group(1)}{variable}{match.group(3)}{color}{match.group(5)}"
                 else:
                     sys.stderr.write(f"dotfile theme: unmapped GTK color '{variable}'\n")
             lines.append(line)

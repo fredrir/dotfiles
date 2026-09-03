@@ -1,142 +1,150 @@
 [app]
-overall = { bg = "bg" }
+overall = { bg = "canvas_bg" }
 
 [mgr]
-cwd = { fg = "fg" }
+cwd            = { fg = "info_text_on_canvas" }
+find_keyword   = { fg = "on_warning_fill_on_canvas", bg = "warning_fill_on_canvas", italic = true }
+find_position  = { fg = "warning_text_on_canvas", bg = "reset", italic = true }
+symlink_target = { fg = "muted_on_canvas", italic = true }
 
-find_keyword  = { fg = "contrast(yellow)", bg = "yellow", italic = true }
-find_position = { fg = "bright_yellow", bg = "reset", italic = true }
+# Equal foreground and background intentionally render a solid marker cell.
+marker_copied   = { fg = "success_fill_on_canvas", bg = "success_fill_on_canvas" }
+marker_cut      = { fg = "error_fill_on_canvas", bg = "error_fill_on_canvas" }
+marker_marked   = { fg = "warning_fill_on_canvas", bg = "warning_fill_on_canvas" }
+marker_selected = { fg = "primary_fill_on_canvas", bg = "primary_fill_on_canvas" }
+marker_symbol   = "│"
 
-marker_copied   = { fg = "cyan", bg = "cyan" }
-marker_cut      = { fg = "magenta", bg = "magenta" }
-marker_marked   = { fg = "bright_yellow", bg = "bright_yellow" }
-marker_selected = { fg = "yellow", bg = "yellow" }
+count_copied   = { fg = "on_success_fill_on_canvas", bg = "success_fill_on_canvas" }
+count_cut      = { fg = "on_error_fill_on_canvas", bg = "error_fill_on_canvas" }
+count_selected = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas" }
 
-count_copied   = { fg = "contrast(cyan)", bg = "cyan" }
-count_cut      = { fg = "contrast(magenta)", bg = "magenta" }
-count_selected = { fg = "contrast(yellow)", bg = "yellow" }
-
-border_symbol = " "
-border_style  = { fg = "primary" }
+border_symbol = "│"
+border_style  = { fg = "border_on_canvas" }
 syntect_theme = ""
 
 [indicator]
-parent  = { fg = "primary" }
-current = { fg = "contrast(primary)", bg = "primary", bold = true }
-preview = { fg = "primary" }
+parent  = { fg = "muted_on_canvas" }
+current = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas", bold = true }
+preview = { fg = "info_text_on_canvas", underline = true }
 padding = { open = "█", close = "█" }
 
 [tabs]
-active    = { fg = "contrast(primary)", bg = "primary", bold = true, italic = true, underline = true }
-inactive  = { fg = "fg", bg = "sunken", bold = false, underline = true }
+active    = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas", bold = true, underline = true }
+inactive  = { fg = "muted_on_panel", bg = "panel_bg", underline = true }
 sep_inner = { open = "", close = "" }
 sep_outer = { open = "", close = "" }
 
 [mode]
-normal_main = { fg = "contrast(primary)", bg = "primary", bold = true }
-normal_alt  = { fg = "muted", bg = "panel" }
-select_main = { fg = "contrast(bright_yellow)", bg = "bright_yellow", bold = true }
-select_alt  = { fg = "muted", bg = "panel" }
-unset_main  = { fg = "contrast(green)", bg = "green", bold = true }
-unset_alt   = { fg = "muted", bg = "panel" }
+normal_main = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas", bold = true }
+normal_alt  = { fg = "primary_text_on_panel", bg = "panel_bg" }
+select_main = { fg = "on_warning_fill_on_canvas", bg = "warning_fill_on_canvas", bold = true }
+select_alt  = { fg = "warning_text_on_panel", bg = "panel_bg" }
+unset_main  = { fg = "on_error_fill_on_canvas", bg = "error_fill_on_canvas", bold = true }
+unset_alt   = { fg = "error_text_on_panel", bg = "panel_bg" }
 
 [status]
-overall   = { fg = "muted", bg = "sunken" }
+overall   = { fg = "text_on_panel", bg = "panel_bg" }
 sep_left  = { open = "", close = "" }
 sep_right = { open = "", close = "" }
 
-progress_label  = { fg = "fg", bold = true }
-progress_normal = { fg = "border", bg = "panel" }
-progress_error  = { fg = "red", bg = "panel" }
+progress_label  = { fg = "text_on_panel", bold = true }
+progress_normal = { fg = "primary_visible_on_surface", bg = "surface_fill" }
+progress_error  = { fg = "error_visible_on_panel", bg = "panel_bg" }
 
-perm_type  = { fg = "muted" }
-perm_read  = { fg = "blue" }
-perm_write = { fg = "green" }
-perm_exec  = { fg = "red" }
-perm_sep   = { fg = "muted" }
+perm_type  = { fg = "info_text_on_panel" }
+perm_read  = { fg = "warning_text_on_panel" }
+perm_write = { fg = "error_text_on_panel" }
+perm_exec  = { fg = "success_text_on_panel" }
+perm_sep   = { fg = "muted_on_panel" }
 
 [pick]
-border   = { fg = "primary" }
-active   = { fg = "primary", bold = true }
-inactive = {}
+border   = { fg = "border_on_canvas" }
+active   = { fg = "primary_text_on_canvas", bold = true }
+inactive = { fg = "text_on_canvas" }
 
 [input]
-border   = { fg = "primary" }
-title    = {}
-value    = {}
-selected = { reversed = true }
+border   = { fg = "border_on_canvas" }
+title    = { fg = "primary_text_on_canvas", bold = true }
+value    = { fg = "text_on_canvas" }
+selected = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas" }
 
 [tasks]
-border  = { fg = "primary" }
-title   = {}
-hovered = { underline = true }
+border  = { fg = "border_on_canvas" }
+title   = { fg = "primary_text_on_canvas", bold = true }
+hovered = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas" }
 
 [which]
 cols            = 3
-mask            = { bg = "panel" }
-cand            = { fg = "primary" }
-rest            = { fg = "disabled" }
-desc            = { fg = "bright_yellow" }
+mask            = { bg = "panel_bg" }
+border          = { fg = "border_on_panel" }
+cand            = { fg = "primary_text_on_panel", bold = true }
+rest            = { fg = "disabled_on_panel" }
+desc            = { fg = "text_on_panel" }
 separator       = "  "
-separator_style = { fg = "primary" }
+separator_style = { fg = "border_on_panel" }
 
 [help]
-on      = { fg = "primary" }
-run     = { fg = "primary" }
-desc    = { fg = "disabled" }
-hovered = { reversed = true, bold = true }
-footer  = { fg = "panel", bg = "muted" }
+border  = { fg = "border_on_canvas" }
+chord   = { fg = "primary_text_on_canvas", bold = true }
+action  = { fg = "text_on_canvas" }
+hovered = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas", bold = true }
 
 [notify]
-title_info  = { fg = "primary" }
-title_warn  = { fg = "fg" }
-title_error = { fg = "red" }
+title_info  = { fg = "info_text_on_canvas" }
+title_warn  = { fg = "warning_text_on_canvas" }
+title_error = { fg = "error_text_on_canvas" }
+icon_info   = ""
+icon_warn   = ""
+icon_error  = ""
 
 [confirm]
-border     = { fg = "primary" }
-title      = { fg = "primary" }
-body       = { fg = "fg" }
-list       = { fg = "fg" }
-btn_yes    = { reversed = true, fg = "primary" }
-btn_no     = {}
+border     = { fg = "border_on_canvas" }
+title      = { fg = "primary_text_on_canvas", bold = true }
+body       = { fg = "text_on_canvas" }
+list       = { fg = "text_on_canvas" }
+btn_yes    = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas", bold = true }
+btn_no     = { fg = "text_on_canvas" }
 btn_labels = ["  [Y]es  ", "  (N)o  "]
 
 [filetype]
 rules = [
-  { mime = "image/*", fg = "magenta" },
-  { mime = "{audio,video}/*", fg = "yellow" },
-  { mime = "application/*zip", fg = "red" },
-  { mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", fg = "red" },
-  { mime = "application/{pdf,doc,rtf,vnd.*}", fg = "cyan" },
-  { url = "*/", fg = "primary" },
-  { url = "*", fg = "fg" },
+  { url = "*", is = "orphan", fg = "error_text_on_canvas" },
+  { url = "*", is = "dummy", fg = "error_text_on_canvas" },
+  { url = "*", is = "exec", fg = "success_text_on_canvas" },
+  { mime = "**/image/*", fg = "ansi_magenta_text_on_canvas" },
+  { mime = "**/{audio,video}/*", fg = "ansi_yellow_text_on_canvas" },
+  { mime = "**/application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}", fg = "ansi_red_text_on_canvas" },
+  { mime = "**/application/{pdf,doc,rtf}", fg = "ansi_cyan_text_on_canvas" },
+  { mime = "vfs/{absent,stale}", fg = "muted_on_canvas" },
+  { url = "*/", is = "dummy", fg = "error_text_on_canvas" },
+  { url = "*/", fg = "info_text_on_canvas" },
+  { url = "*", fg = "text_on_canvas" },
 ]
 
 [spot]
-border   = { fg = "primary" }
-title    = { fg = "primary" }
-tbl_col  = { fg = "primary", bold = true }
-tbl_cell = { fg = "fg" }
+border   = { fg = "border_on_canvas" }
+title    = { fg = "primary_text_on_canvas", bold = true }
+tbl_col  = { fg = "primary_text_on_canvas", bold = true }
+tbl_cell = { fg = "text_on_canvas" }
 
 [cmp]
-border       = { fg = "primary" }
-active       = { reversed = true, fg = "primary" }
-inactive     = { fg = "fg" }
+border       = { fg = "border_on_canvas" }
+active       = { fg = "on_primary_fill_on_canvas", bg = "primary_fill_on_canvas", bold = true }
+inactive     = { fg = "text_on_canvas" }
 icon_file    = ""
 icon_folder  = ""
 icon_command = ""
 
 [icon]
-dirs = []
-prepend_conds = [{ if = "dir", text = "", fg = "primary" }]
+prepend_conds = [{ if = "dir", text = "", fg = "info_text_on_canvas" }]
 prepend_dirs = [
-  { name = "Desktop", text = "", fg = "primary" },
-  { name = "Downloads", text = "", fg = "primary" },
-  { name = "Documents", text = "", fg = "primary" },
-  { name = "Music", text = "", fg = "primary" },
-  { name = "Pictures", text = "", fg = "primary" },
-  { name = "Videos", text = "", fg = "primary" },
-  { name = "Books", text = "", fg = "primary" },
-  { name = "Arch-dotfiles", text = "", fg = "primary" },
-  { name = "Project", text = "", fg = "primary" },
+  { name = "Desktop", text = "", fg = "info_text_on_canvas" },
+  { name = "Downloads", text = "", fg = "info_text_on_canvas" },
+  { name = "Documents", text = "", fg = "info_text_on_canvas" },
+  { name = "Music", text = "", fg = "info_text_on_canvas" },
+  { name = "Pictures", text = "", fg = "info_text_on_canvas" },
+  { name = "Videos", text = "", fg = "info_text_on_canvas" },
+  { name = "Books", text = "", fg = "info_text_on_canvas" },
+  { name = "Arch-dotfiles", text = "", fg = "info_text_on_canvas" },
+  { name = "Project", text = "", fg = "info_text_on_canvas" },
 ]

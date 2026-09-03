@@ -1,0 +1,29 @@
+name = "Midnight Blue"
+dark = true
+
+[ui] # Mandatory
+background = "#15152b" # Main background / Secondary-Sidebar- Colors
+primary     = "#070132" # Active / Highlight / Primary- Colors
+accent      = "#15152b" # Sidebar Background / Support- Colors
+surface     = "#191a1b" # Dimmed / Border- Colors
+foreground  = "#f4faff" # Text colors / brightest foreground
+
+[ansi.normal] # Mandatory
+black   = "#150f38"
+red     = "#39377e"
+green   = "#46448c"
+yellow  = "#53519a"
+blue    = "#605ea8"
+magenta = "#6d6bb6"
+cyan    = "#7a78c4"
+white   = "#b0aedd"
+
+[ansi.bright] # Mandatory
+black   = "#26236b"
+red     = "#5553a0"
+green   = "#6462ae"
+yellow  = "#7371bc"
+blue    = "#8280ca"
+magenta = "#918fd6"
+cyan    = "#aaa8e0"
+white   = "#ececff"

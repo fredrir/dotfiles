@@ -1,10 +1,11 @@
-import copy
 import glob
 import os
 import tomllib
 
 from tools.core.paths import repo_root
-from tools.theme import derive
+from tools.theme import derive, oklab
+from tools.theme.schema import ANSI_KEYS, parse_profile, primitives
+from tools.theme.semantic import resolve_semantics
 
 ROOT = str(repo_root())
 THEME_DIR = os.path.join(ROOT, "theme")
@@ -13,12 +14,9 @@ PROFILES_DIR = os.path.join(THEME_DIR, "profiles")
 
 ROLES_FILE = os.path.join(THEME_DIR, "roles.toml")
 FONTS_FILE = os.path.join(THEME_DIR, "fonts.toml")
-RAMP_FILE = os.path.join(THEME_DIR, "ramp.toml")
-
-COLOR_TABLES = ("roles", "terminal", "eza", "kde", "konsole", "yazi")
+COLOR_TABLES = ("roles", "terminal", "eza", "kde", "konsole")
 FONT_SIZES = ("terminal", "interface")
-ANSI = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
-ALIASES = ("cursor", "cursor_text", "selection_bg", "selection_fg")
+ANSI = ANSI_KEYS
 
 
 def path(*parts):
@@ -34,16 +32,6 @@ def load_map(name):
     return load_toml(os.path.join(MAPS_DIR, f"{name}.toml"))
 
 
-def merge(base, override):
-    result = copy.deepcopy(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(result.get(key), dict):
-            result[key] = merge(result[key], value)
-        else:
-            result[key] = copy.deepcopy(value)
-    return result
-
-
 def profile_file(name):
     return os.path.join(PROFILES_DIR, f"{name}.toml")
 
@@ -53,33 +41,23 @@ def list_profiles():
     return sorted(os.path.basename(target)[: -len(".toml")] for target in found)
 
 
-def anchor_palette(colors):
-    palette = {
-        "bg": colors["primary"]["background"],
-        "fg": colors["primary"]["foreground"],
-        "cursor": colors["cursor"]["cursor"],
-        "cursor_text": colors["cursor"]["text"],
-        "selection_bg": colors["selection"]["background"],
-        "selection_fg": colors["selection"]["text"],
-    }
-    for name in ANSI:
-        palette[name] = colors["normal"][name]
-        palette[f"bright_{name}"] = colors["bright"][name]
-    return palette
-
-
 def profile_palette(name):
-    palette = anchor_palette(load_toml(profile_file(name))["colors"])
-    return {key: value for key, value in palette.items() if key not in ALIASES}
+    theme = Theme.load(name)
+    names = ["background", "primary", "accent", "surface", "foreground"]
+    names += [*ANSI, *(f"bright_{name}" for name in ANSI)]
+    return {name: theme.hex(name) for name in names}
 
 
 class Theme:
-    def __init__(self, profile, data, fonts):
+    def __init__(self, profile, profile_data, data, fonts):
         self.profile = profile
+        self.profile_data = profile_data
         self.data = data
-        self.palette = anchor_palette(data["colors"])
-        for name, expression in data.get("tokens", {}).items():
-            self.palette[name] = self.hex(expression)
+        self.primitives = primitives(profile_data)
+        self.semantic = resolve_semantics(self.primitives)
+        exported = ["background", "primary", "accent", "surface", "foreground"]
+        exported += [*ANSI, *(f"bright_{name}" for name in ANSI)]
+        self.palette = {name: self.semantic[name] for name in exported}
         self.fonts = fonts["fonts"]
         self.sizes = fonts.get("sizes", {})
         self.font_applications = fonts.get("applications", {})
@@ -95,25 +73,20 @@ class Theme:
         if not os.path.exists(target):
             available = ", ".join(list_profiles()) or "none"
             raise SystemExit(f"dotfile theme: unknown profile '{name}' (available: {available})")
-        overrides = load_toml(target)
-        data = merge(load_toml(ROLES_FILE), overrides)
-        fonts = merge(
-            load_toml(FONTS_FILE),
-            {key: overrides[key] for key in ("fonts", "sizes", "applications") if key in overrides},
-        )
-        return cls(name, data, fonts)
+        profile_data = parse_profile(load_toml(target), os.path.relpath(target, ROOT))
+        return cls(name, profile_data, load_toml(ROLES_FILE), load_toml(FONTS_FILE))
 
     @property
     def name(self):
-        return self.data["name"]
+        return self.profile_data["name"]
 
     @property
     def dark(self):
-        return bool(self.data.get("dark", True))
+        return self.profile_data["dark"]
 
     @property
     def icons(self):
-        return self.data.get("icons", "")
+        return "Breeze Chameleon Dark" if self.dark else "breeze"
 
     @property
     def header(self):
@@ -123,13 +96,21 @@ class Theme:
         return self.resolved(name).hex
 
     def resolved(self, name):
-        return derive.resolve(name, self._lookup, self.palette["bg"], self.palette["fg"])
+        return derive.resolve(
+            name,
+            self._lookup,
+            self.primitives["ui.background"],
+            self.primitives["ui.foreground"],
+        )
 
     def _lookup(self, name):
-        try:
+        if name in self.primitives:
+            return self.primitives[name]
+        if name in self.semantic:
+            return self.semantic[name]
+        if name in self.palette:
             return self.palette[name]
-        except KeyError:
-            raise SystemExit(f"unknown palette color: {name}")
+        raise SystemExit(f"unknown palette color: {name}")
 
     def role(self, name):
         try:
@@ -138,21 +119,43 @@ class Theme:
             raise SystemExit(f"unknown role: {name}")
 
     def kde(self, name):
-        try:
-            return self.hex(self.data["kde"][name])
-        except KeyError:
-            raise SystemExit(f"unknown kde role: {name}")
+        return self.app_color("kde", name)
 
     def konsole(self, name):
-        try:
-            return self.hex(self.data["konsole"][name])
-        except KeyError:
-            raise SystemExit(f"unknown konsole role: {name}")
+        return self.app_color("konsole", name)
 
-    def color(self, name):
-        if name in self.data.get("kde", {}):
-            return self.kde(name)
-        return self.hex(name)
+    def app_color(self, application, name):
+        try:
+            expression = self.data[application][name]
+        except KeyError:
+            raise SystemExit(f"unknown {application} role: {name}")
+        return self.hex(expression)
+
+    def mapped_color(self, application, name):
+        expression = self.data.get(application, {}).get(name, name)
+        return self.hex(expression)
+
+    def css(self, expression):
+        resolved = self.resolved(expression)
+        if resolved.alpha is None:
+            return resolved.hex
+        red, green, blue = self.rgb(resolved.hex)
+        return f"rgba({red}, {green}, {blue}, {resolved.alpha:g})"
+
+    def readable(self, expression, against, floor=4.5):
+        return derive.resolve(
+            f"readable({expression},{against},{floor:g})",
+            self._lookup,
+            self.primitives["ui.background"],
+            self.primitives["ui.foreground"],
+        ).hex
+
+    def visible(self, expression, against, floor=3.0):
+        return self.readable(expression, against, floor)
+
+    def readable_many(self, expression, backgrounds, floor=4.5):
+        seed = self.hex(expression)
+        return oklab.ensure_contrast_many(seed, backgrounds, floor)
 
     def font(self, name):
         try:

@@ -34,6 +34,8 @@
 | `dotfile theme`          | Stamps selected theme profiles into generated configuration files.               |
 | `dotfile theme sync`     | Regenerates every config from the selected theme profiles.                       |
 | `dotfile theme dry`      | Reports what theme generation would change without writing.                      |
+| `dotfile theme check`    | Validates every profile and resolved application color pair.                     |
+| `dotfile theme contrast` | Prints one or every profile's resolved contrast matrix.                          |
 | `dotfile theme status`   | Shows each group's resolved profile and whether generated files have drifted.    |
 | `dotfile theme preview`  | Previews a profile's palette, roles, fonts, and terminal colors.                 |
 | `dotfile theme switch`   | Assigns a profile globally, to a group, or to a package.                         |

@@ -1,20 +1,14 @@
-name  = "Catppuccin Mocha"
-dark  = true
-icons = "Breeze Chameleon Dark"
+name = "Catppuccin Mocha"
+dark = true
 
-[colors.primary]
-background = "#1e1e2e"
-foreground = "#cdd6f4"
+[ui] # Mandatory
+background = "#1e1e2e" # Main background / Secondary-Sidebar- Colors
+primary     = "#f2cdcd" # Active / Highlight / Primary- Colors
+accent      = "#171726" # Sidebar Background / Support- Colors
+surface     = "#343648" # Dimmed / Border- Colors
+foreground  = "#cdd6f4" # Text colors / brightest foreground
 
-[colors.cursor]
-cursor = "#f2cdcd"
-text   = "#1e1e2e"
-
-[colors.selection]
-background = "#f2cdcd"
-text       = "#1e1e2e"
-
-[colors.normal]
+[ansi.normal] # Mandatory
 black   = "#45475a"
 red     = "#f38ba8"
 green   = "#7cff6b"
@@ -24,7 +18,7 @@ magenta = "#cba6f7"
 cyan    = "#1abc9c"
 white   = "#bac2de"
 
-[colors.bright]
+[ansi.bright] # Mandatory
 black   = "#585b70"
 red     = "#f2cdcd"
 green   = "#a6e3a1"

@@ -11,6 +11,7 @@ PALETTE = {
     "red": "#f38ba8",
     "yellow": "#f9e2af",
     "surface0": "#313244",
+    "mid": "#777777",
 }
 
 
@@ -125,6 +126,18 @@ def test_contrast_answers_with_the_more_readable_anchor():
     assert latte("contrast(surface0)").hex == "#eff1f5"
 
 
+def test_contrast_has_a_real_floor_and_falls_back_to_black_or_white():
+    result = resolve("on(mid,4.5)", lookup, "#666666", "#888888").hex
+    assert result in {"#000000", "#ffffff"}
+    assert oklab.contrast_ratio(result, PALETTE["mid"]) >= 4.5
+
+
+def test_readable_preserves_hue_while_reaching_the_requested_floor():
+    result = mocha("readable(surface0,bg,4.5)").hex
+    assert oklab.contrast_ratio(result, MOCHA[0]) >= 4.5
+    assert result != PALETTE["surface0"]
+
+
 def test_contrast_resolves_its_argument_first():
     assert mocha("contrast(bg/250)").hex == "#cdd6f4"
     assert mocha("contrast(red~yellow/600)").hex == "#1e1e2e"
@@ -139,7 +152,7 @@ def test_alpha_may_follow_contrast():
 def test_a_ladder_step_on_a_palette_color_asks_for_an_explicit_mix():
     with pytest.raises(SystemExit) as error:
         mocha("magenta/250")
-    assert "magenta~fg/250" in str(error.value)
+    assert "magenta~foreground/250" in str(error.value)
 
 
 def test_malformed_expressions_are_rejected_by_name():

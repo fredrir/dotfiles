@@ -4,14 +4,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.theme import registry
+from tools.theme import registry, yazi
 from tools.theme.emitters import (
     WEZTERM_COLORS_DIR,
     YAZI_THEME_FILE,
+    _yazi_theme,
     emit_nvim,
     emit_starship,
     emit_wezterm,
     emit_yazi,
+    obsidian_derived,
+    obsidian_variables,
     wezterm_font_roles,
     wezterm_outputs,
 )
@@ -161,6 +164,7 @@ def test_the_wezterm_profiles_file_is_typed_inert_data_with_an_active_profile():
     assert '    ["Catppuccin Latte"] = require("ui.colors.latte").colors,' in profiles
     assert '    ["Catppuccin Mocha"] = require("ui.colors.mocha").colors,' in profiles
     assert '    ["Sexy Purple"] = require("ui.colors.sexy-purple").colors,' in profiles
+    assert '    ["Midnight Blue"] = require("ui.colors.midnight-blue").colors,' in profiles
 
 
 def test_wezterm_gets_a_font_file_per_role_and_a_fonts_file():
@@ -243,6 +247,9 @@ def test_yazi_renders_every_profile_as_a_complete_theme(profile):
     colors = re.findall(r'\b(?:fg|bg)\s*=\s*"([^"]+)"', rendered)
     assert colors
     assert all(re.fullmatch(r"#[0-9a-f]{6}|reset", color) for color in colors)
+    assert "reversed = true" not in rendered
+    assert "chord" in rendered
+    assert "action" in rendered
 
 
 def test_yazi_uses_semantic_colors_and_keeps_reset_literal():
@@ -250,16 +257,53 @@ def test_yazi_uses_semantic_colors_and_keeps_reset_literal():
     theme = Theme.load("mocha")
     emit_yazi(theme, out)
     rendered = out.files[YAZI_THEME_FILE]
-    assert f'overall = {{ bg = "{theme.hex("bg")}" }}' in rendered
-    assert f'cwd = {{ fg = "{theme.hex("white")}", italic = true }}' in rendered
+    assert f'overall = {{ bg = "{theme.hex("canvas_bg")}" }}' in rendered
+    assert f'cwd            = {{ fg = "{theme.hex("info_text_on_canvas")}" }}' in rendered
     assert (
-        f'count_copied   = {{ fg = "{theme.hex("contrast(cyan)")}", bg = "{theme.hex("cyan")}" }}'
+        f'count_copied   = {{ fg = "{theme.hex("on_success_fill_on_canvas")}", '
+        f'bg = "{theme.hex("success_fill_on_canvas")}" }}'
     ) in rendered
     assert (
-        f'current = {{ fg = "{theme.hex("contrast(magenta)")}", '
-        f'bg = "{theme.hex("magenta")}", bold = true }}'
+        f'current = {{ fg = "{theme.hex("on_primary_fill_on_canvas")}", '
+        f'bg = "{theme.hex("primary_fill_on_canvas")}", bold = true }}'
     ) in rendered
-    assert 'find_position = { fg = "#fab387", bg = "reset", italic = true }' in rendered
+    assert 'find_position  = { fg = "#f9e2af", bg = "reset", italic = true }' in rendered
+
+
+@pytest.mark.parametrize("profile", list_profiles())
+def test_every_yazi_state_meets_its_contrast_contract(profile):
+    with open(path("theme/maps/yazi.toml"), encoding="utf-8") as handle:
+        pairs = yazi.contrast_pairs(Theme.load(profile), handle.read())
+    assert pairs
+    assert [pair for pair in pairs if not pair.passes] == []
+
+
+@pytest.mark.parametrize("profile", list_profiles())
+def test_yazi_full_state_snapshots(profile):
+    with open(path("theme/snapshots/yazi", f"{profile}.toml"), encoding="utf-8") as handle:
+        snapshot = handle.read()
+    assert _yazi_theme(Theme.load(profile)) == snapshot
+
+
+@pytest.mark.parametrize("profile", list_profiles())
+def test_generated_contrast_matrix_covers_semantics_apps_and_raw_ansi(profile):
+    with open(path("theme/contrast", f"{profile}.md"), encoding="utf-8") as handle:
+        matrix = handle.read()
+    assert f"# Contrast matrix: {Theme.load(profile).name}" in matrix
+    assert "| semantic |" in matrix
+    assert "| gtk |" in matrix
+    assert "| kde |" in matrix
+    assert "| obsidian |" in matrix
+    assert "| yazi |" in matrix
+    assert "| ansi |" in matrix
+    assert "| FAIL |" not in matrix
+
+
+def test_obsidian_preserves_alpha_expressions():
+    theme = Theme.load("mocha")
+    variables = "\n".join(obsidian_variables(theme, obsidian_derived(theme)))
+    assert "--selection-background: rgba(242, 205, 205, 0.3);" in variables
+    assert "--background-modifier-hover: rgba(242, 205, 205, 0.1);" in variables
 
 
 def test_replace_between_requires_markers():
@@ -298,5 +342,5 @@ def test_theme_lives_under_dotfile():
 
     commands = typer.main.get_command(app).commands
     assert "theme" in commands
-    expected = {"sync", "dry", "status", "preview", "switch", "outputs"}
+    expected = {"sync", "dry", "status", "preview", "switch", "outputs", "check", "contrast"}
     assert expected <= set(commands["theme"].commands)

@@ -1,7 +1,5 @@
-import sys
-
-from tools.theme import oklab
-from tools.theme.model import ANSI, COLOR_TABLES, FONT_SIZES, RAMP_FILE, load_map, load_toml
+from tools.theme import contrast, oklab, yazi
+from tools.theme.model import COLOR_TABLES, FONT_SIZES, Theme, list_profiles, load_map, path
 
 
 def _leaves(table):
@@ -12,66 +10,52 @@ def _leaves(table):
             yield key, value
 
 
-def _expressions(theme):
+def _check_expressions(theme, problems):
     for name in COLOR_TABLES:
-        for key, value in _leaves(theme.data.get(name, {})):
-            yield f"[{name}] {key}", value
+        for key, expression in _leaves(theme.data.get(name, {})):
+            try:
+                theme.hex(expression)
+            except SystemExit as error:
+                problems.append(f"[{name}] {key} -> {error}")
 
-    for key, value in load_map("gtk")["colors"].items():
-        yield f"maps/gtk.toml {key}", value
+    for key, expression in load_map("gtk")["colors"].items():
+        try:
+            theme.mapped_color("kde", expression)
+        except SystemExit as error:
+            problems.append(f"maps/gtk.toml {key} -> {error}")
 
-    for key, value in load_map("nvim")["colors"].items():
-        yield f"maps/nvim.toml {key}", value
+    for key, expression in load_map("nvim")["colors"].items():
+        try:
+            theme.hex(expression)
+        except SystemExit as error:
+            problems.append(f"maps/nvim.toml {key} -> {error}")
 
     obsidian = load_map("obsidian")
-    yield "maps/obsidian.toml [derived] source", obsidian["derived"]["source"]
+    expressions = [("[derived] source", obsidian["derived"]["source"])]
     for key, value in obsidian["variables"].items():
         if isinstance(value, str):
-            yield f"maps/obsidian.toml {key}", value
+            expressions.append((key, value))
         elif "rgb" in value:
-            yield f"maps/obsidian.toml {key}", value["rgb"]
+            expressions.append((key, value["rgb"]))
         elif "color" in value:
-            yield f"maps/obsidian.toml {key}", value["color"]
-
-
-def _check_expressions(theme, problems):
-    for where, expression in _expressions(theme):
+            expressions.append((key, value["color"]))
+    for key, expression in expressions:
         try:
-            theme.color(expression)
+            theme.resolved(expression)
         except SystemExit as error:
-            problems.append(f"{where} -> {error}")
+            problems.append(f"maps/obsidian.toml {key} -> {error}")
 
-
-def _accents():
-    for name in ANSI:
-        if name not in ("black", "white"):
-            yield name
-            yield f"bright_{name}"
-
-
-def _check_contrast(theme, warnings):
-    floors = load_toml(RAMP_FILE)["contrast"]
-    background = theme.hex("bg")
-    checked = [("fg_on_bg", "fg"), ("muted_on_bg", "muted")]
-    checked += [("ansi_on_bg", name) for name in _accents()]
-    for floor, name in checked:
-        try:
-            value = theme.hex(name)
-        except SystemExit:
-            continue
-        ratio = oklab.contrast_ratio(value, background)
-        if ratio < floors[floor]:
-            warnings.append(f"{name} {value} on bg is {ratio:.2f}:1, under {floors[floor]}:1")
-
-
-def _check_eza_categories(theme, problems):
-    categories = theme.data.get("eza", {}).get("categories", {})
-    if not categories:
-        return
-    known = load_map("eza")["categories"]
-    for name in categories:
-        if name not in known:
-            problems.append(f"[eza.categories] '{name}' is not a group in maps/eza.toml")
+    template = _yazi_template()
+    problems.extend(yazi.schema_problems(template))
+    for state, style in yazi.styles(template):
+        for channel in ("fg", "bg"):
+            expression = style.get(channel)
+            if not expression or expression == "reset":
+                continue
+            try:
+                theme.hex(expression)
+            except SystemExit as error:
+                problems.append(f"maps/yazi.toml {state}.{channel} -> {error}")
 
 
 def _check_fonts(theme, problems):
@@ -89,15 +73,54 @@ def _check_fonts(theme, problems):
             problems.append(f"[sizes] '{name}' must be a number")
 
 
+def _check_lightness(theme, problems):
+    background = oklab.relative_luminance(theme.hex("ui.background"))
+    foreground = oklab.relative_luminance(theme.hex("ui.foreground"))
+    if theme.dark and background >= foreground:
+        problems.append("dark=true but ui.background is not darker than ui.foreground")
+    if not theme.dark and background <= foreground:
+        problems.append("dark=false but ui.background is not lighter than ui.foreground")
+
+
+def _yazi_template():
+    with open(path("theme/maps/yazi.toml"), encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _check_contrast(theme, problems):
+    for pair in contrast.required_pairs(theme, _yazi_template()):
+        if not pair.passes:
+            problems.append(
+                f"{pair.area}.{pair.state}: {pair.foreground} on {pair.background} is "
+                f"{pair.ratio:.2f}:1, under {pair.floor:.1f}:1"
+            )
+
+
 def validate(theme):
     problems = []
-    warnings = []
     _check_expressions(theme, problems)
-    _check_eza_categories(theme, problems)
     _check_fonts(theme, problems)
-    _check_contrast(theme, warnings)
-    for warning in warnings:
-        print(f"dotfile theme: {theme.profile}: {warning}", file=sys.stderr)
+    _check_lightness(theme, problems)
+    _check_contrast(theme, problems)
     if problems:
         listed = "\n".join(f"  {problem}" for problem in problems)
         raise SystemExit(f"dotfile theme: profile '{theme.profile}' is not usable:\n{listed}")
+
+
+def validate_all():
+    themes = [Theme.load(name) for name in list_profiles()]
+    names = {}
+    problems = []
+    for theme in themes:
+        if theme.name in names:
+            problems.append(
+                f"duplicate display name {theme.name!r}: {names[theme.name]}, {theme.profile}"
+            )
+        names[theme.name] = theme.profile
+        try:
+            validate(theme)
+        except SystemExit as error:
+            problems.append(str(error))
+    if problems:
+        raise SystemExit("dotfile theme: profiles are not usable:\n" + "\n".join(problems))
+    return themes

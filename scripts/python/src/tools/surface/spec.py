@@ -124,6 +124,7 @@ VALUES = {
     "dotfile system diff": {"path": call("system-files", "system file")},
     "dotfile system add": {"path": files(), "--pkg": PACKAGE, "--group": GROUPS},
     "dotfile theme preview": {"profile": call("theme-profiles", "theme profile")},
+    "dotfile theme contrast": {"profile": call("theme-profiles", "theme profile")},
     "dotfile theme switch": {
         "profile": call("theme-profiles", "theme profile"),
         "scope": call("theme-scopes", "scope"),

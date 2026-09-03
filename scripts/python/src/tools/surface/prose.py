@@ -62,6 +62,8 @@ COMMANDS = {
     ),
     "dotfile theme preview": "Previews a profile's palette, roles, fonts, and terminal colors.",
     "dotfile theme switch": "Assigns a profile globally, to a group, or to a package.",
+    "dotfile theme check": "Validates every profile and resolved application color pair.",
+    "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
     "dotfile theme outputs": "Prints the files owned by the theme generator.",
     "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
     "dotfmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",

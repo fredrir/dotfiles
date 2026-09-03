@@ -21,4 +21,9 @@
 [selection_foregrounds]
 "ForegroundActive"   = "selection_fg"
 "ForegroundInactive" = "selection_fg"
+"ForegroundLink"     = "selection_fg"
+"ForegroundNegative" = "selection_fg"
+"ForegroundNeutral"  = "selection_fg"
 "ForegroundNormal"   = "selection_fg"
+"ForegroundPositive" = "selection_fg"
+"ForegroundVisited"  = "selection_fg"

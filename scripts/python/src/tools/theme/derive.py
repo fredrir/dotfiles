@@ -2,10 +2,11 @@ import re
 
 from tools.theme import oklab
 
-CONTRAST = "contrast("
 INTEGER = re.compile(r"[+-]?\d+")
 PERCENT = re.compile(r"\d+(\.\d+)?")
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
+BACKGROUND_NAMES = ("bg", "background", "ui.background")
+FOREGROUND_NAMES = ("fg", "foreground", "ui.foreground")
 
 
 class Resolved:
@@ -23,9 +24,9 @@ class _Scope:
     def named(self, name):
         if HEX.fullmatch(name):
             return name.lower()
-        if name == "bg":
+        if name in BACKGROUND_NAMES:
             return self.background
-        if name == "fg":
+        if name in FOREGROUND_NAMES:
             return self.foreground
         return self.lookup(name)
 
@@ -41,23 +42,57 @@ def _resolve(expression, scope):
 
 
 def _color(head, step, expression, scope):
-    inner = _contrast_argument(head)
-    if inner is not None:
-        return _contrast(inner, step, expression, scope)
+    function = _function(head)
+    if function is not None:
+        name, arguments = function
+        return _derived(name, arguments, step, expression, scope)
     if "~" in head:
         return _mixed(head, step, expression, scope)
     return _ladder(head, step, expression, scope)
 
 
-def _contrast(inner, step, expression, scope):
+def _derived(name, arguments, step, expression, scope):
     if step is not None:
-        raise SystemExit(f"contrast() takes no ladder step: {expression}")
-    resolved = _resolve(inner, scope)
+        raise SystemExit(f"{name}() takes no ladder step: {expression}")
+    if name == "contrast":
+        if len(arguments) != 1:
+            raise SystemExit(f"contrast() takes one color: {expression}")
+        return _on(arguments[0], 4.5, expression, scope)
+    if name == "on":
+        if len(arguments) not in (1, 2):
+            raise SystemExit(f"on() takes a color and optional floor: {expression}")
+        floor = _floor(arguments[1], expression) if len(arguments) == 2 else 4.5
+        return _on(arguments[0], floor, expression, scope)
+    if name in ("readable", "visible"):
+        if len(arguments) not in (2, 3):
+            raise SystemExit(f"{name}() takes color, background, and optional floor: {expression}")
+        floor = _floor(arguments[2], expression) if len(arguments) == 3 else 4.5
+        color = _opaque(arguments[0], expression, scope)
+        against = _opaque(arguments[1], expression, scope)
+        return oklab.ensure_contrast(color, against, floor)
+    raise SystemExit(f"unknown color function '{name}': {expression}")
+
+
+def _on(argument, floor, expression, scope):
+    fill = _opaque(argument, expression, scope)
+    return oklab.on_color(fill, scope.foreground, scope.background, floor)
+
+
+def _opaque(argument, expression, scope):
+    resolved = _resolve(argument, scope)
     if resolved.alpha is not None:
-        raise SystemExit(f"alpha belongs outside contrast(): {expression}")
-    on_background = oklab.contrast_ratio(scope.background, resolved.hex)
-    on_foreground = oklab.contrast_ratio(scope.foreground, resolved.hex)
-    return scope.background if on_background >= on_foreground else scope.foreground
+        raise SystemExit(f"alpha is not allowed inside a color function: {expression}")
+    return resolved.hex
+
+
+def _floor(value, expression):
+    try:
+        floor = float(value)
+    except ValueError:
+        raise SystemExit(f"contrast floor must be a number: {expression}")
+    if floor < 1 or floor > 21:
+        raise SystemExit(f"contrast floor must be from 1 to 21: {expression}")
+    return floor
 
 
 def _mixed(pair, step, expression, scope):
@@ -73,9 +108,11 @@ def _mixed(pair, step, expression, scope):
 def _ladder(name, step, expression, scope):
     if step is None:
         return scope.named(name)
-    if name not in ("bg", "fg"):
-        raise SystemExit(f"ladder needs bg or fg: {expression} (write {name}~fg/{step})")
-    from_background = name == "bg"
+    if name not in (*BACKGROUND_NAMES, *FOREGROUND_NAMES):
+        raise SystemExit(
+            f"ladder needs background or foreground: {expression} (write {name}~foreground/{step})"
+        )
+    from_background = name in BACKGROUND_NAMES
     if from_background:
         start, other = scope.background, scope.foreground
     else:
@@ -91,10 +128,27 @@ def _amount(permille, darker_is_ahead):
     return amount
 
 
-def _contrast_argument(head):
-    if head.startswith(CONTRAST) and head.endswith(")"):
-        return head[len(CONTRAST) : -1]
-    return None
+def _function(head):
+    opening = head.find("(")
+    if opening < 1 or not head.endswith(")"):
+        return None
+    name = head[:opening].strip()
+    body = head[opening + 1 : -1]
+    arguments = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(body):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "," and depth == 0:
+            arguments.append(body[start:index].strip())
+            start = index + 1
+    arguments.append(body[start:].strip())
+    if not body.strip() or not all(arguments):
+        raise SystemExit(f"empty color function argument: {head}")
+    return name, arguments
 
 
 def _parts(expression):

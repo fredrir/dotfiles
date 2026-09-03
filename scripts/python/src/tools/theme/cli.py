@@ -5,6 +5,7 @@ import typer
 
 from tools.core import menu
 from tools.core.console import die, out
+from tools.theme import contrast as contrast_report
 from tools.theme import preview
 from tools.theme.model import Theme, list_profiles, path
 from tools.theme.profiles import (
@@ -17,7 +18,7 @@ from tools.theme.profiles import (
 )
 from tools.theme.registry import EMITTERS
 from tools.theme.render import Output, ScopedOutput
-from tools.theme.validate import validate
+from tools.theme.validate import validate, validate_all
 
 PROG = "dotfile theme"
 
@@ -32,6 +33,7 @@ MENU = (
     "status",
     "preview",
     "dry",
+    "check",
 )
 
 MENU_HELP = (
@@ -40,6 +42,7 @@ MENU_HELP = (
     "resolved profiles, and drift",
     "look at a profile in full",
     "what sync would change",
+    "validate every profile and application pair",
 )
 
 EVERYTHING = "global"
@@ -56,10 +59,7 @@ def _owned():
 def _generate(dry):
     owned = _owned()
     selection = read_selection(owned)
-    themes = {}
-    for name in sorted({selection.for_path(target) for target in owned}):
-        themes[name] = Theme.load(name)
-        validate(themes[name])
+    themes = {theme.profile: theme for theme in validate_all()}
     output = Output(dry=dry)
     for emitter in EMITTERS:
         by_theme = {}
@@ -101,6 +101,8 @@ def _dispatch(picks, selection, owned, flow=""):
         dry()
     elif name == "preview":
         _render_profile(owned, selection, picks[-1].option)
+    elif name == "check":
+        check()
     elif name == "switch":
         block, key, everything = _scope_of(picks)
         _apply_switch(selection, block, key, everything, picks[-1].option)
@@ -128,6 +130,26 @@ def dry():
     preview.render_changes(changed, True)
     if changed:
         raise typer.Exit(1)
+
+
+@app.command(help="Validate every profile and resolved application color pair")
+def check():
+    themes = validate_all()
+    out(f"  {len(themes)} profiles valid")
+
+
+@app.command(help="Print a resolved contrast matrix")
+def contrast(
+    profile: Annotated[str, typer.Argument(help="Profile name; omit for every profile")] = "",
+):
+    names = [profile] if profile else list_profiles()
+    unknown = [name for name in names if name not in list_profiles()]
+    if unknown:
+        die(PROG, f"unknown profile '{unknown[0]}' (available: {', '.join(list_profiles())})")
+    with open(path("theme/maps/yazi.toml"), encoding="utf-8") as handle:
+        template = handle.read()
+    reports = [contrast_report.matrix(Theme.load(name), template).rstrip() for name in names]
+    out("\n\n".join(reports))
 
 
 @app.command(help="Show profile group resolvers, and drift")

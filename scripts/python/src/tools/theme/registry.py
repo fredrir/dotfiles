@@ -30,6 +30,16 @@ EMITTERS = [
     Emitter("nvim", emitters.emit_nvim, [emitters.NVIM_CATPPUCCIN]),
     Emitter("yazi", emitters.emit_yazi, [emitters.YAZI_THEME_FILE]),
     Emitter(
+        "yazi-snapshots",
+        emitters.emit_yazi_snapshots,
+        emitters.yazi_snapshot_outputs,
+    ),
+    Emitter(
+        "contrast-matrices",
+        emitters.emit_contrast_matrices,
+        emitters.contrast_outputs,
+    ),
+    Emitter(
         "gtk",
         emitters.emit_gtk,
         [f"linux/common/gtk/{version}/colors.css" for version in emitters.GTK_VERSIONS],

@@ -1,106 +1,91 @@
-[tokens]
-sunken      = "bg/-100"
-panel       = "bg/-50"
-surface     = "bg/150"
-surface_alt = "bg/250"
-border      = "bg/400"
-separator   = "bg/500"
-disabled    = "bg/700"
-muted       = "bg/900"
-accent      = "bright_blue"
-orange      = "bright_yellow~yellow/400"
-
 [roles]
 
 # fastfetch
-section_system   = "blue"
-section_hardware = "bright_yellow"
-section_desktop  = "magenta"
-section_network  = "green"
-separator        = "separator"
+section_system   = "ansi_blue_text_on_canvas"
+section_hardware = "bright_ansi_yellow_text_on_canvas"
+section_desktop  = "ansi_magenta_text_on_canvas"
+section_network  = "ansi_green_text_on_canvas"
+separator        = "border_on_canvas"
 
 # starship
-prompt_python   = "orange"
-prompt_git      = "green"
-prompt_dir      = "cyan"
-prompt_duration = "yellow"
-prompt_char     = "blue"
+prompt_python   = "bright_ansi_yellow_text_on_canvas"
+prompt_git      = "ansi_green_text_on_canvas"
+prompt_dir      = "ansi_cyan_text_on_canvas"
+prompt_duration = "ansi_yellow_text_on_canvas"
+prompt_char     = "ansi_blue_text_on_canvas"
 
-sudo = "red" # shell
+sudo = "error_text_on_canvas" # shell
 
 [terminal]
-foreground           = "fg"
-background           = "bg"
+foreground           = "text_on_canvas"
+background           = "canvas_bg"
 cursor               = "cursor"
 cursor_text          = "cursor_text"
-selection_foreground = "selection_fg"
-selection_background = "selection_bg"
-url                  = "bright_red"
-
-[yazi]
-primary = "magenta"
+selection_foreground = "on_primary"
+selection_background = "primary_fill"
+url                  = "info_text_on_canvas"
 
 [eza]
-fi = "muted" # fallback
-di = "blue"  # directories
-ex = "green" # executables
-ln = "cyan"  # symlinks
+fi = "muted_on_canvas" # fallback
+di = "ansi_blue_text_on_canvas"  # directories
+ex = "ansi_green_text_on_canvas" # executables
+ln = "ansi_cyan_text_on_canvas"  # symlinks
 
-"*.toml" = "orange"
-"*.json" = "yellow"
-"*.lock" = "separator"
-"*.sh"   = "green"
+"*.toml" = "bright_ansi_yellow_text_on_canvas"
+"*.json" = "ansi_yellow_text_on_canvas"
+"*.lock" = "border_on_canvas"
+"*.sh"   = "ansi_green_text_on_canvas"
 
 [eza.categories]
-image    = "magenta"
-video    = "bright_magenta"
-audio    = "cyan"
-archive  = "red"
-document = "orange"
-source   = "yellow"
-config   = "bright_yellow"
-markup   = "orange"
-data     = "bright_red"
-web      = "bright_yellow"
-temp     = "separator"
-compiled = "separator"
+image    = "ansi_magenta_text_on_canvas"
+video    = "bright_ansi_magenta_text_on_canvas"
+audio    = "ansi_cyan_text_on_canvas"
+archive  = "ansi_red_text_on_canvas"
+document = "bright_ansi_yellow_text_on_canvas"
+source   = "ansi_yellow_text_on_canvas"
+config   = "bright_ansi_yellow_text_on_canvas"
+markup   = "bright_ansi_yellow_text_on_canvas"
+data     = "bright_ansi_red_text_on_canvas"
+web      = "bright_ansi_yellow_text_on_canvas"
+temp     = "border_on_canvas"
+compiled = "border_on_canvas"
 
 [kde]
-accent = "bright_blue"
+accent = "primary_fill"
 
-window_bg   = "bg"
-window_alt  = "panel"
-button_bg   = "surface"
-button_alt  = "surface_alt"
-view_bg     = "bg"
-view_alt    = "panel"
-tooltip_bg  = "surface"
-tooltip_alt = "surface_alt"
-header_bg   = "panel"
-header_alt  = "bg"
+window_bg   = "canvas_bg"
+window_alt  = "panel_bg"
+button_bg   = "surface_fill"
+button_alt  = "panel_bg"
+view_bg     = "canvas_bg"
+view_alt    = "panel_bg"
+tooltip_bg  = "surface_fill"
+tooltip_alt = "panel_bg"
+header_bg   = "panel_bg"
+header_alt  = "canvas_bg"
 
-selection_bg = "magenta"
-selection_fg = "contrast(magenta)"
+selection_bg = "primary_fill"
+selection_fg = "on_primary"
 
-foreground = "fg"
-inactive   = "disabled"
-active     = "bright_blue"
-link       = "blue"
-visited    = "magenta"
-negative   = "red"
-neutral    = "bright_yellow"
-positive   = "green"
-decoration = "bright_blue"
+foreground = "ui.foreground"
+inactive   = "disabled_on_canvas"
+active     = "ui.primary"
+link       = "ansi.normal.blue"
+visited    = "ansi.normal.magenta"
+negative   = "ansi.normal.red"
+neutral    = "ansi.normal.yellow"
+positive   = "ansi.normal.green"
+decoration = "ui.primary"
 
 # window manager titlebar
-wm_active_bg      = "bg"
-wm_active_fg      = "fg"
-wm_active_blend   = "fg"
-wm_inactive_bg    = "panel"
-wm_inactive_fg    = "disabled"
-wm_inactive_blend = "disabled"
+wm_active_bg      = "canvas_bg"
+wm_active_fg      = "text_on_canvas"
+wm_active_blend   = "text_on_canvas"
+wm_inactive_bg    = "panel_bg"
+wm_inactive_fg    = "disabled_on_panel"
+wm_inactive_blend = "disabled_on_panel"
 
 [konsole]
-tab          = "bg"
-focus_border = "sunken"
-tab_activity = "fg"
+tab          = "canvas_bg"
+focus_border = "focus_ring"
+tab_activity = "text_on_canvas"

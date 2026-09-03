@@ -4,16 +4,16 @@
   "display": {
     "constants": [
       // theme:constants
-      "\u001b[1;38;2;129;161;193m", // blue #81a1c1
-      "\u001b[1;38;2;235;203;139m", // bright_yellow #ebcb8b
-      "\u001b[1;38;2;180;142;173m", // magenta #b48ead
-      "\u001b[1;38;2;163;190;140m", // green #a3be8c
-      "\u001b[38;2;127;128;142m" // separator #7f808e
+      "\u001b[1;38;2;129;161;193m", // ansi_blue_text_on_canvas #81a1c1
+      "\u001b[1;38;2;235;203;139m", // bright_ansi_yellow_text_on_canvas #ebcb8b
+      "\u001b[1;38;2;180;142;173m", // ansi_magenta_text_on_canvas #b48ead
+      "\u001b[1;38;2;163;190;140m", // ansi_green_text_on_canvas #a3be8c
+      "\u001b[38;2;97;98;121m" // border_on_canvas #616279
       // theme:constants:end
     ],
     "separator": "  ",
     "key": { "width": 14 },
-    "color": { "separator": "#7f808e" }, // theme:separator
+    "color": { "separator": "#616279" }, // theme:separator
     "size": { "binaryPrefix": "jedec", "ndigits": 0 },
     "percent": { "type": 9, "green": 50, "yellow": 80 }
   },

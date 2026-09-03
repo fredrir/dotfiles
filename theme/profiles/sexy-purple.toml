@@ -1,20 +1,14 @@
 name = "Sexy Purple"
 dark = true
 
-[colors.primary]
-background = "#15152b"
-foreground = "#ffffff"
-sidebar    = "#101020"
+[ui] # Mandatory
+background = "#15152b" # Main background / Secondary-Sidebar- Colors
+primary     = "#380d6a" # Active / Highlight / Primary- Colors
+accent      = "#101020" # Sidebar Background / Support- Colors
+surface     = "#313247" # Dimmed / Border- Colors
+foreground  = "#ffffff" # Text colors / brightest foreground
 
-[colors.cursor]
-cursor = "#ffffff"
-text   = "#15152b"
-
-[colors.selection]
-background = "#380d6a"
-text       = "#ffffff"
-
-[colors.normal]
+[ansi.normal] # Mandatory
 black   = "#3b4252"
 red     = "#bf616a"
 green   = "#a3be8c"
@@ -24,7 +18,7 @@ magenta = "#b48ead"
 cyan    = "#88c0d0"
 white   = "#e5e9f0"
 
-[colors.bright]
+[ansi.bright] # Mandatory
 black   = "#4c566a"
 red     = "#bf616a"
 green   = "#a3be8c"
