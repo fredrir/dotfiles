@@ -13,7 +13,11 @@ function M.apply_to_config(config)
   vtabs.apply_to_config(config, {
     dim_inactive_panes = true,
     backend = {
-      path = plugin_root .. "/backend/target/release/wez-vtabs",
+      -- every path travels with the split; the machine that runs it execs the first one it has
+      path = {
+        plugin_root .. "/backend/target/release/wez-vtabs",
+        "/home/fredrir/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs",
+      },
     },
     keys = {
       new_tab = false,
