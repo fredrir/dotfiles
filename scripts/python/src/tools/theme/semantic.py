@@ -4,7 +4,6 @@ from tools.theme import derive
 from tools.theme.schema import ANSI_KEYS
 
 _SEMANTIC_COLORS = {
-    # Primitive compatibility names. Their meaning is intentionally literal.
     "background": "ui.background",
     "primary": "ui.primary",
     "accent": "ui.accent",
@@ -16,7 +15,6 @@ _SEMANTIC_COLORS = {
     "warning": "ansi.normal.yellow",
     "success": "ansi.normal.green",
     "info": "ansi.normal.blue",
-    # Intent roles.
     "canvas_bg": "ui.background",
     "panel_bg": "ui.accent",
     "surface_fill": "ui.surface",

@@ -2,6 +2,7 @@ local wezterm = require "wezterm"
 local performance = require "ui.performance"
 local fonts = require "ui.fonts.fonts"
 local profiles = require "ui.colors.profiles"
+local theme = require "ui.theme"
 
 ---@type Config
 local ui_config = {
@@ -22,8 +23,8 @@ local ui_config = {
     brightness = 1,
   },
 
-  colors = profiles.active.colors,
-  color_schemes = profiles.profiles,
+  colors = theme.palette(profiles.active.colors),
+  color_schemes = theme.schemes(profiles.profiles),
   max_fps = performance.max_fps,
   front_end = performance.front_end,
   hyperlink_rules = performance.hyperlink_rules,

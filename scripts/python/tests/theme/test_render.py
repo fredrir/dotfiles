@@ -5,19 +5,18 @@ from types import SimpleNamespace
 import pytest
 
 from tools.theme import registry, yazi
-from tools.theme.emitters import (
-    WEZTERM_COLORS_DIR,
-    YAZI_THEME_FILE,
-    _yazi_theme,
-    emit_nvim,
-    emit_starship,
-    emit_wezterm,
-    emit_yazi,
-    obsidian_derived,
-    obsidian_variables,
-    wezterm_font_roles,
-    wezterm_outputs,
-)
+from tools.theme.emitters.nvim import emit as emit_nvim
+from tools.theme.emitters.obsidian import derived as obsidian_derived
+from tools.theme.emitters.obsidian import variables as obsidian_variables
+from tools.theme.emitters.starship import emit as emit_starship
+from tools.theme.emitters.wezterm import COLORS_DIR as WEZTERM_COLORS_DIR
+from tools.theme.emitters.wezterm import _lua_key
+from tools.theme.emitters.wezterm import emit as emit_wezterm
+from tools.theme.emitters.wezterm import font_roles as wezterm_font_roles
+from tools.theme.emitters.wezterm import outputs as wezterm_outputs
+from tools.theme.emitters.yazi import OUTPUT as YAZI_THEME_FILE
+from tools.theme.emitters.yazi import emit as emit_yazi
+from tools.theme.emitters.yazi import render as _yazi_theme
 from tools.theme.model import Theme, list_profiles, path
 from tools.theme.render import replace_between, replace_ini_section, set_ini_key
 
@@ -132,24 +131,28 @@ def test_wezterm_declared_outputs_match_the_files_it_writes():
     assert declared == set(out.files)
 
 
-def test_a_wezterm_scheme_matches_the_documented_colors_schema():
+def test_a_wezterm_scheme_contains_the_canonical_profile_colors():
     out = Written()
-    emit_wezterm(Theme.load("mocha"), out)
-    scheme = out.files["colors/mocha.lua"]
-    assert '  name = "Catppuccin Mocha",' in scheme
-    assert '    background = "#1e1e2e",' in scheme
+    emit_wezterm(Theme.load("sexy-purple"), out)
+    scheme = out.files["colors/sexy-purple.lua"]
+    assert '  name = "Sexy Purple",' in scheme
+    assert '    background = "#15152b",' in scheme
+    assert '    primary = "#380d6a",' in scheme
+    assert '    accent = "#101020",' in scheme
+    assert '    surface = "#313247",' in scheme
+    assert '    foreground = "#ffffff",' in scheme
     assert '    ansi = { "' in scheme
     assert '    brights = { "' in scheme
     assert scheme.endswith("}\n")
 
 
-def test_a_wezterm_scheme_carries_only_the_keys_wezterm_reads():
+def test_a_wezterm_scheme_carries_only_profile_color_data():
     out = Written()
     emit_wezterm(Theme.load("mocha"), out)
     scheme = out.files["colors/mocha.lua"]
-    assert "palette" not in scheme
     assert "dark" not in scheme
-    assert "tab_bar" not in scheme
+    assert "cursor_bg" not in scheme
+    assert "selection_bg" not in scheme
 
 
 def test_the_wezterm_profiles_file_is_typed_inert_data_with_an_active_profile():
@@ -179,10 +182,12 @@ def test_wezterm_puts_all_generated_type_definitions_in_the_types_directory():
     emit_wezterm(Theme.load("mocha"), out)
 
     generated_types = out.files["../_types/_dotfile-theme.lua"]
+    assert "---@class DotfileThemeColors" in generated_types
+    assert "---@field primary string" in generated_types
     assert "---@class ColorProfile" in generated_types
     assert (
-        "---@alias DotfileColorProfiles { active: ColorProfile, profiles: table<string, Palette> }"
-        in generated_types
+        "---@alias DotfileColorProfiles { active: ColorProfile, "
+        "profiles: table<string, DotfileThemeColors> }" in generated_types
     )
     assert "---@class DotfileColorProfiles" not in generated_types
     assert "---@class FontFamily" in generated_types
@@ -227,8 +232,6 @@ def test_generated_wezterm_runtime_files_are_inert_data():
 
 
 def test_a_wezterm_key_that_is_not_a_lua_identifier_is_bracketed():
-    from tools.theme.emitters import _lua_key
-
     assert _lua_key("bright_black") == "bright_black"
     assert _lua_key("*.toml") == '["*.toml"]'
     assert _lua_key("end") == '["end"]'

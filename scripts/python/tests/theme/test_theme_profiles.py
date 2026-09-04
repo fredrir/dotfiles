@@ -135,9 +135,9 @@ def test_unknown_profile_names_the_available_ones():
 
 
 def test_hex_remapping_lets_the_active_profile_name_a_shared_hex():
-    from tools.theme.emitters import _hex_to_name
+    from tools.theme.emitters._shared import hex_to_name
 
-    mapping = _hex_to_name(Theme.load("mocha"))
+    mapping = hex_to_name(Theme.load("mocha"))
     assert mapping["1e1e2e"] == "background"
     assert mapping["f38ba8"] == "red"
     assert mapping["bf616a"] == "red"

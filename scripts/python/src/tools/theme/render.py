@@ -79,7 +79,6 @@ class ScopedOutput:
 
 
 def replace_between(text, name, new_lines, indent=None):
-    """Swap the block between two markers, indented the way the marker is."""
     start = f"theme:{name}"
     end = f"theme:{name}:end"
     lines = text.split("\n")

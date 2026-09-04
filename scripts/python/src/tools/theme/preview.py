@@ -6,7 +6,7 @@ from rich.text import Text
 
 from tools.core.console import colors_enabled, stdout
 from tools.core.typography import block_text
-from tools.theme.emitters import ANSI_NORMAL
+from tools.theme.model import ANSI as ANSI_NORMAL
 from tools.theme.model import Theme
 
 CARD_WIDTH = 56

@@ -1,7 +1,17 @@
-import os
-
-from tools.theme import emitters
-from tools.theme.model import ROOT
+from tools.theme.emitters import (
+    contrast,
+    fastfetch,
+    gtk,
+    nvim,
+    obsidian,
+    panel_colorizer,
+    plasma,
+    quicklaunch,
+    starship,
+    wezterm,
+    yazi,
+    zsh,
+)
 
 
 class Emitter:
@@ -16,51 +26,31 @@ class Emitter:
         return list(produced)
 
 
-def _panel_preset_outputs():
-    return [os.path.relpath(target, ROOT) for target in emitters.panel_preset_files()]
-
-
 EMITTERS = [
-    Emitter("wezterm", emitters.emit_wezterm, emitters.wezterm_outputs),
-    Emitter("fastfetch-config", emitters.emit_fastfetch_config, emitters.FASTFETCH_CONFIGS),
-    Emitter("fastfetch-logo", emitters.emit_fastfetch_logo, emitters.FASTFETCH_LOGOS),
-    Emitter("starship", emitters.emit_starship, ["shared/starship/starship.toml"]),
-    Emitter("zsh", emitters.emit_zsh, ["shared/zsh/conf.d/03-theme.zsh"]),
-    Emitter("obsidian", emitters.emit_obsidian, [f"{emitters.OBSIDIAN_DIR}/theme.css"]),
-    Emitter("nvim", emitters.emit_nvim, [emitters.NVIM_CATPPUCCIN]),
-    Emitter("yazi", emitters.emit_yazi, [emitters.YAZI_THEME_FILE]),
-    Emitter(
-        "yazi-snapshots",
-        emitters.emit_yazi_snapshots,
-        emitters.yazi_snapshot_outputs,
-    ),
-    Emitter(
-        "contrast-matrices",
-        emitters.emit_contrast_matrices,
-        emitters.contrast_outputs,
-    ),
-    Emitter(
-        "gtk",
-        emitters.emit_gtk,
-        [f"linux/common/gtk/{version}/colors.css" for version in emitters.GTK_VERSIONS],
-    ),
-    Emitter(
-        "gtk-settings",
-        emitters.emit_gtk_settings,
-        [f"linux/common/gtk/{version}/settings.ini" for version in emitters.GTK_VERSIONS],
-    ),
-    Emitter("quicklaunch", emitters.emit_quicklaunch, ["linux/common/quicklaunch/config.toml"]),
-    Emitter("panel-presets", emitters.emit_panel_presets, _panel_preset_outputs),
+    Emitter("wezterm", wezterm.emit, wezterm.outputs),
+    Emitter("fastfetch-config", fastfetch.emit_config, fastfetch.CONFIGS),
+    Emitter("fastfetch-logo", fastfetch.emit_logo, fastfetch.LOGOS),
+    Emitter("starship", starship.emit, [starship.OUTPUT]),
+    Emitter("zsh", zsh.emit, [zsh.OUTPUT]),
+    Emitter("obsidian", obsidian.emit, [obsidian.OUTPUT]),
+    Emitter("nvim", nvim.emit, [nvim.OUTPUT]),
+    Emitter("yazi", yazi.emit, [yazi.OUTPUT]),
+    Emitter("yazi-snapshots", yazi.emit_snapshots, yazi.snapshot_outputs),
+    Emitter("contrast-matrices", contrast.emit, contrast.outputs),
+    Emitter("gtk", gtk.emit_colors, gtk.color_outputs),
+    Emitter("gtk-settings", gtk.emit_settings, gtk.settings_outputs),
+    Emitter("quicklaunch", quicklaunch.emit, [quicklaunch.OUTPUT]),
+    Emitter("panel-presets", panel_colorizer.emit, panel_colorizer.outputs),
     Emitter(
         "kde-colorscheme",
-        emitters.emit_kde_colorscheme,
-        ["linux/kde/plasma/kdeglobals"],
+        plasma.emit_colorscheme,
+        [plasma.KDEGLOBALS],
         staged=False,
     ),
     Emitter(
         "desktop-appletsrc",
-        emitters.emit_desktop_appletsrc,
-        ["linux/kde/plasma/plasma-org.kde.plasma.desktop-appletsrc"],
+        plasma.emit_desktop_appletsrc,
+        [plasma.DESKTOP_APPLETSRC],
         staged=False,
     ),
 ]

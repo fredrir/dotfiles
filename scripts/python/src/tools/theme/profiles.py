@@ -214,8 +214,6 @@ def _indent_of(lines, span):
 
 
 def _save(lines):
-    # The only write to this file, and so the only place the `=` column can
-    # be settled -- by `dotfmt`, the way every other generated `.dotfile` is.
     write_atomic(SELECTION_FILE, formatted("\n".join(lines) + "\n", SELECTION_FILE))
 
 

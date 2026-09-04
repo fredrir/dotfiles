@@ -62,7 +62,6 @@ def to_oklab(value):
 def from_oklab(L, a, b):
     channels = _oklab_to_srgb(L, a, b)
     if not _in_gamut(channels):
-        # Desaturate towards the L axis rather than clipping, so hue survives.
         low, high = 0.0, 1.0
         for _ in range(GAMUT_STEPS):
             scale = (low + high) / 2
@@ -96,7 +95,6 @@ def is_dark(background, foreground):
 
 
 def on_color(fill, foreground, background, floor=4.5):
-    """Choose a deterministic readable anchor for text placed on ``fill``."""
     for candidate in (foreground, background):
         if contrast_ratio(candidate, fill) >= floor:
             return candidate.lower()
@@ -107,7 +105,6 @@ def on_color(fill, foreground, background, floor=4.5):
 
 
 def ensure_contrast(seed, against, floor):
-    """Move only as far along OKLab lightness as needed to meet ``floor``."""
     if contrast_ratio(seed, against) >= floor:
         return seed.lower()
 
