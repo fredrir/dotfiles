@@ -37,6 +37,7 @@ shared {
   ?kondo
   openssl
   ?shfmt
+  ?shellcheck
   ?biome
   ?ruff
   ?stylua

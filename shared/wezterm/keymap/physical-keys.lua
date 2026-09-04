@@ -26,6 +26,16 @@ if platform.is_mac then
       },
     },
   })
+  extend(physical_keys, { -- CMD+H on mac should act the same as CTRL+R
+    {
+      key = "phys:h",
+      mods = "CMD",
+      action = act.SendKey {
+        key = "h",
+        mods = "CTRL",
+      },
+    },
+  })
 end
 
 return physical_keys

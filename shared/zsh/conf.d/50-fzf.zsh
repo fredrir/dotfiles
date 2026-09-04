@@ -32,9 +32,9 @@ if command -v atuin >/dev/null; then
   export ATUIN_NOBIND=true
   eval "$(atuin init zsh)"
 
-  bindkey -M emacs '^R' atuin-search
-  bindkey -M viins '^R' atuin-search-viins:q
-  bindkey -M vicmd '^R' atuin-search-vicmd
+  bindkey -M emacs '^H' atuin-search
+  bindkey -M viins '^H' atuin-search-viins:q
+  bindkey -M vicmd '^H' atuin-search-vicmd
 fi
 
 command -v fzf >/dev/null || return 0

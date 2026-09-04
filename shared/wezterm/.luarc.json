@@ -5,7 +5,8 @@
   "runtime.pathStrict": true,
   "workspace.library": [
     "${workspaceFolder}/lua_modules/share/lua/5.5/wezterm/types",
-    "${workspaceFolder}/_types"
+    "${workspaceFolder}/_types",
+    "${env:HOME}/projects/wez-plugins/vertical-tabs/plugin/types"
   ],
   "workspace.ignoreDir": [".luarocks"],
   "workspace.checkThirdParty": false,

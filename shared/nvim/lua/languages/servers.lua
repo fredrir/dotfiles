@@ -6,6 +6,7 @@ local M = {}
 function M.configs()
   ---@type table<string, vim.lsp.Config>
   local servers = {
+    bashls = {},
     rust_analyzer = {},
     ts_ls = {
       settings = {

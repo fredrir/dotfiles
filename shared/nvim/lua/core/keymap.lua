@@ -34,22 +34,20 @@ map("t", "<C-j>", "<C-\\><C-n><C-w>j", { desc = "Move to lower window" })
 map("t", "<C-k>", "<C-\\><C-n><C-w>k", { desc = "Move to upper window" })
 map("t", "<C-l>", "<C-\\><C-n><C-w>l", { desc = "Move to right window" })
 
--- Files --
+-- Neotree --
 
 map("n", "<leader>e", "<cmd>Neotree toggle<CR>", { desc = "File [E]xplorer" })
-map("n", "\\", "<cmd>Neotree reveal<CR>", { desc = "NeoTree reveal", silent = true })
-map("n", "-", "<cmd>Oil<CR>", { desc = "Open parent directory" })
+map("n", "'", "<cmd>Neotree focus<CR>", { desc = "Focus NeoTree" })
 
 M.neo_tree_window = {
   ["\\"] = "close_window",
+
+  ["'"] = function()
+    vim.cmd "wincmd p"
+  end,
 }
 
-map("n", "'", "<cmd>Neotree toggle<CR>", {
-  desc = "Toggle NeoTree",
-  silent = true,
-})
-
-M.neo_tree_window["'"] = "close_window"
+map("n", "§", "<cmd>Neotree focus<CR>", { desc = "Toggle NeoTree focus" })
 
 -- Navigation --
 
@@ -59,6 +57,8 @@ map("n", "<leader>n<Up>", "<cmd>leftabove new<CR>")
 map("n", "<leader>n<Down>", "<cmd>rightbelow new<CR>")
 
 map("n", "<leader>nq", "<cmd>close<CR>", { desc = "Close current window" })
+
+map("n", "-", "<cmd>Oil<CR>", { desc = "Open parent directory" })
 
 -- Diagnostics --
 
@@ -245,7 +245,7 @@ function M.gitsigns(bufnr)
 end
 
 local lazygit
-map("n", "<leader>gg", function()
+map("n", "<leader>g", function()
   if not lazygit then
     local Terminal = require("toggleterm.terminal").Terminal
     lazygit = Terminal:new {

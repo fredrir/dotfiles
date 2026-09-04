@@ -2,7 +2,7 @@ local tooling = require "languages.tooling"
 
 local M = {}
 
-local served_by = { biomejs = "biome" }
+local served_by = { biomejs = "biome", shellcheck = "bashls" }
 
 local inject = {
   -- yamllint looks for `.yamllint*` in the working directory and then
@@ -23,6 +23,9 @@ local inject = {
 }
 
 M.by_filetype = {
+  sh = { "shellcheck" },
+  bash = { "shellcheck" },
+  zsh = { "zsh" },
   python = { "ruff" },
   yaml = { "yamllint" },
   sql = { "sqlfluff" },

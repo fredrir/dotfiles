@@ -16,6 +16,7 @@ local parsers = {
     "vim",
     "vimdoc",
     "yaml",
+    "zsh",
   },
   full = {
     "bash",
@@ -37,6 +38,7 @@ local parsers = {
     "vim",
     "vimdoc",
     "yaml",
+    "zsh",
   },
 }
 
