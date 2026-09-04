@@ -1,5 +1,33 @@
 local wezterm = require "wezterm"
 local platform = require "utils.platform"
+local host = require "domain.hosts" ---@type Hosts
+local hwire_session = require "utils.hwire-session"
+
+---@param cwd Url
+---@param pane Pane
+---@return boolean
+local function open_remote(cwd, pane)
+  if not hwire_session.for_domain(pane:get_domain_name()) then
+    return false
+  end
+
+  ---@type string
+  local hostname = host.target.hostname
+  assert(type(hostname) == "string")
+  local authority = "ssh-remote+" .. hostname
+  local command = ("code --remote %s %s"):format(
+    wezterm.shell_quote_arg(authority),
+    wezterm.shell_quote_arg(cwd.file_path)
+  )
+
+  wezterm.background_child_process {
+    "/bin/zsh",
+    "-lic",
+    command,
+  }
+
+  return true
+end
 
 local open_vscode = wezterm.action_callback(function(_, pane)
   local cwd = pane:get_current_working_dir()
@@ -8,7 +36,9 @@ local open_vscode = wezterm.action_callback(function(_, pane)
     return
   end
 
-  if platform.is_mac then
+  if open_remote(cwd, pane) then
+    return
+  elseif platform.is_mac then
     wezterm.background_child_process {
       "/usr/bin/open",
       "-a",
