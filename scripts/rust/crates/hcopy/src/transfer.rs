@@ -13,8 +13,21 @@ const FORMAT: &str = "--out-format=%i|%n|%l";
 const GITIGNORE: &str = "--filter=:- .gitignore";
 const TRANSPORT: &str = "ssh -o ConnectTimeout=8";
 
-// Both ends of one copy, each already resolved to where the item itself
-// lands rather than to the directory it lands in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemoteArguments {
+    Protected,
+    ShellQuoted,
+}
+
+impl RemoteArguments {
+    fn path(self, path: &str) -> String {
+        match self {
+            Self::Protected => path.to_string(),
+            Self::ShellQuoted => place::quote(path),
+        }
+    }
+}
+
 pub struct Plan {
     pub direction: Direction,
     pub host: String,
@@ -44,19 +57,19 @@ impl Outcome {
 }
 
 impl Plan {
-    pub fn source(&self) -> String {
+    fn source(&self, remote_arguments: RemoteArguments) -> String {
         match self.direction {
             Direction::Push => self.local.to_string_lossy().into_owned(),
-            Direction::Pull => format!("{}:{}", self.host, place::quote(&self.remote)),
+            Direction::Pull => format!("{}:{}", self.host, remote_arguments.path(&self.remote)),
         }
     }
 
-    pub fn destination(&self) -> String {
+    fn destination(&self, remote_arguments: RemoteArguments) -> String {
         match self.direction {
             Direction::Push => format!(
                 "{}:{}/",
                 self.host,
-                place::quote(place::parent_of(&self.remote))
+                remote_arguments.path(place::parent_of(&self.remote))
             ),
             Direction::Pull => format!("{}/", self.local_parent().to_string_lossy()),
         }
@@ -78,7 +91,7 @@ impl Plan {
         )
     }
 
-    pub fn arguments(&self) -> Vec<String> {
+    fn arguments(&self, remote_arguments: RemoteArguments) -> Vec<String> {
         let mut found = vec![
             "-a".to_string(),
             "-i".to_string(),
@@ -86,6 +99,9 @@ impl Plan {
             "-e".to_string(),
             TRANSPORT.to_string(),
         ];
+        if remote_arguments == RemoteArguments::Protected {
+            found.push("--no-old-args".into());
+        }
         if self.dry_run {
             found.push("-n".into());
         }
@@ -105,9 +121,37 @@ impl Plan {
             }
         }
         found.push("--".into());
-        found.push(self.source());
-        found.push(self.destination());
+        found.push(self.source(remote_arguments));
+        found.push(self.destination(remote_arguments));
         found
+    }
+}
+
+fn remote_arguments() -> Result<RemoteArguments, String> {
+    let output = Command::new(PROGRAM)
+        .arg("--help")
+        .output()
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => format!("{PROGRAM} is not installed"),
+            _ => format!("{PROGRAM}: {error}"),
+        })?;
+    if !output.status.success() {
+        return Err(explain(
+            &String::from_utf8_lossy(&output.stderr),
+            output.status.code(),
+        ));
+    }
+    Ok(remote_arguments_from_help(&output.stdout, &output.stderr))
+}
+
+fn remote_arguments_from_help(stdout: &[u8], stderr: &[u8]) -> RemoteArguments {
+    let supports_old_args = [stdout, stderr].into_iter().any(|text| {
+        text.split(u8::is_ascii_whitespace)
+            .any(|word| word == b"--old-args")
+    });
+    match supports_old_args {
+        true => RemoteArguments::Protected,
+        false => RemoteArguments::ShellQuoted,
     }
 }
 
@@ -122,8 +166,12 @@ pub fn excludes() -> Option<PathBuf> {
 
 pub fn run(plan: &Plan, mut progress: impl FnMut(&Outcome)) -> Result<Outcome, String> {
     let started = Instant::now();
+    let remote_arguments = remote_arguments()?;
     let mut child = Command::new(PROGRAM)
-        .args(plan.arguments())
+        .args(plan.arguments(remote_arguments))
+        // The selected argument encoding must not be changed behind our back.
+        .env_remove("RSYNC_OLD_ARGS")
+        .env_remove("RSYNC_PROTECT_ARGS")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -241,22 +289,72 @@ mod tests {
     }
 
     #[test]
-    fn a_push_sends_the_item_into_the_directory_above_it() {
+    fn an_old_push_client_shell_quotes_the_remote_directory() {
         let plan = plan(Direction::Push);
-        assert_eq!(plan.source(), "/Users/fredrir/projects/my-app");
-        assert_eq!(plan.destination(), "archie:'/home/fredrir/projects'/");
+        assert_eq!(
+            plan.source(RemoteArguments::ShellQuoted),
+            "/Users/fredrir/projects/my-app"
+        );
+        assert_eq!(
+            plan.destination(RemoteArguments::ShellQuoted),
+            "archie:'/home/fredrir/projects'/"
+        );
     }
 
     #[test]
-    fn a_pull_takes_the_item_and_lands_it_beside_its_neighbours() {
+    fn a_modern_pull_client_leaves_the_remote_path_for_rsync_to_protect() {
         let plan = plan(Direction::Pull);
-        assert_eq!(plan.source(), "archie:'/home/fredrir/projects/my-app'");
-        assert_eq!(plan.destination(), "/Users/fredrir/projects/");
+        assert_eq!(
+            plan.source(RemoteArguments::Protected),
+            "archie:/home/fredrir/projects/my-app"
+        );
+        assert_eq!(
+            plan.destination(RemoteArguments::Protected),
+            "/Users/fredrir/projects/"
+        );
+    }
+
+    #[test]
+    fn both_argument_styles_preserve_a_remote_path_that_needs_quoting() {
+        let mut plan = plan(Direction::Pull);
+        plan.remote = "/home/fredrir/odd path/it's here".into();
+        assert_eq!(
+            plan.source(RemoteArguments::Protected),
+            "archie:/home/fredrir/odd path/it's here"
+        );
+        assert_eq!(
+            plan.source(RemoteArguments::ShellQuoted),
+            "archie:'/home/fredrir/odd path/it'\\''s here'"
+        );
+    }
+
+    #[test]
+    fn the_client_help_selects_the_argument_contract_it_supports() {
+        assert_eq!(
+            remote_arguments_from_help(b"--old-args  disable modern protection\n", b""),
+            RemoteArguments::Protected
+        );
+        assert_eq!(
+            remote_arguments_from_help(b"openrsync options\n", b""),
+            RemoteArguments::ShellQuoted
+        );
+        assert_eq!(
+            remote_arguments_from_help(b"", b"usage: rsync --old-args\n"),
+            RemoteArguments::Protected
+        );
+    }
+
+    #[test]
+    fn a_modern_client_is_pinned_to_the_detected_contract() {
+        let modern = plan(Direction::Pull).arguments(RemoteArguments::Protected);
+        let legacy = plan(Direction::Pull).arguments(RemoteArguments::ShellQuoted);
+        assert!(modern.contains(&"--no-old-args".to_string()));
+        assert!(!legacy.contains(&"--no-old-args".to_string()));
     }
 
     #[test]
     fn the_default_transfer_skips_what_git_was_told_to_skip() {
-        let arguments = plan(Direction::Push).arguments();
+        let arguments = plan(Direction::Push).arguments(RemoteArguments::Protected);
         assert!(arguments.contains(&GITIGNORE.to_string()));
         assert!(arguments.contains(&"--exclude=.git/".to_string()));
     }
@@ -265,7 +363,7 @@ mod tests {
     fn all_turns_every_filter_off_at_once() {
         let mut plan = plan(Direction::Push);
         plan.all = true;
-        let arguments = plan.arguments();
+        let arguments = plan.arguments(RemoteArguments::Protected);
         assert!(!arguments.contains(&GITIGNORE.to_string()));
         assert!(!arguments.contains(&"--exclude=.git/".to_string()));
         assert!(
@@ -280,18 +378,29 @@ mod tests {
         for route in [Route::Cable, Route::Wifi, Route::Lan] {
             let mut plan = plan(Direction::Push);
             plan.route = Some(route);
-            assert!(plan.arguments().contains(&"-W".to_string()));
+            assert!(
+                plan.arguments(RemoteArguments::Protected)
+                    .contains(&"-W".to_string())
+            );
         }
         let mut plan = plan(Direction::Push);
         plan.route = Some(Route::Tailscale);
-        assert!(!plan.arguments().contains(&"-W".to_string()));
+        assert!(
+            !plan
+                .arguments(RemoteArguments::Protected)
+                .contains(&"-W".to_string())
+        );
         plan.route = None;
-        assert!(!plan.arguments().contains(&"-W".to_string()));
+        assert!(
+            !plan
+                .arguments(RemoteArguments::Protected)
+                .contains(&"-W".to_string())
+        );
     }
 
     #[test]
     fn the_paths_are_the_last_two_arguments_and_nothing_reads_them_as_flags() {
-        let arguments = plan(Direction::Push).arguments();
+        let arguments = plan(Direction::Push).arguments(RemoteArguments::ShellQuoted);
         let end = arguments.len();
         assert_eq!(arguments[end - 3], "--");
         assert_eq!(arguments[end - 2], "/Users/fredrir/projects/my-app");
@@ -303,7 +412,7 @@ mod tests {
         let mut plan = plan(Direction::Push);
         plan.dry_run = true;
         plan.checksum = true;
-        let arguments = plan.arguments();
+        let arguments = plan.arguments(RemoteArguments::Protected);
         assert!(arguments.contains(&"-n".to_string()));
         assert!(arguments.contains(&"-c".to_string()));
     }

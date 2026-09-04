@@ -1,4 +1,9 @@
 mux() {
+  mux_socket="$HOME/.local/share/wezterm/localmux.sock"
+  WEZTERM_UNIX_SOCKET="$mux_socket" wezterm cli --prefer-mux --no-auto-start "$@"
+}
+
+attach_mux() {
   emulate -L zsh
 
   local list=0
@@ -20,19 +25,19 @@ mux() {
   route=${domain##*-}
 
   case "$from:$to:$route" in
-    macie:archie:cable|macie:archie:wifi|macie:archie:tailscale|\
-    archie:macie:cable|archie:macie:wifi|archie:macie:tailscale)
-      session="v1:${from}:${to}:${route}:tls"
-      ;;
-    *)
-      print -ru2 "mux: refusing invalid TLS domain metadata: $from -> $domain"
-      return 1
-      ;;
+  macie:archie:cable | macie:archie:wifi | macie:archie:tailscale | \
+    archie:macie:cable | archie:macie:wifi | archie:macie:tailscale)
+    session="v1:${from}:${to}:${route}:tls"
+    ;;
+  *)
+    print -ru2 "mux: refusing invalid TLS domain metadata: $from -> $domain"
+    return 1
+    ;;
   esac
 
   case $to in
-    archie) home=/home/fredrir ;;
-    macie) home=/Users/fredrir ;;
+  archie) home=/home/fredrir ;;
+  macie) home=/Users/fredrir ;;
   esac
 
   if [[ -z $WEZTERM_PANE ]]; then
@@ -49,8 +54,8 @@ mux() {
   wezterm cli kill-pane --pane-id "$WEZTERM_PANE"
 }
 
-alias archie='mux archie'
-alias macie='mux macie'
+alias archie='attach_mux archie'
+alias macie='attach_mux macie'
 
 alias mtls="~/.config/wezterm/bin/wezterm-mtls"
 
@@ -63,8 +68,7 @@ WEZTERM_SHELL_SKIP_CWD=1
 for _wezterm_sh in \
   /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
   /etc/profile.d/wezterm.sh \
-  /usr/share/wezterm/shell-integration/wezterm.sh
-do
+  /usr/share/wezterm/shell-integration/wezterm.sh; do
   [[ -r $_wezterm_sh ]] || continue
   source "$_wezterm_sh"
   break
