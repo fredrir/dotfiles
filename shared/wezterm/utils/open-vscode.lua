@@ -1,13 +1,12 @@
 local wezterm = require "wezterm"
 local platform = require "utils.platform"
 local host = require "domain.hosts" ---@type Hosts
-local hwire_session = require "utils.hwire-session"
 
 ---@param cwd Url
 ---@param pane Pane
 ---@return boolean
 local function open_remote(cwd, pane)
-  if not hwire_session.for_domain(pane:get_domain_name()) then
+  if not platform.is_remote(pane) then
     return false
   end
 
