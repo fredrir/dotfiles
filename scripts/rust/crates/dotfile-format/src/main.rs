@@ -335,4 +335,5 @@ fn directories(count: usize) -> &'static str {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/main_tests.rs"]
 mod tests;

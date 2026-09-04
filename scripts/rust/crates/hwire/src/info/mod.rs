@@ -108,12 +108,5 @@ pub fn measurement_color(mode: ColorMode) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn explicit_color_modes_override_terminal_detection() {
-        assert!(ColorMode::Always.enabled(false));
-        assert!(!ColorMode::Never.enabled(true));
-    }
-}
+#[path = "../../tests/unit/info/mod_tests.rs"]
+mod tests;

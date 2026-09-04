@@ -26,7 +26,8 @@ nested_groups = ["llunde"]
 [groups]
 llunde     = ["llunde-infra", "llunde-backend", "llunde-frontend", "llunde-pyparser"]
 other      = ["sndbx"]
-dotfiles   = ["dotfiles", "wez-vertical-tabs"]
+dotfiles   = ["dotfiles"]
+wezterm    = ["wez-vertical-tabs"]
 distro-lab = ["distro-lab"]
 rif        = ["rif"]
 elvfast    = ["Elvfast"]
@@ -38,3 +39,4 @@ ArchTeX    = "ArchTeX/_Agents"
 llunde     = "llunde/_Agents"
 rif        = "rif/_Agents"
 elvfast    = "Elvfast/_Agents"
+wezterm    = "Dotfiles/Wezterm/Vertical Sidetabs/_Agents"

@@ -117,12 +117,5 @@ fn reason(stderr: &[u8], fallback: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stderr_reasons_win_over_the_fallback() {
-        assert_eq!(reason(b"no host\n", "fallback"), "no host");
-        assert_eq!(reason(b"", "fallback"), "fallback");
-    }
-}
+#[path = "../../tests/unit/info/ssh_info_tests.rs"]
+mod tests;

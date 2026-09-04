@@ -316,4 +316,5 @@ fn commit(path: &Path, content: &[u8]) -> io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/main_tests.rs"]
 mod tests;

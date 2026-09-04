@@ -269,35 +269,35 @@ fn every_tracked_dotfile_survives_a_round_trip() {
     let fixtures: [(&str, &str); 8] = [
         (
             "benchmarks/baselines.dotfile",
-            include_str!("../../../../../benchmarks/baselines.dotfile"),
+            include_str!("../../../../../../benchmarks/baselines.dotfile"),
         ),
         (
             "config/hosts.dotfile",
-            include_str!("../../../../../config/hosts.dotfile"),
+            include_str!("../../../../../../config/hosts.dotfile"),
         ),
         (
             "config/keys.dotfile",
-            include_str!("../../../../../config/keys.dotfile"),
+            include_str!("../../../../../../config/keys.dotfile"),
         ),
         (
             "config/packages.dotfile",
-            include_str!("../../../../../config/packages.dotfile"),
+            include_str!("../../../../../../config/packages.dotfile"),
         ),
         (
             "config/profiles.dotfile",
-            include_str!("../../../../../config/profiles.dotfile"),
+            include_str!("../../../../../../config/profiles.dotfile"),
         ),
         (
             "config/requirements.dotfile",
-            include_str!("../../../../../config/requirements.dotfile"),
+            include_str!("../../../../../../config/requirements.dotfile"),
         ),
         (
             "config/scan.dotfile",
-            include_str!("../../../../../config/scan.dotfile"),
+            include_str!("../../../../../../config/scan.dotfile"),
         ),
         (
             "config/targets.dotfile",
-            include_str!("../../../../../config/targets.dotfile"),
+            include_str!("../../../../../../config/targets.dotfile"),
         ),
     ];
     for (name, text) in fixtures {
@@ -870,7 +870,7 @@ fn the_chain_is_walked_once_per_directory_and_then_remembered() {
 fn the_shipped_config_lays_out_the_way_the_built_in_defaults_do() {
     // The compiled-in table and `shared/tools/dotfmt.dotfile` are two copies
     // of one decision, and the file is the one people read.
-    let shipped = include_str!("../../../../../shared/tools/dotfmt.dotfile");
+    let shipped = include_str!("../../../../../../shared/tools/dotfmt.dotfile");
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(config::NAME);
     std::fs::write(&path, shipped).unwrap();
@@ -893,7 +893,7 @@ fn the_shipped_config_picks_up_this_repository_and_leaves_its_scripts_alone() {
     // anything a formatter should touch. The four below it are what the
     // scoped `_empty_` entry exists for. If this test fails, look at
     // `shared/tools/dotfmt.dotfile` before looking here.
-    let shipped = include_str!("../../../../../shared/tools/dotfmt.dotfile");
+    let shipped = include_str!("../../../../../../shared/tools/dotfmt.dotfile");
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join(config::NAME);
     std::fs::write(&path, shipped).unwrap();

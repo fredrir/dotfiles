@@ -225,4 +225,5 @@ fn beside_target(target: &Path) -> PathBuf {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/main_tests.rs"]
 mod tests;
