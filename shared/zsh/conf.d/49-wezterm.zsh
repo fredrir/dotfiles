@@ -48,9 +48,7 @@ attach_mux() {
   local -a remote_shell
   remote_shell=(env -i "HOME=$home" "TERM=xterm-256color" "PATH=/usr/local/bin:/usr/bin:/bin" "HWIRE_SESSION=$session" zsh -l)
 
-  local pane
-  pane=$(wezterm cli spawn --domain-name "$domain" --cwd "$home" -- $remote_shell) || return
-  wezterm cli split-pane --pane-id "$WEZTERM_PANE" --move-pane-id "$pane" >/dev/null || return
+  wezterm cli spawn --domain-name "$domain" --cwd "$home" -- $remote_shell >/dev/null || return
   wezterm cli kill-pane --pane-id "$WEZTERM_PANE"
 }
 
