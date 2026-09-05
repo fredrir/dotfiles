@@ -62,8 +62,18 @@ server's bindings; `P Space` searches and executes actions.
 | Primary-F12 | Show which layer owns shortcuts |
 | Primary-Shift-F12 | Manually toggle routing for an unusual nested attachment |
 
-Copy mode: `v` character selection, `V` line, Ctrl-v rectangle, `/` search,
-`[`/`]` prompt boundaries, `{`/`}` command-output boundaries, Esc exit.
+| Copy-mode input / indicator | Action / value |
+| --- | --- |
+| Mouse drag / double-click / triple-click | Copy selection / word / line; keep highlight and scroll position |
+| `v`, `V`, Ctrl-v | Character / line / rectangular selection |
+| `y`, Enter | Copy selection and exit |
+| Esc, `q` | Exit |
+| `/`, `?` | Search forward / backward |
+| `g`, `G` | Oldest retained history / bottom |
+| `[`, `]` / `{`, `}` | Previous / next prompt / command-output boundary |
+| History limit | 100,000 lines per pane |
+| Copy-position indicator (tmux 3.6+) | Scroll offset / retained lines; `limit` shows capacity |
+
 The action palette's **Read actual input bytes** shows bytes delivered past
 WezTerm and tmux; keys consumed by an outer layer cannot appear there.
 
