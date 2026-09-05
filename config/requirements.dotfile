@@ -6,6 +6,7 @@
 
 shared {
   git
+  curl
   bash
   python3
   tmux

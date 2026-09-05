@@ -191,7 +191,7 @@ fn generation_is_deterministic_check_is_read_only_and_removed_sources_clear_rows
     put(
         root,
         "shared/tmux/keys.conf",
-        "bind -N 'A | <tag> & `tick`' '|' display-message hello\n",
+        "bind -N 'A | <tag> & `tick`' '|' display-message '['\n",
     );
     assert_eq!(generate(root, true).unwrap().len(), 9);
     assert!(!root.join("docs").exists());
@@ -204,6 +204,9 @@ fn generation_is_deterministic_check_is_read_only_and_removed_sources_clear_rows
     assert!(page.contains("<code>&#124;</code>"));
     assert!(page.contains("A &#124; &lt;tag&gt; &amp; &#96;tick&#96;"));
     assert!(page.contains("../../shared/tmux/keys.conf#L1"));
+    assert!(
+        page.contains("[<code>display-message '&#91;'</code>](../../shared/tmux/keys.conf#L1)")
+    );
     fs::remove_file(root.join("shared/tmux/keys.conf")).unwrap();
     assert_eq!(generate(root, true).unwrap().len(), 2);
     assert_eq!(fs::read_to_string(&path).unwrap(), page);
@@ -319,4 +322,103 @@ fn cli_check_reports_drift_and_finds_the_repository_from_a_child_directory() {
     assert!(run(&["--check"]).status.success());
     assert!(run(&["--command-dump"]).status.success());
     assert!(run(&["--completions", "zsh"]).status.success());
+}
+
+#[test]
+fn platform_tables_share_only_identical_bindings_and_keep_source_links() {
+    let dir = tempfile::tempdir().unwrap();
+    put(
+        dir.path(),
+        "shared/wezterm/keymap/init.lua",
+        r#"
+local platform = require 'utils.platform'
+local keys = {
+ {key='Tab', mods='CTRL', action=act.ActivateTabRelative(1)},
+ {key='x', mods=platform.is_mac and 'CMD' or 'CTRL', action=act.CloseCurrentTab},
+ {key='y', mods='ALT', action=platform.is_mac and act.CopyTo('Clipboard') or act.PasteFrom('Clipboard')},
+}
+if platform.is_mac then
+ if feature.mac then table.insert(keys, {key='s', mods='ALT', action=act.Nop}) end
+ table.insert(keys, {key='Backspace', mods='CTRL', action=act.Nop})
+else
+ if feature.linux then table.insert(keys, {key='s', mods='ALT', action=act.Nop}) end
+end
+return {keys=keys, disable_default_key_bindings=true}
+"#,
+    );
+    generate(dir.path(), false).unwrap();
+    let page = fs::read_to_string(dir.path().join("docs/keybinds/wezterm.md")).unwrap();
+    assert!(page.starts_with("# WezTerm Keybinds\n"));
+    assert!(page.contains("| Shared | [Shared Keybinds](#shared-keybinds) |"));
+    assert!(page.contains("| Mac | [Mac Keybinds](#mac-keybinds) |"));
+    assert!(
+        page.contains("| Linux / Windows | [Linux / Windows Keybinds](#linux--windows-keybinds) |")
+    );
+    assert_eq!(page.matches("| Key | Action | Description |").count(), 3);
+    assert!(!page.contains("| Context |"));
+    assert!(!page.contains("| Source |"));
+    assert!(!page.contains("| Setting |"));
+    let section = |name: &str| {
+        page.split(&format!("## {name} Keybinds\n"))
+            .nth(1)
+            .unwrap()
+            .split("\n## ")
+            .next()
+            .unwrap()
+    };
+    let shared = section("Shared");
+    let mac = section("Mac");
+    let linux = section("Linux / Windows");
+    assert_eq!(page.matches("<code>CTRL+Tab</code>").count(), 1);
+    assert!(shared.contains("<code>CTRL+Tab</code>"));
+    assert!(shared.contains("disable_default_key_bindings = true"));
+    assert!(shared.contains(
+        "[<code>act.ActivateTabRelative(1)</code>](../../shared/wezterm/keymap/init.lua#L4)"
+    ));
+    assert!(!shared.contains("<code>ALT+y</code>"));
+    assert!(mac.contains("<code>CMD+x</code>"));
+    assert!(linux.contains("<code>CTRL+x</code>"));
+    assert!(mac.contains("<code>ALT+y</code>"));
+    assert!(linux.contains("<code>ALT+y</code>"));
+    assert!(mac.contains("<code>CTRL+Backspace</code>"));
+    assert!(!linux.contains("<code>CTRL+Backspace</code>"));
+    assert!(!shared.contains("<code>ALT+s</code>"));
+    assert!(mac.contains("<code>feature.mac</code>"));
+    assert!(linux.contains("<code>feature.linux</code>"));
+    assert!(generate(dir.path(), true).unwrap().is_empty());
+}
+
+#[test]
+fn platform_sections_follow_source_directories_and_mac_command_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    put(
+        dir.path(),
+        "shared/vscode/keybindings.json",
+        r#"[
+        {"key":"cmd+x", "command":"macCommand"},
+        {"key":"ctrl+x", "command":"sharedCommand", "when":"editorFocus"}
+    ]"#,
+    );
+    put(
+        dir.path(),
+        "macos/vscode/keybindings.json",
+        r#"[{"key":"ctrl+k", "command":"macOverride"}]"#,
+    );
+    put(
+        dir.path(),
+        "linux/hyprland/hypr/keys.conf",
+        "bind = SUPER, Q, killactive\n",
+    );
+    generate(dir.path(), false).unwrap();
+    let page = fs::read_to_string(dir.path().join("docs/keybinds/vscode.md")).unwrap();
+    let (shared, mac) = page.split_once("## Mac Keybinds").unwrap();
+    assert!(shared.contains("<code>ctrl+x</code>"));
+    assert!(shared.contains("<code>editorFocus</code>"));
+    assert!(!shared.contains("<code>cmd+x</code>"));
+    assert!(mac.contains("<code>cmd+x</code>"));
+    assert!(mac.contains("<code>ctrl+k</code>"));
+    let linux = fs::read_to_string(dir.path().join("docs/keybinds/hyprland.md")).unwrap();
+    assert!(linux.contains("| Linux | [Linux Keybinds](#linux-keybinds) |"));
+    assert!(!linux.contains("Windows"));
+    assert!(!linux.contains("## Shared Keybinds"));
 }
