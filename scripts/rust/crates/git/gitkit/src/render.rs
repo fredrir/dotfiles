@@ -1,7 +1,5 @@
-use std::path::Path;
-
 use gix::bstr::BString;
-use workstation::Style;
+use workstation::{Style, path, text};
 
 use crate::survey::{Counts, Entry, Fate, Survey};
 
@@ -57,7 +55,7 @@ impl View {
         let mut heading = format!(
             "  {}  {}",
             self.style.bold(self.program),
-            self.style.teal(&shorten_home(&survey.root))
+            self.style.teal(&path::home_relative(&survey.root))
         );
         if !paths.is_empty() {
             let paths: Vec<String> = paths.iter().map(BString::to_string).collect();
@@ -114,7 +112,7 @@ impl View {
         };
         Row {
             label: entry.label,
-            path: shorten_front(&entry.shown(), room),
+            path: text::truncate_front(&entry.shown(), room),
             added,
             removed,
             note: entry.note().unwrap_or_default(),
@@ -156,27 +154,6 @@ fn count(lines: u32, sign: char) -> String {
         return String::new();
     }
     format!("{sign}{lines}")
-}
-
-fn shorten_front(path: &str, room: usize) -> String {
-    let length = path.chars().count();
-    if length <= room {
-        return path.to_string();
-    }
-    let tail: String = path.chars().skip(length + 1 - room).collect();
-    format!("…{tail}")
-}
-
-fn shorten_home(path: &Path) -> String {
-    let path = path.display().to_string();
-    let Some(home) = std::env::var_os("HOME") else {
-        return path;
-    };
-    let home = home.to_string_lossy();
-    match path.strip_prefix(home.as_ref()) {
-        Some(inside) if inside.is_empty() || inside.starts_with('/') => format!("~{inside}"),
-        _ => path,
-    }
 }
 
 #[cfg(test)]

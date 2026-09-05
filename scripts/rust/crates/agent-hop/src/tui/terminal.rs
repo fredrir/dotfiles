@@ -1,21 +1,15 @@
-use std::io::{self, Stdout, Write};
+use std::io::{self, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event as TerminalEvent, KeyCode, KeyModifiers,
-    MouseButton, MouseEventKind,
+    self, Event as TerminalEvent, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
 };
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use tui_kit::{Alternate, MouseCapture};
 use unicode_width::UnicodeWidthStr;
 use workstation::screen::{SignalGuard, termination_requested};
 
@@ -51,7 +45,8 @@ pub(crate) fn run(
     let worker = SourceWorker::new(source);
     let mut model = Model::new();
     let area = terminal
-        .terminal
+        .screen
+        .terminal()
         .size()
         .map_err(|error| format!("could not inspect the terminal: {error}"))?;
     model.area = area.into();
@@ -529,54 +524,22 @@ impl Drop for SourceWorker {
 }
 
 struct PickerTerminal {
-    terminal: Terminal<CrosstermBackend<Stdout>>,
+    screen: Alternate,
     last_frame: Buffer,
-    raw: bool,
-    alternate: bool,
-    mouse: bool,
 }
 
 impl PickerTerminal {
     fn new() -> io::Result<Self> {
-        enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        if let Err(error) = execute!(stdout, EnterAlternateScreen, EnableMouseCapture) {
-            let _ = execute!(stdout, DisableMouseCapture, LeaveAlternateScreen);
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = match Terminal::new(backend) {
-            Ok(terminal) => terminal,
-            Err(error) => {
-                let mut stdout = io::stdout();
-                let _ = execute!(stdout, DisableMouseCapture, LeaveAlternateScreen);
-                let _ = disable_raw_mode();
-                return Err(error);
-            }
-        };
-        if let Err(error) = terminal.hide_cursor() {
-            let _ = terminal.show_cursor();
-            let _ = execute!(
-                terminal.backend_mut(),
-                DisableMouseCapture,
-                LeaveAlternateScreen
-            );
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
         Ok(Self {
-            terminal,
+            screen: Alternate::new(MouseCapture::Enabled)?,
             last_frame: Buffer::empty(Rect::default()),
-            raw: true,
-            alternate: true,
-            mouse: true,
         })
     }
 
     fn draw(&mut self, model: &Model, options: PickerOptions) -> Result<(), String> {
         let frame = self
-            .terminal
+            .screen
+            .terminal()
             .draw(|frame| render(frame, model, options))
             .map_err(|error| format!("could not render the session picker: {error}"))?;
         self.last_frame = frame.buffer.clone();
@@ -621,24 +584,6 @@ fn selected_text_from_buffer(
     let text = rows.join("\n");
     let text = text.trim_matches([' ', '\n']);
     (!text.is_empty()).then(|| text.to_owned())
-}
-
-impl Drop for PickerTerminal {
-    fn drop(&mut self) {
-        let _ = self.terminal.show_cursor();
-        if self.mouse {
-            let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture);
-            self.mouse = false;
-        }
-        if self.alternate {
-            let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
-            self.alternate = false;
-        }
-        if self.raw {
-            let _ = disable_raw_mode();
-            self.raw = false;
-        }
-    }
 }
 
 fn copy_with_dclip(value: &str) -> Result<(), String> {

@@ -4,36 +4,12 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use rayon::prelude::*;
+use workstation::walk::{Policy, Symlinks};
 
 use crate::lang::Lang;
-
-pub const SKIP: [&str; 22] = [
-    ".git",
-    ".jj",
-    ".hg",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    "out",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".pytest_cache",
-    ".next",
-    ".turbo",
-    "vendor",
-    ".terraform",
-    ".gradle",
-    ".idea",
-    ".direnv",
-    ".cache",
-];
 
 pub const MAX_DEPTH: usize = 64;
 
@@ -64,90 +40,38 @@ pub struct Found {
     pub lockfiles: Vec<PathBuf>,
 }
 
-impl Found {
-    fn absorb(&mut self, other: Found) {
-        self.files.extend(other.files);
-        self.unreadable += other.unreadable;
-        self.deep += other.deep;
-        self.capped |= other.capped;
-        self.lockfiles.extend(other.lockfiles);
-    }
-}
-
 pub fn walk(root: &Path) -> Found {
-    let seen = AtomicUsize::new(0);
-    let mut found = read(root, PathBuf::new(), 0, &seen);
+    let policy = Policy::new()
+        .max_depth(MAX_DEPTH)
+        .max_files(MAX_FILES)
+        .symlinks(Symlinks::Drop);
+    let set_aside: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    let walked = workstation::walk::walk(root, &policy, |_, entries| {
+        let mut files = Vec::new();
+        for entry in entries.iter().filter(|entry| entry.is_file()) {
+            // Set aside rather than dropped, so a run can say which generated
+            // files it left where they were.
+            if locked(&entry.name) {
+                let mut kept = set_aside.lock().unwrap_or_else(|held| held.into_inner());
+                kept.push(entry.relative.clone());
+                continue;
+            }
+            files.push(entry.relative.clone());
+        }
+        files
+    });
+    let mut found = Found {
+        files: walked.items,
+        unreadable: walked.unreadable,
+        deep: walked.deep,
+        capped: walked.capped,
+        lockfiles: set_aside
+            .into_inner()
+            .unwrap_or_else(|held| held.into_inner()),
+    };
     found.files.sort();
     found.lockfiles.sort();
     found
-}
-
-fn read(path: &Path, prefix: PathBuf, depth: usize, seen: &AtomicUsize) -> Found {
-    let Ok(listing) = fs::read_dir(path) else {
-        return Found {
-            unreadable: 1,
-            ..Found::default()
-        };
-    };
-    let mut found = Found::default();
-    let mut below = Vec::new();
-    for entry in listing {
-        // An entry that fails mid-listing is one this walk cannot see, which
-        // is the same thing an unreadable directory is: say so, rather than
-        // report a tree smaller than it is.
-        let Ok(entry) = entry else {
-            found.unreadable += 1;
-            continue;
-        };
-        // `file_type` reads the directory entry rather than what it points
-        // at, so a symlink is never mistaken for what is on the other end.
-        // That keeps a link loop from being a hang, and it keeps a link to a
-        // file somewhere else from being rewritten by a run that was aimed at
-        // this tree — a target named outright still reaches such a file.
-        let Ok(kind) = entry.file_type() else {
-            found.unreadable += 1;
-            continue;
-        };
-        let name = entry.file_name();
-        if kind.is_dir() {
-            if skipped(&name) {
-                continue;
-            }
-            if depth + 1 > MAX_DEPTH {
-                found.deep += 1;
-                continue;
-            }
-            below.push((entry.path(), prefix.join(&name)));
-            continue;
-        }
-        if !kind.is_file() {
-            continue;
-        }
-        let relative = prefix.join(&name);
-        // Set aside rather than dropped, so a run can say which generated
-        // files it left where they were.
-        if locked(&name) {
-            found.lockfiles.push(relative);
-            continue;
-        }
-        if seen.fetch_add(1, Ordering::Relaxed) >= MAX_FILES {
-            found.capped = true;
-            continue;
-        }
-        found.files.push(relative);
-    }
-    let deeper: Vec<Found> = below
-        .into_par_iter()
-        .map(|(path, prefix)| read(&path, prefix, depth + 1, seen))
-        .collect();
-    for other in deeper {
-        found.absorb(other);
-    }
-    found
-}
-
-fn skipped(name: &OsStr) -> bool {
-    SKIP.iter().any(|skip| OsStr::new(skip) == name)
 }
 
 fn locked(name: &OsStr) -> bool {

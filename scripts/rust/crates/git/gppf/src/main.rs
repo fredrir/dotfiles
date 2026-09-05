@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use gitkit::Repo;
-use workstation::Completions;
+use workstation::{Completable, Completions};
 
 const PROGRAM: &str = "gppf";
 
@@ -24,24 +24,23 @@ struct Cli {
     completions: Completions,
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    match publish(&cli.message.join(" ")) {
-        Ok(status) => status,
-        Err(message) => workstation::fail(PROGRAM, message),
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
     }
 }
 
-fn publish(message: &str) -> gitkit::Result<ExitCode> {
+fn main() -> ExitCode {
+    workstation::run(PROGRAM, |cli: Cli| publish(&cli.message.join(" ")))
+}
+
+fn publish(message: &str) -> Result<ExitCode, String> {
     // `:/` is the pathspec for the working tree's top, so everything is
     // staged from the repository root no matter which subdirectory this runs
     // in — and outside a repository, git still gets to say so itself.
     let added = gitkit::git(&["add", ":/"])?;
     if added != 0 {
-        return Ok(exit(added));
+        return Ok(workstation::exit_code(added));
     }
     // Only now: staging is what git had to be in the repository to do, so a
     // repository that isn't there has already reported itself.
@@ -50,19 +49,7 @@ fn publish(message: &str) -> gitkit::Result<ExitCode> {
     }
     let committed = gitkit::git(&["commit", "-m", message])?;
     if committed != 0 {
-        return Ok(exit(committed));
+        return Ok(workstation::exit_code(committed));
     }
-    Ok(exit(gitkit::git(&["push"])?))
+    Ok(workstation::exit_code(gitkit::git(&["push"])?))
 }
-
-fn exit(code: i32) -> ExitCode {
-    ExitCode::from(byte(code))
-}
-
-fn byte(code: i32) -> u8 {
-    u8::try_from(code).unwrap_or(1)
-}
-
-#[cfg(test)]
-#[path = "../tests/unit/main_tests.rs"]
-mod tests;

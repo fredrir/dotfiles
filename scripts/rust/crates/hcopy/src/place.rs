@@ -122,18 +122,6 @@ pub fn name_of(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-// `~/projects` reads better than `/home/fredrir/projects` and is what every
-// other message about these two machines already says.
-pub fn shorten(path: &str, home: &str) -> String {
-    if path == home {
-        return "~".to_string();
-    }
-    match path.strip_prefix(&format!("{home}/")) {
-        Some(rest) => format!("~/{rest}"),
-        None => path.to_string(),
-    }
-}
-
 pub fn expand_remote(input: &str, home: &str) -> String {
     let expanded = match input {
         "~" => home.to_string(),
@@ -170,10 +158,6 @@ pub fn landing(
             )
         })?;
     Ok((landed, shown))
-}
-
-pub fn quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]

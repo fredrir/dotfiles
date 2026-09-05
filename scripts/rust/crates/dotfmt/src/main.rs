@@ -17,7 +17,8 @@ use config::{Config, Configs};
 use native::{Done, Outcome};
 use render::{Report, Tally};
 use walk::Found;
-use workstation::Completions;
+use workstation::path::home_relative;
+use workstation::{Completable, Completions};
 
 const PROGRAM: &str = "dotfmt";
 
@@ -60,56 +61,52 @@ struct Cli {
     completions: Completions,
 }
 
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
+    }
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    if let Some(name) = &cli.stdin {
-        return through(name);
-    }
-    if cli.owns {
-        return owned();
-    }
-    if cli.targets.is_empty() && !cli.check {
-        // Nothing was asked, so answer with what there is to ask for.
-        Cli::command().print_help().ok();
-        return ExitCode::SUCCESS;
-    }
-    run(&cli)
+    workstation::run(PROGRAM, |cli: Cli| {
+        if let Some(name) = &cli.stdin {
+            return through(name);
+        }
+        if cli.owns {
+            return owned();
+        }
+        if cli.targets.is_empty() && !cli.check {
+            // Nothing was asked, so answer with what there is to ask for.
+            Cli::command().print_help().ok();
+            return Ok(ExitCode::SUCCESS);
+        }
+        Ok(run(&cli))
+    })
 }
 
-fn through(name: &Path) -> ExitCode {
-    let mut raw = Vec::new();
-    if let Err(error) = io::stdin().read_to_end(&mut raw) {
-        return workstation::fail(PROGRAM, format!("stdin: {error}"));
-    }
-    let label = render::shorten(name);
-    let Ok(text) = String::from_utf8(raw) else {
-        return workstation::fail(PROGRAM, format!("{label}: not UTF-8"));
-    };
-    let config = match Config::resolve(&config::beside(name)) {
-        Ok(config) => config,
-        Err(message) => return workstation::fail(PROGRAM, message),
-    };
-    let formatted = match native::format(name, &label, &text, &config) {
-        Ok(formatted) => formatted,
-        Err(message) => return workstation::fail(PROGRAM, message),
-    };
-    match io::stdout().write_all(formatted.as_bytes()) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => workstation::fail(PROGRAM, format!("stdout: {error}")),
-    }
+fn through(name: &Path) -> Result<ExitCode, String> {
+    let raw = drained()?;
+    let label = home_relative(name);
+    let text = String::from_utf8(raw).map_err(|_| format!("{label}: not UTF-8"))?;
+    let config = Config::resolve(&config::beside(name))?;
+    let formatted = native::format(name, &label, &text, &config)?;
+    io::stdout()
+        .write_all(formatted.as_bytes())
+        .map_err(|error| format!("stdout: {error}"))?;
+    Ok(ExitCode::SUCCESS)
 }
 
-fn owned() -> ExitCode {
+fn drained() -> Result<Vec<u8>, String> {
     let mut raw = Vec::new();
-    if let Err(error) = io::stdin().read_to_end(&mut raw) {
-        return workstation::fail(PROGRAM, format!("stdin: {error}"));
-    }
-    let Ok(text) = String::from_utf8(raw) else {
-        return workstation::fail(PROGRAM, "stdin: not UTF-8");
-    };
+    io::stdin()
+        .read_to_end(&mut raw)
+        .map_err(|error| format!("stdin: {error}"))?;
+    Ok(raw)
+}
+
+fn owned() -> Result<ExitCode, String> {
+    let raw = drained()?;
+    let text = String::from_utf8(raw).map_err(|_| "stdin: not UTF-8".to_string())?;
     let configs = Configs::new();
     let mut answer = String::new();
     let mut problems: Vec<String> = Vec::new();
@@ -134,12 +131,12 @@ fn owned() -> ExitCode {
         for message in &problems {
             report.failed(message);
         }
-        return ExitCode::FAILURE;
+        return Ok(ExitCode::FAILURE);
     }
-    match io::stdout().write_all(answer.as_bytes()) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => workstation::fail(PROGRAM, format!("stdout: {error}")),
-    }
+    io::stdout()
+        .write_all(answer.as_bytes())
+        .map_err(|error| format!("stdout: {error}"))?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn run(cli: &Cli) -> ExitCode {
@@ -176,6 +173,7 @@ fn format_target(target: &Path, cli: &Cli, configs: &Configs, report: &Report, t
         report.failed(message);
         tally.failed += 1;
     }
+    report.unreadable(gathered.unreadable);
     if let Ok(config) = configs.for_directory(&beside_target(target)) {
         report.settings(config.source.as_deref());
     }

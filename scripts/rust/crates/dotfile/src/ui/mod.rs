@@ -6,6 +6,9 @@ use std::path::Path;
 use std::thread::JoinHandle;
 
 use crossbeam_channel::Receiver;
+use workstation::color::auto_enabled;
+use workstation::path::home_relative;
+use workstation::text::plural;
 
 use crate::decision::{Choice, Prompt, Request, Server};
 use crate::event::{Action, Event, Phase, Summary};
@@ -30,10 +33,11 @@ impl UiPolicy {
             && stderr_is_terminal
             && !term.is_some_and(|value| value.eq_ignore_ascii_case("dumb"))
             && !ci.is_some_and(environment_flag_enabled);
+        let color = auto_enabled(capable_terminal, no_color, None, term);
         Self {
             interactive: capable_terminal,
-            color: capable_terminal && !no_color,
-            motion: capable_terminal && !no_color && !reduced_motion,
+            color,
+            motion: color && !reduced_motion,
         }
     }
 
@@ -77,15 +81,8 @@ pub fn run(
 }
 
 pub fn signal_exit_code() -> Option<u8> {
-    #[cfg(unix)]
-    {
-        let signal = tui::termination_signal();
-        (signal > 0).then_some((128 + signal).min(255) as u8)
-    }
-    #[cfg(not(unix))]
-    {
-        None
-    }
+    let signal = tui_kit::termination_signal();
+    (signal > 0).then_some((128 + signal).min(255) as u8)
 }
 
 pub fn completion_line(summary: &Summary) -> String {
@@ -93,7 +90,11 @@ pub fn completion_line(summary: &Summary) -> String {
         let changes = if summary.changed == 0 {
             String::new()
         } else {
-            format!(" {} {}", summary.changed, change_word(summary.changed))
+            format!(
+                " {} {}",
+                summary.changed,
+                plural(summary.changed, "change", "changes")
+            )
         };
         return match &summary.peer {
             Some(peer) => format!("○ Plan ready{changes} → {peer}"),
@@ -107,25 +108,28 @@ pub fn completion_line(summary: &Summary) -> String {
             format!(
                 " {} local {}",
                 summary.changed,
-                change_word(summary.changed)
+                plural(summary.changed, "change", "changes")
             )
         } else {
-            format!(" {} {}", summary.changed, change_word(summary.changed))
+            format!(
+                " {} {}",
+                summary.changed,
+                plural(summary.changed, "change", "changes")
+            )
         };
         let remote = match summary.remote_changed {
             Some(0) | None => String::new(),
-            Some(changed) => format!(" {changed} {}", change_word(changed)),
+            Some(changed) => format!(" {changed} {}", plural(changed, "change", "changes")),
         };
         return format!("✓ Synced{local} → {peer}{remote}");
     }
     match summary.changed {
         0 => "✓ Synced".to_string(),
-        changed => format!("✓ Synced {changed} {}", change_word(changed)),
+        changed => format!(
+            "✓ Synced {changed} {}",
+            plural(changed, "change", "changes")
+        ),
     }
-}
-
-fn change_word(count: usize) -> &'static str {
-    if count == 1 { "change" } else { "changes" }
 }
 
 pub(crate) fn finish_worker(
@@ -222,18 +226,8 @@ pub(crate) fn item_line(action: Action, path: &Path, detail: &str) -> String {
     }
 }
 
-pub(crate) fn compact_path(path: &Path) -> String {
-    let Some(home) = std::env::var_os("HOME") else {
-        return sanitize_text(&path.display().to_string());
-    };
-    let home = Path::new(&home);
-    if path == home {
-        return "~".to_string();
-    }
-    match path.strip_prefix(home) {
-        Ok(relative) => sanitize_text(&format!("~/{}", relative.display())),
-        Err(_) => sanitize_text(&path.display().to_string()),
-    }
+pub(crate) fn compact_path(target: &Path) -> String {
+    sanitize_text(&home_relative(target))
 }
 
 pub(crate) fn sanitize_text(value: &str) -> String {

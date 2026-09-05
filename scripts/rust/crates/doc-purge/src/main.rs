@@ -18,7 +18,7 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, ValueHint};
 use rayon::prelude::*;
-use workstation::{Completions, Style};
+use workstation::{Completable, Completions, Style, path, text};
 
 use purge::{Outcome, Saved};
 use report::Row;
@@ -57,6 +57,12 @@ struct Cli {
     completions: Completions,
 }
 
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
+    }
+}
+
 #[derive(Default)]
 struct Done {
     path: PathBuf,
@@ -71,34 +77,29 @@ struct Done {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    if cli.targets.is_empty() {
-        Cli::command().print_help().ok();
-        println!();
-        return ExitCode::SUCCESS;
-    }
-    match run(&cli) {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::FAILURE,
-        Err(message) => workstation::fail(PROGRAM, message),
-    }
+    workstation::run::<Cli>(PROGRAM, |cli| {
+        if cli.targets.is_empty() {
+            Cli::command().print_help().ok();
+            println!();
+            return Ok(ExitCode::SUCCESS);
+        }
+        let purged = run(&cli)?;
+        Ok(if purged {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        })
+    })
 }
 
 fn run(cli: &Cli) -> Result<bool, String> {
     let wanted = wanted(&cli.types)?;
     let gathered = walk::gather(&cli.targets, &wanted)?;
     if gathered.unreadable > 0 {
-        let plural = if gathered.unreadable == 1 {
-            "directory"
-        } else {
-            "directories"
-        };
         eprintln!(
-            "{PROGRAM}: {} {plural} could not be read",
-            gathered.unreadable
+            "{PROGRAM}: {} {} could not be read",
+            gathered.unreadable,
+            text::plural(gathered.unreadable, "directory", "directories")
         );
     }
     let style = Style::for_stdout();
@@ -108,7 +109,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
     let mut skips: Vec<(String, String)> = gathered
         .notes
         .iter()
-        .map(|note| (report::shorten(&note.path), note.reason.to_string()))
+        .map(|note| (path::shorten(&note.path), note.reason.to_string()))
         .collect();
     let mut saved = Saved::default();
     let mut comments = 0usize;
@@ -119,7 +120,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
     for entry in &done {
         saved.add(entry.saved);
         if let Some(reason) = entry.skip {
-            skips.push((report::shorten(&entry.path), reason.to_string()));
+            skips.push((path::shorten(&entry.path), reason.to_string()));
             continue;
         }
         if entry.content.is_none() {
@@ -131,7 +132,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
         minus += entry.minus;
         plus += entry.plus;
         rows.push(Row {
-            path: report::shorten(&entry.path),
+            path: path::shorten(&entry.path),
             minus: entry.minus,
             plus: entry.plus,
         });
@@ -160,7 +161,7 @@ fn run(cli: &Cli) -> Result<bool, String> {
     println!();
     println!(
         "  {}",
-        counted(comments, docs, glyphs, rows.len(), minus, plus, &style)
+        summary(comments, docs, glyphs, rows.len(), minus, plus, &style)
     );
 
     if cli.dry {
@@ -257,13 +258,13 @@ fn wanted(types: &[String]) -> Result<Wanted, String> {
 fn sentence(saved: &Saved) -> String {
     let mut parts = Vec::new();
     if saved.shebangs > 0 {
-        parts.push(report::plural(saved.shebangs, "shebang", "shebangs"));
+        parts.push(text::counted(saved.shebangs, "shebang", "shebangs"));
     }
     if saved.directives > 0 {
-        parts.push(report::plural(saved.directives, "directive", "directives"));
+        parts.push(text::counted(saved.directives, "directive", "directives"));
     }
     if saved.licenses > 0 {
-        parts.push(report::plural(
+        parts.push(text::counted(
             saved.licenses,
             "licence header",
             "licence headers",
@@ -272,7 +273,7 @@ fn sentence(saved: &Saved) -> String {
     parts.join(", ")
 }
 
-fn counted(
+fn summary(
     comments: usize,
     docs: usize,
     glyphs: usize,
@@ -283,13 +284,13 @@ fn counted(
 ) -> String {
     let mut parts = Vec::new();
     if comments > 0 {
-        parts.push(report::plural(comments, "comment", "comments"));
+        parts.push(text::counted(comments, "comment", "comments"));
     }
     if docs > 0 {
-        parts.push(report::plural(docs, "doc string", "doc strings"));
+        parts.push(text::counted(docs, "doc string", "doc strings"));
     }
     if glyphs > 0 {
-        parts.push(report::plural(glyphs, "glyph", "glyphs"));
+        parts.push(text::counted(glyphs, "glyph", "glyphs"));
     }
     if parts.is_empty() {
         parts.push("nothing".to_string());
@@ -297,7 +298,7 @@ fn counted(
     format!(
         "{} in {}   {} {}",
         parts.join(", "),
-        report::plural(files, "file", "files"),
+        text::counted(files, "file", "files"),
         style.red(&format!("-{minus}")),
         style.green(&format!("+{plus}"))
     )

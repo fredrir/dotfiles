@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufWriter, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -10,7 +11,8 @@ mod bulk;
 
 use clap::{Parser, ValueHint};
 use rayon::prelude::*;
-use workstation::Completions;
+use workstation::text::counted;
+use workstation::{ColorMode, Completable, Completions, Style, path};
 
 const PROGRAM: &str = "size";
 
@@ -53,6 +55,12 @@ struct Cli {
 
     #[command(flatten)]
     completions: Completions,
+}
+
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
+    }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -196,23 +204,15 @@ fn matches(pattern: &str, text: &str) -> bool {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    let named_target = cli.target.is_some();
-    let target = cli.target.unwrap_or_else(|| PathBuf::from("."));
-    let target = match resolve(target) {
-        Ok(path) => path,
-        Err(message) => return workstation::fail(PROGRAM, message),
-    };
+    workstation::run(PROGRAM, run)
+}
 
-    let metadata = match fs::symlink_metadata(&target) {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            return workstation::fail(PROGRAM, format!("{}: {error}", target.display()));
-        }
-    };
+fn run(cli: Cli) -> Result<ExitCode, String> {
+    let named_target = cli.target.is_some();
+    let target = resolve(cli.target.unwrap_or_else(|| PathBuf::from(".")))?;
+
+    let metadata =
+        fs::symlink_metadata(&target).map_err(|error| format!("{}: {error}", target.display()))?;
 
     let listing = cli.list || cli.recursive || !named_target;
     let display_depth = if cli.recursive {
@@ -231,11 +231,11 @@ fn main() -> ExitCode {
 
     if !metadata.is_dir() {
         if cli.list || cli.recursive {
-            return workstation::fail(PROGRAM, format!("not a directory: {}", target.display()));
+            return Err(format!("not a directory: {}", target.display()));
         }
         let measure = measure_file(&target, &metadata, &options);
         println!("{}", plain_value(measure, cli.lines));
-        return done(measure.unreadable);
+        return Ok(done(measure.unreadable));
     }
 
     let Walked {
@@ -251,12 +251,12 @@ fn main() -> ExitCode {
 
     if !listing {
         println!("{}", plain_value(total, cli.lines));
-        return done(total.unreadable);
+        return Ok(done(total.unreadable));
     }
 
     sort_rows(&mut rows, cli.lines);
     print_table(&rows, total, cli.lines);
-    done(total.unreadable)
+    Ok(done(total.unreadable))
 }
 
 fn walk(options: &Options, target: &Path) -> Walked {
@@ -325,8 +325,10 @@ fn dedupe(total: &mut Measure, rows: &mut [Row], mut links: Vec<Link>) {
 
 fn done(unreadable: usize) -> ExitCode {
     if unreadable > 0 {
-        let plural = if unreadable == 1 { "entry" } else { "entries" };
-        eprintln!("{PROGRAM}: {unreadable} {plural} could not be read");
+        eprintln!(
+            "{PROGRAM}: {} could not be read",
+            counted(unreadable, "entry", "entries")
+        );
     }
     ExitCode::SUCCESS
 }
@@ -368,10 +370,6 @@ fn resolve(target: PathBuf) -> Result<PathBuf, String> {
             matches.len()
         )),
     }
-}
-
-fn hidden(name: &str) -> bool {
-    name.starts_with('.')
 }
 
 #[cfg(unix)]
@@ -520,7 +518,8 @@ fn walk_directory(options: &Options, directory: &Path, relative: &Path, depth: u
             if options.skips_device(device(&metadata)) {
                 return Walked::default();
             }
-            let visible = depth < options.display_depth && (options.all || !hidden(&name));
+            let visible =
+                depth < options.display_depth && (options.all || !path::hidden(OsStr::new(&name)));
             let mut walked = if metadata.is_dir() {
                 // A hidden directory's children stay out of the listing even
                 // with room left in the depth budget, so cap their display
@@ -734,12 +733,8 @@ fn icon_for(row: &Row, base: &str) -> char {
 
 fn print_table(rows: &[Row], total: Measure, lines: bool) {
     let stdout = std::io::stdout();
-    let styled = stdout.is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    let (dim, bold, reset) = if styled {
-        ("\x1b[2m", "\x1b[1m", "\x1b[0m")
-    } else {
-        ("", "", "")
-    };
+    let styled = ColorMode::Auto.enabled(stdout.is_terminal());
+    let style = Style::for_stdout_with_color(styled);
     // Icons occupy two cells (glyph + space) in front of every name.
     let prefix = if styled { 2 } else { 0 };
     let value_header = if lines { "LINES" } else { "SIZE" };
@@ -774,8 +769,8 @@ fn print_table(rows: &[Row], total: Measure, lines: bool) {
                 match palette.color(row, &base) {
                     Some(color) => writeln!(
                         out,
-                        "\x1b[{color}m{icon} {}{reset}{padding}  {value:>value_width$}",
-                        row.name
+                        "{}{padding}  {value:>value_width$}",
+                        style.code(color, &format!("{icon} {}", row.name))
                     ),
                     None => writeln!(out, "{icon} {}{padding}  {value:>value_width$}", row.name),
                 }
@@ -784,11 +779,14 @@ fn print_table(rows: &[Row], total: Measure, lines: bool) {
         };
     }
     let width = name_width + value_width + 2;
-    let _ = writeln!(out, "{dim}{}{reset}", "─".repeat(width));
+    let _ = writeln!(out, "{}", style.dim(&"─".repeat(width)));
     let _ = writeln!(
         out,
-        "{bold}{:<name_width$}  {:>value_width$}{reset}",
-        "Total", total_text
+        "{}",
+        style.bold(&format!(
+            "{:<name_width$}  {:>value_width$}",
+            "Total", total_text
+        ))
     );
     let _ = out.flush();
 }

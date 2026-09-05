@@ -45,7 +45,7 @@ pub fn list(target: &Target, all: bool) -> Result<ExitCode, String> {
     }
     arguments.extend([url.as_str(), at]);
     if let Some(Outcome::Refused(code)) = fetch::run(&arguments)? {
-        return Ok(ExitCode::from(crate::byte(code)));
+        return Ok(workstation::exit_code(code));
     }
 
     let branch = fetch::branch(&clone);
@@ -159,7 +159,7 @@ fn show(root: &Path, all: bool) -> Result<ExitCode, String> {
         .map_err(|error| format!("{}: {error}", lister.program))?;
     Ok(match status.code() {
         Some(0) => ExitCode::SUCCESS,
-        code => ExitCode::from(crate::byte(code.unwrap_or(1))),
+        code => workstation::exit_code(code.unwrap_or(1)),
     })
 }
 

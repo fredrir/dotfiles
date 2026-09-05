@@ -123,12 +123,14 @@ impl Lang {
             Lang::Toml => &["toml"],
             Lang::Yaml => &["yaml", "yml"],
             Lang::Sql => &["sql"],
-            // zsh is deliberately absent. shfmt claims to read it, but on this
-            // repository it silently rewrote `$#` to `$` and `${~pattern}` to
-            // `${(~)pattern}` -- the first broke the lazygit wrapper, the second
-            // stopped a directory glob matching anything, and shfmt then could not
-            // re-parse its own output. `-ln zsh` is worse: 18 of 34 files fail.
-            // zsh is a different language, so it goes unformatted rather than wrong.
+            // zsh is deliberately absent. shfmt 3.14.0 does read it, and picks
+            // the dialect from the extension, but its zsh parser drops the `#`
+            // from `$#` inside double quotes: `case "$1:$#" in` in
+            // shared/zsh/conf.d/90-utils.zsh comes back as `case "$1:$" in`,
+            // which breaks the lazygit wrapper. Reading the same files as bash
+            // is not the way out either -- 9 of the 37 here fail to parse on
+            // parameter expansion flags and `${name:#arg}`. So zsh goes
+            // unformatted rather than wrong.
             Lang::Shell => &["sh", "bash"],
             Lang::Go => &["go"],
         }

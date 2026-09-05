@@ -15,6 +15,7 @@ hostkit.workspace     = true
 ratatui.workspace     = true
 serde_json.workspace  = true
 tachyonfx.workspace   = true
+tui-kit.workspace     = true
 workstation.workspace = true
 
 [[bench]]

@@ -25,7 +25,12 @@ pub use screen::{Key, Screen};
 // `about` in `--help` with this.
 #[derive(Args)]
 pub struct Completions {
-    #[arg(long = "completions", value_name = "SHELL", exclusive = true)]
+    #[arg(
+        long = "completions",
+        value_name = "SHELL",
+        exclusive = true,
+        help = "Generate shell completions"
+    )]
     pub shell: Option<Shell>,
 
     #[arg(long = "command-dump", exclusive = true, hide = true)]
@@ -112,6 +117,14 @@ fn flatten(text: Option<String>) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+pub fn exit_code(code: i32) -> ExitCode {
+    ExitCode::from(exit_byte(code))
+}
+
+fn exit_byte(code: i32) -> u8 {
+    u8::try_from(code).unwrap_or(1)
 }
 
 pub fn fail(program: &str, message: impl Display) -> ExitCode {

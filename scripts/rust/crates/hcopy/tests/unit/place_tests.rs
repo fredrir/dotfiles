@@ -100,14 +100,6 @@ fn a_remote_path_can_be_taken_apart() {
 }
 
 #[test]
-fn a_remote_home_is_shown_as_a_tilde() {
-    assert_eq!(shorten("/home/f/go", "/home/f"), "~/go");
-    assert_eq!(shorten("/home/f", "/home/f"), "~");
-    assert_eq!(shorten("/etc", "/home/f"), "/etc");
-    assert_eq!(shorten("/home/fredrir2/go", "/home/f"), "/home/fredrir2/go");
-}
-
-#[test]
 fn a_typed_remote_path_is_resolved_against_the_remote_home() {
     assert_eq!(expand_remote("~/go", "/home/f"), "/home/f/go");
     assert_eq!(expand_remote("~", "/home/f"), "/home/f");
@@ -163,11 +155,4 @@ fn a_home_that_only_shares_a_prefix_is_not_that_home() {
     )
     .unwrap();
     assert_eq!(landed, PathBuf::from("/Users/fredrir/notes"));
-}
-
-#[test]
-fn quoting_survives_a_name_with_a_quote_in_it() {
-    assert_eq!(quote("/home/f/go"), "'/home/f/go'");
-    assert_eq!(quote("it's"), r"'it'\''s'");
-    assert_eq!(quote("a b"), "'a b'");
 }

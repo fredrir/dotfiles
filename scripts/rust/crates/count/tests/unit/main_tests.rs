@@ -1,3 +1,5 @@
+use std::fs;
+
 use super::*;
 
 fn tree() -> tempfile::TempDir {
@@ -14,43 +16,58 @@ fn tree() -> tempfile::TempDir {
     root
 }
 
+fn children(directory: &Path, no_hidden: bool) -> usize {
+    walk::list(directory, &counting(no_hidden)).unwrap().len()
+}
+
+fn every(directory: &Path, no_hidden: bool) -> Walked<()> {
+    descendants(directory, &counting(no_hidden))
+}
+
 #[test]
 fn counts_direct_children() {
     let root = tree();
-    assert_eq!(count_children(root.path(), false).unwrap(), 4);
+    assert_eq!(children(root.path(), false), 4);
 }
 
 #[test]
 fn counts_every_descendant() {
     let root = tree();
-    assert_eq!(count_recursive(root.path(), false).entries, 8);
+    assert_eq!(every(root.path(), false).items.len(), 8);
 }
 
 #[test]
 fn skips_hidden_children() {
     let root = tree();
-    assert_eq!(count_children(root.path(), true).unwrap(), 2);
+    assert_eq!(children(root.path(), true), 2);
 }
 
 #[test]
 fn hidden_directories_take_their_subtree_with_them() {
     let root = tree();
-    assert_eq!(count_recursive(root.path(), true).entries, 3);
+    assert_eq!(every(root.path(), true).items.len(), 3);
 }
 
 #[test]
 fn an_empty_directory_counts_zero() {
     let root = tempfile::tempdir().unwrap();
-    assert_eq!(count_children(root.path(), false).unwrap(), 0);
-    assert_eq!(count_recursive(root.path(), false).entries, 0);
+    assert_eq!(children(root.path(), false), 0);
+    assert_eq!(every(root.path(), false).items.len(), 0);
 }
 
 #[test]
 fn unreadable_directories_are_reported_not_counted() {
     let root = tree();
-    let tally = count_recursive(&root.path().join("missing"), false);
-    assert_eq!(tally.entries, 0);
-    assert_eq!(tally.unreadable, 1);
+    let walked = every(&root.path().join("missing"), false);
+    assert_eq!(walked.items.len(), 0);
+    assert_eq!(walked.unreadable, 1);
+}
+
+#[test]
+fn a_missing_directory_is_named_by_the_listing_error() {
+    let root = tree();
+    let error = walk::list(&root.path().join("missing"), &counting(false)).unwrap_err();
+    assert!(error.contains("missing"), "{error}");
 }
 
 #[cfg(unix)]
@@ -58,14 +75,14 @@ fn unreadable_directories_are_reported_not_counted() {
 fn linked_directories_count_once_and_are_not_followed() {
     let root = tree();
     std::os::unix::fs::symlink(root.path().join("sub"), root.path().join("link")).unwrap();
-    assert_eq!(count_children(root.path(), false).unwrap(), 5);
-    assert_eq!(count_recursive(root.path(), false).entries, 9);
+    assert_eq!(children(root.path(), false), 5);
+    assert_eq!(every(root.path(), false).items.len(), 9);
 }
 
 #[test]
 fn a_file_is_not_a_directory() {
     let root = tree();
-    assert!(require_directory(&root.path().join("a")).is_err());
-    assert!(require_directory(&root.path().join("missing")).is_err());
-    assert!(require_directory(root.path()).is_ok());
+    assert!(path::require_directory(&root.path().join("a")).is_err());
+    assert!(path::require_directory(&root.path().join("missing")).is_err());
+    assert!(path::require_directory(root.path()).is_ok());
 }

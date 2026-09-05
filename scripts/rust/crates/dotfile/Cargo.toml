@@ -16,11 +16,15 @@ path = "src/main.rs"
 clap.workspace              = true
 crossbeam-channel.workspace = true
 crossterm.workspace         = true
+hostkit.workspace           = true
 ratatui.workspace           = true
 serde.workspace             = true
 serde_json.workspace        = true
+sha2.workspace              = true
 tachyonfx.workspace         = true
 tempfile.workspace          = true
+tui-kit.workspace           = true
+workstation.workspace       = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

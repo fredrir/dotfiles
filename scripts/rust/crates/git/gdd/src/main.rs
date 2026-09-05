@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use clap::{Parser, ValueHint};
 use gitkit::{Fate, Repo, View};
 use gix::bstr::BString;
-use workstation::{Completions, Style};
+use workstation::{Completable, Completions, Style};
 
 const PROGRAM: &str = "gdd";
 
@@ -38,18 +38,17 @@ struct Cli {
     completions: Completions,
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    match discard(&cli) {
-        Ok(status) => status,
-        Err(error) => workstation::fail(PROGRAM, error),
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
     }
 }
 
-fn discard(cli: &Cli) -> gitkit::Result<ExitCode> {
+fn main() -> ExitCode {
+    workstation::run(PROGRAM, discard)
+}
+
+fn discard(cli: Cli) -> Result<ExitCode, String> {
     let repo = Repo::here()?;
     let paths: Vec<BString> = cli.paths.iter().map(|path| path.as_str().into()).collect();
     let survey = repo.survey(&paths)?;

@@ -7,6 +7,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use hostkit::Host;
+use hostkit::shell::{quote, quote_path};
+use hostkit::ssh::{self, Session};
 use serde_json::{Value, json};
 
 use crate::cli::Agent;
@@ -16,8 +18,6 @@ use crate::preview::sanitize;
 use crate::session::SessionId;
 use tempfile::NamedTempFile;
 
-const CONNECT_TIMEOUT: &str = "ConnectTimeout=8";
-const LOG_LEVEL: &str = "LogLevel=ERROR";
 const MACHINE_PROTOCOL: &str = "agent-hop-machine";
 pub(crate) const MACHINE_PROTOCOL_VERSION: u64 = 2;
 pub(crate) const MAX_REMOTE_SESSIONS: usize = 2_000;
@@ -100,13 +100,13 @@ impl Remote {
     }
 
     pub fn home(self) -> Result<PathBuf, String> {
-        let output = self.output(home_script())?;
-        parse_home(self.peer, &output.stdout)
+        let output = self.output(ssh::HOME_SCRIPT)?;
+        ssh::parse_home(self.peer.name(), &output.stdout)
     }
 
     pub(crate) fn home_noninteractive(self) -> Result<PathBuf, String> {
-        let bytes = self.bounded_output(home_script(), MAX_WIRE_PATH)?;
-        parse_home(self.peer, &bytes)
+        let bytes = self.bounded_output(ssh::HOME_SCRIPT, MAX_WIRE_PATH)?;
+        ssh::parse_home(self.peer.name(), &bytes)
     }
 
     /// Query the peer without allocating a TTY. The peer returns paths solely so a
@@ -511,38 +511,9 @@ impl Remote {
     }
 }
 
-fn parse_home(peer: Host, bytes: &[u8]) -> Result<PathBuf, String> {
-    let text = std::str::from_utf8(bytes)
-        .map_err(|_| format!("{} returned a non-UTF-8 home directory", peer.name()))?;
-    let text = text.strip_suffix('\n').unwrap_or(text);
-    let text = text.strip_suffix('\r').unwrap_or(text);
-    if text.is_empty() || text.contains('\r') || text.contains('\n') {
-        return Err(format!(
-            "{} returned an invalid home directory",
-            peer.name()
-        ));
-    }
-    let home = PathBuf::from(text);
-    if !home.is_absolute() {
-        return Err(format!(
-            "{} returned an invalid home directory",
-            peer.name()
-        ));
-    }
-    Ok(home)
-}
-
-pub fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-pub fn home_script() -> &'static str {
-    "printf '%s\\n' \"$HOME\""
-}
-
 pub fn preflight_script(workspace: &Path, agent: Agent) -> Result<String, String> {
     let workspace = quote_path(workspace)?;
-    let agent = shell_quote(agent.name());
+    let agent = quote(agent.name());
     Ok(format!(
         "test -d {workspace} || {{ printf '%s\\n' 'workspace does not exist' >&2; exit 1; }}; \
          command -v {agent} >/dev/null 2>&1 || {{ printf '%s\\n' 'agent command is not available' >&2; exit 1; }}; \
@@ -567,7 +538,7 @@ pub fn mkdir_script(path: &Path) -> Result<String, String> {
 }
 
 pub fn fork_command(workspace: &Path, agent: Agent, session_id: &str) -> Result<String, String> {
-    let session_id = shell_quote(session_id);
+    let session_id = quote(session_id);
     Ok(match agent {
         Agent::Codex => format!("codex fork {session_id} -C {}", quote_path(workspace)?),
         Agent::Claude => format!("claude --resume {session_id} --fork-session"),
@@ -579,12 +550,12 @@ pub fn launch_script(workspace: &Path, agent: Agent, session_id: &str) -> Result
     Ok(format!(
         "cd -- {} && exec zsh -lic {}",
         quote_path(workspace)?,
-        shell_quote(&inner)
+        quote(&inner)
     ))
 }
 
 pub fn resume_command(workspace: &Path, agent: Agent, session_id: &str) -> Result<String, String> {
-    let session_id = shell_quote(session_id);
+    let session_id = quote(session_id);
     Ok(match agent {
         Agent::Codex => format!("codex resume {session_id} -C {}", quote_path(workspace)?),
         Agent::Claude => format!("claude --resume {session_id}"),
@@ -596,50 +567,31 @@ pub fn resume_script(workspace: &Path, agent: Agent, session_id: &str) -> Result
     Ok(format!(
         "cd -- {} && exec zsh -lic {}",
         quote_path(workspace)?,
-        shell_quote(&inner)
+        quote(&inner)
     ))
 }
 
 pub fn ssh_arguments(peer: Host, script: &str, interactive: bool) -> Vec<OsString> {
-    vec![
-        OsString::from(if interactive { "-tt" } else { "-T" }),
-        OsString::from("-o"),
-        OsString::from(CONNECT_TIMEOUT),
-        OsString::from("-o"),
-        OsString::from(LOG_LEVEL),
-        OsString::from(peer.name()),
-        OsString::from(script),
-    ]
+    let session = Session::new(peer.name()).script(script);
+    if interactive {
+        session.interactive()
+    } else {
+        session
+    }
+    .args()
 }
 
 pub(crate) fn machine_script(arguments: &[String]) -> String {
     let command = arguments
         .iter()
-        .map(|argument| shell_quote(argument))
+        .map(|argument| quote(argument))
         .collect::<Vec<_>>()
         .join(" ");
     format!("export PATH=\"$HOME/.local/bin:$PATH\"; exec agent-hop {command}")
 }
 
 pub(crate) fn machine_ssh_arguments(peer: Host, script: &str) -> Vec<OsString> {
-    vec![
-        OsString::from("-T"),
-        OsString::from("-o"),
-        OsString::from("BatchMode=yes"),
-        OsString::from("-o"),
-        OsString::from(CONNECT_TIMEOUT),
-        OsString::from("-o"),
-        OsString::from("ConnectionAttempts=1"),
-        OsString::from("-o"),
-        OsString::from("ServerAliveInterval=5"),
-        OsString::from("-o"),
-        OsString::from("ServerAliveCountMax=3"),
-        OsString::from("-o"),
-        OsString::from(LOG_LEVEL),
-        OsString::from("--"),
-        OsString::from(peer.name()),
-        OsString::from(script),
-    ]
+    Session::new(peer.name()).script(script).batch().args()
 }
 
 pub(crate) fn encode_catalog_response(catalog: &RemoteCatalog) -> Result<String, String> {
@@ -1555,12 +1507,6 @@ fn captured_output_error(peer: Host, output: &CapturedOutput) -> String {
         (None, Some(code)) => format!("{}: ssh exited with status {code}", peer.name()),
         (None, None) => format!("{}: ssh was interrupted", peer.name()),
     }
-}
-
-fn quote_path(path: &Path) -> Result<String, String> {
-    path.to_str()
-        .map(shell_quote)
-        .ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
 }
 
 fn command_error(error: std::io::Error) -> String {

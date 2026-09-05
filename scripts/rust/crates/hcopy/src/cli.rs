@@ -1,5 +1,5 @@
 use clap::{Args, Parser};
-use workstation::Completions;
+use workstation::{Completable, Completions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
@@ -97,6 +97,18 @@ pub struct Pull {
 
     #[arg(long = "from", value_name = "PATH")]
     pub from: Option<String>,
+}
+
+impl Completable for Push {
+    fn completions(&self) -> &Completions {
+        &self.common.completions
+    }
+}
+
+impl Completable for Pull {
+    fn completions(&self) -> &Completions {
+        &self.common.completions
+    }
 }
 
 // What the two parsers agree on once their one asymmetric flag is read off.

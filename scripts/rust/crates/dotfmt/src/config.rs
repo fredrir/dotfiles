@@ -3,8 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use workstation::path::home_relative;
+
 use crate::block::{self, Class};
-use crate::render::shorten;
 use crate::select::{Selection, Token};
 
 pub const NAME: &str = "dotfmt.dotfile";
@@ -30,7 +31,7 @@ impl Default for Config {
             align: true,
             align_max: 24,
             blank_lines: 1,
-            final_newline: true,
+            final_newline: false,
             selection: Selection::default(),
             root: everywhere(),
             source: None,
@@ -208,9 +209,9 @@ fn flag(key: &str, value: &str) -> Result<bool, String> {
 }
 
 fn at(path: &Path, line: usize, message: &str) -> String {
-    format!("{}:{line}: {message}", shorten(path))
+    format!("{}:{line}: {message}", home_relative(path))
 }
 
 fn complain(path: &Path, error: std::io::Error) -> String {
-    format!("{}: {error}", shorten(path))
+    format!("{}: {error}", home_relative(path))
 }

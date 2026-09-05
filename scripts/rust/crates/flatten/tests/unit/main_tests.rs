@@ -267,15 +267,15 @@ fn nothing_below_the_target_is_nothing_to_do() {
 #[test]
 fn a_file_is_not_a_directory() {
     let root = tree(&["a.txt"]);
-    assert!(require_directory(&root.path().join("a.txt")).is_err());
-    assert!(require_directory(&root.path().join("missing")).is_err());
-    assert!(require_directory(root.path()).is_ok());
+    assert!(path::require_directory(&root.path().join("a.txt")).is_err());
+    assert!(path::require_directory(&root.path().join("missing")).is_err());
+    assert!(path::require_directory(root.path()).is_ok());
 }
 
 #[test]
 fn a_long_path_is_shown_from_the_end_that_names_the_file() {
-    assert_eq!(clip("sub/x/report.txt", 40), "sub/x/report.txt");
-    assert_eq!(clip("sub/x/report.txt", 12), "…/report.txt");
+    assert_eq!(truncate_front("sub/x/report.txt", 40), "sub/x/report.txt");
+    assert_eq!(truncate_front("sub/x/report.txt", 12), "…/report.txt");
     // The mark counts towards the room it was given, so a row stays a row.
-    assert_eq!(clip("sub/x/report.txt", 12).chars().count(), 12);
+    assert_eq!(truncate_front("sub/x/report.txt", 12).chars().count(), 12);
 }

@@ -12,6 +12,6 @@ pub(crate) fn on_disk(root: &std::path::Path, path: &gix::bstr::BStr) -> std::pa
     root.join(gix::path::from_bstr(path))
 }
 
-pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) fn message(error: impl std::fmt::Display) -> String {
+    error.to_string()
+}

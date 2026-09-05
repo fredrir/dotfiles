@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use file_explorer::{
     AcceptTarget, DefaultView, Directory, DirectoryStatus, Entry, EntryKind, Explorer,
@@ -6,6 +6,7 @@ use file_explorer::{
 };
 use hostkit::Route;
 use workstation::Style;
+use workstation::path::home_relative_in;
 
 use crate::cli::Direction;
 use crate::place;
@@ -102,7 +103,11 @@ impl RemoteSource<'_> {
             })
             .collect();
         Ok(Directory {
-            label: format!("{}:{}", self.peer.host(), place::shorten(&path, self.home)),
+            label: format!(
+                "{}:{}",
+                self.peer.host(),
+                home_relative_in(Path::new(&path), Path::new(self.home))
+            ),
             location: path,
             parent,
             entries,
@@ -178,7 +183,7 @@ impl ExplorerView<String> for HcopyView<'_, '_> {
             browser.peer.host(),
             chosen
                 .as_deref()
-                .map(|path| place::shorten(path, &browser.remote_home))
+                .map(|path| home_relative_in(Path::new(path), Path::new(&browser.remote_home)))
                 .unwrap_or_else(|| "(nothing selected)".to_string())
         );
         let (from, to) = match browser.direction {

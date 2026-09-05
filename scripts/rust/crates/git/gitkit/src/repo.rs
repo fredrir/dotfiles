@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::Result;
+use crate::message;
 
 pub struct Repo {
     pub(crate) git: gix::Repository,
@@ -9,13 +9,13 @@ pub struct Repo {
 }
 
 impl Repo {
-    pub fn here() -> Result<Repo> {
+    pub fn here() -> Result<Repo, String> {
         let mut git = match gix::discover(".") {
             Ok(git) => git,
             // Not being in a repository is an answer, not a fault, and it is
             // the one every user of these tools will see at some point.
             Err(gix::discover::Error::Discover(_)) => return Err("not a git repository".into()),
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(message(error)),
         };
         // Every changed path is looked up in `HEAD`'s tree, and the trees on
         // the way there are the same few over and over; a cache turns all but
@@ -27,7 +27,7 @@ impl Repo {
         let root = git
             .workdir()
             .ok_or("a bare repository has no working tree")?;
-        let root = gix::path::realpath(root)?;
+        let root = gix::path::realpath(root).map_err(message)?;
         Ok(Repo { git, root })
     }
 
@@ -35,30 +35,32 @@ impl Repo {
         &self.root
     }
 
-    pub fn index_matches_head(&self) -> Result<bool> {
-        let head = self.git.head_tree_id_or_empty()?.detach();
-        let index = self.git.index_or_empty()?;
+    pub fn index_matches_head(&self) -> Result<bool, String> {
+        let head = self.git.head_tree_id_or_empty().map_err(message)?.detach();
+        let index = self.git.index_or_empty().map_err(message)?;
         if let Some(cached) = index.tree()
             && cached.num_entries.is_some()
         {
             return Ok(cached.id == head);
         }
         let mut same = true;
-        self.git.tree_index_status(
-            &head,
-            &index,
-            None,
-            gix::status::tree_index::TrackRenames::Disabled,
-            |_, _, _| {
-                same = false;
-                Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Break(()))
-            },
-        )?;
+        self.git
+            .tree_index_status(
+                &head,
+                &index,
+                None,
+                gix::status::tree_index::TrackRenames::Disabled,
+                |_, _, _| {
+                    same = false;
+                    Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Break(()))
+                },
+            )
+            .map_err(message)?;
         Ok(same)
     }
 }
 
-pub fn git(arguments: &[&str]) -> Result<i32> {
+pub fn git(arguments: &[&str]) -> Result<i32, String> {
     let status = Command::new("git")
         .args(arguments)
         .status()

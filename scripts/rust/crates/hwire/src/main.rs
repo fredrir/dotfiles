@@ -1,22 +1,23 @@
 mod client;
+mod completion;
 mod info;
 mod proto;
 mod report;
 mod serve;
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, IsTerminal};
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::process::{Child, Command, ExitCode, Stdio};
+use std::process::{Child, ExitCode, Stdio};
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use hostkit::host;
+use hostkit::ssh::Session;
 use hostkit::{Host, Route};
 use serde_json::json;
-use workstation::{Completions, Style};
+use workstation::{ColorMode, Completions, Style};
 
 use client::{Direction, Peer};
-use info::ColorMode;
 use report::Run;
 
 const PROGRAM: &str = "hwire";
@@ -234,7 +235,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
         if cli.completions.is_zsh() {
-            print!("{}", include_str!("info/completion.zsh"));
+            let mut command = Cli::command();
+            command.build();
+            print!("{}", completion::zsh(&command));
         }
         return status;
     }
@@ -296,7 +299,7 @@ fn measure(cli: &Cli) -> Result<(), String> {
         _ => vec![Direction::Up, Direction::Down],
     };
 
-    let style = Style::for_stdout_with_color(info::measurement_color(cli.color));
+    let style = Style::for_mode(cli.color, std::io::stdout().is_terminal());
     let this = Host::this()?;
     let mut runs = Vec::new();
 
@@ -437,10 +440,9 @@ fn start(peer: Host, route: Route, token: &[u8; 16], window: Duration) -> Result
         bind,
         proto::hex(token),
     );
-    let mut child = Command::new("ssh")
-        .args(["-T", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR"])
-        .arg(peer.name())
-        .arg(&command)
+    let mut child = Session::new(peer.name())
+        .script(&command)
+        .command()
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use hostkit::{Host, Route};
 use workstation::Style;
+use workstation::path::home_relative_in;
 
 use crate::browse::{Browser, Chosen};
 use crate::cli::{Direction, Request};
@@ -198,7 +199,7 @@ impl Session {
             local,
             local_display,
             remote: remote.to_string(),
-            remote_display: place::shorten(remote, &self.remote_home),
+            remote_display: home_relative_in(Path::new(remote), Path::new(&self.remote_home)),
             route: self.route,
             dry_run: request.dry_run,
             checksum: request.checksum,

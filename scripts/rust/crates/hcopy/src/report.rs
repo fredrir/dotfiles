@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use hostkit::Route;
 use workstation::Style;
+use workstation::text::counted;
+use workstation::units::bytes;
 
 use crate::cli::Direction;
 use crate::transfer::{Outcome, Plan};
@@ -47,8 +49,8 @@ pub fn progress(style: &Style, outcome: &Outcome) -> String {
     format!(
         "  {} {} {}",
         style.dim("▸"),
-        style.bold(&files(outcome.files)),
-        style.dim(&size(outcome.bytes)),
+        style.bold(&counted(outcome.files, "file", "files")),
+        style.dim(&bytes(outcome.bytes)),
     )
 }
 
@@ -63,8 +65,8 @@ pub fn summary(style: &Style, plan: &Plan, outcome: &Outcome) -> String {
 
     let mut line = format!(
         "  {}  {}",
-        style.bold(&files(outcome.files)),
-        style.bold(&size(outcome.bytes)),
+        style.bold(&counted(outcome.files, "file", "files")),
+        style.bold(&bytes(outcome.bytes)),
     );
     if outcome.created > 0 {
         line.push_str(&format!(
@@ -86,24 +88,6 @@ pub fn summary(style: &Style, plan: &Plan, outcome: &Outcome) -> String {
     line
 }
 
-fn files(count: usize) -> String {
-    match count {
-        1 => "1 file".to_string(),
-        other => format!("{other} files"),
-    }
-}
-
-pub fn size(bytes: u64) -> String {
-    const KIB: f64 = 1024.0;
-    let value = bytes as f64;
-    match value {
-        _ if value >= KIB * KIB * KIB => format!("{:.2} GiB", value / (KIB * KIB * KIB)),
-        _ if value >= KIB * KIB => format!("{:.1} MiB", value / (KIB * KIB)),
-        _ if value >= KIB => format!("{:.0} KiB", value / KIB),
-        _ => format!("{bytes} B"),
-    }
-}
-
 fn seconds(elapsed: Duration) -> String {
     let value = elapsed.as_secs_f64();
     match value {
@@ -113,12 +97,12 @@ fn seconds(elapsed: Duration) -> String {
     }
 }
 
-fn rate(bytes: u64, elapsed: Duration) -> Option<String> {
+fn rate(total: u64, elapsed: Duration) -> Option<String> {
     let seconds = elapsed.as_secs_f64();
-    if bytes == 0 || seconds <= 0.0 {
+    if total == 0 || seconds <= 0.0 {
         return None;
     }
-    Some(format!("{}/s", size((bytes as f64 / seconds) as u64)))
+    Some(format!("{}/s", bytes((total as f64 / seconds) as u64)))
 }
 
 #[cfg(test)]

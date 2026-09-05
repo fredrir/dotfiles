@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use workstation::Style;
+use workstation::{Style, path, text};
 
 pub const ROWS: usize = 12;
 pub const WIDTH: usize = 100;
@@ -17,35 +17,8 @@ pub fn width() -> usize {
         .unwrap_or(WIDTH)
 }
 
-pub fn shorten(path: &Path) -> String {
-    let shown = path.display().to_string();
-    if let Ok(here) = std::env::current_dir()
-        && let Ok(rest) = path.strip_prefix(&here)
-        && !rest.as_os_str().is_empty()
-    {
-        return rest.display().to_string();
-    }
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return shown;
-    };
-    match path.strip_prefix(&home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => shown,
-    }
-}
-
-pub fn clip(text: &str, room: usize) -> String {
-    let length = text.chars().count();
-    if length <= room {
-        return text.to_string();
-    }
-    let tail: String = text.chars().skip(length - room.saturating_sub(1)).collect();
-    format!("\u{2026}{tail}")
-}
-
 pub fn heading(targets: &[PathBuf], style: &Style) {
-    let shown: Vec<String> = targets.iter().map(|path| shorten(path)).collect();
+    let shown: Vec<String> = targets.iter().map(|target| path::shorten(target)).collect();
     println!();
     println!(
         "  {}  {}",
@@ -81,7 +54,7 @@ pub fn purged(rows: &[Row], all: bool, style: &Style) {
     let room = width().saturating_sub(10 + minus_room).max(16);
     let paths: Vec<String> = rows[..shown]
         .iter()
-        .map(|row| clip(&row.path, room))
+        .map(|row| text::truncate_front(&row.path, room))
         .collect();
     let left = paths
         .iter()
@@ -115,7 +88,7 @@ pub fn listed(header: &str, rows: &[(String, String)], all: bool, style: &Style)
     let room = width().saturating_sub(40).max(16);
     let paths: Vec<String> = rows[..shown]
         .iter()
-        .map(|(path, _)| clip(path, room))
+        .map(|(path, _)| text::truncate_front(path, room))
         .collect();
     let left = paths
         .iter()
@@ -132,8 +105,4 @@ pub fn listed(header: &str, rows: &[(String, String)], all: bool, style: &Style)
         let more = format!("\u{2026} and {} more", rows.len() - shown);
         println!("    {}", style.dim(&more));
     }
-}
-
-pub fn plural(count: usize, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
 }

@@ -1,9 +1,9 @@
-use std::io::{self, IsTerminal};
-
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use workstation::{Completions, Style};
+use workstation::{Completable, Completions};
+
+pub use workstation::ColorMode;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, ValueEnum)]
 pub enum Agent {
@@ -18,49 +18,6 @@ impl Agent {
             Agent::Claude => "claude",
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
-pub enum ColorMode {
-    #[default]
-    Auto,
-    Always,
-    Never,
-}
-
-impl ColorMode {
-    pub fn enabled(self, terminal: bool) -> bool {
-        match self {
-            ColorMode::Always => true,
-            ColorMode::Never => false,
-            ColorMode::Auto => auto_enabled(
-                terminal,
-                std::env::var_os("NO_COLOR").is_some(),
-                std::env::var("CLICOLOR").ok().as_deref(),
-                std::env::var("TERM").ok().as_deref(),
-            ),
-        }
-    }
-
-    pub fn style(self) -> Style {
-        self.style_for(io::stdout().is_terminal())
-    }
-
-    pub fn style_for(self, terminal: bool) -> Style {
-        Style::for_stdout_with_color(self.enabled(terminal))
-    }
-}
-
-fn auto_enabled(
-    terminal: bool,
-    no_color: bool,
-    clicolor: Option<&str>,
-    term: Option<&str>,
-) -> bool {
-    terminal
-        && !no_color
-        && clicolor != Some("0")
-        && term.is_none_or(|value| !value.eq_ignore_ascii_case("dumb"))
 }
 
 #[derive(Parser)]
@@ -125,6 +82,12 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
+    }
 }
 
 #[derive(Subcommand)]

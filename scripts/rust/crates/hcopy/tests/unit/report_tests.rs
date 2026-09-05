@@ -99,22 +99,6 @@ fn a_dry_run_never_claims_a_duration_or_a_rate() {
 }
 
 #[test]
-fn one_file_is_not_one_files() {
-    assert_eq!(files(1), "1 file");
-    assert_eq!(files(0), "0 files");
-    assert_eq!(files(2), "2 files");
-}
-
-#[test]
-fn a_size_carries_the_unit_it_is_worth_reading_in() {
-    assert_eq!(size(0), "0 B");
-    assert_eq!(size(512), "512 B");
-    assert_eq!(size(2048), "2 KiB");
-    assert_eq!(size(12_900_000), "12.3 MiB");
-    assert_eq!(size(3_221_225_472), "3.00 GiB");
-}
-
-#[test]
 fn a_duration_keeps_the_digits_that_change() {
     assert_eq!(seconds(Duration::from_millis(800)), "0.8 s");
     assert_eq!(seconds(Duration::from_secs(42)), "42 s");

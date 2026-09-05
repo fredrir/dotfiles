@@ -4,13 +4,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::{Terminal, TerminalOptions, Viewport};
 use tachyonfx::{CellFilter, Effect, EffectRenderer, Interpolation, fx};
+use tui_kit::{Inline, Teardown, ui_style};
 
 use super::model::Snapshot;
 use super::{ColorMode, Options, collect, render};
@@ -34,7 +34,7 @@ pub fn run(options: Options) -> Result<(), String> {
         .unwrap_or(24)
         .saturating_sub(1)
         .max(6) as u16;
-    let mut terminal = InlineTerminal::new(height)
+    let mut inline = Inline::new(io::stdout(), height, Teardown::KeepViewport)
         .map_err(|error| format!("unable to open verbose terminal: {error}"))?;
     let mut snapshot = None;
     let mut previous_fingerprint = None;
@@ -71,7 +71,7 @@ pub fn run(options: Options) -> Result<(), String> {
                     let route_changed =
                         previous_preferred.is_some_and(|previous| previous != primary_route);
                     if changed && route_changed && options.notify {
-                        terminal.bell()?;
+                        bell(inline.terminal())?;
                     }
                     failure = next.failure();
                     previous_preferred = Some(primary_route);
@@ -96,7 +96,7 @@ pub fn run(options: Options) -> Result<(), String> {
         }
 
         let max_scroll = scroll_limit(snapshot.as_ref(), height);
-        match terminal.input()? {
+        match input()? {
             Input::None => {}
             Input::Quit => {
                 return match failure {
@@ -134,7 +134,8 @@ pub fn run(options: Options) -> Result<(), String> {
             if animating {
                 frame_index = frame_index.wrapping_add(1);
             }
-            terminal.draw(
+            draw(
+                inline.terminal(),
                 DrawState {
                     snapshot: snapshot.as_ref(),
                     frame_index,
@@ -212,11 +213,6 @@ fn scroll_limit(snapshot: Option<&Snapshot>, viewport_height: u16) -> u16 {
         .min(usize::from(u16::MAX)) as u16
 }
 
-struct InlineTerminal {
-    terminal: Terminal<CrosstermBackend<Stdout>>,
-    raw: bool,
-}
-
 struct DrawState<'a> {
     snapshot: Option<&'a Snapshot>,
     frame_index: u64,
@@ -226,120 +222,94 @@ struct DrawState<'a> {
     tick: Duration,
 }
 
-impl InlineTerminal {
-    fn new(height: u16) -> io::Result<Self> {
-        enable_raw_mode()?;
-        let backend = CrosstermBackend::new(io::stdout());
-        let terminal = match Terminal::with_options(
-            backend,
-            TerminalOptions {
-                viewport: Viewport::Inline(height),
-            },
-        ) {
-            Ok(mut terminal) => {
-                if let Err(error) = terminal.hide_cursor() {
-                    let _ = disable_raw_mode();
-                    return Err(error);
-                }
-                terminal
-            }
-            Err(error) => {
-                let _ = disable_raw_mode();
-                return Err(error);
-            }
-        };
-        Ok(Self {
-            terminal,
-            raw: true,
-        })
-    }
-
-    fn draw(&mut self, state: DrawState<'_>, effect: Option<&mut Effect>) -> Result<(), String> {
-        let DrawState {
-            snapshot,
-            frame_index,
-            color,
-            probing,
-            scroll,
-            tick,
-        } = state;
-        self.terminal
-            .draw(|frame| {
-                let area = frame.area();
-                let title = if probing {
-                    let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-                    format!(
-                        " {} probing ",
-                        spinner[frame_index as usize % spinner.len()]
-                    )
-                } else {
-                    " hwire info ".to_string()
-                };
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!("{title} | ↑/↓ scroll | q quit "))
-                    .border_style(ui_style(color, Color::Rgb(124, 58, 237), Modifier::BOLD));
-                let inner = block.inner(area);
-                frame.render_widget(block, area);
-                let text = match snapshot {
-                    Some(snapshot) => styled_text(snapshot, color),
-                    None => Text::from(Line::styled(
-                        "Discovering routes…",
-                        ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
-                    )),
-                };
-                frame.render_widget(
-                    Paragraph::new(text)
-                        .wrap(Wrap { trim: false })
-                        .scroll((scroll, 0)),
-                    inner,
-                );
-                if let Some(effect) = effect {
-                    frame.render_effect(effect, area, tachyonfx::Duration::from(tick));
-                }
-            })
-            .map(|_| ())
-            .map_err(|error| format!("unable to render verbose information: {error}"))
-    }
-
-    fn input(&self) -> Result<Input, String> {
-        while event::poll(Duration::ZERO)
-            .map_err(|error| format!("unable to poll terminal input: {error}"))?
-        {
-            let Event::Key(key) =
-                event::read().map_err(|error| format!("unable to read terminal input: {error}"))?
-            else {
-                continue;
+fn draw(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    state: DrawState<'_>,
+    effect: Option<&mut Effect>,
+) -> Result<(), String> {
+    let DrawState {
+        snapshot,
+        frame_index,
+        color,
+        probing,
+        scroll,
+        tick,
+    } = state;
+    terminal
+        .draw(|frame| {
+            let area = frame.area();
+            let title = if probing {
+                let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+                format!(
+                    " {} probing ",
+                    spinner[frame_index as usize % spinner.len()]
+                )
+            } else {
+                " hwire info ".to_string()
             };
-            if key.kind == KeyEventKind::Press
-                && (key.code == KeyCode::Char('q')
-                    || key.code == KeyCode::Esc
-                    || key.code == KeyCode::Char('c')
-                        && key.modifiers.contains(KeyModifiers::CONTROL))
-            {
-                return Ok(Input::Quit);
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(format!("{title} | ↑/↓ scroll | q quit "))
+                .border_style(ui_style(color, Color::Rgb(124, 58, 237), Modifier::BOLD));
+            let inner = block.inner(area);
+            frame.render_widget(block, area);
+            let text = match snapshot {
+                Some(snapshot) => styled_text(snapshot, color),
+                None => Text::from(Line::styled(
+                    "Discovering routes…",
+                    ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
+                )),
+            };
+            frame.render_widget(
+                Paragraph::new(text)
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll, 0)),
+                inner,
+            );
+            if let Some(effect) = effect {
+                frame.render_effect(effect, area, tachyonfx::Duration::from(tick));
             }
-            if key.kind == KeyEventKind::Press {
-                return Ok(match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => Input::Up,
-                    KeyCode::Down | KeyCode::Char('j') => Input::Down,
-                    KeyCode::PageUp => Input::PageUp,
-                    KeyCode::PageDown => Input::PageDown,
-                    KeyCode::Home | KeyCode::Char('g') => Input::Home,
-                    _ => Input::None,
-                });
-            }
-        }
-        Ok(Input::None)
-    }
+        })
+        .map(|_| ())
+        .map_err(|error| format!("unable to render verbose information: {error}"))
+}
 
-    fn bell(&mut self) -> Result<(), String> {
-        self.terminal
-            .backend_mut()
-            .write_all(b"\x07")
-            .and_then(|_| self.terminal.backend_mut().flush())
-            .map_err(|error| format!("unable to ring route-change bell: {error}"))
+fn input() -> Result<Input, String> {
+    while event::poll(Duration::ZERO)
+        .map_err(|error| format!("unable to poll terminal input: {error}"))?
+    {
+        let Event::Key(key) =
+            event::read().map_err(|error| format!("unable to read terminal input: {error}"))?
+        else {
+            continue;
+        };
+        if key.kind == KeyEventKind::Press
+            && (key.code == KeyCode::Char('q')
+                || key.code == KeyCode::Esc
+                || key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
+        {
+            return Ok(Input::Quit);
+        }
+        if key.kind == KeyEventKind::Press {
+            return Ok(match key.code {
+                KeyCode::Up | KeyCode::Char('k') => Input::Up,
+                KeyCode::Down | KeyCode::Char('j') => Input::Down,
+                KeyCode::PageUp => Input::PageUp,
+                KeyCode::PageDown => Input::PageDown,
+                KeyCode::Home | KeyCode::Char('g') => Input::Home,
+                _ => Input::None,
+            });
+        }
     }
+    Ok(Input::None)
+}
+
+fn bell(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), String> {
+    terminal
+        .backend_mut()
+        .write_all(b"\x07")
+        .and_then(|_| terminal.backend_mut().flush())
+        .map_err(|error| format!("unable to ring route-change bell: {error}"))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -351,16 +321,6 @@ enum Input {
     PageUp,
     PageDown,
     Home,
-}
-
-impl Drop for InlineTerminal {
-    fn drop(&mut self) {
-        let _ = self.terminal.show_cursor();
-        if self.raw {
-            let _ = disable_raw_mode();
-            self.raw = false;
-        }
-    }
 }
 
 fn styled_text(snapshot: &Snapshot, color: bool) -> Text<'static> {
@@ -385,15 +345,6 @@ fn styled_text(snapshot: &Snapshot, color: bool) -> Text<'static> {
         })
         .collect::<Vec<_>>();
     Text::from(lines)
-}
-
-fn ui_style(color: bool, foreground: Color, modifier: Modifier) -> Style {
-    let style = if color {
-        Style::default().fg(foreground)
-    } else {
-        Style::default()
-    };
-    style.add_modifier(modifier)
 }
 
 #[cfg(test)]

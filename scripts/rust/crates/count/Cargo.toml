@@ -9,9 +9,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-clap.workspace        = true
-rayon.workspace       = true
-workstation.workspace = true
+clap.workspace = true
+workstation    = { workspace = true, features = ["walk"] }
 
 [dev-dependencies]
 tempfile.workspace = true

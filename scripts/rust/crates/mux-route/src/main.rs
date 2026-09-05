@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use hostkit::Host;
-use workstation::{Completions, Style};
+use workstation::{Completable, Completions, Style};
 
 const PROGRAM: &str = "mux-route";
 
@@ -26,15 +26,14 @@ struct Cli {
     completions: Completions,
 }
 
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
+    }
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    match route(&cli) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(message) => workstation::fail(PROGRAM, message),
-    }
+    workstation::run::<Cli>(PROGRAM, |cli| route(&cli).map(|()| ExitCode::SUCCESS))
 }
 
 fn route(cli: &Cli) -> Result<(), String> {

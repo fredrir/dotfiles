@@ -15,6 +15,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tui-kit",
  "unicode-width",
  "workstation",
 ]
@@ -368,7 +369,6 @@ name = "count"
 version = "0.1.0"
 dependencies = [
  "clap",
- "rayon",
  "tempfile",
  "workstation",
 ]
@@ -621,12 +621,16 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "crossterm",
+ "hostkit",
  "libc",
  "ratatui",
  "serde",
  "serde_json",
+ "sha2",
  "tachyonfx",
  "tempfile",
+ "tui-kit",
+ "workstation",
 ]
 
 [[package]]
@@ -1802,6 +1806,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tachyonfx",
+ "tui-kit",
  "workstation",
 ]
 

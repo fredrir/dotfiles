@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{BufReader, Read};
+use std::io::{self, BufReader, IsTerminal, Read};
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 
@@ -10,6 +10,7 @@ use crate::remote::{MAX_REMOTE_SESSIONS, Remote, RemoteSession};
 use crate::transfer::Snapshot;
 use hostkit::Host;
 use tempfile::{NamedTempFile, TempDir};
+use workstation::Style;
 
 pub(crate) fn receive(
     agent: Agent,
@@ -56,7 +57,7 @@ pub(crate) fn receive(
 
     let route_peer = peer.name().to_string();
     let route = std::thread::spawn(move || hostkit::ssh::resolved(&route_peer));
-    let style = options.color.style();
+    let style = Style::for_mode(options.color, io::stdout().is_terminal());
     let source_workspace = plan::display(&session.workspace, &remote_home);
     let destination_workspace = plan::display(&destination.workspace, &home);
     let source_transcript = plan::display(&session.transcript, &remote_home);

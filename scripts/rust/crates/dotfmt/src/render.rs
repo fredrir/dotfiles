@@ -1,6 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use workstation::Style;
+use workstation::path::home_relative;
+use workstation::text::plural;
 
 use crate::PROGRAM;
 use crate::conf::Mode;
@@ -65,7 +67,7 @@ impl Report {
             return;
         }
         let from = match source {
-            Some(path) => shorten(path),
+            Some(path) => home_relative(path),
             None => "built-in defaults".to_string(),
         };
         eprintln!("  {} {}", self.style.dim("config"), self.style.dim(&from));
@@ -75,11 +77,21 @@ impl Report {
         eprintln!("{PROGRAM}: {message}");
     }
 
+    pub fn unreadable(&self, count: usize) {
+        if self.quiet || count == 0 {
+            return;
+        }
+        eprintln!(
+            "{PROGRAM}: {count} {} could not be read",
+            plural(count, "directory", "directories")
+        );
+    }
+
     pub fn summary(&self, tally: &Tally) {
         if self.quiet {
             return;
         }
-        let files = files(tally.total);
+        let files = plural(tally.total, "file", "files");
         let line = if self.check {
             if tally.changed == 0 {
                 format!("{} {files} already formatted", tally.total)
@@ -99,22 +111,6 @@ impl Report {
 pub fn label(root: &Path, path: &Path) -> String {
     match path.strip_prefix(root) {
         Ok(rest) if !rest.as_os_str().is_empty() => rest.display().to_string(),
-        _ => shorten(path),
+        _ => home_relative(path),
     }
-}
-
-pub fn shorten(path: &Path) -> String {
-    let shown = path.display().to_string();
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return shown;
-    };
-    match path.strip_prefix(&home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => shown,
-    }
-}
-
-fn files(count: usize) -> &'static str {
-    if count == 1 { "file" } else { "files" }
 }

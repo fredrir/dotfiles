@@ -7,7 +7,7 @@ use std::fs;
 use std::process::ExitCode;
 
 use clap::Parser;
-use workstation::{Completions, Style};
+use workstation::{Completable, Completions, Style};
 
 use target::Target;
 
@@ -54,18 +54,17 @@ struct Cli {
     completions: Completions,
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    match get(&cli) {
-        Ok(status) => status,
-        Err(message) => workstation::fail(PROGRAM, message),
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
     }
 }
 
-fn get(cli: &Cli) -> Result<ExitCode, String> {
+fn main() -> ExitCode {
+    workstation::run(PROGRAM, get)
+}
+
+fn get(cli: Cli) -> Result<ExitCode, String> {
     // clap has already refused a run with neither this nor --completions.
     let input = cli.target.as_deref().unwrap_or_default();
     let mut target = target::parse(input, cli.fredrir.then_some(OWNER))?;
@@ -106,7 +105,7 @@ fn get(cli: &Cli) -> Result<ExitCode, String> {
 
     match fetch::fetch(&target, &here)? {
         // git has said what was wrong with it; its status is the answer.
-        fetch::Outcome::Refused(code) => Ok(ExitCode::from(byte(code))),
+        fetch::Outcome::Refused(code) => Ok(workstation::exit_code(code)),
         fetch::Outcome::Ready(fetched) => {
             let source = describe(&target, fetched.branch());
             fetched.install(&destination)?;
@@ -128,11 +127,3 @@ fn describe(target: &Target, branch: Option<&str>) -> String {
         format!("{source} {}", target.path)
     }
 }
-
-fn byte(code: i32) -> u8 {
-    u8::try_from(code).unwrap_or(1)
-}
-
-#[cfg(test)]
-#[path = "../tests/unit/main_tests.rs"]
-mod tests;

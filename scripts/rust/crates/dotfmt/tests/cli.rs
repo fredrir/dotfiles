@@ -55,7 +55,7 @@ fn tree(lines: &[(&str, &str)]) -> tempfile::TempDir {
 }
 
 const RAGGED: &str = "host {\n  a = 1\n  longer = 2\n}\n";
-const LAID_OUT: &str = "host {\n  a       = 1\n  longer  = 2\n}\n";
+const LAID_OUT: &str = "host {\n  a       = 1\n  longer  = 2\n}";
 
 #[test]
 fn no_arguments_at_all_prints_the_help_on_stdout_and_stops() {
@@ -173,7 +173,7 @@ fn stdin_reads_the_settings_that_govern_the_name_it_was_given() {
     );
 
     assert_eq!(code(&output), 0);
-    assert_eq!(stdout(&output), "host {\n    a  = 1\n}\n");
+    assert_eq!(stdout(&output), "host {\n    a  = 1\n}");
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn the_config_in_the_home_directory_is_the_next_place_looked() {
     let output = dotfmt(root.path(), &["--stdin", "a.dotfile"], RAGGED);
 
     assert_eq!(code(&output), 0);
-    assert_eq!(stdout(&output), RAGGED);
+    assert_eq!(stdout(&output), "host {\n  a = 1\n  longer = 2\n}");
 }
 
 #[test]
@@ -206,14 +206,14 @@ fn the_home_directory_itself_is_the_place_looked_after_that() {
     let under_config = dotfmt_from(root.path(), &home, &["--stdin", "a.dotfile"], RAGGED);
     assert_eq!(
         stdout(&under_config),
-        "host {\n    a       = 1\n    longer  = 2\n}\n"
+        "host {\n    a       = 1\n    longer  = 2\n}"
     );
 
     fs::remove_file(root.path().join("empty-config/dotfmt/dotfmt.dotfile")).unwrap();
     let at_home = dotfmt_from(root.path(), &home, &["--stdin", "a.dotfile"], RAGGED);
     assert_eq!(
         stdout(&at_home),
-        "host {\n      a       = 1\n      longer  = 2\n}\n"
+        "host {\n      a       = 1\n      longer  = 2\n}"
     );
 }
 
@@ -306,6 +306,29 @@ fn a_run_formats_the_tree_and_names_what_it_changed() {
         fs::read_to_string(root.path().join("b.toml")).unwrap(),
         "untouched"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_directory_that_cannot_be_read_is_named_rather_than_passed_over_in_silence() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tree(&[("dotfmt.dotfile", ""), ("a.dotfile", RAGGED)]);
+    let shut = root.path().join("shut");
+    fs::create_dir(&shut).unwrap();
+    fs::set_permissions(&shut, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let output = dotfmt(root.path(), &["."], "");
+    let quiet = dotfmt(root.path(), &["-q", "."], "");
+    fs::set_permissions(&shut, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(code(&output), 0);
+    let said = stderr(&output);
+    assert!(
+        said.contains("dotfmt: 1 directory could not be read"),
+        "{said}"
+    );
+    assert_eq!(stderr(&quiet), "");
 }
 
 #[test]
@@ -444,7 +467,7 @@ fn the_include_block_decides_which_files_a_walk_picks_up() {
     let root = tree(&[
         (
             "dotfmt.dotfile",
-            "include {\n  .conf\n}\n\nexclude {\n  kitty\n}\n",
+            "include {\n  .conf\n}\n\nexclude {\n  kitty\n}",
         ),
         ("a.conf", "x  =  1\n\n\n"),
         ("kitty/b.conf", "x  =  1\n\n\n"),

@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use clap::CommandFactory;
@@ -25,6 +25,7 @@ mod tui;
 use cli::{Agent, Cli, ColorMode, Command};
 use remote::Remote;
 use tui::{Origin, PickerAction, PickerOutcome};
+use workstation::Style;
 
 #[derive(Clone, Copy)]
 pub(crate) struct TransferOptions {
@@ -134,7 +135,7 @@ fn send_local_session(
     }
     remote.preflight(&destination.workspace, session.agent)?;
 
-    let style = options.color.style();
+    let style = Style::for_mode(options.color, io::stdout().is_terminal());
     let source_workspace = plan::display(&session.workspace, &home);
     let destination_workspace = plan::display(&destination.workspace, &remote_home);
     let source_transcript = plan::display(&session.transcript, &home);
@@ -333,8 +334,7 @@ fn remote_child_is_resumable(
 }
 
 pub(crate) fn offer_resume(host: &str, agent: Agent, child_id: &str) -> Result<bool, String> {
-    use std::io::IsTerminal;
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         println!(
             "Previous hop created {agent} child {child_id} on {host}; run that session ID to resume it.",
             agent = agent.name()
@@ -345,11 +345,11 @@ pub(crate) fn offer_resume(host: &str, agent: Agent, child_id: &str) -> Result<b
         "A previous hop created {agent} child {child_id} on {host}. Resume it? [Y/n] ",
         agent = agent.name()
     );
-    std::io::stdout()
+    io::stdout()
         .flush()
         .map_err(|error| format!("could not show resume prompt: {error}"))?;
     let mut answer = String::new();
-    std::io::stdin()
+    io::stdin()
         .read_line(&mut answer)
         .map_err(|error| format!("could not read resume choice: {error}"))?;
     Ok(matches!(

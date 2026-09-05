@@ -6,12 +6,16 @@ use gix::object::tree::EntryKind;
 use rayon::prelude::*;
 
 use crate::survey::{Counts, Entry, Kind};
-use crate::{Repo, Result};
+use crate::{Repo, message};
 
-pub(crate) fn lines(repo: &Repo, index: &gix::index::File, entries: &mut [Entry]) -> Result<()> {
+pub(crate) fn lines(
+    repo: &Repo,
+    index: &gix::index::File,
+    entries: &mut [Entry],
+) -> Result<(), String> {
     let repos = repo.git.clone().into_sync();
     let root = repo.root();
-    let measured: Vec<Result<Counts>> = entries
+    let measured: Vec<Result<Counts, String>> = entries
         .par_iter()
         .map_init(
             || Scales::new(&repos, index, root),
@@ -19,7 +23,7 @@ pub(crate) fn lines(repo: &Repo, index: &gix::index::File, entries: &mut [Entry]
                 Ok(scales) => scales.of(entry, root),
                 // The failure belongs to the thread, not to this entry, so it
                 // is restated rather than moved out of the shared slot.
-                Err(error) => Err(error.to_string().into()),
+                Err(error) => Err(error.clone()),
             },
         )
         .collect();
@@ -39,13 +43,14 @@ impl Scales {
         repos: &gix::ThreadSafeRepository,
         index: &gix::index::File,
         root: &Path,
-    ) -> Result<Scales> {
+    ) -> Result<Scales, String> {
         let repo = repos.to_thread_local();
         let attributes = repo
             .attributes_only(
                 index,
                 gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping,
-            )?
+            )
+            .map_err(message)?
             .detach();
         let cache = gix::diff::resource_cache(
             &repo,
@@ -55,11 +60,12 @@ impl Scales {
                 old_root: None,
                 new_root: Some(root.to_owned()),
             },
-        )?;
+        )
+        .map_err(message)?;
         Ok(Scales { repo, cache })
     }
 
-    fn of(&mut self, entry: &Entry, root: &Path) -> Result<Counts> {
+    fn of(&mut self, entry: &Entry, root: &Path) -> Result<Counts, String> {
         match entry.kind {
             Kind::Repository => Ok(Counts::None),
             Kind::Directory => Ok(Counts::Files(files_in(&crate::on_disk(
@@ -70,7 +76,7 @@ impl Scales {
         }
     }
 
-    fn diff(&mut self, entry: &Entry) -> Result<Counts> {
+    fn diff(&mut self, entry: &Entry) -> Result<Counts, String> {
         // A submodule, a device, or anything else without content to read is
         // reported without a number rather than opened to find out.
         let Some(worktree) = entry.worktree else {
@@ -82,13 +88,15 @@ impl Scales {
             None => (nothing, EntryKind::Blob),
         };
         self.cache.clear_resource_cache_keep_allocation();
-        self.cache.set_resource(
-            head,
-            kind,
-            entry.path.as_ref(),
-            ResourceKind::OldOrSource,
-            &self.repo.objects,
-        )?;
+        self.cache
+            .set_resource(
+                head,
+                kind,
+                entry.path.as_ref(),
+                ResourceKind::OldOrSource,
+                &self.repo.objects,
+            )
+            .map_err(message)?;
         // A null id with a working-tree root set means "read it from disk",
         // and a path that is not there reads as nothing at all. A path that is
         // there but is not readable content — a tracked file whose name a
@@ -117,7 +125,7 @@ impl Scales {
                     removed: 0,
                 });
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(message(error)),
         };
         match prepared.operation {
             prepare_diff::Operation::InternalDiff { algorithm } => {
@@ -135,14 +143,14 @@ impl Scales {
         }
     }
 
-    fn head_only(&self, entry: &Entry) -> Result<Counts> {
+    fn head_only(&self, entry: &Entry) -> Result<Counts, String> {
         let Some(source) = &entry.head else {
             return Ok(Counts::Lines {
                 added: 0,
                 removed: 0,
             });
         };
-        let blob = self.repo.find_object(source.id)?;
+        let blob = self.repo.find_object(source.id).map_err(message)?;
         if is_binary(&blob.data) {
             return Ok(Counts::Binary);
         }

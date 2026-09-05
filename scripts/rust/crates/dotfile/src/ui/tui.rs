@@ -5,15 +5,14 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use crossterm::event::{self, Event as TerminalEvent, KeyCode, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Widget};
-use ratatui::{Terminal, TerminalOptions, Viewport};
 use tachyonfx::{CellFilter, Effect, EffectRenderer, Interpolation, fx};
+use tui_kit::{Inline, SignalGuard, SignalOptions, Teardown, ui_style};
+use workstation::text::plural;
 
 use crate::decision::{Choice, Prompt, Request, Server};
 use crate::event::{Event, Phase, Summary};
@@ -25,8 +24,6 @@ const EFFECT_FRAME: Duration = Duration::from_millis(33);
 const SPINNER_FRAME: Duration = Duration::from_millis(80);
 const INPUT_FRAME: Duration = Duration::from_millis(100);
 const DECISION_POLL: Duration = Duration::from_millis(25);
-#[cfg(unix)]
-static TERMINATION_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 const MERGE_CHOICES: [Choice; 5] = [
     Choice::Repo,
     Choice::Live,
@@ -343,7 +340,11 @@ pub fn run(
     verbose: bool,
     policy: UiPolicy,
 ) -> Result<Summary, String> {
-    let signals = match SignalGuard::new() {
+    let signals = match SignalGuard::with_options(SignalOptions {
+        hook: Some(crate::cancel::request),
+        reset_to_default: true,
+        reraise_on_drop: false,
+    }) {
         Ok(signals) => signals,
         Err(_) => return super::plain::run(receiver, decisions, worker, verbose),
     };
@@ -807,7 +808,7 @@ fn render_decision_body(
         Prompt::RemoteChanges { host, changes } => {
             let host = compact_text(host, width.max(8));
             let count = changes.len();
-            let count_label = if count == 1 { "change" } else { "changes" };
+            let count_label = plural(count, "change", "changes");
             render_decision_line(
                 area,
                 0,
@@ -1335,15 +1336,6 @@ fn phase_effect(policy: UiPolicy) -> Effect {
     fx::fade_from_fg(color, (180, Interpolation::CubicOut)).with_filter(CellFilter::Text)
 }
 
-fn ui_style(color: bool, foreground: Color, modifier: Modifier) -> Style {
-    let style = if color {
-        Style::default().fg(foreground)
-    } else {
-        Style::default()
-    };
-    style.add_modifier(modifier)
-}
-
 fn line_area(area: Rect, row: u16) -> Rect {
     Rect::new(area.x, area.y + row, area.width, 1)
 }
@@ -1358,9 +1350,7 @@ fn inset(area: Rect, horizontal: u16) -> Rect {
 }
 
 struct InlineTerminal {
-    terminal: Terminal<CrosstermBackend<Stderr>>,
-    raw_mode: bool,
-    _signals: SignalGuard,
+    inline: Inline<Stderr>,
 }
 
 impl InlineTerminal {
@@ -1370,30 +1360,8 @@ impl InlineTerminal {
                 "interactive terminal input is unavailable",
             ));
         }
-        enable_raw_mode()?;
-        let backend = CrosstermBackend::new(io::stderr());
-        let terminal = Terminal::with_options(
-            backend,
-            TerminalOptions {
-                viewport: Viewport::Inline(height),
-            },
-        );
-        let mut terminal = match terminal {
-            Ok(terminal) => terminal,
-            Err(error) => {
-                let _ = disable_raw_mode();
-                return Err(error);
-            }
-        };
-        if let Err(error) = terminal.hide_cursor() {
-            let _ = disable_raw_mode();
-            return Err(error);
-        }
-        Ok(Self {
-            terminal,
-            raw_mode: true,
-            _signals: signals,
-        })
+        let inline = Inline::with_signals(io::stderr(), height, Teardown::ClearViewport, signals)?;
+        Ok(Self { inline })
     }
 
     fn draw(
@@ -1404,7 +1372,8 @@ impl InlineTerminal {
         effect: Option<&mut Effect>,
         tick: Duration,
     ) -> Result<(), String> {
-        self.terminal
+        self.inline
+            .terminal()
             .draw(|frame| {
                 let area = frame.area();
                 render_buffer(model, area, frame.buffer_mut(), frame_index, policy.color);
@@ -1419,7 +1388,8 @@ impl InlineTerminal {
     fn write_scrollback(&mut self, lines: &[String], color: bool) -> Result<(), String> {
         for chunk in lines.chunks(64) {
             let height = chunk.len() as u16;
-            self.terminal
+            self.inline
+                .terminal()
                 .insert_before(height, |buffer| {
                     let lines = chunk
                         .iter()
@@ -1433,9 +1403,6 @@ impl InlineTerminal {
     }
 
     fn input(&self) -> Result<InputAction, String> {
-        if !self.raw_mode {
-            return Ok(InputAction::None);
-        }
         while event::poll(Duration::ZERO)
             .map_err(|error| format!("unable to read terminal: {error}"))?
         {
@@ -1475,69 +1442,6 @@ impl InlineTerminal {
     }
 }
 
-#[cfg(unix)]
-struct SignalGuard {
-    previous: Vec<(libc::c_int, libc::sighandler_t)>,
-}
-
-#[cfg(unix)]
-#[allow(unsafe_code)]
-impl SignalGuard {
-    fn new() -> io::Result<Self> {
-        TERMINATION_SIGNAL.store(0, std::sync::atomic::Ordering::Release);
-        let mut previous = Vec::with_capacity(3);
-        for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-            let handler = terminal_signal as *const () as libc::sighandler_t;
-            let prior = unsafe { libc::signal(signal, handler) };
-            if prior == libc::SIG_ERR {
-                for (installed, handler) in previous.into_iter().rev() {
-                    unsafe { libc::signal(installed, handler) };
-                }
-                return Err(io::Error::last_os_error());
-            }
-            previous.push((signal, prior));
-        }
-        Ok(Self { previous })
-    }
-}
-
-#[cfg(unix)]
-#[allow(unsafe_code)]
-impl Drop for SignalGuard {
-    fn drop(&mut self) {
-        for (signal, handler) in self.previous.drain(..).rev() {
-            unsafe { libc::signal(signal, handler) };
-        }
-    }
-}
-
-#[cfg(unix)]
-#[allow(unsafe_code)]
-extern "C" fn terminal_signal(signal: libc::c_int) {
-    TERMINATION_SIGNAL.store(signal, std::sync::atomic::Ordering::Release);
-    crate::cancel::request();
-    for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-        unsafe {
-            libc::signal(signal, libc::SIG_DFL);
-        }
-    }
-}
-
-#[cfg(unix)]
-pub(crate) fn termination_signal() -> libc::c_int {
-    TERMINATION_SIGNAL.load(std::sync::atomic::Ordering::Acquire)
-}
-
-#[cfg(not(unix))]
-struct SignalGuard;
-
-#[cfg(not(unix))]
-impl SignalGuard {
-    fn new() -> io::Result<Self> {
-        Ok(Self)
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum InputAction {
     None,
@@ -1554,19 +1458,6 @@ enum ChannelInput {
     Event(Result<Event, crossbeam_channel::RecvError>),
     Decision(Result<Request, crossbeam_channel::RecvError>),
     Timeout,
-}
-
-impl Drop for InlineTerminal {
-    fn drop(&mut self) {
-        let origin = self.terminal.get_frame().area().as_position();
-        let _ = self.terminal.clear();
-        let _ = self.terminal.set_cursor_position(origin);
-        let _ = self.terminal.show_cursor();
-        let _ = self.terminal.backend_mut().flush();
-        if self.raw_mode {
-            let _ = disable_raw_mode();
-        }
-    }
 }
 
 fn scrollback_line(line: &str, color: bool) -> Line<'static> {

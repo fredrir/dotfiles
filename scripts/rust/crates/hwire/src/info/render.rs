@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use hostkit::Route;
 use serde_json::{Value, json};
+use workstation::Style;
 
 use super::ColorMode;
 use super::model::{Context, RouteState, Snapshot, TargetInfo, route_upper};
@@ -14,7 +15,7 @@ pub fn compact(snapshot: &Snapshot, color: ColorMode, terminal: bool) -> String 
 }
 
 fn compact_at_width(snapshot: &Snapshot, color: ColorMode, terminal: bool, width: usize) -> String {
-    let palette = Palette::new(color.enabled(terminal));
+    let palette = Palette::new(color, terminal);
     if !snapshot.targets.is_empty() && snapshot.context == Context::Query {
         return snapshot
             .targets
@@ -70,7 +71,7 @@ fn compact_at_width(snapshot: &Snapshot, color: ColorMode, terminal: bool, width
 }
 
 pub fn verbose(snapshot: &Snapshot, color: ColorMode, terminal: bool) -> String {
-    let palette = Palette::new(color.enabled(terminal));
+    let palette = Palette::new(color, terminal);
     let mut lines = vec![format!(
         "{}  {}",
         palette.heading("hwire info"),
@@ -383,52 +384,46 @@ fn clean(text: &str) -> String {
 }
 
 struct Palette {
-    enabled: bool,
+    style: Style,
 }
 
 impl Palette {
-    fn new(enabled: bool) -> Self {
-        Self { enabled }
-    }
-
-    fn paint(&self, code: &str, text: &str) -> String {
-        if self.enabled && !text.is_empty() {
-            format!("\x1b[{code}m{text}\x1b[0m")
-        } else {
-            text.to_string()
+    fn new(color: ColorMode, terminal: bool) -> Palette {
+        Palette {
+            style: Style::for_mode(color, terminal),
         }
     }
 
     fn selected(&self, text: &str) -> String {
-        self.paint("1;38;2;52;211;153", text)
+        self.style.code("1;38;2;52;211;153", text)
     }
 
     fn target(&self, text: &str) -> String {
-        self.paint("1;38;2;167;139;250", text)
+        self.style.code("1;38;2;167;139;250", text)
     }
 
     fn tls(&self, text: &str) -> String {
-        self.paint("1;38;2;34;211;238", text)
+        self.style.code("1;38;2;34;211;238", text)
     }
 
     fn green(&self, text: &str) -> String {
-        self.paint("38;2;52;211;153", text)
+        self.style.code("38;2;52;211;153", text)
     }
 
     fn red(&self, text: &str) -> String {
-        self.paint("1;38;2;248;113;113", text)
+        self.style.code("1;38;2;248;113;113", text)
     }
 
     fn yellow(&self, text: &str) -> String {
-        self.paint("38;2;250;204;21", text)
+        self.style.code("38;2;250;204;21", text)
     }
 
     fn dim(&self, text: &str) -> String {
-        self.paint("2", text)
+        self.style.code("2", text)
     }
 
     fn heading(&self, text: &str) -> String {
-        self.paint("1;38;2;196;181;253", text)
+        self.style.code("1;38;2;196;181;253", text)
     }
 }
 

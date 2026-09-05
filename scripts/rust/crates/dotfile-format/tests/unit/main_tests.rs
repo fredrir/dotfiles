@@ -78,6 +78,26 @@ fn every_extension_belongs_to_exactly_one_language() {
 }
 
 #[test]
+fn zsh_stays_unformatted_because_shfmt_drops_hash_from_quoted_dollar_hash() {
+    assert!(!Lang::Shell.extensions().contains(&"zsh"));
+    assert_eq!(Lang::of(Path::new("conf.d/90-utils.zsh")), None);
+}
+
+#[test]
+fn the_shell_steps_leave_shfmt_on_the_dialect_it_picks_itself() {
+    for mode in [Mode::Write, Mode::Check] {
+        for step in Lang::Shell.steps(mode) {
+            assert_eq!(step.program, "shfmt");
+            let dialect = step
+                .args
+                .iter()
+                .find(|arg| arg.starts_with("-ln") || arg.starts_with("--language-dialect"));
+            assert_eq!(dialect, None, "{:?}", step.args);
+        }
+    }
+}
+
+#[test]
 fn the_extension_is_read_without_regard_to_case() {
     assert_eq!(Lang::of(Path::new("Data.JSON")), Some(Lang::Web));
 }

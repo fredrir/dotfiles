@@ -3,6 +3,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use workstation::walk::{Policy, Symlinks, walk};
+
 use crate::lang::{self, Dialect};
 
 pub const LIMIT: u64 = 8 * 1024 * 1024;
@@ -97,43 +99,25 @@ pub fn gather(targets: &[PathBuf], wanted: &Wanted) -> Result<Gathered, String> 
 }
 
 fn descend(directory: &Path, wanted: &Wanted, gathered: &mut Gathered) {
-    let Ok(listing) = fs::read_dir(directory) else {
-        gathered.unreadable += 1;
-        return;
-    };
-    let mut directories = Vec::new();
-    for entry in listing.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if name.starts_with('.') || AVOIDED.contains(&name) {
-            continue;
-        }
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if kind.is_symlink() {
-            continue;
-        }
-        let path = entry.path();
-        if kind.is_dir() {
-            directories.push(path);
-            continue;
-        }
-        let Some(language) = lang::for_path(&path) else {
-            continue;
-        };
-        if !wanted.allows(&path) {
-            continue;
-        }
-        gathered.files.push(Found {
-            path,
-            dialect: language.dialect,
-        });
-    }
-    directories.sort();
-    for path in directories {
-        descend(&path, wanted, gathered);
-    }
+    let policy = Policy::new()
+        .skipping(AVOIDED)
+        .skip_hidden(true)
+        .symlinks(Symlinks::Drop);
+    let walked = walk(directory, &policy, |_, entries| {
+        entries
+            .iter()
+            .filter(|entry| !entry.is_dir())
+            .filter_map(|entry| source(&entry.path, wanted))
+            .collect()
+    });
+    gathered.files.extend(walked.items);
+    gathered.unreadable += walked.unreadable;
+}
+
+fn source(path: &Path, wanted: &Wanted) -> Option<Found> {
+    let language = lang::for_path(path)?;
+    wanted.allows(path).then(|| Found {
+        path: path.to_path_buf(),
+        dialect: language.dialect,
+    })
 }

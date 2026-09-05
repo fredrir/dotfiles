@@ -9,6 +9,9 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use hostkit::shell::quote as shell_quote;
+use hostkit::ssh::Session;
+
 use crate::cli::{Resolution, SyncCli};
 use crate::context::Context;
 use crate::event::{Action, Event, EventSink, Phase};
@@ -1000,8 +1003,9 @@ fn protocol_session(
 }
 
 fn spawn_ssh(host: &str, script: &str) -> Result<Child, Failure> {
-    Command::new("ssh")
-        .args(["-T", host, script])
+    Session::new(host)
+        .script(script)
+        .command()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1501,8 +1505,7 @@ fn legacy_discard(host: &str, directory: &str, events: &dyn EventSink) -> Result
 
 fn ssh_output(host: &str, script: &str) -> Result<Output, Failure> {
     active(Phase::Remote)?;
-    let mut command = Command::new("ssh");
-    command.args(["-T", host, script]);
+    let command = Session::new(host).script(script).command();
     captured_output(command, Phase::Remote)
         .map_err(|error| Failure::remote(format!("{host}: cannot run ssh: {error}")))
 }
@@ -1565,10 +1568,6 @@ fn remote_script(directory: &str, commands: &[String]) -> String {
         .chain(commands.iter().cloned())
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn first_line(bytes: &[u8]) -> Option<&str> {

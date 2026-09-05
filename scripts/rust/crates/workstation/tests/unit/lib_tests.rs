@@ -76,3 +76,16 @@ fn the_run_helper_takes_any_completable_parser() {
     let never_called = |program: &str| run(program, |_cli: Cli| Ok(ExitCode::SUCCESS));
     let _ = never_called;
 }
+
+#[test]
+fn git_statuses_pass_through_as_exit_bytes() {
+    assert_eq!(exit_byte(0), 0);
+    assert_eq!(exit_byte(1), 1);
+    assert_eq!(exit_byte(128), 128);
+}
+
+#[test]
+fn statuses_outside_a_byte_still_fail() {
+    assert_eq!(exit_byte(-1), 1);
+    assert_eq!(exit_byte(300), 1);
+}

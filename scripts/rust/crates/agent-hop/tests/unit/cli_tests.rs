@@ -1,5 +1,6 @@
 use super::*;
 use clap::CommandFactory;
+use workstation::Style;
 
 #[test]
 fn the_parser_is_well_formed() {
@@ -133,27 +134,13 @@ fn hidden_machine_requests_are_structured_subcommands() {
 
 #[test]
 fn explicit_color_modes_override_terminal_detection() {
-    assert!(ColorMode::Always.enabled(false));
-    assert!(!ColorMode::Never.enabled(true));
     assert!(
-        ColorMode::Always
-            .style_for(false)
+        Style::for_mode(ColorMode::Always, false)
             .bold("agent-hop")
             .contains("\x1b[")
     );
     assert_eq!(
-        ColorMode::Never.style_for(true).bold("agent-hop"),
+        Style::for_mode(ColorMode::Never, true).bold("agent-hop"),
         "agent-hop"
     );
-}
-
-#[test]
-fn automatic_color_obeys_the_stream_and_environment_contract() {
-    assert!(auto_enabled(true, false, None, None));
-    assert!(auto_enabled(true, false, Some("1"), Some("xterm-256color")));
-    assert!(!auto_enabled(false, false, None, None));
-    assert!(!auto_enabled(true, true, None, None));
-    assert!(!auto_enabled(true, false, Some("0"), None));
-    assert!(!auto_enabled(true, false, None, Some("dumb")));
-    assert!(!auto_enabled(true, false, None, Some("DUMB")));
 }

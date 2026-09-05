@@ -4,6 +4,8 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use hostkit::Route;
+use hostkit::shell::quote;
+use hostkit::ssh;
 
 use crate::cli::Direction;
 use crate::place;
@@ -11,7 +13,6 @@ use crate::place;
 const PROGRAM: &str = "rsync";
 const FORMAT: &str = "--out-format=%i|%n|%l";
 const GITIGNORE: &str = "--filter=:- .gitignore";
-const TRANSPORT: &str = "ssh -o ConnectTimeout=8";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RemoteArguments {
@@ -23,7 +24,7 @@ impl RemoteArguments {
     fn path(self, path: &str) -> String {
         match self {
             Self::Protected => path.to_string(),
-            Self::ShellQuoted => place::quote(path),
+            Self::ShellQuoted => quote(path),
         }
     }
 }
@@ -97,7 +98,7 @@ impl Plan {
             "-i".to_string(),
             FORMAT.to_string(),
             "-e".to_string(),
-            TRANSPORT.to_string(),
+            ssh::transport(),
         ];
         if remote_arguments == RemoteArguments::Protected {
             found.push("--no-old-args".into());

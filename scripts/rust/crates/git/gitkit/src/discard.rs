@@ -9,10 +9,10 @@ use gix::object::tree::EntryKind;
 
 use crate::measure::is_repository;
 use crate::survey::{Fate, Kind, Survey};
-use crate::{Repo, Result};
+use crate::{Repo, message};
 
 impl Repo {
-    pub fn discard(&self, survey: &Survey) -> Result<()> {
+    pub fn discard(&self, survey: &Survey) -> Result<(), String> {
         for entry in survey.with(Fate::Delete) {
             let path = crate::on_disk(&survey.root, entry.path.as_ref());
             remove(&path)?;
@@ -40,9 +40,12 @@ impl Repo {
         wanted.sort_entries();
 
         if !wanted.entries().is_empty() {
-            let mut options = self.git.checkout_options(
-                gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping,
-            )?;
+            let mut options = self
+                .git
+                .checkout_options(
+                    gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping,
+                )
+                .map_err(message)?;
             // Every one of these paths has something in its way already —
             // that is why it is being restored.
             options.destination_is_initially_empty = false;
@@ -51,12 +54,13 @@ impl Repo {
             gix::worktree::state::checkout(
                 &mut wanted,
                 &survey.root,
-                self.git.objects.clone().into_arc()?,
+                self.git.objects.clone().into_arc().map_err(message)?,
                 &gix::progress::Discard,
                 &gix::progress::Discard,
                 &AtomicBool::default(),
                 options,
-            )?;
+            )
+            .map_err(message)?;
         }
 
         let tracked: HashSet<&BStr> = survey
@@ -66,7 +70,7 @@ impl Repo {
             .map(|entry| entry.path.as_ref())
             .collect();
         if !tracked.is_empty() {
-            let shared = self.git.index_or_empty()?;
+            let shared = self.git.index_or_empty().map_err(message)?;
             let mut index = gix::index::File::clone(&shared);
             // Out with every stage of every path in the plan — which drops the
             // conflicts and the staged additions — and in with what `HEAD`
@@ -86,7 +90,9 @@ impl Repo {
             // replaced; left in place they would be written back as valid and
             // a later commit would believe them.
             index.remove_tree();
-            index.write(gix::index::write::Options::default())?;
+            index
+                .write(gix::index::write::Options::default())
+                .map_err(message)?;
         }
 
         Ok(())
@@ -103,35 +109,35 @@ fn mode(kind: EntryKind) -> Mode {
     }
 }
 
-fn remove(path: &Path) -> Result<()> {
+fn remove(path: &Path) -> Result<(), String> {
     let Ok(found) = fs::symlink_metadata(path) else {
         return Ok(());
     };
     if found.is_dir() {
         remove_directory(path)?;
     } else {
-        fs::remove_file(path)?;
+        fs::remove_file(path).map_err(message)?;
     }
     Ok(())
 }
 
-fn remove_directory(path: &Path) -> Result<bool> {
+fn remove_directory(path: &Path) -> Result<bool, String> {
     if is_repository(path) {
         return Ok(false);
     }
     let mut emptied = true;
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
+    for entry in fs::read_dir(path).map_err(message)? {
+        let entry = entry.map_err(message)?;
         // From the directory listing, so a symlink to a directory is a
         // symlink here and is unlinked rather than followed.
-        if entry.file_type()?.is_dir() {
+        if entry.file_type().map_err(message)?.is_dir() {
             emptied &= remove_directory(&entry.path())?;
         } else {
-            fs::remove_file(entry.path())?;
+            fs::remove_file(entry.path()).map_err(message)?;
         }
     }
     if emptied {
-        fs::remove_dir(path)?;
+        fs::remove_dir(path).map_err(message)?;
     }
     Ok(emptied)
 }

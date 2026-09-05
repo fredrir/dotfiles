@@ -1,13 +1,19 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use workstation::Style;
+use workstation::path::home_relative;
+use workstation::text::plural;
 
 use crate::configs::{Placement, Source};
 use crate::lang::Mode;
 use crate::run::Ran;
 
 pub fn heading(program: &str, root: &Path, what: &str, style: &Style) -> Vec<String> {
-    let mut line = format!("  {}  {}", style.bold(program), style.teal(&shorten(root)));
+    let mut line = format!(
+        "  {}  {}",
+        style.bold(program),
+        style.teal(&home_relative(root))
+    );
     if !what.is_empty() {
         line += &format!("  {}", style.dim(what));
     }
@@ -47,7 +53,7 @@ pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
             "{:name$}  {:>count$} {}  {}",
             ran.lang.name(),
             ran.files,
-            files(ran.files),
+            plural(ran.files, "file", "files"),
             if ran.failed {
                 style.red("failed")
             } else {
@@ -65,7 +71,7 @@ pub fn summary(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
         .sum();
     lines.push(format!(
         "{made} / {total} {} {}",
-        files(total),
+        plural(total, "file", "files"),
         match mode {
             Mode::Write => "formatted",
             Mode::Check => "clean",
@@ -139,7 +145,7 @@ pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {
                 "  {:name$}  {:>count$} {:<5}  {}",
                 ran.lang.name(),
                 ran.files,
-                files(ran.files),
+                plural(ran.files, "file", "files"),
                 status(ran, mode, style),
             )
         })
@@ -193,7 +199,7 @@ pub fn tally(done: &[Ran], mode: Mode) -> String {
         Mode::Write => "formatted",
         Mode::Check => "checked",
     };
-    let mut parts = vec![format!("{total} {} {verb}", files(total))];
+    let mut parts = vec![format!("{total} {} {verb}", plural(total, "file", "files"))];
     let findings = done.iter().filter(|ran| ran.findings).count();
     if findings > 0 {
         parts.push(format!("{findings} with findings"));
@@ -235,20 +241,4 @@ pub fn provenance(source: &Source, style: &Style) -> Option<String> {
             style.dim("from the copies built into this binary; no checkout was found")
         )),
     }
-}
-
-pub fn shorten(path: &Path) -> String {
-    let shown = path.display().to_string();
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return shown;
-    };
-    match path.strip_prefix(&home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => shown,
-    }
-}
-
-fn files(count: usize) -> &'static str {
-    if count == 1 { "file" } else { "files" }
 }

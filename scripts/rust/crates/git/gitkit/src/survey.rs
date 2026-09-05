@@ -6,7 +6,7 @@ use gix::object::tree::EntryKind;
 use gix::status::index_worktree::Item as WorktreeItem;
 use gix::status::plumbing::index_as_worktree::{Change as WorktreeChange, EntryStatus};
 
-use crate::{Repo, Result, measure};
+use crate::{Repo, measure, message};
 
 pub struct Survey {
     pub root: PathBuf,
@@ -126,13 +126,14 @@ impl Change {
 }
 
 impl Repo {
-    pub fn survey(&self, patterns: &[BString]) -> Result<Survey> {
+    pub fn survey(&self, patterns: &[BString]) -> Result<Survey, String> {
         let mut changes: BTreeMap<BString, Change> = BTreeMap::new();
         let mut untracked: BTreeMap<BString, (Kind, Option<EntryKind>)> = BTreeMap::new();
 
         let mut walk = self
             .git
-            .status(gix::progress::Discard)?
+            .status(gix::progress::Discard)
+            .map_err(message)?
             // Renames are a story about where a change went, and a discard
             // ends every story the same way.
             .index_worktree_rewrites(None)
@@ -164,10 +165,11 @@ impl Repo {
                     gix::dir::walk::ForDeletionMode::IgnoredDirectoriesCanHideNestedRepositories,
                 ))
             })
-            .into_iter(patterns.to_vec())?;
+            .into_iter(patterns.to_vec())
+            .map_err(message)?;
 
         for item in walk.by_ref() {
-            match item? {
+            match item.map_err(message)? {
                 gix::status::Item::TreeIndex(staged) => {
                     let (path, change) = staged_change(staged);
                     let entry = changes.entry(path).or_default();
@@ -210,11 +212,15 @@ impl Repo {
         // file to delete.
         untracked.retain(|path, _| !changes.contains_key(path));
 
-        let head = self.git.find_tree(self.git.head_tree_id_or_empty()?)?;
+        let head = self
+            .git
+            .find_tree(self.git.head_tree_id_or_empty().map_err(message)?)
+            .map_err(message)?;
         let mut entries = Vec::with_capacity(changes.len() + untracked.len());
         for (path, change) in changes {
             let source = head
-                .lookup_entry(path.split_str("/"))?
+                .lookup_entry(path.split_str("/"))
+                .map_err(message)?
                 .and_then(|entry| source(&entry));
             entries.push(Entry {
                 label: change.label(),

@@ -5,6 +5,7 @@ use std::os::unix::io::FromRawFd;
 use std::path::Path;
 
 use rayon::prelude::*;
+use workstation::path;
 
 use super::{Link, Measure, Options, Row, Walked, count_lines_in};
 
@@ -288,8 +289,7 @@ fn read(
             if is_skipped(index) {
                 continue;
             }
-            // The portable walk's `hidden`, without rendering a String first.
-            let is_hidden = found.name.to_bytes().first() == Some(&b'.');
+            let is_hidden = path::hidden(OsStr::from_bytes(found.name.to_bytes()));
             let visible = depth < options.display_depth && (options.all || !is_hidden);
 
             if found.objtype == VDIR {

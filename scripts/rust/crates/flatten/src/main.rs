@@ -3,12 +3,12 @@ mod dir;
 mod plan;
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueHint};
-use workstation::{Answer, Completions, Style};
+use workstation::text::{counted, plural, truncate_front};
+use workstation::{Answer, Completable, Completions, Style, path};
 
 use plan::{Deep, Plan, show};
 
@@ -57,13 +57,19 @@ struct Cli {
     completions: Completions,
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
     }
+}
+
+fn main() -> ExitCode {
+    workstation::run(PROGRAM, run)
+}
+
+fn run(cli: Cli) -> Result<ExitCode, String> {
     if cli.directories.is_empty() {
-        return workstation::fail(PROGRAM, "missing directory");
+        return Err("missing directory".to_string());
     }
     let style = Style::for_stdout();
     // `a` at one collision answers the ones after it, including the ones in
@@ -78,7 +84,7 @@ fn main() -> ExitCode {
             Err(message) => status = workstation::fail(PROGRAM, message),
         }
     }
-    status
+    Ok(status)
 }
 
 fn flatten(
@@ -87,7 +93,7 @@ fn flatten(
     style: &Style,
     answered_all: &mut bool,
 ) -> Result<bool, String> {
-    require_directory(target)?;
+    path::require_directory(target)?;
     if cli.deep
         && let Some(what) = protected(target)
     {
@@ -101,7 +107,10 @@ fn flatten(
     match made.map_err(|error| format!("{}: {error}", target.display()))? {
         Plan::Nothing => {
             if cli.verbose || cli.dry_run {
-                println!("{PROGRAM}: nothing to flatten in {}", shorten(target));
+                println!(
+                    "{PROGRAM}: nothing to flatten in {}",
+                    path::home_relative(target)
+                );
             }
             Ok(true)
         }
@@ -137,11 +146,10 @@ fn run_deep(
     answered_all: &mut bool,
 ) -> Result<bool, String> {
     if plan.unreadable > 0 {
-        let in_them = if plan.unreadable == 1 { "it" } else { "them" };
+        let in_them = plural(plan.unreadable, "it", "them");
         eprintln!(
-            "{PROGRAM}: {} {} could not be read, so what is in {in_them} stays",
-            plan.unreadable,
-            directories(plan.unreadable)
+            "{PROGRAM}: {} could not be read, so what is in {in_them} stays",
+            counted(plan.unreadable, "directory", "directories")
         );
     }
 
@@ -225,7 +233,7 @@ fn heading(target: &Path, cli: &Cli, style: &Style) {
     let mut line = format!(
         "  {}  {}",
         style.bold(PROGRAM),
-        style.teal(&shorten(target))
+        style.teal(&path::home_relative(target))
     );
     if cli.deep {
         line += &format!("  {}", style.dim("deep"));
@@ -259,7 +267,7 @@ fn section(header: &str, rows: &[(String, String)], cli: &Cli, style: &Style) {
     println!();
     println!("  {}", style.bold(header));
     for (from, to) in &rows[..shown] {
-        let from = clip(from, source);
+        let from = truncate_front(from, source);
         let padding = " ".repeat(source.saturating_sub(from.chars().count()));
         println!("    {from}{padding}{}{to}", style.dim(ARROW));
     }
@@ -281,7 +289,7 @@ fn tally(plan: &Deep, asking: usize) -> String {
         left.push(format!("{asking} to ask about"));
     }
     if staying > 0 {
-        let where_it_is = if staying == 1 { "it is" } else { "they are" };
+        let where_it_is = plural(staying, "it is", "they are");
         left.push(format!("{staying} left where {where_it_is}"));
     }
     let removable = plan.removable();
@@ -294,9 +302,12 @@ fn tally(plan: &Deep, asking: usize) -> String {
 }
 
 fn count(moved: usize, verb: &str, extra: &[String], removed: usize) -> String {
-    let mut parts = vec![format!("{moved} {} {verb}", entries(moved))];
+    let mut parts = vec![format!("{} {verb}", counted(moved, "entry", "entries"))];
     parts.extend(extra.iter().cloned());
-    parts.push(format!("{removed} {} removed", directories(removed)));
+    parts.push(format!(
+        "{} removed",
+        counted(removed, "directory", "directories")
+    ));
     parts.join(", ")
 }
 
@@ -329,18 +340,6 @@ fn report(done: &apply::Done, cli: &Cli, style: &Style, spoke: bool) -> Result<b
     Ok(done.failures.is_empty())
 }
 
-fn require_directory(directory: &Path) -> Result<(), String> {
-    match fs::metadata(directory) {
-        Ok(metadata) if metadata.is_dir() => Ok(()),
-        Ok(_) => Err(format!("not a directory: {}", directory.display())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Err(format!(
-            "no such file or directory: {}",
-            directory.display()
-        )),
-        Err(error) => Err(format!("{}: {error}", directory.display())),
-    }
-}
-
 fn protected(target: &Path) -> Option<&'static str> {
     let real = fs::canonicalize(target).ok()?;
     if real.parent().is_none() {
@@ -357,39 +356,6 @@ fn width() -> usize {
     workstation::terminal_width()
         .filter(|width| *width >= 40)
         .unwrap_or(WIDTH)
-}
-
-fn shorten(path: &Path) -> String {
-    let shown = path.display().to_string();
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return shown;
-    };
-    match path.strip_prefix(&home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => shown,
-    }
-}
-
-fn clip(text: &str, room: usize) -> String {
-    let length = text.chars().count();
-    if length <= room {
-        return text.to_string();
-    }
-    let tail: String = text.chars().skip(length - room.saturating_sub(1)).collect();
-    format!("…{tail}")
-}
-
-fn entries(count: usize) -> &'static str {
-    if count == 1 { "entry" } else { "entries" }
-}
-
-fn directories(count: usize) -> &'static str {
-    if count == 1 {
-        "directory"
-    } else {
-        "directories"
-    }
 }
 
 #[cfg(test)]

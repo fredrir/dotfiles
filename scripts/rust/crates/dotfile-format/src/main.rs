@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, ValueHint};
-use workstation::{Completions, Style};
+use workstation::path::home_relative;
+use workstation::text::plural;
+use workstation::{Completable, Completions, Style};
 
 use lang::{Lang, Mode};
 
@@ -54,22 +56,23 @@ struct Cli {
     completions: Completions,
 }
 
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
+    }
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
-    }
-    // Nothing named and nothing asked for: the help is the answer, so it is
-    // what the caller wanted rather than a misuse of the tool.
-    if cli.target.is_none() && !cli.check && !cli.add && !cli.sync {
-        Cli::command().print_help().ok();
-        println!();
-        return ExitCode::SUCCESS;
-    }
-    match go(&cli) {
-        Ok(status) => status,
-        Err(message) => workstation::fail(PROGRAM, message),
-    }
+    workstation::run(PROGRAM, |cli: Cli| {
+        // Nothing named and nothing asked for: the help is the answer, so it is
+        // what the caller wanted rather than a misuse of the tool.
+        if cli.target.is_none() && !cli.check && !cli.add && !cli.sync {
+            Cli::command().print_help().ok();
+            println!();
+            return Ok(ExitCode::SUCCESS);
+        }
+        go(&cli)
+    })
 }
 
 fn go(cli: &Cli) -> Result<ExitCode, String> {
@@ -146,7 +149,7 @@ fn go(cli: &Cli) -> Result<ExitCode, String> {
 
     if work.is_empty() && unasked.is_none() {
         if !cli.quiet {
-            eprintln!("{PROGRAM}: nothing to format in {}", render::shorten(&root));
+            eprintln!("{PROGRAM}: nothing to format in {}", home_relative(&root));
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -195,7 +198,7 @@ fn note(sealed: &[PathBuf], say: bool) {
     eprintln!(
         "{PROGRAM}: {} encrypted {} left alone: {}",
         names.len(),
-        if names.len() == 1 { "file" } else { "files" },
+        plural(names.len(), "file", "files"),
         names.join(", ")
     );
 }
@@ -295,11 +298,7 @@ fn warn(found: &walk::Found, verbose: bool) {
         eprintln!(
             "{PROGRAM}: {} generated {} left alone: {}",
             names.len(),
-            if names.len() == 1 {
-                "lockfile"
-            } else {
-                "lockfiles"
-            },
+            plural(names.len(), "lockfile", "lockfiles"),
             names.join(", ")
         );
     }
@@ -307,14 +306,14 @@ fn warn(found: &walk::Found, verbose: bool) {
         eprintln!(
             "{PROGRAM}: {} {} could not be read",
             found.unreadable,
-            directories(found.unreadable)
+            plural(found.unreadable, "directory", "directories")
         );
     }
     if found.deep > 0 {
         eprintln!(
             "{PROGRAM}: {} {} deeper than {} levels were not walked",
             found.deep,
-            directories(found.deep),
+            plural(found.deep, "directory", "directories"),
             walk::MAX_DEPTH
         );
     }
@@ -323,14 +322,6 @@ fn warn(found: &walk::Found, verbose: bool) {
             "{PROGRAM}: more than {} files under the target; the rest were left out",
             walk::MAX_FILES
         );
-    }
-}
-
-fn directories(count: usize) -> &'static str {
-    if count == 1 {
-        "directory"
-    } else {
-        "directories"
     }
 }
 

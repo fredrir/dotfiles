@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+
+use hostkit::shell::quote;
+use hostkit::ssh::Session;
 
 use crate::place;
 
-const CONNECT: &str = "ConnectTimeout=8";
-const QUIET: &str = "LogLevel=ERROR";
 const MAX_PREFETCHES: usize = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,8 +38,8 @@ impl Target {
     fn expression(&self) -> String {
         match self {
             Target::Home(rest) if rest.is_empty() => "\"$HOME\"".to_string(),
-            Target::Home(rest) => format!("\"$HOME\"/{}", place::quote(rest)),
-            Target::Absolute(path) => place::quote(path),
+            Target::Home(rest) => format!("\"$HOME\"/{}", quote(rest)),
+            Target::Absolute(path) => quote(path),
         }
     }
 }
@@ -228,7 +228,7 @@ impl Peer {
     }
 
     pub fn kind(&self, path: &str) -> Result<Kind, String> {
-        let quoted = place::quote(path);
+        let quoted = quote(path);
         let script = format!(
             "if [ -d {quoted} ]; then echo directory; \
              elif [ -e {quoted} ] || [ -L {quoted} ]; then echo file; \
@@ -245,7 +245,7 @@ impl Peer {
     }
 
     pub fn make_directory(&self, path: &str) -> Result<(), String> {
-        run(&self.host, &format!("mkdir -p -- {}", place::quote(path))).map(|_| ())
+        run(&self.host, &format!("mkdir -p -- {}", quote(path))).map(|_| ())
     }
 }
 
@@ -274,8 +274,9 @@ fn script(target: &Target) -> String {
 }
 
 fn run(host: &str, script: &str) -> Result<Vec<u8>, String> {
-    let output = Command::new("ssh")
-        .args(["-T", "-o", CONNECT, "-o", QUIET, host, script])
+    let output = Session::new(host)
+        .script(script)
+        .command()
         .output()
         .map_err(|error| format!("ssh: {error}"))?;
     if !output.status.success() {

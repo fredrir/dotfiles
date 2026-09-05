@@ -1,36 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-use rayon::prelude::*;
+use workstation::walk::Policy;
 
 use crate::config::Configs;
 use crate::native::{self, Kind};
 use crate::select::Token;
-
-const SKIP: &[&str] = &[
-    ".git",
-    ".jj",
-    ".hg",
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    "out",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".pytest_cache",
-    ".next",
-    ".turbo",
-    "vendor",
-    ".terraform",
-    ".gradle",
-    ".idea",
-    ".direnv",
-    ".cache",
-];
 
 #[derive(Debug)]
 pub struct Found {
@@ -42,6 +18,7 @@ pub struct Found {
 pub struct Gathered {
     pub files: Vec<Found>,
     pub problems: Vec<String>,
+    pub unreadable: usize,
 }
 
 pub fn gather(target: &Path, configs: &Configs) -> Result<Gathered, String> {
@@ -57,13 +34,53 @@ pub fn gather(target: &Path, configs: &Configs) -> Result<Gathered, String> {
                 kind: native::formatter(token),
             }],
             problems: Vec::new(),
+            unreadable: 0,
         });
     }
-    let (mut files, mut problems) = read(target.to_path_buf(), configs);
+
+    let trouble: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let walked = workstation::walk::walk(target, &Policy::new(), |directory, entries| {
+        let here: Vec<PathBuf> = entries
+            .iter()
+            .filter(|entry| !entry.is_dir())
+            .map(|entry| entry.path.clone())
+            .collect();
+        if here.is_empty() {
+            return Vec::new();
+        }
+        // One config for the whole directory, because every file in it resolves
+        // to the same one, and none at all when the directory holds no files to
+        // ask about.
+        match configs.for_directory(directory) {
+            Ok(config) => here
+                .into_iter()
+                .filter_map(|path| {
+                    config.owns(&path).map(|token| Found {
+                        kind: native::formatter(token),
+                        path,
+                    })
+                })
+                .collect(),
+            Err(message) => {
+                let mut said = trouble.lock().unwrap_or_else(|held| held.into_inner());
+                said.push(message);
+                Vec::new()
+            }
+        }
+    });
+
+    let mut files = walked.items;
     files.sort_by(|one, other| one.path.cmp(&other.path));
+    let mut problems = trouble
+        .into_inner()
+        .unwrap_or_else(|held| held.into_inner());
     problems.sort();
     problems.dedup();
-    Ok(Gathered { files, problems })
+    Ok(Gathered {
+        files,
+        problems,
+        unreadable: walked.unreadable,
+    })
 }
 
 fn refusal(path: &Path) -> String {
@@ -71,51 +88,4 @@ fn refusal(path: &Path) -> String {
         None => format!("not a .conf, .config or .dotfile file: {}", path.display()),
         Some(_) => format!("not selected by this config: {}", path.display()),
     }
-}
-
-fn read(path: PathBuf, configs: &Configs) -> (Vec<Found>, Vec<String>) {
-    let Ok(listing) = fs::read_dir(&path) else {
-        return (Vec::new(), Vec::new());
-    };
-    let mut below = Vec::new();
-    let mut here = Vec::new();
-    for entry in listing.flatten() {
-        // `file_type` reads the directory entry rather than what it points at,
-        // so a symlink is never mistaken for the directory on the other end.
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if kind.is_dir() {
-            if !SKIP.contains(&entry.file_name().display().to_string().as_str()) {
-                below.push(entry.path());
-            }
-            continue;
-        }
-        here.push(entry.path());
-    }
-
-    // One config for the whole directory, because every file in it resolves to
-    // the same one, and none at all when the directory holds no files to ask
-    // about.
-    let mut files = Vec::new();
-    let mut problems = Vec::new();
-    if !here.is_empty() {
-        match configs.for_directory(&path) {
-            Ok(config) => files.extend(here.into_iter().filter_map(|path| {
-                config.owns(&path).map(|token| Found {
-                    kind: native::formatter(token),
-                    path,
-                })
-            })),
-            Err(message) => problems.push(message),
-        }
-    }
-
-    let deeper: Vec<(Vec<Found>, Vec<String>)> =
-        below.into_par_iter().map(|at| read(at, configs)).collect();
-    for (found, trouble) in deeper {
-        files.extend(found);
-        problems.extend(trouble);
-    }
-    (files, problems)
 }

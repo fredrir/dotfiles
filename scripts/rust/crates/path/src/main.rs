@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueHint};
-use workstation::Completions;
+use workstation::{Completable, Completions};
 
 const PROGRAM: &str = "path";
 
@@ -23,20 +23,26 @@ struct Cli {
     completions: Completions,
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
-        return status;
+impl Completable for Cli {
+    fn completions(&self) -> &Completions {
+        &self.completions
     }
+}
+
+fn main() -> ExitCode {
+    workstation::run(PROGRAM, run)
+}
+
+fn run(cli: Cli) -> Result<ExitCode, String> {
     let resolved = real_path(&cli.target);
     if cli.full {
         println!("{}", resolved.display());
-        return ExitCode::SUCCESS;
+        return Ok(ExitCode::SUCCESS);
     }
     let root = repository_root(&resolved);
     let home = std::env::var_os("HOME").map(|home| real_path(Path::new(&home)));
     println!("{}", describe(&resolved, root.as_deref(), home.as_deref()));
-    ExitCode::SUCCESS
+    Ok(ExitCode::SUCCESS)
 }
 
 fn describe(resolved: &Path, root: Option<&Path>, home: Option<&Path>) -> String {

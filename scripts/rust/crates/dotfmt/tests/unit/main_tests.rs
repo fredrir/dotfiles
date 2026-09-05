@@ -47,7 +47,7 @@ fn a_comment_is_kept_rather_than_stripped() {
     // dropped them would delete the header of every file in `config/`.
     let out = laid_out("# leading\nhost {\n  a = 1 # trailing\n}\n");
 
-    assert_eq!(out, "# leading\nhost {\n  a  = 1 # trailing\n}\n");
+    assert_eq!(out, "# leading\nhost {\n  a  = 1 # trailing\n}");
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn an_entry_at_top_level_is_legal() {
     // file `dotfile link` is driven by.
     let out = laid_out("shared/starship = ~/.config\n");
 
-    assert_eq!(out, "shared/starship = ~/.config\n");
+    assert_eq!(out, "shared/starship = ~/.config");
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn the_equals_sits_two_columns_past_the_widest_key() {
 
     assert_eq!(
         out,
-        "dotfmt {\n  indent         = 2\n  align          = true\n  final_newline  = true\n}\n"
+        "dotfmt {\n  indent         = 2\n  align          = true\n  final_newline  = true\n}"
     );
 }
 
@@ -136,7 +136,7 @@ fn a_blank_line_starts_a_new_group_but_a_comment_does_not() {
 
     assert_eq!(
         out,
-        "host {\n  # a label\n  a   = 1\n  bb  = 2\n\n  longer_key  = 3\n  c           = 4\n}\n"
+        "host {\n  # a label\n  a   = 1\n  bb  = 2\n\n  longer_key  = 3\n  c           = 4\n}"
     );
 }
 
@@ -144,14 +144,14 @@ fn a_blank_line_starts_a_new_group_but_a_comment_does_not() {
 fn a_keyless_line_neither_pads_nor_widens_its_group() {
     let out = laid_out("shared {\ngit\nzsh\nnvim = neovim\n}\n");
 
-    assert_eq!(out, "shared {\n  git\n  zsh\n  nvim  = neovim\n}\n");
+    assert_eq!(out, "shared {\n  git\n  zsh\n  nvim  = neovim\n}");
 }
 
 #[test]
 fn a_group_of_keyless_lines_alone_is_left_as_it_stands() {
     let out = laid_out("allow {\npath/to/file  label\nother/path\n}\n");
 
-    assert_eq!(out, "allow {\n  path/to/file  label\n  other/path\n}\n");
+    assert_eq!(out, "allow {\n  path/to/file  label\n  other/path\n}");
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn a_key_past_the_cap_takes_one_space_and_leaves_the_group_alone() {
 
     assert_eq!(
         out,
-        "modes {\n  */kitty/conf.d/fonts.conf = plain\n  short                     = hypr\n}\n"
+        "modes {\n  */kitty/conf.d/fonts.conf = plain\n  short                     = hypr\n}"
     );
 }
 
@@ -175,7 +175,7 @@ fn a_key_exactly_at_the_cap_still_lands_on_the_column() {
     assert_eq!(
         out,
         format!(
-            "modes {{\n  {capped}  = a\n  short{}= b\n}}\n",
+            "modes {{\n  {capped}  = a\n  short{}= b\n}}",
             " ".repeat(21)
         )
     );
@@ -188,14 +188,14 @@ fn top_level_entries_are_normalised_but_never_aligned() {
     // mapping every single time it is run.
     let out = laid_out("a/very/long/source   =   ~/dest\nb = ~/other\n");
 
-    assert_eq!(out, "a/very/long/source = ~/dest\nb = ~/other\n");
+    assert_eq!(out, "a/very/long/source = ~/dest\nb = ~/other");
 }
 
 #[test]
 fn an_entry_with_no_value_gets_no_trailing_space() {
     let out = laid_out("group {\nkey =\nlonger =\n}\n");
 
-    assert_eq!(out, "group {\n  key     =\n  longer  =\n}\n");
+    assert_eq!(out, "group {\n  key     =\n  longer  =\n}");
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn a_block_header_is_always_re_emitted_with_one_space() {
     // readers parse the same way.
     let out = laid_out("name{\n  a = 1\n}\n");
 
-    assert_eq!(out, "name {\n  a  = 1\n}\n");
+    assert_eq!(out, "name {\n  a  = 1\n}");
 }
 
 #[test]
@@ -214,7 +214,7 @@ fn interior_whitespace_inside_a_value_is_never_edited() {
 
     assert_eq!(
         out,
-        "archie {\n  MEMORY  = Corsair 32 GB  (2x16 GB)   DDR5\n}\n"
+        "archie {\n  MEMORY  = Corsair 32 GB  (2x16 GB)   DDR5\n}"
     );
 }
 
@@ -222,14 +222,14 @@ fn interior_whitespace_inside_a_value_is_never_edited() {
 fn blank_lines_are_dropped_at_the_edges_and_collapsed_in_the_middle() {
     let out = laid_out("\n\nhost {\n  a = 1\n\n\n\n  b = 2\n\n}\n\n\n");
 
-    assert_eq!(out, "host {\n  a  = 1\n\n  b  = 2\n}\n");
+    assert_eq!(out, "host {\n  a  = 1\n\n  b  = 2\n}");
 }
 
 #[test]
-fn a_file_of_only_comments_keeps_them_and_one_newline() {
+fn a_file_of_only_comments_keeps_them_and_adds_no_newline() {
     let out = laid_out("# one\n# two");
 
-    assert_eq!(out, "# one\n# two\n");
+    assert_eq!(out, "# one\n# two");
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn a_file_of_only_blank_lines_is_left_exactly_as_it_is() {
 fn a_carriage_return_does_not_survive_into_the_output() {
     let out = laid_out("host {\r\n  a = 1\r\n}\r\n");
 
-    assert_eq!(out, "host {\n  a  = 1\n}\n");
+    assert_eq!(out, "host {\n  a  = 1\n}");
 }
 
 #[test]
@@ -934,7 +934,7 @@ fn a_write_leaves_the_file_it_replaced_with_the_mode_it_had() {
     assert_eq!(outcome.done, native::Done::Changed);
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
-        "host {\n  a       = 1\n  longer  = 2\n}\n"
+        "host {\n  a       = 1\n  longer  = 2\n}"
     );
     assert_eq!(std::fs::metadata(&path).unwrap().permissions(), before);
     // The temp file is a sibling, and it does not survive the rename.
@@ -949,7 +949,7 @@ fn a_write_leaves_the_file_it_replaced_with_the_mode_it_had() {
 fn a_file_already_formatted_is_not_written_again() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("a.dotfile");
-    std::fs::write(&path, "host {\n  a  = 1\n}\n").unwrap();
+    std::fs::write(&path, "host {\n  a  = 1\n}").unwrap();
     let before = std::fs::metadata(&path).unwrap().modified().unwrap();
 
     let outcome = native::apply(&path, "a.dotfile", Kind::Block, &config(), true).unwrap();
@@ -1061,6 +1061,33 @@ fn a_walk_takes_what_the_config_includes_and_skips_the_places_nobody_formats() {
 
     // An empty config is still a config: `.dotfile` is on, the rest are not.
     assert_eq!(found, ["c.dotfile", config::NAME]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_directory_that_cannot_be_read_is_counted_rather_than_passed_over() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    for name in [config::NAME, "a.dotfile"] {
+        std::fs::write(root.path().join(name), "").unwrap();
+    }
+    let shut = root.path().join("shut");
+    std::fs::create_dir(&shut).unwrap();
+    std::fs::write(shut.join("b.dotfile"), "").unwrap();
+    std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let found = walk::gather(root.path(), &config::Configs::new()).unwrap();
+    std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let named: Vec<String> = found
+        .files
+        .iter()
+        .map(|found| render::label(root.path(), &found.path))
+        .collect();
+    assert_eq!(named, ["a.dotfile", config::NAME]);
+    assert_eq!(found.unreadable, 1);
+    assert_eq!(found.problems, Vec::<String>::new());
 }
 
 #[test]
@@ -1176,6 +1203,6 @@ fn a_file_reached_through_a_symlink_is_written_through_it() {
     assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
     assert_eq!(
         std::fs::read_to_string(&real).unwrap(),
-        "host {\n  a       = 1\n  longer  = 2\n}\n"
+        "host {\n  a       = 1\n  longer  = 2\n}"
     );
 }

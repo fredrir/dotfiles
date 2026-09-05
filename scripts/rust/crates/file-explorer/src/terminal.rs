@@ -1,30 +1,11 @@
 use std::io;
 
+pub use workstation::Key;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Size {
     pub width: usize,
     pub height: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Key {
-    Up,
-    Down,
-    Left,
-    Right,
-    Enter,
-    Escape,
-    Backspace,
-    Tab,
-    Char(char),
-    Interrupt,
-    Kill,
-    WordBack,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-    Unknown,
 }
 
 pub trait Terminal {
@@ -64,25 +45,7 @@ impl Terminal for SystemTerminal {
     }
 
     fn read_key(&mut self) -> Result<Key, Self::Error> {
-        Ok(match self.screen.key()? {
-            workstation::Key::Up => Key::Up,
-            workstation::Key::Down => Key::Down,
-            workstation::Key::Left => Key::Left,
-            workstation::Key::Right => Key::Right,
-            workstation::Key::Enter => Key::Enter,
-            workstation::Key::Escape => Key::Escape,
-            workstation::Key::Backspace => Key::Backspace,
-            workstation::Key::Tab => Key::Tab,
-            workstation::Key::Char(character) => Key::Char(character),
-            workstation::Key::Interrupt => Key::Interrupt,
-            workstation::Key::Kill => Key::Kill,
-            workstation::Key::WordBack => Key::WordBack,
-            workstation::Key::Home => Key::Home,
-            workstation::Key::End => Key::End,
-            workstation::Key::PageUp => Key::PageUp,
-            workstation::Key::PageDown => Key::PageDown,
-            workstation::Key::Unknown => Key::Unknown,
-        })
+        self.screen.key()
     }
 
     fn clear(&mut self) -> Result<(), Self::Error> {

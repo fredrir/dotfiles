@@ -5,15 +5,14 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use hostkit::Host;
+use hostkit::shell::quote;
+use hostkit::ssh;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
-use crate::remote::shell_quote;
-
 const ATTEMPTS: usize = 3;
 const MAX_RECORD_BYTES: usize = 64 * 1024 * 1024;
-const TRANSPORT: &str = "ssh -o ConnectTimeout=8 -o LogLevel=ERROR";
 
 pub struct Snapshot {
     file: NamedTempFile,
@@ -291,7 +290,7 @@ fn arguments(source: OsString, destination: OsString) -> Vec<OsString> {
     vec![
         OsString::from("-a"),
         OsString::from("-e"),
-        OsString::from(TRANSPORT),
+        OsString::from(ssh::transport()),
         OsString::from("--"),
         source,
         destination,
@@ -306,7 +305,7 @@ fn remote_target(peer: Host, path: &Path, directory: bool) -> Result<OsString, S
     Ok(OsString::from(format!(
         "{}:{}{slash}",
         peer.name(),
-        shell_quote(path)
+        quote(path)
     )))
 }
 

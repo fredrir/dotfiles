@@ -1,5 +1,5 @@
 use hostkit::Route;
-use workstation::Style;
+use workstation::{Style, text, units};
 
 use crate::cli::Agent;
 
@@ -60,13 +60,12 @@ pub fn details(style: &Style, view: &View<'_>) -> Vec<String> {
 pub fn copied(style: &Style, bytes: u64, attachments: usize) -> String {
     let extra = match attachments {
         0 => String::new(),
-        1 => " and 1 attachment".to_string(),
-        count => format!(" and {count} attachments"),
+        count => format!(" and {}", text::counted(count, "attachment", "attachments")),
     };
     format!(
         "  {}  transcript {}{}",
         style.green("✓"),
-        size(bytes),
+        units::bytes(bytes),
         extra
     )
 }
@@ -79,12 +78,11 @@ pub fn reused(style: &Style) -> String {
 }
 
 pub fn attachments(style: &Style, count: usize) -> String {
-    let noun = if count == 1 {
-        "attachment"
-    } else {
-        "attachments"
-    };
-    format!("  {}  synced {count} {noun}", style.green("✓"))
+    format!(
+        "  {}  synced {}",
+        style.green("✓"),
+        text::counted(count, "attachment", "attachments")
+    )
 }
 
 pub fn dry_run(style: &Style) -> String {
@@ -141,17 +139,6 @@ fn endpoints(
 
 fn safe(value: &str) -> String {
     crate::preview::sanitize(value)
-}
-
-fn size(bytes: u64) -> String {
-    const KIB: f64 = 1024.0;
-    let value = bytes as f64;
-    match value {
-        _ if value >= KIB * KIB * KIB => format!("{:.2} GiB", value / (KIB * KIB * KIB)),
-        _ if value >= KIB * KIB => format!("{:.1} MiB", value / (KIB * KIB)),
-        _ if value >= KIB => format!("{:.0} KiB", value / KIB),
-        _ => format!("{bytes} B"),
-    }
 }
 
 #[cfg(test)]

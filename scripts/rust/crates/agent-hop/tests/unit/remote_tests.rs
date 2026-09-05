@@ -1,14 +1,6 @@
 use super::*;
 
 #[test]
-fn shell_values_are_single_quoted_without_losing_apostrophes() {
-    assert_eq!(shell_quote(""), "''");
-    assert_eq!(shell_quote("plain"), "'plain'");
-    assert_eq!(shell_quote("a b"), "'a b'");
-    assert_eq!(shell_quote("it's $HOME"), "'it'\\''s $HOME'");
-}
-
-#[test]
 fn every_remote_path_is_quoted_as_one_shell_word() {
     let path = Path::new("/home/fred rir/a'b; touch nope");
     assert_eq!(
@@ -75,6 +67,7 @@ fn noninteractive_ssh_has_no_tty_and_keeps_the_script_one_argument() {
             "ConnectTimeout=8",
             "-o",
             "LogLevel=ERROR",
+            "--",
             "archie",
             "test -d '/a b'",
         ]
@@ -86,8 +79,9 @@ fn noninteractive_ssh_has_no_tty_and_keeps_the_script_one_argument() {
 fn interactive_ssh_allocates_a_tty_for_the_agent() {
     let arguments = ssh_arguments(Host::Macie, "exec zsh -lic 'codex'", true);
     assert_eq!(arguments[0], "-tt");
-    assert_eq!(arguments[5], "macie");
-    assert_eq!(arguments[6], "exec zsh -lic 'codex'");
+    assert_eq!(arguments[5], "--");
+    assert_eq!(arguments[6], "macie");
+    assert_eq!(arguments[7], "exec zsh -lic 'codex'");
 }
 
 #[test]

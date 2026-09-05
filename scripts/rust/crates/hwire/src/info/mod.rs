@@ -9,32 +9,7 @@ use std::io::{self, IsTerminal, Write};
 use std::thread;
 use std::time::Duration;
 
-use clap::ValueEnum;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
-pub enum ColorMode {
-    #[default]
-    Auto,
-    Always,
-    Never,
-}
-
-impl ColorMode {
-    pub fn enabled(self, terminal: bool) -> bool {
-        match self {
-            ColorMode::Always => true,
-            ColorMode::Never => false,
-            ColorMode::Auto => {
-                terminal
-                    && std::env::var_os("NO_COLOR").is_none()
-                    && std::env::var("CLICOLOR").ok().as_deref() != Some("0")
-                    && std::env::var("TERM")
-                        .ok()
-                        .is_none_or(|term| !term.eq_ignore_ascii_case("dumb"))
-            }
-        }
-    }
-}
+use workstation::ColorMode;
 
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -102,11 +77,3 @@ fn plain(options: Options) -> Result<(), String> {
         thread::sleep(options.interval);
     }
 }
-
-pub fn measurement_color(mode: ColorMode) -> bool {
-    mode.enabled(io::stdout().is_terminal())
-}
-
-#[cfg(test)]
-#[path = "../../tests/unit/info/mod_tests.rs"]
-mod tests;
