@@ -36,7 +36,7 @@ def test_every_tmux_surface_and_picker_state_is_readable(profile):
 
 
 @pytest.mark.parametrize("profile", list_profiles())
-def test_renderer_emits_the_validated_colors_and_version_gates(profile):
+def test_renderer_emits_the_validated_colors(profile):
     theme = Theme.load(profile)
     rendered = render(theme)
     options = dict(re.findall(r"^set -g @theme_(\w+) '([^']*)'$", rendered, re.MULTILINE))
@@ -47,12 +47,28 @@ def test_renderer_emits_the_validated_colors_and_version_gates(profile):
     for name, style in load_map("tmux")["styles"].items():
         expected = f"set -g {name} 'fg={options[style['fg']]},bg={options[style['bg']]}"
         assert expected in rendered
-        if version := style.get("version"):
-            assert f"%if #{{>=:#{{version}},{version}}}\n{expected}" in rendered
     for name, role in load_map("tmux")["fzf"].items():
         assert fzf[name] == options[role]
     assert "$" not in rendered
     assert "#(" not in rendered
+
+
+@pytest.mark.parametrize("profile", list_profiles())
+def test_fingers_colors_are_generated_and_contrast_checked(profile):
+    theme = Theme.load(profile)
+    background = tmux.colors(theme)["bg"]
+
+    def luminance(rgb):
+        values = [v / 3294.6 if v <= 10 else ((v / 255 + 0.055) / 1.055) ** 2.4 for v in rgb]
+        return sum(v * weight for v, weight in zip(values, (0.2126, 0.7152, 0.0722)))
+
+    bg = luminance(tuple(int(background[i:i + 2], 16) for i in (1, 3, 5)))
+    for name, style in tmux.fingers_styles(theme).items():
+        assert f"set -g @fingers-{name}-style '{style}'" in render(theme)
+        index = int(re.search(r"colour(\d+)", style)[1])
+        assert 16 <= index <= 255
+        fg = luminance(tmux.indexed_rgb(index))
+        assert (max(bg, fg) + 0.05) / (min(bg, fg) + 0.05) >= 4.5
 
 
 def test_tmux_output_participates_in_package_theme_selection():

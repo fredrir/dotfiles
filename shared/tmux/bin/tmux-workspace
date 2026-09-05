@@ -1,5 +1,9 @@
-#!/usr/bin/env python3
-from workspace import main
+#!/bin/sh
+set -eu
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+tmux_workspace_binary=${DOTFILES_TMUX_BINARY:-"$HOME/.local/bin/tmux-workspace"}
+if [ ! -x "$tmux_workspace_binary" ] || [ -L "$tmux_workspace_binary" ]; then
+  printf '%s\n' 'tmux-workspace: native binary missing; run ./setup.sh' >&2
+  exit 127
+fi
+exec "$tmux_workspace_binary" "$@"

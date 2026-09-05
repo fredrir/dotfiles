@@ -25,6 +25,7 @@ members = [
   "crates/size",
   "crates/sysinfo-collect",
   "crates/testkit",
+  "crates/tmux-workspace",
   "crates/tui-kit",
   "crates/workstation",
 ]

@@ -30,7 +30,7 @@ if ! (($+functions[compdef])); then
   compinit
 fi
 
-for _tool in agent-hop count doc-keybinds dotfile-format dotfmt flatten gdd gget gppf hpull hpush hwire mux-route path size; do
+for _tool in agent-hop count doc-keybinds dotfile-format dotfmt flatten gdd gget gppf hpull hpush hwire mux-route path size tmux-workspace; do
   if [[ "$_tool" == gdd ]]; then
     _tool_bin="$HOME/.local/bin/git-discard"
   else

@@ -1,0 +1,7 @@
+[projects]
+paths = ["~/dotfiles"]
+roots = ["~/projects", "~/sndbx", "~/llunde-new"]
+scan_children = true
+zoxide = true
+worktrees = true
+limit = 300

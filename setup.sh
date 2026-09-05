@@ -299,7 +299,7 @@ else
   stamp python "$PYTHON_HASH"
 fi
 
-RUST_BINARIES="agent-hop bench-workloads count doc-keybinds doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire mux-route path size sysinfo-collect"
+RUST_BINARIES="agent-hop bench-workloads count doc-keybinds doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire mux-route path size sysinfo-collect tmux-workspace"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
     -type d -name target -prune -o -type f -print0 2>/dev/null |

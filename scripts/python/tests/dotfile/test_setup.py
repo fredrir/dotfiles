@@ -27,6 +27,7 @@ RUST_BINARIES = [
     "path",
     "size",
     "sysinfo-collect",
+    "tmux-workspace",
 ]
 
 

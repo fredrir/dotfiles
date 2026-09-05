@@ -1,6 +1,46 @@
 from tools.theme.model import load_map
 
 
+def indexed_rgb(index):
+    if index >= 232:
+        return (8 + 10 * (index - 232),) * 3
+    ramp = (0, 95, 135, 175, 215, 255)
+    index -= 16
+    return ramp[index // 36], ramp[index // 6 % 6], ramp[index % 6]
+
+
+def indexed_color(value, background):
+    def rgb(color):
+        return tuple(int(color[i : i + 2], 16) for i in (1, 3, 5))
+
+    def luminance(color):
+        linear = [x / 3294.6 if x <= 10 else ((x / 255 + 0.055) / 1.055) ** 2.4 for x in color]
+        return sum(x * weight for x, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    wanted, bg = rgb(value), luminance(rgb(background))
+    candidates = [(index, indexed_rgb(index)) for index in range(16, 256)]
+    visible = [
+        (index, color)
+        for index, color in candidates
+        if (max(luminance(color), bg) + 0.05) / (min(luminance(color), bg) + 0.05) >= 4.5
+    ]
+    return min(visible, key=lambda item: sum((a - b) ** 2 for a, b in zip(item[1], wanted)))[0]
+
+
+def fingers_styles(theme):
+    palette = colors(theme)
+    return {
+        style: f"fg=colour{indexed_color(palette[role], palette['bg'])}{attributes}"
+        for style, role, attributes in (
+            ("hint", "primary", ",bold"),
+            ("highlight", "fg", ""),
+            ("backdrop", "muted", ""),
+            ("selected-hint", "success", ",bold"),
+            ("selected-highlight", "success", ""),
+        )
+    }
+
+
 def colors(theme):
     return {name: theme.hex(expression) for name, expression in load_map("tmux")["colors"].items()}
 

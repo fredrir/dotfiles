@@ -11,25 +11,20 @@ def render(theme):
     lines.extend(f"set -g @theme_{name} '{value}'" for name, value in colors.items())
     fzf_colors = ",".join(f"{name}:{colors[role]}" for name, role in mapping["fzf"].items())
     lines.extend([f"set -g @theme_fzf_colors '{fzf_colors}'", ""])
+    lines.extend(f"set -g @fingers-{name}-style '{style}'" for name, style in tmux.fingers_styles(theme).items())
     for name, style in mapping["styles"].items():
         value = f"fg={colors[style['fg']]},bg={colors[style['bg']]}"
         if style.get("attrs"):
             value += f",{style['attrs']}"
-        if version := style.get("version"):
-            lines.append(f"%if #{{>=:#{{version}},{version}}}")
         lines.append(f"set -g {name} '{value}'")
-        if version:
-            lines.append("%endif")
     lines.extend(
         [
             "",
             f"set -g display-panes-colour '{colors['muted']}'",
             f"set -g display-panes-active-colour '{colors['primary']}'",
             f"set -g clock-mode-colour '{colors['primary']}'",
-            "%if #{>=:#{version},3.7}",
             f"set -ag message-style ',fill={colors['surface']}'",
             f"set -ag message-command-style ',fill={colors['active_bg']}'",
-            "%endif",
         ]
     )
     return "\n".join(lines) + "\n"

@@ -72,7 +72,7 @@ server's bindings; `P Space` searches and executes actions.
 | `g`, `G` | Oldest retained history / bottom |
 | `[`, `]` / `{`, `}` | Previous / next prompt / command-output boundary |
 | History limit | 100,000 lines per pane |
-| Copy-position indicator (tmux 3.6+) | Scroll offset / retained lines; `limit` shows capacity |
+| Copy-position indicator | Scroll offset / retained lines; `limit` shows capacity |
 
 The action palette's **Read actual input bytes** shows bytes delivered past
 WezTerm and tmux; keys consumed by an outer layer cannot appear there.
@@ -82,17 +82,20 @@ WezTerm and tmux; keys consumed by an outer layer cannot appear there.
 | Surface | Lifetime / behavior |
 | --- | --- |
 | Scratch | One retained shell per project; hide/reopen preserves processes and variables |
-| Native float | tmux 3.7+; focus other panes without dismissing scratch |
+| Native float | Focus other panes without dismissing scratch |
 | Shelf | Parked panes keep running on this host, including when detached |
-| Pickers | Client-local fzf interfaces; plain searchable selection if fzf is absent |
+| Pickers | Client-local fzf interfaces; numbered selection if fzf is absent |
 | Status | Actual execution hostname; session and per-client origin when space permits |
-| State indicators | Copy, zoom, sync, prefix/resize/nested mode and plugin installation failure |
+| State indicators | Copy, zoom, sync, prefix/resize/nested mode and server-local plugin failure |
 | Recovery | Server-wide structure and supported programs; not process memory or active turns |
 
-`~/.config/tmux/favorites` accepts one project path per line. The project chooser
-also reads zoxide and scans `~/dotfiles`, `~/projects`, `~/sndbx`, `~/llunde-new`.
-Git worktrees are discovered on demand. No completion inbox or background project
-indexer runs.
+| Project input | Value |
+| --- | --- |
+| `${XDG_CONFIG_HOME:-~/.config}/tmux/workspace.toml` | Explicit paths, search roots, zoxide/worktree switches and result limit |
+| Default paths / roots | `~/dotfiles` / `~/projects`, `~/sndbx`, `~/llunde-new` |
+| `${XDG_CONFIG_HOME:-~/.config}/tmux/favorites` | One project path per line; `tmux-workspace favorite` appends once |
+| Git worktrees | On-demand, bounded parallel discovery; no background indexer |
+| Host choices | `config/hosts.dotfile`; `DOTFILES_HOSTS_FILE` overrides discovery |
 
 ## Host switching and execution
 
@@ -110,47 +113,74 @@ and pretrusted setup; first-use trust prompts safely refuse the move.
 ## Installation and recovery
 
 ```sh
-dotfile sync                    # normal dotfile linking/build pipeline
+dotfile sync                    # builds, links and provisions pinned plugins
 tmux-workspace doctor
 tmux-workspace reload           # validates includes on a disposable server first
-~/.config/tmux/bin/tmux-plugins status
-~/.config/tmux/bin/tmux-plugins install  # explicit retry, from inside tmux
+tmux-workspace plugins status --json
+tmux-workspace plugins install  # explicit install/retry; no running server needed
+tmux-workspace plugins load     # load installed artifacts into this server
 ```
 
 | Requirement | Source / behavior |
 | --- | --- |
-| tmux 3.3+, Python 3, Bash, SSH, Git | Shared requirements; tmux 3.7+ recommended |
+| tmux 3.7c+, Bash, SSH, Git, curl | Runtime requirements; controller is a native Rust binary |
+| Cargo, uv, Python 3.12+, pytest, Lua, Zsh | Build and test tools; no Python controller at runtime |
 | fzf, zoxide, Lazygit, Yazi | Arch package list and macOS Brewfile |
 | smart-splits.nvim | Pinned lazy.nvim plugin; pane metadata avoids process inspection on movement |
 | tmux-fingers 2.7.1 | SHA-256-verified native Linux x86_64 / macOS arm64 release assets |
 | tmux-resurrect | Exact Git revision in `shared/tmux/plugins.lock.json` |
-| Startup installation | Background worker, serialized downloads, five-minute retry backoff |
-| Offline startup | `DOTFILES_TMUX_OFFLINE=1`; installed plugins remain available |
+| Provisioning | `dotfile sync` or `plugins install`; serialized, verified, atomic publication |
+| Server startup / reload | Load installed artifacts only; never downloads |
+| Offline provisioning | `DOTFILES_TMUX_OFFLINE=1`; reports missing artifacts without downloading |
 | Plugin directory | `${XDG_DATA_HOME:-~/.local/share}/tmux/plugins` |
+| Install state / load state | `plugins/installation.json` / server-local `@workspace-plugins-state` and `@workspace-plugins-error` |
 | Recovery directory | `${XDG_STATE_HOME:-~/.local/state}/tmux/resurrect/<socket-id>` |
+| Recovery metadata | Hash-checked `.workspace.json` sidecar; project roots, shelf tags and scratch backing sessions |
 
 Quick-select falls back to client-local fzf in floating panes or with multiple
 clients: upstream fingers temporarily changes global input state. Recovery
 restore requires at most one attached client and preserves existing panes.
-Neither feature claims to restore arbitrary running processes.
-
-| tmux version | Additional capability |
-| --- | --- |
-| 3.3 | Core workspace, clipboard writes and popup scratch fallback |
-| 3.4 | OSC 133 prompt/output navigation and themed native menus |
-| 3.5 | Explicit CSI-u extended-key output |
-| 3.7 | Non-modal floating panes, clipboard reads and hybrid copy-mode line numbers |
+Scratch views are recreated on demand; their retained backing sessions are saved.
+Recovery does not restore process memory, network connections or active agent turns.
 
 ## Design and checks
+
+| Path | Owns |
+| --- | --- |
+| `scripts/rust/crates/tmux-workspace/Cargo.toml` | Workspace crate and native binary |
+| `scripts/rust/crates/tmux-workspace/src/cli.rs` | Command-specific arguments and generated completions |
+| `src/tmux.rs`, `src/process.rs`, `src/config.rs` | Socket/client context, subprocess deadlines, typed settings and state I/O |
+| `src/projects.rs`, `src/panes.rs`, `src/clients.rs` | Project discovery, persistent panes and attachment metadata |
+| `src/ui.rs`, `src/integrations.rs`, `src/diagnostics.rs` | Pickers, tool adapters, input inspection and reload validation |
+| `src/plugins.rs`, `src/recovery.rs` | Pinned provisioning, server loading and recovery |
+| `scripts/python/tests/tmux/` | Black-box CLI, isolated tmux servers, real PTYs, plugin and adapter tests |
+| `shared/tmux/` | tmux configuration, generated theme, plugin lock and project settings |
+| `shared/tmux/bin/` | POSIX forwarding shims; native binary in `~/.local/bin/tmux-workspace` |
+| `shared/tmux/libexec/hostname` | Upstream plugin compatibility helper |
 
 Colors come from the existing theme generator, including picker colors and
 contrast-checked indexed hint colors. Change the theme through `dotfile theme`,
 then reload tmux; do not edit generated `shared/tmux/theme.conf`.
 
 ```sh
-python3 -m unittest discover -s shared/tmux/tests -v
-cargo test --manifest-path scripts/rust/Cargo.toml -p agent-hop
+cargo build --locked --manifest-path scripts/rust/Cargo.toml -p tmux-workspace
+cargo clippy --manifest-path scripts/rust/Cargo.toml -p tmux-workspace --all-targets -- -D warnings
+uv run --project scripts/python --locked pytest scripts/python/tests/tmux scripts/python/tests/theme/test_tmux.py
+
+# Explicit machine-readable diagnostics and test sockets
+tmux-workspace --socket /tmp/workspace-test/socket inspect --json
+tmux-workspace projects --json
+tmux-workspace panes
 ```
+
+| Test input | Value |
+| --- | --- |
+| macOS / Linux | Same pytest command; separate sockets, temporary HOME/XDG directories, no live-server reload |
+| `TMUX_BINARY` | Alternate tmux executable; default `tmux` on PATH |
+| `TMUX_WORKSPACE_BINARY` | Prebuilt test binary; otherwise the fixture runs Cargo |
+| `CARGO_TARGET_DIR` | Alternate Cargo build directory; honored by both native test fixtures |
+| `TMUX_RESURRECT_SOURCE` | Pinned plugin checkout for real save/restart/restore tests; defaults to local installed plugin |
+| Missing recovery fixture | Explicit skip; run `tmux-workspace plugins install` before the full suite |
 
 [fzf](https://github.com/junegunn/fzf) provides selection; the small controller
 keeps shelf, scratch, host metadata and handoff in one place.

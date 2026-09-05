@@ -1,3 +1,2 @@
 #!/bin/sh
-# Resurrect calls hostname even on Arch installations without inetutils.
 exec uname -n

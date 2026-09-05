@@ -1,0 +1,23 @@
+[package]
+name = "tmux-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Projects, tools and persistent tmux workspaces"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+crossterm.workspace = true
+libc.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+workstation.workspace = true
+nix = { version = "0.29", features = ["fs", "hostname", "poll", "signal", "user"] }
+regex = "1"
+toml = "0.9"

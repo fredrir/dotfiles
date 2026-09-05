@@ -43,6 +43,13 @@ fn synchronize_with_systemd(
     });
     let mut outcome = IntegrationOutcome::default();
     let mut warnings = Vec::new();
+    if configuration
+        .packages
+        .iter()
+        .any(|package| package.name == "shared/tmux")
+    {
+        tmux_plugins(context, dry_run, events, &mut outcome, &mut warnings)?;
+    }
     if systemd_available {
         systemd_legacy_cleanup(context, dry_run, events, &mut outcome)?;
     }
@@ -76,6 +83,84 @@ fn synchronize_with_systemd(
         });
     }
     Ok(outcome)
+}
+
+fn tmux_plugins(
+    context: &Context,
+    dry_run: bool,
+    events: &dyn EventSink,
+    outcome: &mut IntegrationOutcome,
+    warnings: &mut Vec<(String, Option<String>)>,
+) -> Result<(), String> {
+    crate::cancel::check()?;
+    let config = context.root.join("shared/tmux");
+    if !config.join("plugins.lock.json").is_file() {
+        return Ok(());
+    }
+    let binary = context.home.join(".local/bin/tmux-workspace");
+    outcome.checked += 1;
+    let mut ready = false;
+    let mut changed = false;
+    if !dry_run {
+        let status = Command::new(&binary)
+            .arg("--config")
+            .arg(&config)
+            .args(["plugins", "status", "--json"])
+            .env("HOME", &context.home)
+            .output();
+        ready = status
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
+            .is_some_and(|s| {
+                s["resurrect"]["installed"] == true && s["fingers"]["installed"] == true
+            });
+        if !ready {
+            events.emit(Event::Progress {
+                phase: Phase::Integrations,
+                completed: 0,
+                total: None,
+                label: "installing pinned tmux plugins".into(),
+            });
+            match Command::new(&binary)
+                .arg("--config")
+                .arg(&config)
+                .args(["plugins", "install"])
+                .env("HOME", &context.home)
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    ready = true;
+                    changed = true;
+                }
+                output => {
+                    let error = match output {
+                        Ok(output) => String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+                        Err(error) => error.to_string(),
+                    };
+                    warnings.push((
+                        format!("tmux plugins: {error}"),
+                        Some("run tmux-workspace plugins install".into()),
+                    ));
+                }
+            }
+        }
+    }
+    outcome.changed += usize::from(changed);
+    events.emit(Event::Item {
+        action: Action::Sync,
+        path: config.join("plugins.lock.json"),
+        detail: if dry_run {
+            "would ensure pinned plugins"
+        } else if ready {
+            "pinned plugins ready"
+        } else {
+            "plugin installation needs attention"
+        }
+        .into(),
+        changed,
+    });
+    Ok(())
 }
 
 fn systemd_theme_watch(

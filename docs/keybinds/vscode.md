@@ -26,7 +26,7 @@
 | <code>ctrl+alt+c</code> | [<code>copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L120) | Copy Relative File Path<br><code>!editorFocus</code> |
 | <code>ctrl+shift+alt+c</code> | [<code>copyFilePath</code>](../../shared/vscode/keybindings.json#L100) | Copy File Path<br><code>!editorFocus</code> |
 | <code>ctrl+w</code> | [<code>-workbench.action.switchWindow</code>](../../shared/vscode/keybindings.json#L6) | Switch Window<br><code>global; remove binding</code> |
-| <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"args":"Copy active file content","command":"workbench.action.tasks.runTask"}&#93;}</code>](../../shared/vscode/keybindings.json#L157) | Run Commands<br><code>editorFocus</code> |
+| <code>shift+alt+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active file content"}&#93;}</code>](../../shared/vscode/keybindings.json#L157) | Run Commands<br><code>editorFocus</code> |
 
 ## Mac Keybinds
 
@@ -50,6 +50,6 @@
 | <code>ctrl+shift+alt+cmd+k</code> | [<code>copyFilePath</code>](../../shared/vscode/keybindings.json#L90) | Copy File Path<br><code>editorFocus</code> |
 | <code>shift+alt+cmd+c</code> | [<code>-copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L125) | Copy Relative File Path<br><code>!editorFocus; remove binding</code> |
 | <code>shift+cmd+&#91;Period&#93;</code> | [<code>-breadcrumbs.focus</code>](../../shared/vscode/keybindings.json#L138) | Breadcrumbs focus<br><code>breadcrumbsPossible &amp;&amp; breadcrumbsVisible; remove binding</code> |
-| <code>shift+cmd+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"args":"Copy active filename","command":"workbench.action.tasks.runTask"}&#93;}</code>](../../shared/vscode/keybindings.json#L143) | Run Commands<br><code>editorFocus</code> |
+| <code>shift+cmd+&#91;Period&#93;</code> | [<code>runCommands {"commands":&#91;"workbench.action.files.save",{"command":"workbench.action.tasks.runTask","args":"Copy active filename"}&#93;}</code>](../../shared/vscode/keybindings.json#L143) | Run Commands<br><code>editorFocus</code> |
 | <code>shift+cmd+t</code> | [<code>-workbench.action.reopenClosedEditor</code>](../../shared/vscode/keybindings.json#L130) | Reopen Closed Editor<br><code>global; remove binding</code> |
 | <code>shift+cmd+t</code> | [<code>workbench.action.closeOtherEditors</code>](../../shared/vscode/keybindings.json#L134) | Close Other Editors |
