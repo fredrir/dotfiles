@@ -246,6 +246,7 @@ pub fn terminal_height() -> Option<usize> {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 fn terminal_size() -> Option<(usize, usize)> {
     // SAFETY: `winsize` is four integers, and the ioctl either fills them in
     // and reports success or leaves them alone and reports failure.

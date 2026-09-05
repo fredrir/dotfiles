@@ -2,6 +2,7 @@ mod common;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 mod macos;
 mod parse;
 

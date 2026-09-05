@@ -1,9 +1,12 @@
 [package]
 name              = "path"
-version           = "0.1.0"
+version.workspace = true
 description       = "Repository-relative or home-relative path of a target"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

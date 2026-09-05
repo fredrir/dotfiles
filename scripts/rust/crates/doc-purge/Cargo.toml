@@ -1,9 +1,12 @@
 [package]
 name              = "doc-purge"
-version           = "0.1.0"
+version.workspace = true
 description       = "Purge comments, doc strings and typographic glyphs from source files"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

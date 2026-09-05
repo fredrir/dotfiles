@@ -1,9 +1,12 @@
 [package]
 name              = "hostkit"
-version           = "0.1.0"
+version.workspace = true
 description       = "The two machines, the routes between them, and the sockets that prove one"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace = true

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[cfg(target_vendor = "apple")]
+#[allow(unsafe_code)]
 mod bulk;
 
 use clap::{Parser, ValueHint};

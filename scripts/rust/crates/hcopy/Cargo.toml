@@ -1,9 +1,12 @@
 [package]
 name              = "hcopy"
-version           = "0.1.0"
+version.workspace = true
 description       = "Copy a path between the same home-relative place on macie and archie"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "hpush"

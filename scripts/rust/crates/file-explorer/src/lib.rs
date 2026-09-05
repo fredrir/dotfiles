@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 mod explorer;
 mod local;
 mod model;

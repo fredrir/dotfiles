@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 use std::process::ExitCode;
 
 use agent_hop::cli::Cli;

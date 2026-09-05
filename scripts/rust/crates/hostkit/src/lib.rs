@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 pub mod host;
 pub mod snapshot;
 pub mod socket;

@@ -1,4 +1,5 @@
 #![cfg(unix)]
+#![allow(unsafe_code)]
 
 use std::fs::File;
 use std::io::{ErrorKind, Read};

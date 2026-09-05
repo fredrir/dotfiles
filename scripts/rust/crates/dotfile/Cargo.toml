@@ -1,9 +1,12 @@
 [package]
 name              = "dotfile-cli"
-version           = "0.1.0"
+version.workspace = true
 description       = "Reconcile the dotfiles repository with this workstation"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "dotfile"

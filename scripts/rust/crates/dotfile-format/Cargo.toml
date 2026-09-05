@@ -1,9 +1,12 @@
 [package]
 name              = "dotfile-format"
-version           = "0.1.0"
+version.workspace = true
 description       = "Format a tree with the tool that owns each language"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

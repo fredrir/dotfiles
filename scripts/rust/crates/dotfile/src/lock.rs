@@ -49,6 +49,7 @@ fn owner_alive(path: &Path) -> bool {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 fn process_alive(pid: u32) -> bool {
     let result = unsafe { libc::kill(pid as i32, 0) };
     result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)

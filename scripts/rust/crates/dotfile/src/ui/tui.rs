@@ -1481,6 +1481,7 @@ struct SignalGuard {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 impl SignalGuard {
     fn new() -> io::Result<Self> {
         TERMINATION_SIGNAL.store(0, std::sync::atomic::Ordering::Release);
@@ -1501,6 +1502,7 @@ impl SignalGuard {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 impl Drop for SignalGuard {
     fn drop(&mut self) {
         for (signal, handler) in self.previous.drain(..).rev() {
@@ -1510,6 +1512,7 @@ impl Drop for SignalGuard {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 extern "C" fn terminal_signal(signal: libc::c_int) {
     TERMINATION_SIGNAL.store(signal, std::sync::atomic::Ordering::Release);
     crate::cancel::request();

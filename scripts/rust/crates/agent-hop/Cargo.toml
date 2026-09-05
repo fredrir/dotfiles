@@ -1,9 +1,12 @@
 [package]
 name              = "agent-hop"
-version           = "0.1.0"
+version.workspace = true
 description       = "Continue Codex and Claude Code sessions on the other workstation"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace          = true
@@ -12,7 +15,7 @@ hostkit.workspace       = true
 ratatui                 = { workspace = true, features = ["unstable-rendered-line-info"] }
 serde.workspace         = true
 serde_json              = { workspace = true, features = ["preserve_order"] }
-sha2                    = "0.10"
+sha2.workspace          = true
 tempfile.workspace      = true
 unicode-width.workspace = true
 workstation.workspace   = true

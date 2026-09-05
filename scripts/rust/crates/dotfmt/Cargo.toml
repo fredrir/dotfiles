@@ -1,9 +1,12 @@
 [package]
 name              = "dotfmt"
-version           = "0.1.0"
+version.workspace = true
 description       = "Format .conf, .config and .dotfile files"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

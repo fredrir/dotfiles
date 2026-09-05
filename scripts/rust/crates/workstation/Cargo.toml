@@ -1,9 +1,12 @@
 [package]
 name              = "workstation"
-version           = "0.1.0"
+version.workspace = true
 description       = "Shared command-line plumbing for the workstation tools"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace          = true

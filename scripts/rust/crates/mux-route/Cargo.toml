@@ -1,9 +1,12 @@
 [package]
 name              = "mux-route"
-version           = "0.1.0"
+version.workspace = true
 description       = "The wezterm mux domain for the first route to the peer that answers"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

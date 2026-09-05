@@ -1,9 +1,12 @@
 [package]
 name              = "file-explorer"
-version           = "0.1.0"
+version.workspace = true
 description       = "Reusable interactive file and location explorer for command-line tools"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 unicode-width.workspace = true

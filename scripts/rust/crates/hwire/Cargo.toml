@@ -1,9 +1,12 @@
 [package]
 name              = "hwire"
-version           = "0.1.0"
+version.workspace = true
 description       = "Latency and throughput between macie and archie"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

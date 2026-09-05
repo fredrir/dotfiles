@@ -16,6 +16,7 @@ fn unusable(name: &OsStr) -> io::Error {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 mod unix {
     use std::ffi::{CString, OsStr};
     use std::io;

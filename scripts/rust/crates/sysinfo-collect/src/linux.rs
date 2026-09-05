@@ -52,11 +52,13 @@ fn os_module() -> Value {
     })
 }
 
+#[allow(unsafe_code)]
 fn uname() -> Option<libc::utsname> {
     let mut names: libc::utsname = unsafe { std::mem::zeroed() };
     (unsafe { libc::uname(&mut names) } == 0).then_some(names)
 }
 
+#[allow(unsafe_code)]
 fn c_field(bytes: &[libc::c_char]) -> String {
     unsafe { CStr::from_ptr(bytes.as_ptr()) }
         .to_string_lossy()

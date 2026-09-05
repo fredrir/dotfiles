@@ -1,9 +1,12 @@
 [package]
 name              = "flatten"
-version           = "0.1.0"
+version.workspace = true
 description       = "Lift a directory's contents up out of the directories holding them"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 clap.workspace        = true

@@ -1,6 +1,9 @@
 [package]
 name              = "bench-workloads"
-version           = "0.1.0"
+version.workspace = true
 description       = "Self-contained native workloads for sysinfo bench"
 edition.workspace = true
 license.workspace = true
+
+[lints]
+workspace = true

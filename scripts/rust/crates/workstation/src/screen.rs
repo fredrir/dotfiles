@@ -50,6 +50,7 @@ pub fn fit(text: &str, limit: usize) -> String {
 }
 
 #[cfg(unix)]
+#[allow(unsafe_code)]
 mod imp {
     use super::Key;
     use std::fs::{File, OpenOptions};

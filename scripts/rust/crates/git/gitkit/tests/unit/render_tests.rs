@@ -23,6 +23,7 @@ fn counts_of_nothing_leave_their_column_empty() {
 }
 
 #[test]
+#[allow(unsafe_code)]
 fn home_becomes_a_tilde_only_at_a_boundary() {
     // SAFETY: the tests in this module do not read HOME concurrently.
     unsafe { std::env::set_var("HOME", "/home/someone") };
