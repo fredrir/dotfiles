@@ -108,7 +108,7 @@ function wezterm {
 }
 HOST=macie.local
 WEZTERM_PANE=7
-mux archie
+attach_mux archie
 """
     result = subprocess.run(
         ["zsh", "-f"],
@@ -123,6 +123,8 @@ mux archie
         },
     )
     assert result.returncode == 0, result.stderr
-    assert (
-        "cli spawn --domain-name archie-cable -- env HWIRE_SESSION=v1:macie:archie:cable:tls zsh -l"
-    ) in log.read_text()
+    assert log.read_text().splitlines()[0] == (
+        "cli spawn --domain-name archie-cable --cwd /home/fredrir -- "
+        "env -i HOME=/home/fredrir TERM=xterm-256color PATH=/usr/local/bin:/usr/bin:/bin "
+        "HWIRE_SESSION=v1:macie:archie:cable:tls zsh -l"
+    )

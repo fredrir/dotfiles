@@ -23,6 +23,7 @@ STANDARD = {
 }
 
 COMMANDS = {
+    "agent-hop": "Moves a Codex or Claude Code CLI session between the two workstations.",
     "acp": "Copies Archie's text clipboard to this machine.",
     "cpa": "Copies the local text clipboard to Archie.",
     "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",
@@ -78,6 +79,7 @@ COMMANDS = {
     "hpush": "Copies a path from this machine to the same place on the other one.",
     "hwire": "Inspects connections or measures latency and throughput between two machines.",
     "hwire serve": "Answers measurements until told to stop.",
+    "mux-route": "Prints the WezTerm mux domain for the best route to the peer.",
     "path": "Prints the repository-relative or home-relative path of a target.",
     "size": "Reports sizes and line counts for files and directories.",
     "sysinfo": "Summarizes the current machine's environment and hardware.",
@@ -107,6 +109,16 @@ COMMANDS = {
 }
 
 FLAGS = {
+    ("agent-hop", "--dry-run"): (
+        "Reports what would be copied and started without changing either machine."
+    ),
+    ("agent-hop", "--no-connect"): (
+        "Copies the session without opening it on the other workstation."
+    ),
+    ("agent-hop", "--color"): "Chooses `auto`, `always`, or `never` color output.",
+    ("agent-hop", "--list"): (
+        "Prints the local and remote sessions as tab-separated rows instead of opening the picker."
+    ),
     ("clipboard", "--sensitive"): "Keeps the copy out of Archie's clipboard history.",
     ("count", "--recursive"): (
         "Counts every entry below the directory instead of only its direct children."
@@ -228,6 +240,9 @@ FLAGS = {
     ("hwire", "--bind"): "Sets the address on which `hwire serve` listens.",
     ("hwire", "--port"): "Sets the server port, with zero selecting an available port.",
     ("hwire", "--idle"): "Sets how long an idle server waits before exiting.",
+    ("mux-route", "--list"): (
+        "Prints every route with its state, peer address, and domain instead of one domain."
+    ),
     ("path", "--full"): "Prints the full path instead of a relative one.",
     ("size", "-r"): "Lists the immediate contents of the directory.",
     ("size", "-R"): "Lists the contents of the directory recursively.",

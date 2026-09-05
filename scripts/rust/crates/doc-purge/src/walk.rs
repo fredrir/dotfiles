@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use workstation::walk::{Policy, Symlinks, walk};
+use workstation::walk::{Names, Policy, Symlinks, walk};
 
 use crate::lang::{self, Dialect};
 
@@ -102,11 +102,12 @@ fn descend(directory: &Path, wanted: &Wanted, gathered: &mut Gathered) {
     let policy = Policy::new()
         .skipping(AVOIDED)
         .skip_hidden(true)
+        .names(Names::Utf8)
         .symlinks(Symlinks::Drop);
     let walked = walk(directory, &policy, |_, entries| {
         entries
             .iter()
-            .filter(|entry| !entry.is_dir() && entry.name.to_str().is_some())
+            .filter(|entry| !entry.is_dir() && !entry.is_unknown())
             .filter_map(|entry| source(&entry.path, wanted))
             .collect()
     });

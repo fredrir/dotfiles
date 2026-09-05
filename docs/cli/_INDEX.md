@@ -3,6 +3,7 @@
 <!-- cli:index:start -->
 | Command        | Docs                                     | Path                                                 |
 | -------------- | ---------------------------------------- | ---------------------------------------------------- |
+| agent-hop      | [agent-hop.md](./agent-hop.md)           | [scripts/rust/crates/agent-hop/]                     |
 | clipboard      | [clipboard.md](./clipboard.md)           | [scripts/python/src/tools/utils/remote_clipboard.py] |
 | count          | [count.md](./count.md)                   | [scripts/rust/crates/count/]                         |
 | doc-purge      | [doc-purge.md](./doc-purge.md)           | [scripts/rust/crates/doc-purge/]                     |
@@ -13,6 +14,7 @@
 | git            | [git.md](./git.md)                       | [scripts/rust/crates/git/]                           |
 | home-copy      | [home-copy.md](./home-copy.md)           | [scripts/rust/crates/hcopy/]                         |
 | hwire          | [hwire.md](./hwire.md)                   | [scripts/rust/crates/hwire/]                         |
+| mux-route      | [mux-route.md](./mux-route.md)           | [scripts/rust/crates/mux-route/]                     |
 | path           | [path.md](./path.md)                     | [scripts/rust/crates/path/]                          |
 | size           | [size.md](./size.md)                     | [scripts/rust/crates/size/]                          |
 | sysinfo        | [sysinfo.md](./sysinfo.md)               | [scripts/python/src/tools/utils/sysinfo/]            |

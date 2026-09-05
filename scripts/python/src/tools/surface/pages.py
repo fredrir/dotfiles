@@ -12,6 +12,7 @@ class Page:
 
 
 PAGES = (
+    Page("agent-hop", "agent-hop", ("agent-hop",), "scripts/rust/crates/agent-hop/"),
     Page(
         "clipboard",
         "clipboard",
@@ -37,6 +38,7 @@ PAGES = (
         "scripts/rust/crates/hcopy/",
     ),
     Page("hwire", "hwire", ("hwire",), "scripts/rust/crates/hwire/"),
+    Page("mux-route", "mux-route", ("mux-route",), "scripts/rust/crates/mux-route/"),
     Page("path", "path", ("path",), "scripts/rust/crates/path/"),
     Page("size", "size", ("size",), "scripts/rust/crates/size/"),
     Page("sysinfo", "sysinfo", ("sysinfo",), "scripts/python/src/tools/utils/sysinfo/"),
@@ -49,6 +51,7 @@ PAGES = (
 UNDOCUMENTED = ("power-menu", "confirm-exit", "clean-copy", "update-readme-fastfetch")
 
 RUST = (
+    "agent-hop",
     "count",
     "doc-purge",
     "dotfile-format",
@@ -60,6 +63,7 @@ RUST = (
     "hpull",
     "hpush",
     "hwire",
+    "mux-route",
     "path",
     "size",
 )

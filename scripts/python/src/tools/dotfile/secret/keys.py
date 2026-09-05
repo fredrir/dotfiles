@@ -2,6 +2,7 @@ import os
 import re
 
 from tools.core import blocks
+from tools.core.dotfmt import formatted
 from tools.dotfile.state import die
 
 AGE_KEY = re.compile(r"^age1[02-9ac-hj-np-z]{58}$")
@@ -83,7 +84,9 @@ def write_if_changed(path, content):
 
 
 def save_recipients(ctx, recipients):
-    write_if_changed(keys_file(ctx), keys_document(recipients))
+    if load_recipients(ctx) != recipients:
+        path = keys_file(ctx)
+        write_if_changed(path, formatted(keys_document(recipients), path))
     return write_if_changed(sops_file(ctx), sops_document(recipients))
 
 

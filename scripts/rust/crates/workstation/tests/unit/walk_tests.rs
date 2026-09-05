@@ -22,6 +22,15 @@ fn shown(paths: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(unix)]
+fn fifo(path: &Path) {
+    let made = std::process::Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo {}", path.display());
+}
+
 fn every_file(root: &Path, policy: &Policy) -> Walked<PathBuf> {
     walk(root, policy, |_, entries| {
         entries
@@ -125,6 +134,24 @@ fn the_listing_helper_names_the_file_it_was_handed_in_place_of_a_directory() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn a_name_that_is_not_utf8_is_refused_with_its_subtree_when_the_policy_asks_for_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let odd = root.path().join(OsStr::from_bytes(b"bad\xffdir"));
+    fs::create_dir(&odd).unwrap();
+    fs::write(odd.join("inner.rs"), "").unwrap();
+    fs::write(root.path().join(OsStr::from_bytes(b"bad\xffname.rs")), "").unwrap();
+    fs::write(root.path().join("kept.rs"), "").unwrap();
+    assert_eq!(
+        shown(&every_file(root.path(), &Policy::new().names(Names::Utf8)).items),
+        ["kept.rs"]
+    );
+    assert_eq!(every_file(root.path(), &Policy::new()).items.len(), 3);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn a_name_that_is_not_utf8_reaches_the_caller_with_its_bytes_intact() {
     use std::os::unix::ffi::OsStrExt;
 
@@ -152,7 +179,18 @@ fn avoiding() -> Policy {
     Policy::new()
         .skipping(AVOIDED)
         .skip_hidden(true)
+        .names(Names::Utf8)
         .symlinks(Symlinks::Drop)
+}
+
+fn not_a_directory(root: &Path, policy: &Policy) -> Walked<PathBuf> {
+    walk(root, policy, |_, entries| {
+        entries
+            .iter()
+            .filter(|entry| !entry.is_dir() && !entry.is_unknown())
+            .map(|entry| entry.relative.clone())
+            .collect()
+    })
 }
 
 #[test]
@@ -221,6 +259,25 @@ fn the_skip_list_refuses_directories_and_leaves_files_of_the_same_name() {
 }
 
 #[test]
+fn a_file_named_like_a_skipped_directory_is_offered_and_carries_no_extension_to_recognise() {
+    let root = tree(&["target/x.rs", "sub/target", "keep.rs"]);
+    let policy = avoiding();
+    assert_eq!(
+        shown(&not_a_directory(root.path(), &policy).items),
+        ["keep.rs", "sub/target"]
+    );
+    let recognised = walk(root.path(), &policy, |_, entries| {
+        entries
+            .iter()
+            .filter(|entry| !entry.is_dir() && !entry.is_unknown())
+            .filter(|entry| entry.path.extension().is_some())
+            .map(|entry| entry.relative.clone())
+            .collect::<Vec<PathBuf>>()
+    });
+    assert_eq!(shown(&recognised.items), ["keep.rs"]);
+}
+
+#[test]
 fn a_hidden_name_is_offered_unless_the_policy_refuses_it() {
     let root = tree(&[".gitignore", "kept.py"]);
     assert_eq!(
@@ -262,6 +319,27 @@ fn a_depth_cap_of_zero_reads_the_root_and_nothing_below_it() {
 }
 
 #[test]
+fn a_directory_past_the_depth_cap_reaches_the_visitor_though_a_file_visitor_cannot_see_it() {
+    let root = tree(&["d0/shallow.py", "d0/d1/d2/d3/buried.py"]);
+    let refused = Mutex::new(Vec::new());
+    let walked = walk(root.path(), &Policy::new().max_depth(1), |_, entries| {
+        for entry in entries.iter().filter(|entry| entry.is_dir()) {
+            refused.lock().unwrap().push(entry.relative.clone());
+        }
+        entries
+            .iter()
+            .filter(|entry| entry.is_file())
+            .map(|entry| entry.relative.clone())
+            .collect::<Vec<PathBuf>>()
+    });
+    let mut offered: Vec<PathBuf> = refused.into_inner().unwrap();
+    offered.sort();
+    assert_eq!(shown(&offered), ["d0", "d0/d1"]);
+    assert_eq!(shown(&walked.items), ["d0/shallow.py"]);
+    assert_eq!(walked.deep, 1);
+}
+
+#[test]
 fn more_files_than_the_cap_allows_sets_the_capped_flag() {
     let root = tree(&["a.py", "b.py", "c.py", "d.py", "e.py"]);
     let walked = every_file(root.path(), &Policy::new().max_files(3));
@@ -298,6 +376,49 @@ fn what_the_visitor_sets_aside_is_not_charged_against_the_cap() {
     let mut set_aside: Vec<PathBuf> = locked.into_inner().unwrap();
     set_aside.sort();
     assert_eq!(shown(&set_aside), ["Cargo.lock", "package-lock.json"]);
+}
+
+#[test]
+fn the_cap_is_met_exactly_however_the_directories_are_scheduled() {
+    let paths: Vec<String> = (0..20)
+        .flat_map(|directory| (0..5).map(move |file| format!("d{directory}/f{file}.py")))
+        .collect();
+    let root = tree(&paths.iter().map(String::as_str).collect::<Vec<&str>>());
+    for cap in [1, 7, 37, 99] {
+        let walked = every_file(root.path(), &Policy::new().max_files(cap));
+        assert_eq!(walked.items.len(), cap, "cap {cap}");
+        assert!(walked.capped, "cap {cap}");
+    }
+    let walked = every_file(root.path(), &Policy::new().max_files(100));
+    assert_eq!(walked.items.len(), 100);
+    assert!(!walked.capped);
+}
+
+#[test]
+fn what_is_set_aside_deeper_down_still_does_not_spend_the_cap() {
+    let root = tree(&[
+        "Cargo.lock",
+        "a.json",
+        "one/Cargo.lock",
+        "one/b.json",
+        "two/Cargo.lock",
+        "two/c.json",
+    ]);
+    let aside = |cap: usize| {
+        walk(root.path(), &Policy::new().max_files(cap), |_, entries| {
+            entries
+                .iter()
+                .filter(|entry| entry.is_file() && entry.name != OsStr::new("Cargo.lock"))
+                .map(|entry| entry.relative.clone())
+                .collect::<Vec<PathBuf>>()
+        })
+    };
+    let fits = aside(3);
+    assert_eq!(fits.items.len(), 3);
+    assert!(!fits.capped);
+    let over = aside(2);
+    assert_eq!(over.items.len(), 2);
+    assert!(over.capped);
 }
 
 #[cfg(unix)]
@@ -390,5 +511,62 @@ fn each_entry_carries_the_kind_the_listing_reported() {
             ("file.txt".to_string(), Kind::File),
             ("link".to_string(), Kind::Symlink),
         ]
+    );
+}
+
+#[test]
+fn a_type_the_listing_could_not_report_is_unknown_rather_than_other() {
+    let root = tree(&["a.py"]);
+    let file = fs::symlink_metadata(root.path().join("a.py")).unwrap();
+    let directory = fs::symlink_metadata(root.path()).unwrap();
+    assert_eq!(classify(Ok(file.file_type())), Kind::File);
+    assert_eq!(classify(Ok(directory.file_type())), Kind::Directory);
+    assert_eq!(
+        classify(Err(io::Error::from(io::ErrorKind::PermissionDenied))),
+        Kind::Unknown
+    );
+}
+
+#[test]
+fn nothing_a_test_can_create_makes_a_listing_refuse_a_type_so_unknown_stays_zero() {
+    let root = tree(&["a.py", "sub/b.py"]);
+    let walked = every_entry(root.path(), &counting(false));
+    assert_eq!(walked.items.len(), 3);
+    assert_eq!(walked.unknown, 0);
+}
+
+#[test]
+fn an_entry_the_listing_refuses_partway_counts_unreadable_though_no_test_can_force_one() {
+    let root = tree(&["a.py", "sub/b.py"]);
+    let walked = every_file(root.path(), &Policy::new());
+    assert_eq!(walked.items.len(), 2);
+    assert_eq!(walked.unreadable, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_offered_as_other_and_never_as_unknown() {
+    let root = tree(&["a.py"]);
+    fifo(&root.path().join("pipe"));
+    let kinds: Vec<Kind> = list(root.path(), &Policy::new())
+        .unwrap()
+        .iter()
+        .map(|entry| entry.kind)
+        .collect();
+    assert_eq!(kinds, [Kind::File, Kind::Other]);
+    let walked = every_file(root.path(), &Policy::new());
+    assert_eq!(shown(&walked.items), ["a.py"]);
+    assert_eq!(walked.unknown, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_visitor_that_takes_everything_but_directories_is_offered_the_fifo_and_the_symlink() {
+    let root = tree(&["a.conf"]);
+    fifo(&root.path().join("pipe.conf"));
+    std::os::unix::fs::symlink(root.path().join("a.conf"), root.path().join("link.conf")).unwrap();
+    assert_eq!(
+        shown(&not_a_directory(root.path(), &Policy::new()).items),
+        ["a.conf", "link.conf", "pipe.conf"]
     );
 }

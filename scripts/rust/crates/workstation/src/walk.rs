@@ -37,6 +37,7 @@ pub enum Kind {
     Directory,
     Symlink,
     Other,
+    Unknown,
 }
 
 #[derive(Clone, Debug)]
@@ -59,12 +60,22 @@ impl Entry {
     pub fn is_symlink(&self) -> bool {
         self.kind == Kind::Symlink
     }
+
+    pub fn is_unknown(&self) -> bool {
+        self.kind == Kind::Unknown
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Symlinks {
     Report,
     Drop,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Names {
+    Any,
+    Utf8,
 }
 
 #[derive(Clone, Copy)]
@@ -74,6 +85,7 @@ pub struct Policy {
     max_depth: Option<usize>,
     max_files: Option<usize>,
     symlinks: Symlinks,
+    names: Names,
 }
 
 impl Default for Policy {
@@ -84,6 +96,7 @@ impl Default for Policy {
             max_depth: None,
             max_files: None,
             symlinks: Symlinks::Report,
+            names: Names::Any,
         }
     }
 }
@@ -118,12 +131,21 @@ impl Policy {
         self
     }
 
+    pub fn names(mut self, names: Names) -> Policy {
+        self.names = names;
+        self
+    }
+
     fn skips(&self, name: &OsStr) -> bool {
         self.skip.iter().any(|skip| OsStr::new(skip) == name)
     }
 
     fn hides(&self, name: &OsStr) -> bool {
         self.skip_hidden && crate::path::hidden(name)
+    }
+
+    fn unnamed(&self, name: &OsStr) -> bool {
+        self.names == Names::Utf8 && name.to_str().is_none()
     }
 
     fn too_deep(&self, depth: usize) -> bool {
@@ -135,6 +157,7 @@ impl Policy {
 pub struct Walked<T> {
     pub items: Vec<T>,
     pub unreadable: usize,
+    pub unknown: usize,
     pub deep: usize,
     pub capped: bool,
 }
@@ -144,6 +167,7 @@ impl<T> Default for Walked<T> {
         Walked {
             items: Vec::new(),
             unreadable: 0,
+            unknown: 0,
             deep: 0,
             capped: false,
         }
@@ -154,6 +178,7 @@ impl<T> Walked<T> {
     fn absorb(&mut self, other: Walked<T>) {
         self.items.extend(other.items);
         self.unreadable += other.unreadable;
+        self.unknown += other.unknown;
         self.deep += other.deep;
         self.capped |= other.capped;
     }
@@ -211,6 +236,9 @@ where
             continue;
         };
         if let Some(entry) = describe(&found, prefix, policy) {
+            if entry.is_unknown() {
+                walked.unknown += 1;
+            }
             entries.push(entry);
         }
     }
@@ -243,11 +271,10 @@ where
 }
 
 fn describe(found: &fs::DirEntry, prefix: &Path, policy: &Policy) -> Option<Entry> {
-    let kind = found
-        .file_type()
-        .map_or(Kind::Other, |reported| classify(&reported));
+    let kind = classify(found.file_type());
     let name = found.file_name();
-    let refused = policy.hides(&name)
+    let refused = policy.unnamed(&name)
+        || policy.hides(&name)
         || (kind == Kind::Symlink && policy.symlinks == Symlinks::Drop)
         || (kind == Kind::Directory && policy.skips(&name));
     if refused {
@@ -261,7 +288,10 @@ fn describe(found: &fs::DirEntry, prefix: &Path, policy: &Policy) -> Option<Entr
     })
 }
 
-fn classify(kind: &fs::FileType) -> Kind {
+fn classify(reported: io::Result<fs::FileType>) -> Kind {
+    let Ok(kind) = reported else {
+        return Kind::Unknown;
+    };
     if kind.is_symlink() {
         Kind::Symlink
     } else if kind.is_dir() {

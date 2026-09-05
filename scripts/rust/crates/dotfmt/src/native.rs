@@ -92,7 +92,11 @@ fn shape(
     config: &Config,
 ) -> Result<String, String> {
     match kind {
-        Kind::Conf => Ok(conf::format(text, conf::mode(&shown(path)))),
+        Kind::Conf => Ok(conf::format(
+            text,
+            conf::mode(&shown(path)),
+            config.final_newline,
+        )),
         Kind::Block => block::format(text, config)
             .map_err(|problem| format!("{label}:{}: {}", problem.line, problem.message)),
     }

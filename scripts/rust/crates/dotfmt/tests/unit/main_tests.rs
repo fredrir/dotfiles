@@ -384,36 +384,36 @@ fn the_matcher_handles_the_rest_of_what_fnmatch_reads() {
 // ----------------------------------------------------------------- .conf
 
 fn plain(text: &str) -> String {
-    conf::format(text, Mode::Plain)
+    conf::format(text, Mode::Plain, config().final_newline)
 }
 
 fn hypr(text: &str) -> String {
-    conf::format(text, Mode::Hypr)
+    conf::format(text, Mode::Hypr, config().final_newline)
 }
 
 fn kitty(text: &str) -> String {
-    conf::format(text, Mode::Kitty)
+    conf::format(text, Mode::Kitty, config().final_newline)
 }
 
 #[test]
 fn plain_trims_the_edges_and_leaves_the_structure_alone() {
     let out = plain("\n\n<match target=\"font\">   \n\n\n  <edit/>  \n</match>\n\n");
 
-    assert_eq!(out, "<match target=\"font\">\n\n  <edit/>\n</match>\n");
+    assert_eq!(out, "<match target=\"font\">\n\n  <edit/>\n</match>");
 }
 
 #[test]
 fn hypr_indents_its_braces_and_normalises_its_keys() {
     let out = hypr("general{\ngaps_in=5\n  border_size   =   2\n}\n");
 
-    assert_eq!(out, "general{\n    gaps_in = 5\n    border_size = 2\n}\n");
+    assert_eq!(out, "general{\n    gaps_in = 5\n    border_size = 2\n}");
 }
 
 #[test]
 fn hypr_leaves_a_left_hand_side_that_is_not_a_key_alone() {
     let out = hypr("bind = SUPER, Q, exec, kitty\nnot a key = value\n");
 
-    assert_eq!(out, "bind = SUPER, Q, exec, kitty\nnot a key = value\n");
+    assert_eq!(out, "bind = SUPER, Q, exec, kitty\nnot a key = value");
 }
 
 #[test]
@@ -422,7 +422,7 @@ fn hypr_drops_the_blank_line_above_a_closing_brace() {
 
     assert_eq!(
         out,
-        "animations {\n    enabled = true\n}\n\nmisc {\n    x = 1\n}\n"
+        "animations {\n    enabled = true\n}\n\nmisc {\n    x = 1\n}"
     );
 }
 
@@ -434,7 +434,7 @@ fn a_brace_inside_a_value_does_not_open_a_block() {
 
     assert_eq!(
         out,
-        "windowrulev2 = float,class:^(x){\nbind = SUPER, Q, exec, kitty\n"
+        "windowrulev2 = float,class:^(x){\nbind = SUPER, Q, exec, kitty"
     );
 }
 
@@ -442,7 +442,7 @@ fn a_brace_inside_a_value_does_not_open_a_block() {
 fn a_brace_in_a_comment_does_not_open_a_block() {
     let out = hypr("# a note about {\nbind = SUPER, Q, exec, kitty\n");
 
-    assert_eq!(out, "# a note about {\nbind = SUPER, Q, exec, kitty\n");
+    assert_eq!(out, "# a note about {\nbind = SUPER, Q, exec, kitty");
 }
 
 #[test]
@@ -451,7 +451,7 @@ fn a_crlf_hypr_config_still_finds_its_closing_brace() {
     // never matches and the file re-indents from its first brace onwards.
     let out = hypr("general {\r\ngaps_in = 5\r\n}\r\nbind = SUPER, Q\r\n");
 
-    assert_eq!(out, "general {\n    gaps_in = 5\n}\nbind = SUPER, Q\n");
+    assert_eq!(out, "general {\n    gaps_in = 5\n}\nbind = SUPER, Q");
 }
 
 #[test]
@@ -470,7 +470,7 @@ fn kitty_lays_out_its_two_columns_independently() {
 
     assert_eq!(
         out,
-        "font_family  Fira Code\nfont_size    12\nmap ctrl+shift+t  new_tab\nmap f1            launch\n"
+        "font_family  Fira Code\nfont_size    12\nmap ctrl+shift+t  new_tab\nmap f1            launch"
     );
 }
 
@@ -478,7 +478,7 @@ fn kitty_lays_out_its_two_columns_independently() {
 fn kitty_keeps_what_is_inside_a_quote_exactly_as_it_was() {
     let out = kitty("a 1\nfoo \"two   words\"   tail\n");
 
-    assert_eq!(out, "a    1\nfoo  \"two   words\" tail\n");
+    assert_eq!(out, "a    1\nfoo  \"two   words\" tail");
 }
 
 #[test]
@@ -488,14 +488,28 @@ fn an_apostrophe_in_a_comment_does_not_swallow_the_line() {
     // into a line nobody meant to keep.
     let out = kitty("# don't   collapse   this\nfont_size 12\n");
 
-    assert_eq!(out, "# don't   collapse   this\nfont_size  12\n");
+    assert_eq!(out, "# don't   collapse   this\nfont_size  12");
 }
 
 #[test]
 fn kitty_keeps_a_map_line_that_has_no_action_as_it_found_it() {
     let out = kitty("map f1\nfont_size 12\n");
 
-    assert_eq!(out, "map f1\nfont_size  12\n");
+    assert_eq!(out, "map f1\nfont_size  12");
+}
+
+#[test]
+fn final_newline_on_ends_a_conf_file_with_a_newline() {
+    let out = conf::format("general{\ngaps_in=5\n}\n\n\n", Mode::Hypr, true);
+
+    assert_eq!(out, "general{\n    gaps_in = 5\n}\n");
+}
+
+#[test]
+fn final_newline_off_ends_a_conf_file_at_its_last_line() {
+    let out = conf::format("general{\ngaps_in=5\n}\n\n\n", Mode::Hypr, false);
+
+    assert_eq!(out, "general{\n    gaps_in = 5\n}");
 }
 
 // --------------------------------------------------------------- selection

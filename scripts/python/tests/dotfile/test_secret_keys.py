@@ -9,6 +9,7 @@ from tools.dotfile.secret import doctor, keys
 
 KEY_A = "age1" + "q" * 58
 KEY_B = "age1" + "p" * 58
+ALIGNED = f"recipients {{\n  archie   = {KEY_A}\n  recovery = {KEY_B}\n}}"
 
 
 class Ctx:
@@ -46,6 +47,19 @@ def secret(tool, env, *args):
     return tool("dotfile", "secret", *args, env=env)
 
 
+@pytest.fixture
+def formatter(tmp_path):
+    def build(env, script):
+        directory = tmp_path / "formatter"
+        directory.mkdir(exist_ok=True)
+        stub = directory / "dotfmt"
+        stub.write_text(f"#!/bin/sh\n{script}\n")
+        stub.chmod(0o755)
+        return dict(env, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}")
+
+    return build
+
+
 def test_parses_a_recipients_block(repo):
     root, _home, _env = repo
     write_keys(root, f"recipients {{\n  archie = {KEY_A}\n  recovery = {KEY_B}\n}}\n")
@@ -80,8 +94,9 @@ def test_rejects_an_unterminated_block(repo):
 
 def test_documents_are_sorted_and_stable():
     recipients = {"zeta": KEY_B, "alpha": KEY_A}
-    assert keys.keys_document(recipients).index("alpha") < keys.keys_document(recipients).index(
-        "zeta"
+    assert (
+        keys.keys_document(recipients)
+        == f"recipients {{\n  alpha = {KEY_A}\n  zeta = {KEY_B}\n}}\n"
     )
     assert keys.sops_document(recipients) == f"creation_rules:\n  - age: {KEY_A},{KEY_B}\n"
 
@@ -90,9 +105,9 @@ def test_empty_recipients_produce_no_sops_document():
     assert keys.sops_document({}) == ""
 
 
-def test_enroll_writes_both_files(tool, repo):
+def test_enroll_writes_both_files(tool, repo, formatter):
     root, _home, env = repo
-    assert secret(tool, env, "enroll", "archie", KEY_A).returncode == 0
+    assert secret(tool, formatter(env, "cat"), "enroll", "archie", KEY_A).returncode == 0
     assert (
         root / "config" / "keys.dotfile"
     ).read_text() == f"recipients {{\n  archie = {KEY_A}\n}}\n"
@@ -123,11 +138,12 @@ def test_enroll_refuses_to_replace_a_label(tool, repo):
     assert "revoke it first" in result.stderr
 
 
-def test_revoke_removes_and_regenerates(tool, repo):
+def test_revoke_removes_and_regenerates(tool, repo, formatter):
     root, _home, env = repo
-    secret(tool, env, "enroll", "archie", KEY_A)
-    secret(tool, env, "enroll", "recovery", KEY_B)
-    assert secret(tool, env, "revoke", "archie").returncode == 0
+    plain = formatter(env, "cat")
+    secret(tool, plain, "enroll", "archie", KEY_A)
+    secret(tool, plain, "enroll", "recovery", KEY_B)
+    assert secret(tool, plain, "revoke", "archie").returncode == 0
     assert (
         root / "config" / "keys.dotfile"
     ).read_text() == f"recipients {{\n  recovery = {KEY_B}\n}}\n"
@@ -157,6 +173,25 @@ def test_sync_rewrites_a_drifted_sops_file(tool, repo):
     assert keys.sops_drifted(Ctx(root), {"archie": KEY_A})
     assert secret(tool, env, "sync").returncode == 0
     assert not keys.sops_drifted(Ctx(root), {"archie": KEY_A})
+
+
+def test_sync_leaves_a_formatted_file_byte_for_byte(tool, repo):
+    root, _home, env = repo
+    write_keys(root, ALIGNED)
+    assert secret(tool, env, "sync").returncode == 0
+    assert (root / "config" / "keys.dotfile").read_text() == ALIGNED
+    assert KEY_A in (root / ".sops.yaml").read_text()
+
+
+def test_a_changed_recipient_is_written_through_the_formatter(tool, repo, formatter):
+    root, _home, env = repo
+    write_keys(root, ALIGNED)
+    marked = formatter(env, "tr 'a-z' 'A-Z'")
+    assert secret(tool, marked, "revoke", "recovery").returncode == 0
+    assert (root / "config" / "keys.dotfile").read_text() == (
+        f"RECIPIENTS {{\n  ARCHIE = {KEY_A.upper()}\n}}\n"
+    )
+    assert KEY_B not in (root / ".sops.yaml").read_text()
 
 
 def test_sync_without_recipients_fails(tool, repo):

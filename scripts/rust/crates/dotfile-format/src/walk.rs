@@ -62,7 +62,7 @@ pub fn walk(root: &Path) -> Found {
     });
     let mut found = Found {
         files: walked.items,
-        unreadable: walked.unreadable,
+        unreadable: walked.unreadable + walked.unknown,
         deep: walked.deep,
         capped: walked.capped,
         lockfiles: set_aside

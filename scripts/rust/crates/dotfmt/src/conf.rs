@@ -37,14 +37,16 @@ pub fn lines(text: &str) -> Vec<&str> {
     found
 }
 
-pub fn format(text: &str, mode: Mode) -> String {
+pub fn format(text: &str, mode: Mode, final_newline: bool) -> String {
     let raw = lines(text);
     let formatted = format_lines(&raw, mode);
     if formatted.is_empty() {
         return text.to_string();
     }
     let mut out = formatted.join("\n");
-    out.push('\n');
+    if final_newline {
+        out.push('\n');
+    }
     out
 }
 

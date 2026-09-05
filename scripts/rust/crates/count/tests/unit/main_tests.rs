@@ -64,6 +64,22 @@ fn linked_directories_count_once_and_are_not_followed() {
     assert_eq!(every(root.path(), false).items.len(), 9);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_fifo_counts_as_one_entry_and_is_not_descended() {
+    let root = tree(&["a", "sub/c"]);
+    let made = std::process::Command::new("mkfifo")
+        .arg(root.path().join("pipe"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    assert_eq!(children(root.path(), false), 3);
+    let walked = every(root.path(), false);
+    assert_eq!(walked.items.len(), 4);
+    assert_eq!(walked.unreadable, 0);
+    assert_eq!(walked.unknown, 0);
+}
+
 #[test]
 fn a_file_is_not_a_directory() {
     let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);

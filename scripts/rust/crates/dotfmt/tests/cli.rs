@@ -79,7 +79,7 @@ fn stdin_on_a_conf_file_formats_it_as_a_conf_file() {
     );
 
     assert_eq!(output.code().expect("dotfmt exits rather than signals"), 0);
-    assert_eq!(output.stdout, "general{\n    gaps_in = 5\n}\n");
+    assert_eq!(output.stdout, "general{\n    gaps_in = 5\n}");
     assert_eq!(output.stderr, "");
 }
 
@@ -320,7 +320,7 @@ fn quiet_says_nothing_anywhere_about_a_run_that_changed_a_file() {
 fn verbose_names_every_file_and_which_mode_a_conf_was_read_in() {
     let root = tree_pairs(&[
         ("dotfmt.dotfile", "include {\n  .conf\n}\n"),
-        ("kitty/kitty.conf", "font_size  12\n"),
+        ("kitty/kitty.conf", "font_size  12"),
     ]);
     let output = dotfmt(root.path(), &["-v", "."], "");
 
@@ -439,7 +439,7 @@ fn the_include_block_decides_which_files_a_walk_picks_up() {
     assert_eq!(output.stderr, "  format a.conf\nformatted 1 of 2 files\n");
     assert_eq!(
         fs::read_to_string(root.path().join("a.conf")).unwrap(),
-        "x  =  1\n"
+        "x  =  1"
     );
     assert_eq!(
         fs::read_to_string(root.path().join("kitty/b.conf")).unwrap(),
@@ -460,6 +460,26 @@ fn a_conf_file_is_left_alone_until_a_config_opts_it_in() {
         fs::read_to_string(root.path().join("a.conf")).unwrap(),
         "x  =  1\n\n\n"
     );
+}
+
+#[test]
+fn final_newline_governs_a_conf_file_as_well_as_a_dotfile() {
+    for (setting, expected) in [("true", "x  =  1\n"), ("false", "x  =  1")] {
+        let config =
+            format!("dotfmt {{\n  final_newline = {setting}\n}}\n\ninclude {{\n  .conf\n}}\n");
+        let root = tree_pairs(&[
+            ("dotfmt.dotfile", config.as_str()),
+            ("a.conf", "x  =  1\n\n\n"),
+        ]);
+        let output = dotfmt(root.path(), &["."], "");
+
+        assert_eq!(output.code().expect("dotfmt exits rather than signals"), 0);
+        assert_eq!(
+            fs::read_to_string(root.path().join("a.conf")).unwrap(),
+            expected,
+            "final_newline = {setting}"
+        );
+    }
 }
 
 #[test]

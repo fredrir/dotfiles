@@ -307,17 +307,32 @@ fn no_name_in_the_lockfile_list_ever_reaches_a_tool() {
 }
 
 #[test]
-fn the_depth_cap_stops_the_walk_and_says_so() {
+fn the_depth_cap_stops_the_walk_and_counts_the_first_directory_it_refused() {
     let root = tempfile::tempdir().unwrap();
     let mut deep = root.path().to_path_buf();
-    for step in 0..walk::MAX_DEPTH + 2 {
+    for step in 0..walk::MAX_DEPTH + 3 {
         deep.push(format!("d{step}"));
+        fs::create_dir(&deep).unwrap();
+        fs::write(deep.join("buried.py"), "").unwrap();
     }
-    fs::create_dir_all(&deep).unwrap();
-    fs::write(deep.join("buried.py"), "").unwrap();
     let found = walk::walk(root.path());
-    assert!(found.files.is_empty());
-    assert!(found.deep > 0);
+    assert_eq!(found.files.len(), walk::MAX_DEPTH);
+    assert_eq!(found.deep, 1);
+    assert_eq!(found.unreadable, 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_neither_walked_as_a_file_nor_counted_unreadable() {
+    let root = tree(&["a.py"]);
+    let made = std::process::Command::new("mkfifo")
+        .arg(root.path().join("pipe"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let found = walk::walk(root.path());
+    assert_eq!(shown(&found.files), ["a.py"]);
+    assert_eq!(found.unreadable, 0);
 }
 
 #[test]
