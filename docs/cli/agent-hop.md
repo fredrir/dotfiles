@@ -11,7 +11,7 @@
 | `agent-hop status`  | Shows the recorded ownership and handoff state of a managed run.              |
 | `agent-hop cancel`  | Cancels a queued move before ownership transfers.                             |
 | `agent-hop follow`  | Attaches to the destination that owns the moved agent.                        |
-| `agent-hop recover` | Resolves destination ownership before recovering preserved source history.    |
+| `agent-hop recover` | Resolves execution ownership before recovering a managed agent.               |
 <!-- cli:commands:end -->
 
 ## Flags
@@ -97,6 +97,14 @@ Ctrl-b A queues execution handoff for the selected pane.
 | Successful move | Destination runs in a durable tmux session; no source-side tunnel is needed |
 | Failed preparation | Source remains authoritative; inspect the recorded error |
 | Uncertain commit | Do not launch a second copy; recover checks destination ownership first |
+
+| Agent | Native handoff support |
+| --- | --- |
+| Codex | Verified on archie and macie with native UIs and isolated history, without model calls |
+| Claude | Requires destination authentication and pretrusted setup; a first-use trust prompt refuses the move safely |
+
+Claude's prepared pane stays input-fenced; trust is never auto-accepted.
+Native Claude takeover remains unverified on macie while its CLI is logged out.
 
 Codex preserves project trust for the validated private checkout through scoped
 per-process configuration, including recovery only within that original checkout.

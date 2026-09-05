@@ -29,7 +29,7 @@ COMMANDS = {
     "agent-hop status": "Shows the recorded ownership and handoff state of a managed run.",
     "agent-hop cancel": "Cancels a queued move before ownership transfers.",
     "agent-hop follow": "Attaches to the destination that owns the moved agent.",
-    "agent-hop recover": "Resolves destination ownership before recovering preserved source history.",
+    "agent-hop recover": "Resolves execution ownership before recovering a managed agent.",
     "acp": "Copies Archie's text clipboard to this machine.",
     "cpa": "Copies the local text clipboard to Archie.",
     "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",

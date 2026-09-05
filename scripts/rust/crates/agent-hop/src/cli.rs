@@ -108,40 +108,52 @@ impl Completable for Cli {
 pub enum Command {
     /// Start a native agent UI with coordinated execution handoff.
     Run {
-        #[arg(value_enum)]
+        #[arg(value_enum, help = "Agent to run in the current tmux pane")]
         agent: Agent,
-        #[arg(long)]
+        #[arg(long, help = "Resume this conversation instead of starting a new one")]
         resume: Option<String>,
     },
     /// Move this managed agent pane after its current turn finishes.
     Move {
-        #[arg(long)]
+        #[arg(long, help = "Managed tmux pane; defaults to the current pane")]
         pane: Option<String>,
-        #[arg(long, value_enum)]
+        #[arg(
+            long,
+            value_enum,
+            help = "Destination host; defaults to the other workstation"
+        )]
         to: Option<hostkit::Host>,
     },
     /// Inspect a managed pane or a durable handoff receipt.
     Status {
-        #[arg(long, conflicts_with = "run")]
+        #[arg(
+            long,
+            conflicts_with = "run",
+            help = "Managed tmux pane; defaults to the current pane"
+        )]
         pane: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Durable run ID, including after its pane closes")]
         run: Option<String>,
     },
     /// Cancel a queued move before ownership transfers.
     Cancel {
-        #[arg(long)]
+        #[arg(long, help = "Managed tmux pane; defaults to the current pane")]
         pane: Option<String>,
     },
     /// Attach to the destination that owns this pane's moved agent.
     Follow {
-        #[arg(long)]
+        #[arg(long, help = "Managed tmux pane; defaults to the current pane")]
         pane: Option<String>,
     },
-    /// Resolve a failed transfer before resuming preserved source history.
+    /// Resolve execution ownership before recovering a managed agent.
     Recover {
-        #[arg(long, conflicts_with = "run")]
+        #[arg(
+            long,
+            conflicts_with = "run",
+            help = "Managed tmux pane; defaults to the current pane"
+        )]
         pane: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Durable run ID, including after its pane closes")]
         run: Option<String>,
     },
     #[command(name = "__handoff", hide = true)]

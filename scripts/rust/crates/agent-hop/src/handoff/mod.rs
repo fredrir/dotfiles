@@ -147,6 +147,9 @@ pub(crate) fn run(command: Command) -> Result<(), String> {
             let lease = lease(&directory)?;
             let mut state = read(&directory)?;
             state.ownership_committed |= directory.join("activate.json").exists();
+            if state.validated_snapshot.is_some() && !state.ownership_committed {
+                return Err("this prepared checkpoint never owned execution; recover or retry from its authoritative source pane".into());
+            }
             if let (Some(host), Some(id)) = (&state.destination, &state.destination_run) {
                 let peer = Host::from_name(host)?;
                 let remote_state = remote(peer, "status", id, None)?;
@@ -164,11 +167,14 @@ pub(crate) fn run(command: Command) -> Result<(), String> {
                 }
                 remote(peer, "abort", id, None)?;
                 let until = Instant::now() + Duration::from_secs(20);
-                while remote(peer, "status", id, None)?
-                    .get("phase")
-                    .and_then(Value::as_str)
-                    != Some("aborted")
-                {
+                loop {
+                    let stopped = remote(peer, "status", id, None)?;
+                    if stopped.get("ownership_committed").and_then(Value::as_bool) == Some(true) {
+                        return Err("destination committed ownership while recovery was checking; source remains stopped".into());
+                    }
+                    if stopped.get("phase").and_then(Value::as_str) == Some("aborted") {
+                        break;
+                    }
                     if Instant::now() > until {
                         return Err("destination shutdown unverified; source remains fenced".into());
                     }
@@ -230,6 +236,8 @@ fn internal(operation: &str, id: &str) -> Result<(), String> {
         }
         "activate" | "abort" => {
             let directory = run_dir(id)?;
+            // Separate SSH requests must make exactly one durable terminal decision.
+            let _decision = decision_lease(&directory, operation)?;
             let state = read(&directory)?;
             if operation == "activate" && !supervisor_alive(&state)? {
                 return Err("destination supervisor is no longer alive; source ownership must not be released".into());
@@ -368,6 +376,32 @@ fn lease(directory: &Path) -> Result<File, String> {
         || unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0
     {
         return Err(error(std::io::Error::last_os_error()));
+    }
+    Ok(file)
+}
+
+#[allow(unsafe_code)]
+fn decision_lease(directory: &Path, operation: &str) -> Result<File, String> {
+    use std::os::fd::AsRawFd;
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join("decision.lock"))
+        .map_err(error)?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(error(std::io::Error::last_os_error()));
+    }
+    let opposite = if operation == "activate" {
+        "abort.json"
+    } else {
+        "activate.json"
+    };
+    if directory.join(opposite).exists() {
+        return Err(format!(
+            "opposite ownership decision {opposite} is already durable"
+        ));
     }
     Ok(file)
 }
@@ -1298,5 +1332,42 @@ mod tests {
         assert!(lease(directory.path()).is_err());
         assert!(child.wait().unwrap().success());
         assert!(lease(directory.path()).is_ok());
+    }
+    #[test]
+    fn concurrent_activate_and_abort_can_publish_only_one_decision() {
+        for _ in 0..20 {
+            let directory = tempfile::tempdir().unwrap();
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+            let workers = ["activate", "abort"].map(|operation| {
+                let path = directory.path().to_path_buf();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let Ok(_lock) = decision_lease(&path, operation) else {
+                        return false;
+                    };
+                    // Widen the exact old race: both contenders are already launched.
+                    std::thread::yield_now();
+                    atomic_json(&path.join(format!("{operation}.json")), &json!(true)).unwrap();
+                    true
+                })
+            });
+            barrier.wait();
+            let accepted = workers
+                .into_iter()
+                .map(|worker| usize::from(worker.join().unwrap()))
+                .sum::<usize>();
+            assert_eq!(accepted, 1);
+            assert_ne!(
+                directory.path().join("activate.json").exists(),
+                directory.path().join("abort.json").exists()
+            );
+            let losing = if directory.path().join("activate.json").exists() {
+                "abort"
+            } else {
+                "activate"
+            };
+            assert!(decision_lease(directory.path(), losing).is_err());
+        }
     }
 }

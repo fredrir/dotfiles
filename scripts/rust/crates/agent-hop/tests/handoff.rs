@@ -497,6 +497,17 @@ fn destination_auth_failure_preserves_source_execution() {
     );
     assert!(!fixture.source.join("agent.stopped").exists());
     assert!(!fixture.destination.join("agent.pid").exists());
+    let recovery = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args([
+            "recover",
+            "--run",
+            fixture.destination_id.as_deref().unwrap(),
+        ])
+        .env("HOME", &fixture.destination)
+        .output()
+        .unwrap();
+    assert!(!recovery.status.success());
+    assert!(String::from_utf8_lossy(&recovery.stderr).contains("never owned execution"));
 }
 
 #[test]

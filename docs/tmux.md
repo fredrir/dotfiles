@@ -94,6 +94,8 @@ For managed agent takeover, see [agent-hop](cli/agent-hop.md). Start managed
 Codex or Claude through `P Space`; `P A` queues the move. The current turn must
 reach its safe boundary before execution ownership transfers. Follow and status
 are available in the same action palette.
+Codex takeover is native-tested on both hosts. Claude requires destination login
+and pretrusted setup; first-use trust prompts safely refuse the move.
 
 ## Installation and recovery
 
