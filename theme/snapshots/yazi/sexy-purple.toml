@@ -149,6 +149,6 @@ prepend_dirs = [
   { name = "Pictures", text = "", fg = "#81a1c1" },
   { name = "Videos", text = "", fg = "#81a1c1" },
   { name = "Books", text = "", fg = "#81a1c1" },
-  { name = "Arch-dotfiles", text = "", fg = "#81a1c1" },
-  { name = "Project", text = "", fg = "#81a1c1" },
+  { name = "dotfiles", text = "", fg = "#81a1c1" },
+  { name = "projects", text = "", fg = "#81a1c1" },
 ]

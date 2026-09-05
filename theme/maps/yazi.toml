@@ -145,6 +145,6 @@ prepend_dirs = [
   { name = "Pictures", text = "", fg = "info_text_on_canvas" },
   { name = "Videos", text = "", fg = "info_text_on_canvas" },
   { name = "Books", text = "", fg = "info_text_on_canvas" },
-  { name = "Arch-dotfiles", text = "", fg = "info_text_on_canvas" },
-  { name = "Project", text = "", fg = "info_text_on_canvas" },
+  { name = "dotfiles", text = "", fg = "info_text_on_canvas" },
+  { name = "projects", text = "", fg = "info_text_on_canvas" },
 ]
