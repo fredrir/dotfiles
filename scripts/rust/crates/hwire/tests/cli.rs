@@ -1,7 +1,8 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Output, Stdio};
 
 use hostkit::{Host, Route};
+use testkit::{Bin, stderr, stdout};
 
 struct Server {
     child: Child,
@@ -48,27 +49,16 @@ impl Drop for Server {
     }
 }
 
-fn hwire(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_hwire"))
-        .args(args)
-        .output()
-        .expect("hwire runs")
+fn hwire(args: &[&str]) -> Bin {
+    Bin::new(env!("CARGO_BIN_EXE_hwire")).args(args)
 }
 
 fn hwire_env(args: &[&str], variables: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hwire"));
-    command
-        .args(args)
+    hwire(args)
         .env_remove("SSH_CONNECTION")
-        .env_remove("HWIRE_SESSION");
-    for (name, value) in variables {
-        command.env(name, value);
-    }
-    command.output().expect("hwire runs")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
+        .env_remove("HWIRE_SESSION")
+        .envs(variables.iter().copied())
+        .output()
 }
 
 fn fixed_ssh_connection(route: Route) -> String {
@@ -113,7 +103,7 @@ fn number(document: &str, name: &str) -> f64 {
 #[test]
 fn measures_a_server_it_did_not_start() {
     let server = Server::start(None);
-    let output = hwire(&["--at", &server.address, "-t", "0.1", "-n", "20"]);
+    let output = hwire(&["--at", &server.address, "-t", "0.1", "-n", "20"]).output();
     assert!(output.status.success(), "{output:?}");
     let printed = stdout(&output);
     assert!(printed.contains("latency"), "{printed}");
@@ -124,7 +114,7 @@ fn measures_a_server_it_did_not_start() {
 #[test]
 fn the_json_carries_every_measurement() {
     let server = Server::start(None);
-    let output = hwire(&["--at", &server.address, "-t", "0.1", "-n", "20", "--json"]);
+    let output = hwire(&["--at", &server.address, "-t", "0.1", "-n", "20", "--json"]).output();
     assert!(output.status.success(), "{output:?}");
     let document = stdout(&output);
     assert!(document.contains("\"route\":\"direct\""), "{document}");
@@ -140,7 +130,7 @@ fn the_json_carries_every_measurement() {
 #[test]
 fn one_direction_measures_only_that_direction() {
     let server = Server::start(None);
-    let output = hwire(&["--at", &server.address, "-t", "0.1", "-n", "20", "--up"]);
+    let output = hwire(&["--at", &server.address, "-t", "0.1", "-n", "20", "--up"]).output();
     let printed = stdout(&output);
     assert!(output.status.success(), "{output:?}");
     assert!(printed.contains("\n  up "), "{printed}");
@@ -150,7 +140,7 @@ fn one_direction_measures_only_that_direction() {
 #[test]
 fn latency_alone_transfers_nothing() {
     let server = Server::start(None);
-    let output = hwire(&["--at", &server.address, "-n", "20", "--latency"]);
+    let output = hwire(&["--at", &server.address, "-n", "20", "--latency"]).output();
     let printed = stdout(&output);
     assert!(output.status.success(), "{output:?}");
     assert!(printed.contains("latency"), "{printed}");
@@ -171,7 +161,8 @@ fn parallel_streams_are_measured_as_one_transfer() {
         "-P",
         "4",
         "--json",
-    ]);
+    ])
+    .output();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(number(&stdout(&output), "streams"), 4.0);
 }
@@ -187,7 +178,8 @@ fn a_server_with_a_token_answers_nobody_else() {
         "-n",
         "5",
         "--latency",
-    ]);
+    ])
+    .output();
     assert_eq!(refused.status.code(), Some(1));
 
     let allowed = hwire(&[
@@ -198,18 +190,16 @@ fn a_server_with_a_token_answers_nobody_else() {
         "-n",
         "5",
         "--latency",
-    ]);
+    ])
+    .output();
     assert!(allowed.status.success(), "{allowed:?}");
 }
 
 #[test]
 fn a_token_that_is_not_one_is_refused_before_anything_is_dialled() {
-    let output = hwire(&["--at", "127.0.0.1:9", "--token", "nonsense"]);
+    let output = hwire(&["--at", "127.0.0.1:9", "--token", "nonsense"]).output();
     assert_eq!(output.status.code(), Some(1));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("32 hex digits"),
-        "{output:?}"
-    );
+    assert!(stderr(&output).contains("32 hex digits"), "{output:?}");
 }
 
 #[test]
@@ -217,9 +207,9 @@ fn nothing_listening_is_reported_rather_than_waited_on() {
     let server = Server::start(None);
     let address = server.address.clone();
     drop(server);
-    let output = hwire(&["--at", &address, "-n", "5", "--latency"]);
+    let output = hwire(&["--at", &address, "-n", "5", "--latency"]).output();
     assert_eq!(output.status.code(), Some(1));
-    assert!(!String::from_utf8_lossy(&output.stderr).is_empty());
+    assert!(!stderr(&output).is_empty());
 }
 
 #[test]
@@ -228,28 +218,22 @@ fn the_settings_have_to_make_sense() {
         ["--at", "127.0.0.1:9", "-t", "0"].as_slice(),
         ["--at", "127.0.0.1:9", "-P", "0"].as_slice(),
     ] {
-        let output = hwire(arguments);
-        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let ran = hwire(arguments).run();
+        assert_eq!(ran.code(), Some(1), "{ran:?}");
     }
     // A route cannot be asked for and left to the tool at the same time.
-    assert_eq!(
-        hwire(&["--both", "--route", "cable"]).status.code(),
-        Some(2)
-    );
-    assert_eq!(hwire(&["--all", "--route", "cable"]).status.code(), Some(2));
-    assert_eq!(hwire(&["--all", "--both"]).status.code(), Some(2));
-    assert_eq!(hwire(&["--up", "--down"]).status.code(), Some(2));
-    assert_eq!(hwire(&["--token", &"a".repeat(32)]).status.code(), Some(2));
-    assert_eq!(
-        hwire(&["--info", "--route", "cable"]).status.code(),
-        Some(2)
-    );
-    assert_eq!(hwire(&["--verbose"]).status.code(), Some(2));
-    assert_eq!(hwire(&["--watch"]).status.code(), Some(2));
-    assert_eq!(hwire(&["archie"]).status.code(), Some(2));
+    assert_eq!(hwire(&["--both", "--route", "cable"]).run().code(), Some(2));
+    assert_eq!(hwire(&["--all", "--route", "cable"]).run().code(), Some(2));
+    assert_eq!(hwire(&["--all", "--both"]).run().code(), Some(2));
+    assert_eq!(hwire(&["--up", "--down"]).run().code(), Some(2));
+    assert_eq!(hwire(&["--token", &"a".repeat(32)]).run().code(), Some(2));
+    assert_eq!(hwire(&["--info", "--route", "cable"]).run().code(), Some(2));
+    assert_eq!(hwire(&["--verbose"]).run().code(), Some(2));
+    assert_eq!(hwire(&["--watch"]).run().code(), Some(2));
+    assert_eq!(hwire(&["archie"]).run().code(), Some(2));
     assert_eq!(
         hwire(&["--info", "--watch", "--interval", "0"])
-            .status
+            .run()
             .code(),
         Some(1)
     );
@@ -303,19 +287,17 @@ fn forced_color_survives_redirection() {
 #[test]
 fn forced_measurement_color_overrides_no_color() {
     let server = Server::start(None);
-    let output = Command::new(env!("CARGO_BIN_EXE_hwire"))
-        .args([
-            "--at",
-            &server.address,
-            "--latency",
-            "--samples",
-            "2",
-            "--color",
-            "always",
-        ])
-        .env("NO_COLOR", "1")
-        .output()
-        .expect("hwire measurement runs");
+    let output = hwire(&[
+        "--at",
+        &server.address,
+        "--latency",
+        "--samples",
+        "2",
+        "--color",
+        "always",
+    ])
+    .env("NO_COLOR", "1")
+    .output();
     assert!(output.status.success(), "{output:?}");
     assert!(stdout(&output).contains("\x1b["));
 }
@@ -323,34 +305,30 @@ fn forced_measurement_color_overrides_no_color() {
 #[test]
 fn watch_prints_only_meaningful_state_changes() {
     let connection = fixed_ssh_connection(Route::Cable);
-    let output = Command::new(env!("CARGO_BIN_EXE_hwire"))
-        .args(["-i", "--watch", "--interval", "0.001", "--color", "never"])
+    let output = hwire(&["-i", "--watch", "--interval", "0.001", "--color", "never"])
         .env("SSH_CONNECTION", connection)
         .env_remove("HWIRE_SESSION")
         .env("HWIRE_WATCH_ITERATIONS", "2")
-        .output()
-        .expect("hwire watch runs");
+        .output();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(stdout(&output).lines().count(), 1);
 }
 
 #[test]
 fn an_explicit_target_reports_a_missing_ssh_client_as_failure() {
-    let output = Command::new(env!("CARGO_BIN_EXE_hwire"))
-        .args(["-i", "--color", "never", "archie"])
+    let output = hwire(&["-i", "--color", "never", "archie"])
         .env("PATH", "")
         .env_remove("SSH_CONNECTION")
         .env_remove("HWIRE_SESSION")
-        .output()
-        .expect("hwire runs without ssh in PATH");
+        .output();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(stdout(&output).contains("UNKNOWN"));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("ssh"));
+    assert!(stderr(&output).contains("ssh"));
 }
 
 #[test]
 fn the_completions_flag_answers_for_this_tool() {
-    let output = hwire(&["--completions", "zsh"]);
+    let output = hwire(&["--completions", "zsh"]).output();
     assert!(output.status.success());
     assert!(stdout(&output).contains("#compdef hwire"));
     assert!(stdout(&output).contains("--info"));
@@ -362,7 +340,7 @@ fn the_completions_flag_answers_for_this_tool() {
 
 #[test]
 fn zsh_completion_understands_grouped_info_flags_and_requirements() {
-    let generated = stdout(&hwire(&["--completions", "zsh"]));
+    let generated = stdout(&hwire(&["--completions", "zsh"]).output());
     let harness = r#"
 _arguments() { print -rl -- "$@" }
 typeset -a words
@@ -378,21 +356,8 @@ words=(hwire -i --watch '')
 CURRENT=4
 _hwire
 "#;
-    let mut child = Command::new("zsh")
-        .args(["-f"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("zsh is installed for zsh completion tests");
     let script = format!("autoload -Uz compinit\ncompinit -D\n{generated}\n{harness}");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(script.as_bytes())
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
+    let output = Bin::new("zsh").arg("-f").stdin(&script).output();
     assert!(output.status.success(), "{output:?}");
     let output = stdout(&output);
     let (info, rest) = output.split_once("__ROOT__\n").unwrap();

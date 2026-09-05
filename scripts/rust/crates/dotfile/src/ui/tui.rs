@@ -344,6 +344,7 @@ pub fn run(
         hook: Some(crate::cancel::request),
         reset_to_default: true,
         reraise_on_drop: false,
+        restart_syscalls: true,
     }) {
         Ok(signals) => signals,
         Err(_) => return super::plain::run(receiver, decisions, worker, verbose),

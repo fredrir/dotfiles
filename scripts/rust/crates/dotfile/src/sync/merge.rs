@@ -565,7 +565,9 @@ fn settle(
         if destination_changed {
             write_atomic(&entry.destination, rendered.as_bytes())?;
         }
-        save_baseline(context, &entry.destination, &chosen)?;
+        if baseline.as_ref() != Some(&chosen) {
+            save_baseline(context, &entry.destination, &chosen)?;
+        }
     }
     let detail = if ignored {
         change_detail("ignored", &ignored_changes)

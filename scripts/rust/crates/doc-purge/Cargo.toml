@@ -14,4 +14,4 @@ rayon.workspace = true
 workstation     = { workspace = true, features = ["walk"] }
 
 [dev-dependencies]
-tempfile.workspace = true
+testkit.workspace = true

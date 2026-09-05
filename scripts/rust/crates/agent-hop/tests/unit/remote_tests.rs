@@ -1,3 +1,5 @@
+use std::ffi::OsString;
+
 use super::*;
 
 #[test]
@@ -60,7 +62,7 @@ fn launch_enters_the_workspace_through_an_interactive_login_zsh() {
 #[test]
 fn noninteractive_ssh_has_no_tty_and_keeps_the_script_one_argument() {
     assert_eq!(
-        ssh_arguments(Host::Archie, "test -d '/a b'", false),
+        ssh_session(Host::Archie, "test -d '/a b'", false).args(),
         [
             "-T",
             "-o",
@@ -77,7 +79,7 @@ fn noninteractive_ssh_has_no_tty_and_keeps_the_script_one_argument() {
 
 #[test]
 fn interactive_ssh_allocates_a_tty_for_the_agent() {
-    let arguments = ssh_arguments(Host::Macie, "exec zsh -lic 'codex'", true);
+    let arguments = ssh_session(Host::Macie, "exec zsh -lic 'codex'", true).args();
     assert_eq!(arguments[0], "-tt");
     assert_eq!(arguments[5], "--");
     assert_eq!(arguments[6], "macie");
@@ -96,7 +98,7 @@ fn machine_requests_have_no_tty_and_cannot_prompt_or_inject_shell_words() {
         script,
         "export PATH=\"$HOME/.local/bin:$PATH\"; exec agent-hop '__machine' 'preview' '--session' 'id'\\''; touch /tmp/nope; '\\'''"
     );
-    let arguments = machine_ssh_arguments(Host::Archie, &script);
+    let arguments = machine_ssh_session(Host::Archie, &script).args();
     assert_eq!(arguments[0], "-T");
     assert!(arguments.iter().any(|value| value == "BatchMode=yes"));
     assert!(

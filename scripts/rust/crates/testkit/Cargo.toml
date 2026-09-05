@@ -1,6 +1,7 @@
 [package]
 name              = "testkit"
 version.workspace = true
+description       = "Shared sandboxes, fixtures and pty plumbing for the workstation tests"
 edition.workspace = true
 license.workspace = true
 

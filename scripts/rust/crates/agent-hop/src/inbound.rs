@@ -11,6 +11,7 @@ use crate::transfer::Snapshot;
 use hostkit::Host;
 use tempfile::{NamedTempFile, TempDir};
 use workstation::Style;
+use workstation::path::home_relative_in;
 
 pub(crate) fn receive(
     agent: Agent,
@@ -58,10 +59,10 @@ pub(crate) fn receive(
     let route_peer = peer.name().to_string();
     let route = std::thread::spawn(move || hostkit::ssh::resolved(&route_peer));
     let style = Style::for_mode(options.color, io::stdout().is_terminal());
-    let source_workspace = plan::display(&session.workspace, &remote_home);
-    let destination_workspace = plan::display(&destination.workspace, &home);
-    let source_transcript = plan::display(&session.transcript, &remote_home);
-    let destination_transcript = plan::display(&destination.transcript, &home);
+    let source_workspace = home_relative_in(&session.workspace, &remote_home);
+    let destination_workspace = home_relative_in(&destination.workspace, &home);
+    let source_transcript = home_relative_in(&session.transcript, &remote_home);
+    let destination_transcript = home_relative_in(&destination.transcript, &home);
     let view = crate::report::View {
         this: peer.name(),
         peer: this.name(),

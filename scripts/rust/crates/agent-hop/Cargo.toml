@@ -21,5 +21,8 @@ tui-kit.workspace       = true
 unicode-width.workspace = true
 workstation.workspace   = true
 
+[dev-dependencies]
+testkit.workspace = true
+
 [target.'cfg(unix)'.dev-dependencies]
 libc.workspace = true

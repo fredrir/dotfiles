@@ -1,16 +1,12 @@
-use std::process::{Command, Output};
+use std::process::Output;
 
 use hostkit::Host;
+use testkit::{Bin, stderr, stdout};
 
 fn mux_route(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_mux-route"))
+    Bin::new(env!("CARGO_BIN_EXE_mux-route"))
         .args(args)
         .output()
-        .expect("mux-route runs")
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
 #[test]
@@ -35,16 +31,13 @@ fn this_machine_is_refused_before_anything_is_probed() {
 fn the_completions_flag_answers_for_this_tool() {
     let output = mux_route(&["--completions", "zsh"]);
     assert!(output.status.success(), "{output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("#compdef mux-route"),
-        "{output:?}"
-    );
+    assert!(stdout(&output).contains("#compdef mux-route"), "{output:?}");
 }
 
 #[test]
 fn the_completion_offers_the_machines_rather_than_file_names() {
     let output = mux_route(&["--completions", "zsh"]);
-    let script = String::from_utf8_lossy(&output.stdout);
+    let script = stdout(&output);
     assert!(script.contains("(macie archie)"), "{script}");
     assert!(
         !script.contains("host -- Machine to reach:_default"),

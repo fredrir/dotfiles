@@ -1,20 +1,5 @@
-use std::fs;
-
 use super::*;
-
-fn tree() -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    let path = |name: &str| root.path().join(name);
-    fs::write(path("a"), "").unwrap();
-    fs::write(path(".b"), "").unwrap();
-    fs::create_dir(path("sub")).unwrap();
-    fs::write(path("sub/c"), "").unwrap();
-    fs::create_dir(path("sub/.hid")).unwrap();
-    fs::write(path("sub/.hid/d"), "").unwrap();
-    fs::create_dir(path(".hidden")).unwrap();
-    fs::write(path(".hidden/e"), "").unwrap();
-    root
-}
+use testkit::tree;
 
 fn children(directory: &Path, no_hidden: bool) -> usize {
     walk::list(directory, &counting(no_hidden)).unwrap().len()
@@ -26,38 +11,38 @@ fn every(directory: &Path, no_hidden: bool) -> Walked<()> {
 
 #[test]
 fn counts_direct_children() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     assert_eq!(children(root.path(), false), 4);
 }
 
 #[test]
 fn counts_every_descendant() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     assert_eq!(every(root.path(), false).items.len(), 8);
 }
 
 #[test]
 fn skips_hidden_children() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     assert_eq!(children(root.path(), true), 2);
 }
 
 #[test]
 fn hidden_directories_take_their_subtree_with_them() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     assert_eq!(every(root.path(), true).items.len(), 3);
 }
 
 #[test]
 fn an_empty_directory_counts_zero() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tree(&[]);
     assert_eq!(children(root.path(), false), 0);
     assert_eq!(every(root.path(), false).items.len(), 0);
 }
 
 #[test]
 fn unreadable_directories_are_reported_not_counted() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     let walked = every(&root.path().join("missing"), false);
     assert_eq!(walked.items.len(), 0);
     assert_eq!(walked.unreadable, 1);
@@ -65,7 +50,7 @@ fn unreadable_directories_are_reported_not_counted() {
 
 #[test]
 fn a_missing_directory_is_named_by_the_listing_error() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     let error = walk::list(&root.path().join("missing"), &counting(false)).unwrap_err();
     assert!(error.contains("missing"), "{error}");
 }
@@ -73,7 +58,7 @@ fn a_missing_directory_is_named_by_the_listing_error() {
 #[cfg(unix)]
 #[test]
 fn linked_directories_count_once_and_are_not_followed() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     std::os::unix::fs::symlink(root.path().join("sub"), root.path().join("link")).unwrap();
     assert_eq!(children(root.path(), false), 5);
     assert_eq!(every(root.path(), false).items.len(), 9);
@@ -81,7 +66,7 @@ fn linked_directories_count_once_and_are_not_followed() {
 
 #[test]
 fn a_file_is_not_a_directory() {
-    let root = tree();
+    let root = tree(&["a", ".b", "sub/c", "sub/.hid/d", ".hidden/e"]);
     assert!(path::require_directory(&root.path().join("a")).is_err());
     assert!(path::require_directory(&root.path().join("missing")).is_err());
     assert!(path::require_directory(root.path()).is_ok());

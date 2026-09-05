@@ -12,20 +12,33 @@ use ratatui::layout::Rect;
 #[test]
 fn sync_ui_policy_honors_terminal_and_accessibility_signals() {
     assert_eq!(
-        UiPolicy::from_signals(true, false, Some("xterm-256color"), None, false, false),
+        UiPolicy::from_signals(
+            true,
+            false,
+            Some("xterm-256color"),
+            None,
+            false,
+            None,
+            false
+        ),
         UiPolicy {
             interactive: false,
             color: false,
             motion: false,
         }
     );
-    assert!(!UiPolicy::from_signals(true, true, Some("dumb"), None, false, false).interactive);
     assert!(
-        !UiPolicy::from_signals(true, true, Some("xterm"), Some("true"), false, false).interactive
+        !UiPolicy::from_signals(true, true, Some("dumb"), None, false, None, false).interactive
     );
-    assert!(!UiPolicy::from_signals(false, true, Some("xterm"), None, false, false).interactive);
+    assert!(
+        !UiPolicy::from_signals(true, true, Some("xterm"), Some("true"), false, None, false)
+            .interactive
+    );
+    assert!(
+        !UiPolicy::from_signals(false, true, Some("xterm"), None, false, None, false).interactive
+    );
     assert_eq!(
-        UiPolicy::from_signals(true, true, Some("xterm"), None, true, false),
+        UiPolicy::from_signals(true, true, Some("xterm"), None, true, None, false),
         UiPolicy {
             interactive: true,
             color: false,
@@ -33,7 +46,7 @@ fn sync_ui_policy_honors_terminal_and_accessibility_signals() {
         }
     );
     assert_eq!(
-        UiPolicy::from_signals(true, true, Some("xterm"), None, false, true),
+        UiPolicy::from_signals(true, true, Some("xterm"), None, false, None, true),
         UiPolicy {
             interactive: true,
             color: true,

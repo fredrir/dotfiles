@@ -41,6 +41,22 @@ fn a_named_home_shortens_the_paths_gitkit_asks_about() {
 }
 
 #[test]
+fn a_home_of_the_root_alone_shortens_nothing_below_it() {
+    let root = Path::new("/");
+    assert_eq!(home_relative_in(Path::new("/etc"), root), "/etc");
+    assert_eq!(home_relative_in(root, root), "/");
+    assert_eq!(home_relative_in(Path::new("/etc"), Path::new("")), "/etc");
+}
+
+#[test]
+fn a_home_that_ends_in_a_slash_is_the_same_home() {
+    let home = Path::new("/home/f/");
+    assert_eq!(home_relative_in(Path::new("/home/f"), home), "~");
+    assert_eq!(home_relative_in(home, home), "~");
+    assert_eq!(home_relative_in(Path::new("/home/f/x"), home), "~/x");
+}
+
+#[test]
 fn the_environment_home_is_the_home_that_is_used() {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return;

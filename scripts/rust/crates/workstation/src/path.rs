@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub fn home_relative(path: &Path) -> String {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
@@ -11,6 +11,12 @@ pub fn home_relative(path: &Path) -> String {
 }
 
 pub fn home_relative_in(path: &Path, home: &Path) -> String {
+    if !home
+        .components()
+        .any(|component| matches!(component, Component::Normal(_)))
+    {
+        return path.display().to_string();
+    }
     match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
         Ok(rest) => format!("~/{}", rest.display()),

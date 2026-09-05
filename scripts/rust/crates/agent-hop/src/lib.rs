@@ -26,6 +26,7 @@ use cli::{Agent, Cli, ColorMode, Command};
 use remote::Remote;
 use tui::{Origin, PickerAction, PickerOutcome};
 use workstation::Style;
+use workstation::path::home_relative_in;
 
 #[derive(Clone, Copy)]
 pub(crate) struct TransferOptions {
@@ -136,10 +137,10 @@ fn send_local_session(
     remote.preflight(&destination.workspace, session.agent)?;
 
     let style = Style::for_mode(options.color, io::stdout().is_terminal());
-    let source_workspace = plan::display(&session.workspace, &home);
-    let destination_workspace = plan::display(&destination.workspace, &remote_home);
-    let source_transcript = plan::display(&session.transcript, &home);
-    let destination_transcript = plan::display(&destination.transcript, &remote_home);
+    let source_workspace = home_relative_in(&session.workspace, &home);
+    let destination_workspace = home_relative_in(&destination.workspace, &remote_home);
+    let source_transcript = home_relative_in(&session.transcript, &home);
+    let destination_transcript = home_relative_in(&destination.transcript, &remote_home);
     let view = report::View {
         this: this.name(),
         peer: peer.name(),

@@ -18,4 +18,4 @@ workstation.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+testkit.workspace = true

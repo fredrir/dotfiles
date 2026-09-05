@@ -75,16 +75,3 @@ fn a_codex_file_outside_its_state_root_is_rejected() {
         .is_err()
     );
 }
-
-#[test]
-fn display_shortens_only_real_home_descendants() {
-    assert_eq!(display(Path::new("/Users/f"), Path::new("/Users/f")), "~");
-    assert_eq!(
-        display(Path::new("/Users/f/project"), Path::new("/Users/f")),
-        "~/project"
-    );
-    assert_eq!(
-        display(Path::new("/Users/fred/project"), Path::new("/Users/f")),
-        "/Users/fred/project"
-    );
-}

@@ -1,62 +1,90 @@
 #![cfg(unix)]
-#![allow(unsafe_code)]
 
 use std::fs::{self, File};
-use std::io::{ErrorKind, Read, Write};
-use std::os::fd::{FromRawFd, RawFd};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::os::fd::AsRawFd;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant};
+
+use testkit::pty::{
+    last_cursor_column, open_pty, read_available, reply_to_cursor_queries, stdio,
+    take_controlling_terminal, terminal_state,
+};
+use testkit::{Bin, Ran, TempDir, executable, tree_pairs};
+
+const BACKEND: &str = "#!/bin/sh\nexit 0\n";
+
+struct Sandbox {
+    temporary: TempDir,
+}
+
+impl Sandbox {
+    fn new(entries: &[(&str, &str)]) -> Sandbox {
+        let mut all = entries.to_vec();
+        all.push(("home/.config/", ""));
+        let temporary = tree_pairs(&all);
+        executable(&temporary.path().join("dotfile-py"), BACKEND);
+        Sandbox { temporary }
+    }
+
+    fn path(&self, relative: &str) -> PathBuf {
+        self.temporary.path().join(relative)
+    }
+
+    fn environment(&self) -> [(&'static str, PathBuf); 4] {
+        [
+            ("DOTFILE_ROOT", self.path("repo")),
+            ("HOME", self.path("home")),
+            ("XDG_CONFIG_HOME", self.path("home/.config")),
+            ("DOTFILE_PYTHON", self.path("dotfile-py")),
+        ]
+    }
+
+    fn batch(&self) -> Ran {
+        Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+            .args(["sync", "test"])
+            .envs(self.environment())
+            .env("CI", "1")
+            .run()
+    }
+
+    fn tui(&self, program: &Path, slave: &File) -> Command {
+        let (input, activity, errors) = stdio(slave);
+        let mut command = Command::new(program);
+        command
+            .args(["sync", "test"])
+            .envs(self.environment())
+            .env("TERM", "xterm-256color")
+            .env_remove("CI")
+            .env("NO_COLOR", "1")
+            .stdin(input)
+            .stdout(activity)
+            .stderr(errors);
+        take_controlling_terminal(&mut command);
+        command
+    }
+}
+
+fn gitconfig_sandbox() -> Sandbox {
+    Sandbox::new(&[
+        (
+            "repo/config/targets.dotfile",
+            "shared/gitconfig = ~/.gitconfig\n",
+        ),
+        ("repo/environment/test/manifest", "shared\n"),
+        ("repo/shared/gitconfig", "[user]\nname = Test\n"),
+    ])
+}
 
 #[test]
 fn sync_tui_teardown_reuses_the_viewport_origin_for_completion() {
-    let temporary = tempfile::tempdir().unwrap();
-    let root = temporary.path().join("repo");
-    let home = temporary.path().join("home");
-    let config = home.join(".config");
-    fs::create_dir_all(root.join("config")).unwrap();
-    fs::create_dir_all(root.join("environment/test")).unwrap();
-    fs::create_dir_all(root.join("shared")).unwrap();
-    fs::create_dir_all(&config).unwrap();
-    fs::write(
-        root.join("config/targets.dotfile"),
-        "shared/gitconfig = ~/.gitconfig\n",
-    )
-    .unwrap();
-    fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
-    fs::write(root.join("shared/gitconfig"), "[user]\nname = Test\n").unwrap();
-    let backend = temporary.path().join("dotfile-py");
-    fs::write(&backend, "#!/bin/sh\nexit 0\n").unwrap();
-    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
-    let binary = env!("CARGO_BIN_EXE_dotfile");
+    let sandbox = gitconfig_sandbox();
 
-    let (master, slave, _) = open_pty();
-    let input = slave.try_clone().unwrap();
-    let activity = slave.try_clone().unwrap();
-    let errors = slave.try_clone().unwrap();
-    let mut command = Command::new(binary);
-    command
-        .args(["sync", "test"])
-        .env("DOTFILE_ROOT", &root)
-        .env("HOME", &home)
-        .env("XDG_CONFIG_HOME", &config)
-        .env("DOTFILE_PYTHON", &backend)
-        .env("TERM", "xterm-256color")
-        .env_remove("CI")
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::from(input))
-        .stdout(Stdio::from(activity))
-        .stderr(Stdio::from(errors));
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut child = command.spawn().unwrap();
+    let (master, slave, _) = open_pty(24, 80);
+    let mut child = sandbox
+        .tui(Path::new(env!("CARGO_BIN_EXE_dotfile")), &slave)
+        .spawn()
+        .unwrap();
     drop(slave);
     let mut output = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -110,66 +138,15 @@ fn sync_tui_teardown_reuses_the_viewport_origin_for_completion() {
 
 #[test]
 fn sync_tui_noop_does_not_open_or_reserve_an_inline_viewport() {
-    let temporary = tempfile::tempdir().unwrap();
-    let root = temporary.path().join("repo");
-    let home = temporary.path().join("home");
-    let config = home.join(".config");
-    fs::create_dir_all(root.join("config")).unwrap();
-    fs::create_dir_all(root.join("environment/test")).unwrap();
-    fs::create_dir_all(root.join("shared")).unwrap();
-    fs::create_dir_all(&config).unwrap();
-    fs::write(
-        root.join("config/targets.dotfile"),
-        "shared/gitconfig = ~/.gitconfig\n",
-    )
-    .unwrap();
-    fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
-    fs::write(root.join("shared/gitconfig"), "[user]\nname = Test\n").unwrap();
-    let backend = temporary.path().join("dotfile-py");
-    fs::write(&backend, "#!/bin/sh\nexit 0\n").unwrap();
-    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
-    let binary = env!("CARGO_BIN_EXE_dotfile");
-    let initial = Command::new(binary)
-        .args(["sync", "test"])
-        .env("DOTFILE_ROOT", &root)
-        .env("HOME", &home)
-        .env("XDG_CONFIG_HOME", &config)
-        .env("DOTFILE_PYTHON", &backend)
-        .env("CI", "1")
-        .output()
-        .unwrap();
-    assert!(
-        initial.status.success(),
-        "{}",
-        String::from_utf8_lossy(&initial.stderr)
-    );
+    let sandbox = gitconfig_sandbox();
+    let initial = sandbox.batch();
+    assert!(initial.success(), "{}", initial.stderr);
 
-    let (master, slave, before) = open_pty();
-    let input = slave.try_clone().unwrap();
-    let activity = slave.try_clone().unwrap();
-    let errors = slave.try_clone().unwrap();
-    let mut command = Command::new(binary);
-    command
-        .args(["sync", "test"])
-        .env("DOTFILE_ROOT", &root)
-        .env("HOME", &home)
-        .env("XDG_CONFIG_HOME", &config)
-        .env("DOTFILE_PYTHON", &backend)
-        .env("TERM", "xterm-256color")
-        .env_remove("CI")
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::from(input))
-        .stdout(Stdio::from(activity))
-        .stderr(Stdio::from(errors));
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut child = command.spawn().unwrap();
+    let (master, slave, before) = open_pty(24, 80);
+    let mut child = sandbox
+        .tui(Path::new(env!("CARGO_BIN_EXE_dotfile")), &slave)
+        .spawn()
+        .unwrap();
     drop(slave);
     let mut output = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -203,59 +180,27 @@ fn sync_tui_noop_does_not_open_or_reserve_an_inline_viewport() {
 
 #[test]
 fn sync_tui_animates_a_stale_tooling_refresh_before_reexec() {
-    let temporary = tempfile::tempdir().unwrap();
-    let root = temporary.path().join("repo");
-    let home = temporary.path().join("home");
-    let config = home.join(".config");
-    let installed = home.join(".local/bin/dotfile");
-    fs::create_dir_all(root.join("config")).unwrap();
-    fs::create_dir_all(root.join("environment/test")).unwrap();
-    fs::create_dir_all(root.join("shared")).unwrap();
-    fs::create_dir_all(&config).unwrap();
-    fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    fs::write(
-        root.join("config/targets.dotfile"),
-        "shared/gitconfig = ~/.gitconfig\n",
+    let sandbox = Sandbox::new(&[
+        (
+            "repo/config/targets.dotfile",
+            "shared/gitconfig = ~/.gitconfig\n",
+        ),
+        ("repo/environment/test/manifest", "shared\n"),
+        ("repo/shared/gitconfig", "[user]\nname = Test\n"),
+        ("home/.local/bin/", ""),
+    ]);
+    let installed = sandbox.path("home/.local/bin/dotfile");
+    std::os::unix::fs::symlink(
+        sandbox.path("repo/shared/gitconfig"),
+        sandbox.path("home/.gitconfig"),
     )
     .unwrap();
-    fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
-    fs::write(root.join("shared/gitconfig"), "[user]\nname = Test\n").unwrap();
-    std::os::unix::fs::symlink(root.join("shared/gitconfig"), home.join(".gitconfig")).unwrap();
     fs::copy(env!("CARGO_BIN_EXE_dotfile"), &installed).unwrap();
     std::thread::sleep(Duration::from_millis(20));
-    let setup = root.join("setup.sh");
-    fs::write(&setup, "#!/bin/sh\nsleep 0.3\n").unwrap();
-    fs::set_permissions(&setup, fs::Permissions::from_mode(0o755)).unwrap();
-    let backend = temporary.path().join("dotfile-py");
-    fs::write(&backend, "#!/bin/sh\nexit 0\n").unwrap();
-    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
+    executable(&sandbox.path("repo/setup.sh"), "#!/bin/sh\nsleep 0.3\n");
 
-    let (master, slave, _) = open_pty();
-    let input = slave.try_clone().unwrap();
-    let activity = slave.try_clone().unwrap();
-    let errors = slave.try_clone().unwrap();
-    let mut command = Command::new(&installed);
-    command
-        .args(["sync", "test"])
-        .env("DOTFILE_ROOT", &root)
-        .env("HOME", &home)
-        .env("XDG_CONFIG_HOME", &config)
-        .env("DOTFILE_PYTHON", &backend)
-        .env("TERM", "xterm-256color")
-        .env_remove("CI")
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::from(input))
-        .stdout(Stdio::from(activity))
-        .stderr(Stdio::from(errors));
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut child = command.spawn().unwrap();
+    let (master, slave, _) = open_pty(24, 80);
+    let mut child = sandbox.tui(&installed, &slave).spawn().unwrap();
     drop(slave);
     let mut output = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -283,83 +228,35 @@ fn sync_tui_animates_a_stale_tooling_refresh_before_reexec() {
     assert!(output.contains("✓ Synced"));
 }
 
+#[allow(unsafe_code)]
 #[test]
 fn sync_tui_signal_restores_terminal_and_cursor() {
-    let temporary = tempfile::tempdir().unwrap();
-    let root = temporary.path().join("repo");
-    let home = temporary.path().join("home");
-    let config = home.join(".config");
-    fs::create_dir_all(root.join("config")).unwrap();
-    fs::create_dir_all(root.join("environment/test")).unwrap();
-    fs::create_dir_all(root.join("shared/vscode")).unwrap();
-    fs::create_dir_all(root.join("macos/vscode")).unwrap();
-    fs::create_dir_all(config.join("Code/User")).unwrap();
+    let sandbox = Sandbox::new(&[
+        (
+            "repo/config/targets.dotfile",
+            "shared/vscode/settings.json = ~/.config/Code/User/settings.json\nmacos/vscode = ~/.config/Code/User\n",
+        ),
+        ("repo/environment/test/manifest", "shared\nmacos\n"),
+        ("repo/shared/vscode/settings.json", "{\"font\": \"mono\"}\n"),
+        (
+            "repo/macos/vscode/settings.macos.json",
+            "{\"theme\": \"dark\"}\n",
+        ),
+        ("home/.config/Code/User/", ""),
+    ]);
+    let initial = sandbox.batch();
+    assert!(initial.success(), "{}", initial.stderr);
     fs::write(
-        root.join("config/targets.dotfile"),
-        "shared/vscode/settings.json = ~/.config/Code/User/settings.json\nmacos/vscode = ~/.config/Code/User\n",
-    )
-    .unwrap();
-    fs::write(root.join("environment/test/manifest"), "shared\nmacos\n").unwrap();
-    fs::write(
-        root.join("shared/vscode/settings.json"),
-        "{\"font\": \"mono\"}\n",
-    )
-    .unwrap();
-    fs::write(
-        root.join("macos/vscode/settings.macos.json"),
-        "{\"theme\": \"dark\"}\n",
-    )
-    .unwrap();
-    let backend = temporary.path().join("dotfile-py");
-    fs::write(&backend, "#!/bin/sh\nexit 0\n").unwrap();
-    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
-    let binary = env!("CARGO_BIN_EXE_dotfile");
-    let initial = Command::new(binary)
-        .args(["sync", "test"])
-        .env("DOTFILE_ROOT", &root)
-        .env("HOME", &home)
-        .env("XDG_CONFIG_HOME", &config)
-        .env("DOTFILE_PYTHON", &backend)
-        .env("CI", "1")
-        .output()
-        .unwrap();
-    assert!(
-        initial.status.success(),
-        "{}",
-        String::from_utf8_lossy(&initial.stderr)
-    );
-    fs::write(
-        config.join("Code/User/settings.json"),
+        sandbox.path("home/.config/Code/User/settings.json"),
         "{\"font\": \"sans\", \"theme\": \"dark\"}\n",
     )
     .unwrap();
 
-    let (master, slave, before) = open_pty();
-    let input = slave.try_clone().unwrap();
-    let activity = slave.try_clone().unwrap();
-    let errors = slave.try_clone().unwrap();
-    let mut command = Command::new(binary);
-    command
-        .args(["sync", "test"])
-        .env("DOTFILE_ROOT", &root)
-        .env("HOME", &home)
-        .env("XDG_CONFIG_HOME", &config)
-        .env("DOTFILE_PYTHON", &backend)
-        .env("TERM", "xterm-256color")
-        .env_remove("CI")
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::from(input))
-        .stdout(Stdio::from(activity))
-        .stderr(Stdio::from(errors));
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut child = command.spawn().unwrap();
+    let (master, slave, before) = open_pty(24, 80);
+    let mut child = sandbox
+        .tui(Path::new(env!("CARGO_BIN_EXE_dotfile")), &slave)
+        .spawn()
+        .unwrap();
     drop(slave);
     let mut output = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -401,94 +298,4 @@ fn sync_tui_signal_restores_terminal_and_cursor() {
     );
     assert!(output.windows(6).any(|window| window == b"\x1b[?25h"));
     assert_eq!(status.code(), Some(143));
-}
-
-use std::os::fd::AsRawFd;
-
-fn open_pty() -> (File, File, libc::termios) {
-    let mut master: RawFd = -1;
-    let mut slave: RawFd = -1;
-    let mut state = std::mem::MaybeUninit::<libc::termios>::uninit();
-    let mut size = libc::winsize {
-        ws_row: 24,
-        ws_col: 80,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    assert_eq!(
-        unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut size,
-            )
-        },
-        0
-    );
-    assert_eq!(unsafe { libc::tcgetattr(slave, state.as_mut_ptr()) }, 0);
-    let flags = unsafe { libc::fcntl(master, libc::F_GETFL) };
-    assert!(flags >= 0);
-    assert_eq!(
-        unsafe { libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK) },
-        0
-    );
-    (
-        unsafe { File::from_raw_fd(master) },
-        unsafe { File::from_raw_fd(slave) },
-        unsafe { state.assume_init() },
-    )
-}
-
-fn terminal_state(fd: RawFd) -> libc::termios {
-    let mut state = std::mem::MaybeUninit::<libc::termios>::uninit();
-    assert_eq!(unsafe { libc::tcgetattr(fd, state.as_mut_ptr()) }, 0);
-    unsafe { state.assume_init() }
-}
-
-fn read_available(master: &File, output: &mut Vec<u8>, timeout: libc::c_int) {
-    let mut descriptor = libc::pollfd {
-        fd: master.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    let _ = unsafe { libc::poll(&mut descriptor, 1, timeout) };
-    let mut reader = master;
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => output.extend_from_slice(&buffer[..read]),
-            Err(error) if error.kind() == ErrorKind::WouldBlock => break,
-            Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
-            Err(error) => panic!("read pty: {error}"),
-        }
-    }
-}
-
-fn last_cursor_column(output: &[u8]) -> Option<u16> {
-    output
-        .windows(2)
-        .enumerate()
-        .filter(|(_, window)| *window == b"\x1b[")
-        .filter_map(|(start, _)| {
-            let tail = &output[start + 2..];
-            let end = tail.iter().position(|byte| *byte == b'H')?;
-            let parameters = std::str::from_utf8(&tail[..end]).ok()?;
-            parameters.split(';').next_back()?.parse().ok()
-        })
-        .next_back()
-}
-
-fn reply_to_cursor_queries(master: &File, output: &[u8], replied: &mut usize) {
-    let queries = output
-        .windows(4)
-        .filter(|window| *window == b"\x1b[6n")
-        .count();
-    while *replied < queries {
-        let mut terminal = master;
-        terminal.write_all(b"\x1b[24;1R").unwrap();
-        *replied += 1;
-    }
 }

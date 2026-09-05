@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
@@ -229,12 +228,8 @@ impl Remote {
             .truncate(true)
             .open(destination)
             .map_err(|error| format!("could not open session export destination: {error}"))?;
-        let mut command = Command::new("ssh");
+        let mut command = machine_ssh_session(self.peer, &machine_script(&arguments)).command();
         command
-            .args(machine_ssh_arguments(
-                self.peer,
-                &machine_script(&arguments),
-            ))
             .stdin(Stdio::null())
             .stdout(Stdio::from(output))
             .stderr(Stdio::piped());
@@ -279,12 +274,8 @@ impl Remote {
         ];
         let input = File::open(source)
             .map_err(|error| format!("could not open rollout snapshot: {error}"))?;
-        let mut command = Command::new("ssh");
+        let mut command = machine_ssh_session(self.peer, &machine_script(&arguments)).command();
         command
-            .args(machine_ssh_arguments(
-                self.peer,
-                &machine_script(&arguments),
-            ))
             .stdin(Stdio::from(input))
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -316,12 +307,8 @@ impl Remote {
         let input = staged
             .reopen()
             .map_err(|error| format!("could not stage transfer manifest: {error}"))?;
-        let mut command = Command::new("ssh");
+        let mut command = machine_ssh_session(self.peer, &machine_script(&arguments)).command();
         command
-            .args(machine_ssh_arguments(
-                self.peer,
-                &machine_script(&arguments),
-            ))
             .stdin(Stdio::from(input))
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -382,12 +369,8 @@ impl Remote {
         let output = archive
             .reopen()
             .map_err(|error| format!("could not stage remote attachments: {error}"))?;
-        let mut command = Command::new("ssh");
+        let mut command = machine_ssh_session(self.peer, &machine_script(&arguments)).command();
         command
-            .args(machine_ssh_arguments(
-                self.peer,
-                &machine_script(&arguments),
-            ))
             .stdin(Stdio::null())
             .stdout(Stdio::from(output))
             .stderr(Stdio::piped());
@@ -425,8 +408,8 @@ impl Remote {
     pub fn file_matches(self, local: &Path, remote: &Path) -> Result<bool, String> {
         let file = File::open(local)
             .map_err(|error| format!("could not open {}: {error}", local.display()))?;
-        let output = Command::new("ssh")
-            .args(ssh_arguments(self.peer, &compare_script(remote)?, false))
+        let output = ssh_session(self.peer, &compare_script(remote)?, false)
+            .command()
             .stdin(Stdio::from(file))
             .output()
             .map_err(command_error)?;
@@ -448,8 +431,8 @@ impl Remote {
     }
 
     fn run_interactive(self, script: &str, agent: Agent) -> Result<(), String> {
-        let status = Command::new("ssh")
-            .args(ssh_arguments(self.peer, script, true))
+        let status = ssh_session(self.peer, script, true)
+            .command()
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -474,8 +457,8 @@ impl Remote {
     }
 
     fn output(self, script: &str) -> Result<Output, String> {
-        let output = Command::new("ssh")
-            .args(ssh_arguments(self.peer, script, false))
+        let output = ssh_session(self.peer, script, false)
+            .command()
             .output()
             .map_err(command_error)?;
         if output.status.success() {
@@ -491,9 +474,8 @@ impl Remote {
     }
 
     fn bounded_output(self, script: &str, output_limit: usize) -> Result<Vec<u8>, String> {
-        let mut command = Command::new("ssh");
+        let mut command = machine_ssh_session(self.peer, script).command();
         command
-            .args(machine_ssh_arguments(self.peer, script))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -571,14 +553,13 @@ pub fn resume_script(workspace: &Path, agent: Agent, session_id: &str) -> Result
     ))
 }
 
-pub fn ssh_arguments(peer: Host, script: &str, interactive: bool) -> Vec<OsString> {
+pub fn ssh_session(peer: Host, script: &str, interactive: bool) -> Session {
     let session = Session::new(peer.name()).script(script);
     if interactive {
         session.interactive()
     } else {
         session
     }
-    .args()
 }
 
 pub(crate) fn machine_script(arguments: &[String]) -> String {
@@ -590,8 +571,8 @@ pub(crate) fn machine_script(arguments: &[String]) -> String {
     format!("export PATH=\"$HOME/.local/bin:$PATH\"; exec agent-hop {command}")
 }
 
-pub(crate) fn machine_ssh_arguments(peer: Host, script: &str) -> Vec<OsString> {
-    Session::new(peer.name()).script(script).batch().args()
+pub(crate) fn machine_ssh_session(peer: Host, script: &str) -> Session {
+    Session::new(peer.name()).script(script).batch()
 }
 
 pub(crate) fn encode_catalog_response(catalog: &RemoteCatalog) -> Result<String, String> {

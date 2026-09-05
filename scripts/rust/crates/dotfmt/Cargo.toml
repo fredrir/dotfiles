@@ -22,3 +22,4 @@ gix-glob.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+testkit.workspace  = true

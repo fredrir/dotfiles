@@ -9,9 +9,8 @@ use crossterm::event::{
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use tui_kit::{Alternate, MouseCapture};
+use tui_kit::{Alternate, MouseCapture, SignalGuard, termination_requested};
 use unicode_width::UnicodeWidthStr;
-use workstation::screen::{SignalGuard, termination_requested};
 
 use super::{
     CatalogSnapshot, CatalogSource, Effect, FavoriteStore, Model, PickedSession, PickerOptions,

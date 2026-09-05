@@ -1,22 +1,14 @@
-use std::process::{Command, Output};
+use std::process::Output;
 
 use sha2::{Digest, Sha256};
+use testkit::{Bin, TempDir, stderr, stdout, tree};
 
 const MACHINE_PROTOCOL: &str = "2";
 
-fn agent_hop(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_agent-hop"))
-        .args(args)
+fn agent_hop(arguments: &[&str]) -> Output {
+    Bin::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args(arguments)
         .output()
-        .expect("agent-hop runs")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
 #[test]
@@ -88,8 +80,8 @@ fn a_bare_noninteractive_invocation_prints_help_and_succeeds() {
 
 #[test]
 fn the_hidden_catalog_treats_absent_optional_stores_as_a_clean_empty_catalog() {
-    let directory = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+    let directory = TempDir::new().unwrap();
+    let output = Bin::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args([
             "__machine",
             "catalog",
@@ -99,8 +91,7 @@ fn the_hidden_catalog_treats_absent_optional_stores_as_a_clean_empty_catalog() {
             "10",
         ])
         .env("HOME", directory.path())
-        .output()
-        .expect("agent-hop machine catalog runs");
+        .output();
     assert!(output.status.success(), "{output:?}");
     assert!(stderr(&output).is_empty(), "{output:?}");
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -114,10 +105,8 @@ fn the_hidden_catalog_treats_absent_optional_stores_as_a_clean_empty_catalog() {
 
 #[test]
 fn the_hidden_export_protocol_streams_a_validated_stable_session() {
-    let directory = tempfile::tempdir().unwrap();
-    let home = directory.path().join("home");
-    std::fs::create_dir_all(home.join("work")).unwrap();
-    let home = std::fs::canonicalize(home).unwrap();
+    let directory = tree(&["home/work/"]);
+    let home = std::fs::canonicalize(directory.path().join("home")).unwrap();
     let workspace = home.join("work");
     let id = "session-export";
     let transcript = home.join(format!(
@@ -132,7 +121,7 @@ fn the_hidden_export_protocol_streams_a_validated_stable_session() {
     std::fs::write(&transcript, &content).unwrap();
     let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
     let bytes = content.len().to_string();
-    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+    let output = Bin::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args([
             "__machine",
             "export",
@@ -148,8 +137,7 @@ fn the_hidden_export_protocol_streams_a_validated_stable_session() {
             &bytes,
         ])
         .env("HOME", &home)
-        .output()
-        .expect("agent-hop machine export runs");
+        .output();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(output.stdout, content.as_bytes());
     assert!(output.stderr.is_empty(), "{output:?}");
@@ -157,10 +145,8 @@ fn the_hidden_export_protocol_streams_a_validated_stable_session() {
 
 #[test]
 fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
-    let directory = tempfile::tempdir().unwrap();
-    let home = directory.path().join("home");
-    std::fs::create_dir_all(home.join("work")).unwrap();
-    let home = std::fs::canonicalize(home).unwrap();
+    let directory = tree(&["home/work/"]);
+    let home = std::fs::canonicalize(directory.path().join("home")).unwrap();
     let workspace = home.join("work");
     let id = "claude-export";
     let transcript = home.join(format!(".claude/projects/project/{id}.jsonl"));
@@ -177,7 +163,7 @@ fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
     std::fs::create_dir(&companion).unwrap();
     std::fs::write(companion.join("attachment.txt"), "bound-content").unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+    let output = Bin::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args([
             "__machine",
             "export-companion",
@@ -191,8 +177,7 @@ fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
             workspace.to_str().unwrap(),
         ])
         .env("HOME", &home)
-        .output()
-        .expect("agent-hop machine companion export runs");
+        .output();
     assert!(output.status.success(), "{output:?}");
     assert!(output.stdout.starts_with(b"agent-hop-companion/1\n"));
     assert!(
@@ -205,7 +190,7 @@ fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
 
     let wrong_workspace = home.join("other");
     std::fs::create_dir(&wrong_workspace).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+    let output = Bin::new(env!("CARGO_BIN_EXE_agent-hop"))
         .args([
             "__machine",
             "export-companion",
@@ -219,8 +204,7 @@ fn the_hidden_companion_export_is_bound_to_session_workspace_identity() {
             wrong_workspace.to_str().unwrap(),
         ])
         .env("HOME", &home)
-        .output()
-        .expect("agent-hop rejects mismatched companion identity");
+        .output();
     assert!(!output.status.success(), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
     assert!(stderr(&output).contains("workspace changed"), "{output:?}");

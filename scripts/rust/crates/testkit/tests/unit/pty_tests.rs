@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 
+#[allow(unsafe_code)]
 #[test]
 fn a_new_pty_carries_the_window_size_it_was_asked_for() {
     let (_master, slave, _) = open_pty(30, 110);
@@ -41,6 +42,7 @@ fn reading_drains_what_the_slave_wrote_and_then_stops() {
     assert_eq!(output, b"hello".to_vec());
 }
 
+#[allow(unsafe_code)]
 #[test]
 fn a_cursor_query_is_answered_once_for_each_request() {
     let (master, slave, _) = open_pty(24, 80);

@@ -5,6 +5,7 @@ use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
+#[allow(unsafe_code)]
 pub fn open_pty(rows: u16, cols: u16) -> (File, File, libc::termios) {
     let mut master: RawFd = -1;
     let mut slave: RawFd = -1;
@@ -41,12 +42,14 @@ pub fn open_pty(rows: u16, cols: u16) -> (File, File, libc::termios) {
     )
 }
 
+#[allow(unsafe_code)]
 pub fn terminal_state(fd: RawFd) -> libc::termios {
     let mut state = MaybeUninit::<libc::termios>::uninit();
     assert_eq!(unsafe { libc::tcgetattr(fd, state.as_mut_ptr()) }, 0);
     unsafe { state.assume_init() }
 }
 
+#[allow(unsafe_code)]
 pub fn read_available(master: &File, output: &mut Vec<u8>, timeout_ms: libc::c_int) {
     let mut descriptor = libc::pollfd {
         fd: master.as_raw_fd(),
@@ -100,6 +103,7 @@ pub fn stdio(slave: &File) -> (Stdio, Stdio, Stdio) {
     (Stdio::from(input), Stdio::from(output), Stdio::from(errors))
 }
 
+#[allow(unsafe_code)]
 pub fn take_controlling_terminal(command: &mut Command) {
     unsafe {
         command.pre_exec(|| {

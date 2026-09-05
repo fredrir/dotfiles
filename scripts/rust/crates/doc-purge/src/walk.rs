@@ -106,7 +106,7 @@ fn descend(directory: &Path, wanted: &Wanted, gathered: &mut Gathered) {
     let walked = walk(directory, &policy, |_, entries| {
         entries
             .iter()
-            .filter(|entry| !entry.is_dir())
+            .filter(|entry| !entry.is_dir() && entry.name.to_str().is_some())
             .filter_map(|entry| source(&entry.path, wanted))
             .collect()
     });

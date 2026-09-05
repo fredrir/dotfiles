@@ -74,3 +74,62 @@ fn value_options_carry_the_clap_metavar_and_possible_values() {
     );
     assert!(text.contains(":seconds:"), "{text}");
 }
+
+fn exclusion_names(line: &str) -> Vec<String> {
+    let Some(rest) = line.trim().strip_prefix("'(") else {
+        return Vec::new();
+    };
+    let Some((group, _)) = rest.split_once(')') else {
+        return Vec::new();
+    };
+    group.split_whitespace().map(str::to_string).collect()
+}
+
+fn spellings(command: &Command, ids: &[&str]) -> Vec<String> {
+    ids.iter()
+        .filter_map(|id| argument(command, id))
+        .flat_map(|argument| {
+            [
+                argument.get_short().map(|short| format!("-{short}")),
+                argument.get_long().map(|long| format!("--{long}")),
+            ]
+        })
+        .flatten()
+        .collect()
+}
+
+#[test]
+fn no_exclusion_names_an_argument_outside_its_mode_array() {
+    let command = built();
+    for (ids, mode) in [
+        (INFO.as_slice(), info_mode()),
+        (WATCH.as_slice(), info_mode()),
+        (MEASURE.as_slice(), measure_mode()),
+        (AT.as_slice(), measure_mode()),
+    ] {
+        let allowed = spellings(&command, &mode);
+        let rendered = specs(&command, ids, &mode, "");
+        for line in rendered.lines() {
+            for name in exclusion_names(line) {
+                assert!(allowed.contains(&name), "{name} is outside its mode array");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_info_spec_drops_the_measure_flags_the_info_array_never_offers() {
+    let command = built();
+    let rendered = specs(&command, &INFO, &info_mode(), "");
+    let info = rendered
+        .lines()
+        .find(|line| line.contains("--info"))
+        .expect("--info has a spec");
+    assert_eq!(exclusion_names(info), ["-i", "--info"]);
+    assert!(
+        specs(&command, &MEASURE, &measure_mode(), "")
+            .lines()
+            .any(|line| exclusion_names(line).contains(&"--token".to_string())),
+        "{rendered}"
+    );
+}

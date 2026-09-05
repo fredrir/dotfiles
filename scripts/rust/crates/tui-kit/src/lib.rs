@@ -5,7 +5,6 @@ mod style;
 
 pub use alternate::{Alternate, MouseCapture};
 pub use inline::{Inline, Teardown};
-pub use raw::RawMode;
 pub use style::ui_style;
 pub use workstation::screen::{
     SignalGuard, SignalOptions, termination_requested, termination_signal,

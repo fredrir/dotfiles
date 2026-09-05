@@ -10,7 +10,7 @@ mod view;
 
 use std::io::{self, IsTerminal};
 
-use crate::cli::Agent;
+use crate::cli::{Agent, ColorMode};
 
 pub(crate) use model::{Effect, Model, UiEvent};
 pub(crate) use terminal::run;
@@ -174,7 +174,7 @@ pub(crate) struct PickerOptions {
 impl Default for PickerOptions {
     fn default() -> Self {
         Self {
-            color: std::env::var_os("NO_COLOR").is_none(),
+            color: ColorMode::Auto.enabled(io::stdout().is_terminal()),
             reduced_motion: reduced_motion_requested(),
             initial_action: PickerAction::HopAndOpen,
             initial_view: PickerView::default(),

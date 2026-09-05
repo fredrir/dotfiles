@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, ExitStatus, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
 pub struct Bin {
     command: Command,
@@ -61,6 +61,11 @@ impl Bin {
         self
     }
 
+    pub fn stdio(mut self, input: Stdio, output: Stdio, errors: Stdio) -> Bin {
+        self.command.stdin(input).stdout(output).stderr(errors);
+        self
+    }
+
     pub fn plain(self) -> Bin {
         self.env("NO_COLOR", "1").env("COLUMNS", "80")
     }
@@ -83,6 +88,10 @@ impl Bin {
             .write_all(input.as_bytes())
             .expect("the input is read");
         child.wait_with_output().expect("the binary finishes")
+    }
+
+    pub fn spawn(mut self) -> Child {
+        self.command.spawn().expect("the binary runs")
     }
 
     pub fn run(self) -> Ran {

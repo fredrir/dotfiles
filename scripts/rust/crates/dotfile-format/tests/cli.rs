@@ -1,61 +1,21 @@
 use std::fs;
-use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
+
+use testkit::{Bin, TempDir, at, executable, stderr, stdout, tree};
 
 fn format(args: &[&str], answers: &str, environment: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile-format"));
-    command
+    Bin::new(env!("CARGO_BIN_EXE_dotfile-format"))
         .args(args)
-        .env("NO_COLOR", "1")
-        .env("COLUMNS", "80")
-        .env_remove("DOTFILE_ROOT");
-    for (name, value) in environment {
-        command.env(name, value);
-    }
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("dotfile-format runs");
-    child
-        .stdin
-        .take()
-        .expect("stdin is a pipe")
-        .write_all(answers.as_bytes())
-        .expect("the answers are read");
-    child.wait_with_output().expect("dotfile-format finishes")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-fn tree(lines: &[&str]) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    for line in lines {
-        let (path, contents) = line.split_once('=').unwrap_or((line, ""));
-        let path = root.path().join(path);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, contents).unwrap();
-    }
-    root
-}
-
-fn at(root: &tempfile::TempDir, path: &str) -> String {
-    root.path().join(path).display().to_string()
+        .plain()
+        .env_remove("DOTFILE_ROOT")
+        .envs(environment.iter().copied())
+        .stdin(answers)
+        .output()
 }
 
 fn stub(bin: &Path, name: &str, body: &str) {
-    let path = bin.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    executable(&bin.join(name), &format!("#!/bin/sh\n{body}\n"));
 }
 
 fn recorder(bin: &Path, name: &str) {
@@ -78,16 +38,12 @@ printf '%s|%s|%s\n' "dotfmt" "$PWD" "$*" >> "$DFF_LOG""#
     );
 }
 
-fn only(names: &[&str]) -> tempfile::TempDir {
-    let bin = tempfile::tempdir().unwrap();
-    let real = String::from_utf8(
-        Command::new("/bin/sh")
-            .args(["-c", "command -v git"])
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap();
+fn only(names: &[&str]) -> TempDir {
+    let bin = tree(&[]);
+    let real = Bin::new("/bin/sh")
+        .args(["-c", "command -v git"])
+        .run()
+        .stdout;
     let path = std::env::var("PATH")
         .unwrap_or_default()
         .replace('\'', "'\\''");
@@ -110,13 +66,9 @@ fn log(path: &Path) -> Vec<String> {
         .collect()
 }
 
-fn checkout() -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir_all(root.path().join("environment")).unwrap();
-    fs::create_dir_all(root.path().join("config")).unwrap();
-    fs::write(root.path().join("config/targets.dotfile"), "").unwrap();
+fn checkout() -> TempDir {
+    let root = tree(&["environment/", "config/targets.dotfile", "shared/tools/"]);
     let tools = root.path().join("shared/tools");
-    fs::create_dir_all(&tools).unwrap();
     for name in [
         "dotfmt.dotfile",
         "ruff.toml",
@@ -295,7 +247,7 @@ fn a_check_run_lints_and_a_write_run_does_not() {
 #[test]
 fn a_tool_reporting_drift_makes_a_check_run_exit_one() {
     let root = tree(&["a.py=x\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "ruff", "echo 'would reformat a.py' >&2; exit 1");
     let environment = [("PATH", bin.path().display().to_string())];
     let environment: Vec<(&str, &str)> = environment
@@ -321,7 +273,7 @@ fn a_tool_reporting_drift_makes_a_check_run_exit_one() {
 #[test]
 fn a_write_run_succeeds_whatever_it_changed() {
     let root = tree(&["a.py=x\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "ruff", "echo 'reformatted a.py' >&2; exit 0");
     let output = format(
         &[&at(&root, "")],
@@ -334,7 +286,7 @@ fn a_write_run_succeeds_whatever_it_changed() {
 #[test]
 fn a_tool_that_cannot_do_its_job_makes_a_write_run_exit_one() {
     let root = tree(&["a.py=x\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "ruff", "echo 'a.py: syntax error' >&2; exit 2");
     let output = format(
         &[&at(&root, "")],
@@ -348,7 +300,7 @@ fn a_tool_that_cannot_do_its_job_makes_a_write_run_exit_one() {
 #[test]
 fn gofmt_naming_a_file_is_drift_even_though_it_exits_zero() {
     let root = tree(&["m.go=package main\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "goimports", "exit 0");
     stub(bin.path(), "gofmt", "echo m.go; exit 0");
     let output = format(
@@ -363,7 +315,7 @@ fn gofmt_naming_a_file_is_drift_even_though_it_exits_zero() {
 #[test]
 fn taplo_is_run_with_its_logging_turned_down_and_other_tools_are_not() {
     let root = tree(&["a.toml=x\n", "b.py=x\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     for name in ["taplo", "ruff"] {
         stub(
             bin.path(),
@@ -393,7 +345,7 @@ fn taplo_is_run_with_its_logging_turned_down_and_other_tools_are_not() {
 fn a_check_run_reports_the_provider_and_not_the_command() {
     let files: Vec<String> = (0..40).map(|nth| format!("src/f{nth}.py=x\n")).collect();
     let root = tree(&files.iter().map(String::as_str).collect::<Vec<_>>());
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "ruff", "echo 'would reformat' >&2; exit 1");
     let environment = [("PATH", bin.path().display().to_string())];
     let environment: Vec<(&str, &str)> = environment
@@ -428,7 +380,7 @@ fn a_check_run_reports_the_provider_and_not_the_command() {
 fn a_step_that_took_several_command_lines_reads_as_one() {
     let files: Vec<String> = (0..513).map(|nth| format!("f{nth}.py=x\n")).collect();
     let root = tree(&files.iter().map(String::as_str).collect::<Vec<_>>());
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "ruff", "echo 'would reformat' >&2; exit 1");
     let said = stderr(&format(
         &["--check", &at(&root, "")],
@@ -444,7 +396,7 @@ fn a_step_that_took_several_command_lines_reads_as_one() {
 #[test]
 fn a_quiet_run_says_nothing_anywhere() {
     let root = tree(&["a.py=x\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(bin.path(), "ruff", "echo 'reformatted' >&2; exit 0");
     let output = format(
         &["-q", &at(&root, "")],
@@ -526,11 +478,10 @@ fn a_lockfile_is_never_handed_to_a_tool_and_verbose_names_it() {
 #[test]
 fn files_git_ignores_are_left_out() {
     let root = tree(&["kept.py=x\n", "built.py=y\n", ".gitignore=built.py\n"]);
-    Command::new("git")
+    Bin::new("git")
         .args(["init", "-q"])
         .current_dir(root.path())
-        .status()
-        .unwrap();
+        .output();
     let bin = only(&["ruff"]);
     let logged = root.path().join("log");
     format(
@@ -1002,7 +953,7 @@ fn a_run_with_nothing_to_report_is_one_line() {
 #[test]
 fn a_provider_that_fell_over_on_one_file_names_that_file() {
     let root = tree(&["a.sh=x\n", "deep/b.sh=x\n", "deep/odd.bash=x\n"]);
-    let bin = tempfile::tempdir().unwrap();
+    let bin = tree(&[]);
     stub(
         bin.path(),
         "shfmt",
@@ -1022,7 +973,7 @@ fn a_provider_that_fell_over_on_one_file_names_that_file() {
 
 // -------------------------------------------------------------- add and sync
 
-fn root_of(checkout: &tempfile::TempDir) -> String {
+fn root_of(checkout: &TempDir) -> String {
     checkout.path().display().to_string()
 }
 
@@ -1091,7 +1042,7 @@ fn add_offers_a_config_only_for_a_language_the_project_uses() {
 
 #[test]
 fn add_with_a_dotfile_root_that_is_not_the_repository_exits_one_naming_the_variable() {
-    let elsewhere = tempfile::tempdir().unwrap();
+    let elsewhere = tree(&[]);
     let project = tree(&["a.py=x\n"]);
     let output = format(
         &["--add", &at(&project, "")],
@@ -1148,26 +1099,20 @@ fn a_marker_file_offers_a_config_the_walk_found_no_files_for() {
 
 #[test]
 fn with_no_checkout_to_be_found_the_copies_in_the_binary_are_the_source() {
-    let away = tempfile::tempdir().unwrap();
-    let home = tempfile::tempdir().unwrap();
+    let away = tree(&[]);
+    let home = tree(&[]);
     let project = tree(&["a.py=x\n"]);
     let moved = away.path().join("dotfile-format");
     fs::copy(env!("CARGO_BIN_EXE_dotfile-format"), &moved).unwrap();
 
-    let mut child = Command::new(&moved)
+    let output = Bin::new(&moved)
         .args(["--add", &at(&project, "")])
         .current_dir(away.path())
-        .env("NO_COLOR", "1")
-        .env("COLUMNS", "80")
+        .plain()
         .env("HOME", home.path())
         .env_remove("DOTFILE_ROOT")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(b"y\n").unwrap();
-    let output = child.wait_with_output().unwrap();
+        .stdin("y\n")
+        .output();
 
     assert!(output.status.success());
     assert!(

@@ -18,6 +18,9 @@ tachyonfx.workspace   = true
 tui-kit.workspace     = true
 workstation.workspace = true
 
+[dev-dependencies]
+testkit.workspace = true
+
 [[bench]]
 name    = "info"
 harness = false

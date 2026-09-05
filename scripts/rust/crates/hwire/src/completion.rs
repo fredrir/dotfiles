@@ -72,22 +72,32 @@ compdef _hwire hwire
 
 pub fn zsh(command: &Command) -> String {
     let subcommands = subcommands(command);
+    let info_mode = info_mode();
+    let measure_mode = measure_mode();
     [
         HEADER,
         &subcommands.join("|"),
         DISPATCH,
-        &specs(command, &INFO, "      "),
+        &specs(command, &INFO, &info_mode, "      "),
         HOSTS,
         WATCH_HEAD,
-        &specs(command, &WATCH, "        "),
+        &specs(command, &WATCH, &info_mode, "        "),
         WATCH_TAIL,
-        &specs(command, &MEASURE, "    "),
+        &specs(command, &MEASURE, &measure_mode, "    "),
         &format!("    '1:command:({})'\n", subcommands.join(" ")),
         AT_HEAD,
-        &specs(command, &AT, "      "),
+        &specs(command, &AT, &measure_mode, "      "),
         AT_TAIL,
     ]
     .concat()
+}
+
+fn info_mode() -> Vec<&'static str> {
+    [INFO.as_slice(), WATCH.as_slice()].concat()
+}
+
+fn measure_mode() -> Vec<&'static str> {
+    [MEASURE.as_slice(), AT.as_slice()].concat()
 }
 
 fn subcommands(command: &Command) -> Vec<String> {
@@ -98,10 +108,10 @@ fn subcommands(command: &Command) -> Vec<String> {
         .collect()
 }
 
-fn specs(command: &Command, ids: &[&str], indent: &str) -> String {
+fn specs(command: &Command, ids: &[&str], mode: &[&str], indent: &str) -> String {
     ids.iter()
         .filter_map(|id| argument(command, id))
-        .map(|argument| format!("{indent}{}\n", spec(command, argument)))
+        .map(|argument| format!("{indent}{}\n", spec(command, argument, mode)))
         .collect()
 }
 
@@ -111,8 +121,8 @@ fn argument<'a>(command: &'a Command, id: &str) -> Option<&'a Arg> {
         .find(|argument| argument.get_id() == id && !argument.is_hide_set())
 }
 
-fn spec(command: &Command, argument: &Arg) -> String {
-    let excluded = exclusions(command, argument);
+fn spec(command: &Command, argument: &Arg, mode: &[&str]) -> String {
+    let excluded = exclusions(command, argument, mode);
     let group = match excluded.is_empty() {
         true => String::new(),
         false => format!("({excluded})"),
@@ -171,12 +181,13 @@ fn choices(argument: &Arg) -> String {
     }
 }
 
-fn exclusions(command: &Command, argument: &Arg) -> String {
+fn exclusions(command: &Command, argument: &Arg, mode: &[&str]) -> String {
     let conflicts: Vec<&Arg> = command
         .get_arguments()
         .filter(|other| {
             other.get_id() != argument.get_id()
                 && !other.is_hide_set()
+                && mode.iter().any(|id| other.get_id() == id)
                 && conflicting(command, argument, other)
         })
         .collect();

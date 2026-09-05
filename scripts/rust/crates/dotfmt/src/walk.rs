@@ -42,7 +42,7 @@ pub fn gather(target: &Path, configs: &Configs) -> Result<Gathered, String> {
     let walked = workstation::walk::walk(target, &Policy::new(), |directory, entries| {
         let here: Vec<PathBuf> = entries
             .iter()
-            .filter(|entry| !entry.is_dir())
+            .filter(|entry| entry.is_file() || entry.is_symlink())
             .map(|entry| entry.path.clone())
             .collect();
         if here.is_empty() {

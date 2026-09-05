@@ -1,56 +1,54 @@
 use std::fs;
-use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
-fn run(cwd: &Path, home: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_path"))
-        .args(args)
-        .current_dir(cwd)
-        .env("HOME", home)
-        .output()
-        .expect("path runs")
-}
+use testkit::{Bin, stdout, tree};
 
 fn line(output: &Output) -> String {
     assert!(output.status.success());
-    String::from_utf8_lossy(&output.stdout)
-        .trim_end()
-        .to_string()
-}
-
-fn repo() -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir(root.path().join(".git")).unwrap();
-    fs::create_dir(root.path().join("sub")).unwrap();
-    fs::write(root.path().join("sub/file.txt"), "").unwrap();
-    root
+    stdout(output).trim_end().to_string()
 }
 
 #[test]
 fn a_repository_root_prints_a_slash() {
-    let root = repo();
-    assert_eq!(line(&run(root.path(), Path::new("/nowhere"), &[])), "/");
+    let root = tree(&[".git/", "sub/file.txt"]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .current_dir(root.path())
+        .env("HOME", "/nowhere")
+        .output();
+    assert_eq!(line(&output), "/");
 }
 
 #[test]
 fn paths_inside_a_repository_are_relative_to_its_root() {
-    let root = repo();
-    let output = run(root.path(), Path::new("/nowhere"), &["sub/file.txt"]);
+    let root = tree(&[".git/", "sub/file.txt"]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .arg("sub/file.txt")
+        .current_dir(root.path())
+        .env("HOME", "/nowhere")
+        .output();
     assert_eq!(line(&output), "/sub/file.txt");
 }
 
 #[test]
 fn a_target_that_does_not_exist_still_describes_itself() {
-    let root = repo();
-    let output = run(root.path(), Path::new("/nowhere"), &["missing/deep.txt"]);
+    let root = tree(&[".git/", "sub/file.txt"]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .arg("missing/deep.txt")
+        .current_dir(root.path())
+        .env("HOME", "/nowhere")
+        .output();
     assert_eq!(line(&output), "/missing/deep.txt");
 }
 
 #[test]
 fn full_prints_the_resolved_path() {
-    let root = repo();
+    let root = tree(&[".git/", "sub/file.txt"]);
     let real = fs::canonicalize(root.path()).unwrap();
-    let output = run(root.path(), Path::new("/nowhere"), &["-f", "sub/file.txt"]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["-f", "sub/file.txt"])
+        .current_dir(root.path())
+        .env("HOME", "/nowhere")
+        .output();
     assert_eq!(
         line(&output),
         real.join("sub/file.txt").display().to_string()
@@ -59,40 +57,64 @@ fn full_prints_the_resolved_path() {
 
 #[test]
 fn outside_a_repository_the_home_directory_is_a_tilde() {
-    let home = tempfile::tempdir().unwrap();
-    fs::create_dir(home.path().join("docs")).unwrap();
-    assert_eq!(line(&run(home.path(), home.path(), &[])), "~");
-    assert_eq!(line(&run(home.path(), home.path(), &["docs"])), "~/docs");
+    let home = tree(&["docs/"]);
+    let bare = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
+    let named = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .arg("docs")
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
+    assert_eq!(line(&bare), "~");
+    assert_eq!(line(&named), "~/docs");
 }
 
 #[test]
 fn outside_both_the_path_is_absolute() {
-    let home = tempfile::tempdir().unwrap();
-    let output = run(home.path(), Path::new("/nowhere"), &["/usr/share"]);
+    let home = tree(&[]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .arg("/usr/share")
+        .current_dir(home.path())
+        .env("HOME", "/nowhere")
+        .output();
     assert_eq!(line(&output), "/usr/share");
 }
 
 #[test]
 fn extra_arguments_are_a_usage_error() {
-    let home = tempfile::tempdir().unwrap();
-    let output = run(home.path(), home.path(), &["a", "b"]);
+    let home = tree(&[]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["a", "b"])
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
     assert_eq!(output.status.code(), Some(2));
 }
 
 #[test]
 fn completions_are_available() {
-    let home = tempfile::tempdir().unwrap();
-    let output = run(home.path(), home.path(), &["--completions", "zsh"]);
+    let home = tree(&[]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .args(["--completions", "zsh"])
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("#compdef path"));
+    assert!(stdout(&output).contains("#compdef path"));
 }
 
 #[test]
 fn help_describes_this_tool() {
-    let home = tempfile::tempdir().unwrap();
-    let output = run(home.path(), home.path(), &["--help"]);
+    let home = tree(&[]);
+    let output = Bin::new(env!("CARGO_BIN_EXE_path"))
+        .arg("--help")
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .output();
     assert!(
-        String::from_utf8_lossy(&output.stdout)
+        stdout(&output)
             .starts_with("Print the repository-relative or home-relative path of a target")
     );
 }

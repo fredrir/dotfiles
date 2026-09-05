@@ -12,3 +12,6 @@ workspace = true
 clap.workspace        = true
 hostkit.workspace     = true
 workstation.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true

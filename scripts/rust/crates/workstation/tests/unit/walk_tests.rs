@@ -115,6 +115,28 @@ fn the_listing_helper_names_the_directory_it_could_not_read() {
     assert!(error.contains("missing"), "{error}");
 }
 
+#[test]
+fn the_listing_helper_names_the_file_it_was_handed_in_place_of_a_directory() {
+    let root = count_tree();
+    let file = root.path().join("a");
+    let error = list(&file, &counting(false)).unwrap_err();
+    assert!(error.contains(&file.display().to_string()), "{error}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_name_that_is_not_utf8_reaches_the_caller_with_its_bytes_intact() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let name = OsStr::from_bytes(b"bad\xffname");
+    fs::write(root.path().join(name), "").unwrap();
+    let entries = list(root.path(), &counting(false)).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].name.as_bytes(), b"bad\xffname");
+    assert_eq!(entries[0].kind, Kind::File);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_linked_directory_is_one_entry_and_is_not_followed() {

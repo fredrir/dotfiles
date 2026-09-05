@@ -8,6 +8,7 @@ use super::*;
 use configs::Source;
 use lang::{Drift, Feed, LANGS, Lang, Mode};
 use run::{Plan, Ran};
+use testkit::tree;
 
 fn plan(mode: Mode) -> Plan<'static> {
     Plan {
@@ -29,20 +30,6 @@ fn row(lang: Lang, files: usize) -> Ran {
         output: String::new(),
         blamed: Vec::new(),
     }
-}
-
-fn tree(lines: &[&str]) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    for line in lines {
-        let path = root.path().join(line);
-        if line.ends_with('/') {
-            fs::create_dir_all(&path).unwrap();
-            continue;
-        }
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "").unwrap();
-    }
-    root
 }
 
 fn shown(files: &[std::path::PathBuf]) -> Vec<String> {

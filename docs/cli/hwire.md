@@ -156,7 +156,9 @@ $ hwire --completions zsh
 
 The repository's completion loader installs this automatically. The zsh layer
 is mode-aware: information-only flags and SSH host completion appear after
-`--info`, while interval and notification flags appear after `--watch`.
+`--info`, while interval and notification flags appear after `--watch`. Its
+descriptions and value names come from the clap definitions, so they match
+`--help`.
 
 ## Performance gates
 

@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use dotfile_cli::cancel;
@@ -12,7 +12,7 @@ use dotfile_cli::context::Context;
 use dotfile_cli::decision::{self, Choice, Prompt};
 use dotfile_cli::event::{Event, Phase, VecSink};
 use dotfile_cli::push::{self, DecisionClient};
-use tempfile::TempDir;
+use testkit::{Bin, Ran, TempDir, executable};
 
 const HOSTS: &str = "archie {\n  hostnames = archie, archie.local\n  role = desktop\n}\n\nmacie {\n  hostnames = macie\n  role = laptop\n}\n";
 const WIRE_STUB: &str = r#"#!/bin/sh
@@ -247,36 +247,19 @@ fn answer(choice: Choice) -> (decision::Client, std::thread::JoinHandle<Prompt>)
     (client, thread)
 }
 
-fn git(directory: &Path, arguments: &[&str]) -> Output {
-    let output = Command::new("git")
+fn git(directory: &Path, arguments: &[&str]) -> Ran {
+    let ran = Bin::new("git")
         .arg("-C")
         .arg(directory)
         .args(arguments)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git {:?}: {}",
-        arguments,
-        String::from_utf8_lossy(&output.stderr)
-    );
-    output
+        .run();
+    assert!(ran.success(), "git {arguments:?}: {}", ran.stderr);
+    ran
 }
 
 fn configure(directory: &Path) {
     git(directory, &["config", "user.email", "push@example.com"]);
     git(directory, &["config", "user.name", "push test"]);
-}
-
-fn executable(path: &Path, source: &str) {
-    fs::write(path, source).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(path).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(path, permissions).unwrap();
-    }
 }
 
 fn path(path: &Path) -> &str {

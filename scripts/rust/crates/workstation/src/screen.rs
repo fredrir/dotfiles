@@ -45,6 +45,7 @@ pub struct SignalOptions {
     pub hook: Option<fn()>,
     pub reset_to_default: bool,
     pub reraise_on_drop: bool,
+    pub restart_syscalls: bool,
 }
 
 impl Default for SignalOptions {
@@ -53,6 +54,7 @@ impl Default for SignalOptions {
             hook: None,
             reset_to_default: false,
             reraise_on_drop: true,
+            restart_syscalls: false,
         }
     }
 }
@@ -93,7 +95,11 @@ mod imp {
             RESET_TO_DEFAULT.store(options.reset_to_default, Ordering::Release);
             let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
             action.sa_sigaction = terminal_signal as *const () as libc::sighandler_t;
-            action.sa_flags = 0;
+            action.sa_flags = if options.restart_syscalls {
+                libc::SA_RESTART
+            } else {
+                0
+            };
             unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
             let mut previous = Vec::with_capacity(TERMINATION_SIGNALS.len());
             for signal in TERMINATION_SIGNALS {

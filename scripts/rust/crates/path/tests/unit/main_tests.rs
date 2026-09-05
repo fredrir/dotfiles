@@ -1,12 +1,5 @@
 use super::*;
-
-fn repo() -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    fs::create_dir(root.path().join(".git")).unwrap();
-    fs::create_dir_all(root.path().join("sub")).unwrap();
-    fs::write(root.path().join("sub/file.txt"), "").unwrap();
-    root
-}
+use testkit::tree;
 
 fn described(target: &str, root: Option<&str>, home: Option<&str>) -> String {
     describe(Path::new(target), root.map(Path::new), home.map(Path::new))
@@ -55,7 +48,7 @@ fn a_shared_prefix_is_not_a_shared_directory() {
 
 #[test]
 fn the_root_is_the_nearest_ancestor_holding_git() {
-    let root = repo();
+    let root = tree(&[".git/", "sub/file.txt"]);
     let real = fs::canonicalize(root.path()).unwrap();
     assert_eq!(
         repository_root(&real.join("sub/file.txt")),
@@ -66,30 +59,28 @@ fn the_root_is_the_nearest_ancestor_holding_git() {
 
 #[test]
 fn a_git_file_marks_a_worktree_root() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tree(&[".git=gitdir: /elsewhere\n"]);
     let real = fs::canonicalize(root.path()).unwrap();
-    fs::write(real.join(".git"), "gitdir: /elsewhere\n").unwrap();
     assert_eq!(repository_root(&real.join("sub")), Some(real));
 }
 
 #[test]
 fn a_directory_without_git_has_no_root() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tree(&["a/b/"]);
     let nested = root.path().join("a/b");
-    fs::create_dir_all(&nested).unwrap();
     assert!(repository_root(&nested).is_none_or(|found| !found.starts_with(root.path())));
 }
 
 #[test]
 fn existing_targets_resolve_the_way_canonicalize_does() {
-    let root = repo();
+    let root = tree(&[".git/", "sub/file.txt"]);
     let file = root.path().join("sub/file.txt");
     assert_eq!(real_path(&file), fs::canonicalize(&file).unwrap());
 }
 
 #[test]
 fn missing_targets_keep_the_part_that_is_missing() {
-    let root = repo();
+    let root = tree(&[".git/", "sub/file.txt"]);
     let real = fs::canonicalize(root.path()).unwrap();
     assert_eq!(
         real_path(&root.path().join("missing/deep.txt")),
@@ -99,7 +90,7 @@ fn missing_targets_keep_the_part_that_is_missing() {
 
 #[test]
 fn dots_fold_away_even_where_nothing_exists() {
-    let root = repo();
+    let root = tree(&[".git/", "sub/file.txt"]);
     let real = fs::canonicalize(root.path()).unwrap();
     assert_eq!(
         real_path(&root.path().join("missing/../other")),
@@ -114,7 +105,7 @@ fn dots_fold_away_even_where_nothing_exists() {
 #[cfg(unix)]
 #[test]
 fn symlinks_in_the_existing_part_are_followed() {
-    let root = repo();
+    let root = tree(&[".git/", "sub/file.txt"]);
     let real = fs::canonicalize(root.path()).unwrap();
     std::os::unix::fs::symlink(real.join("sub"), real.join("link")).unwrap();
     assert_eq!(

@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hostkit::Host;
+use workstation::path::home_relative_in;
 
 use crate::catalog::{self, SourceState};
 use crate::cli::{Agent, ColorMode};
 use crate::favorites::Favorites;
-use crate::plan;
 use crate::preferences::Preferences;
 use crate::preview::{self, PreviewLimits};
 use crate::remote::{MAX_REMOTE_SESSIONS, Remote, RemotePreviewRole};
@@ -69,7 +69,7 @@ impl BrowserSource {
                 let key = key(self.this, session.agent, session.id.as_str());
                 let title = short_title(&session);
                 let favorite = self.favorites.contains(&key);
-                let workspace = plan::display(&session.workspace, &self.home);
+                let workspace = home_relative_in(&session.workspace, &self.home);
                 let row = SessionEntry {
                     key: key.clone(),
                     id: session.id.as_str().to_string(),
@@ -143,7 +143,7 @@ impl BrowserSource {
                     origin: Origin::Remote,
                     host: Some(self.peer.name().to_string()),
                     project: session.project,
-                    workspace: plan::display(&session.workspace, &remote_home),
+                    workspace: home_relative_in(&session.workspace, &remote_home),
                     title: session.title,
                     updated: relative_age(UNIX_EPOCH + Duration::from_millis(session.modified_ms)),
                     current_project,

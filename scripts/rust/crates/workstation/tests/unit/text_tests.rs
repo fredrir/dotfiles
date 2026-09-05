@@ -17,6 +17,16 @@ fn truncating_the_front_counts_characters_rather_than_bytes() {
 }
 
 #[test]
+fn no_room_leaves_nothing_and_one_column_holds_the_ellipsis_alone() {
+    assert_eq!(truncate_front("report.txt", 0), "");
+    assert_eq!(truncate_front("report.txt", 1), "\u{2026}");
+    assert_eq!(truncate_back("report.txt", 0), "");
+    assert_eq!(truncate_back("report.txt", 1), "\u{2026}");
+    assert_eq!(truncate_front("", 0), "");
+    assert_eq!(truncate_back("", 0), "");
+}
+
+#[test]
 fn truncating_the_back_keeps_the_start_and_marks_the_cut() {
     assert_eq!(truncate_back("my-app", 10), "my-app");
     assert_eq!(truncate_back("my-app", 6), "my-app");

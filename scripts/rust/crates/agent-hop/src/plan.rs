@@ -45,14 +45,6 @@ pub fn destination(
     })
 }
 
-pub fn display(path: &Path, home: &Path) -> String {
-    match path.strip_prefix(home) {
-        Ok(relative) if relative.as_os_str().is_empty() => "~".into(),
-        Ok(relative) => format!("~/{}", relative.display()),
-        Err(_) => path.display().to_string(),
-    }
-}
-
 #[cfg(test)]
 #[path = "../tests/unit/plan_tests.rs"]
 mod tests;

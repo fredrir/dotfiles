@@ -1,23 +1,13 @@
-use std::process::{Command, Output};
+use std::process::Output;
+
+use testkit::{Bin, stderr, stdout};
 
 fn push(args: &[&str]) -> Output {
-    run(env!("CARGO_BIN_EXE_hpush"), args)
+    Bin::new(env!("CARGO_BIN_EXE_hpush")).args(args).output()
 }
 
 fn pull(args: &[&str]) -> Output {
-    run(env!("CARGO_BIN_EXE_hpull"), args)
-}
-
-fn run(program: &str, args: &[&str]) -> Output {
-    Command::new(program).args(args).output().expect("it runs")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).into_owned()
+    Bin::new(env!("CARGO_BIN_EXE_hpull")).args(args).output()
 }
 
 fn under_home(name: &str) -> String {

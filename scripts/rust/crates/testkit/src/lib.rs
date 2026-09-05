@@ -3,7 +3,6 @@ mod git;
 mod tree;
 
 #[cfg(unix)]
-#[allow(unsafe_code)]
 pub mod pty;
 
 pub use bin::{Bin, Ran, stderr, stdout};

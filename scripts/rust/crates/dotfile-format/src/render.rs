@@ -2,7 +2,7 @@ use std::path::Path;
 
 use workstation::Style;
 use workstation::path::home_relative;
-use workstation::text::plural;
+use workstation::text::{self, plural};
 
 use crate::configs::{Placement, Source};
 use crate::lang::Mode;
@@ -90,7 +90,7 @@ fn culprits(ran: &Ran, style: &Style) -> Vec<String> {
             .output
             .lines()
             .find(|line| !line.trim().is_empty())
-            .map(|line| format!("  {}", style.dim(&clip(line.trim()))))
+            .map(|line| format!("  {}", style.dim(&text::truncate_back(line.trim(), CLIP))))
             .into_iter()
             .collect();
     }
@@ -117,13 +117,6 @@ fn absent(done: &[Ran], style: &Style) -> Option<String> {
         }
     }
     (!named.is_empty()).then(|| style.dim(&format!("{} not installed", named.join(", "))))
-}
-
-fn clip(line: &str) -> String {
-    if line.chars().count() <= CLIP {
-        return line.to_string();
-    }
-    format!("{}…", line.chars().take(CLIP - 1).collect::<String>())
 }
 
 pub fn report(done: &[Ran], mode: Mode, style: &Style) -> Vec<String> {

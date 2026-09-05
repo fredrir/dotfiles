@@ -1,14 +1,12 @@
 #![cfg(unix)]
-#![allow(unsafe_code)]
 
-use std::fs::File;
-use std::io::{ErrorKind, Read};
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::fd::AsRawFd;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use testkit::pty::{open_pty, read_available, stdio, take_controlling_terminal, terminal_state};
 use workstation::Screen;
 use workstation::screen::{SignalGuard, SignalOptions, termination_requested, termination_signal};
 
@@ -21,6 +19,7 @@ fn mark_hook_ran() {
     HOOK_RAN.store(true, Ordering::Release);
 }
 
+#[allow(unsafe_code)]
 #[test]
 fn termination_signal_restores_terminal_and_status() {
     if std::env::var_os(CHILD).is_some() {
@@ -31,10 +30,8 @@ fn termination_signal_restores_terminal_and_status() {
         panic!("termination signal was not propagated");
     }
 
-    let (master, slave, before) = open_pty();
-    let input = slave.try_clone().unwrap();
-    let output = slave.try_clone().unwrap();
-    let errors = slave.try_clone().unwrap();
+    let (master, slave, before) = open_pty(24, 80);
+    let (input, activity, errors) = stdio(&slave);
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .args([
@@ -43,17 +40,10 @@ fn termination_signal_restores_terminal_and_status() {
             "--nocapture",
         ])
         .env(CHILD, "1")
-        .stdin(Stdio::from(input))
-        .stdout(Stdio::from(output))
-        .stderr(Stdio::from(errors));
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+        .stdin(input)
+        .stdout(activity)
+        .stderr(errors);
+    take_controlling_terminal(&mut command);
     let mut child = command.spawn().unwrap();
     drop(slave);
 
@@ -105,6 +95,7 @@ fn termination_signal_restores_terminal_and_status() {
     assert!(output.windows(6).any(|window| window == b"\x1b[?25h"));
 }
 
+#[allow(unsafe_code)]
 #[test]
 fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
     if let Some(directory) = std::env::var_os(OPTIONS_CHILD) {
@@ -113,6 +104,7 @@ fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
             hook: Some(mark_hook_ran),
             reset_to_default: true,
             reraise_on_drop: false,
+            restart_syscalls: false,
         })
         .unwrap();
         std::fs::write(directory.join("ready"), "1").unwrap();
@@ -170,6 +162,23 @@ fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
     assert_eq!(status.code(), Some(128 + libc::SIGTERM));
 }
 
+#[allow(unsafe_code)]
+#[test]
+fn dropping_the_inner_guard_leaves_the_outer_handler_armed() {
+    let original = disposition(libc::SIGINT);
+    let outer = SignalGuard::new().unwrap();
+    let armed = disposition(libc::SIGINT);
+    assert_ne!(armed, libc::SIG_DFL);
+
+    let inner = SignalGuard::new().unwrap();
+    drop(inner);
+    assert_eq!(disposition(libc::SIGINT), armed);
+
+    drop(outer);
+    assert_eq!(disposition(libc::SIGINT), original);
+}
+
+#[allow(unsafe_code)]
 fn disposition(signal: libc::c_int) -> libc::sighandler_t {
     let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
     assert_eq!(
@@ -177,66 +186,4 @@ fn disposition(signal: libc::c_int) -> libc::sighandler_t {
         0
     );
     current.sa_sigaction
-}
-
-fn open_pty() -> (File, File, libc::termios) {
-    let mut master: RawFd = -1;
-    let mut slave: RawFd = -1;
-    let mut state = std::mem::MaybeUninit::<libc::termios>::uninit();
-    let mut size = libc::winsize {
-        ws_row: 24,
-        ws_col: 80,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    assert_eq!(
-        unsafe {
-            libc::openpty(
-                &raw mut master,
-                &raw mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        },
-        0
-    );
-    assert_eq!(unsafe { libc::tcgetattr(slave, state.as_mut_ptr()) }, 0);
-    let flags = unsafe { libc::fcntl(master, libc::F_GETFL) };
-    assert!(flags >= 0);
-    assert_eq!(
-        unsafe { libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK) },
-        0
-    );
-    (
-        unsafe { File::from_raw_fd(master) },
-        unsafe { File::from_raw_fd(slave) },
-        unsafe { state.assume_init() },
-    )
-}
-
-fn terminal_state(fd: RawFd) -> libc::termios {
-    let mut state = std::mem::MaybeUninit::<libc::termios>::uninit();
-    assert_eq!(unsafe { libc::tcgetattr(fd, state.as_mut_ptr()) }, 0);
-    unsafe { state.assume_init() }
-}
-
-fn read_available(master: &File, output: &mut Vec<u8>, timeout: libc::c_int) {
-    let mut descriptor = libc::pollfd {
-        fd: master.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    let _ = unsafe { libc::poll(&raw mut descriptor, 1, timeout) };
-    let mut reader = master;
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => output.extend_from_slice(&buffer[..read]),
-            Err(error) if error.kind() == ErrorKind::WouldBlock => break,
-            Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
-            Err(error) => panic!("read pty: {error}"),
-        }
-    }
 }

@@ -1,37 +1,28 @@
 #![cfg(unix)]
-#![allow(unsafe_code)]
 
-use std::fs::File;
-use std::io::{ErrorKind, Read};
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::process::{Command, Stdio};
+use std::os::fd::AsRawFd;
+use std::os::unix::process::ExitStatusExt;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
+use testkit::pty::{open_pty, read_available, stdio, take_controlling_terminal, terminal_state};
+use testkit::{at, tree};
+
+#[allow(unsafe_code)]
 #[test]
 fn termination_restores_raw_mode_cursor_and_alternate_screen() {
-    let temporary = tempfile::tempdir().unwrap();
-    let home = temporary.path().join("home");
-    std::fs::create_dir(&home).unwrap();
-    let (master, slave, before) = open_pty();
-    let input = slave.try_clone().unwrap();
-    let output = slave.try_clone().unwrap();
-    let errors = slave.try_clone().unwrap();
+    let temporary = tree(&["home/"]);
+    let home = at(&temporary, "home");
+    let (master, slave, before) = open_pty(30, 110);
+    let (input, activity, errors) = stdio(&slave);
     let mut command = Command::new(env!("CARGO_BIN_EXE_agent-hop"));
     command
         .env("HOME", &home)
         .env("TERM", "xterm-256color")
-        .stdin(Stdio::from(input))
-        .stdout(Stdio::from(output))
-        .stderr(Stdio::from(errors));
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+        .stdin(input)
+        .stdout(activity)
+        .stderr(errors);
+    take_controlling_terminal(&mut command);
     let mut child = command.spawn().unwrap();
     drop(slave);
 
@@ -101,66 +92,4 @@ fn termination_restores_raw_mode_cursor_and_alternate_screen() {
             .any(|window| window == b"\x1b[?1000l"),
         "mouse capture was not released"
     );
-}
-
-fn open_pty() -> (File, File, libc::termios) {
-    let mut master: RawFd = -1;
-    let mut slave: RawFd = -1;
-    let mut state = std::mem::MaybeUninit::<libc::termios>::uninit();
-    let mut size = libc::winsize {
-        ws_row: 30,
-        ws_col: 110,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    assert_eq!(
-        unsafe {
-            libc::openpty(
-                &raw mut master,
-                &raw mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        },
-        0
-    );
-    assert_eq!(unsafe { libc::tcgetattr(slave, state.as_mut_ptr()) }, 0);
-    let flags = unsafe { libc::fcntl(master, libc::F_GETFL) };
-    assert!(flags >= 0);
-    assert_eq!(
-        unsafe { libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK) },
-        0
-    );
-    (
-        unsafe { File::from_raw_fd(master) },
-        unsafe { File::from_raw_fd(slave) },
-        unsafe { state.assume_init() },
-    )
-}
-
-fn terminal_state(fd: RawFd) -> libc::termios {
-    let mut state = std::mem::MaybeUninit::<libc::termios>::uninit();
-    assert_eq!(unsafe { libc::tcgetattr(fd, state.as_mut_ptr()) }, 0);
-    unsafe { state.assume_init() }
-}
-
-fn read_available(master: &File, output: &mut Vec<u8>, timeout: libc::c_int) {
-    let mut descriptor = libc::pollfd {
-        fd: master.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    let _ = unsafe { libc::poll(&raw mut descriptor, 1, timeout) };
-    let mut reader = master;
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => output.extend_from_slice(&buffer[..read]),
-            Err(error) if error.kind() == ErrorKind::WouldBlock => break,
-            Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
-            Err(error) => panic!("read pty: {error}"),
-        }
-    }
 }

@@ -165,7 +165,7 @@ impl FileSource for LocalSource {
         }
         let expanded = if text == "~" {
             self.home.clone().ok_or(LocalError::HomeUnavailable)?
-        } else if let Some(rest) = home_relative(text) {
+        } else if let Some(rest) = after_tilde(text) {
             self.home
                 .as_ref()
                 .ok_or(LocalError::HomeUnavailable)?
@@ -236,7 +236,7 @@ fn sanitize(value: &str) -> String {
     shown
 }
 
-fn home_relative(text: &str) -> Option<&str> {
+fn after_tilde(text: &str) -> Option<&str> {
     text.strip_prefix("~/").or_else(|| {
         if cfg!(windows) {
             text.strip_prefix("~\\")

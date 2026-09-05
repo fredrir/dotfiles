@@ -7,7 +7,7 @@ use dotfile_cli::context::{Context, write_atomic};
 use dotfile_cli::decision::{self, Choice, Prompt};
 use dotfile_cli::event::{Action, Event, VecSink};
 use dotfile_cli::sync::engine;
-use tempfile::TempDir;
+use testkit::{TempDir, tree_pairs};
 
 struct Sandbox {
     _temporary: TempDir,
@@ -18,14 +18,13 @@ struct Sandbox {
 
 impl Sandbox {
     fn new(manifest: &str, targets: &str) -> Self {
-        let temporary = tempfile::tempdir().expect("temporary directory");
+        let temporary = tree_pairs(&[
+            ("repo/config/targets.dotfile", targets),
+            ("repo/environment/test/manifest", manifest),
+            ("home/.config/", ""),
+        ]);
         let root = temporary.path().join("repo");
         let home = temporary.path().join("home");
-        fs::create_dir_all(root.join("config")).expect("config directory");
-        fs::create_dir_all(root.join("environment/test")).expect("environment directory");
-        fs::create_dir_all(home.join(".config")).expect("home config directory");
-        fs::write(root.join("config/targets.dotfile"), targets).expect("targets");
-        fs::write(root.join("environment/test/manifest"), manifest).expect("manifest");
         let context = Context::new(root.clone(), home.clone(), home.join(".config/dotfile"))
             .expect("context");
         Self {
@@ -70,7 +69,7 @@ fn cli() -> SyncCli {
 fn atomic_writes_preserve_modes_use_sane_defaults_and_skip_identical_content() {
     use std::os::unix::fs::PermissionsExt;
 
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = TempDir::new().unwrap();
     let existing = temporary.path().join("existing");
     fs::write(&existing, "before").unwrap();
     fs::set_permissions(&existing, fs::Permissions::from_mode(0o755)).unwrap();
@@ -575,7 +574,12 @@ fn overlays_materialize_and_live_adoption_preserves_jsonc_comments() {
         .collect::<Vec<_>>();
     assert_eq!(sandbox.sync(&cli()).expect("settled sync").changed, 0);
     for (path, before) in modified {
-        assert_eq!(fs::metadata(path).unwrap().modified().unwrap(), before);
+        assert_eq!(
+            fs::metadata(&path).unwrap().modified().unwrap(),
+            before,
+            "{}",
+            path.display()
+        );
     }
 }
 
@@ -1082,7 +1086,7 @@ fn checked_in_package_artifacts_match_the_native_renderer() {
         .nth(4)
         .expect("repository root")
         .to_path_buf();
-    let temporary = tempfile::tempdir().expect("temporary home");
+    let temporary = TempDir::new().expect("temporary home");
     let context = Context::new(
         root,
         temporary.path().to_path_buf(),

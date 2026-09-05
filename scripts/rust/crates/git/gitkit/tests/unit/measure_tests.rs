@@ -16,22 +16,12 @@ fn a_nul_early_on_means_binary() {
 
 #[test]
 fn files_are_counted_through_the_whole_tree() {
-    let root = tempfile::tempdir().unwrap();
-    let root = root.path();
-    fs::write(root.join("one"), "1").unwrap();
-    fs::write(root.join(".hidden"), "2").unwrap();
-    fs::create_dir_all(root.join("deep/deeper")).unwrap();
-    fs::write(root.join("deep/two"), "3").unwrap();
-    fs::write(root.join("deep/deeper/three"), "4").unwrap();
-    assert_eq!(files_in(root), 4);
+    let root = testkit::tree(&["one=1", ".hidden=2", "deep/two=3", "deep/deeper/three=4"]);
+    assert_eq!(files_in(root.path()), 4);
 }
 
 #[test]
 fn a_nested_repository_is_not_counted() {
-    let root = tempfile::tempdir().unwrap();
-    let root = root.path();
-    fs::write(root.join("one"), "1").unwrap();
-    fs::create_dir_all(root.join("nested/.git")).unwrap();
-    fs::write(root.join("nested/two"), "2").unwrap();
-    assert_eq!(files_in(root), 1);
+    let root = testkit::tree(&["one=1", "nested/.git/", "nested/two=2"]);
+    assert_eq!(files_in(root.path()), 1);
 }

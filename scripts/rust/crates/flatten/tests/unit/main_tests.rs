@@ -3,21 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
-
-fn tree(lines: &[&str]) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    for line in lines {
-        let (path, contents) = line.split_once('=').unwrap_or((line, ""));
-        let path = root.path().join(path);
-        if line.ends_with('/') {
-            fs::create_dir_all(&path).unwrap();
-            continue;
-        }
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, contents).unwrap();
-    }
-    root
-}
+use testkit::tree;
 
 fn listing(root: &Path) -> Vec<String> {
     let mut found = BTreeSet::new();
@@ -122,7 +108,7 @@ fn a_collapse_has_nothing_to_do_twice() {
 
 #[test]
 fn an_empty_directory_collapses_to_nothing_at_all() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tree(&[]);
     assert!(matches!(
         plan::collapse(root.path()).unwrap(),
         Plan::Nothing

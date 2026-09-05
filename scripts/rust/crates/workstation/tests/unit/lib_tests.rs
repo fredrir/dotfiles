@@ -41,6 +41,14 @@ fn an_arbitrary_code_paints_the_way_the_named_colours_do() {
     assert_eq!(Style::plain().code("2", "idle"), "idle");
 }
 
+#[test]
+fn an_unset_theme_variable_leaves_the_fallback_in_place() {
+    assert_eq!(
+        theme("WORKSTATION_THEME_THAT_IS_NOT_SET", "\x1b[36m"),
+        "\x1b[36m"
+    );
+}
+
 #[derive(clap::Parser)]
 struct Nested {
     #[command(flatten)]

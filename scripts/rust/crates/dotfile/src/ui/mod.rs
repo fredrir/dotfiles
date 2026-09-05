@@ -27,13 +27,14 @@ impl UiPolicy {
         term: Option<&str>,
         ci: Option<&str>,
         no_color: bool,
+        clicolor: Option<&str>,
         reduced_motion: bool,
     ) -> Self {
         let capable_terminal = stdin_is_terminal
             && stderr_is_terminal
             && !term.is_some_and(|value| value.eq_ignore_ascii_case("dumb"))
             && !ci.is_some_and(environment_flag_enabled);
-        let color = auto_enabled(capable_terminal, no_color, None, term);
+        let color = auto_enabled(capable_terminal, no_color, clicolor, term);
         Self {
             interactive: capable_terminal,
             color,
@@ -54,13 +55,14 @@ impl UiPolicy {
                 .ok()
                 .is_some_and(|value| environment_flag_enabled(&value))
         });
+        let clicolor = std::env::var("CLICOLOR").ok();
         Self::from_signals(
             std::io::stdin().is_terminal(),
             std::io::stderr().is_terminal(),
             std::env::var("TERM").ok().as_deref(),
             std::env::var("CI").ok().as_deref(),
-            std::env::var_os("NO_COLOR").is_some()
-                || std::env::var("CLICOLOR").ok().as_deref() == Some("0"),
+            std::env::var_os("NO_COLOR").is_some(),
+            clicolor.as_deref(),
             reduced_motion,
         )
     }

@@ -1,6 +1,3 @@
-use std::fs;
-use std::process::Command;
-
 use clap::Parser;
 use dotfile_cli::cli::{Resolution, SyncCli};
 
@@ -38,20 +35,15 @@ fn force_and_resolution_are_exclusive() {
 #[cfg(unix)]
 #[test]
 fn unrelated_commands_exec_the_private_backend() {
-    use std::os::unix::fs::PermissionsExt;
+    use testkit::{Bin, TempDir, executable};
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = TempDir::new().unwrap();
     let backend = directory.path().join("dotfile-py");
-    fs::write(&backend, "#!/bin/sh\nprintf '%s' \"$*\"\nexit 7\n").unwrap();
-    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_dotfile"))
+    executable(&backend, "#!/bin/sh\nprintf '%s' \"$*\"\nexit 7\n");
+    let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
         .args(["secret", "status", "--all"])
         .env("DOTFILE_PYTHON", &backend)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(7));
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "secret status --all"
-    );
+        .run();
+    assert_eq!(ran.code(), Some(7));
+    assert_eq!(ran.stdout, "secret status --all");
 }

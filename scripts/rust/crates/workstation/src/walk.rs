@@ -123,7 +123,7 @@ impl Policy {
     }
 
     fn hides(&self, name: &OsStr) -> bool {
-        self.skip_hidden && name.as_encoded_bytes().starts_with(b".")
+        self.skip_hidden && crate::path::hidden(name)
     }
 
     fn too_deep(&self, depth: usize) -> bool {
@@ -173,9 +173,7 @@ pub fn list(directory: &Path, policy: &Policy) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     for found in listing {
         let found = found.map_err(|error| trouble(directory, &error))?;
-        if let Some(entry) =
-            describe(&found, Path::new(""), policy).map_err(|error| trouble(directory, &error))?
-        {
+        if let Some(entry) = describe(&found, Path::new(""), policy) {
             entries.push(entry);
         }
     }
@@ -212,10 +210,8 @@ where
             walked.unreadable += 1;
             continue;
         };
-        match describe(&found, prefix, policy) {
-            Ok(Some(entry)) => entries.push(entry),
-            Ok(None) => {}
-            Err(_) => walked.unreadable += 1,
+        if let Some(entry) = describe(&found, prefix, policy) {
+            entries.push(entry);
         }
     }
     entries.sort_by(|one, other| one.name.cmp(&other.name));
@@ -246,21 +242,23 @@ where
     walked
 }
 
-fn describe(found: &fs::DirEntry, prefix: &Path, policy: &Policy) -> io::Result<Option<Entry>> {
-    let kind = classify(&found.file_type()?);
+fn describe(found: &fs::DirEntry, prefix: &Path, policy: &Policy) -> Option<Entry> {
+    let kind = found
+        .file_type()
+        .map_or(Kind::Other, |reported| classify(&reported));
     let name = found.file_name();
     let refused = policy.hides(&name)
         || (kind == Kind::Symlink && policy.symlinks == Symlinks::Drop)
         || (kind == Kind::Directory && policy.skips(&name));
     if refused {
-        return Ok(None);
+        return None;
     }
-    Ok(Some(Entry {
+    Some(Entry {
         path: found.path(),
         relative: prefix.join(&name),
         name,
         kind,
-    }))
+    })
 }
 
 fn classify(kind: &fs::FileType) -> Kind {

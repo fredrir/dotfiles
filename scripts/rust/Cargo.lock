@@ -15,6 +15,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "testkit",
  "tui-kit",
  "unicode-width",
  "workstation",
@@ -369,7 +370,7 @@ name = "count"
 version = "0.1.0"
 dependencies = [
  "clap",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -601,7 +602,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "rayon",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -629,6 +630,7 @@ dependencies = [
  "sha2",
  "tachyonfx",
  "tempfile",
+ "testkit",
  "tui-kit",
  "workstation",
 ]
@@ -640,6 +642,7 @@ dependencies = [
  "clap",
  "rayon",
  "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -652,6 +655,7 @@ dependencies = [
  "gix-glob",
  "rayon",
  "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -776,7 +780,7 @@ dependencies = [
  "clap",
  "libc",
  "rayon",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -855,6 +859,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -865,7 +870,7 @@ dependencies = [
  "clap",
  "gitkit",
  "gix",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -875,7 +880,7 @@ version = "0.1.0"
 dependencies = [
  "gix",
  "rayon",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -1714,7 +1719,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "gitkit",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -1763,6 +1768,7 @@ dependencies = [
  "file-explorer",
  "hostkit",
  "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -1806,6 +1812,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tachyonfx",
+ "testkit",
  "tui-kit",
  "workstation",
 ]
@@ -2112,6 +2119,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "hostkit",
+ "testkit",
  "workstation",
 ]
 
@@ -2295,7 +2303,7 @@ name = "path"
 version = "0.1.0"
 dependencies = [
  "clap",
- "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -2826,6 +2834,7 @@ dependencies = [
  "memchr",
  "rayon",
  "tempfile",
+ "testkit",
  "workstation",
 ]
 
@@ -3150,7 +3159,9 @@ name = "tui-kit"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "libc",
  "ratatui",
+ "testkit",
  "workstation",
 ]
 
@@ -3566,6 +3577,7 @@ dependencies = [
  "libc",
  "rayon",
  "tempfile",
+ "testkit",
 ]
 
 [[package]]

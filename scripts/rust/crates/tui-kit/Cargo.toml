@@ -1,6 +1,7 @@
 [package]
 name              = "tui-kit"
 version.workspace = true
+description       = "Shared ratatui setup and teardown for the workstation tools"
 edition.workspace = true
 license.workspace = true
 
@@ -11,3 +12,9 @@ workspace = true
 crossterm.workspace   = true
 ratatui.workspace     = true
 workstation.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true

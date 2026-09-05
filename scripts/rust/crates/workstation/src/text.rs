@@ -3,7 +3,10 @@ pub fn truncate_front(text: &str, room: usize) -> String {
     if length <= room {
         return text.to_string();
     }
-    let tail: String = text.chars().skip(length - room.saturating_sub(1)).collect();
+    if room == 0 {
+        return String::new();
+    }
+    let tail: String = text.chars().skip(length - (room - 1)).collect();
     format!("\u{2026}{tail}")
 }
 
