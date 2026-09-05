@@ -3,10 +3,10 @@ dark = true
 
 [ui] # Mandatory
 background = "#1e1e2e" # Main background / Secondary-Sidebar- Colors
-primary     = "#f2cdcd" # Active / Highlight / Primary- Colors
-accent      = "#171726" # Sidebar Background / Support- Colors
-surface     = "#343648" # Dimmed / Border- Colors
-foreground  = "#cdd6f4" # Text colors / brightest foreground
+primary    = "#f2cdcd" # Active / Highlight / Primary- Colors
+accent     = "#171726" # Sidebar Background / Support- Colors
+surface    = "#343648" # Dimmed / Border- Colors
+foreground = "#cdd6f4" # Text colors / brightest foreground
 
 [ansi.normal] # Mandatory
 black   = "#45475a"

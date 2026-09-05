@@ -16,12 +16,14 @@ local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.open-vscode"
 
 local act = wezterm.action
+local open_yazi_sequence = "\x1b[115;9u"
 
 ---@type Key[]
 local keys = bind_keys {
   { key = "c", mods = MOD.PRIMARY, action = act.CopyTo "Clipboard" },
   { key = "v", mods = MOD.PRIMARY, action = act.PasteFrom "Clipboard" },
   { key = "n", mods = MOD.PRIMARY, action = act.SpawnWindow },
+  { key = "y", mods = MOD.PRIMARY, action = act.SendString(open_yazi_sequence) },
 
   -- Window Management --
   { -- New Tab --

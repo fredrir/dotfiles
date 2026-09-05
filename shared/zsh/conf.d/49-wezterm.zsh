@@ -80,3 +80,14 @@ _wezterm_insert_newline() {
 zle -N wezterm-insert-newline _wezterm_insert_newline
 bindkey -M emacs $'\e[13;2u' wezterm-insert-newline
 bindkey -M viins $'\e[13;2u' wezterm-insert-newline
+
+_wezterm_open_yazi() {
+  zle -I
+  ycd
+  zle reset-prompt
+}
+
+zle -N wezterm-open-yazi _wezterm_open_yazi
+bindkey -M emacs $'\e[115;9u' wezterm-open-yazi
+bindkey -M vicmd $'\e[115;9u' wezterm-open-yazi
+bindkey -M viins $'\e[115;9u' wezterm-open-yazi

@@ -153,7 +153,5 @@
     "*.md": "default"
   },
   "chat.disableAIFeatures": true,
-  "settingsSync.ignoredExtensions": [
-    "github.copilot-chat"
-  ]
+  "settingsSync.ignoredExtensions": ["github.copilot-chat"]
 }

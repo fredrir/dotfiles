@@ -26,7 +26,7 @@ selection_background = "primary_fill"
 url                  = "info_text_on_canvas"
 
 [eza]
-fi = "muted_on_canvas" # fallback
+fi = "muted_on_canvas"           # fallback
 di = "ansi_blue_text_on_canvas"  # directories
 ex = "ansi_green_text_on_canvas" # executables
 ln = "ansi_cyan_text_on_canvas"  # symlinks

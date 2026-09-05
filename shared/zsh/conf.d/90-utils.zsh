@@ -19,6 +19,40 @@ lls() {
     -- "${links[@]}"
 }
 
+y() {
+  local cwd cwd_file yazi_status
+  cwd_file="$(mktemp -t 'yazi-cwd.XXXXXX')" || return
+
+  command yazi "$@" --cwd-file="$cwd_file"
+  yazi_status=$?
+
+  IFS= read -r -d '' cwd < "$cwd_file"
+  command rm -f -- "$cwd_file"
+
+  if [[ -n "$cwd" && "$cwd" != "$PWD" && -d "$cwd" ]]; then
+    builtin cd -- "$cwd"
+  fi
+
+  return "$yazi_status"
+}
+
+ycd() {
+  local target target_file yazi_status
+  target_file="$(mktemp -t 'yazi-chooser.XXXXXX')" || return
+
+  command yazi "$@" --chooser-file="$target_file"
+  yazi_status=$?
+
+  IFS= read -r -d '' target < "$target_file"
+  command rm -f -- "$target_file"
+
+  if [[ -n "$target" && -d "$target" ]]; then
+    builtin cd -- "$target"
+  fi
+
+  return "$yazi_status"
+}
+
 unalias cd 2>/dev/null
 cd() {
   if (($# != 1)) || [[ "$1" == -* ]] || [[ -d "$1" ]]; then

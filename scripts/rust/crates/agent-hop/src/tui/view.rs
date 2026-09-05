@@ -476,10 +476,7 @@ fn render_session_card(
     } else {
         muted(options)
     };
-    let mut card_title = vec![Span::styled(
-        "   " ,
-        title_style,
-    )];
+    let mut card_title = vec![Span::styled("   ", title_style)];
     card_title.push(badge(
         agent_label(entry.agent.name()),
         agent_badge(entry.agent.name(), options),
