@@ -1365,6 +1365,22 @@ struct CapturedOutput {
     stderr: Captured,
 }
 
+/// Use the existing bounded SSH transport for managed ownership receipts too.
+pub(crate) fn bounded_handoff_output(
+    command: Command,
+    peer: Host,
+    timeout: Duration,
+) -> Result<Vec<u8>, String> {
+    let output = output_with_timeout(command, 1024 * 1024, timeout)?;
+    if !output.status.success() {
+        return Err(captured_stderr_error(peer, &output.stderr, output.status));
+    }
+    if output.stdout.truncated {
+        return Err("oversized handoff reply".into());
+    }
+    Ok(output.stdout.bytes)
+}
+
 #[derive(Debug)]
 struct RedirectedOutput {
     status: ExitStatus,

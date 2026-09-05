@@ -1,5 +1,10 @@
 ## wezterm mux: macie ⇄ archie
 
+Inside [the tmux workspace](tmux.md), host switching uses SSH to attach a
+destination tmux session and preserves the source pane. The mutual-TLS setup
+below remains the outside-tmux WezTerm path. Neither attachment moves running
+processes; managed agent takeover is handled separately by `agent-hop move`.
+
 Both machines run a `wezterm-mux-server`. Each dials the other over mutual TLS
 on the cable, direct Wi-Fi, or Tailscale route. SSH also has the regular LAN
 route, but no SSH is involved in the mux path.

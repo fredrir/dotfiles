@@ -24,6 +24,12 @@ STANDARD = {
 
 COMMANDS = {
     "agent-hop": "Moves a Codex or Claude Code CLI session between the two workstations.",
+    "agent-hop run": "Starts a managed native agent session that can transfer execution.",
+    "agent-hop move": "Queues a managed agent handoff after its active work reaches a safe boundary.",
+    "agent-hop status": "Shows the recorded ownership and handoff state of a managed run.",
+    "agent-hop cancel": "Cancels a queued move before ownership transfers.",
+    "agent-hop follow": "Attaches to the destination that owns the moved agent.",
+    "agent-hop recover": "Resolves destination ownership before recovering preserved source history.",
     "acp": "Copies Archie's text clipboard to this machine.",
     "cpa": "Copies the local text clipboard to Archie.",
     "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",
@@ -119,6 +125,10 @@ FLAGS = {
     ("agent-hop", "--list"): (
         "Prints the local and remote sessions as tab-separated rows instead of opening the picker."
     ),
+    ("agent-hop", "--resume"): "Starts a managed run from this agent conversation ID.",
+    ("agent-hop", "--pane"): "Selects a managed tmux pane; defaults to the current pane.",
+    ("agent-hop", "--to"): "Selects `archie` or `macie` as the execution destination.",
+    ("agent-hop", "--run"): "Selects a durable managed-run ID instead of a tmux pane.",
     ("clipboard", "--sensitive"): "Keeps the copy out of Archie's clipboard history.",
     ("count", "--recursive"): (
         "Counts every entry below the directory instead of only its direct children."

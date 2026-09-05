@@ -24,6 +24,7 @@ impl Agent {
 #[command(
     name = "agent-hop",
     version,
+    args_conflicts_with_subcommands = true,
     about = "Move a Codex or Claude Code CLI session between workstations",
     after_long_help = "
   agent-hop                       Browse, preview, and move your sessions
@@ -32,7 +33,20 @@ impl Agent {
   agent-hop codex SESSION_ID      Move one specific session
   agent-hop --list                List local and remote sessions without a TUI
   agent-hop --dry-run claude      Show what would be copied and started
-  agent-hop --no-connect codex    Copy the session without opening the peer"
+  agent-hop --no-connect codex    Copy the session without opening the peer
+
+Managed execution (requires tmux; transfers at a safe turn boundary):
+  agent-hop run codex             Start a managed native Codex UI
+  agent-hop run claude            Start a managed native Claude UI
+  agent-hop move --to macie       Queue execution transfer for this managed pane
+  agent-hop status                Inspect this pane's durable ownership receipt
+  agent-hop follow                Attach the verified destination owner
+  agent-hop cancel                Cancel a queued move
+  agent-hop recover --run RUN_ID  Recover only after proving no other owner
+
+The original history commands copy conversation history; they do not stop an
+already running agent. Managed moves transfer resumable agent execution and a
+private Git workspace snapshot, not arbitrary process memory."
 )]
 pub struct Cli {
     #[arg(
@@ -92,6 +106,51 @@ impl Completable for Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Start a native agent UI with coordinated execution handoff.
+    Run {
+        #[arg(value_enum)]
+        agent: Agent,
+        #[arg(long)]
+        resume: Option<String>,
+    },
+    /// Move this managed agent pane after its current turn finishes.
+    Move {
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(long, value_enum)]
+        to: Option<hostkit::Host>,
+    },
+    /// Inspect a managed pane or a durable handoff receipt.
+    Status {
+        #[arg(long, conflicts_with = "run")]
+        pane: Option<String>,
+        #[arg(long)]
+        run: Option<String>,
+    },
+    /// Cancel a queued move before ownership transfers.
+    Cancel {
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Attach to the destination that owns this pane's moved agent.
+    Follow {
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Resolve a failed transfer before resuming preserved source history.
+    Recover {
+        #[arg(long, conflicts_with = "run")]
+        pane: Option<String>,
+        #[arg(long)]
+        run: Option<String>,
+    },
+    #[command(name = "__handoff", hide = true)]
+    Handoff {
+        #[arg(value_parser = ["preflight", "receive", "serve", "activate", "abort", "status", "hook"])]
+        operation: String,
+        #[arg(long)]
+        id: String,
+    },
     #[command(name = "__machine", hide = true)]
     Machine(Machine),
 }

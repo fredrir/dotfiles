@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+tmux_workspace_config=${XDG_CONFIG_HOME:-"$HOME/.config"}
+for tmux_workspace_controller in \
+  "$tmux_workspace_config/tmux/bin/tmux-workspace" \
+  "$HOME/.config/tmux/bin/tmux-workspace"; do
+  if [ -x "$tmux_workspace_controller" ]; then
+    exec "$tmux_workspace_controller" "$@"
+  fi
+done
+
+printf '%s\n' 'tmux-workspace: controller not linked; sync the tmux dotfiles' >&2
+exit 127

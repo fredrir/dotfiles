@@ -1,12 +1,15 @@
-# Homebrew bundle for macOS — placeholder.
-#
-# Populate from an existing machine:   brew bundle dump --file macos/Brewfile
-# Install on a new machine:            brew bundle --file macos/Brewfile
-#
-# Examples:
-# brew "git"
-# brew "neovim"
-# brew "zsh"
+# Install: brew bundle --file macos/Brewfile
+brew "bash"
+brew "fzf"
+brew "git"
+brew "lazygit"
+brew "neovim"
+brew "python"
+brew "rsync"
+brew "tmux"
+brew "yazi"
+brew "zoxide"
+brew "zsh"
 brew "starship"
 brew "eza"
 brew "fastfetch"

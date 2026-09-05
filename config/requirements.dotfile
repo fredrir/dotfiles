@@ -6,6 +6,10 @@
 
 shared {
   git
+  bash
+  python3
+  tmux
+  ssh  = openssh
   zsh
   uv
   age

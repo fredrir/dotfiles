@@ -4,6 +4,7 @@ ark
 aws-cli-v2
 base
 base-devel
+bash
 bind
 bluedevil
 breeze-gtk
@@ -27,6 +28,7 @@ fd
 filelight
 flameshot
 flatpak-kcm
+fzf
 git
 git-delta
 github-cli
@@ -51,6 +53,7 @@ ksshaskpass
 kwallet-pam
 kwin-x11
 kwrited
+lazygit
 less
 libreoffice-fresh
 libxcrypt-compat
@@ -92,6 +95,7 @@ plymouth-kcm
 pnpm
 postgresql-libs
 print-manager
+python
 python-pynvim
 rclone
 rsync
@@ -124,6 +128,7 @@ texlive-plaingeneric
 texlive-pstricks
 texlive-publishers
 texlive-xetex
+tmux
 tree
 tree-sitter-cli
 ttf-jetbrains-mono
@@ -135,6 +140,8 @@ wget
 wl-clipboard
 xclip
 yarn
+yazi
+zoxide
 zsh
 zsh-autosuggestions
 zsh-completions

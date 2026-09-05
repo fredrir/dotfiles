@@ -17,7 +17,12 @@ attach_mux() {
     return
   fi
 
-  local domain from route session to home
+  if [[ -n $TMUX ]]; then
+    tmux-workspace host "$1" --pane "$TMUX_PANE"
+    return
+  fi
+
+  local domain from route session to remote_home
   domain=$(mux-route $1) || return
 
   from=${HOST%%.*}
@@ -36,8 +41,8 @@ attach_mux() {
   esac
 
   case $to in
-  archie) home=/home/fredrir ;;
-  macie) home=/Users/fredrir ;;
+  archie) remote_home=/home/fredrir ;;
+  macie) remote_home=/Users/fredrir ;;
   esac
 
   if [[ -z $WEZTERM_PANE ]]; then
@@ -46,9 +51,9 @@ attach_mux() {
   fi
 
   local -a remote_shell
-  remote_shell=(env -i "HOME=$home" "TERM=xterm-256color" "PATH=/usr/local/bin:/usr/bin:/bin" "HWIRE_SESSION=$session" zsh -l)
+  remote_shell=(env -i "HOME=$remote_home" "TERM=xterm-256color" "PATH=/usr/local/bin:/usr/bin:/bin" "HWIRE_SESSION=$session" zsh -l)
 
-  wezterm cli spawn --domain-name "$domain" --cwd "$home" -- $remote_shell >/dev/null || return
+  wezterm cli spawn --domain-name "$domain" --cwd "$remote_home" -- $remote_shell >/dev/null || return
   wezterm cli kill-pane --pane-id "$WEZTERM_PANE"
 }
 
@@ -57,21 +62,24 @@ alias macie='attach_mux macie'
 
 alias mtls="~/.config/wezterm/bin/wezterm-mtls"
 
-[[ -n $WEZTERM_PANE ]] || return 0
+if [[ -n $WEZTERM_PANE ]]; then
+  WEZTERM_SHELL_SKIP_SEMANTIC_ZONES=1
+  WEZTERM_SHELL_SKIP_CWD=1
+  : ${WEZTERM_HOSTNAME:=$HOST}
 
-WEZTERM_SHELL_SKIP_SEMANTIC_ZONES=1
-WEZTERM_SHELL_SKIP_CWD=1
-: ${WEZTERM_HOSTNAME:=$HOST}
+  for _wezterm_sh in \
+    /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
+    /etc/profile.d/wezterm.sh \
+    /usr/share/wezterm/shell-integration/wezterm.sh; do
+    [[ -r $_wezterm_sh ]] || continue
+    source "$_wezterm_sh"
+    break
+  done
+  unset _wezterm_sh
+fi
 
-for _wezterm_sh in \
-  /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
-  /etc/profile.d/wezterm.sh \
-  /usr/share/wezterm/shell-integration/wezterm.sh; do
-  [[ -r $_wezterm_sh ]] || continue
-  source "$_wezterm_sh"
-  break
-done
-unset _wezterm_sh
+# These sequences also arrive through SSH without WEZTERM_PANE in its environment.
+[[ -o interactive ]] || return 0
 
 _wezterm_insert_newline() {
   LBUFFER+=$'\n'
@@ -82,12 +90,32 @@ bindkey -M emacs $'\e[13;2u' wezterm-insert-newline
 bindkey -M viins $'\e[13;2u' wezterm-insert-newline
 
 _wezterm_open_yazi() {
+  local cwd cwd_file yazi_status
   zle -I
-  ycd
+  if [[ -n $TMUX ]] && (( $+commands[tmux-workspace] )); then
+    cwd_file=$(mktemp -t 'tmux-yazi-cwd.XXXXXX') || return
+    {
+      tmux-workspace yazi --pane "$TMUX_PANE" --cwd-file "$cwd_file"
+      yazi_status=$?
+      IFS= read -r -d '' cwd < "$cwd_file"
+      [[ -n $cwd && -d $cwd && $cwd != $PWD ]] && builtin cd -- "$cwd"
+    } always {
+      command rm -f -- "$cwd_file"
+    }
+  else
+    ycd
+    yazi_status=$?
+  fi
   zle reset-prompt
+  return "$yazi_status"
 }
 
 zle -N wezterm-open-yazi _wezterm_open_yazi
 bindkey -M emacs $'\e[115;9u' wezterm-open-yazi
 bindkey -M vicmd $'\e[115;9u' wezterm-open-yazi
 bindkey -M viins $'\e[115;9u' wezterm-open-yazi
+# tmux treats the legacy CSI-u Super modifier as Meta before user-key matching.
+# A reserved function-key sequence preserves this widget through every layer.
+bindkey -M emacs $'\e[5;30012~' wezterm-open-yazi
+bindkey -M vicmd $'\e[5;30012~' wezterm-open-yazi
+bindkey -M viins $'\e[5;30012~' wezterm-open-yazi

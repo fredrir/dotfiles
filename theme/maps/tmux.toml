@@ -1,0 +1,62 @@
+[colors]
+bg = "canvas_bg"
+fg = "text_on_canvas"
+surface = "surface_fill"
+surface_fg = "text_on_surface"
+muted = "muted_on_canvas"
+border = "border_on_canvas"
+primary = "primary_text_on_canvas"
+on_primary = "on(primary_text_on_canvas,4.5)"
+active_bg = "primary_fill_on_canvas"
+active_fg = "on_primary_fill_on_canvas"
+selection_bg = "primary_fill_on_canvas"
+selection_fg = "on_primary_fill_on_canvas"
+success = "success_text_on_canvas"
+warning = "warning_text_on_canvas"
+error = "error_text_on_canvas"
+match_bg = "warning_fill_on_canvas"
+match_fg = "on_warning_fill_on_canvas"
+
+[styles]
+status-style = { fg = "fg", bg = "bg" }
+message-style = { fg = "surface_fg", bg = "surface" }
+message-command-style = { fg = "active_fg", bg = "active_bg", attrs = "bold" }
+mode-style = { fg = "selection_fg", bg = "selection_bg", attrs = "bold" }
+pane-border-style = { fg = "border", bg = "bg", floor = 3.0 }
+pane-active-border-style = { fg = "primary", bg = "bg", floor = 3.0 }
+popup-style = { fg = "fg", bg = "bg", version = "3.2" }
+popup-border-style = { fg = "primary", bg = "bg", floor = 3.0, version = "3.2" }
+menu-style = { fg = "fg", bg = "bg", version = "3.4" }
+menu-selected-style = { fg = "active_fg", bg = "active_bg", attrs = "bold", version = "3.4" }
+menu-border-style = { fg = "primary", bg = "bg", floor = 3.0, version = "3.4" }
+window-status-style = { fg = "muted", bg = "bg" }
+window-status-current-style = { fg = "active_fg", bg = "active_bg", attrs = "bold" }
+window-status-last-style = { fg = "fg", bg = "bg" }
+window-status-activity-style = { fg = "success", bg = "bg" }
+window-status-bell-style = { fg = "warning", bg = "bg", attrs = "bold" }
+copy-mode-match-style = { fg = "match_fg", bg = "match_bg", version = "3.2" }
+copy-mode-current-match-style = { fg = "selection_fg", bg = "selection_bg", attrs = "bold", version = "3.2" }
+copy-mode-selection-style = { fg = "selection_fg", bg = "selection_bg", version = "3.6" }
+copy-mode-position-style = { fg = "active_fg", bg = "active_bg", attrs = "bold", version = "3.6" }
+copy-mode-mark-style = { fg = "surface_fg", bg = "surface", version = "3.2" }
+copy-mode-line-number-style = { fg = "muted", bg = "bg", version = "3.7" }
+copy-mode-current-line-number-style = { fg = "primary", bg = "bg", attrs = "bold", version = "3.7" }
+
+[fzf]
+bg = "bg"
+gutter = "bg"
+fg = "fg"
+"bg+" = "active_bg"
+"fg+" = "active_fg"
+hl = "primary"
+"hl+" = "active_fg"
+header = "muted"
+info = "muted"
+prompt = "primary"
+pointer = "primary"
+marker = "success"
+spinner = "primary"
+border = "border"
+label = "primary"
+"preview-bg" = "bg"
+"preview-fg" = "fg"

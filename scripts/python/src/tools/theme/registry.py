@@ -8,6 +8,7 @@ from tools.theme.emitters import (
     plasma,
     quicklaunch,
     starship,
+    tmux,
     wezterm,
     yazi,
     zsh,
@@ -28,6 +29,7 @@ class Emitter:
 
 EMITTERS = [
     Emitter("wezterm", wezterm.emit, wezterm.outputs),
+    Emitter("tmux", tmux.emit, [tmux.OUTPUT]),
     Emitter("fastfetch-config", fastfetch.emit_config, fastfetch.CONFIGS),
     Emitter("fastfetch-logo", fastfetch.emit_logo, fastfetch.LOGOS),
     Emitter("starship", starship.emit, [starship.OUTPUT]),

@@ -8,6 +8,7 @@ use hostkit::Host;
 mod catalog;
 pub mod cli;
 mod favorites;
+mod handoff;
 mod inbound;
 mod interactive;
 mod lineage;
@@ -36,8 +37,11 @@ pub(crate) struct TransferOptions {
 }
 
 pub fn run(cli: Cli) -> Result<(), String> {
-    if let Some(Command::Machine(machine)) = cli.command {
-        return machine::run(machine.request);
+    if let Some(command) = cli.command {
+        return match command {
+            Command::Machine(machine) => machine::run(machine.request),
+            command => handoff::run(command),
+        };
     }
     if cli.list {
         return interactive::list();

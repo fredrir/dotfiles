@@ -11,7 +11,7 @@
 - `rsync` — Shared exclusion rules for home-directory transfers
 - `ssh` — OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
 - `starship` — Cross-shell prompt configuration
-- `tmux`
+- `tmux` — Persistent project workspaces, pane tools, navigation and generated theme
 - `tools`
 - `transcript`
 - `vscode` — VS Code user settings: shared base with platform overlays merged on link

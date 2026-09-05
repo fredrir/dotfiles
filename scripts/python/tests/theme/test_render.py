@@ -298,6 +298,7 @@ def test_generated_contrast_matrix_covers_semantics_apps_and_raw_ansi(profile):
     assert "| kde |" in matrix
     assert "| obsidian |" in matrix
     assert "| yazi |" in matrix
+    assert "| tmux |" in matrix
     assert "| ansi |" in matrix
     assert "| FAIL |" not in matrix
 

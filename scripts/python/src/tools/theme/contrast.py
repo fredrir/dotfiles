@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from tools.theme import oklab, yazi
+from tools.theme import oklab, tmux, yazi
 from tools.theme.model import ANSI, load_map
 
 
@@ -236,6 +236,22 @@ def yazi_pairs(theme, template):
     ]
 
 
+def tmux_pairs(theme):
+    colors = tmux.colors(theme)
+    return [
+        Pair(
+            "tmux",
+            state,
+            colors[foreground],
+            colors[background],
+            oklab.contrast_ratio(colors[foreground], colors[background]),
+            floor,
+            "graphic" if floor == 3 else "text",
+        )
+        for state, foreground, background, floor in tmux.color_pairs()
+    ]
+
+
 def required_pairs(theme, yazi_template):
     return [
         *semantic_pairs(theme),
@@ -243,6 +259,7 @@ def required_pairs(theme, yazi_template):
         *gtk_pairs(theme),
         *obsidian_pairs(theme),
         *yazi_pairs(theme, yazi_template),
+        *tmux_pairs(theme),
     ]
 
 

@@ -223,7 +223,7 @@ fn an_invalid_agent_is_a_usage_error() {
 fn extra_arguments_are_a_usage_error() {
     let output = agent_hop(&["codex", "one", "two"]);
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert!(stderr(&output).contains("unexpected argument 'two'"));
+    assert!(stderr(&output).contains("'two'"));
 }
 
 #[test]

@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+"""Pinned tmux integrations; downloads never block the first shell."""
+
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+import platform
+import re
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+
+CONFIG = Path(__file__).resolve().parent.parent
+LOCK = json.loads((CONFIG / "plugins.lock.json").read_text())
+ROOT = Path(
+    os.environ.get(
+        "DOTFILES_TMUX_PLUGIN_HOME",
+        Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
+        / "tmux/plugins",
+    )
+)
+RETRY_SECONDS = 300
+
+
+def run(argv, *, timeout=30, check=True, **kwargs):
+    return subprocess.run(
+        [str(arg) for arg in argv], timeout=timeout, check=check, **kwargs
+    )
+
+
+def tmux(*args, check=True, data=None):
+    return run(
+        ["tmux", *args],
+        input=data,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=check,
+    )
+
+
+def option(name, value):
+    tmux("set-option", "-g", name, str(value), check=False)
+
+
+def message(value, client=None):
+    # No format expansion: filenames, errors and copied text are literal data.
+    value = re.sub(r"[\x00-\x1f\x7f]", " ", str(value)).replace("#", "##")[:300]
+    tmux(
+        "display-message", *(["-c", client] if client else []), "--", value, check=False
+    )
+
+
+def paths():
+    return (
+        ROOT / ("resurrect-" + LOCK["resurrect"]["revision"]),
+        ROOT / ("fingers-" + LOCK["fingers"]["version"]) / "tmux-fingers",
+    )
+
+
+def asset_key():
+    arch = platform.machine()
+    if arch == "aarch64" and platform.system() == "Darwin":
+        arch = "arm64"
+    return platform.system() + "-" + arch
+
+
+def fingers_binary():
+    bundled = paths()[1]
+    if bundled.is_file() and os.access(bundled, os.X_OK):
+        return bundled
+    # Other architectures may provide their own compatible build.
+    system = shutil.which("tmux-fingers")
+    return Path(system) if system else None
+
+
+def state():
+    try:
+        return json.loads((ROOT / "status.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(value):
+    with tempfile.NamedTemporaryFile(
+        mode="w", dir=ROOT, prefix=".status-", delete=False
+    ) as output:
+        json.dump(value, output)
+        temporary = Path(output.name)
+    temporary.replace(ROOT / "status.json")
+
+
+def install_resurrect():
+    destination = paths()[0]
+    if (destination / "scripts/save.sh").is_file() and (
+        destination / "scripts/restore.sh"
+    ).is_file():
+        return
+    if destination.exists():
+        raise RuntimeError(f"incomplete plugin: {destination}; move it aside and retry")
+    spec = LOCK["resurrect"]
+    if not re.fullmatch(r"[0-9a-f]{40}", spec["revision"]):
+        raise RuntimeError("invalid resurrect revision")
+    with tempfile.TemporaryDirectory(dir=ROOT, prefix=".resurrect-") as staging:
+        checkout = Path(staging) / "repo"
+        run(
+            ["git", "init", "-q", checkout],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        run(
+            [
+                "git",
+                "-C",
+                checkout,
+                "-c",
+                "core.hooksPath=/dev/null",
+                "fetch",
+                "--depth=1",
+                spec["repository"],
+                spec["revision"],
+            ],
+            env=environment,
+            timeout=90,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        run(
+            [
+                "git",
+                "-C",
+                checkout,
+                "-c",
+                "core.hooksPath=/dev/null",
+                "checkout",
+                "--detach",
+                "FETCH_HEAD",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        revision = run(
+            ["git", "-C", checkout, "rev-parse", "HEAD"], capture_output=True, text=True
+        ).stdout.strip()
+        if revision != spec["revision"]:
+            raise RuntimeError("resurrect revision mismatch")
+        checkout.rename(destination)
+
+
+def download_verified(url, digest, destination):
+    if not url.startswith(
+        "https://github.com/Morantron/tmux-fingers/releases/download/"
+    ):
+        raise RuntimeError("invalid fingers download URL")
+    checksum = hashlib.sha256()
+    request = urllib.request.Request(url, headers={"User-Agent": "dotfiles-tmux"})
+    with (
+        urllib.request.urlopen(request, timeout=30) as response,
+        destination.open("xb") as output,
+    ):
+        size = 0
+        while chunk := response.read(65536):
+            size += len(chunk)
+            if size > 32 * 1024 * 1024:
+                raise RuntimeError("fingers download too large")
+            output.write(chunk)
+            checksum.update(chunk)
+    if checksum.hexdigest() != digest:
+        raise RuntimeError("fingers checksum mismatch")
+    destination.chmod(0o700)
+
+
+def install_fingers():
+    if fingers_binary():
+        return
+    asset = LOCK["fingers"]["assets"].get(asset_key())
+    if asset is None:
+        raise RuntimeError(
+            f"fingers: no standalone build for {asset_key()}; install tmux-fingers for this platform"
+        )
+    destination = paths()[1]
+    if destination.parent.exists():
+        raise RuntimeError(
+            f"incomplete plugin: {destination.parent}; move it aside and retry"
+        )
+    with tempfile.TemporaryDirectory(dir=ROOT, prefix=".fingers-") as staging:
+        binary = Path(staging) / "tmux-fingers"
+        download_verified(asset["url"], asset["sha256"], binary)
+        version = run(
+            [binary, "version"], capture_output=True, text=True
+        ).stdout.strip()
+        if version != LOCK["fingers"]["version"]:
+            raise RuntimeError(f"fingers version mismatch: {version}")
+        # Publish the executable and its containing directory together.
+        ready = Path(staging) / "ready"
+        ready.mkdir(mode=0o700)
+        binary.rename(ready / "tmux-fingers")
+        ready.rename(destination.parent)
+
+
+def indexed_color(value, background):
+    def rgb(color):
+        return tuple(int(color[i : i + 2], 16) for i in (1, 3, 5))
+
+    def luminance(color):
+        linear = [
+            x / 3294.6 if x <= 10 else ((x / 255 + 0.055) / 1.055) ** 2.4 for x in color
+        ]
+        return sum(x * weight for x, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    wanted, bg = rgb(value), luminance(rgb(background))
+    ramp = (0, 95, 135, 175, 215, 255)
+    candidates = [
+        (16 + 36 * r + 6 * g + b, (red, green, blue))
+        for r, red in enumerate(ramp)
+        for g, green in enumerate(ramp)
+        for b, blue in enumerate(ramp)
+    ]
+    candidates.extend((232 + i, (8 + 10 * i,) * 3) for i in range(24))
+    visible = [
+        (index, color)
+        for index, color in candidates
+        if (max(luminance(color), bg) + 0.05) / (min(luminance(color), bg) + 0.05)
+        >= 4.5
+    ]
+    return min(
+        visible,
+        key=lambda candidate: sum((a - b) ** 2 for a, b in zip(candidate[1], wanted)),
+    )[0]
+
+
+def fingers_styles():
+    roles = ("bg", "primary", "fg", "muted", "success")
+    values = (
+        tmux(
+            "display-message",
+            "-p",
+            "|".join("#{@theme_" + role + "}" for role in roles),
+        )
+        .stdout.decode()
+        .strip()
+        .split("|")
+    )
+    if len(values) != len(roles) or not all(
+        re.fullmatch(r"#[0-9a-fA-F]{6}", value) for value in values
+    ):
+        raise RuntimeError("fingers: theme palette unavailable")
+    palette = dict(zip(roles, values))
+    for style, role, attributes in (
+        ("hint", "primary", ",bold"),
+        ("highlight", "fg", ""),
+        ("backdrop", "muted", ""),
+        ("selected-hint", "success", ",bold"),
+        ("selected-highlight", "success", ""),
+    ):
+        color = indexed_color(palette[role], palette["bg"])
+        option("@fingers-" + style + "-style", "fg=colour" + str(color) + attributes)
+
+
+def load_plugins():
+    resurrect, _ = paths()
+    if (resurrect / "scripts/save.sh").is_file():
+        option("@resurrect-save-script-path", resurrect / "scripts/save.sh")
+        option("@resurrect-restore-script-path", resurrect / "scripts/restore.sh")
+        socket = tmux("display-message", "-p", "#{socket_path}").stdout.decode().strip()
+        identity = hashlib.sha256(socket.encode()).hexdigest()[:12]
+        savedir = (
+            Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+            / "tmux/resurrect"
+            / identity
+        )
+        savedir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        current = tmux(
+            "show-option", "-gqv", "@resurrect-dir", check=False
+        ).stdout.strip()
+        if not current:
+            option("@resurrect-dir", savedir)
+    binary = fingers_binary()
+    if binary:
+        # Plugin source loading can add root bindings; the shared config owns them.
+        option("@fingers-enable-bindings", "0")
+        fingers_styles()
+        result = run(
+            [binary, "load-config"],
+            timeout=30,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode:
+            detail = (result.stdout + result.stderr).decode(errors="replace").strip()
+            raise RuntimeError(f"fingers configuration: {detail}")
+
+
+def bootstrap(force=False):
+    if os.environ.get("DOTFILES_TMUX_VALIDATE") == "1":
+        return 0
+    ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (ROOT / ".install.lock").open("a") as lock:
+        # Each server must load its own config after a shared install finishes.
+        # This worker already runs in the background, outside the first shell.
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        before = state()
+        attempted = before.get("attempted", 0)
+        errors = []
+        available = (paths()[0] / "scripts/save.sh").is_file() and bool(
+            fingers_binary()
+        )
+        offline = os.environ.get("DOTFILES_TMUX_OFFLINE") == "1"
+        retry = force or time.time() - before.get("attempted", 0) > RETRY_SECONDS
+        if not available and not offline and retry:
+            option("@workspace-plugins-state", "installing")
+            for install in (install_resurrect, install_fingers):
+                try:
+                    install()
+                except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                    errors.append(str(error))
+            attempted = time.time()
+        elif not available:
+            errors = before.get("errors", []) or [
+                "plugins unavailable offline" if offline else "plugin install pending"
+            ]
+        try:
+            load_plugins()
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            errors.append(str(error))
+        write_state({"attempted": attempted, "errors": errors})
+        if errors:
+            option("@workspace-plugins-state", "error")
+            for error in errors:
+                print(error, file=sys.stderr)
+            return 1
+        option("@workspace-plugins-state", "")
+        return 0
+
+
+def fingers(pane, client):
+    if not pane or not re.fullmatch(r"%[0-9]+", pane):
+        raise RuntimeError("fingers: pane ID required")
+    # Upstream temporarily changes global prefix options and swaps tiled panes.
+    floating = tmux(
+        "display-message", "-p", "-t", pane, "#{pane_floating_flag}"
+    ).stdout.strip()
+    clients = tmux("list-clients", "-F", "#{client_name}").stdout.splitlines()
+    if floating == b"1" or len(clients) > 1:
+        return 3  # Controller provides a client-local fzf selection fallback.
+    binary = fingers_binary()
+    if not binary:
+        return 3
+    # The explicit client sends OSC52 to the viewer rather than a remote desktop.
+    clipboard = shlex.join(
+        ["tmux", "load-buffer", "-w", *(["-t", client] if client else []), "-"]
+    )
+    return run(
+        [binary, "start", pane, "--main-action", clipboard, "--ctrl-action", clipboard],
+        timeout=None,
+        check=False,
+    ).returncode
+
+
+def recovery(action, client=None):
+    script = paths()[0] / "scripts" / (action + ".sh")
+    if not script.is_file():
+        raise RuntimeError("resurrect unavailable; install plugins first")
+    configured = tmux("show-option", "-gqv", "@resurrect-dir").stdout.decode().strip()
+    if not configured:
+        raise RuntimeError("recovery directory unset; reload tmux")
+    savedir = Path(configured).expanduser()
+    savedir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if action == "restore":
+        snapshot = savedir / "last"
+        if not snapshot.is_file():
+            raise RuntimeError("no saved workspace")
+        if snapshot.resolve().parent != savedir.resolve():
+            raise RuntimeError("saved workspace outside recovery directory")
+        clients = (
+            tmux("list-clients", "-F", "#{client_name}").stdout.decode().splitlines()
+        )
+        # Upstream restore switches its chosen client and changes server layouts.
+        if len(clients) > 1 or (clients and client and clients[0] != client):
+            raise RuntimeError("restore requires a single attached client")
+    with (savedir / ".operation.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("workspace recovery already running") from error
+        argv = ["bash", str(script), *(["quiet"] if action == "save" else [])]
+        environment = dict(os.environ)
+        if not shutil.which("hostname"):
+            environment["PATH"] = (
+                str(CONFIG / "libexec") + os.pathsep + environment.get("PATH", "")
+            )
+        process = subprocess.Popen(
+            argv,
+            env=environment,
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=120)
+            if process.returncode:
+                detail = (stdout + stderr).decode(errors="replace").strip()
+                raise RuntimeError(f"workspace {action}: {detail}")
+            if action == "save" and not (savedir / "last").is_file():
+                raise RuntimeError("workspace save did not create a snapshot")
+            return 0
+        finally:
+            # Includes upstream's spinner, even if the main script timed out.
+            # Restored pane jobs belong to the tmux server, outside this group.
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "action",
+        choices=("bootstrap", "install", "status", "fingers", "save", "restore"),
+    )
+    parser.add_argument("--pane")
+    parser.add_argument("--client")
+    arguments = parser.parse_args()
+    os.umask(0o077)
+    selected_socket = os.environ.get("TMUX_WORKSPACE_SOCKET")
+    if selected_socket:
+        pid = run(
+            ["tmux", "-S", selected_socket, "display-message", "-p", "#{pid}"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        os.environ["TMUX"] = f"{selected_socket},{pid},0"
+    if arguments.action in ("bootstrap", "install"):
+        return bootstrap(force=arguments.action == "install")
+    if arguments.action == "status":
+        resurrect, _ = paths()
+        print(
+            f"resurrect  {LOCK['resurrect']['revision'][:12]}  {'installed' if (resurrect / 'scripts/save.sh').is_file() else 'missing'}"
+        )
+        print(
+            f"fingers    {LOCK['fingers']['version']}  {'installed' if fingers_binary() else 'missing'}"
+        )
+        for error in state().get("errors", []):
+            print(error)
+        return 0
+    if arguments.action == "fingers":
+        return fingers(arguments.pane, arguments.client)
+    return recovery(arguments.action, arguments.client)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"tmux plugins: {error}", file=sys.stderr)
+        raise SystemExit(1)

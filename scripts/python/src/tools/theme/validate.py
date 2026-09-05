@@ -1,4 +1,4 @@
-from tools.theme import contrast, oklab, yazi
+from tools.theme import contrast, oklab, tmux, yazi
 from tools.theme.model import COLOR_TABLES, FONT_SIZES, Theme, list_profiles, load_map, path
 
 
@@ -11,6 +11,7 @@ def _leaves(table):
 
 
 def _check_expressions(theme, problems):
+    problems.extend(tmux.expression_problems(theme))
     for name in COLOR_TABLES:
         for key, expression in _leaves(theme.data.get(name, {})):
             try:

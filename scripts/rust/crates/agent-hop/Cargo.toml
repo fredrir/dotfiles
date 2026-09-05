@@ -17,6 +17,7 @@ serde.workspace         = true
 serde_json              = { workspace = true, features = ["preserve_order"] }
 sha2.workspace          = true
 tempfile.workspace      = true
+tungstenite             = { version = "0.28", default-features = false, features = ["handshake"] }
 tui-kit.workspace       = true
 unicode-width.workspace = true
 workstation.workspace   = true
@@ -24,5 +25,5 @@ workstation.workspace   = true
 [dev-dependencies]
 testkit.workspace = true
 
-[target.'cfg(unix)'.dev-dependencies]
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true

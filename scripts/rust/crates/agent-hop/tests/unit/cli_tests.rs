@@ -8,6 +8,15 @@ fn the_parser_is_well_formed() {
 }
 
 #[test]
+fn legacy_flags_cannot_silently_modify_managed_execution() {
+    for flag in ["--dry-run", "--no-connect", "--list"] {
+        assert!(Cli::try_parse_from(["agent-hop", flag, "run", "codex"]).is_err());
+    }
+    assert!(Cli::try_parse_from(["agent-hop", "codex", "run", "codex"]).is_err());
+    assert!(Cli::try_parse_from(["agent-hop", "run", "codex"]).is_ok());
+}
+
+#[test]
 fn a_bare_invocation_selects_the_interactive_picker() {
     let cli = Cli::try_parse_from(["agent-hop"]).unwrap();
     assert!(cli.agent.is_none());
