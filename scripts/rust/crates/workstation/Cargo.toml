@@ -8,10 +8,17 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+walk = ["dep:rayon"]
+
 [dependencies]
 clap.workspace          = true
 clap_complete.workspace = true
+rayon                   = { workspace = true, optional = true }
 
 # Only for the terminal-size ioctl; there is no other way to ask.
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

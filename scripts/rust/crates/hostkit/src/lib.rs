@@ -1,4 +1,5 @@
 pub mod host;
+pub mod shell;
 pub mod snapshot;
 pub mod socket;
 pub mod ssh;

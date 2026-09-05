@@ -5,8 +5,15 @@ use std::process::ExitCode;
 use clap::{Args, CommandFactory};
 use clap_complete::Shell;
 
+pub mod color;
+pub mod path;
 pub mod screen;
+pub mod text;
+pub mod units;
+#[cfg(feature = "walk")]
+pub mod walk;
 
+pub use color::ColorMode;
 pub use screen::{Key, Screen};
 
 // The `--completions <SHELL>` flag, flattened into each tool's parser. A
@@ -112,6 +119,24 @@ pub fn fail(program: &str, message: impl Display) -> ExitCode {
     ExitCode::FAILURE
 }
 
+pub trait Completable {
+    fn completions(&self) -> &Completions;
+}
+
+pub fn run<C>(program: &str, body: impl FnOnce(C) -> Result<ExitCode, String>) -> ExitCode
+where
+    C: clap::Parser + CommandFactory + Completable,
+{
+    let cli = C::parse();
+    if let Some(status) = cli.completions().emit::<C>(program) {
+        return status;
+    }
+    match body(cli) {
+        Ok(status) => status,
+        Err(message) => fail(program, message),
+    }
+}
+
 pub struct Style {
     colored: bool,
     green: String,
@@ -132,8 +157,12 @@ impl Style {
         Style::for_stream(io::stderr().is_terminal())
     }
 
+    pub fn for_mode(mode: ColorMode, terminal: bool) -> Style {
+        Style::new(mode.enabled(terminal))
+    }
+
     fn for_stream(terminal: bool) -> Style {
-        Self::new(terminal && std::env::var_os("NO_COLOR").is_none())
+        Style::for_mode(ColorMode::Auto, terminal)
     }
 
     fn new(colored: bool) -> Style {
@@ -172,6 +201,13 @@ impl Style {
 
     pub fn teal(&self, text: &str) -> String {
         self.paint(&self.teal, text)
+    }
+
+    pub fn code(&self, code: &str, text: &str) -> String {
+        if !self.colored || text.is_empty() {
+            return text.to_string();
+        }
+        format!("\x1b[{code}m{text}\x1b[0m")
     }
 
     fn paint(&self, code: &str, text: &str) -> String {

@@ -36,43 +36,67 @@ pub fn width(text: &str) -> usize {
     count
 }
 
-// Plain text only: a row is truncated before any colour is put on it, so the
-// escapes can never be cut in half.
 pub fn fit(text: &str, limit: usize) -> String {
-    if text.chars().count() <= limit {
-        return text.to_string();
+    crate::text::truncate_back(text, limit)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SignalOptions {
+    pub hook: Option<fn()>,
+    pub reset_to_default: bool,
+    pub reraise_on_drop: bool,
+}
+
+impl Default for SignalOptions {
+    fn default() -> Self {
+        Self {
+            hook: None,
+            reset_to_default: false,
+            reraise_on_drop: true,
+        }
     }
-    if limit <= 1 {
-        return "…".repeat(limit);
-    }
-    let kept: String = text.chars().take(limit - 1).collect();
-    format!("{kept}…")
 }
 
 #[cfg(unix)]
 #[allow(unsafe_code)]
 mod imp {
-    use super::Key;
+    use super::{Key, SignalOptions};
     use std::fs::{File, OpenOptions};
     use std::io::{self, Read, Write};
     use std::os::fd::AsRawFd;
-    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering};
+
+    const TERMINATION_SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
 
     static TERMINATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
+    static TERMINATION_HOOK: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+    static RESET_TO_DEFAULT: AtomicBool = AtomicBool::new(false);
 
     pub struct SignalGuard {
         previous: Vec<(libc::c_int, libc::sigaction)>,
+        reraise_on_drop: bool,
     }
 
     impl SignalGuard {
         pub fn new() -> io::Result<Self> {
+            Self::with_options(SignalOptions::default())
+        }
+
+        pub fn with_options(options: SignalOptions) -> io::Result<Self> {
             TERMINATION_SIGNAL.store(0, Ordering::Release);
+            TERMINATION_HOOK.store(
+                options
+                    .hook
+                    .map_or(std::ptr::null_mut(), |hook| hook as *mut ()),
+                Ordering::Release,
+            );
+            RESET_TO_DEFAULT.store(options.reset_to_default, Ordering::Release);
             let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
             action.sa_sigaction = terminal_signal as *const () as libc::sighandler_t;
             action.sa_flags = 0;
             unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
-            let mut previous = Vec::with_capacity(3);
-            for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            let mut previous = Vec::with_capacity(TERMINATION_SIGNALS.len());
+            for signal in TERMINATION_SIGNALS {
                 let mut prior: libc::sigaction = unsafe { std::mem::zeroed() };
                 if unsafe { libc::sigaction(signal, &raw const action, &raw mut prior) } != 0 {
                     for (installed, handler) in previous.into_iter().rev() {
@@ -84,7 +108,10 @@ mod imp {
                 }
                 previous.push((signal, prior));
             }
-            Ok(Self { previous })
+            Ok(Self {
+                previous,
+                reraise_on_drop: options.reraise_on_drop,
+            })
         }
     }
 
@@ -92,6 +119,11 @@ mod imp {
         fn drop(&mut self) {
             for (signal, handler) in self.previous.drain(..).rev() {
                 unsafe { libc::sigaction(signal, &raw const handler, std::ptr::null_mut()) };
+            }
+            TERMINATION_HOOK.store(std::ptr::null_mut(), Ordering::Release);
+            RESET_TO_DEFAULT.store(false, Ordering::Release);
+            if !self.reraise_on_drop {
+                return;
             }
             let signal = TERMINATION_SIGNAL.swap(0, Ordering::AcqRel);
             if signal != 0 {
@@ -102,10 +134,28 @@ mod imp {
 
     extern "C" fn terminal_signal(signal: libc::c_int) {
         TERMINATION_SIGNAL.store(signal, Ordering::Release);
+        let hook = TERMINATION_HOOK.load(Ordering::Acquire);
+        if !hook.is_null() {
+            let hook: fn() = unsafe { std::mem::transmute(hook) };
+            hook();
+        }
+        if RESET_TO_DEFAULT.load(Ordering::Acquire) {
+            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+            action.sa_sigaction = libc::SIG_DFL;
+            action.sa_flags = 0;
+            unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
+            for signal in TERMINATION_SIGNALS {
+                unsafe { libc::sigaction(signal, &raw const action, std::ptr::null_mut()) };
+            }
+        }
     }
 
     pub fn termination_requested() -> bool {
         TERMINATION_SIGNAL.load(Ordering::Acquire) != 0
+    }
+
+    pub fn termination_signal() -> i32 {
+        TERMINATION_SIGNAL.load(Ordering::Acquire)
     }
 
     pub struct Screen {
@@ -322,7 +372,7 @@ mod imp {
 
 #[cfg(not(unix))]
 mod imp {
-    use super::Key;
+    use super::{Key, SignalOptions};
     use std::io;
 
     pub struct SignalGuard;
@@ -331,10 +381,18 @@ mod imp {
         pub fn new() -> io::Result<Self> {
             Ok(Self)
         }
+
+        pub fn with_options(_options: SignalOptions) -> io::Result<Self> {
+            Ok(Self)
+        }
     }
 
     pub fn termination_requested() -> bool {
         false
+    }
+
+    pub fn termination_signal() -> i32 {
+        0
     }
 
     pub struct Screen;
@@ -358,7 +416,7 @@ mod imp {
     }
 }
 
-pub use imp::{Screen, SignalGuard, termination_requested};
+pub use imp::{Screen, SignalGuard, termination_requested, termination_signal};
 
 #[cfg(test)]
 #[path = "../tests/unit/screen_tests.rs"]

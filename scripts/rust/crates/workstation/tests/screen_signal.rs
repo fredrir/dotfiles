@@ -6,11 +6,20 @@ use std::io::{ErrorKind, Read};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use workstation::Screen;
+use workstation::screen::{SignalGuard, SignalOptions, termination_requested, termination_signal};
 
 const CHILD: &str = "WORKSTATION_SCREEN_SIGNAL_CHILD";
+const OPTIONS_CHILD: &str = "WORKSTATION_SIGNAL_OPTIONS_CHILD";
+
+static HOOK_RAN: AtomicBool = AtomicBool::new(false);
+
+fn mark_hook_ran() {
+    HOOK_RAN.store(true, Ordering::Release);
+}
 
 #[test]
 fn termination_signal_restores_terminal_and_status() {
@@ -94,6 +103,80 @@ fn termination_signal_restores_terminal_and_status() {
     assert_eq!(before.c_cc[libc::VMIN], after.c_cc[libc::VMIN]);
     assert_eq!(before.c_cc[libc::VTIME], after.c_cc[libc::VTIME]);
     assert!(output.windows(6).any(|window| window == b"\x1b[?25h"));
+}
+
+#[test]
+fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
+    if let Some(directory) = std::env::var_os(OPTIONS_CHILD) {
+        let directory = std::path::PathBuf::from(directory);
+        let guard = SignalGuard::with_options(SignalOptions {
+            hook: Some(mark_hook_ran),
+            reset_to_default: true,
+            reraise_on_drop: false,
+        })
+        .unwrap();
+        std::fs::write(directory.join("ready"), "1").unwrap();
+        while !termination_requested() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let report = format!(
+            "{} {} {} {}",
+            u8::from(HOOK_RAN.load(Ordering::Acquire)),
+            u8::from(disposition(libc::SIGINT) == libc::SIG_DFL),
+            u8::from(disposition(libc::SIGTERM) == libc::SIG_DFL),
+            u8::from(disposition(libc::SIGHUP) == libc::SIG_DFL),
+        );
+        drop(guard);
+        let signal = termination_signal();
+        std::fs::write(directory.join("report"), format!("{report} {signal}")).unwrap();
+        std::process::exit(128 + signal);
+    }
+
+    let temporary = tempfile::tempdir().unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number",
+            "--nocapture",
+        ])
+        .env(OPTIONS_CHILD, temporary.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let ready = temporary.path().join("ready");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready.exists() {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the guarded child exited before it armed: {status:?}");
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!("the guarded child did not arm before the deadline");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) },
+        0
+    );
+    let status = child.wait().unwrap();
+    let report = std::fs::read_to_string(temporary.path().join("report")).unwrap_or_default();
+    assert_eq!(report, format!("1 1 1 1 {}", libc::SIGTERM));
+    assert_eq!(status.signal(), None);
+    assert_eq!(status.code(), Some(128 + libc::SIGTERM));
+}
+
+fn disposition(signal: libc::c_int) -> libc::sighandler_t {
+    let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut current) },
+        0
+    );
+    current.sa_sigaction
 }
 
 fn open_pty() -> (File, File, libc::termios) {

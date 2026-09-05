@@ -3145,7 +3145,6 @@ name = "tui-kit"
 version = "0.1.0"
 dependencies = [
  "crossterm",
- "libc",
  "ratatui",
  "workstation",
 ]
@@ -3560,6 +3559,8 @@ dependencies = [
  "clap",
  "clap_complete",
  "libc",
+ "rayon",
+ "tempfile",
 ]
 
 [[package]]
