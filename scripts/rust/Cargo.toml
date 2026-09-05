@@ -6,6 +6,7 @@ members = [
   "crates/agent-hop",
   "crates/bench-workloads",
   "crates/count",
+  "crates/doc-keybinds",
   "crates/doc-purge",
   "crates/dotfile",
   "crates/dotfile-format",

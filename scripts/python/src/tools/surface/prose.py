@@ -34,6 +34,7 @@ COMMANDS = {
     "cpa": "Copies the local text clipboard to Archie.",
     "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",
     "count": "Counts items inside a directory.",
+    "doc-keybinds": "Generates docs/keybinds from configured keybindings.",
     "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
     "dotfile add": "Moves a live config into the repository and symlinks it back.",
@@ -115,6 +116,8 @@ COMMANDS = {
 }
 
 FLAGS = {
+    ("doc-keybinds", "--root"): "Selects the dotfiles repository.",
+    ("doc-keybinds", "--check"): "Reports stale pages without writing; exits 1 on drift.",
     ("agent-hop", "--dry-run"): (
         "Reports what would be copied and started without changing either machine."
     ),

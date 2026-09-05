@@ -20,6 +20,7 @@ PAGES = (
         "scripts/python/src/tools/utils/remote_clipboard.py",
     ),
     Page("count", "count", ("count",), "scripts/rust/crates/count/"),
+    Page("doc-keybinds", "doc-keybinds", ("doc-keybinds",), "scripts/rust/crates/doc-keybinds/"),
     Page("doc-purge", "doc-purge", ("doc-purge",), "scripts/rust/crates/doc-purge/"),
     Page("dotfile", "dotfile", ("dotfile",), "scripts/python/src/tools/dotfile/"),
     Page(
@@ -53,6 +54,7 @@ UNDOCUMENTED = ("power-menu", "confirm-exit", "clean-copy", "update-readme-fastf
 RUST = (
     "agent-hop",
     "count",
+    "doc-keybinds",
     "doc-purge",
     "dotfile-format",
     "dotfmt",

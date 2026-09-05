@@ -11,6 +11,7 @@ RUST_BINARIES = [
     "agent-hop",
     "bench-workloads",
     "count",
+    "doc-keybinds",
     "doc-purge",
     "dotfile",
     "dotfile-format",

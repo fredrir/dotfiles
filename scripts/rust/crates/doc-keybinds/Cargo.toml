@@ -1,0 +1,19 @@
+[package]
+name = "doc-keybinds"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generate keybinding tables from repository configurations"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+workstation.workspace = true
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
+tree-sitter = "0.25"
+tree-sitter-lua = "0.5"

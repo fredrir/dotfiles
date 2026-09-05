@@ -14,6 +14,15 @@ pub fn synchronize(
     dry_run: bool,
     events: &dyn EventSink,
 ) -> Result<usize, String> {
+    synchronize_with_backend(context, dry_run, events, &backend::path())
+}
+
+fn synchronize_with_backend(
+    context: &Context,
+    dry_run: bool,
+    events: &dyn EventSink,
+    program: &Path,
+) -> Result<usize, String> {
     let stamp = context.state.join("sync/docs.fingerprint");
     let before = fingerprint(context)?;
     if fs::read_to_string(&stamp).ok().as_deref() == Some(before.as_str()) {
@@ -23,7 +32,7 @@ pub fn synchronize(
         phase: Phase::Artifacts,
         total: None,
     });
-    let output = generate(dry_run)?;
+    let output = generate_with_backend(program, dry_run)?;
     let accepted = output.status.success() || dry_run && output.status.code() == Some(1);
     if !accepted {
         return Err(
@@ -32,11 +41,12 @@ pub fn synchronize(
     }
     let verb = if dry_run { "drifted" } else { "updated" };
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let paths = stdout
+    let mut paths = stdout
         .lines()
         .filter_map(|line| line.trim().strip_prefix(verb).map(str::trim))
         .map(PathBuf::from)
         .collect::<Vec<_>>();
+    paths.extend(doc_keybinds::generate(&context.root, dry_run)?);
     for path in &paths {
         events.emit(Event::Item {
             action: Action::Generate,
@@ -50,10 +60,6 @@ pub fn synchronize(
         write_stamp(&stamp, &after)?;
     }
     Ok(paths.len())
-}
-
-fn generate(check: bool) -> Result<Output, String> {
-    generate_with_backend(&backend::path(), check)
 }
 
 fn generate_with_backend(program: &Path, check: bool) -> Result<Output, String> {
@@ -77,9 +83,13 @@ fn fingerprint(context: &Context) -> Result<String, String> {
         context.root.join("scripts/rust/Cargo.lock"),
         context.root.join("scripts/rust/crates"),
         context.root.join("docs/cli"),
+        context.root.join("docs/keybinds"),
     ];
     for input in inputs {
         hash_path(&input, &mut hasher)?;
+    }
+    for input in doc_keybinds::INPUTS {
+        hash_path(&context.root.join(input), &mut hasher)?;
     }
     Ok(format!("{:016x}\n", hasher.finish()))
 }
