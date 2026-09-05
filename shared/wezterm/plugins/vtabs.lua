@@ -5,28 +5,14 @@ local plugin_root = wezterm.home_dir .. "/projects/wez-plugins/vertical-tabs"
 local package_path = plugin_root .. "/plugin/init.lua"
 
 package.path = plugin_root .. "/plugin/?.lua;" .. plugin_root .. "/plugin/?/init.lua;" .. package.path
-local vtabs = dofile(package_path) ---@type VerticalTabs
+local vtabs = dofile(package_path)
 
 local M = { plugin = vtabs }
 
 function M.apply_to_config(config)
   vtabs.apply_to_config(config, {
-    dim_inactive_panes = true,
-    backend = {
-      -- every path travels with the split; the machine that runs it execs the first one it has
-      path = {
-        plugin_root .. "/backend/target/release/wez-vtabs",
-        "/home/fredrir/projects/wez-plugins/vertical-tabs/backend/target/release/wez-vtabs",
-      },
-    },
-    keys = {
-      new_tab = false,
-      close_tab = false,
-      new_window = false,
-      next_tab = false,
-    },
-    theme = {
-      bg = profiles.active.colors.accent,
+    settings = {
+      background = profiles.active.colors.accent,
     },
   })
 end

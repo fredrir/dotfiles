@@ -6,6 +6,6 @@ return function(config)
   vtabs.apply_to_config(config)
 end
 
--- ---@type Config
+-- -@type Config
 -- local plugin_config = {}
 -- return plugin_config

@@ -35,11 +35,10 @@ hwire_session.new_tab = wezterm.action_callback(function(window, pane)
   window:perform_action(act.SpawnCommandInNewTab(command_for_pane(pane)), pane)
 end)
 
----@param direction "horizontal" | "vertical"
----@return Action
-function hwire_session.split(direction)
-  local vtabs = require("plugins.vtabs").plugin
-  return vtabs.action.split(direction == "horizontal" and "Right" or "Bottom", command_for_pane)
-end
+-- ---@param direction "horizontal" | "vertical"
+-- ---@return Action
+-- function hwire_session.split(direction)
+--   return wezterm.action.split(direction == "horizontal" and "Right" or "Bottom", command_for_pane)
+-- end
 
 return hwire_session
