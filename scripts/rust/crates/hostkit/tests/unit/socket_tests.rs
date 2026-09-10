@@ -67,14 +67,25 @@ fn an_unroutable_peer_gives_up_when_the_timeout_says_to() {
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
+fn nonlocal_bind() -> bool {
+    std::fs::read_to_string("/proc/sys/net/ipv4/ip_nonlocal_bind")
+        .is_ok_and(|setting| setting.trim() == "1")
+}
+
 #[test]
-fn a_local_address_this_machine_does_not_have_fails_at_the_bind() {
+fn a_local_address_this_machine_does_not_have_never_connects() {
     let started = Instant::now();
     let answer = connect(
         Some(Ipv4Addr::new(192, 0, 2, 3)),
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 9),
         Duration::from_millis(150),
     );
-    assert_eq!(answer.unwrap_err().kind(), io::ErrorKind::AddrNotAvailable);
+    // archie sets net.ipv4.ip_nonlocal_bind=1 for the mux listeners, which
+    // allows the bind and moves the same refusal to the connect.
+    let expected = match nonlocal_bind() {
+        true => io::ErrorKind::NetworkUnreachable,
+        false => io::ErrorKind::AddrNotAvailable,
+    };
+    assert_eq!(answer.unwrap_err().kind(), expected);
     assert!(started.elapsed() < Duration::from_millis(50));
 }
