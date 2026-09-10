@@ -264,13 +264,7 @@ pub fn bindings(ctx: &Context) -> Result<Vec<Choice>> {
 pub fn palette(ctx: &mut Context) -> Result<i32> {
     ctx.resolve()?;
     let rows = bindings(ctx)?;
-    let Some(row) = choose(
-        ctx,
-        rows,
-        "Actions",
-        "Bindings come from the running server · P = prefix",
-    )?
-    else {
+    let Some(row) = choose(ctx, rows, "Actions", "P = prefix")? else {
         return Ok(0);
     };
     match row.kind.as_str() {

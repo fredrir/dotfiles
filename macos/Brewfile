@@ -1,5 +1,6 @@
 # Install: brew bundle --file macos/Brewfile
 brew "bash"
+brew "cargo-nextest"
 brew "fzf"
 brew "git"
 brew "lazygit"

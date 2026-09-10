@@ -78,7 +78,7 @@ fn direct_and_nested_interactive_shells_finish_without_claiming_the_terminal() {
     let root = tree_pairs(&[
         ("config/targets.dotfile", ""),
         ("scripts/rust/Cargo.toml", "[workspace]\nmembers = []\n"),
-        ("scripts/python/tests/", ""),
+        ("scripts/python/tests/demo/", ""),
         (
             "shared/zsh/tests/tmux.zsh",
             "[[ -o interactive ]] || exit 3\nprint 'interactive shell passed'\n",
@@ -131,7 +131,7 @@ fn task_output_is_visible_before_the_task_can_finish_and_is_not_replayed() {
     ]);
     executable(
         &root.path().join("bin/cargo"),
-        "#!/bin/sh\nprintf 'live stdout\\n'\nprintf 'live stderr\\n' >&2\nwhile [ ! -f \"$DOTFILE_ROOT/release\" ]; do sleep 0.01; done\nprintf 'finished task\\n'\n",
+        "#!/bin/sh\n[ \"$2\" != list ] || exit 0\nprintf 'live stdout\\n'\nprintf 'live stderr\\n' >&2\nwhile [ ! -f \"$DOTFILE_ROOT/release\" ]; do sleep 0.01; done\nprintf 'finished task\\n'\n",
     );
     let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
     command
@@ -173,7 +173,7 @@ fn compact_progress_uses_the_theme_and_preserves_terminal_modes() {
     ]);
     executable(
         &root.path().join("bin/cargo"),
-        "#!/bin/sh\nprintf 'hidden tool output\\n'\nwhile [ ! -f \"$DOTFILE_ROOT/release\" ]; do sleep 0.01; done\n",
+        "#!/bin/sh\n[ \"$2\" != list ] || exit 0\nprintf 'hidden tool output\\n'\nwhile [ ! -f \"$DOTFILE_ROOT/release\" ]; do sleep 0.01; done\n",
     );
     for no_color in [false, true] {
         let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
@@ -206,7 +206,7 @@ fn compact_progress_uses_the_theme_and_preserves_terminal_modes() {
         let status = run.finish();
         let text = String::from_utf8_lossy(&run.output);
         assert!(status.success(), "{text}");
-        assert!(text.contains("1 passed"), "{text}");
+        assert!(text.contains("2 passed"), "{text}");
         assert!(!text.contains("hidden tool output"), "{text}");
         assert_eq!(text.contains("\x1b[38;2;11;22;33m"), !no_color, "{text}");
         assert_eq!(text.contains("\x1b[38;2;44;55;66m"), !no_color, "{text}");
@@ -235,7 +235,7 @@ fn terminal_ctrl_c_cancels_a_detached_task_that_ignores_interrupts() {
     ]);
     executable(
         &root.path().join("bin/cargo"),
-        "#!/bin/sh\ntrap '' INT TERM\nprintf 'ready for interrupt\\n'\nsleep 30\n",
+        "#!/bin/sh\n[ \"$2\" != list ] || exit 0\ntrap '' INT TERM\nprintf 'ready for interrupt\\n'\nsleep 30\n",
     );
     let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
     command

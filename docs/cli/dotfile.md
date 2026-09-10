@@ -69,6 +69,8 @@
 | `--to <TEXT>`                    | Selects the peer and implies `--push`.                                            |
 | `-v`, `--verbose`                | Shows detailed sync actions or live development commands, output, and timings.    |
 | `-l`, `--lang <LANGUAGE>`        | Selects languages; repeat or comma-separate.                                      |
+| `--changed <REF>`                | Selects affected packages and dependents from working changes or --changed=REF.   |
+| `--python-workers <N>`           | Caps Python workers within the total worker budget; defaults to four.             |
 | `-j`, `--jobs <N>`               | Limits the total worker budget; defaults to CPU count.                            |
 | `--concurrency <N>`              | Limits simultaneous development tasks; defaults to two.                           |
 | `--all`                          | Shows every finding or file location instead of summarized output.                |

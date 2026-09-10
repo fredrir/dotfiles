@@ -144,6 +144,14 @@ FLAGS = {
     ("dotfile", "--lang"): "Selects languages; repeat or comma-separate.",
     ("dotfile", "--jobs"): "Limits the total worker budget; defaults to CPU count.",
     ("dotfile", "--concurrency"): "Limits simultaneous development tasks; defaults to two.",
+    (
+        "dotfile",
+        "--python-workers",
+    ): "Caps Python workers within the total worker budget; defaults to four.",
+    (
+        "dotfile",
+        "--changed",
+    ): "Selects affected packages and dependents from working changes or --changed=REF.",
     ("dotfile", "--shared"): "Places an added file in the shared package group.",
     ("dotfile", "--linux"): "Places an added file in the `linux/common` package group.",
     ("dotfile", "--arch"): "Places an added file in the `linux/arch` package group.",
@@ -152,7 +160,10 @@ FLAGS = {
     ("dotfile", "--hyprland"): "Places an added file in the `linux/hyprland` package group.",
     ("dotfile", "--server"): "Places an added config in the `linux/server` package group.",
     ("dotfile", "--macos"): "Places an added file in the `macos` package group.",
-    ("dotfile", "--pkg"): "Selects development targets or names an added config, secret, or system package.",
+    (
+        "dotfile",
+        "--pkg",
+    ): "Selects development targets or names an added config, secret, or system package.",
     ("dotfile", "--description"): "Adds a package description to `PACKAGES.md`.",
     ("dotfile", "--dry-run"): "Plans without changing files or contacting the peer.",
     ("dotfile", "--override"): "Selects a machine override with `<group>=<name|none>`.",
@@ -164,7 +175,10 @@ FLAGS = {
     ),
     ("dotfile", "--push"): "Pushes commits, then pulls and syncs the peer.",
     ("dotfile", "--to"): "Selects the peer and implies `--push`.",
-    ("dotfile", "--verbose"): "Shows detailed sync actions or live development commands, output, and timings.",
+    (
+        "dotfile",
+        "--verbose",
+    ): "Shows detailed sync actions or live development commands, output, and timings.",
     ("dotfile", "--all"): "Shows every finding or file location instead of summarized output.",
     ("dotfile", "--staged"): "Scans the content staged for commit.",
     ("dotfile", "--commits"): "Scans blobs added within a revision-list range.",

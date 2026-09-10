@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from native import prepared_binary
 
 BIN = os.path.dirname(sys.executable)
 ROOT = Path(__file__).resolve().parents[3]
@@ -15,7 +16,10 @@ def tool():
         environment = dict(os.environ)
         executable = os.path.join(BIN, name)
         if name == "dotfile":
-            native = ROOT / "scripts" / "rust" / "target" / "debug" / "dotfile"
+            native = (
+                prepared_binary("dotfile")
+                or ROOT / "scripts" / "rust" / "target" / "debug" / "dotfile"
+            )
             if args[:1] == ("sync",) and not native.is_file():
                 pytest.skip("native dotfile binary is not built")
             executable = str(native) if native.is_file() else os.path.join(BIN, "dotfile-py")

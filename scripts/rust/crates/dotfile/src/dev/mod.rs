@@ -1,4 +1,5 @@
 mod catalog;
+mod changed;
 mod plan;
 mod report;
 mod runner;
@@ -97,6 +98,10 @@ struct Options {
         help = "Show commands, live tool output, and per-task timings"
     )]
     verbose: bool,
+    #[arg(long, value_name = "REF", num_args = 0..=1, default_missing_value = "HEAD", require_equals = true, help = "Select affected packages and dependents; compare with HEAD or REF")]
+    changed: Option<String>,
+    #[arg(long, default_value = "4", value_name = "N", value_parser = clap::value_parser!(u16).range(1..), help = "Maximum Python workers within the total budget")]
+    python_workers: u16,
     #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..), help = "Total worker budget; defaults to CPU count")]
     jobs: Option<u16>,
     #[arg(long, default_value = "2", value_name = "N", value_parser = clap::value_parser!(u16).range(1..), help = "Maximum simultaneous tasks")]
@@ -181,13 +186,27 @@ fn execute(action: Action) -> Result<ExitCode, String> {
         })
         .map_err(|error| error.to_string())?;
     let root = doc_keybinds::root(None)?;
-    let catalog = catalog::Catalog::read(&root, lint)?;
-    let mut tasks = plan::tasks(&root, &catalog, &options, test, lint, 1)?;
-    let budget = runner::Budget::new(&options, &tasks);
-    for task in &mut tasks {
-        task.workers = budget.workers;
+    let mut catalog = catalog::Catalog::read(&root, lint)?;
+    for target in &options.packages {
+        if !catalog.known(&root, target, &options.languages) {
+            return Err(format!("unknown package '{target}' for selected languages"));
+        }
     }
+    if let Some(reference) = &options.changed {
+        changed::select(&root, &mut catalog, reference)?;
+    }
+    let directory = tempfile::Builder::new()
+        .prefix("dotfile-dev-")
+        .tempdir()
+        .map_err(|error| error.to_string())?;
+    let mut tasks = plan::tasks(&root, &catalog, &options, test, lint, directory.path())?;
+    if tasks.is_empty() {
+        eprintln!("No affected tasks");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let budget = runner::Budget::new(&options, &tasks);
     if options.dry_run {
+        budget.preview(&mut tasks);
         for task in &tasks {
             println!("{}: {}", task.name, task.display());
         }

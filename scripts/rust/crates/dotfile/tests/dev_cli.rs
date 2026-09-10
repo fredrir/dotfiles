@@ -78,6 +78,30 @@ impl Sandbox {
     fn preview(&self, arguments: &[&str]) -> testkit::Ran {
         self.bin().args(arguments).arg("--dry-run").run()
     }
+
+    fn commit(&self) {
+        for arguments in [
+            vec!["add", "."],
+            vec![
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+        ] {
+            assert!(
+                Command::new("git")
+                    .args(arguments)
+                    .current_dir(self.root.path())
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+    }
 }
 
 #[test]
@@ -85,7 +109,7 @@ fn default_test_covers_every_suite_without_python_routing() {
     let sandbox = Sandbox::new();
     let ran = sandbox.preview(&["test"]);
     assert!(ran.success(), "{}", ran.stderr);
-    assert_eq!(ran.stdout.lines().count(), 7);
+    assert_eq!(ran.stdout.lines().count(), 8);
     for expected in [
         "rust test:",
         "python test:",
@@ -109,7 +133,7 @@ fn package_names_aliases_and_nested_crates_resolve_once() {
         "dotfile,dotfile-cli",
     ]);
     assert!(ran.success(), "{}", ran.stderr);
-    assert_eq!(ran.stdout.lines().count(), 1);
+    assert_eq!(ran.stdout.lines().count(), 2);
     for name in ["file-explorer", "gget", "dotfile-cli"] {
         assert!(ran.stdout.contains(&format!("'--package' '{name}'")));
     }
@@ -147,7 +171,7 @@ fn dry_run_renders_worker_limits_and_linter_selection() {
         "2",
     ]);
     assert!(ran.success(), "{}", ran.stderr);
-    assert!(ran.stdout.contains("CARGO_BUILD_JOBS='3'"));
+    assert!(ran.stdout.contains("CARGO_BUILD_JOBS='6'"));
     assert!(ran.stdout.contains(
         "'clippy' '--locked' '--package' 'file-explorer' '--all-targets' '--' '-D' 'warnings'"
     ));
@@ -212,9 +236,9 @@ fn check_serializes_cargo_and_continues_after_lint_failure() {
     assert_eq!(ran.code(), Some(7));
     assert_eq!(
         fs::read_to_string(sandbox.root.path().join("log")).unwrap(),
-        "clippy\ntest\n"
+        "clippy\nnextest\nnextest\n"
     );
-    assert!(ran.stderr.contains("2 passed, 1 failed"));
+    assert!(ran.stderr.contains("3 passed, 1 failed"));
     assert!(ran.stderr.contains("rust lint: exit 7"));
 }
 
@@ -283,7 +307,7 @@ fn failure_output_is_bounded_and_preserves_the_complete_log() {
     let sandbox = Sandbox::new();
     sandbox.tool(
         "cargo",
-        "i=0; while [ \"$i\" -lt 10000 ]; do printf 'line %s\\n' \"$i\"; i=$((i + 1)); done\nprintf 'useful failure\\n' >&2\nexit 9",
+        "[ \"$2\" != list ] || exit 0\ni=0; while [ \"$i\" -lt 10000 ]; do printf 'line %s\\n' \"$i\"; i=$((i + 1)); done\nprintf 'useful failure\\n' >&2\nexit 9",
     );
     let ran = sandbox.bin().args(["test", "--lang", "rust"]).run();
     assert_eq!(ran.code(), Some(9));
@@ -322,6 +346,234 @@ fn every_action_supports_verbose_commands_and_output() {
             }
         }
     }
+}
+
+#[test]
+fn preparation_uses_the_full_budget_then_python_and_rust_overlap_with_bounded_workers() {
+    for (jobs, python, rust, processes) in [("6", "2", "4", "2"), ("2", "4", "1", "0")] {
+        let sandbox = Sandbox::new();
+        sandbox.tool("cargo", "if [ \"$2\" = list ]; then printf '%s' \"$CARGO_BUILD_JOBS\" > \"$DOTFILE_ROOT/build-workers\"; exit 0; fi\n[ \"$RAYON_NUM_THREADS\" = 1 ] || exit 81\nprevious=''; for arg do if [ \"$previous\" = --test-threads ]; then printf '%s' \"$arg\" > \"$DOTFILE_ROOT/rust-workers\"; fi; previous=$arg; done\ntouch \"$DOTFILE_ROOT/rust-ready\"\ni=0; while [ ! -f \"$DOTFILE_ROOT/python-ready\" ] && [ \"$i\" -lt 200 ]; do sleep 0.01; i=$((i + 1)); done\n[ -f \"$DOTFILE_ROOT/python-ready\" ]");
+        sandbox.tool("uv", "[ -f \"$DOTFILE_ROOT/build-workers\" ] || exit 82\n[ \"$RAYON_NUM_THREADS\" = 1 ] || exit 83\nprevious=''; for arg do if [ \"$previous\" = --numprocesses ]; then printf '%s' \"$arg\" > \"$DOTFILE_ROOT/python-workers\"; fi; previous=$arg; done\ntouch \"$DOTFILE_ROOT/python-ready\"\ni=0; while [ ! -f \"$DOTFILE_ROOT/rust-ready\" ] && [ \"$i\" -lt 200 ]; do sleep 0.01; i=$((i + 1)); done\n[ -f \"$DOTFILE_ROOT/rust-ready\" ]");
+        let ran = sandbox
+            .bin()
+            .args([
+                "test",
+                "--lang",
+                "rust,python",
+                "--jobs",
+                jobs,
+                "--python-workers",
+                python,
+            ])
+            .run();
+        assert!(ran.success(), "{}", ran.stderr);
+        for (name, expected) in [("build", jobs), ("python", processes), ("rust", rust)] {
+            assert_eq!(
+                fs::read_to_string(sandbox.root.path().join(format!("{name}-workers"))).unwrap(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn short_doctests_do_not_permanently_reduce_nextest_workers() {
+    let sandbox = Sandbox::new();
+    let library = sandbox
+        .root
+        .path()
+        .join("scripts/rust/crates/file-explorer/src");
+    fs::create_dir_all(&library).unwrap();
+    fs::write(library.join("lib.rs"), "").unwrap();
+    let preview = sandbox.preview(&["test", "--lang", "rust"]);
+    let docs = preview
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("rust test doctests:"))
+        .unwrap();
+    assert!(docs.contains("'--workspace'"), "{docs}");
+    sandbox.tool("cargo", "if [ \"$2\" = list ]; then exit 0; fi\nif [ \"$1\" = test ]; then sleep 0.1; touch \"$DOTFILE_ROOT/docs-finished\"; exit 0; fi\n[ -f \"$DOTFILE_ROOT/docs-finished\" ] || exit 80\nprevious=''; for arg do if [ \"$previous\" = --test-threads ]; then [ \"$arg\" = 2 ] || exit 81; fi; previous=$arg; done");
+    let ran = sandbox
+        .bin()
+        .args(["test", "--pkg", "file-explorer", "-j", "2"])
+        .run();
+    assert!(ran.success(), "{}", ran.stderr);
+}
+
+#[test]
+fn real_nextest_accepts_prebuilt_metadata_and_doctests_keep_the_package_selection() {
+    if !Command::new("cargo")
+        .args(["nextest", "--version"])
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        return;
+    }
+    let root = tree_pairs(&[
+        ("config/targets.dotfile", ""),
+        ("scripts/python/tests/", ""),
+        (
+            "scripts/rust/Cargo.toml",
+            "[workspace]\nmembers = ['crates/demo']\nresolver = '2'\n",
+        ),
+        (
+            "scripts/rust/Cargo.lock",
+            "version = 4\n[[package]]\nname = 'demo'\nversion = '0.1.0'\n",
+        ),
+        (
+            "scripts/rust/crates/demo/Cargo.toml",
+            "[package]\nname = 'demo'\nversion = '0.1.0'\nedition = '2024'\n",
+        ),
+        (
+            "scripts/rust/crates/demo/src/lib.rs",
+            "#[test]\nfn fixture() { assert_eq!(std::env::var(\"RUST_TEST_THREADS\").unwrap(), \"1\"); }\n",
+        ),
+    ]);
+    let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+        .args(["dev", "test", "--lang", "rust", "-j", "2", "-v"])
+        .env("DOTFILE_ROOT", root.path())
+        .env("CARGO_TARGET_DIR", root.path().join("target"))
+        .current_dir(root.path())
+        .run();
+    assert!(ran.success(), "{}\n{}", ran.stdout, ran.stderr);
+    assert!(ran.stderr.contains("3 passed"), "{}", ran.stderr);
+    assert!(ran.stdout.contains("demo fixture"), "{}", ran.stdout);
+}
+
+#[test]
+fn failed_build_skips_dependents_and_keeps_independent_suites_running() {
+    let sandbox = Sandbox::new();
+    sandbox.tool("cargo", "printf 'build failed\\n' >&2; exit 7");
+    sandbox.tool("uv", "exit 0");
+    let ran = sandbox.bin().args(["test", "--lang", "rust,python"]).run();
+    assert_eq!(ran.code(), Some(7));
+    assert!(
+        ran.stderr.contains("1 passed, 1 failed, 1 skipped"),
+        "{}",
+        ran.stderr
+    );
+    assert!(ran.stderr.contains("rust build: exit 7"));
+}
+
+#[test]
+fn python_receives_fresh_build_artifacts_before_running() {
+    let sandbox = Sandbox::new();
+    fs::create_dir_all(sandbox.root.path().join("scripts/python/tests/tmux")).unwrap();
+    sandbox.tool(
+        "cargo",
+        "[ \"$1\" = build ] || exit 9\nprintf 'prepared binary manifest\\n'",
+    );
+    sandbox.tool("uv", "[ -f \"$DOTFILE_DEV_BUILD_MANIFEST\" ] || exit 8\n[ \"$(cat \"$DOTFILE_DEV_BUILD_MANIFEST\")\" = 'prepared binary manifest' ]");
+    let ran = sandbox
+        .bin()
+        .args(["test", "--lang", "python", "--pkg", "tmux"])
+        .run();
+    assert!(ran.success(), "{}", ran.stderr);
+    assert!(ran.stderr.contains("2 passed"));
+}
+
+#[test]
+fn changed_selection_follows_transitive_dependents_and_intersects_explicit_packages() {
+    let sandbox = Sandbox::new();
+    sandbox.tool("cargo", "printf '%s' '{\"packages\":[{\"name\":\"file-explorer\",\"dependencies\":[]},{\"name\":\"gget\",\"dependencies\":[{\"name\":\"file-explorer\"}]},{\"name\":\"dotfile-cli\",\"dependencies\":[{\"name\":\"gget\"}]}]}'");
+    sandbox.commit();
+    fs::write(
+        sandbox
+            .root
+            .path()
+            .join("scripts/rust/crates/file-explorer/new.rs"),
+        "fixture",
+    )
+    .unwrap();
+    let ran = sandbox.preview(&["test", "--changed", "--lang", "rust"]);
+    assert!(ran.success(), "{}", ran.stderr);
+    for name in ["file-explorer", "gget", "dotfile-cli"] {
+        assert!(
+            ran.stdout.contains(&format!("'--package' '{name}'")),
+            "{}",
+            ran.stdout
+        );
+    }
+    let focused = sandbox.preview(&["test", "--changed", "--pkg", "gget", "--lang", "rust"]);
+    assert!(focused.success(), "{}", focused.stderr);
+    assert!(focused.stdout.contains("'--package' 'gget'"));
+    assert!(!focused.stdout.contains("'--package' 'file-explorer'"));
+}
+
+#[test]
+fn changed_python_helpers_lint_the_shared_files_and_manifest() {
+    let sandbox = Sandbox::new();
+    let python = sandbox.root.path().join("scripts/python");
+    fs::write(python.join("pyproject.toml"), "[project]\nname = 'demo'\n").unwrap();
+    fs::write(python.join("tests/conftest.py"), "").unwrap();
+    sandbox.commit();
+    fs::write(python.join("tests/conftest.py"), "changed").unwrap();
+    let ran = sandbox.preview(&["lint", "--changed", "--lang", "python,toml"]);
+    assert!(ran.success(), "{}", ran.stderr);
+    assert!(ran.stdout.contains("'ruff' 'check' '.'"), "{}", ran.stdout);
+    assert!(
+        ran.stdout.contains("'scripts/python/pyproject.toml'"),
+        "{}",
+        ran.stdout
+    );
+    assert!(!ran.stdout.contains("rust lint"));
+}
+
+#[test]
+fn changed_selection_handles_clean_trees_deletions_untracked_files_and_invalid_refs() {
+    let sandbox = Sandbox::new();
+    sandbox.commit();
+    let clean = sandbox.preview(&["test", "--changed"]);
+    assert!(clean.success(), "{}", clean.stderr);
+    assert!(clean.stdout.is_empty());
+    fs::remove_file(
+        sandbox
+            .root
+            .path()
+            .join("scripts/python/tests/theme/test_theme.py"),
+    )
+    .unwrap();
+    let deleted = sandbox.preview(&["test", "--changed"]);
+    assert!(deleted.success(), "{}", deleted.stderr);
+    assert!(deleted.stdout.contains("'tests/theme'"));
+    assert!(!deleted.stdout.contains("rust test"));
+    fs::write(
+        sandbox
+            .root
+            .path()
+            .join("shared/obsidian/plugins/agent-transcripts/new.test.js"),
+        "",
+    )
+    .unwrap();
+    let added = sandbox.preview(&["test", "--changed"]);
+    assert!(added.stdout.contains("javascript test"));
+    let invalid = sandbox.preview(&["test", "--changed=missing-reference"]);
+    assert!(!invalid.success());
+    assert!(invalid.stdout.is_empty());
+}
+
+#[test]
+fn changed_reference_includes_branch_commits_and_shared_inputs_expand_selection() {
+    let sandbox = Sandbox::new();
+    sandbox.commit();
+    fs::write(
+        sandbox
+            .root
+            .path()
+            .join("scripts/python/tests/theme/test_theme.py"),
+        "changed",
+    )
+    .unwrap();
+    sandbox.commit();
+    let ran = sandbox.preview(&["test", "--changed=HEAD~1"]);
+    assert!(ran.success(), "{}", ran.stderr);
+    assert!(ran.stdout.contains("'tests/theme'"));
+    fs::write(sandbox.root.path().join("setup.sh"), "changed").unwrap();
+    let shared = sandbox.preview(&["test", "--changed"]);
+    assert!(shared.success(), "{}", shared.stderr);
+    assert!(shared.stdout.contains("rust test"));
+    assert!(shared.stdout.contains("python test"));
+    assert!(shared.stdout.contains("lua test"));
 }
 
 #[test]

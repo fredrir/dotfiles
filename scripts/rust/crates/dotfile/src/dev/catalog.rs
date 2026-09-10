@@ -11,6 +11,7 @@ use super::Language;
 pub(super) struct Package {
     pub name: String,
     pub directory: PathBuf,
+    pub library: bool,
 }
 
 impl Package {
@@ -27,6 +28,7 @@ pub(super) struct Catalog {
     pub rust: Vec<Package>,
     pub python: Vec<String>,
     pub files: Vec<PathBuf>,
+    pub affected: Option<std::collections::BTreeSet<String>>,
 }
 
 #[derive(Deserialize)]
@@ -42,6 +44,7 @@ struct Workspace {
 #[derive(Deserialize)]
 struct PackageManifest {
     package: PackageName,
+    lib: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +65,8 @@ impl Catalog {
                     read_toml(&root.join(&directory).join("Cargo.toml"))?;
                 Ok(Package {
                     name: manifest.package.name,
+                    library: root.join(&directory).join("src/lib.rs").is_file()
+                        || manifest.lib.is_some(),
                     directory,
                 })
             })
@@ -91,7 +96,36 @@ impl Catalog {
             rust,
             python,
             files,
+            affected: None,
         })
+    }
+
+    pub fn selected(&self, name: &str) -> bool {
+        self.affected
+            .as_ref()
+            .is_none_or(|names| names.contains(name))
+    }
+
+    pub fn selected_file(&self, file: &Path) -> bool {
+        if self.affected.is_none() {
+            return true;
+        }
+        if file.starts_with("scripts/python") {
+            return self.python.iter().any(|name| self.selected(name));
+        }
+        self.rust
+            .iter()
+            .find(|package| file.starts_with(&package.directory))
+            .map_or_else(
+                || {
+                    if file.starts_with("scripts/rust") {
+                        self.rust.iter().any(|package| self.selected(&package.name))
+                    } else {
+                        self.selected(package(file))
+                    }
+                },
+                |package| self.selected(&package.name),
+            )
     }
 
     pub fn known(&self, root: &Path, target: &str, languages: &[Language]) -> bool {

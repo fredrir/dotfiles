@@ -15,6 +15,7 @@ pub(super) enum Outcome {
     Passed,
     Failed,
     Cancelled,
+    Skipped,
 }
 
 pub(super) struct Failure {
@@ -131,7 +132,7 @@ impl Report {
         let suite = self.suites.get_mut(task.suite()).unwrap();
         suite.done += 1;
         suite.failed += usize::from(outcome == Outcome::Failed);
-        suite.cancelled += usize::from(outcome == Outcome::Cancelled);
+        suite.cancelled += usize::from(matches!(outcome, Outcome::Cancelled | Outcome::Skipped));
         if self.verbose {
             self.row(&task.name, outcome, elapsed);
         } else if suite.done == suite.total {
@@ -142,7 +143,7 @@ impl Report {
             } else {
                 Outcome::Passed
             };
-            let elapsed = suite.started.unwrap().elapsed();
+            let elapsed = suite.started.map_or(Duration::ZERO, |at| at.elapsed());
             let label = if suite.total > 1 {
                 format!(
                     "{} ({})",
@@ -161,7 +162,7 @@ impl Report {
         let mark = match outcome {
             Outcome::Passed => self.style.green("✓"),
             Outcome::Failed => self.style.red("✗"),
-            Outcome::Cancelled => self.style.dim("○"),
+            Outcome::Cancelled | Outcome::Skipped => self.style.dim("○"),
         };
         eprintln!(
             "  {mark} {}  {}",
@@ -224,7 +225,13 @@ impl Report {
         }
     }
 
-    pub fn finish(&mut self, passed: usize, cancelled: usize, failures: &[Failure]) {
+    pub fn finish(
+        &mut self,
+        passed: usize,
+        cancelled: usize,
+        skipped: usize,
+        failures: &[Failure],
+    ) {
         self.clear();
         let mut counts = Vec::new();
         if passed > 0 {
@@ -235,6 +242,9 @@ impl Report {
         }
         if cancelled > 0 {
             counts.push(self.style.dim(&format!("{cancelled} cancelled")));
+        }
+        if skipped > 0 {
+            counts.push(self.style.dim(&format!("{skipped} skipped")));
         }
         eprintln!(
             "\n{}  {}",

@@ -108,6 +108,8 @@ VALUES = {
             "--lang": call("dev-languages", "language"),
             "--jobs": NONE,
             "--concurrency": NONE,
+            "--python-workers": NONE,
+            "--changed": NONE,
         }
         for action in ("test", "lint", "check")
     },

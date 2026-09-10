@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io::{self, Write};
 use std::process::{ExitCode, Stdio};
 use std::time::{Duration, Instant};
@@ -9,7 +9,7 @@ use super::report::{Failure, Outcome, Report};
 
 pub(super) struct Budget {
     slots: usize,
-    pub workers: usize,
+    jobs: usize,
 }
 
 impl Budget {
@@ -18,12 +18,55 @@ impl Budget {
             .jobs
             .map(usize::from)
             .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, usize::from));
-        let independent = tasks.iter().filter(|task| !task.cargo).count();
-        let lanes = independent + usize::from(tasks.iter().any(|task| task.cargo));
-        let slots = usize::from(options.concurrency).min(jobs).min(lanes.max(1));
         Self {
-            slots,
-            workers: (jobs / slots).max(1),
+            slots: usize::from(options.concurrency)
+                .min(jobs)
+                .min(tasks.len().max(1)),
+            jobs,
+        }
+    }
+
+    fn workers<'a>(&self, task: &Task, tasks: impl Iterator<Item = &'a Task>) -> usize {
+        if self.slots == 1 {
+            return task.max_workers.min(self.jobs);
+        }
+        if task.name == "rust test" && task.nextest() {
+            let reserved = tasks
+                .filter(|task| task.name == "python test")
+                .map(|task| task.max_workers.min(self.jobs / 2))
+                .next()
+                .unwrap_or(0);
+            return (self.jobs - reserved).max(1);
+        }
+        if task.name == "python test"
+            && tasks
+                .into_iter()
+                .any(|task| task.name == "rust test" && task.nextest())
+        {
+            return task.max_workers.min((self.jobs / 2).max(1));
+        }
+        task.max_workers.min(self.jobs)
+    }
+
+    pub fn preview(&self, tasks: &mut [Task]) {
+        let allocations: Vec<_> = tasks
+            .iter()
+            .map(|task| self.workers(task, tasks.iter()))
+            .collect();
+        let mut used = 0;
+        let mut slots = 0;
+        for (task, workers) in tasks.iter_mut().zip(allocations) {
+            if task.prepare || used + workers > self.jobs || slots == self.slots {
+                used = 0;
+                slots = 0;
+            }
+            task.workers = workers;
+            used += task.workers;
+            slots += 1;
+            if task.prepare {
+                used = 0;
+                slots = 0;
+            }
         }
     }
 }
@@ -40,7 +83,7 @@ struct Running {
 
 #[cfg(unix)]
 impl Running {
-    fn start(task: Task) -> Result<Self, (Task, io::Error)> {
+    fn start(task: Task) -> Result<Self, Box<(Task, io::Error)>> {
         let spawn = || -> io::Result<_> {
             let log = tempfile::Builder::new()
                 .prefix("dotfile-dev-")
@@ -49,7 +92,10 @@ impl Running {
             let child = hostkit::process::ChildGroup::spawn_detached(
                 task.command()
                     .stdin(Stdio::null())
-                    .stdout(log.as_file().try_clone()?)
+                    .stdout(match &task.output {
+                        Some(path) => std::fs::File::create(path)?,
+                        None => log.as_file().try_clone()?,
+                    })
                     .stderr(log.as_file().try_clone()?),
             )?;
             Ok((child, log))
@@ -63,7 +109,7 @@ impl Running {
                 started: Instant::now(),
                 interrupted: None,
             }),
-            Err(error) => Err((task, error)),
+            Err(error) => Err(Box::new((task, error))),
         }
     }
 
@@ -111,22 +157,63 @@ pub(super) fn run(
     let mut failures = Vec::new();
     let mut passed = 0;
     let mut cancelled = 0;
+    let mut skipped = 0;
+    let mut completed = BTreeSet::new();
+    let mut blocked = BTreeSet::new();
     let mut output_owner = None;
     loop {
         let signal = workstation::screen::termination_signal();
         if signal == 0 {
+            let mut index = 0;
+            while index < pending.len() {
+                if pending[index]
+                    .requires
+                    .iter()
+                    .any(|name| blocked.contains(name))
+                {
+                    let task = pending.remove(index).unwrap();
+                    report.complete(&task, Outcome::Skipped, Duration::ZERO);
+                    blocked.insert(task.name);
+                    skipped += 1;
+                } else {
+                    index += 1;
+                }
+            }
             while running.len() < budget.slots {
+                let used: usize = running.iter().map(|task| task.task.workers).sum();
+                if used == budget.jobs || running.iter().any(|task| task.task.prepare) {
+                    break;
+                }
+                let preparing = pending.iter().any(|task| task.prepare);
+                if preparing && !running.is_empty() {
+                    break;
+                }
                 let cargo_busy = running.iter().any(|task| task.task.cargo);
-                let Some(index) = pending.iter().position(|task| !task.cargo || !cargo_busy) else {
+                let Some(index) = pending.iter().position(|task| {
+                    (!preparing || task.prepare)
+                        && (!task.cargo || !cargo_busy)
+                        && task.requires.iter().all(|name| completed.contains(name))
+                        && budget.workers(
+                            task,
+                            pending.iter().chain(running.iter().map(|task| &task.task)),
+                        ) <= budget.jobs - used
+                }) else {
                     break;
                 };
-                let task = pending.remove(index).unwrap();
+                let workers = budget.workers(
+                    &pending[index],
+                    pending.iter().chain(running.iter().map(|task| &task.task)),
+                );
+                let mut task = pending.remove(index).unwrap();
+                task.workers = workers;
                 report.start(&task);
                 output_owner = None;
                 match Running::start(task) {
                     Ok(task) => running.push(task),
-                    Err((task, error)) => {
+                    Err(failure) => {
+                        let (task, error) = *failure;
                         report.complete(&task, Outcome::Failed, Duration::ZERO);
+                        blocked.insert(task.name.clone());
                         failures.push(Failure {
                             name: task.name,
                             code: 127,
@@ -148,7 +235,14 @@ pub(super) fn run(
                         let _ = task.child.signal(signal);
                         task.interrupted = Some(Instant::now());
                     }
-                    Some(at) if at.elapsed() >= Duration::from_millis(750) => {
+                    Some(at)
+                        if at.elapsed()
+                            >= Duration::from_millis(if task.task.nextest() {
+                                3000
+                            } else {
+                                750
+                            }) =>
+                    {
                         task.child.terminate()
                     }
                     Some(_) => {}
@@ -193,7 +287,10 @@ pub(super) fn run(
             };
             report.complete(&finished.task, outcome, finished.started.elapsed());
             if outcome == Outcome::Failed {
+                blocked.insert(finished.task.name.clone());
                 failures.push(Failure::capture(finished.task.name, code, finished.log));
+            } else {
+                completed.insert(finished.task.name);
             }
             output_owner = None;
         }
@@ -205,7 +302,7 @@ pub(super) fn run(
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    report.finish(passed, cancelled, &failures);
+    report.finish(passed, cancelled, skipped, &failures);
     let signal = workstation::screen::termination_signal();
     Ok(workstation::exit_code(if signal != 0 {
         128 + signal

@@ -1,0 +1,7 @@
+[profile.default]
+fail-fast = false
+slow-timeout = { period = "60s", grace-period = "1s" }
+
+[[profile.default.overrides]]
+filter = 'package(dcloud) & (test(retention_expires_history) | test(backup_copy_restore) | test(incremental_run_capture) | test(cli_backup_restore) | test(immutable_snapshot_retry))'
+priority = 100
