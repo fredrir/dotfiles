@@ -115,6 +115,17 @@ mod unix {
             })
         }
 
+        #[allow(unsafe_code)]
+        pub fn spawn_detached(command: &mut Command) -> io::Result<Self> {
+            unsafe {
+                command.pre_exec(|| nix::unistd::setsid().map(|_| ()).map_err(io::Error::from));
+            }
+            Ok(Self {
+                child: command.spawn()?,
+                terminated: false,
+            })
+        }
+
         pub fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
             self.child.try_wait()
         }

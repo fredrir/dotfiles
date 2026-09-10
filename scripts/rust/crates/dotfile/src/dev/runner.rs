@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::io::{self, Seek};
+use std::io::{self, Write};
 use std::process::{ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
@@ -32,7 +32,9 @@ struct Running {
     task: Task,
     child: hostkit::process::ChildGroup,
     log: std::fs::File,
+    position: u64,
     started: Instant,
+    last_activity: Instant,
     interrupted: Option<Instant>,
 }
 
@@ -40,7 +42,7 @@ struct Running {
 impl Running {
     fn start(task: Task) -> io::Result<Self> {
         let log = tempfile::tempfile()?;
-        let child = hostkit::process::ChildGroup::spawn(
+        let child = hostkit::process::ChildGroup::spawn_detached(
             task.command()
                 .stdin(Stdio::null())
                 .stdout(log.try_clone()?)
@@ -50,9 +52,39 @@ impl Running {
             task,
             child,
             log,
+            position: 0,
             started: Instant::now(),
+            last_activity: Instant::now(),
             interrupted: None,
         })
+    }
+
+    fn drain(&mut self, owner: &mut Option<String>) -> io::Result<usize> {
+        use std::os::unix::fs::FileExt;
+
+        let mut buffer = [0_u8; 8192];
+        let mut total = 0;
+        let mut stdout = io::stdout().lock();
+        for _ in 0..8 {
+            let count = match self.log.read_at(&mut buffer, self.position) {
+                Ok(0) => break,
+                Ok(count) => count,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            if owner.as_deref() != Some(&self.task.name) {
+                writeln!(stdout, "\n[{}]", self.task.name)?;
+                *owner = Some(self.task.name.clone());
+            }
+            stdout.write_all(&buffer[..count])?;
+            self.position += count as u64;
+            total += count;
+        }
+        if total > 0 {
+            stdout.flush()?;
+            self.last_activity = Instant::now();
+        }
+        Ok(total)
     }
 }
 
@@ -67,6 +99,7 @@ pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> 
     let mut failures = Vec::new();
     let mut passed = 0;
     let mut cancelled = 0;
+    let mut output_owner = None;
     loop {
         let signal = workstation::screen::termination_signal();
         if signal == 0 {
@@ -78,6 +111,7 @@ pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> 
                 let task = pending.remove(index).unwrap();
                 let name = task.name.clone();
                 eprintln!("[run] {name}");
+                output_owner = None;
                 match Running::start(task) {
                     Ok(task) => running.push(task),
                     Err(error) => {
@@ -107,16 +141,33 @@ pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> 
         }
         let mut index = 0;
         while index < running.len() {
+            running[index]
+                .drain(&mut output_owner)
+                .map_err(|error| error.to_string())?;
             let status = running[index]
                 .child
                 .try_wait()
                 .map_err(|error| error.to_string())?;
             let Some(status) = status else {
+                if running[index].last_activity.elapsed() >= Duration::from_secs(10) {
+                    eprintln!(
+                        "[running] {} ({:.1}s)",
+                        running[index].task.name,
+                        running[index].started.elapsed().as_secs_f64()
+                    );
+                    running[index].last_activity = Instant::now();
+                    output_owner = None;
+                }
                 index += 1;
                 continue;
             };
             let mut finished = running.remove(index);
             finished.child.terminate();
+            while finished
+                .drain(&mut output_owner)
+                .map_err(|error| error.to_string())?
+                > 0
+            {}
             let code = status
                 .code()
                 .unwrap_or_else(|| 128 + status.signal().unwrap_or(1));
@@ -135,9 +186,7 @@ pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> 
                 finished.task.name,
                 finished.started.elapsed().as_secs_f64()
             );
-            finished.log.rewind().map_err(|error| error.to_string())?;
-            io::copy(&mut finished.log, &mut io::stdout().lock())
-                .map_err(|error| error.to_string())?;
+            output_owner = None;
         }
         if running.is_empty() && pending.is_empty() {
             break;

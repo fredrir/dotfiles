@@ -39,6 +39,8 @@ impl Task {
             command.arg(format!("--test-concurrency={workers}"));
         } else if self.program == "luacheck" {
             command.args(["--jobs", &workers]);
+        } else if self.program == "uv" {
+            command.env("PYTHONUNBUFFERED", "1");
         }
         command
             .current_dir(&self.directory)
