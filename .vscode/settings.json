@@ -1,0 +1,33 @@
+{
+  "rust-analyzer.linkedProjects": ["scripts/rust/Cargo.toml"],
+
+  "ruff.configuration": "${workspaceFolder}/scripts/python/pyproject.toml",
+  "ruff.configurationPreference": "filesystemFirst",
+
+  "Lua.runtime.path": [
+    "?.lua",
+    "?/init.lua",
+    "shared/nvim/lua/?.lua",
+    "shared/nvim/lua/?/init.lua",
+    "shared/wezterm/?.lua",
+    "shared/wezterm/?/init.lua"
+  ],
+  "Lua.workspace.library": [
+    "${workspaceFolder}/shared/wezterm/lua_modules/share/lua/5.5/wezterm/types",
+    "${workspaceFolder}/shared/wezterm/_types",
+    "${env:HOME}/.local/share/nvim/lazy",
+    "/opt/homebrew/share/nvim/runtime/lua",
+    "/usr/share/nvim/runtime/lua"
+  ],
+  "Lua.workspace.checkThirdParty": false,
+  "Lua.workspace.ignoreDir": [
+    ".git",
+    "scripts/python/.venv",
+    "scripts/rust/target"
+  ],
+  "Lua.diagnostics.unusedLocalExclude": ["_*"],
+  "Lua.format.enable": false,
+  "Lua.telemetry.enable": false,
+  "Lua.type.checkTableShape": true,
+  "Lua.type.inferParamType": true
+}

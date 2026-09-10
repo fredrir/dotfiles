@@ -59,7 +59,6 @@ scripts/python/.venv/
 scripts/rust/target/
 
 .idea/
-.vscode/
 
 .DS_Store
 

@@ -352,8 +352,17 @@ pub fn export(config: &Config, destination: &Path) -> Result<Value> {
         portable.identity_file = "identity.txt".into();
     }
     if let Some(source) = &config.rclone_secrets_file {
-        if source.try_exists()? {
-            copy_recovery_file(source, destination, "rclone.sops.json", &mut files)?;
+        if let Some(effective) = crate::secrets::effective_rclone_secrets(config)? {
+            copy_recovery_file(&effective, destination, "rclone.sops.json", &mut files)?;
+            if !destination.join(".sops.yaml").exists() {
+                let rules = source
+                    .ancestors()
+                    .skip(1)
+                    .map(|path| path.join(".sops.yaml"))
+                    .find(|path| path.is_file())
+                    .context("recovery export needs the repository .sops.yaml")?;
+                copy_recovery_file(&rules, destination, ".sops.yaml", &mut files)?;
+            }
         }
         portable.rclone_secrets_file = Some("rclone.sops.json".into());
         portable.rclone_config_file = None;

@@ -39,6 +39,8 @@ impl Drop for RecoveryBundle {
 struct RcloneBundle {
     version: u32,
     config: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    seed_sha256: Option<String>,
 }
 
 impl Drop for RcloneBundle {
@@ -50,37 +52,54 @@ impl Drop for RcloneBundle {
 pub struct MaterializedSecrets {
     pub config: Config,
     runtime: Option<TempDir>,
-    original_rclone_hash: Option<String>,
-    original_rclone_plain_hash: Option<String>,
+    rclone: Option<RcloneRuntime>,
+}
+
+struct RcloneRuntime {
+    seed_hash: String,
+    initial: Zeroizing<String>,
 }
 
 impl MaterializedSecrets {
     pub fn persist(&self) -> Result<()> {
-        let (Some(encrypted), Some(plain), Some(original), Some(plain_hash)) = (
-            &self.config.rclone_secrets_file,
-            &self.config.rclone_config_file,
-            &self.original_rclone_hash,
-            &self.original_rclone_plain_hash,
-        ) else {
+        let (Some(runtime), Some(plain)) = (&self.rclone, &self.config.rclone_config_file) else {
             return Ok(());
         };
-        let config = Zeroizing::new(read_private(plain)?);
-        if digest(&config) == *plain_hash {
+        let updated = Zeroizing::new(
+            String::from_utf8(read_private(plain)?).context("rclone configuration is not UTF-8")?,
+        );
+        if updated.as_str() == runtime.initial.as_str() {
             return Ok(());
         }
-        ensure!(
-            digest(&fs::read(encrypted)?) == *original,
-            "encrypted OAuth configuration changed during this run; refusing to overwrite it"
-        );
+        merge_tokens(&runtime.initial, &updated)?;
+        persist_cache(&self.config, &runtime.seed_hash, &updated)?;
+        Ok(())
+    }
+
+    fn publish_seed(&self) -> Result<()> {
+        let runtime = self
+            .rclone
+            .as_ref()
+            .context("OAuth seed is not initialized")?;
+        let path = self
+            .config
+            .rclone_secrets_file
+            .as_deref()
+            .context("OAuth seed is missing")?;
+        let plain = self
+            .config
+            .rclone_config_file
+            .as_deref()
+            .context("OAuth runtime is missing")?;
         let bundle = RcloneBundle {
             version: 1,
-            config: String::from_utf8(config.to_vec())
-                .context("rclone configuration is not UTF-8")?,
+            config: String::from_utf8(read_private(plain)?)?,
+            seed_sha256: None,
         };
         seal(
-            encrypted,
+            path,
             &Zeroizing::new(serde_json::to_vec(&bundle)?),
-            Some(original),
+            Some(&runtime.seed_hash),
         )
     }
 
@@ -96,8 +115,7 @@ pub fn materialize(config: &Config) -> Result<MaterializedSecrets> {
         return Ok(MaterializedSecrets {
             config: runtime_config,
             runtime: None,
-            original_rclone_hash: None,
-            original_rclone_plain_hash: None,
+            rclone: None,
         });
     }
     let runtime = tempfile::Builder::new()
@@ -131,17 +149,20 @@ pub fn materialize(config: &Config) -> Result<MaterializedSecrets> {
             );
         }
     }
-    let mut original_rclone_hash = None;
-    let mut original_rclone_plain_hash = None;
+    let mut rclone = None;
     if let Some(path) = &config.rclone_secrets_file {
         ensure_runtime_outside_repository(path, runtime.path())?;
         let target = runtime.path().join("rclone.conf");
         if path.try_exists()? {
-            let ciphertext = fs::read(path)?;
-            let bundle = rclone_bundle(path)?;
-            write_private_new(&target, bundle.config.as_bytes())?;
-            original_rclone_hash = Some(digest(&ciphertext));
-            original_rclone_plain_hash = Some(digest(bundle.config.as_bytes()));
+            let ciphertext = read_encrypted(path)?;
+            let seed_hash = digest(&ciphertext);
+            let seed = decode_rclone(&ciphertext)?;
+            let effective = effective_bundle(config, &seed_hash, &seed)?;
+            write_private_new(&target, effective.config.as_bytes())?;
+            rclone = Some(RcloneRuntime {
+                seed_hash,
+                initial: Zeroizing::new(effective.config.clone()),
+            });
         } else {
             write_private_new(&target, b"")?;
         }
@@ -150,9 +171,359 @@ pub fn materialize(config: &Config) -> Result<MaterializedSecrets> {
     Ok(MaterializedSecrets {
         config: runtime_config,
         runtime: Some(runtime),
-        original_rclone_hash,
-        original_rclone_plain_hash,
+        rclone,
     })
+}
+
+struct PrivateIni(Ini);
+
+impl PrivateIni {
+    fn parse(value: &str) -> Result<Self> {
+        let mut parsed = Self(Ini::new_cs());
+        parsed
+            .0
+            .read(value.to_string())
+            .map_err(|_| anyhow::anyhow!("invalid encrypted rclone configuration"))?;
+        Ok(parsed)
+    }
+}
+
+impl Drop for PrivateIni {
+    fn drop(&mut self) {
+        for section in self.0.get_mut_map().values_mut() {
+            for value in section.values_mut().flatten() {
+                value.zeroize();
+            }
+        }
+    }
+}
+
+struct PrivateJson(Value);
+
+impl Drop for PrivateJson {
+    fn drop(&mut self) {
+        scrub_json(&mut self.0);
+    }
+}
+
+fn merge_tokens(current: &str, incoming: &str) -> Result<Zeroizing<String>> {
+    let mut current_ini = PrivateIni::parse(current)?;
+    let incoming_ini = PrivateIni::parse(incoming)?;
+    let current_map = current_ini.0.get_map_ref();
+    let incoming_map = incoming_ini.0.get_map_ref();
+    ensure!(
+        current_map.len() == incoming_map.len(),
+        "OAuth refresh changed remote configuration; use explicit client import or authorization"
+    );
+    let mut updates = Vec::new();
+    for (remote, candidate) in incoming_map {
+        let existing = current_map
+            .get(remote)
+            .context("OAuth refresh changed remote configuration")?;
+        ensure!(
+            existing
+                .keys()
+                .filter(|key| key.as_str() != "token")
+                .count()
+                == candidate
+                    .keys()
+                    .filter(|key| key.as_str() != "token")
+                    .count()
+                && existing
+                    .iter()
+                    .filter(|(key, _)| key.as_str() != "token")
+                    .all(|(key, value)| candidate.get(key) == Some(value)),
+            "OAuth refresh changed client, scope, or remote settings; refusing to merge credentials"
+        );
+        let old = existing.get("token").and_then(Option::as_deref);
+        let new = candidate.get("token").and_then(Option::as_deref);
+        if old == new {
+            continue;
+        }
+        ensure!(
+            existing.get("type").and_then(Option::as_deref) == Some("drive"),
+            "automatic credential updates are supported only for Google Drive OAuth tokens"
+        );
+        let old = old.context("OAuth refresh added a token; use explicit authorization")?;
+        let new = new.context("OAuth refresh removed a token; refusing to replace credentials")?;
+        let old_json =
+            PrivateJson(serde_json::from_str(old).context("invalid existing OAuth token")?);
+        let new_json =
+            PrivateJson(serde_json::from_str(new).context("invalid refreshed OAuth token")?);
+        let old_object = old_json
+            .0
+            .as_object()
+            .context("invalid existing OAuth token")?;
+        let new_object = new_json
+            .0
+            .as_object()
+            .context("invalid refreshed OAuth token")?;
+        ensure!(
+            old_object
+                .get("refresh_token")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+                && old_object
+                    .keys()
+                    .filter(|key| !matches!(key.as_str(), "access_token" | "expiry"))
+                    .count()
+                    == new_object
+                        .keys()
+                        .filter(|key| !matches!(key.as_str(), "access_token" | "expiry"))
+                        .count()
+                && old_object
+                    .iter()
+                    .filter(|(key, _)| !matches!(key.as_str(), "access_token" | "expiry"))
+                    .all(|(key, value)| new_object.get(key) == Some(value)),
+            "OAuth refresh identity changed; use explicit authorization before replacing credentials"
+        );
+        ensure!(
+            new_object
+                .get("access_token")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty()),
+            "refreshed OAuth access token is empty"
+        );
+        let old_expiry = chrono::DateTime::parse_from_rfc3339(
+            old_object
+                .get("expiry")
+                .and_then(Value::as_str)
+                .context("existing OAuth expiry is missing")?,
+        )
+        .context("invalid existing OAuth expiry")?;
+        let new_expiry = chrono::DateTime::parse_from_rfc3339(
+            new_object
+                .get("expiry")
+                .and_then(Value::as_str)
+                .context("refreshed OAuth expiry is missing")?,
+        )
+        .context("invalid refreshed OAuth expiry")?;
+        if new_expiry > old_expiry {
+            updates.push((remote.clone(), Zeroizing::new(new.to_string())));
+        }
+    }
+    if updates.is_empty() {
+        return Ok(Zeroizing::new(current.to_string()));
+    }
+    for (remote, token) in updates {
+        current_ini.0.set(&remote, "token", Some(token.to_string()));
+    }
+    Ok(Zeroizing::new(current_ini.0.writes()))
+}
+
+fn cache_path(config: &Config, seed_hash: &str, create: bool) -> Result<PathBuf> {
+    let seed = config
+        .rclone_secrets_file
+        .as_deref()
+        .context("OAuth seed is not configured")?;
+    let seed = fs::canonicalize(seed)?;
+    let state = expand(&config.state_dir)?;
+    let absolute = if state.is_absolute() {
+        state
+    } else {
+        std::env::current_dir()?.join(state)
+    };
+    let existing = absolute
+        .ancestors()
+        .find(|path| path.exists())
+        .context("credential state directory has no existing ancestor")?;
+    let suffix = absolute.strip_prefix(existing)?;
+    ensure!(
+        suffix
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_))),
+        "credential state directory contains an invalid component"
+    );
+    let directory = fs::canonicalize(existing)?.join(suffix).join("credentials");
+    ensure!(
+        !directory
+            .ancestors()
+            .any(|path| path.join(".git").exists() || path.join(".sops.yaml").exists()),
+        "OAuth credential cache must be outside every repository"
+    );
+    if create {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&directory)?;
+    }
+    if let Ok(metadata) = fs::symlink_metadata(&directory) {
+        ensure!(
+            metadata.is_dir(),
+            "credential cache directory must not be a symlink"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            ensure!(
+                metadata.permissions().mode() & 0o777 == 0o700,
+                "credential cache directory must have mode 0700"
+            );
+        }
+    }
+    let path_hash = digest(seed.as_os_str().as_encoded_bytes());
+    Ok(directory.join(format!("rclone-{path_hash}-{seed_hash}.sops.json")))
+}
+
+fn cached_bundle(
+    path: &Path,
+    seed_hash: &str,
+    seed: &RcloneBundle,
+) -> Result<Option<(RcloneBundle, String)>> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) => {
+            ensure!(
+                metadata.is_file(),
+                "credential cache must be a regular file without symlinks"
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                ensure!(
+                    metadata.permissions().mode() & 0o777 == 0o600,
+                    "credential cache must have mode 0600"
+                );
+            }
+        }
+    }
+    let ciphertext = read_encrypted(path)?;
+    let bundle = decode_rclone(&ciphertext)?;
+    ensure!(
+        bundle.seed_sha256.as_deref() == Some(seed_hash),
+        "credential cache does not match its OAuth seed"
+    );
+    merge_tokens(&seed.config, &bundle.config)?;
+    Ok(Some((bundle, digest(&ciphertext))))
+}
+
+fn effective_bundle(config: &Config, seed_hash: &str, seed: &RcloneBundle) -> Result<RcloneBundle> {
+    let path = cache_path(config, seed_hash, false)?;
+    Ok(cached_bundle(&path, seed_hash, seed)?
+        .map(|(bundle, _)| bundle)
+        .unwrap_or_else(|| RcloneBundle {
+            version: 1,
+            config: seed.config.clone(),
+            seed_sha256: None,
+        }))
+}
+
+fn persist_cache(config: &Config, seed_hash: &str, incoming: &str) -> Result<PathBuf> {
+    let seed_path = config
+        .rclone_secrets_file
+        .as_deref()
+        .context("OAuth seed is not configured")?;
+    let path = cache_path(config, seed_hash, true)?;
+    let _lock = SecretLock::acquire(&path)?;
+    let seed_bytes = read_encrypted(seed_path)?;
+    ensure!(
+        digest(&seed_bytes) == seed_hash,
+        "OAuth bootstrap changed during this run; refusing to persist stale credentials"
+    );
+    let seed = decode_rclone(&seed_bytes)?;
+    merge_tokens(&seed.config, incoming)?;
+    let cached = cached_bundle(&path, seed_hash, &seed)?;
+    let current = cached.as_ref().map(|(bundle, _)| bundle).unwrap_or(&seed);
+    let merged = merge_tokens(&current.config, incoming)?;
+    if cached.is_some() && merged.as_str() == current.config {
+        return Ok(path);
+    }
+    let bundle = RcloneBundle {
+        version: 1,
+        config: merged.to_string(),
+        seed_sha256: Some(seed_hash.to_string()),
+    };
+    let ciphertext = encrypt_with_policy(seed_path, &Zeroizing::new(serde_json::to_vec(&bundle)?))?;
+    let _seed_lock = SecretLock::acquire(seed_path)?;
+    ensure!(
+        digest(&read_encrypted(seed_path)?) == seed_hash,
+        "OAuth bootstrap changed during this run; refusing to persist stale credentials"
+    );
+    let expected = cached.as_ref().map(|(_, hash)| hash.as_str());
+    commit_ciphertext(&path, &ciphertext, expected)?;
+    Ok(path)
+}
+
+pub fn seed_runtime_cache(config: &Config, encrypted_source: &Path) -> Result<PathBuf> {
+    let seed_path = config
+        .rclone_secrets_file
+        .as_deref()
+        .context("OAuth seed is not configured")?;
+    let seed_hash = digest(&read_encrypted(seed_path)?);
+    let candidate = decode_rclone(&read_encrypted(encrypted_source)?)?;
+    persist_cache(config, &seed_hash, &candidate.config)
+}
+
+pub fn effective_rclone_secrets(config: &Config) -> Result<Option<PathBuf>> {
+    let Some(seed) = config.rclone_secrets_file.as_deref() else {
+        return Ok(None);
+    };
+    if !seed.try_exists()? {
+        return Ok(None);
+    }
+    let seed_hash = digest(&read_encrypted(seed)?);
+    let cache = cache_path(config, &seed_hash, false)?;
+    match fs::symlink_metadata(&cache) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Some(seed.to_path_buf())),
+        Err(error) => Err(error.into()),
+        Ok(metadata) => {
+            ensure!(
+                metadata.is_file(),
+                "credential cache must be a regular file without symlinks"
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                ensure!(
+                    metadata.permissions().mode() & 0o777 == 0o600,
+                    "credential cache must have mode 0600"
+                );
+            }
+            let ciphertext = read_encrypted(&cache)?;
+            let value: Value = serde_json::from_slice(&ciphertext)
+                .context("invalid encrypted credential cache")?;
+            ensure!(
+                value.get("sops").is_some()
+                    && value["seed_sha256"]
+                        .as_str()
+                        .is_some_and(|text| text.starts_with("ENC[")),
+                "credential cache is not an encrypted bound document"
+            );
+            Ok(Some(cache))
+        }
+    }
+}
+
+fn read_encrypted(path: &Path) -> Result<Vec<u8>> {
+    ensure!(
+        fs::symlink_metadata(path)?.is_file(),
+        "encrypted secret must be a regular file without symlinks"
+    );
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
+    ensure!(
+        file.metadata()?.len() <= MAX_SECRET_BYTES as u64 * 4,
+        "encrypted secret exceeds size limit"
+    );
+    let mut bytes = Vec::new();
+    file.take(MAX_SECRET_BYTES as u64 * 4 + 1)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= MAX_SECRET_BYTES * 4,
+        "encrypted secret exceeds size limit"
+    );
+    Ok(bytes)
 }
 
 pub fn initialize(config: &Config) -> Result<String> {
@@ -233,13 +604,14 @@ pub fn import_google_client(config: &Config, encrypted_client: &Path, remote: &s
     );
     scrub_json(&mut client);
     let existing = if encrypted_config.try_exists()? {
-        Some(fs::read(encrypted_config)?)
+        Some(read_encrypted(encrypted_config)?)
     } else {
         None
     };
     let mut parsed = Ini::new_cs();
-    if existing.is_some() {
-        let bundle = rclone_bundle(encrypted_config)?;
+    if let Some(ciphertext) = &existing {
+        let seed = decode_rclone(ciphertext)?;
+        let bundle = effective_bundle(config, &digest(ciphertext), &seed)?;
         parsed
             .read(bundle.config.clone())
             .map_err(|_| anyhow::anyhow!("invalid encrypted rclone configuration"))?;
@@ -248,6 +620,7 @@ pub fn import_google_client(config: &Config, encrypted_client: &Path, remote: &s
     let bundle = RcloneBundle {
         version: 1,
         config: parsed.writes(),
+        seed_sha256: None,
     };
     for section in parsed.get_mut_map().values_mut() {
         for value in section.values_mut().flatten() {
@@ -317,7 +690,7 @@ pub fn authorize_google(config: &Config, remote: &str) -> Result<()> {
         success,
         "Google authorization failed: {hint}; retry auth-drive --authorize"
     );
-    runtime.persist()
+    runtime.publish_seed()
 }
 
 fn oauth_error_hint(stdout: &[u8], stderr: &[u8]) -> &'static str {
@@ -438,9 +811,9 @@ fn recipient(identity: &str) -> Result<String> {
     Ok(identity.to_public().to_string())
 }
 
-fn rclone_bundle(path: &Path) -> Result<RcloneBundle> {
-    let bundle: RcloneBundle =
-        serde_json::from_slice(&decrypt(path)?).context("invalid encrypted rclone document")?;
+fn decode_rclone(ciphertext: &[u8]) -> Result<RcloneBundle> {
+    let bundle: RcloneBundle = serde_json::from_slice(&decrypt_bytes(ciphertext)?)
+        .context("invalid encrypted rclone document")?;
     ensure!(
         bundle.version == 1 && !bundle.config.is_empty(),
         "unsupported or empty rclone document"
@@ -449,18 +822,16 @@ fn rclone_bundle(path: &Path) -> Result<RcloneBundle> {
 }
 
 fn decrypt(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
-    ensure!(
-        fs::symlink_metadata(path)?.is_file(),
-        "encrypted secret must be a regular file"
-    );
-    ensure!(
-        fs::metadata(path)?.len() <= MAX_SECRET_BYTES as u64 * 4,
-        "encrypted secret exceeds size limit"
-    );
+    decrypt_bytes(&read_encrypted(path)?)
+}
+
+fn decrypt_bytes(ciphertext: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    let mut input = NamedTempFile::new()?;
+    input.write_all(ciphertext)?;
     let mut command = sops_command()?;
     command
         .args(["decrypt", "--input-type", "json", "--output-type", "json"])
-        .arg(path)
+        .arg(input.path())
         .stdin(Stdio::null());
     let mut output = process::output(
         &mut command,
@@ -485,22 +856,30 @@ fn decrypt(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
 }
 
 fn seal(path: &Path, plaintext: &[u8], expected_hash: Option<&str>) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("encrypted secret path has no parent")?;
+    fs::create_dir_all(parent)?;
+    let ciphertext = encrypt_with_policy(path, plaintext)?;
+    let _lock = SecretLock::acquire(path)?;
+    commit_ciphertext(path, &ciphertext, expected_hash)
+}
+
+fn encrypt_with_policy(policy_source: &Path, plaintext: &[u8]) -> Result<Vec<u8>> {
     ensure!(
         plaintext.len() <= MAX_SECRET_BYTES,
         "secret document exceeds size limit"
     );
-    let parent = path
-        .parent()
-        .context("encrypted secret path has no parent")?;
-    let repository = repository_for(path)?;
-    fs::create_dir_all(parent)?;
+    let repository = repository_for(policy_source)?;
     let mut input = NamedTempFile::new()?;
-    ensure_runtime_outside_repository(path, input.path())?;
+    ensure_runtime_outside_repository(policy_source, input.path())?;
     input.write_all(plaintext)?;
     input.rewind()?;
     let mut command = sops_command()?;
     command
         .current_dir(&repository)
+        .arg("--config")
+        .arg(repository.join(".sops.yaml"))
         .args([
             "encrypt",
             "--input-type",
@@ -509,7 +888,7 @@ fn seal(path: &Path, plaintext: &[u8], expected_hash: Option<&str>) -> Result<()
             "json",
             "--filename-override",
         ])
-        .arg(path)
+        .arg(policy_source)
         .stdin(input.reopen()?);
     let mut output = process::output(
         &mut command,
@@ -531,14 +910,20 @@ fn seal(path: &Path, plaintext: &[u8], expected_hash: Option<&str>) -> Result<()
         encoded.get("sops").is_some(),
         "SOPS response is not an encrypted document"
     );
+    Ok(output.stdout)
+}
+
+fn commit_ciphertext(path: &Path, ciphertext: &[u8], expected_hash: Option<&str>) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("encrypted secret path has no parent")?;
     let mut staged = NamedTempFile::new_in(parent)?;
-    staged.write_all(&output.stdout)?;
+    staged.write_all(ciphertext)?;
     staged.as_file().sync_all()?;
-    let _lock = SecretLock::acquire(path)?;
     match expected_hash {
         Some(expected) => {
             ensure!(
-                fs::symlink_metadata(path)?.is_file() && digest(&fs::read(path)?) == expected,
+                digest(&read_encrypted(path)?) == expected,
                 "encrypted secret changed; refusing to overwrite it"
             );
             staged.persist(path).map_err(|error| error.error)?;
@@ -572,15 +957,29 @@ impl SecretLock {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
         let file = options.open(lock)?;
         ensure!(
             file.metadata()?.is_file(),
             "secret lock must be a regular file"
         );
-        file.try_lock_exclusive()
-            .context("another SOPS commit is in progress; retry after it finishes")?;
+        let start = std::time::Instant::now();
+        loop {
+            match file.try_lock_exclusive() {
+                Ok(()) => break,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && start.elapsed() < Duration::from_secs(60) =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(error) => {
+                    return Err(error)
+                        .context("another SOPS commit is in progress; retry after it finishes");
+                }
+            }
+        }
         Ok(Self(file))
     }
 }

@@ -269,3 +269,262 @@ fn google_client_import_requires_external_plaintext_and_seals_without_copying_it
         );
     }
 }
+
+fn oauth_fixture(expiry: &str, access: &str, refresh: &str) -> String {
+    let mut ini = Ini::new_cs();
+    ini.set("drive", "type", Some("drive".into()));
+    ini.set(
+        "drive",
+        "client_id",
+        Some("fixture.apps.googleusercontent.com".into()),
+    );
+    ini.set(
+        "drive",
+        "client_secret",
+        Some("fixture-client-secret-canary".into()),
+    );
+    ini.set("drive", "scope", Some("drive.file".into()));
+    ini.set("drive", "token", Some(serde_json::json!({"access_token":access,"token_type":"Bearer","refresh_token":refresh,"expiry":expiry}).to_string()));
+    ini.writes()
+}
+
+#[test]
+fn oauth_merge_preserves_newer_tokens_and_rejects_changed_credentials() {
+    let initial = oauth_fixture("2026-09-10T21:00:00Z", "access-old", "refresh-stable");
+    let fresh = oauth_fixture("2026-09-10T22:00:00Z", "access-new", "refresh-stable");
+    let merged = merge_tokens(&initial, &fresh).unwrap();
+    assert!(merged.contains("access-new"));
+    assert_eq!(
+        merge_tokens(&merged, &initial).unwrap().as_str(),
+        merged.as_str()
+    );
+    for candidate in [
+        fresh.replace("drive.file", "drive"),
+        fresh.replace("fixture.apps", "different.apps"),
+        fresh.replace("fixture-client-secret", "different-client-secret"),
+        fresh.replace("refresh-stable", "refresh-rotated"),
+    ] {
+        assert!(merge_tokens(&initial, &candidate).is_err());
+    }
+}
+
+#[test]
+fn oauth_cache_refuses_repositories_and_symlink_directories() {
+    let root = tempfile::tempdir().unwrap();
+    let repository = root.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    fs::write(repository.join(".sops.yaml"), "creation_rules: []").unwrap();
+    let seed = repository.join("rclone.sops.json");
+    fs::write(&seed, "fixture").unwrap();
+    let mut config = Config {
+        host: "fixture".into(),
+        rclone_secrets_file: Some(seed),
+        state_dir: repository.join("state"),
+        ..Config::default()
+    };
+    assert!(cache_path(&config, "fixturehash", true).is_err());
+    #[cfg(unix)]
+    {
+        config.state_dir = root.path().join("state");
+        fs::create_dir(&config.state_dir).unwrap();
+        std::os::unix::fs::symlink(&repository, config.state_dir.join("credentials")).unwrap();
+        assert!(cache_path(&config, "fixturehash", false).is_err());
+    }
+}
+
+#[test]
+fn actual_sops_cache_refresh_preserves_git_seed_and_portable_recovery() {
+    if Command::new("sops").arg("--version").output().is_err() {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let repository = root.path().join("repository");
+    fs::create_dir(&repository).unwrap();
+    let identity = age::x25519::Identity::generate();
+    fs::write(
+        repository.join(".sops.yaml"),
+        format!("creation_rules:\n  - age: {}\n", identity.to_public()),
+    )
+    .unwrap();
+    let key = root.path().join("age-key");
+    write_private_new(&key, identity.to_string().expose_secret().as_bytes()).unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "secrets::tests::oauth_cache_subprocess_fixture",
+            "--nocapture",
+        ])
+        .env("DCLOUD_CACHE_TEST_ROOT", root.path())
+        .env("SOPS_AGE_KEY_FILE", key)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "cache subprocess failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn oauth_cache_subprocess_fixture() {
+    let Some(root) = std::env::var_os("DCLOUD_CACHE_TEST_ROOT").map(PathBuf::from) else {
+        return;
+    };
+    let repository = root.join("repository");
+    let seed = repository.join("config/dcloud/rclone.sops.json");
+    let bundle = RcloneBundle {
+        version: 1,
+        config: oauth_fixture(
+            "2026-09-10T20:00:00Z",
+            "initial-access-canary",
+            "stable-refresh-canary",
+        ),
+        seed_sha256: None,
+    };
+    seal(&seed, &serde_json::to_vec(&bundle).unwrap(), None).unwrap();
+    let original = fs::read(&seed).unwrap();
+    let modified = fs::metadata(&seed).unwrap().modified().unwrap();
+    let config = Config {
+        host: "fixture".into(),
+        state_dir: root.join("state"),
+        password_file: root.join("repository.key"),
+        identity_file: root.join("age-key"),
+        rclone_secrets_file: Some(seed.clone()),
+        ..Config::default()
+    };
+    write_private_new(
+        &config.password_file,
+        b"fixture-recovery-password-012345678901234567890123456789",
+    )
+    .unwrap();
+    let first = materialize(&config).unwrap();
+    let second = materialize(&config).unwrap();
+    let config_digest = config.digest().unwrap();
+    assert_eq!(first.config.digest().unwrap(), config_digest);
+    let older = oauth_fixture(
+        "2026-09-10T21:00:00Z",
+        "older-access-canary",
+        "stable-refresh-canary",
+    );
+    let newer = oauth_fixture(
+        "2026-09-10T22:00:00Z",
+        "newer-access-canary",
+        "stable-refresh-canary",
+    );
+    fs::write(first.config.rclone_config_file.as_ref().unwrap(), &newer).unwrap();
+    fs::write(second.config.rclone_config_file.as_ref().unwrap(), &older).unwrap();
+    std::thread::scope(|scope| {
+        let a = scope.spawn(|| first.persist());
+        let b = scope.spawn(|| second.persist());
+        a.join().unwrap().unwrap();
+        b.join().unwrap().unwrap();
+    });
+    let cache = effective_rclone_secrets(&config).unwrap().unwrap();
+    assert!(cache.starts_with(fs::canonicalize(config.state_dir.join("credentials")).unwrap()));
+    assert_ne!(cache, seed);
+    let ciphertext = fs::read(&cache).unwrap();
+    let text = String::from_utf8_lossy(&ciphertext);
+    assert!(text.contains("ENC[AES256_GCM"));
+    assert!(!text.contains("canary"));
+    let current = materialize(&config).unwrap();
+    assert!(
+        fs::read_to_string(current.config.rclone_config_file.as_ref().unwrap())
+            .unwrap()
+            .contains("newer-access-canary")
+    );
+    first.persist().unwrap();
+    assert_eq!(fs::read(&cache).unwrap(), ciphertext);
+    assert_eq!(fs::read(&seed).unwrap(), original);
+    assert_eq!(fs::metadata(&seed).unwrap().modified().unwrap(), modified);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&cache).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(cache.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+    let imported = RcloneBundle {
+        version: 1,
+        config: oauth_fixture(
+            "2026-09-10T23:00:00Z",
+            "migrated-access-canary",
+            "stable-refresh-canary",
+        ),
+        seed_sha256: None,
+    };
+    let candidate = repository.join("preserved.sops.json");
+    seal(&candidate, &serde_json::to_vec(&imported).unwrap(), None).unwrap();
+    assert_eq!(seed_runtime_cache(&config, &candidate).unwrap(), cache);
+    let effective = materialize(&config).unwrap();
+    assert!(
+        fs::read_to_string(effective.config.rclone_config_file.as_ref().unwrap())
+            .unwrap()
+            .contains("migrated-access-canary")
+    );
+    let export = root.join("export");
+    crate::setup::export(&config, &export).unwrap();
+    assert_eq!(
+        fs::read(export.join("rclone.sops.json")).unwrap(),
+        fs::read(&cache).unwrap()
+    );
+    let portable = Config {
+        rclone_secrets_file: Some(export.join("rclone.sops.json")),
+        state_dir: root.join("relocated-state"),
+        ..config.clone()
+    };
+    let moved = materialize(&portable).unwrap();
+    assert!(
+        fs::read_to_string(moved.config.rclone_config_file.as_ref().unwrap())
+            .unwrap()
+            .contains("migrated-access-canary")
+    );
+    fs::write(
+        moved.config.rclone_config_file.as_ref().unwrap(),
+        oauth_fixture(
+            "2026-09-11T01:00:00Z",
+            "relocated-access-canary",
+            "stable-refresh-canary",
+        ),
+    )
+    .unwrap();
+    moved.persist().unwrap();
+    let wrong = RcloneBundle {
+        version: 1,
+        config: imported.config.clone(),
+        seed_sha256: Some("wrong-binding".into()),
+    };
+    let wrong_bytes = encrypt_with_policy(&seed, &serde_json::to_vec(&wrong).unwrap()).unwrap();
+    let (_, observed_hash) = cached_bundle(&cache, &digest(&original), &bundle)
+        .unwrap()
+        .unwrap();
+    commit_ciphertext(&cache, &wrong_bytes, Some(&observed_hash)).unwrap();
+    assert!(commit_ciphertext(&cache, &ciphertext, Some(&observed_hash)).is_err());
+    assert_eq!(fs::read(&cache).unwrap(), wrong_bytes);
+    assert!(materialize(&config).is_err());
+    fs::remove_file(&cache).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&seed, &cache).unwrap();
+        assert!(materialize(&config).is_err());
+        assert!(effective_rclone_secrets(&config).is_err());
+        fs::remove_file(&cache).unwrap();
+    }
+    seal(
+        &seed,
+        &serde_json::to_vec(&bundle).unwrap(),
+        Some(&digest(&original)),
+    )
+    .unwrap();
+    assert!(first.persist().is_err());
+    assert_eq!(effective_rclone_secrets(&config).unwrap().unwrap(), seed);
+    assert_eq!(config.digest().unwrap(), config_digest);
+}
