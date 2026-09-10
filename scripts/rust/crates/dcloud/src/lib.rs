@@ -12,6 +12,7 @@ pub mod schedule;
 pub mod secrets;
 pub mod setup;
 pub mod state;
+pub mod status;
 pub mod sync;
 pub mod transport;
 pub mod ui;

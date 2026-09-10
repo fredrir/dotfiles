@@ -52,11 +52,14 @@ linux/hyprland/hypr/conf.d/local.conf
 
 __pycache__/
 *.pyc
+**/.pytest_cache/
+**/.ruff_cache/
 
 scripts/python/.venv/
 scripts/rust/target/
 
 .idea/
+.vscode/
 
 .DS_Store
 

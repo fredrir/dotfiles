@@ -1,6 +1,6 @@
 use crate::cli::{Cli, Command, ConfigCommand, Filter, Repository};
 use crate::config::{self, Config};
-use crate::state::{RunState, State};
+use crate::state::State;
 use crate::{backups, catalog, objects, setup};
 use anyhow::{Context, Result, ensure};
 use chrono::Utc;
@@ -19,7 +19,10 @@ fn execute(cli: Cli) -> Result<ExitCode> {
         .clone()
         .map(Ok)
         .unwrap_or_else(config::default_path)?;
-    let command = cli.command.unwrap_or(Command::Status { overdue: false });
+    let command = cli.command.unwrap_or(Command::Status {
+        overdue: false,
+        local: false,
+    });
     let value = match command {
         Command::Init { host, secrets_dir } => {
             setup::initialize(&path, &host, secrets_dir.as_deref())?
@@ -32,6 +35,15 @@ fn execute(cli: Cli) -> Result<ExitCode> {
         }
         command => {
             let config = Config::load(&path)?;
+            if let Command::Status { overdue, local } = command {
+                let value = crate::status::collect(&config, local, overdue)?;
+                emit(&value, cli.json)?;
+                return Ok(if failed(&value) {
+                    ExitCode::from(2)
+                } else {
+                    ExitCode::SUCCESS
+                });
+            }
             if matches!(
                 command,
                 Command::Config {
@@ -326,7 +338,7 @@ fn execute(cli: Cli) -> Result<ExitCode> {
                     Command::Sync { pair, init, apply } => {
                         crate::sync::run(&config, &pair, init, apply)?
                     }
-                    Command::Status { overdue } => status(&config, &state, overdue)?,
+                    Command::Status { .. } => unreachable!(),
                     Command::Schedule { install, dispatch } => {
                         scheduler(&config, &path, install, dispatch)?
                     }
@@ -449,59 +461,6 @@ fn browse(
         }
     }
     Ok(result)
-}
-
-fn status(config: &Config, state: &State, overdue_only: bool) -> Result<Value> {
-    let runs = state.runs()?;
-    let mut items = Vec::new();
-    for (name, job) in &config.jobs {
-        for host in job.sources.keys() {
-            for destination in &job.destinations {
-                let receipts = runs
-                    .iter()
-                    .filter(|run| &run.host == host && &run.job == name)
-                    .filter_map(|run| run.replicas.get(destination))
-                    .collect::<Vec<_>>();
-                let receipt = receipts
-                    .iter()
-                    .filter(|receipt| receipt.verified_at.is_some())
-                    .max_by_key(|receipt| receipt.verified_at);
-                let last_verified = receipt.and_then(|receipt| receipt.verified_at);
-                let last_full_restore = receipts
-                    .iter()
-                    .filter_map(|receipt| receipt.full_verified_at)
-                    .max();
-                let overdue = if last_verified.is_none() && host != &config.host {
-                    None
-                } else {
-                    Some(last_verified.is_none_or(|at| {
-                        Utc::now().signed_duration_since(at).num_hours() >= job.overdue_hours as i64
-                    }))
-                };
-                if overdue_only && overdue != Some(true) {
-                    continue;
-                }
-                let status = match overdue {
-                    Some(true) => "overdue",
-                    Some(false) => "verified",
-                    None => "unknown; check source host",
-                };
-                items.push(json!({"host":host,"job":name,"destination":destination,"last_verified":last_verified,"last_full_restore":last_full_restore,"snapshot":receipt.and_then(|r|r.snapshot.clone()),"overdue":overdue,"status":status,"journal_host":config.host}));
-            }
-        }
-    }
-    let pending = runs
-        .iter()
-        .filter(|run| !matches!(run.state, RunState::Committed))
-        .collect::<Vec<_>>();
-    let sync = config
-        .sync
-        .keys()
-        .map(|name| crate::sync::status(config, name))
-        .collect::<Result<Vec<_>>>()?;
-    Ok(
-        json!({"items":items,"pending":pending,"sync":sync,"pending_cleanup":crate::maintenance::pending_cleanup(config, state)?,"maintenance":state.load_value::<Value>("maintenance-result", &config.host)?}),
-    )
 }
 
 fn stats(config: &Config, repository: &Repository, forecast: bool) -> Result<Value> {

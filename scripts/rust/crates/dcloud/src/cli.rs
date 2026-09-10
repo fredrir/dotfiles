@@ -231,6 +231,11 @@ pub enum Command {
     Status {
         #[arg(long)]
         overdue: bool,
+        #[arg(
+            long,
+            help = "Read only this computer journal without SSH or credentials"
+        )]
+        local: bool,
     },
     #[command(about = "Render or install a local scheduler")]
     Schedule {

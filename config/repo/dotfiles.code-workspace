@@ -1,0 +1,27 @@
+{
+  "folders": [
+    {
+      "name": "dotfiles",
+      "path": "../.."
+    }
+  ],
+  "settings": {
+    "rust-analyzer.linkedProjects": [
+      "scripts/rust/Cargo.toml"
+    ]
+  },
+  "extensions": {
+    "recommendations": [
+      "biomejs.biome",
+      "charliermarsh.ruff",
+      "JohnnyMorganz.stylua",
+      "tamasfe.even-better-toml",
+      "mkhl.shfmt",
+      "rust-lang.rust-analyzer",
+      "jkillian.custom-local-formatters",
+      "sumneko.lua",
+      "ms-python.python",
+      "yzhang.markdown-all-in-one"
+    ]
+  }
+}

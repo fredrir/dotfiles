@@ -143,3 +143,69 @@ fn state_refuses_symlink_database_and_lock() -> Result<()> {
     assert_eq!(fs::read_to_string(&target)?, "preserved");
     Ok(())
 }
+
+#[test]
+fn readonly_missing_state_never_creates_directories_or_database() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let missing = directory.path().join("absent");
+    assert!(State::open_readonly(&missing)?.is_none());
+    assert!(!missing.exists());
+    assert!(State::open_readonly(directory.path())?.is_none());
+    assert_eq!(fs::read_dir(directory.path())?.count(), 0);
+    Ok(())
+}
+
+#[test]
+fn readonly_state_sees_live_wal_without_allowing_writes_or_schema_changes() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut writer = State::open(directory.path())?;
+    writer
+        .connection
+        .execute_batch("PRAGMA wal_autocheckpoint=0;")?;
+    let run = RunRecord::new("archie", "documents", "hash");
+    writer.save_run(&run)?;
+    let database_before = fs::read(directory.path().join("state.sqlite3"))?;
+    let wal_before = fs::read(directory.path().join("state.sqlite3-wal"))?;
+    let mut reader = State::open_readonly(directory.path())?.unwrap();
+    assert_eq!(reader.runs()?.len(), 1);
+    assert_eq!(reader.load_run(&run.id)?.unwrap().id, run.id);
+    assert!(reader.save_value("forbidden", "write", &true).is_err());
+    assert!(
+        reader
+            .save_run(&RunRecord::new("archie", "other", "hash"))
+            .is_err()
+    );
+    assert!(
+        reader
+            .connection
+            .execute_batch("CREATE TABLE forbidden (value TEXT);")
+            .is_err()
+    );
+    drop(reader);
+    assert_eq!(
+        fs::read(directory.path().join("state.sqlite3"))?,
+        database_before
+    );
+    assert_eq!(
+        fs::read(directory.path().join("state.sqlite3-wal"))?,
+        wal_before
+    );
+    assert!(!directory.path().join("locks").exists());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn readonly_state_refuses_symlinks_and_nonregular_databases() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let target = directory.path().join("target");
+    fs::write(&target, "preserved")?;
+    let database = directory.path().join("state.sqlite3");
+    std::os::unix::fs::symlink(&target, &database)?;
+    assert!(State::open_readonly(directory.path()).is_err());
+    assert_eq!(fs::read_to_string(&target)?, "preserved");
+    fs::remove_file(&database)?;
+    fs::create_dir(&database)?;
+    assert!(State::open_readonly(directory.path()).is_err());
+    Ok(())
+}

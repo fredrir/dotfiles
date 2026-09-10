@@ -161,9 +161,145 @@ pub fn safe(value: &str) -> String {
 }
 
 pub fn human(value: &Value) -> String {
+    if value.get("local_only").is_some_and(Value::is_boolean)
+        && value.get("hosts").is_some_and(Value::is_array)
+        && value.get("items").is_some_and(Value::is_array)
+    {
+        return status(value);
+    }
     let mut output = String::new();
     render(value, 0, &mut output);
     output
+}
+
+fn status(value: &Value) -> String {
+    let scope = if value["local_only"] == true {
+        "local source journal"
+    } else {
+        "source journals"
+    };
+    let mut output = format!(
+        "Backups · {scope} · checked {}\n\n",
+        timestamp(&value["observed_at"])
+    );
+    render(&value["items"], 0, &mut output);
+    let mut messages = std::collections::BTreeSet::new();
+    let hosts = value["hosts"].as_array().unwrap();
+    for host in hosts {
+        if let Some(message) = host["message"].as_str() {
+            messages.insert(format!("{}: {message}", field(host, "host")));
+        }
+    }
+    if let Some(errors) = value["errors"].as_array() {
+        messages.extend(errors.iter().filter_map(Value::as_str).map(str::to_owned));
+    }
+    for message in &messages {
+        output.push_str(&format!("\nStatus check: {}\n", brief(message)));
+    }
+    let maintenance: Vec<_> = hosts
+        .iter()
+        .filter(|host| host["maintenance"].is_object())
+        .collect();
+    if !maintenance.is_empty() {
+        output.push_str("\nMaintenance (last recorded run)\n");
+        for host in maintenance {
+            let record = &host["maintenance"];
+            let mut warnings = Vec::new();
+            diagnostics(record, &mut warnings);
+            let pending = record["result"]["source_cleanup"]["cleanup_pending"] == true
+                || record["result"]["source_cleanup"]["pending"]
+                    .as_array()
+                    .is_some_and(|pending| !pending.is_empty());
+            let deferred = !warnings.is_empty() || pending || record["succeeded"] == false;
+            let outcome = if !deferred { "ok" } else { "deferred" };
+            output.push_str(&format!(
+                "  {}: {outcome} · {}\n",
+                safe(field(host, "host")),
+                timestamp(&record["at"])
+            ));
+            for warning in warnings.iter().take(3) {
+                output.push_str(&format!("    {}\n", brief(warning)));
+            }
+            if warnings.len() > 3 {
+                output.push_str(&format!("    {} more warnings\n", warnings.len() - 3));
+            }
+            if pending {
+                output.push_str("    Source cleanup is pending.\n");
+            }
+            if deferred {
+                messages.insert("maintenance details".into());
+            }
+        }
+    }
+    for key in ["pending", "pending_cleanup", "sync"] {
+        if value[key].as_array().is_some_and(|rows| !rows.is_empty()) {
+            output.push_str(&format!("\n{}\n", key.replace('_', " ")));
+            render(&value[key], 1, &mut output);
+        }
+    }
+    if !messages.is_empty() {
+        output.push_str("\nUse dcloud status --json for full diagnostic details.\n");
+    }
+    output
+}
+
+fn diagnostics(value: &Value, messages: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if matches!(key.as_str(), "warning" | "error" | "warnings" | "errors") {
+                    match value {
+                        Value::String(message) if !message.is_empty() => {
+                            messages.push(message.clone());
+                        }
+                        Value::Array(values) => {
+                            for value in values {
+                                if let Some(message) = value.as_str() {
+                                    messages.push(message.to_owned());
+                                } else {
+                                    diagnostics(value, messages);
+                                }
+                            }
+                        }
+                        _ => diagnostics(value, messages),
+                    }
+                } else {
+                    diagnostics(value, messages);
+                }
+            }
+        }
+        Value::Array(values) => values.iter().for_each(|value| diagnostics(value, messages)),
+        _ => {}
+    }
+}
+
+fn brief(message: &str) -> String {
+    let message = message
+        .split_once("googleapi: ")
+        .map_or(message, |(_, cause)| cause);
+    let line = message
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default();
+    let line = safe(&line.split_whitespace().collect::<Vec<_>>().join(" "));
+    let mut chars = line.chars();
+    let mut summary: String = chars.by_ref().take(220).collect();
+    if chars.next().is_some() {
+        summary.push('…');
+    }
+    summary
+}
+
+fn timestamp(value: &Value) -> String {
+    value
+        .as_str()
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|time| {
+            time.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M %:z")
+                .to_string()
+        })
+        .unwrap_or_else(|| cell(value))
 }
 
 fn render(value: &Value, depth: usize, output: &mut String) {
@@ -264,10 +400,15 @@ fn table(rows: &[Value], columns: &[&str], depth: usize, output: &mut String) {
             .map(|column| column.replace('_', " ").to_uppercase())
             .collect::<Vec<_>>(),
     ];
-    cells.extend(
-        rows.iter()
-            .map(|row| columns.iter().map(|column| cell(&row[*column])).collect()),
-    );
+    cells.extend(rows.iter().map(|row| {
+        columns
+            .iter()
+            .map(|column| match *column {
+                "last_verified" | "last_full_restore" => timestamp(&row[*column]),
+                _ => cell(&row[*column]),
+            })
+            .collect()
+    }));
     let widths: Vec<_> = (0..columns.len())
         .map(|column| {
             cells

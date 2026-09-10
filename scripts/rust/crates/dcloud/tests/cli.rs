@@ -243,3 +243,46 @@ fn local_status_and_schedule_work_without_available_credentials() -> Result<()> 
     assert!(listing["items"].as_array().unwrap().is_empty());
     Ok(())
 }
+
+#[test]
+fn local_status_does_not_bootstrap_state_and_bare_status_reports_unreachable_owners() -> Result<()>
+{
+    let fixture = fixture()?;
+    let mut config = Config::load(&fixture.config)?;
+    config.secrets_file = Some(fixture.root.join("unavailable.sops.json"));
+    config
+        .jobs
+        .get_mut("Documents")
+        .unwrap()
+        .sources
+        .insert("archie".into(), vec!["/Documents".into()]);
+    config
+        .hosts
+        .insert("archie".into(), dcloud::config::HostConfig::default());
+    fs::write(&fixture.config, toml::to_string_pretty(&config)?)?;
+    let local = value(&fixture.config, &["status", "--local"]);
+    assert_eq!(local["local_only"], true);
+    assert!(
+        local["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["host"] == "macie")
+    );
+    assert!(!fixture.root.join("state").exists());
+    let bare = cli(&fixture.config, &[]);
+    assert_eq!(bare.status.code(), Some(2));
+    let all: Value = serde_json::from_str(&stdout(&bare))?;
+    assert_eq!(all["local_only"], false);
+    assert_eq!(all["hosts"][1]["status"], "unreachable");
+    let remote = all["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["host"] == "archie")
+        .unwrap();
+    assert!(remote["last_verified"].is_null());
+    assert_eq!(remote["status"], "unknown; source unreachable");
+    assert!(!fixture.root.join("state").exists());
+    Ok(())
+}

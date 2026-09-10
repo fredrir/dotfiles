@@ -88,6 +88,33 @@ pub struct State {
 }
 
 impl State {
+    pub fn open_readonly(root: &Path) -> Result<Option<Self>> {
+        let path = root.join("state.sqlite3");
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error).context("inspect dcloud state database"),
+        };
+        ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "state database must be a regular file"
+        );
+        let path = root
+            .canonicalize()
+            .context("resolve state directory")?
+            .join("state.sqlite3");
+        let connection = Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .context("read dcloud state database")?;
+        connection.busy_timeout(Duration::from_secs(1))?;
+        Ok(Some(Self {
+            connection,
+            root: root.to_owned(),
+        }))
+    }
+
     pub fn open(root: &Path) -> Result<Self> {
         private_directory(root)?;
         let path = root.join("state.sqlite3");

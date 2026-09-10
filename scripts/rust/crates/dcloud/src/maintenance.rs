@@ -6,7 +6,12 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 
 pub fn cleanup(config: &Config, state: &mut State, apply: bool) -> Result<Value> {
-    let mut result = cleanup_inner(config, state, apply, true)?;
+    let mut result = if apply {
+        let _lock = state.lock(&format!("maintenance:{}", config.host))?;
+        attempt(config, state, Utc::now(), true)?.outcome?
+    } else {
+        cleanup_inner(config, state, false, true)?
+    };
     if let Some(object) = result.as_object_mut()
         && let Some(warnings) = object.remove("warnings")
     {
@@ -16,25 +21,87 @@ pub fn cleanup(config: &Config, state: &mut State, apply: bool) -> Result<Value>
 }
 
 pub fn run_due(config: &Config, state: &mut State) -> Result<Value> {
+    run_due_at(config, state, Utc::now())
+}
+
+fn run_due_at(config: &Config, state: &mut State, now: DateTime<Utc>) -> Result<Value> {
     let _lock = state.lock(&format!("maintenance:{}", config.host))?;
-    let now = Utc::now();
     let previous: Option<DateTime<Utc>> = state.load_value("maintenance-attempt", &config.host)?;
-    if let Some(previous) = previous
-        && now.signed_duration_since(previous) < chrono::Duration::days(1)
-    {
-        return Ok(
-            json!({"attempted":false,"last_attempt":previous,"next_attempt":previous + chrono::Duration::days(1)}),
-        );
+    if let Some(previous) = previous {
+        let record: Option<Value> = state.load_value("maintenance-result", &config.host)?;
+        let succeeded = record.as_ref().is_some_and(|record| {
+            record
+                .get("at")
+                .and_then(Value::as_str)
+                .and_then(|time| time.parse::<DateTime<Utc>>().ok())
+                == Some(previous)
+                && record.get("result").is_some_and(Value::is_object)
+                && !has_failure(record)
+        });
+        let interval = if succeeded {
+            chrono::Duration::days(1)
+        } else {
+            chrono::Duration::minutes(15)
+        };
+        if now.signed_duration_since(previous) < interval {
+            return Ok(
+                json!({"attempted":false,"last_attempt":previous,"next_attempt":previous + interval}),
+            );
+        }
     }
+    Ok(attempt(config, state, now, false)?.record)
+}
+
+struct Attempt {
+    record: Value,
+    outcome: Result<Value>,
+}
+
+fn attempt(
+    config: &Config,
+    state: &mut State,
+    now: DateTime<Utc>,
+    manual: bool,
+) -> Result<Attempt> {
     state.save_value("maintenance-attempt", &config.host, &now)?;
-    let result = match cleanup_inner(config, state, true, false) {
-        Ok(result) => json!({"attempted":true,"at":now,"result":result}),
+    let outcome = cleanup_inner(config, state, true, manual);
+    let record = match &outcome {
+        Ok(result) => {
+            json!({"attempted":true,"at":now,"manual":manual,"succeeded":!has_failure(result),"result":result})
+        }
         Err(error) => {
-            json!({"attempted":true,"at":now,"warning":format!("automatic cleanup deferred; verified backups retained: {error:#}")})
+            json!({"attempted":true,"at":now,"manual":manual,"succeeded":false,"warning":format!("cleanup deferred; verified backups retained: {error:#}")})
         }
     };
-    state.save_value("maintenance-result", &config.host, &result)?;
-    Ok(result)
+    state.save_value("maintenance-result", &config.host, &record)?;
+    Ok(Attempt { record, outcome })
+}
+
+fn has_failure(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, value)| {
+            (matches!(
+                key.as_str(),
+                "warning" | "warnings" | "error" | "errors" | "pending"
+            ) && nonempty(value))
+                || (key == "cleanup_pending" && value.as_bool() == Some(true))
+                || (key == "succeeded" && value.as_bool() == Some(false))
+                || has_failure(value)
+        }),
+        Value::Array(items) => items.iter().any(has_failure),
+        _ => false,
+    }
+}
+
+fn nonempty(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::String(value) => !value.trim().is_empty(),
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
+        Value::Number(value) => value.as_u64() != Some(0),
+    }
 }
 
 pub fn pending_cleanup(config: &Config, state: &State) -> Result<Vec<Value>> {
@@ -60,7 +127,9 @@ fn cleanup_inner(
 ) -> Result<Value> {
     let _lock = state.lock("quarantine-cleanup")?;
     let source_cleanup = if apply && retry_sources {
-        backups::retry_cleanup(config, state)?
+        let mut result = backups::retry_cleanup(config, state)?;
+        result["pending"] = json!(pending_cleanup(config, state)?);
+        result
     } else {
         json!({"applied":false,"pending":pending_cleanup(config, state)?})
     };

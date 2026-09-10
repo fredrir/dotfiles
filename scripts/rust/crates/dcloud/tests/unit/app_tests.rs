@@ -1,10 +1,13 @@
 use super::*;
 use crate::config::Job;
-use crate::state::{ReplicaReceipt, ReplicaState, RunRecord};
+use crate::state::{ReplicaReceipt, ReplicaState, RunRecord, RunState};
 
 #[test]
 fn offline_metadata_and_encrypted_recovery_export_do_not_decrypt_credentials() {
-    assert!(!needs_credentials(&Command::Status { overdue: false }));
+    assert!(!needs_credentials(&Command::Status {
+        overdue: false,
+        local: true
+    }));
     assert!(!needs_credentials(&Command::Browse {
         filter: Filter::default(),
         offline: true,
@@ -55,7 +58,7 @@ fn pending_source_cleanup_is_visible_without_reclassifying_or_mutating_backups()
         .save_value("backup-cleanup", "captured", &progress)
         .unwrap();
     let before = serde_json::to_value(&progress).unwrap();
-    let status = status(&config, &state, false).unwrap();
+    let status = crate::status::local(&config, Some(&state)).unwrap();
     assert_eq!(status["pending_cleanup"][0]["backup"], "verified");
     assert!(!failed(&status));
     let preview = cleanup(&config, &mut state, false).unwrap();
@@ -122,13 +125,11 @@ fn status_uses_verification_time_and_keeps_restore_history() {
     receipt.full_verified_at = None;
     receipt.snapshot = Some("latest".into());
     state.save_run(&run).unwrap();
-    let result = status(&config, &state, false).unwrap();
+    let result = crate::status::local(&config, Some(&state)).unwrap();
     let rows = result["items"].as_array().unwrap();
     let local = rows.iter().find(|row| row["host"] == "macie").unwrap();
     assert_eq!(local["overdue"], false);
     assert_eq!(local["snapshot"], "latest");
     assert_eq!(local["last_full_restore"], json!(full));
-    let remote = rows.iter().find(|row| row["host"] == "archie").unwrap();
-    assert_eq!(remote["status"], "unknown; check source host");
-    assert!(remote["overdue"].is_null());
+    assert!(rows.iter().all(|row| row["host"] == "macie"));
 }

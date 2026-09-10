@@ -26,6 +26,7 @@ requires      = ["uv_build>=0.11,<0.13"]
 build-backend = "uv_build"
 
 [tool.ruff]
+cache-dir  = "~/.cache/ruff"
 line-length = 100
 
 [tool.ruff.lint.flake8-bugbear]
@@ -39,4 +40,5 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 "src/tools/surface/entry.py"  = ["BLE001", "S112"]
 
 [tool.pytest.ini_options]
+cache_dir = "$HOME/.cache/pytest/dotfiles"
 testpaths = ["tests"]
