@@ -118,7 +118,7 @@ pub fn launch(ctx: &mut Context, action: &str) -> Result<i32> {
                 None,
             )?;
             ui::report(ctx, &(output.out + &output.err), title)?;
-            return Ok(output.code);
+            return Ok(if ctx.client.is_some() { 0 } else { output.code });
         }
         _ => return Err("unknown agent action".into()),
     }

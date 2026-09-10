@@ -357,7 +357,12 @@ pub fn report(ctx: &Context, value: &str, title: &str) -> Result<()> {
 
 pub fn show_report(path: &Path) -> Result<i32> {
     if process::which("less").is_some() {
-        return process::interactive(Command::new("less").args(["-R", "--"]).arg(path));
+        return process::interactive(
+            Command::new("less")
+                .env("LESS", "")
+                .args(["-R", "--"])
+                .arg(path),
+        );
     }
     println!("{}", fs::read_to_string(path)?);
     let mut line = String::new();

@@ -576,3 +576,59 @@ fn failed_destination_never_returns_ownership_to_a_stale_source() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("destination owns execution"));
     assert!(fixture.source.join("agent.stopped").exists());
 }
+
+#[test]
+fn move_on_an_unmanaged_pane_explains_how_to_start_one() {
+    let tmux = Command::new("sh")
+        .args(["-c", "command -v tmux"])
+        .output()
+        .unwrap();
+    assert!(tmux.status.success(), "tmux required");
+    let tmux = PathBuf::from(String::from_utf8(tmux.stdout).unwrap().trim());
+    let temp = tempfile::tempdir().unwrap();
+    let bin = temp.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let socket = format!(
+        "ah-test-plain-{}",
+        temp.path().file_name().unwrap().to_str().unwrap()
+    );
+    executable(
+        &bin.join("tmux"),
+        &format!(
+            "#!/bin/sh\nexec {} -L {} \"$@\"\n",
+            quote(tmux.to_str().unwrap()),
+            quote(&socket)
+        ),
+    );
+    assert_ok(
+        Command::new(&tmux)
+            .args([
+                "-L",
+                &socket,
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                "plain",
+                "/bin/sh",
+            ])
+            .env_remove("TMUX")
+            .output()
+            .unwrap(),
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_agent-hop"))
+        .args(["move", "--pane", "%0"])
+        .env("HOME", temp.path())
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env_remove("TMUX")
+        .output()
+        .unwrap();
+    let _ = Command::new(&tmux)
+        .args(["-L", &socket, "kill-server"])
+        .output();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unmanaged agent"), "{stderr}");
+    assert!(!stderr.contains("invalid option"), "{stderr}");
+}

@@ -2,6 +2,7 @@ import concurrent.futures
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from .harness import wait_for
@@ -191,3 +192,18 @@ def test_host_choices_come_from_inventory(server, picker, tmp_path):
     args = json.loads(log.read_text())
     assert args[-2] == "second"
     assert "exec tmux-workspace enter" in args[-1]
+
+
+def test_report_popup_stays_open_until_dismissed(server):
+    client = server.attach()
+    agent_hop = Path(server.env["PATH"].split(os.pathsep)[0]) / "agent-hop"
+    agent_hop.write_text("#!/bin/sh\necho 'agent-hop: unmanaged agent' >&2\nexit 1\n")
+    agent_hop.chmod(0o700)
+    server.tm("set-environment", "-g", "LESS", "-F")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(server.run, "handoff", client=client.name)
+        wait_for(lambda: b"unmanaged agent" in client.output())
+        time.sleep(0.5)
+        assert not pending.done()
+        client.press(b"q")
+        assert pending.result(timeout=10).returncode == 0

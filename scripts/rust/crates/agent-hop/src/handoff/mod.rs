@@ -996,7 +996,15 @@ fn pane(selected: Option<&str>) -> Result<String, String> {
 }
 fn pane_run(selected: Option<&str>) -> Result<String, String> {
     let pane = pane(selected)?;
-    let id = tmux(&["show-option", "-p", "-v", "-t", &pane, "@agent_hop_run"])?;
+    let id = tmux(&[
+        "show-option",
+        "-p",
+        "-v",
+        "-q",
+        "-t",
+        &pane,
+        "@agent_hop_run",
+    ])?;
     if id.is_empty() {
         return Err("unmanaged agent: start with agent-hop run codex or agent-hop run claude; history copying does not stop active execution".into());
     }
