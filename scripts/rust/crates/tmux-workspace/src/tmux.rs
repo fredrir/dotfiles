@@ -273,6 +273,69 @@ impl Context {
         args.extend(extra.iter().map(|v| (*v).to_owned()));
         Ok(args)
     }
+    pub fn window_size(&self) -> Result<(usize, usize)> {
+        let size = self.fmt("#{window_width}\t#{window_height}")?;
+        size.split_once('\t')
+            .and_then(|(w, h)| Some((w.parse::<usize>().ok()?, h.parse::<usize>().ok()?)))
+            .ok_or_else(|| "window size unavailable".into())
+    }
+    pub fn float(
+        &self,
+        argv: &[String],
+        title: &str,
+        failed: bool,
+        width: usize,
+        height: usize,
+    ) -> Result<()> {
+        let pane = self.pane()?;
+        let (window_width, window_height) = self.window_size()?;
+        let accent = self.tmux.option(if failed {
+            "@theme_error"
+        } else {
+            "@theme_primary"
+        });
+        let mut args: Vec<String> = [
+            "new-pane",
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "-t",
+            pane,
+            "-x",
+            &width.to_string(),
+            "-y",
+            &height.to_string(),
+            "-X",
+            &((window_width.saturating_sub(width)) / 2).to_string(),
+            "-Y",
+            &((window_height.saturating_sub(height)) / 2).to_string(),
+        ]
+        .map(String::from)
+        .to_vec();
+        if !accent.is_empty() {
+            let border = format!("fg={accent}");
+            args.extend(["-S".into(), border.clone(), "-R".into(), border]);
+        }
+        args.extend(argv.iter().cloned());
+        let id = self
+            .tmux
+            .run(&args.iter().map(String::as_str).collect::<Vec<_>>())?;
+        let style = if accent.is_empty() {
+            "#[bold]".to_owned()
+        } else {
+            format!("#[fg={accent},bold]")
+        };
+        let label = format!(
+            " {style}{}{}#[default] ",
+            if failed { "✗ " } else { "" },
+            clean(title, 160).replace('#', "##")
+        );
+        self.tmux
+            .run(&["set-option", "-p", "-t", &id, "pane-border-format", &label])?;
+        self.tmux
+            .run(&["set-option", "-p", "-t", &id, "@workspace-tool", "report"])?;
+        Ok(())
+    }
     pub fn popup(&self, argv: &[String], title: &str, cwd: &Path, close: bool) -> Result<()> {
         let client = self.client()?;
         let command = process::shell(argv);

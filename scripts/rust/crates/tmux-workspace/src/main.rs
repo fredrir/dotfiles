@@ -50,6 +50,11 @@ fn main() -> ExitCode {
             Ok(code) => Ok(workstation::exit_code(code)),
             Err(error) => {
                 if ctx.client.is_some() {
+                    let report = ui::Report::failure(cli::action_name(), error.to_string())
+                        .detail("command", cli::invocation());
+                    if ui::report(&ctx, &report).is_ok() {
+                        return Ok(ExitCode::SUCCESS);
+                    }
                     ctx.notice(&format!("tmux-workspace: {error}"));
                 }
                 Err(error.to_string())

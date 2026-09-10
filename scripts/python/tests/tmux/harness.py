@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import pytest
+from native import rust_binary
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE = ROOT / "shared/tmux"
@@ -26,24 +27,6 @@ def wait_for(predicate, timeout=5):
             return value
         time.sleep(0.02)
     raise AssertionError("condition timed out")
-
-
-def rust_binary(package, name):
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--locked",
-            "--manifest-path",
-            str(ROOT / "scripts/rust/Cargo.toml"),
-            "-p",
-            package,
-        ],
-        check=True,
-        timeout=180,
-    )
-    target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "scripts/rust/target")).resolve()
-    return target / "debug" / name
 
 
 @pytest.fixture(scope="session")
@@ -334,7 +317,8 @@ def picker(environment):
     target = Path(environment["PATH"].split(os.pathsep)[0]) / "fzf"
     target.write_text(
         f"#!{sys.executable}\n"
-        "import os,sys\n"
+        "import json,os,sys\n"
+        "open(os.path.join(os.path.dirname(__file__),'fzf-args.json'),'w').write(json.dumps(sys.argv[1:]))\n"
         "try:\n"
         "    tty=os.open('/dev/tty',os.O_RDWR|os.O_NOCTTY)\n"
         "except OSError:\n"

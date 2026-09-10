@@ -2,7 +2,6 @@ import concurrent.futures
 import json
 import os
 import subprocess
-import time
 from pathlib import Path
 
 from .harness import wait_for
@@ -194,16 +193,66 @@ def test_host_choices_come_from_inventory(server, picker, tmp_path):
     assert "exec tmux-workspace enter" in args[-1]
 
 
-def test_report_popup_stays_open_until_dismissed(server):
+def report_pane(server):
+    return next((p for p in server.panes() if p["tool"] == "report"), None)
+
+
+def shown_text(server, pane, needle):
+    text = server.capture(pane)
+    return text if needle in text else None
+
+
+def test_report_opens_floating_pane_that_copies_and_closes(server):
     client = server.attach()
     agent_hop = Path(server.env["PATH"].split(os.pathsep)[0]) / "agent-hop"
     agent_hop.write_text("#!/bin/sh\necho 'agent-hop: unmanaged agent' >&2\nexit 1\n")
     agent_hop.chmod(0o700)
-    server.tm("set-environment", "-g", "LESS", "-F")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        pending = pool.submit(server.run, "handoff", client=client.name)
-        wait_for(lambda: b"unmanaged agent" in client.output())
-        time.sleep(0.5)
-        assert not pending.done()
-        client.press(b"q")
-        assert pending.result(timeout=10).returncode == 0
+    server.run("handoff", client=client.name)
+    report = wait_for(lambda: report_pane(server))
+    assert report["floating"]
+    shown = wait_for(lambda: shown_text(server, report["id"], "unmanaged agent"))
+    assert "exit" in shown and "q close" in shown
+    title = server.tm("show-options", "-p", "-v", "-t", report["id"], "pane-border-format")
+    assert "✗ Move execution" in title
+    server.tm("send-keys", "-t", report["id"], "y")
+    wait_for(lambda: "unmanaged agent" in server.tm("show-buffer", check=False))
+    server.tm("send-keys", "-t", report["id"], "q")
+    wait_for(lambda: report_pane(server) is None)
+
+
+def test_command_errors_open_the_error_modal_and_exit_clean(server):
+    client = server.attach()
+    assert server.run("host", "bad host!", client=client.name).returncode == 0
+    report = wait_for(lambda: report_pane(server))
+    shown = wait_for(lambda: shown_text(server, report["id"], "invalid SSH host"))
+    assert "tmux-workspace" in shown and "host" in shown
+    title = server.tm("show-options", "-p", "-v", "-t", report["id"], "pane-border-format")
+    assert "✗ host" in title
+    server.tm("send-keys", "-t", report["id"], "Escape")
+    wait_for(lambda: report_pane(server) is None)
+
+
+def test_reports_print_plainly_without_a_client(server):
+    result = server.run("host", "bad host!", check=False)
+    assert result.returncode != 0
+    assert "invalid SSH host" in result.stderr
+    assert report_pane(server) is None
+
+
+def test_popup_picker_leaves_framing_to_the_popup(server, picker):
+    client = server.attach()
+    server.run("palette", client=client.name, env={"TMUX_PICK_MATCH": "__cancel__"})
+    args = json.loads(picker.with_name("fzf-args.json").read_text())
+    assert not any(arg.startswith("--border") for arg in args)
+    assert args[args.index("--prompt") + 1] == "› "
+
+
+def test_pickers_copy_the_highlighted_row_with_ctrl_y(server, picker):
+    client = server.attach()
+    server.run("palette", client=client.name, env={"TMUX_PICK_MATCH": "__cancel__"})
+    args = json.loads(picker.with_name("fzf-args.json").read_text())
+    bind = args[args.index("--bind") + 1]
+    assert bind.startswith("ctrl-y:execute-silent(") and bind.endswith(" {2})")
+    command = bind[len("ctrl-y:execute-silent(") : -len(" {2})")] + " 'copied row'"
+    subprocess.run(["sh", "-c", command], check=True, env=server.env, timeout=10)
+    assert server.tm("show-buffer") == "copied row"

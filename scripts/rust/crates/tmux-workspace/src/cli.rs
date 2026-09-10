@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use workstation::{Completable, Completions};
 
 use crate::{
@@ -254,7 +254,7 @@ pub fn dispatch(ctx: &mut Context, command: Action) -> Result<i32> {
             }
             picked?;
         }
-        Action::Report { data } => return ui::show_report(&data),
+        Action::Report { data } => return ui::show_report(ctx, &data),
         Action::Keys => ui::key_reader()?,
         Action::HostClient { target, session } => {
             return integrations::host(ctx, Some(&target), session.as_deref(), true);
@@ -263,6 +263,24 @@ pub fn dispatch(ctx: &mut Context, command: Action) -> Result<i32> {
         Action::AgentRecoverClient => return integrations::agent_client(ctx, true),
     }
     Ok(0)
+}
+
+pub fn action_name() -> String {
+    let names: Vec<String> = Cli::command()
+        .get_subcommands()
+        .map(|command| command.get_name().to_owned())
+        .collect();
+    std::env::args()
+        .skip(1)
+        .find(|arg| names.contains(arg))
+        .unwrap_or_else(|| "tmux-workspace".into())
+}
+
+pub fn invocation() -> String {
+    std::iter::once("tmux-workspace".to_owned())
+        .chain(std::env::args().skip(1))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn action(ctx: &mut Context, command: &str) -> Result<i32> {

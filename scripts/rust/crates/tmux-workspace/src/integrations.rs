@@ -98,7 +98,10 @@ pub fn launch(ctx: &mut Context, action: &str) -> Result<i32> {
                 status["phase"].as_str(),
                 Some("moved" | "commit-uncertain" | "source-stopped")
             ) {
-                ui::report(ctx, &output.out, "Handoff pending · destination not ready")?;
+                ui::report(
+                    ctx,
+                    &ui::Report::new("Handoff pending · destination not ready", output.out),
+                )?;
             } else {
                 client_window(ctx, "_agent-follow-client", "agent-remote")?;
             }
@@ -106,7 +109,7 @@ pub fn launch(ctx: &mut Context, action: &str) -> Result<i32> {
         "handoff-recover" => client_window(ctx, "_agent-recover-client", "agent-recovery")?,
         "handoff" | "handoff-status" | "handoff-cancel" => {
             let (operation, title) = match action {
-                "handoff" => ("move", "Move execution · q closes"),
+                "handoff" => ("move", "Move execution"),
                 "handoff-status" => ("status", "Agent handoff"),
                 _ => ("cancel", "Cancel queued move"),
             };
@@ -117,7 +120,18 @@ pub fn launch(ctx: &mut Context, action: &str) -> Result<i32> {
                 None,
                 None,
             )?;
-            ui::report(ctx, &(output.out + &output.err), title)?;
+            let body = (output.out + &output.err).trim().to_owned();
+            let report = if output.code == 0 {
+                ui::Report::new(title, body)
+            } else {
+                ui::Report::failure(title, body)
+                    .detail(
+                        "command",
+                        format!("{program} {operation} --pane {}", ctx.pane()?),
+                    )
+                    .detail("exit", output.code.to_string())
+            };
+            ui::report(ctx, &report)?;
             return Ok(if ctx.client.is_some() { 0 } else { output.code });
         }
         _ => return Err("unknown agent action".into()),

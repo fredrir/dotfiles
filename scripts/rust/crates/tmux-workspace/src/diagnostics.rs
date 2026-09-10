@@ -133,7 +133,7 @@ pub fn inspect(ctx: &mut Context, json: bool) -> Result<()> {
         "Registered actions:".into(),
     ]);
     lines.extend(ui::bindings(ctx)?.into_iter().map(|r| r.label));
-    ui::report(ctx, &lines.join("\n"), "Key routing")
+    ui::report(ctx, &ui::Report::new("Key routing", lines.join("\n")))
 }
 
 pub fn doctor(ctx: &Context, json: bool) -> Result<()> {
@@ -186,7 +186,7 @@ pub fn doctor(ctx: &Context, json: bool) -> Result<()> {
         println!("{content}");
         Ok(())
     } else {
-        ui::report(ctx, &content, "Workspace doctor")
+        ui::report(ctx, &ui::Report::new("Workspace doctor", content))
     }
 }
 
