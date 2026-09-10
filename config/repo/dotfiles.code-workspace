@@ -3,12 +3,26 @@
     {
       "name": "dotfiles",
       "path": "../.."
+    },
+    {
+      "name": "python",
+      "path": "../../scripts/python"
+    },
+    {
+      "name": "rust",
+      "path": "../../scripts/rust"
+    },
+    {
+      "name": "nvim",
+      "path": "../../shared/nvim"
+    },
+    {
+      "name": "wezterm",
+      "path": "../../shared/wezterm"
     }
   ],
   "settings": {
-    "rust-analyzer.linkedProjects": [
-      "scripts/rust/Cargo.toml"
-    ]
+    "ruff.configurationPreference": "filesystemFirst"
   },
   "extensions": {
     "recommendations": [
@@ -21,6 +35,7 @@
       "jkillian.custom-local-formatters",
       "sumneko.lua",
       "ms-python.python",
+      "ms-python.vscode-pylance",
       "yzhang.markdown-all-in-one"
     ]
   }
