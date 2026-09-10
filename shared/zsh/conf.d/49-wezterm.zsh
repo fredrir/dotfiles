@@ -30,8 +30,8 @@ attach_mux() {
   route=${domain##*-}
 
   case "$from:$to:$route" in
-  macie:archie:cable | macie:archie:wifi | macie:archie:tailscale | \
-    archie:macie:cable | archie:macie:wifi | archie:macie:tailscale)
+  macie:archie:cable | macie:archie:wifi | macie:archie:lan | macie:archie:tailscale | \
+    archie:macie:cable | archie:macie:wifi | archie:macie:lan | archie:macie:tailscale)
     session="v1:${from}:${to}:${route}:tls"
     ;;
   *)

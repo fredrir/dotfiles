@@ -6,20 +6,44 @@ below remains the outside-tmux WezTerm path. Neither attachment moves running
 processes; managed agent takeover is handled separately by `agent-hop move`.
 
 Both machines run a `wezterm-mux-server`. Each dials the other over mutual TLS
-on the cable, direct Wi-Fi, or Tailscale route. SSH also has the regular LAN
-route, but no SSH is involved in the mux path.
+on the cable, direct Wi-Fi, regular LAN, or Tailscale route, in that order. No
+SSH is involved in the mux path; the LAN route borrows only the
+`home-lan-connect` resolver.
 
-```
-macie                                        archie
-  tls_servers  127.0.0.1:8443 ←socat← 10.77.77.1:8443  ⇄  10.77.77.2:8443
-               127.0.0.1:8444 ←socat← 10.77.78.1:8443  ⇄  10.77.78.2:8443
-               127.0.0.1:8445 ←socat← 100.75.71.79:8443 ⇄ 100.126.231.24:8443
+Peer-facing port is 8443 on both hosts. A column that differs from its bind is
+reached through `socat`.
 
-  tls_clients  archie-cable | archie-wifi | archie-tailscale
-               (mirrored on archie as macie-*)
-```
+| Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing  |
+| --------- | ------------------- | ------------------ | -------------------- | ------------------- |
+| cable     | 127.0.0.1:8443      | 10.77.77.1:8443    | 10.77.77.2:8443      | 10.77.77.2:8443     |
+| wifi      | 127.0.0.1:8444      | 10.77.78.1:8443    | 10.77.78.2:8443      | 10.77.78.2:8443     |
+| lan       | 127.0.0.1:8446      | `<macie-lan>`:8443 | 127.0.0.1:8446       | `<archie-lan>`:8443 |
+| tailscale | 127.0.0.1:8445      | 100.75.71.79:8443  | 100.126.231.24:8443  | 100.126.231.24:8443 |
 
-Peer-facing port is 8443 on both hosts; a client always dials `<peer>:8443`.
+| Route     | `tls_clients` name | macie `remote_address` | archie `remote_address` |
+| --------- | ------------------ | ---------------------- | ----------------------- |
+| cable     | `<peer>-cable`     | 10.77.77.2:8443        | 10.77.77.1:8443         |
+| wifi      | `<peer>-wifi`      | 10.77.78.2:8443        | 10.77.78.1:8443         |
+| lan       | `<peer>-lan`       | 127.0.0.1:8447         | 127.0.0.1:8447          |
+| tailscale | `<peer>-tailscale` | 100.126.231.24:8443    | 100.75.71.79:8443       |
+
+## The LAN route
+
+Both LAN addresses are DHCP, so neither is a literal in `hosts.lua`, and
+`tls_clients` accepts no proxy command. Both ends are relayed instead.
+
+| Name         | Value                                                                 |
+| ------------ | --------------------------------------------------------------------- |
+| Resolver     | `~/.ssh/bin/home-lan-connect --resolve <peer>.local`                  |
+| Accepted     | both ends inside 192.168.1.0/24                                       |
+| Server relay | `<own-lan>:8443` → `127.0.0.1:8446`, `range=<peer-lan>/32`            |
+| Client relay | `127.0.0.1:8447` → `<peer-lan>:8443`, sourced from `<own-lan>`        |
+| Restart      | relay exits when the resolved pair moves; launchd or systemd restarts |
+
+The subnet filter is what stops `archie.local` advertised on `archie-direct`
+from masquerading as the regular LAN. `range=` is defence in depth. Mutual TLS
+is the control that rejects a stranger: a client with no `CN=fredrir`
+certificate is dropped with TLS alert 40 before any mux traffic.
 
 ## Connection information
 
@@ -47,14 +71,17 @@ route.
 ## Why the two halves differ
 
 `wezterm-mux-server` binds every `tls_servers` entry at startup and exits if any
-one of them fails, so three entries would mean the server refuses to start
+one of them fails, so fixed entries would mean the server refuses to start
 whenever an interface is down — which is most of the time, since the cable comes
 and goes and `archie-direct` is only up on demand.
 
-| Host   | How three binds survive an absent address                                 |
-| ------ | ------------------------------------------------------------------------- |
-| archie | `net.ipv4.ip_nonlocal_bind=1` — binds the real addresses regardless       |
-| macie  | binds three loopback **ports**; one `socat` per route exposes the address |
+| Host   | How the binds survive an absent address                                    |
+| ------ | -------------------------------------------------------------------------- |
+| archie | `net.ipv4.ip_nonlocal_bind=1` — binds the real cable/wifi/tailscale anyway |
+| macie  | binds loopback **ports**; one `socat` per route exposes the address        |
+
+The LAN route is loopback on both halves: its address is DHCP, so there is no
+literal to bind even with `ip_nonlocal_bind`.
 
 
 ## Certificates
@@ -81,8 +108,10 @@ lsof -nP -iTCP -sTCP:LISTEN | grep 844          # exactly the intended addresses
 
 ```
 # Shared
-shared/wezterm/domain/hosts.lua        addresses, binds, PEM paths
+shared/wezterm/domain/hosts.lua        addresses, binds, dials, PEM paths
 shared/wezterm/domain/tls.lua          tls_servers and tls_clients
+shared/wezterm/bin/wezterm-mux-route   static and LAN socat relays
+shared/ssh/bin/home-lan-connect        the filtered LAN pair both relays read
 shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automatically
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
 shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie
@@ -93,9 +122,12 @@ scripts/rust/crates/hostkit/           the addresses those two read, and the gua
 
 # Macie
 macos/launchd/com.fredrir.wezterm-mux.plist
-macos/launchd/com.fredrir.wezterm-mux-route.{cable,wifi,tailscale}.plist
+macos/launchd/com.fredrir.wezterm-mux-route.{cable,wifi,lan,tailscale}.plist
+macos/launchd/com.fredrir.wezterm-mux-dial.lan.plist
 
 # Archie
 linux/arch/wezterm-mux/wezterm-mux.service
+linux/arch/wezterm-mux/wezterm-mux-route-lan.service
+linux/arch/wezterm-mux/wezterm-mux-dial-lan.service
 linux/arch/wezterm-mux-sysctl/etc/sysctl.d/30-wezterm-mux.conf
 ```

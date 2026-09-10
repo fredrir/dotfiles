@@ -95,7 +95,7 @@ impl Route {
         }
     }
 
-    pub fn every() -> [Route; 4] {
+    pub const fn every() -> [Route; 4] {
         [Route::Cable, Route::Wifi, Route::Lan, Route::Tailscale]
     }
 

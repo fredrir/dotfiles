@@ -110,14 +110,16 @@ fn the_mux_port_and_route_names_match_hosts_lua() {
         hosts.contains(&format!("local port = {MUX_PORT}")),
         "hosts.lua no longer says port {MUX_PORT}"
     );
-    let mut routes = 0;
-    for route in Route::every() {
+    let routes = Route::every();
+    for route in routes {
+        let name = format!("name = {:?}", route.name());
+        assert!(hosts.contains(&name), "hosts.lua has no route {name}");
+
+        // The LAN pair is DHCP on both hosts and is discovered per connection,
+        // so hosts.lua relays both of its ends and carries no literal for it.
         if route == Route::Lan {
             continue;
         }
-        routes += 1;
-        let name = format!("name = {:?}", route.name());
-        assert!(hosts.contains(&name), "hosts.lua has no route {name}");
 
         // The ssh guard only proves an address is somewhere in ten files;
         // this proves hosts.lua itself carries the one that gets dialled.
@@ -132,9 +134,27 @@ fn the_mux_port_and_route_names_match_hosts_lua() {
     let listed = hosts.matches("{ name = ").count();
     assert_eq!(
         listed,
-        routes * 2,
+        routes.len() * 2,
         "hosts.lua lists {listed} routes across the two hosts, this table has {}",
-        routes * 2
+        routes.len() * 2
+    );
+}
+
+#[test]
+fn the_lan_route_is_relayed_through_loopback_on_both_hosts() {
+    let Some(root) = repository() else {
+        return;
+    };
+    let hosts = std::fs::read_to_string(root.join("shared/wezterm/domain/hosts.lua")).unwrap();
+    let entry = r#"{ name = "lan", bind = "127.0.0.1:8446", dial = "127.0.0.1:8447" }"#;
+    assert_eq!(
+        hosts.matches(entry).count(),
+        2,
+        "both hosts must relay the LAN route through loopback: {entry}"
+    );
+    assert!(
+        !hosts.contains(r#"name = "lan", address"#),
+        "the LAN route must not carry a literal address; its pair is DHCP"
     );
 }
 

@@ -1,4 +1,8 @@
 #!/bin/sh
+# Expose one mux route through socat. Static routes bind a fixed address that
+# only has to appear; the LAN route has no fixed address on either host, so it
+# resolves the DHCP pair through home-lan-connect and exits when that pair
+# moves, leaving the restart to launchd or systemd.
 
 set -eu
 
@@ -6,8 +10,19 @@ PROGRAM=wezterm-mux-route
 
 POLL_SECONDS=${WEZTERM_MUX_ROUTE_POLL_SECONDS:-5}
 SOCAT=${WEZTERM_MUX_ROUTE_SOCAT:-}
+CONNECTOR=${WEZTERM_MUX_ROUTE_CONNECTOR:-$HOME/.ssh/bin/home-lan-connect}
 
 SOCAT_CANDIDATES='/opt/homebrew/bin/socat /usr/local/bin/socat /usr/bin/socat'
+
+# A LAN peer that has aged out of the neighbour table answers the first connect
+# with EHOSTUNREACH, which would otherwise fail that one attach.
+CONNECT_RETRY=${WEZTERM_MUX_ROUTE_CONNECT_RETRY:-retry=3,interval=1}
+
+case $(uname -s) in
+Darwin) KEEPIDLE='setsockopt-int=6:16:10' ;;
+Linux) KEEPIDLE='keepidle=10' ;;
+*) KEEPIDLE='' ;;
+esac
 
 fail() {
 	printf '%s: %s\n' "$PROGRAM" "$*" >&2
@@ -19,7 +34,11 @@ note() {
 }
 
 usage_error() {
-	printf 'usage: %s <bind-address> <listen-port> <backend-port>\n' "$PROGRAM" >&2
+	cat >&2 <<-USAGE
+		usage: $PROGRAM <bind-address> <listen-port> <backend-port>
+		       $PROGRAM --lan-server <peer-mdns-name> <listen-port> <backend-port>
+		       $PROGRAM --lan-client <peer-mdns-name> <listen-port> <peer-port>
+	USAGE
 	exit 64
 }
 
@@ -40,36 +59,146 @@ resolve_socat() {
 	fail "found no socat in $SOCAT_CANDIDATES"
 }
 
+listen_options() {
+	options="reuseaddr,fork,nodelay,keepalive"
+	[ -n "$KEEPIDLE" ] && options="$options,$KEEPIDLE"
+	printf '%s,keepintvl=5,keepcnt=3' "$options"
+}
+
+require_ipv4() {
+	case $1 in
+	'' | *[!0-9.]*) fail "refusing to bind '$1'; expected an IPv4 literal" ;;
+	esac
+}
+
+require_ports() {
+	case "$1$2" in
+	'' | *[!0-9]*) fail "ports must be numeric, got '$1' and '$2'" ;;
+	esac
+}
+
 address_is_local() {
 	ifconfig 2>/dev/null |
 		awk -v want="$1" '$1 == "inet" && $2 == want { hit = 1 } END { exit !hit }'
 }
 
+lan_pair() {
+	"$CONNECTOR" --resolve "$1" 2>/dev/null
+}
+
+# The connector only prints a pair when both ends sit on the home /24, so a
+# pair here is already proof the route is the regular LAN and not archie-direct.
+await_lan_pair() {
+	name=$1
+	if pair=$(lan_pair "$name") && [ -n "$pair" ]; then
+		printf '%s' "$pair"
+		return
+	fi
+	note "waiting for $name on the home subnet"
+	while :; do
+		sleep "$POLL_SECONDS"
+		if pair=$(lan_pair "$name") && [ -n "$pair" ]; then
+			printf '%s' "$pair"
+			return
+		fi
+	done
+}
+
+supervise_lan() {
+	name=$1
+	pair=$2
+	shift 2
+
+	"$@" &
+	child=$!
+	trap 'kill -TERM "$child" 2>/dev/null || true' TERM INT
+
+	while :; do
+		sleep "$POLL_SECONDS"
+		if ! kill -0 "$child" 2>/dev/null; then
+			wait "$child" 2>/dev/null || true
+			fail "socat exited; restarting"
+		fi
+		current=$(lan_pair "$name" || true)
+		if [ "$current" != "$pair" ]; then
+			note "lan pair moved from '$pair' to '${current:-none}'; restarting"
+			kill -TERM "$child" 2>/dev/null || true
+			wait "$child" 2>/dev/null || true
+			exit 0
+		fi
+	done
+}
+
+mode=static
+case ${1:-} in
+--lan-server | --lan-client)
+	mode=${1#--}
+	shift
+	;;
+-*) usage_error ;;
+esac
+
 [ "$#" -eq 3 ] || usage_error
 
-address=$1
-listen_port=$2
-backend_port=$3
-
-case $address in
-'' | *[!0-9.]*) fail "refusing to bind '$address'; expected an IPv4 literal" ;;
-esac
-
-case "$listen_port$backend_port" in
-'' | *[!0-9]*) fail "ports must be numeric, got '$listen_port' and '$backend_port'" ;;
-esac
-
 socat_bin=$(resolve_socat)
+listen=$(listen_options)
 
-if ! address_is_local "$address"; then
-	note "waiting for $address"
-	while ! address_is_local "$address"; do
-		sleep "$POLL_SECONDS"
-	done
-fi
+case $mode in
+static)
+	address=$1
+	listen_port=$2
+	backend_port=$3
 
-note "relaying $address:$listen_port to 127.0.0.1:$backend_port"
+	require_ipv4 "$address"
+	require_ports "$listen_port" "$backend_port"
 
-exec "$socat_bin" \
-	"TCP4-LISTEN:$listen_port,bind=$address,reuseaddr,fork,nodelay,keepalive,setsockopt-int=6:16:10,keepintvl=5,keepcnt=3" \
-	"TCP4:127.0.0.1:$backend_port,nodelay"
+	if ! address_is_local "$address"; then
+		note "waiting for $address"
+		while ! address_is_local "$address"; do
+			sleep "$POLL_SECONDS"
+		done
+	fi
+
+	note "relaying $address:$listen_port to 127.0.0.1:$backend_port"
+
+	exec "$socat_bin" \
+		"TCP4-LISTEN:$listen_port,bind=$address,$listen" \
+		"TCP4:127.0.0.1:$backend_port,nodelay"
+	;;
+
+lan-server)
+	peer_name=$1
+	listen_port=$2
+	backend_port=$3
+
+	require_ports "$listen_port" "$backend_port"
+
+	pair=$(await_lan_pair "$peer_name")
+	local_address=${pair% *}
+	peer_address=${pair#* }
+
+	note "relaying $local_address:$listen_port to 127.0.0.1:$backend_port for $peer_address only"
+
+	supervise_lan "$peer_name" "$pair" "$socat_bin" \
+		"TCP4-LISTEN:$listen_port,bind=$local_address,range=$peer_address/32,$listen" \
+		"TCP4:127.0.0.1:$backend_port,nodelay,$CONNECT_RETRY"
+	;;
+
+lan-client)
+	peer_name=$1
+	listen_port=$2
+	peer_port=$3
+
+	require_ports "$listen_port" "$peer_port"
+
+	pair=$(await_lan_pair "$peer_name")
+	local_address=${pair% *}
+	peer_address=${pair#* }
+
+	note "dialling $peer_address:$peer_port from $local_address for 127.0.0.1:$listen_port"
+
+	supervise_lan "$peer_name" "$pair" "$socat_bin" \
+		"TCP4-LISTEN:$listen_port,bind=127.0.0.1,range=127.0.0.1/32,$listen" \
+		"TCP4:$peer_address:$peer_port,bind=$local_address,nodelay,$CONNECT_RETRY"
+	;;
+esac

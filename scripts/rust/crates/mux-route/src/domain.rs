@@ -1,6 +1,6 @@
 use hostkit::{Host, Route};
 
-pub const ROUTES: [Route; 3] = [Route::Cable, Route::Wifi, Route::Tailscale];
+pub const ROUTES: [Route; 4] = Route::every();
 
 pub fn name(peer: Host, route: Route) -> String {
     format!("{}-{}", peer.name(), route.name())

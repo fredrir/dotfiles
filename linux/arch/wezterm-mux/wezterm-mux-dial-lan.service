@@ -1,0 +1,12 @@
+[Unit]
+Description=WezTerm mux LAN dial: reach macie's mux listener over the home LAN
+
+[Service]
+Type=simple
+Environment=USER=%u
+ExecStart=%h/.config/wezterm/bin/wezterm-mux-route --lan-client macie-2.local 8447 8443
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

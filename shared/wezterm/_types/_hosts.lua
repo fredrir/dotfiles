@@ -5,8 +5,9 @@
 
 ---@class IpAddress
 ---@field name InterfaceName
----@field address string
+---@field address? string
 ---@field bind string
+---@field dial? string
 
 ---@class Host
 ---@field hostname Hostname

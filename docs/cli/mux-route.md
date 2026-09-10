@@ -21,12 +21,12 @@
 
 ## Domain
 
-| Name          | Value                                       |
-| ------------- | ------------------------------------------- |
-| Domain        | `<peer>-<route>`, such as `archie-cable`    |
-| Routes probed | `cable`, `wifi`, `tailscale`, in that order |
-| Port          | 8443                                        |
-| `HOST`        | `macie` or `archie`; the peer when omitted  |
+| Name          | Value                                              |
+| ------------- | -------------------------------------------------- |
+| Domain        | `<peer>-<route>`, such as `archie-cable`           |
+| Routes probed | `cable`, `wifi`, `lan`, `tailscale`, in that order |
+| Port          | 8443                                               |
+| `HOST`        | `macie` or `archie`; the peer when omitted         |
 
 The first route that answers is the one printed. Nothing answering is a
 failure, as is naming this machine: its panes are already in `localmux`.
@@ -37,10 +37,12 @@ failure, as is naming this machine: its panes are already in `localmux`.
 $ mux-route --list
 down  cable      10.77.77.2:8443
 down  wifi       10.77.78.2:8443
+up    lan        192.168.1.162:8443  archie-lan
 up    tailscale  100.126.231.24:8443 archie-tailscale
 ```
 
 Columns are state, route, peer socket, and the domain to attach over. A route
-that is down carries no domain. `attach_mux` in
+that is down carries no domain. The `lan` peer address is resolved per probe by
+`home-lan-connect`, so it moves with the DHCP lease. `attach_mux` in
 `shared/zsh/conf.d/49-wezterm.zsh` is the caller: see
 [wezterm-mux.md](../wezterm-mux.md).

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.fredrir.wezterm-mux-dial.lan</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-route</string>
+    <string>--lan-client</string>
+    <string>archie.local</string>
+    <string>8447</string>
+    <string>8443</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/fredrir/Library/Logs/wezterm-mux-dial.lan.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/fredrir/Library/Logs/wezterm-mux-dial.lan.log</string>
+</dict>
+</plist>

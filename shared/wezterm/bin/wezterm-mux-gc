@@ -13,6 +13,8 @@ ROTATED_LOGS='wezterm-mux.log
 wezterm-mux-route.cable.log
 wezterm-mux-route.wifi.log
 wezterm-mux-route.tailscale.log
+wezterm-mux-route.lan.log
+wezterm-mux-dial.lan.log
 wezterm-mux-gc.log'
 
 PER_PID_PATTERNS='agent.*

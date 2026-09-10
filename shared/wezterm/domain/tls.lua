@@ -21,7 +21,7 @@ for _, route in ipairs(host.target.ip) do
   local client_name = ("%s-%s"):format(host.target.hostname, route.name)
   table.insert(clients, {
     name = client_name,
-    remote_address = route.address .. ":" .. host.port,
+    remote_address = route.dial or (route.address .. ":" .. host.port),
     expected_cn = host.target.hostname,
     pem_cert = pem.cert,
     pem_private_key = pem.key,

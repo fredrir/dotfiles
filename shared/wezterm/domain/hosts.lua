@@ -1,7 +1,7 @@
 local wezterm = require "wezterm"
 
 ---@alias Hostname "macie" | "archie"
----@alias InterfaceName "cable" | "wifi" | "tailscale"
+---@alias InterfaceName "cable" | "wifi" | "lan" | "tailscale"
 
 local pki_dir = wezterm.home_dir .. "/.local/share/wezterm/mtls/"
 
@@ -24,6 +24,7 @@ local hosts = {
     ip = {
       { name = "cable", address = "10.77.77.1", bind = "127.0.0.1:8443" },
       { name = "wifi", address = "10.77.78.1", bind = "127.0.0.1:8444" },
+      { name = "lan", bind = "127.0.0.1:8446", dial = "127.0.0.1:8447" },
       { name = "tailscale", address = "100.75.71.79", bind = "127.0.0.1:8445" },
     },
   },
@@ -36,6 +37,7 @@ local hosts = {
     ip = {
       { name = "cable", address = "10.77.77.2", bind = "10.77.77.2:8443" },
       { name = "wifi", address = "10.77.78.2", bind = "10.77.78.2:8443" },
+      { name = "lan", bind = "127.0.0.1:8446", dial = "127.0.0.1:8447" },
       { name = "tailscale", address = "100.126.231.24", bind = "100.126.231.24:8443" },
     },
   },
