@@ -58,6 +58,7 @@ impl Sandbox {
             .arg("dev")
             .env("DOTFILE_ROOT", self.root.path())
             .env("DOTFILE_PYTHON", "/missing-backend")
+            .env("TMPDIR", self.root.path())
             .env("DEV_LOG", self.root.path().join("log"))
             .env("DEV_LOCK", self.root.path().join("running"))
             .env(
@@ -167,6 +168,7 @@ fn forwarding_preserves_arguments_without_shell_evaluation() {
         .bin()
         .args([
             "test",
+            "--verbose",
             "--pkg",
             "file-explorer",
             "--jobs",
@@ -223,6 +225,7 @@ fn missing_tools_are_failures_and_other_suites_still_run() {
     let ran = sandbox.bin().args(["test", "--lang", "python,lua"]).run();
     assert_eq!(ran.code(), Some(127));
     assert!(ran.stderr.contains("python test"));
+    assert!(ran.stderr.contains("uv:"));
     assert!(ran.stderr.contains("4 passed, 1 failed"));
 }
 
@@ -250,6 +253,75 @@ fn concurrency_is_bounded_and_independent_tasks_overlap() {
     }
     assert_eq!(peak, 2);
     assert_eq!(active, 0);
+}
+
+#[test]
+fn default_output_groups_successes_and_discards_tool_logs() {
+    let sandbox = Sandbox::new();
+    sandbox.tool("lua", "printf 'noisy tool output\\n'");
+    let ran = sandbox.bin().args(["test", "--lang", "lua"]).run();
+    assert!(ran.success(), "{}", ran.stderr);
+    assert!(ran.stdout.is_empty(), "{}", ran.stdout);
+    assert_eq!(ran.stderr.matches("lua test").count(), 1, "{}", ran.stderr);
+    assert!(ran.stderr.contains("lua test (4 tasks)"));
+    assert!(ran.stderr.contains("4 passed"));
+    assert!(!ran.stderr.contains("noisy tool output"));
+    assert!(!ran.stderr.contains("0 failed"));
+    assert!(!ran.stderr.contains('\x1b'));
+    assert!(ran.stderr.lines().count() <= 5, "{}", ran.stderr);
+    assert!(fs::read_dir(sandbox.root.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".log")
+    }));
+}
+
+#[test]
+fn failure_output_is_bounded_and_preserves_the_complete_log() {
+    let sandbox = Sandbox::new();
+    sandbox.tool(
+        "cargo",
+        "i=0; while [ \"$i\" -lt 10000 ]; do printf 'line %s\\n' \"$i\"; i=$((i + 1)); done\nprintf 'useful failure\\n' >&2\nexit 9",
+    );
+    let ran = sandbox.bin().args(["test", "--lang", "rust"]).run();
+    assert_eq!(ran.code(), Some(9));
+    assert!(ran.stdout.is_empty());
+    assert!(ran.stderr.contains("rust test: exit 9"));
+    assert!(ran.stderr.contains("useful failure"));
+    assert!(!ran.stderr.contains("line 0\n"));
+    assert!(ran.stderr.lines().count() < 16, "{}", ran.stderr);
+    let path = ran
+        .stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("  log: "))
+        .unwrap();
+    let log = fs::read_to_string(path).unwrap();
+    assert!(log.starts_with("line 0\n"));
+    assert!(log.ends_with("useful failure\n"));
+    assert_eq!(log.lines().count(), 10001);
+}
+
+#[test]
+fn every_action_supports_verbose_commands_and_output() {
+    let sandbox = Sandbox::new();
+    sandbox.tool("lua", "printf 'lua output\\n'");
+    sandbox.tool("luacheck", "printf 'luacheck output\\n'");
+    for action in ["test", "lint", "check"] {
+        for flag in ["-v", "--verbose"] {
+            let ran = sandbox.bin().args([action, flag, "--lang", "lua"]).run();
+            assert!(ran.success(), "{}", ran.stderr);
+            assert!(ran.stderr.contains("RAYON_NUM_THREADS="));
+            if action != "lint" {
+                assert_eq!(ran.stdout.matches("lua output").count(), 4);
+                assert!(ran.stderr.contains("lua test mac hwire-splits"));
+            }
+            if action != "test" {
+                assert!(ran.stdout.contains("luacheck output"));
+            }
+        }
+    }
 }
 
 #[test]

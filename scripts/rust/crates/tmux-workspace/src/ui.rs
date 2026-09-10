@@ -114,7 +114,7 @@ pub fn pick(data: &Path, output: &Path) -> Result<()> {
         if !picker.colors.is_empty() {
             cmd.args(["--color", &picker.colors]);
         }
-        let result = process::capture(&mut cmd, Some(lines.as_bytes()), None)?;
+        let result = process::capture_foreground(&mut cmd, Some(lines.as_bytes()))?;
         match result.code {
             0 => Some(
                 result

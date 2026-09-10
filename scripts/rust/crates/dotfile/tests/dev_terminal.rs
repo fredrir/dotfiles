@@ -91,7 +91,7 @@ fn direct_and_nested_interactive_shells_finish_without_claiming_the_terminal() {
     );
     let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
     command
-        .args(["dev", "test", "--lang", "python,shell", "--jobs", "2"])
+        .args(["dev", "test", "-v", "--lang", "python,shell", "--jobs", "2"])
         .env("DOTFILE_ROOT", root.path())
         .env(
             "PATH",
@@ -107,7 +107,7 @@ fn direct_and_nested_interactive_shells_finish_without_claiming_the_terminal() {
     let text = String::from_utf8_lossy(&run.output);
     assert!(status.success(), "{text}");
     assert_eq!(text.matches("interactive shell passed").count(), 2);
-    assert!(text.contains("2 passed, 0 failed"), "{text}");
+    assert!(text.contains("2 passed"), "{text}");
     let after = terminal_state(run.master.as_raw_fd());
     assert_eq!(before.c_lflag, after.c_lflag);
     assert_eq!(before.c_iflag, after.c_iflag);
@@ -135,7 +135,7 @@ fn task_output_is_visible_before_the_task_can_finish_and_is_not_replayed() {
     );
     let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
     command
-        .args(["dev", "test", "--pkg", "demo"])
+        .args(["dev", "test", "-v", "--pkg", "demo"])
         .env("DOTFILE_ROOT", root.path())
         .env(
             "PATH",
@@ -153,6 +153,66 @@ fn task_output_is_visible_before_the_task_can_finish_and_is_not_replayed() {
     assert!(status.success(), "{text}");
     for expected in ["live stdout", "live stderr", "finished task"] {
         assert_eq!(text.matches(expected).count(), 1, "{text}");
+    }
+}
+
+#[test]
+fn compact_progress_uses_the_theme_and_preserves_terminal_modes() {
+    let root = tree_pairs(&[
+        ("config/targets.dotfile", ""),
+        (
+            "scripts/rust/Cargo.toml",
+            "[workspace]\nmembers = ['crates/demo']\n",
+        ),
+        (
+            "scripts/rust/crates/demo/Cargo.toml",
+            "[package]\nname = 'demo'\n",
+        ),
+        ("scripts/python/tests/", ""),
+        ("bin/", ""),
+    ]);
+    executable(
+        &root.path().join("bin/cargo"),
+        "#!/bin/sh\nprintf 'hidden tool output\\n'\nwhile [ ! -f \"$DOTFILE_ROOT/release\" ]; do sleep 0.01; done\n",
+    );
+    for no_color in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
+        command
+            .args(["dev", "test", "--pkg", "demo"])
+            .env("DOTFILE_ROOT", root.path())
+            .env("TERM", "xterm-256color")
+            .env("THEME_DIR", "\x1b[38;2;11;22;33m")
+            .env("THEME_GIT", "\x1b[38;2;44;55;66m")
+            .env_remove("CI")
+            .env_remove("CLICOLOR")
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", root.path().join("bin").display()),
+            );
+        if no_color {
+            command.env("NO_COLOR", "1");
+        } else {
+            command.env_remove("NO_COLOR");
+        }
+        let mut run = TerminalRun::start(&mut command);
+        let before = terminal_state(run.master.as_raw_fd());
+        run.until(|output| String::from_utf8_lossy(output).contains("running rust test"));
+        assert!(run.child.try_wait().unwrap().is_none());
+        let during = terminal_state(run.master.as_raw_fd());
+        assert_eq!(before.c_lflag, during.c_lflag);
+        assert_eq!(before.c_iflag, during.c_iflag);
+        assert_eq!(before.c_oflag, during.c_oflag);
+        fs::write(root.path().join("release"), "").unwrap();
+        let status = run.finish();
+        let text = String::from_utf8_lossy(&run.output);
+        assert!(status.success(), "{text}");
+        assert!(text.contains("1 passed"), "{text}");
+        assert!(!text.contains("hidden tool output"), "{text}");
+        assert_eq!(text.contains("\x1b[38;2;11;22;33m"), !no_color, "{text}");
+        assert_eq!(text.contains("\x1b[38;2;44;55;66m"), !no_color, "{text}");
+        assert!(text.contains("\x1b[2K"), "{text}");
+        assert!(!text.contains("\x1b[?25l"), "{text}");
+        fs::remove_file(root.path().join("release")).unwrap();
     }
 }
 
@@ -180,16 +240,24 @@ fn terminal_ctrl_c_cancels_a_detached_task_that_ignores_interrupts() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
     command
         .args(["dev", "test", "--pkg", "demo"])
+        .env("TERM", "xterm-256color")
+        .env_remove("CI")
         .env("DOTFILE_ROOT", root.path())
         .env(
             "PATH",
             format!("{}:/usr/bin:/bin", root.path().join("bin").display()),
         );
     let mut run = TerminalRun::start(&mut command);
-    run.until(|output| String::from_utf8_lossy(output).contains("ready for interrupt"));
+    let before = terminal_state(run.master.as_raw_fd());
+    run.until(|output| String::from_utf8_lossy(output).contains("running rust test"));
     run.master.write_all(b"\x03").unwrap();
     let status = run.finish();
     let text = String::from_utf8_lossy(&run.output);
     assert_eq!(status.code(), Some(130), "{text}");
     assert!(text.contains("1 cancelled"), "{text}");
+    assert!(!text.contains("ready for interrupt"), "{text}");
+    let after = terminal_state(run.master.as_raw_fd());
+    assert_eq!(before.c_lflag, after.c_lflag);
+    assert_eq!(before.c_iflag, after.c_iflag);
+    assert_eq!(before.c_oflag, after.c_oflag);
 }

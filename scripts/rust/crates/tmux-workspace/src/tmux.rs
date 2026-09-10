@@ -295,7 +295,7 @@ impl Context {
         }
         args.push(&command);
         let result = process::capture(self.tmux.command().args(&args), None, None)?;
-        if ![0, 129, 130].contains(&result.code) {
+        if ![0, 2, 129, 130].contains(&result.code) {
             result.checked()?;
         }
         Ok(())

@@ -335,6 +335,12 @@ def picker(environment):
     target.write_text(
         f"#!{sys.executable}\n"
         "import os,sys\n"
+        "try:\n"
+        "    tty=os.open('/dev/tty',os.O_RDWR|os.O_NOCTTY)\n"
+        "except OSError:\n"
+        "    tty=None\n"
+        "if tty is not None and os.tcgetpgrp(tty)!=os.getpgrp():\n"
+        "    sys.stderr.write('fzf: not in the foreground process group\\n'); sys.exit(2)\n"
         "rows=sys.stdin.read().splitlines()\n"
         "query=os.environ.get('TMUX_PICK_MATCH','')\n"
         "if query == '__cancel__': sys.exit(130)\n"

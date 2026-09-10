@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use super::Options;
 use super::plan::Task;
+use super::report::{Failure, Outcome, Report};
 
 pub(super) struct Budget {
     slots: usize,
@@ -31,32 +32,39 @@ impl Budget {
 struct Running {
     task: Task,
     child: hostkit::process::ChildGroup,
-    log: std::fs::File,
+    log: tempfile::NamedTempFile,
     position: u64,
     started: Instant,
-    last_activity: Instant,
     interrupted: Option<Instant>,
 }
 
 #[cfg(unix)]
 impl Running {
-    fn start(task: Task) -> io::Result<Self> {
-        let log = tempfile::tempfile()?;
-        let child = hostkit::process::ChildGroup::spawn_detached(
-            task.command()
-                .stdin(Stdio::null())
-                .stdout(log.try_clone()?)
-                .stderr(log.try_clone()?),
-        )?;
-        Ok(Self {
-            task,
-            child,
-            log,
-            position: 0,
-            started: Instant::now(),
-            last_activity: Instant::now(),
-            interrupted: None,
-        })
+    fn start(task: Task) -> Result<Self, (Task, io::Error)> {
+        let spawn = || -> io::Result<_> {
+            let log = tempfile::Builder::new()
+                .prefix("dotfile-dev-")
+                .suffix(".log")
+                .tempfile()?;
+            let child = hostkit::process::ChildGroup::spawn_detached(
+                task.command()
+                    .stdin(Stdio::null())
+                    .stdout(log.as_file().try_clone()?)
+                    .stderr(log.as_file().try_clone()?),
+            )?;
+            Ok((child, log))
+        };
+        match spawn() {
+            Ok((child, log)) => Ok(Self {
+                task,
+                child,
+                log,
+                position: 0,
+                started: Instant::now(),
+                interrupted: None,
+            }),
+            Err(error) => Err((task, error)),
+        }
     }
 
     fn drain(&mut self, owner: &mut Option<String>) -> io::Result<usize> {
@@ -66,7 +74,7 @@ impl Running {
         let mut total = 0;
         let mut stdout = io::stdout().lock();
         for _ in 0..8 {
-            let count = match self.log.read_at(&mut buffer, self.position) {
+            let count = match self.log.as_file().read_at(&mut buffer, self.position) {
                 Ok(0) => break,
                 Ok(count) => count,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -82,18 +90,22 @@ impl Running {
         }
         if total > 0 {
             stdout.flush()?;
-            self.last_activity = Instant::now();
         }
         Ok(total)
     }
 }
 
 #[cfg(unix)]
-pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> {
+pub(super) fn run(
+    tasks: Vec<Task>,
+    budget: Budget,
+    action: &str,
+    verbose: bool,
+) -> Result<ExitCode, String> {
     use std::os::unix::process::ExitStatusExt;
 
-    let started = Instant::now();
     let total = tasks.len();
+    let mut report = Report::new(action, &tasks, verbose);
     let mut pending = VecDeque::from(tasks);
     let mut running: Vec<Running> = Vec::with_capacity(budget.slots.min(total));
     let mut failures = Vec::new();
@@ -109,14 +121,18 @@ pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> 
                     break;
                 };
                 let task = pending.remove(index).unwrap();
-                let name = task.name.clone();
-                eprintln!("[run] {name}");
+                report.start(&task);
                 output_owner = None;
                 match Running::start(task) {
                     Ok(task) => running.push(task),
-                    Err(error) => {
-                        eprintln!("[fail] {name} (0.00s): {error}");
-                        failures.push((name, 127));
+                    Err((task, error)) => {
+                        report.complete(&task, Outcome::Failed, Duration::ZERO);
+                        failures.push(Failure {
+                            name: task.name,
+                            code: 127,
+                            detail: format!("{}: {error}", task.program),
+                            log: None,
+                        });
                     }
                 }
                 if workstation::screen::termination_requested() {
@@ -141,75 +157,69 @@ pub(super) fn run(tasks: Vec<Task>, budget: Budget) -> Result<ExitCode, String> 
         }
         let mut index = 0;
         while index < running.len() {
-            running[index]
-                .drain(&mut output_owner)
-                .map_err(|error| error.to_string())?;
+            if verbose {
+                running[index]
+                    .drain(&mut output_owner)
+                    .map_err(|error| error.to_string())?;
+            }
             let status = running[index]
                 .child
                 .try_wait()
                 .map_err(|error| error.to_string())?;
             let Some(status) = status else {
-                if running[index].last_activity.elapsed() >= Duration::from_secs(10) {
-                    eprintln!(
-                        "[running] {} ({:.1}s)",
-                        running[index].task.name,
-                        running[index].started.elapsed().as_secs_f64()
-                    );
-                    running[index].last_activity = Instant::now();
-                    output_owner = None;
-                }
                 index += 1;
                 continue;
             };
             let mut finished = running.remove(index);
             finished.child.terminate();
-            while finished
-                .drain(&mut output_owner)
-                .map_err(|error| error.to_string())?
-                > 0
-            {}
+            if verbose {
+                while finished
+                    .drain(&mut output_owner)
+                    .map_err(|error| error.to_string())?
+                    > 0
+                {}
+            }
             let code = status
                 .code()
                 .unwrap_or_else(|| 128 + status.signal().unwrap_or(1));
             let outcome = if finished.interrupted.is_some() {
                 cancelled += 1;
-                "cancel"
+                Outcome::Cancelled
             } else if status.success() {
                 passed += 1;
-                "pass"
+                Outcome::Passed
             } else {
-                failures.push((finished.task.name.clone(), code));
-                "fail"
+                Outcome::Failed
             };
-            eprintln!(
-                "[{outcome}] {} ({:.2}s, exit {code})",
-                finished.task.name,
-                finished.started.elapsed().as_secs_f64()
-            );
+            report.complete(&finished.task, outcome, finished.started.elapsed());
+            if outcome == Outcome::Failed {
+                failures.push(Failure::capture(finished.task.name, code, finished.log));
+            }
             output_owner = None;
         }
         if running.is_empty() && pending.is_empty() {
             break;
         }
+        if !running.is_empty() {
+            report.progress(running.iter().map(|task| &task.task), signal != 0);
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
-    eprintln!(
-        "{passed} passed, {} failed, {cancelled} cancelled / {total} tasks ({:.2}s)",
-        failures.len(),
-        started.elapsed().as_secs_f64()
-    );
-    for (name, code) in &failures {
-        eprintln!("  {name}: exit {code}");
-    }
+    report.finish(passed, cancelled, &failures);
     let signal = workstation::screen::termination_signal();
     Ok(workstation::exit_code(if signal != 0 {
         128 + signal
     } else {
-        failures.first().map_or(0, |(_, code)| *code)
+        failures.first().map_or(0, |failure| failure.code)
     }))
 }
 
 #[cfg(not(unix))]
-pub(super) fn run(_tasks: Vec<Task>, _budget: Budget) -> Result<ExitCode, String> {
+pub(super) fn run(
+    _tasks: Vec<Task>,
+    _budget: Budget,
+    _action: &str,
+    _verbose: bool,
+) -> Result<ExitCode, String> {
     Err("development tasks require Unix".into())
 }

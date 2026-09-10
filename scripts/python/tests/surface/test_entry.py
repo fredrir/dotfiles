@@ -58,7 +58,7 @@ def test_native_development_commands_join_the_main_surface(tool):
     for action in ("test", "lint", "check"):
         command = tree.find(("dotfile", "dev", action))
         assert command is not None
-        assert {"--pkg", "--lang", "--dry-run", "--jobs", "--concurrency"} <= {
+        assert {"--pkg", "--lang", "--dry-run", "--verbose", "--jobs", "--concurrency"} <= {
             param.flag for param in command.options()
         }
     script = tool("dotfile", "--completions", "zsh")

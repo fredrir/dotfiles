@@ -67,7 +67,7 @@
 | `--resolve <TEXT>`               | Chooses `skip`, `repo`, or `live` for locally edited merged configs.              |
 | `-p`, `--push`                   | Pushes commits, then pulls and syncs the peer.                                    |
 | `--to <TEXT>`                    | Selects the peer and implies `--push`.                                            |
-| `-v`, `--verbose`                | Shows every link, merge, generated file, and remote action.                       |
+| `-v`, `--verbose`                | Shows detailed sync actions or live development commands, output, and timings.    |
 | `-l`, `--lang <LANGUAGE>`        | Selects languages; repeat or comma-separate.                                      |
 | `-j`, `--jobs <N>`               | Limits the total worker budget; defaults to CPU count.                            |
 | `--concurrency <N>`              | Limits simultaneous development tasks; defaults to two.                           |

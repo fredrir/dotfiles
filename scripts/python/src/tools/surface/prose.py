@@ -164,7 +164,7 @@ FLAGS = {
     ),
     ("dotfile", "--push"): "Pushes commits, then pulls and syncs the peer.",
     ("dotfile", "--to"): "Selects the peer and implies `--push`.",
-    ("dotfile", "--verbose"): "Shows every link, merge, generated file, and remote action.",
+    ("dotfile", "--verbose"): "Shows detailed sync actions or live development commands, output, and timings.",
     ("dotfile", "--all"): "Shows every finding or file location instead of summarized output.",
     ("dotfile", "--staged"): "Scans the content staged for commit.",
     ("dotfile", "--commits"): "Scans blobs added within a revision-list range.",

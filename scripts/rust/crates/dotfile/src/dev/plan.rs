@@ -15,6 +15,13 @@ pub(super) struct Task {
 }
 
 impl Task {
+    pub fn suite(&self) -> &str {
+        self.name
+            .match_indices(' ')
+            .nth(1)
+            .map_or(&self.name, |(end, _)| &self.name[..end])
+    }
+
     fn new(
         name: impl Into<String>,
         directory: PathBuf,

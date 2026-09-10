@@ -1,8 +1,8 @@
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::thread;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use nix::sys::signal::{Signal, killpg};
@@ -32,19 +32,35 @@ impl Output {
     }
 }
 
-pub fn capture(
-    cmd: &mut Command,
-    input: Option<&[u8]>,
-    timeout: Option<Duration>,
-) -> Result<Output> {
+struct Pipes {
+    out: JoinHandle<io::Result<Vec<u8>>>,
+    err: JoinHandle<io::Result<Vec<u8>>>,
+    writer: Option<JoinHandle<()>>,
+}
+
+impl Pipes {
+    fn collect(self, status: ExitStatus) -> Result<Output> {
+        if let Some(writer) = self.writer {
+            let _ = writer.join();
+        }
+        let out = self.out.join().map_err(|_| "stdout reader failed")??;
+        let err = self.err.join().map_err(|_| "stderr reader failed")??;
+        Ok(Output {
+            code: status.code().unwrap_or(128 + status.signal().unwrap_or(1)),
+            out: String::from_utf8(out)?,
+            err: String::from_utf8_lossy(&err).into_owned(),
+        })
+    }
+}
+
+fn spawn(cmd: &mut Command, input: Option<&[u8]>) -> Result<(Child, Pipes)> {
     cmd.stdin(if input.is_some() {
         Stdio::piped()
     } else {
         Stdio::null()
     })
     .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .process_group(0);
+    .stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("{}: {e}", cmd.get_program().to_string_lossy()))?;
@@ -66,6 +82,15 @@ pub fn capture(
             }
         })
     });
+    Ok((child, Pipes { out, err, writer }))
+}
+
+pub fn capture(
+    cmd: &mut Command,
+    input: Option<&[u8]>,
+    timeout: Option<Duration>,
+) -> Result<Output> {
+    let (mut child, pipes) = spawn(cmd.process_group(0), input)?;
     let started = Instant::now();
     let mut timed_out = false;
     let status = loop {
@@ -81,19 +106,17 @@ pub fn capture(
         thread::sleep(Duration::from_millis(5));
     };
     terminate_group(child.id());
-    if let Some(writer) = writer {
-        let _ = writer.join();
-    }
-    let out = out.join().map_err(|_| "stdout reader failed")??;
-    let err = err.join().map_err(|_| "stderr reader failed")??;
+    let output = pipes.collect(status);
     if timed_out {
         return Err(format!("{}: timed out", cmd.get_program().to_string_lossy()).into());
     }
-    Ok(Output {
-        code: status.code().unwrap_or(128 + status.signal().unwrap_or(1)),
-        out: String::from_utf8(out)?,
-        err: String::from_utf8_lossy(&err).into_owned(),
-    })
+    output
+}
+
+pub fn capture_foreground(cmd: &mut Command, input: Option<&[u8]>) -> Result<Output> {
+    let (mut child, pipes) = spawn(cmd, input)?;
+    let status = child.wait()?;
+    pipes.collect(status)
 }
 
 pub fn run(cmd: &mut Command) -> Result<Output> {

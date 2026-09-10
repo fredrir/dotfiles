@@ -1,5 +1,6 @@
 mod catalog;
 mod plan;
+mod report;
 mod runner;
 
 use std::ffi::OsString;
@@ -90,6 +91,12 @@ struct Options {
     languages: Vec<Language>,
     #[arg(short = 'n', long, help = "Show commands without running them")]
     dry_run: bool,
+    #[arg(
+        short,
+        long,
+        help = "Show commands, live tool output, and per-task timings"
+    )]
+    verbose: bool,
     #[arg(short = 'j', long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..), help = "Total worker budget; defaults to CPU count")]
     jobs: Option<u16>,
     #[arg(long, default_value = "2", value_name = "N", value_parser = clap::value_parser!(u16).range(1..), help = "Maximum simultaneous tasks")]
@@ -186,5 +193,10 @@ fn execute(action: Action) -> Result<ExitCode, String> {
         }
         return Ok(ExitCode::SUCCESS);
     }
-    runner::run(tasks, budget)
+    let action = match (test, lint) {
+        (true, true) => "check",
+        (true, false) => "test",
+        _ => "lint",
+    };
+    runner::run(tasks, budget, action, options.verbose)
 }

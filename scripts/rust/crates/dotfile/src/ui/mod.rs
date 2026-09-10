@@ -42,7 +42,7 @@ impl UiPolicy {
         }
     }
 
-    fn detect() -> Self {
+    pub(crate) fn detect() -> Self {
         let reduced_motion = [
             "DOTFILE_REDUCED_MOTION",
             "PREFERS_REDUCED_MOTION",
