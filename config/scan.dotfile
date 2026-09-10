@@ -3,4 +3,10 @@ allow {
   scripts/python/tests/dotfile/test_secret_scan.py
   shared/obsidian/plugins/** value
   shared/skills/durable-objects/references/workers.md value
+  scripts/rust/crates/dcloud/src/objects.rs
+  scripts/rust/crates/dcloud/src/secrets.rs
+  scripts/rust/crates/dcloud/src/setup.rs
+  scripts/rust/crates/dcloud/tests/cli.rs
+  scripts/rust/crates/dcloud/tests/unit/backups_tests.rs
+  scripts/rust/crates/dcloud/tests/unit/sync_tests.rs
 }

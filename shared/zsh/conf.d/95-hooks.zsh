@@ -113,7 +113,7 @@ _git_from_root() {
 _sync_git_repo_commands() {
   if _in_git_repo; then
     alias cdg=_cdg_to_root
-    alias gs='_git_from_root status'
+    alias gs='_git_from_root status -u'
     alias ga='_git_from_root add .'
     alias gc='_git_from_root commit -m'
     alias gcm='_git_from_root commit -m'

@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 use std::process::{Command, Output};
+use std::time::Duration;
 
 use crate::host::Route;
 
@@ -112,6 +113,18 @@ impl Session {
         let mut command = Command::new("ssh");
         command.args(self.args());
         command
+    }
+
+    pub fn output_bounded(
+        &self,
+        limits: crate::process::CaptureLimits,
+        timeout: Duration,
+    ) -> io::Result<crate::process::CapturedOutput> {
+        crate::process::output(
+            self.command().stdin(std::process::Stdio::null()),
+            limits,
+            timeout,
+        )
     }
 }
 

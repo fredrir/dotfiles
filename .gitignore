@@ -77,3 +77,4 @@ benchmarks/.lock
 
 
 /shared/wezterm/lua
+/config/dcloud/.*.lock

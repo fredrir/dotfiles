@@ -276,8 +276,13 @@ fn script(target: &Target) -> String {
 fn run(host: &str, script: &str) -> Result<Vec<u8>, String> {
     let output = Session::new(host)
         .script(script)
-        .command()
-        .output()
+        .output_bounded(
+            hostkit::process::CaptureLimits {
+                stdout: 64 * 1024 * 1024,
+                stderr: 64 * 1024,
+            },
+            std::time::Duration::from_secs(60),
+        )
         .map_err(|error| format!("ssh: {error}"))?;
     if !output.status.success() {
         let reason = String::from_utf8_lossy(&output.stderr);
@@ -286,6 +291,9 @@ fn run(host: &str, script: &str) -> Result<Vec<u8>, String> {
             .find(|line| !line.trim().is_empty())
             .unwrap_or("no answer");
         return Err(format!("{host}: {}", reason.trim()));
+    }
+    if output.stdout_truncated {
+        return Err(format!("{host}: directory listing exceeds 64 MiB"));
     }
     Ok(output.stdout)
 }
