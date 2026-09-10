@@ -7,7 +7,7 @@ parser itself -- Typer's click command for the python tools, `--command-dump`
 for the rust ones -- and everything downstream works on this one shape.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # Flags every tool has for the same reason, described once in prose.py rather
 # than per tool, and skipped by the drift test.
@@ -114,7 +114,7 @@ def from_typer(app, program):
     """The tree of a Typer app, as the installed command sees it."""
     from typer.main import get_command
 
-    return _command(get_command(app), (program,))
+    return from_click(get_command(app), program)
 
 
 def _command(command, path):
@@ -173,4 +173,14 @@ def _metavar(param, flag):
 
 def from_click(command, program):
     """The tree of an already-built click command, as the flag callback sees it."""
-    return _command(command, (program,))
+    tree = _command(command, (program,))
+    if program == "dotfile":
+        from tools.surface import rust
+
+        native = rust.subtree(program, "dev")
+        if native is not None:
+            tree = replace(
+                tree,
+                children=tuple(native if child.name == "dev" else child for child in tree.children),
+            )
+    return tree

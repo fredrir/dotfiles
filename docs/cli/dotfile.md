@@ -9,6 +9,10 @@
 | `dotfile add`            | Moves a live config into the repository and symlinks it back.                    |
 | `dotfile remove`         | Moves a tracked path out of the repository and keeps it live.                    |
 | `dotfile sync`           | Refreshes generated metadata and reconciles `$HOME` with a selected profile.     |
+| `dotfile dev`            | Tests and lints the repository.                                                  |
+| `dotfile dev test`       | Runs the selected test suites.                                                   |
+| `dotfile dev lint`       | Runs the selected linters.                                                       |
+| `dotfile dev check`      | Runs the selected linters and test suites.                                       |
 | `dotfile doctor`         | Checks dotfiles health: profile's links, required tools, and packages.           |
 | `dotfile secret`         | Keeps private material out of the repository.                                    |
 | `dotfile secret scan`    | Scans for leaked tokens, private values, and encryption invariants.              |
@@ -55,7 +59,7 @@
 | `--hyprland`                     | Places an added file in the `linux/hyprland` package group.                       |
 | `--server`                       | Places an added config in the `linux/server` package group.                       |
 | `--macos`                        | Places an added file in the `macos` package group.                                |
-| `--pkg <TEXT>`                   | Selects the package name when adding a config, secret, or system file.            |
+| `--pkg <TEXT>`                   | Selects development targets or names an added config, secret, or system package.  |
 | `--description`, `--desc <TEXT>` | Adds a package description to `PACKAGES.md`.                                      |
 | `-n`, `--dry-run`                | Plans without changing files or contacting the peer.                              |
 | `--override <TEXT>`              | Selects a machine override with `<group>=<name\|none>`.                           |
@@ -64,6 +68,9 @@
 | `-p`, `--push`                   | Pushes commits, then pulls and syncs the peer.                                    |
 | `--to <TEXT>`                    | Selects the peer and implies `--push`.                                            |
 | `-v`, `--verbose`                | Shows every link, merge, generated file, and remote action.                       |
+| `-l`, `--lang <LANGUAGE>`        | Selects languages; repeat or comma-separate.                                      |
+| `-j`, `--jobs <N>`               | Limits the total worker budget; defaults to CPU count.                            |
+| `--concurrency <N>`              | Limits simultaneous development tasks; defaults to two.                           |
 | `--all`                          | Shows every finding or file location instead of summarized output.                |
 | `--staged`                       | Scans the content staged for commit.                                              |
 | `--commits <TEXT>`               | Scans blobs added within a revision-list range.                                   |
@@ -74,6 +81,7 @@
 | `--unused`                       | Lists only variable names that no secret template references.                     |
 | `--yes`                          | Installs system files without asking for confirmation.                            |
 | `--group <TEXT>`                 | Selects the package group for an added system file.                               |
-| `--help`                         | Shows help for the selected command and exits.                                    |
+| `-h`, `--help`                   | Shows help for the selected command and exits.                                    |
 | `--completions <SHELL>`          | Prints a shell completion script for the named shell and exits.                   |
+| `-V`, `--version`                | Prints the version and exits.                                                     |
 <!-- cli:flags:end -->

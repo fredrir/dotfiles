@@ -102,6 +102,15 @@ VALUES = {
         "--resolve": RESOLUTIONS,
         "--to": HOST,
     },
+    **{
+        f"dotfile dev {action}": {
+            "--pkg": call("dev-packages", "package"),
+            "--lang": call("dev-languages", "language"),
+            "--jobs": NONE,
+            "--concurrency": NONE,
+        }
+        for action in ("test", "lint", "check")
+    },
     "dotfile doctor": {"profile": PROFILE},
     "dotfile add": {"path": files(), "--pkg": PACKAGE, "--description": NONE},
     "dotfile remove": {"path": call("tracked", "tracked path")},

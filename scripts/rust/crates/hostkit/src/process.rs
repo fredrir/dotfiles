@@ -2,6 +2,9 @@ use std::io;
 use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
+#[cfg(unix)]
+pub use unix::ChildGroup;
+
 #[derive(Clone, Copy, Debug)]
 pub struct CaptureLimits {
     pub stdout: usize,
@@ -99,13 +102,30 @@ mod unix {
 
     use super::{CaptureLimits, CapturedOutput};
 
-    struct OwnedChild {
+    pub struct ChildGroup {
         child: Child,
         terminated: bool,
     }
 
-    impl OwnedChild {
-        fn terminate(&mut self) {
+    impl ChildGroup {
+        pub fn spawn(command: &mut Command) -> io::Result<Self> {
+            Ok(Self {
+                child: command.process_group(0).spawn()?,
+                terminated: false,
+            })
+        }
+
+        pub fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
+            self.child.try_wait()
+        }
+
+        pub fn signal(&self, signal: i32) -> io::Result<()> {
+            let signal = Signal::try_from(signal).map_err(io::Error::from)?;
+            let pid = i32::try_from(self.child.id()).map_err(io::Error::other)?;
+            killpg(Pid::from_raw(pid), signal).map_err(io::Error::from)
+        }
+
+        pub fn terminate(&mut self) {
             if !self.terminated {
                 if let Ok(pid) = i32::try_from(self.child.id()) {
                     let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
@@ -115,7 +135,7 @@ mod unix {
         }
     }
 
-    impl Drop for OwnedChild {
+    impl Drop for ChildGroup {
         fn drop(&mut self) {
             self.terminate();
             let _ = self.child.kill();
@@ -199,12 +219,9 @@ mod unix {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
         }
         let started = Instant::now();
-        command.process_group(0).stderr(Stdio::piped());
+        command.stderr(Stdio::piped());
         command.stdout(Stdio::piped());
-        let mut owned = OwnedChild {
-            child: command.spawn()?,
-            terminated: false,
-        };
+        let mut owned = ChildGroup::spawn(command)?;
         let stdout = owned.child.stdout.take();
         let stderr = owned
             .child

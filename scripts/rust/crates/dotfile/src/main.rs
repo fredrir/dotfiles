@@ -5,6 +5,9 @@ use dotfile_cli::cli::SyncCli;
 
 fn main() -> ExitCode {
     let mut arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if arguments.first().and_then(|value| value.to_str()) == Some("dev") {
+        return dotfile_cli::dev::dispatch(arguments.into_iter().skip(1));
+    }
     if arguments.first().and_then(|value| value.to_str()) != Some("sync") {
         return dotfile_cli::backend::delegate(arguments);
     }

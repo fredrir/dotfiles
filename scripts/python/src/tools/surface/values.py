@@ -215,7 +215,23 @@ def _metrics():
     return sorted(keys)
 
 
+def _dev_values(flag):
+    import subprocess
+
+    from tools.surface.rust import native_binary
+
+    binary = native_binary("dotfile")
+    if not binary:
+        return []
+    result = subprocess.run(
+        [binary, "dev", flag], capture_output=True, text=True, check=False, timeout=5
+    )
+    return result.stdout.splitlines() if result.returncode == 0 else []
+
+
 PROVIDERS = {
+    "dev-packages": lambda: _dev_values("--list-packages"),
+    "dev-languages": lambda: _dev_values("--list-languages"),
     "profiles": _profiles,
     "override-groups": _override_groups,
     "override-names": _override_names,

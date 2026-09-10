@@ -29,6 +29,32 @@ def binary(program):
     return ""
 
 
+def native_binary(program):
+    from pathlib import Path
+
+    paths = [
+        Path(dotfiles_root()) / "scripts/rust/target/debug" / program,
+        Path(dotfiles_root()) / "scripts/rust/target/release" / program,
+        Path(os.path.expanduser("~/.local/bin")) / program,
+    ]
+    available = [path for path in paths if os.access(path, os.X_OK)]
+    return str(max(available, key=lambda path: path.stat().st_mtime)) if available else ""
+
+
+def subtree(program, *arguments):
+    path = native_binary(program)
+    if not path:
+        return None
+    result = subprocess.run(
+        [path, *arguments, "--command-dump"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    return from_dump(result.stdout, program) if result.returncode == 0 else None
+
+
 def tree(program):
     """The tree of one rust tool, or None when it has not been built here."""
     path = binary(program)

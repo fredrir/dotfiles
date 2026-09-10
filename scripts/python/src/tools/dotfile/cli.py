@@ -213,6 +213,15 @@ def sync(
     die("sync is provided by the native dotfile executable")
 
 
+@app.command(
+    help="Test and lint the repository.",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_help_option=False,
+)
+def dev():
+    die("dev is provided by the native dotfile executable; run ./setup.sh")
+
+
 @app.command(help="Check the profile's links, required tools, and packages.")
 def doctor(
     profile: str | None = typer.Argument(None),

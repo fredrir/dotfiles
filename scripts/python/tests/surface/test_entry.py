@@ -46,3 +46,23 @@ def test_writing_every_script_leaves_one_file_to_source(tool, tmp_path):
 
 def test_the_documentation_matches_the_tools(tool):
     assert tool("dotfile-py", "__reference", "--check").returncode == 0
+
+
+def test_native_development_commands_join_the_main_surface(tool):
+    from tools.surface import rust
+
+    native = rust.subtree("dotfile", "dev")
+    if native is None:
+        pytest.skip("native development commands are not built")
+    tree = entry.trees()["dotfile"]
+    for action in ("test", "lint", "check"):
+        command = tree.find(("dotfile", "dev", action))
+        assert command is not None
+        assert {"--pkg", "--lang", "--dry-run", "--jobs", "--concurrency"} <= {
+            param.flag for param in command.options()
+        }
+    script = tool("dotfile", "--completions", "zsh")
+    assert script.returncode == 0
+    assert "_dotfile__dev__test()" in script.stdout
+    assert "dev-packages" in script.stdout
+    assert "file-explorer" in tool("dotfile", "__complete", "dev-packages").stdout.splitlines()
