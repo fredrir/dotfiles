@@ -2,9 +2,9 @@ archie {
   hostnames  = archie, archie.local
   role       = desktop
 
-  CPU_COOLER    = Noctua NH-D15
+  CPU_COOLER    = ARCTIC Liquid Freezer III 420
   MEMORY        = Corsair CMK32GX5M2B6000Z30 32 GB (2×16 GB) DDR5-6000 CL30
-  CASE          = ARCTIC Xtender ATX Mid Tower
+  CASE          = Antec FLUX Pro Full Tower
   POWER_SUPPLY  = Corsair RM1000e (2025) 1000 W
 }
 

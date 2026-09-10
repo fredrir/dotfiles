@@ -10,7 +10,7 @@ shared {
   bash
   python3
   tmux
-  ssh  = openssh
+  ssh   = openssh
   zsh
   uv
   age
@@ -81,6 +81,8 @@ linux/arch {
   iptables
   mosh
   wezterm-mux-server  = wezterm-nightly-bin
+  fan2go              = fan2go-git
+  lact
 }
 
 linux/kde {
