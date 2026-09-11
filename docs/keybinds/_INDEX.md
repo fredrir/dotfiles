@@ -26,7 +26,7 @@
 | [kde](./kde.md) | 266 | 0 |
 | [nvim](./nvim.md) | 105 | 3 |
 | [tmux](./tmux.md) | 96 | 6 |
-| [vscode](./vscode.md) | 35 | 0 |
+| [vscode](./vscode.md) | 37 | 0 |
 | [wezterm](./wezterm.md) | 129 | 1 |
 | [yazi](./yazi.md) | 8 | 0 |
 | [zsh](./zsh.md) | 22 | 0 |
