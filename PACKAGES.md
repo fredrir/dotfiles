@@ -34,6 +34,7 @@
 ## `linux/arch`
 
 - `archie-direct` — Reversible shared Wi-Fi AP for Macie
+- `bios`
 - `cpu-power` — amd_pstate boost, governor and energy preference applied at boot
 - `fan2go` — Fan curves for the NCT6799 headers: radiator, pump, VRM fan, and case fans keyed to CPU and GPU
 - `fastfetch` — Arch fastfetch logo and configuration
