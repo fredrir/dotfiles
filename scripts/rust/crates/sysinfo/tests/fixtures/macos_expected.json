@@ -1,0 +1,223 @@
+{
+  "view": {
+    "platform": {
+      "kind": "os",
+      "vendor": "macos",
+      "label": "macOS 26.0",
+      "identifiers": [
+        "macos",
+        "macOS 26.0"
+      ]
+    },
+    "machine_type": "WORKSTATION",
+    "summary": [
+      "macOS 26.0"
+    ],
+    "components": [
+      {
+        "kind": "cpu",
+        "label": "CPU",
+        "vendor": "Apple",
+        "model": "M5 Pro",
+        "art_kind": "",
+        "identifiers": [
+          "Apple M5 Pro",
+          ""
+        ],
+        "facts": [
+          {
+            "label": "Cores",
+            "value": "15 cores / 15 threads"
+          },
+          {
+            "label": "Clock",
+            "value": "4.61 GHz"
+          },
+          {
+            "label": "Temperature",
+            "value": "40.5°C"
+          },
+          {
+            "label": "Load",
+            "value": "8%"
+          },
+          {
+            "label": "Process ISA",
+            "value": "ARMv9.3-A"
+          }
+        ],
+        "compact": true
+      },
+      {
+        "kind": "gpu",
+        "label": "INTEGRATED GPU",
+        "vendor": "Apple",
+        "model": "M5 Pro",
+        "art_kind": "",
+        "identifiers": [
+          "Apple M5 Pro",
+          "com.apple.AGXG17X 351.2"
+        ],
+        "facts": [
+          {
+            "label": "Load",
+            "value": "21%"
+          },
+          {
+            "label": "Clock",
+            "value": "1.62 GHz"
+          },
+          {
+            "label": "Temperature",
+            "value": "41°C"
+          },
+          {
+            "label": "Driver",
+            "value": "com.apple.AGXG17X 351.2"
+          }
+        ],
+        "compact": true
+      },
+      {
+        "kind": "memory",
+        "label": "MEMORY",
+        "vendor": "APPLE",
+        "model": "24 GB",
+        "art_kind": "",
+        "identifiers": [
+          "",
+          "Apple",
+          "LPDDR5X"
+        ],
+        "facts": [
+          {
+            "label": "Detected",
+            "value": "24 GB"
+          },
+          {
+            "label": "Usage",
+            "value": "18.4 GB / 24 GB"
+          },
+          {
+            "label": "Load",
+            "value": "77%"
+          }
+        ],
+        "compact": true
+      },
+      {
+        "kind": "motherboard",
+        "label": "MOTHERBOARD",
+        "vendor": "Apple",
+        "model": "J714sAP",
+        "art_kind": "",
+        "identifiers": [
+          "Apple",
+          "J714sAP"
+        ],
+        "facts": [],
+        "compact": true
+      },
+      {
+        "kind": "storage",
+        "label": "STORAGE",
+        "vendor": "APPLE",
+        "model": "SSD AP1024Z Media  1 TB  SSD",
+        "art_kind": "",
+        "identifiers": [
+          "APPLE SSD AP1024Z Media",
+          ""
+        ],
+        "facts": [
+          {
+            "label": "Device",
+            "value": "APPLE SSD AP1024Z Media"
+          },
+          {
+            "label": "Capacity",
+            "value": "1 TB"
+          },
+          {
+            "label": "Interface",
+            "value": "Apple Fabric"
+          },
+          {
+            "label": "Type",
+            "value": "SSD"
+          },
+          {
+            "label": "Temperature",
+            "value": "35°C"
+          }
+        ],
+        "compact": true
+      },
+      {
+        "kind": "power",
+        "label": "BATTERY",
+        "vendor": "Apple",
+        "model": "Internal battery",
+        "art_kind": "battery",
+        "identifiers": [
+          "Apple",
+          "Internal battery"
+        ],
+        "facts": [
+          {
+            "label": "Charge",
+            "value": "100%"
+          },
+          {
+            "label": "Status",
+            "value": "AC Connected"
+          },
+          {
+            "label": "Cycles",
+            "value": "3"
+          }
+        ],
+        "compact": true
+      },
+      {
+        "kind": "power",
+        "label": "POWER ADAPTER",
+        "vendor": "Apple",
+        "model": "70 W",
+        "art_kind": "adapter",
+        "identifiers": [
+          "Apple",
+          "70 W"
+        ],
+        "facts": [],
+        "compact": false
+      }
+    ],
+    "software": [
+      {
+        "kind": "wm",
+        "vendor": "Quartz Compositor",
+        "label": "Quartz Compositor",
+        "identifiers": [
+          ""
+        ]
+      },
+      {
+        "kind": "shell",
+        "vendor": "zsh 5.9.2",
+        "label": "zsh 5.9.2",
+        "identifiers": []
+      }
+    ],
+    "system_facts": [
+      {
+        "label": "Kernel",
+        "value": "25.0.0  arm64"
+      },
+      {
+        "label": "Filesystem /",
+        "value": "180 GB / 994 GB  18%  apfs"
+      }
+    ]
+  },
+  "health": []
+}

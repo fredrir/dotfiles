@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -145,6 +146,10 @@ def download_fixture(environment, tmp_path):
     payload_file = tmp_path / "binary"
     payload_file.write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
+    lock["fingers"]["assets"][f"{platform.system()}-{platform.machine()}"] = {
+        "url": next(iter(lock["fingers"]["assets"].values()))["url"],
+        "sha256": digest,
+    }
     for asset in lock["fingers"]["assets"].values():
         asset["sha256"] = digest
     path.write_text(json.dumps(lock))

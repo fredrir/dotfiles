@@ -1,0 +1,1554 @@
+{
+  "BRANDS": [
+    {
+      "key": "asus_rog",
+      "name": "ASUS ROG",
+      "accent": "#ff1744",
+      "mark": "◢R",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "rog strix",
+        "republic of gamers"
+      ]
+    },
+    {
+      "key": "asus_tuf",
+      "name": "ASUS TUF",
+      "accent": "#d5a85a",
+      "mark": "◥T◤",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "tuf gaming"
+      ]
+    },
+    {
+      "key": "nvidia",
+      "name": "NVIDIA",
+      "accent": "#76b900",
+      "mark": "󰾲",
+      "kinds": [
+        "gpu"
+      ],
+      "aliases": [
+        "nvidia",
+        "geforce",
+        "quadro"
+      ]
+    },
+    {
+      "key": "amd",
+      "name": "AMD",
+      "accent": "#ed1c24",
+      "mark": "◢◤",
+      "kinds": [
+        "cpu",
+        "gpu"
+      ],
+      "aliases": [
+        "authenticamd",
+        "advanced micro devices",
+        "amd",
+        "radeon"
+      ]
+    },
+    {
+      "key": "intel",
+      "name": "INTEL",
+      "accent": "#00c7fd",
+      "mark": "◉i",
+      "kinds": [
+        "cpu",
+        "gpu",
+        "storage"
+      ],
+      "aliases": [
+        "genuineintel",
+        "intel",
+        "arc graphics"
+      ]
+    },
+    {
+      "key": "apple",
+      "name": "APPLE",
+      "accent": "#a7adba",
+      "mark": "",
+      "kinds": [
+        "cpu",
+        "gpu",
+        "memory",
+        "motherboard",
+        "storage",
+        "power",
+        "os"
+      ],
+      "aliases": [
+        "apple",
+        "macos",
+        "darwin"
+      ]
+    },
+    {
+      "key": "qualcomm",
+      "name": "QUALCOMM",
+      "accent": "#3253dc",
+      "mark": "Q",
+      "kinds": [
+        "cpu",
+        "gpu"
+      ],
+      "aliases": [
+        "qualcomm",
+        "snapdragon"
+      ]
+    },
+    {
+      "key": "arm",
+      "name": "ARM",
+      "accent": "#0091bd",
+      "mark": "ARM",
+      "kinds": [
+        "cpu",
+        "gpu"
+      ],
+      "aliases": [
+        "arm limited",
+        "arm",
+        "mali"
+      ]
+    },
+    {
+      "key": "corsair",
+      "name": "CORSAIR",
+      "accent": "#f9c900",
+      "mark": "≋≋",
+      "kinds": [
+        "memory",
+        "power",
+        "case"
+      ],
+      "aliases": [
+        "corsair"
+      ]
+    },
+    {
+      "key": "gskill",
+      "name": "G.SKILL",
+      "accent": "#e6232b",
+      "mark": "G◆",
+      "kinds": [
+        "memory"
+      ],
+      "aliases": [
+        "g.skill",
+        "g skill"
+      ]
+    },
+    {
+      "key": "kingston",
+      "name": "KINGSTON",
+      "accent": "#d71920",
+      "mark": "K▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "kingston",
+        "kingston fury",
+        "snvs"
+      ]
+    },
+    {
+      "key": "crucial",
+      "name": "CRUCIAL",
+      "accent": "#00a6a6",
+      "mark": "C▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "crucial"
+      ]
+    },
+    {
+      "key": "micron",
+      "name": "MICRON",
+      "accent": "#0060a9",
+      "mark": "M▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "micron"
+      ]
+    },
+    {
+      "key": "samsung",
+      "name": "SAMSUNG",
+      "accent": "#4a70d8",
+      "mark": "S▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "samsung"
+      ]
+    },
+    {
+      "key": "sk_hynix",
+      "name": "SK HYNIX",
+      "accent": "#f25a22",
+      "mark": "H▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "sk hynix",
+        "hynix"
+      ]
+    },
+    {
+      "key": "teamgroup",
+      "name": "TEAMGROUP",
+      "accent": "#d71920",
+      "mark": "T▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "teamgroup",
+        "team group",
+        "t force"
+      ]
+    },
+    {
+      "key": "patriot",
+      "name": "PATRIOT",
+      "accent": "#e1262f",
+      "mark": "P▰",
+      "kinds": [
+        "memory",
+        "storage"
+      ],
+      "aliases": [
+        "patriot",
+        "viper"
+      ]
+    },
+    {
+      "key": "western_digital",
+      "name": "WESTERN DIGITAL",
+      "accent": "#3daee9",
+      "mark": "WD",
+      "kinds": [
+        "storage"
+      ],
+      "aliases": [
+        "western digital",
+        "wdc",
+        "wd blue",
+        "wd black",
+        "wd red"
+      ]
+    },
+    {
+      "key": "seagate",
+      "name": "SEAGATE",
+      "accent": "#66c011",
+      "mark": "S◉",
+      "kinds": [
+        "storage"
+      ],
+      "aliases": [
+        "seagate",
+        "st2000",
+        "st4000",
+        "st8000"
+      ]
+    },
+    {
+      "key": "sabrent",
+      "name": "SABRENT",
+      "accent": "#f28c28",
+      "mark": "S▲",
+      "kinds": [
+        "storage"
+      ],
+      "aliases": [
+        "sabrent",
+        "rocket"
+      ]
+    },
+    {
+      "key": "sandisk",
+      "name": "SANDISK",
+      "accent": "#ed1c24",
+      "mark": "SD",
+      "kinds": [
+        "storage"
+      ],
+      "aliases": [
+        "sandisk"
+      ]
+    },
+    {
+      "key": "toshiba",
+      "name": "TOSHIBA",
+      "accent": "#e60012",
+      "mark": "T◉",
+      "kinds": [
+        "storage"
+      ],
+      "aliases": [
+        "toshiba",
+        "kioxia"
+      ]
+    },
+    {
+      "key": "asus",
+      "name": "ASUS",
+      "accent": "#3daee9",
+      "mark": "A▲",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "asustek",
+        "asus"
+      ]
+    },
+    {
+      "key": "msi",
+      "name": "MSI",
+      "accent": "#e50019",
+      "mark": "M◆",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "micro-star",
+        "msi"
+      ]
+    },
+    {
+      "key": "aorus",
+      "name": "AORUS",
+      "accent": "#ff6400",
+      "mark": "A◢",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "aorus"
+      ]
+    },
+    {
+      "key": "gigabyte",
+      "name": "GIGABYTE",
+      "accent": "#f37021",
+      "mark": "G▲",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "gigabyte"
+      ]
+    },
+    {
+      "key": "asrock",
+      "name": "ASROCK",
+      "accent": "#4aa3df",
+      "mark": "AS",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "asrock"
+      ]
+    },
+    {
+      "key": "evga",
+      "name": "EVGA",
+      "accent": "#5abeff",
+      "mark": "E◆",
+      "kinds": [
+        "motherboard",
+        "gpu"
+      ],
+      "aliases": [
+        "evga"
+      ]
+    },
+    {
+      "key": "supermicro",
+      "name": "SUPERMICRO",
+      "accent": "#22a6d5",
+      "mark": "SM",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "supermicro"
+      ]
+    },
+    {
+      "key": "biostar",
+      "name": "BIOSTAR",
+      "accent": "#e63329",
+      "mark": "B◆",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": [
+        "biostar"
+      ]
+    },
+    {
+      "key": "noctua",
+      "name": "NOCTUA",
+      "accent": "#c9a27d",
+      "mark": "N✣",
+      "kinds": [
+        "cooling"
+      ],
+      "aliases": [
+        "noctua"
+      ]
+    },
+    {
+      "key": "arctic",
+      "name": "ARCTIC",
+      "accent": "#8fd3ff",
+      "mark": "A❄",
+      "kinds": [
+        "cooling",
+        "case"
+      ],
+      "aliases": [
+        "arctic"
+      ]
+    },
+    {
+      "key": "seasonic",
+      "name": "SEASONIC",
+      "accent": "#f0b323",
+      "mark": "Sϟ",
+      "kinds": [
+        "power"
+      ],
+      "aliases": [
+        "seasonic"
+      ]
+    },
+    {
+      "key": "be_quiet",
+      "name": "BE QUIET!",
+      "accent": "#f58220",
+      "mark": "BQ",
+      "kinds": [
+        "cooling",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "be quiet"
+      ]
+    },
+    {
+      "key": "cooler_master",
+      "name": "COOLER MASTER",
+      "accent": "#7b2cff",
+      "mark": "CM",
+      "kinds": [
+        "cooling",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "cooler master"
+      ]
+    },
+    {
+      "key": "thermaltake",
+      "name": "THERMALTAKE",
+      "accent": "#ef3123",
+      "mark": "TT",
+      "kinds": [
+        "cooling",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "thermaltake"
+      ]
+    },
+    {
+      "key": "fractal",
+      "name": "FRACTAL",
+      "accent": "#bac2de",
+      "mark": "F▣",
+      "kinds": [
+        "case"
+      ],
+      "aliases": [
+        "fractal"
+      ]
+    },
+    {
+      "key": "nzxt",
+      "name": "NZXT",
+      "accent": "#7c3aed",
+      "mark": "N▣",
+      "kinds": [
+        "cooling",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "nzxt"
+      ]
+    },
+    {
+      "key": "lian_li",
+      "name": "LIAN LI",
+      "accent": "#cdd6f4",
+      "mark": "LL",
+      "kinds": [
+        "cooling",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "lian li"
+      ]
+    },
+    {
+      "key": "dell",
+      "name": "DELL",
+      "accent": "#0672ce",
+      "mark": "D",
+      "kinds": [
+        "motherboard",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "dell",
+        "alienware"
+      ]
+    },
+    {
+      "key": "lenovo",
+      "name": "LENOVO",
+      "accent": "#e2231a",
+      "mark": "L",
+      "kinds": [
+        "motherboard",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "lenovo",
+        "thinkpad",
+        "legion"
+      ]
+    },
+    {
+      "key": "hp",
+      "name": "HP",
+      "accent": "#0096d6",
+      "mark": "hp",
+      "kinds": [
+        "motherboard",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "hewlett packard",
+        "hp"
+      ]
+    },
+    {
+      "key": "framework",
+      "name": "FRAMEWORK",
+      "accent": "#cdd6f4",
+      "mark": "FW",
+      "kinds": [
+        "motherboard",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "framework"
+      ]
+    },
+    {
+      "key": "acer",
+      "name": "ACER",
+      "accent": "#83b81a",
+      "mark": "A",
+      "kinds": [
+        "motherboard",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "acer",
+        "predator"
+      ]
+    },
+    {
+      "key": "razer",
+      "name": "RAZER",
+      "accent": "#44d62c",
+      "mark": "R",
+      "kinds": [
+        "motherboard",
+        "case",
+        "power"
+      ],
+      "aliases": [
+        "razer"
+      ]
+    },
+    {
+      "key": "arch",
+      "name": "ARCH LINUX",
+      "accent": "#3daee9",
+      "mark": "",
+      "kinds": [
+        "os"
+      ],
+      "aliases": [
+        "arch linux",
+        "arch"
+      ]
+    },
+    {
+      "key": "ubuntu",
+      "name": "UBUNTU",
+      "accent": "#e95420",
+      "mark": "",
+      "kinds": [
+        "os"
+      ],
+      "aliases": [
+        "ubuntu"
+      ]
+    },
+    {
+      "key": "debian",
+      "name": "DEBIAN",
+      "accent": "#d70a53",
+      "mark": "",
+      "kinds": [
+        "os"
+      ],
+      "aliases": [
+        "debian"
+      ]
+    },
+    {
+      "key": "fedora",
+      "name": "FEDORA",
+      "accent": "#51a2da",
+      "mark": "",
+      "kinds": [
+        "os"
+      ],
+      "aliases": [
+        "fedora"
+      ]
+    },
+    {
+      "key": "nixos",
+      "name": "NIXOS",
+      "accent": "#7ebae4",
+      "mark": "",
+      "kinds": [
+        "os"
+      ],
+      "aliases": [
+        "nixos",
+        "nix os"
+      ]
+    },
+    {
+      "key": "windows",
+      "name": "WINDOWS",
+      "accent": "#00a4ef",
+      "mark": "",
+      "kinds": [
+        "os"
+      ],
+      "aliases": [
+        "windows"
+      ]
+    },
+    {
+      "key": "kde",
+      "name": "KDE PLASMA",
+      "accent": "#3daee9",
+      "mark": "",
+      "kinds": [
+        "hyprland",
+        "wm"
+      ],
+      "aliases": [
+        "kde plasma",
+        "plasma",
+        "kwin"
+      ]
+    },
+    {
+      "key": "gnome",
+      "name": "GNOME",
+      "accent": "#4a86cf",
+      "mark": "",
+      "kinds": [
+        "hyprland"
+      ],
+      "aliases": [
+        "gnome"
+      ]
+    },
+    {
+      "key": "hyprland",
+      "name": "HYPRLAND",
+      "accent": "#58e1ff",
+      "mark": "H◇",
+      "kinds": [
+        "hyprland",
+        "wm"
+      ],
+      "aliases": [
+        "hyprland"
+      ]
+    },
+    {
+      "key": "sway",
+      "name": "SWAY",
+      "accent": "#6f838c",
+      "mark": "S◇",
+      "kinds": [
+        "hyprland",
+        "wm"
+      ],
+      "aliases": [
+        "sway"
+      ]
+    },
+    {
+      "key": "xfce",
+      "name": "XFCE",
+      "accent": "#00a6d6",
+      "mark": "X◇",
+      "kinds": [
+        "hyprland"
+      ],
+      "aliases": [
+        "xfce"
+      ]
+    },
+    {
+      "key": "cinnamon",
+      "name": "CINNAMON",
+      "accent": "#8fcf3c",
+      "mark": "C◇",
+      "kinds": [
+        "hyprland"
+      ],
+      "aliases": [
+        "cinnamon"
+      ]
+    },
+    {
+      "key": "wayland",
+      "name": "WAYLAND",
+      "accent": "#f38ba8",
+      "mark": "W",
+      "kinds": [
+        "session"
+      ],
+      "aliases": [
+        "wayland"
+      ]
+    },
+    {
+      "key": "x11",
+      "name": "X11",
+      "accent": "#bac2de",
+      "mark": "X",
+      "kinds": [
+        "session"
+      ],
+      "aliases": [
+        "x11",
+        "xorg"
+      ]
+    },
+    {
+      "key": "konsole",
+      "name": "KONSOLE",
+      "accent": "#3daee9",
+      "mark": ">_",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "konsole"
+      ]
+    },
+    {
+      "key": "kitty",
+      "name": "KITTY",
+      "accent": "#f9e2af",
+      "mark": "K>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "kitty"
+      ]
+    },
+    {
+      "key": "ghostty",
+      "name": "GHOSTTY",
+      "accent": "#b4befe",
+      "mark": "G>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "ghostty"
+      ]
+    },
+    {
+      "key": "alacritty",
+      "name": "ALACRITTY",
+      "accent": "#f46f25",
+      "mark": "A>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "alacritty"
+      ]
+    },
+    {
+      "key": "wezterm",
+      "name": "WEZTERM",
+      "accent": "#7cff6b",
+      "mark": "W>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "wezterm"
+      ]
+    },
+    {
+      "key": "foot",
+      "name": "FOOT",
+      "accent": "#7cff6b",
+      "mark": "F>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "foot",
+        "footclient"
+      ]
+    },
+    {
+      "key": "iterm",
+      "name": "ITERM2",
+      "accent": "#7cff6b",
+      "mark": "I>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "iterm2",
+        "iterm"
+      ]
+    },
+    {
+      "key": "gnome_terminal",
+      "name": "GNOME TERMINAL",
+      "accent": "#4a86cf",
+      "mark": "G>",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": [
+        "gnome terminal"
+      ]
+    },
+    {
+      "key": "zsh",
+      "name": "ZSH",
+      "accent": "#7cff6b",
+      "mark": "Z>",
+      "kinds": [
+        "shell"
+      ],
+      "aliases": [
+        "zsh"
+      ]
+    },
+    {
+      "key": "bash",
+      "name": "BASH",
+      "accent": "#7cff6b",
+      "mark": "B>",
+      "kinds": [
+        "shell"
+      ],
+      "aliases": [
+        "bash"
+      ]
+    },
+    {
+      "key": "fish",
+      "name": "FISH",
+      "accent": "#7cff6b",
+      "mark": "F>",
+      "kinds": [
+        "shell"
+      ],
+      "aliases": [
+        "fish"
+      ]
+    }
+  ],
+  "GENERIC": {
+    "cpu": {
+      "key": "cpu",
+      "name": "PROCESSOR",
+      "accent": "#fab387",
+      "mark": "◆",
+      "kinds": [
+        "cpu"
+      ],
+      "aliases": []
+    },
+    "gpu": {
+      "key": "gpu",
+      "name": "GRAPHICS",
+      "accent": "#7cff6b",
+      "mark": "◈",
+      "kinds": [
+        "gpu"
+      ],
+      "aliases": []
+    },
+    "memory": {
+      "key": "memory",
+      "name": "MEMORY",
+      "accent": "#f9e2af",
+      "mark": "≋",
+      "kinds": [
+        "memory"
+      ],
+      "aliases": []
+    },
+    "motherboard": {
+      "key": "motherboard",
+      "name": "MAINBOARD",
+      "accent": "#3daee9",
+      "mark": "◇",
+      "kinds": [
+        "motherboard"
+      ],
+      "aliases": []
+    },
+    "storage": {
+      "key": "storage",
+      "name": "STORAGE",
+      "accent": "#1abc9c",
+      "mark": "▰",
+      "kinds": [
+        "storage"
+      ],
+      "aliases": []
+    },
+    "cooling": {
+      "key": "cooling",
+      "name": "COOLING",
+      "accent": "#8fd3ff",
+      "mark": "❄",
+      "kinds": [
+        "cooling"
+      ],
+      "aliases": []
+    },
+    "case": {
+      "key": "case",
+      "name": "CHASSIS",
+      "accent": "#bac2de",
+      "mark": "▣",
+      "kinds": [
+        "case"
+      ],
+      "aliases": []
+    },
+    "power": {
+      "key": "power",
+      "name": "POWER",
+      "accent": "#f9e2af",
+      "mark": "ϟ",
+      "kinds": [
+        "power"
+      ],
+      "aliases": []
+    },
+    "os": {
+      "key": "os",
+      "name": "SYSTEM",
+      "accent": "#3daee9",
+      "mark": "◆",
+      "kinds": [
+        "os"
+      ],
+      "aliases": []
+    },
+    "hyprland": {
+      "key": "hyprland",
+      "name": "DESKTOP",
+      "accent": "#cba6f7",
+      "mark": "◇",
+      "kinds": [
+        "hyprland"
+      ],
+      "aliases": []
+    },
+    "wm": {
+      "key": "wm",
+      "name": "COMPOSITOR",
+      "accent": "#cba6f7",
+      "mark": "◇",
+      "kinds": [
+        "wm"
+      ],
+      "aliases": []
+    },
+    "session": {
+      "key": "session",
+      "name": "SESSION",
+      "accent": "#f38ba8",
+      "mark": "◇",
+      "kinds": [
+        "session"
+      ],
+      "aliases": []
+    },
+    "terminal": {
+      "key": "terminal",
+      "name": "TERMINAL",
+      "accent": "#7cff6b",
+      "mark": ">_",
+      "kinds": [
+        "terminal"
+      ],
+      "aliases": []
+    },
+    "shell": {
+      "key": "shell",
+      "name": "SHELL",
+      "accent": "#7cff6b",
+      "mark": ">",
+      "kinds": [
+        "shell"
+      ],
+      "aliases": []
+    }
+  },
+  "ART": {
+    "amd::cpu": [
+      "  ◢██",
+      " ◢  █",
+      "◢██◤ "
+    ],
+    "amd::gpu": [
+      "◢█  █",
+      "  ◢█ ",
+      "◢██◤ "
+    ],
+    "nvidia::gpu": [
+      "▟━━━▙",
+      "┃ ◉◉┃",
+      "▀━━━▀"
+    ],
+    "corsair::memory": [
+      "╱╱╱╱ ",
+      "█████",
+      "╵╵╵╵╵"
+    ],
+    "asus_tuf::motherboard": [
+      "◥███◤",
+      " ╲◆╱ ",
+      "  ▼  "
+    ],
+    "asus_rog::motherboard": [
+      "◢██◤ ",
+      "  ◢R ",
+      "◢██◤ "
+    ],
+    "asus::motherboard": [
+      "  ▲  ",
+      " A██ ",
+      "◢██◤ "
+    ],
+    "kingston::storage": [
+      "▟━━━▙",
+      "┃ ▰ ┃",
+      "╵╵╵╵╵"
+    ],
+    "western_digital::storage": [
+      "  ◉  ",
+      "█████",
+      "╵╵╵╵╵"
+    ],
+    "samsung::storage": [
+      "▟ S ▙",
+      "█████",
+      "╵╵╵╵╵"
+    ],
+    "noctua::cooling": [
+      "╲ │ ╱",
+      "─ ◉ ─",
+      "╱ │ ╲"
+    ],
+    "arctic::case": [
+      "▟ A ▙",
+      "█   █",
+      "▀███▀"
+    ],
+    "corsair::power": [
+      "  ϟ  ",
+      "▰▰▰▰▰",
+      "╵╵╵╵╵"
+    ],
+    "apple::cpu": [
+      "  ◆  ",
+      "▟███▙",
+      "╵╵╵╵╵"
+    ],
+    "apple::gpu": [
+      "▟━━━▙",
+      "┃ ◉◉┃",
+      "▀━━━▀"
+    ],
+    "apple::memory": [
+      "▟━━━▙",
+      "┃ UMA┃",
+      "╵╵╵╵╵"
+    ],
+    "apple::motherboard": [
+      "▟━━━▙",
+      "┃ ◆◆┃",
+      "▀━━━▀"
+    ],
+    "apple::storage": [
+      "▟━━━▙",
+      "┃ SSD┃",
+      "╵╵╵╵╵"
+    ],
+    "apple::battery": [
+      "▰▰▰▰▰▸",
+      "█████▸",
+      "▰▰▰▰▰▸"
+    ],
+    "apple::adapter": [
+      "  ϟ  ",
+      "━━╋━━",
+      "  ┃  "
+    ],
+    "arch::os": [
+      "   ▲ ",
+      "  ╱ ╲",
+      " ╱╱ ╲╲"
+    ]
+  },
+  "HEADER_ART": {
+    "arch": [
+      "                 /\\",
+      "                /  \\",
+      "               /    \\",
+      "              /      \\",
+      "             /\\       \\",
+      "            /  \\       \\",
+      "           /            \\",
+      "          /      /\\      \\",
+      "         /      /  \\      \\",
+      "        /      /    \\      \\",
+      "       /__--'''      '''--___\\"
+    ],
+    "apple": [
+      "          ▄",
+      "        ▄▀",
+      "      ▄▀",
+      "   ▄██████▄  ▄███▄",
+      " ▄█████████████████▄",
+      "███████████████████▀",
+      "█████████████████▀",
+      "█████████████████",
+      " ████████████████",
+      "  ▀████████████",
+      "    ▀████▀ ▀██▀"
+    ]
+  },
+  "GENERIC_HEADER_ART": [
+    "       ◢████◣",
+    "     ◢████████◣",
+    "    ███◤    ◥███",
+    "   ███        ███",
+    "   ███   ◆    ███",
+    "   ███        ███",
+    "    ███◣    ◢███",
+    "     ◥████████◤",
+    "       ◥████◤"
+  ],
+  "GENERIC_ART": {
+    "cpu": [
+      "╋━━━╋",
+      "┃ ◆ ┃",
+      "╋━━━╋"
+    ],
+    "gpu": [
+      "▟━━━▙",
+      "┃ ◉ ┃",
+      "▀━━━▀"
+    ],
+    "memory": [
+      "▟━━━▙",
+      "█████",
+      "╵╵╵╵╵"
+    ],
+    "motherboard": [
+      "▟━━━▙",
+      "┃◇◆┃",
+      "▀━━━▀"
+    ],
+    "storage": [
+      "▟━━━▙",
+      "┃ ▰ ┃",
+      "▀━━━▀"
+    ],
+    "cooling": [
+      "╲ │ ╱",
+      "─ ◉ ─",
+      "╱ │ ╲"
+    ],
+    "case": [
+      "▟━━━▙",
+      "┃   ┃",
+      "▀━━━▀"
+    ],
+    "power": [
+      "  ϟ  ",
+      "▰▰▰▰▰",
+      "╵╵╵╵╵"
+    ],
+    "battery": [
+      "▰▰▰▰▰▸",
+      "█████▸",
+      "▰▰▰▰▰▸"
+    ],
+    "adapter": [
+      "  ϟ  ",
+      "━━╋━━",
+      "  ┃  "
+    ],
+    "os": [
+      "  ◆  ",
+      " ◆◆◆ ",
+      "◆   ◆"
+    ]
+  },
+  "FONT": {
+    "A": [
+      "01110",
+      "10001",
+      "11111",
+      "10001",
+      "10001"
+    ],
+    "B": [
+      "11110",
+      "10001",
+      "11110",
+      "10001",
+      "11110"
+    ],
+    "C": [
+      "01111",
+      "10000",
+      "10000",
+      "10000",
+      "01111"
+    ],
+    "D": [
+      "11110",
+      "10001",
+      "10001",
+      "10001",
+      "11110"
+    ],
+    "E": [
+      "11111",
+      "10000",
+      "11110",
+      "10000",
+      "11111"
+    ],
+    "F": [
+      "11111",
+      "10000",
+      "11110",
+      "10000",
+      "10000"
+    ],
+    "G": [
+      "01111",
+      "10000",
+      "10111",
+      "10001",
+      "01111"
+    ],
+    "H": [
+      "10001",
+      "10001",
+      "11111",
+      "10001",
+      "10001"
+    ],
+    "I": [
+      "11111",
+      "00100",
+      "00100",
+      "00100",
+      "11111"
+    ],
+    "J": [
+      "00111",
+      "00010",
+      "00010",
+      "10010",
+      "01100"
+    ],
+    "K": [
+      "10001",
+      "10010",
+      "11100",
+      "10010",
+      "10001"
+    ],
+    "L": [
+      "10000",
+      "10000",
+      "10000",
+      "10000",
+      "11111"
+    ],
+    "M": [
+      "10001",
+      "11011",
+      "10101",
+      "10001",
+      "10001"
+    ],
+    "N": [
+      "10001",
+      "11001",
+      "10101",
+      "10011",
+      "10001"
+    ],
+    "O": [
+      "01110",
+      "10001",
+      "10001",
+      "10001",
+      "01110"
+    ],
+    "P": [
+      "11110",
+      "10001",
+      "11110",
+      "10000",
+      "10000"
+    ],
+    "Q": [
+      "01110",
+      "10001",
+      "10101",
+      "10010",
+      "01101"
+    ],
+    "R": [
+      "11110",
+      "10001",
+      "11110",
+      "10010",
+      "10001"
+    ],
+    "S": [
+      "01111",
+      "10000",
+      "01110",
+      "00001",
+      "11110"
+    ],
+    "T": [
+      "11111",
+      "00100",
+      "00100",
+      "00100",
+      "00100"
+    ],
+    "U": [
+      "10001",
+      "10001",
+      "10001",
+      "10001",
+      "01110"
+    ],
+    "V": [
+      "10001",
+      "10001",
+      "10001",
+      "01010",
+      "00100"
+    ],
+    "W": [
+      "10001",
+      "10001",
+      "10101",
+      "11011",
+      "10001"
+    ],
+    "X": [
+      "10001",
+      "01010",
+      "00100",
+      "01010",
+      "10001"
+    ],
+    "Y": [
+      "10001",
+      "01010",
+      "00100",
+      "00100",
+      "00100"
+    ],
+    "Z": [
+      "11111",
+      "00010",
+      "00100",
+      "01000",
+      "11111"
+    ],
+    "0": [
+      "01110",
+      "10011",
+      "10101",
+      "11001",
+      "01110"
+    ],
+    "1": [
+      "00100",
+      "01100",
+      "00100",
+      "00100",
+      "01110"
+    ],
+    "2": [
+      "01110",
+      "10001",
+      "00010",
+      "00100",
+      "11111"
+    ],
+    "3": [
+      "11110",
+      "00001",
+      "00110",
+      "00001",
+      "11110"
+    ],
+    "4": [
+      "00010",
+      "00110",
+      "01010",
+      "11111",
+      "00010"
+    ],
+    "5": [
+      "11111",
+      "10000",
+      "11110",
+      "00001",
+      "11110"
+    ],
+    "6": [
+      "01110",
+      "10000",
+      "11110",
+      "10001",
+      "01110"
+    ],
+    "7": [
+      "11111",
+      "00010",
+      "00100",
+      "01000",
+      "01000"
+    ],
+    "8": [
+      "01110",
+      "10001",
+      "01110",
+      "10001",
+      "01110"
+    ],
+    "9": [
+      "01110",
+      "10001",
+      "01111",
+      "00001",
+      "01110"
+    ],
+    "-": [
+      "00000",
+      "00000",
+      "11111",
+      "00000",
+      "00000"
+    ],
+    "_": [
+      "00000",
+      "00000",
+      "00000",
+      "00000",
+      "11111"
+    ],
+    "?": [
+      "01110",
+      "10001",
+      "00010",
+      "00000",
+      "00010"
+    ]
+  }
+}

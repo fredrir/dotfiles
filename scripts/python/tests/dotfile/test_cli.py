@@ -41,18 +41,26 @@ def test_sync_rejects_an_unknown_resolution_natively(tool, sandbox):
 def test_all_help_works_with_an_empty_path(tool, sandbox):
     _repo, _home, env = sandbox
     env |= {"PATH": ""}
-    for command in ("secret", "system", "theme", "add", "remove", "doctor", "sync", "dev"):
+    for command in ("secret", "system", "theme", "add", "remove", "doctor", "sync", "docs", "dev"):
         result = tool("dotfile", command, "--help", env=env)
         assert result.returncode == 0, result.stderr
         assert "Usage" in result.stdout
 
 
-def test_generation_commands_point_to_sync(tool, sandbox):
+def test_packages_command_points_to_sync(tool, sandbox):
     _repo, _home, env = sandbox
-    for command in ("docs", "packages"):
-        result = tool("dotfile", command, env=env)
-        assert result.returncode == 2
-        assert f"'{command}' is included in 'dotfile sync'" in result.stderr
+    result = tool("dotfile", "packages", env=env)
+    assert result.returncode == 2
+    assert "'packages' is included in 'dotfile sync'" in result.stderr
+
+
+def test_docs_can_preview_keybinds_without_writing(tool, sandbox):
+    repo, _home, env = sandbox
+    before = sorted(path.relative_to(repo) for path in repo.rglob("*") if path.is_file())
+    result = tool("dotfile", "docs", "--only", "keybinds", "--dry-run", env=env)
+    assert result.returncode == 0, result.stderr
+    after = sorted(path.relative_to(repo) for path in repo.rglob("*") if path.is_file())
+    assert after == before
 
 
 def test_link_folds_a_package(tool, sandbox):

@@ -4,10 +4,9 @@ import subprocess
 import tomllib
 
 import pytest
+from native import ROOT
 
-from tools.core.paths import repo_root
-
-REPO = str(repo_root())
+REPO = str(ROOT)
 TAPLO = os.path.join(REPO, "shared/tools/.taplo.toml")
 SETTINGS = os.path.join(REPO, "shared/vscode/settings.json")
 

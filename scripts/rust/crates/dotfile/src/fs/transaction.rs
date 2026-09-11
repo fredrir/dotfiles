@@ -340,7 +340,11 @@ fn cleanup(directory: &Path, journal: &Journal) -> Result<(), String> {
 
 /// Run under the repository mutation lock, before inspecting source/destination paths.
 pub fn recover(context: &Context) -> Result<(), String> {
-    let root = fs::canonicalize(&context.root).map_err(|e| e.to_string())?;
+    recover_root(&context.root)
+}
+
+fn recover_root(root: &Path) -> Result<(), String> {
+    let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
     let mut directories = fs::read_dir(&root)
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
@@ -407,8 +411,12 @@ pub fn recover(context: &Context) -> Result<(), String> {
 
 impl Transaction {
     pub fn new(context: &Context) -> Result<Self, String> {
-        recover(context)?;
-        let root = fs::canonicalize(&context.root).map_err(|e| e.to_string())?;
+        Self::for_root(&context.root)
+    }
+
+    pub fn for_root(root: &Path) -> Result<Self, String> {
+        recover_root(root)?;
+        let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
         let directory = temporary_directory(&root, PREFIX)?;
         let journal = Journal {
             version: 1,

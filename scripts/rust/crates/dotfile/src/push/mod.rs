@@ -1,6 +1,5 @@
 pub mod protocol;
 
-use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -19,11 +18,7 @@ use protocol::Message;
 
 const HOSTS_FILE: &str = "config/hosts.dotfile";
 
-#[derive(Clone, Debug)]
-struct Host {
-    name: String,
-    aliases: Vec<String>,
-}
+use sysinfo::inventory::Host;
 
 #[derive(Debug)]
 struct Failure {
@@ -373,152 +368,43 @@ fn read_hosts(path: &Path) -> Result<Vec<Host>, Failure> {
             Failure::push(format!("cannot read {HOSTS_FILE}: {error}"))
         }
     })?;
-    let mut hosts = Vec::<Host>::new();
-    let mut current = None::<usize>;
-    for (offset, raw) in source.lines().enumerate() {
-        let line_number = offset + 1;
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some(opening) = line.strip_suffix('{') {
-            if current.is_some() {
-                return Err(host_config_error(line_number, "nested host"));
-            }
-            let name = opening.trim();
-            if !valid_host_name(name) {
-                return Err(host_config_error(line_number, "invalid host name"));
-            }
-            let index = hosts
-                .iter()
-                .position(|host| host.name == name)
-                .unwrap_or_else(|| {
-                    hosts.push(Host {
-                        name: name.to_string(),
-                        aliases: Vec::new(),
-                    });
-                    hosts.len() - 1
-                });
-            current = Some(index);
-            continue;
-        }
-        if line == "}" {
-            if current.take().is_none() {
-                return Err(host_config_error(line_number, "unexpected }"));
-            }
-            continue;
-        }
-        let Some(index) = current else {
-            return Err(host_config_error(line_number, "entry outside a host"));
-        };
-        let Some((key, value)) = line.split_once('=') else {
-            return Err(host_config_error(line_number, "expected key = value"));
-        };
-        if key
-            .chars()
-            .filter(|character| !character.is_whitespace())
-            .collect::<String>()
-            .eq_ignore_ascii_case("hostnames")
-        {
-            hosts[index].aliases = value
-                .split(',')
-                .map(str::trim)
-                .filter(|alias| !alias.is_empty())
-                .map(str::to_string)
-                .collect();
-        }
-    }
-    if current.is_some() {
-        return Err(host_config_error(
-            source.lines().count().max(1),
-            "unclosed host",
-        ));
-    }
+    let hosts = sysinfo::inventory::parse_hosts(&source)
+        .map_err(|error| Failure::push(format!("{HOSTS_FILE}: {error}")))?;
     if hosts.is_empty() {
         return Err(Failure::push(format!("{HOSTS_FILE} lists no machines")));
     }
     Ok(hosts)
 }
 
-fn host_config_error(line: usize, detail: &str) -> Failure {
-    Failure::push(format!("{HOSTS_FILE}:{line}: {detail}"))
-}
-
-fn valid_host_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with('-')
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-}
-
 fn resolve_local_host(context: &Context, hosts: &[Host]) -> Option<String> {
-    if let Some(candidate) = context.env("SYSINFO_HOST") {
-        let candidate = candidate.to_string_lossy().trim().to_string();
-        if !candidate.is_empty() {
-            return hosts
-                .iter()
-                .find(|host| host.name == candidate)
-                .map(|host| host.name.clone());
-        }
-    }
-    if let Ok(candidate) = fs::read_to_string(context.state.join("host")) {
-        let candidate = candidate.trim();
-        if !candidate.is_empty() {
-            return hosts
-                .iter()
-                .find(|host| host.name == candidate)
-                .map(|host| host.name.clone());
-        }
-    }
-    let candidates = local_hostnames(context)
-        .into_iter()
-        .map(|name| name.to_ascii_lowercase())
-        .collect::<HashSet<_>>();
+    let inventory = context.inventory();
+    let pinned = sysinfo::inventory::resolve_with(&inventory, hosts, "", &[]);
+    let candidate = if pinned.is_empty() {
+        sysinfo::inventory::resolve_with(&inventory, hosts, "", &local_hostnames(context))
+    } else {
+        pinned
+    };
     hosts
         .iter()
-        .find(|host| {
-            std::iter::once(&host.name)
-                .chain(host.aliases.iter())
-                .any(|name| candidates.contains(&name.to_ascii_lowercase()))
-        })
+        .find(|host| host.name == candidate)
         .map(|host| host.name.clone())
 }
 
 fn local_hostnames(context: &Context) -> Vec<String> {
-    let mut names = Vec::new();
-    #[cfg(target_os = "macos")]
-    for key in ["LocalHostName", "ComputerName"] {
-        if let Ok(output) = context.command("scutil").args(["--get", key]).output()
-            && output.status.success()
-        {
-            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !name.is_empty() {
-                names.push(name);
-            }
-        }
-    }
-    if let Some(name) = context.env("HOSTNAME") {
-        let name = name.to_string_lossy().trim().to_string();
-        if !name.is_empty() {
-            names.push(name.clone());
-            if let Some(short) = name.split('.').next() {
-                names.push(short.to_string());
-            }
-        }
-    }
-    if let Ok(output) = context.command("hostname").output()
-        && output.status.success()
-    {
-        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !name.is_empty() {
-            names.push(name.clone());
-            if let Some(short) = name.split('.').next() {
-                names.push(short.to_string());
-            }
-        }
-    }
-    names
+    let hostname = context
+        .env("HOSTNAME")
+        .map(|value| value.to_string_lossy().trim().to_string())
+        .filter(|value| !value.is_empty());
+    sysinfo::inventory::local_hostnames_with(hostname.as_deref(), |words| {
+        let result = crate::process::output(
+            context.command(words[0]).args(&words[1..]),
+            hostkit::process::CaptureLimits::default(),
+            Duration::from_secs(3),
+        )
+        .ok()?;
+        (result.status.success() && !result.stdout_truncated)
+            .then(|| String::from_utf8_lossy(&result.stdout).trim().to_string())
+    })
 }
 
 fn executable_exists(context: &Context, name: &str) -> bool {

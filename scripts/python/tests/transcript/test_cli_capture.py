@@ -1,8 +1,7 @@
 import pytest
 import typer
 
-from tools.core import clipboard
-from tools.transcript import cli
+from tools.transcript import cli, clipboard
 
 
 def test_capture_uses_fallback_when_clipboard_empty(tmp_path, monkeypatch):

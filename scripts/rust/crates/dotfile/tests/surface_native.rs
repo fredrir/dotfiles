@@ -9,6 +9,15 @@ use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
+fn native_fixture(path: &std::path::Path) {
+    fs::write(path, b"\x7fELFfixture").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 fn sandbox() -> (tempfile::TempDir, Context) {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repo");
@@ -65,42 +74,23 @@ fn unavailable_external_metadata_keeps_its_document() {
 }
 
 #[test]
-fn exported_python_metadata_is_required_and_content_fingerprinted() {
+fn declarative_metadata_generates_scripts_without_python_sources() {
     let (_temp, context) = sandbox();
-    let source = context.root.join("scripts/python/src/tools/example.py");
-    fs::create_dir_all(source.parent().unwrap()).unwrap();
-    fs::write(&source, "# source\n").unwrap();
     let destination = context.home.join("completions");
-    fs::create_dir(&destination).unwrap();
-    let script = destination.join("tools-completion.zsh");
-    fs::write(&script, "retained\n").unwrap();
-    assert!(
-        docs::generate(&context, false)
-            .unwrap_err()
-            .contains("metadata missing")
-    );
-    assert!(
-        completions::write_all(&context, &destination)
-            .unwrap_err()
-            .contains("metadata missing")
-    );
-    assert_eq!(fs::read_to_string(&script).unwrap(), "retained\n");
-    let surface = json!({"version":1,"source_fingerprint":metadata::python_fingerprint(&context).unwrap(),"commands":{"example":{"path":["example"],"help":"example","hidden":false,"params":[],"children":[]}},"completions":{"example":"#compdef example\ncompdef _example example\n"}});
-    fs::write(
-        context.root.join("config/command-surface.json"),
-        serde_json::to_vec(&surface).unwrap(),
-    )
-    .unwrap();
+    let surface = json!({"version":2,"commands":{"example":{"path":["example"],"help":"example","hidden":false,"params":[],"children":[{"path":["example","show"],"help":"show","hidden":false,"params":[{"kind":"argument","name":"target","opts":[],"metavar":"TARGET","help":"target","multiple":false,"required":false,"hidden":false,"completion":{"kind":"call","source":"items"}}],"children":[]}]}}});
+    let metadata_path = context.root.join("config/command-surface.json");
+    fs::write(&metadata_path, serde_json::to_vec(&surface).unwrap()).unwrap();
     completions::write_all(&context, &destination).unwrap();
+    let script = destination.join("tools-completion.zsh");
     let generated = fs::read_to_string(&script).unwrap();
     assert!(generated.contains("compdef _example example"));
+    assert!(generated.contains("example __complete items"));
     assert!(generated.contains("compdef _dotfile dotfile"));
-    fs::write(source, "# changed source, same size optional\n").unwrap();
-    assert!(
-        docs::generate(&context, false)
-            .unwrap_err()
-            .contains("metadata is stale")
-    );
+    assert!(!context.root.join("scripts/python").exists());
+    let before = fs::metadata(&script).unwrap().modified().unwrap();
+    completions::write_all(&context, &destination).unwrap();
+    assert_eq!(fs::metadata(&script).unwrap().modified().unwrap(), before);
+    fs::write(metadata_path, r#"{"version":99,"commands":{}}"#).unwrap();
     assert!(completions::write_all(&context, &destination).is_err());
     assert_eq!(fs::read_to_string(script).unwrap(), generated);
 }
@@ -110,9 +100,9 @@ fn prepared_artifact_paths_are_authoritative_and_aliases_resolve() {
     let (_temp, mut context) = sandbox();
     let installed = context.home.join(".local/bin/git-discard");
     fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    fs::write(&installed, "installed").unwrap();
+    native_fixture(&installed);
     let prepared = context.root.join("prepared binary");
-    fs::write(&prepared, "prepared").unwrap();
+    native_fixture(&prepared);
     let manifest = context.root.join("build.jsonl");
     fs::write(&manifest, format!("{}\n", json!({"reason":"compiler-artifact","target":{"name":"git-discard"},"executable":prepared}))).unwrap();
     context
@@ -120,6 +110,44 @@ fn prepared_artifact_paths_are_authoritative_and_aliases_resolve() {
         .insert("DOTFILE_DEV_BUILD_MANIFEST".into(), manifest.into());
     assert_eq!(metadata::binary(&context, "gdd").unwrap(), Some(prepared));
     assert_eq!(metadata::binary(&context, "count").unwrap(), None);
+}
+
+#[test]
+fn artifact_precedence_is_stable_when_a_debug_file_is_newer() {
+    let (_temp, context) = sandbox();
+    let debug = context.root.join("scripts/rust/target/debug/count");
+    let release = context.root.join("scripts/rust/target/release/count");
+    let installed = context.home.join(".local/bin/count");
+    for path in [&release, &installed, &debug] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        native_fixture(path);
+    }
+    assert_eq!(
+        metadata::binary(&context, "count").unwrap(),
+        Some(release.clone())
+    );
+    fs::remove_file(release).unwrap();
+    assert_eq!(
+        metadata::binary(&context, "count").unwrap(),
+        Some(installed.clone())
+    );
+    fs::remove_file(installed).unwrap();
+    assert_eq!(metadata::binary(&context, "count").unwrap(), Some(debug));
+}
+
+#[cfg(unix)]
+#[test]
+fn native_metadata_never_executes_a_retired_interpreter_launcher() {
+    let (_temp, context) = sandbox();
+    let launcher = context.root.join("scripts/rust/target/debug/sysinfo");
+    let marker = context.root.join("launched");
+    fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+    testkit::executable(
+        &launcher,
+        &format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+    );
+    assert!(metadata::external(&context, "sysinfo").unwrap().is_none());
+    assert!(!marker.exists());
 }
 
 #[cfg(unix)]

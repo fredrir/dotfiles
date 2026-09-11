@@ -57,17 +57,12 @@ pub(super) fn select(root: &Path, catalog: &mut Catalog, reference: &str) -> Res
         .any(|package| names.contains(&package.name))
     {
         dependents(root, &mut names)?;
-        if names.contains("dotfile-cli")
-            || names.contains("doc-keybinds")
-            || names.contains("dotfmt")
-        {
-            all_python = true;
-        }
-        if names.contains("tmux-workspace") || names.contains("agent-hop") {
-            names.insert("tmux".into());
-        }
-        if names.contains("sysinfo-collect") {
-            names.insert("utils".into());
+        for (suite, dependencies) in super::suites::DEPENDENCIES {
+            if catalog.python.iter().any(|name| name == suite)
+                && dependencies.iter().any(|package| names.contains(*package))
+            {
+                names.insert((*suite).into());
+            }
         }
     }
     if all_python {

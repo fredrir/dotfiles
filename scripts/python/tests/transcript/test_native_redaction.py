@@ -139,7 +139,7 @@ def test_repeated_unicode_records_keep_protocol_boundaries(tmp_path, monkeypatch
 
 @pytest.mark.skipif(os.name != "posix", reason="requires POSIX child-group cancellation")
 def test_cleanup_cancels_initial_sops_decryption_without_orphan(tmp_path, monkeypatch):
-    from tools.core.native import binary
+    from tools.transcript.native import binary
 
     executable = binary("dotfile")
     root = tmp_path / "repo"

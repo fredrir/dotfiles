@@ -12,7 +12,6 @@ RUST_BINARIES = [
     "bench-workloads",
     "count",
     "dcloud",
-    "doc-keybinds",
     "doc-purge",
     "dotfile",
     "dotfile-format",
@@ -27,7 +26,7 @@ RUST_BINARIES = [
     "mux-route",
     "path",
     "size",
-    "sysinfo-collect",
+    "sysinfo",
     "tmux-workspace",
 ]
 
@@ -69,7 +68,7 @@ def setup_environment(tmp_path):
     driver = '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$DOTFILE_TEST_LOG"\nexit 0\n'
     for name in RUST_BINARIES:
         executable(binaries / name, driver if name == "dotfile" else "#!/bin/sh\nexit 0\n")
-    executable(binaries / "sysinfo")
+    executable(binaries / "transcript")
     for name in ("cargo", "git", "uv"):
         executable(fake_path / name)
     python_hash = digest([ROOT / "scripts/python/pyproject.toml", ROOT / "scripts/python/uv.lock"])
@@ -133,6 +132,46 @@ def test_setup_sync_forwards_native_sync_arguments(tmp_path):
     assert result.returncode == 0, result.stderr
     assert calls[-1] == "sync arch-linux/hyprland --override linux/hyprland=none -n"
     assert not any(call.startswith("link ") for call in calls)
+
+
+def test_native_refresh_does_not_install_or_execute_python(tmp_path):
+    environment, log = setup_environment(tmp_path)
+    marker = tmp_path / "python-called"
+    for name in ("uv", "python", "python3"):
+        executable(tmp_path / "path" / name, f"#!/bin/sh\ntouch '{marker}'\nexit 91\n")
+    result = subprocess.run(
+        [ROOT / "setup.sh", "--native-only"],
+        capture_output=True, text=True, env=environment, cwd=tmp_path, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()
+    assert "completions --dir" in log.read_text()
+
+
+def test_native_only_install_creates_missing_binary_directory(tmp_path):
+    environment, _ = setup_environment(tmp_path)
+    binaries = Path(environment["HOME"]) / ".local/bin"
+    shutil.rmtree(binaries)
+    marker = tmp_path / "python-called"
+    for name in ("uv", "python", "python3"):
+        executable(tmp_path / "path" / name, f"#!/bin/sh\ntouch '{marker}'\nexit 91\n")
+    executable(
+        tmp_path / "path/install",
+        "#!/bin/sh\n"
+        'for argument do destination="$argument"; done\n'
+        "printf '#!/bin/sh\\nexit 0\\n' > \"$destination\"\n"
+        'chmod 0755 "$destination"\n',
+    )
+
+    result = subprocess.run(
+        [ROOT / "setup.sh", "--native-only"],
+        capture_output=True, text=True, env=environment, cwd=tmp_path, check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert all(os.access(binaries / name, os.X_OK) for name in RUST_BINARIES)
+    assert not marker.exists()
+    assert not list(binaries.glob(".dotfile-native.*"))
 
 
 def test_first_setup_uses_the_same_native_sync_engine(tmp_path):

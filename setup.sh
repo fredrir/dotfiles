@@ -7,8 +7,9 @@ STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
 TOOL_BIN_DIR="$HOME/.local/bin"
 TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
-PYTHON_TOOL_BIN="$TOOL_BIN_DIR/sysinfo"
+PYTHON_TOOL_BIN="$TOOL_BIN_DIR/transcript"
 COMMANDS_ONLY=0
+NATIVE_ONLY=0
 SYNC=0
 ARG_PROFILE=""
 LINK_ARGS=()
@@ -16,6 +17,10 @@ LINK_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
   --commands-only) COMMANDS_ONLY=1 ;;
+  --native-only)
+    COMMANDS_ONLY=1
+    NATIVE_ONLY=1
+    ;;
   --sync) SYNC=1 ;;
   --)
     shift
@@ -262,50 +267,47 @@ git -C "$DOTFILES" config diff.sops.textconv \
   "SOPS_AGE_KEY_FILE=$AGE_KEY_FILE sops -d" 2>/dev/null || true
 git -C "$DOTFILES" config diff.sops.cachetextconv false 2>/dev/null || true
 
-if ! command -v uv >/dev/null 2>&1; then
-  echo "setup: uv is required (https://docs.astral.sh/uv/) to install the workstation tools" >&2
-  exit 1
-fi
-
 acquire_setup_lock
+mkdir -p "$TOOL_BIN_DIR"
 
-PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
-
-python_current() {
-  [ -x "$PYTHON_TOOL_BIN" ] || return 1
-  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/sysinfo" ]; then
-    return 1
+if [ "$NATIVE_ONLY" = 0 ]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "setup: uv is required (https://docs.astral.sh/uv/) to install the workstation tools" >&2
+    exit 1
   fi
-  unchanged python "$PYTHON_HASH"
-}
 
-if python_current; then
-  echo "workstation commands are current"
-else
-  if [ "$COMMANDS_ONLY" = 0 ]; then
-    echo "syncing workstation tools (scripts/python/.venv)"
-    uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
+  PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
+
+  python_current() {
+    [ -x "$PYTHON_TOOL_BIN" ] || return 1
+    if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/transcript" ]; then
+      return 1
+    fi
+    unchanged python "$PYTHON_HASH"
+  }
+
+  if python_current; then
+    echo "workstation commands are current"
+  else
+    if [ "$COMMANDS_ONLY" = 0 ]; then
+      echo "syncing workstation tools (scripts/python/.venv)"
+      uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
+    fi
+    echo "installing workstation commands (~/.local/bin)"
+    UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
+      uv tool install \
+      --compile-bytecode \
+      --constraints <(
+        uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
+          --no-header --no-annotate --no-hashes --quiet
+      ) \
+      --editable --reinstall --quiet "$DOTFILES/scripts/python"
+    stamp python "$PYTHON_HASH"
   fi
-  echo "installing workstation commands (~/.local/bin)"
-  mkdir -p "$TOOL_BIN_DIR"
-  UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
-    uv tool install \
-    --compile-bytecode \
-    --constraints <(
-      uv export --project "$DOTFILES/scripts/python" --locked --no-dev --no-emit-project \
-        --no-header --no-annotate --no-hashes --quiet
-    ) \
-    --editable --reinstall --quiet "$DOTFILES/scripts/python"
-  stamp python "$PYTHON_HASH"
+
 fi
 
-SURFACE_PYTHON="$TOOL_DIR/tools/bin/python"
-if [ -x "$DOTFILES/scripts/python/.venv/bin/python" ]; then
-  SURFACE_PYTHON="$DOTFILES/scripts/python/.venv/bin/python"
-fi
-PYTHONDONTWRITEBYTECODE=1 "$SURFACE_PYTHON" -m tools.surface.export
-
-RUST_BINARIES="agent-hop bench-workloads count dcloud doc-keybinds doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire mux-route path size sysinfo-collect tmux-workspace"
+RUST_BINARIES="agent-hop bench-workloads count dcloud doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire mux-route path size sysinfo tmux-workspace"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
     -type d -name target -prune -o -type f -print0 2>/dev/null |
@@ -334,7 +336,7 @@ else
       install -m 0755 "$DOTFILES/scripts/rust/target/release/$name" "$SETUP_STAGE/$name"
     done
     "$SETUP_STAGE/dotfile" sync --version >/dev/null
-    "$SETUP_STAGE/sysinfo-collect" --version >/dev/null
+    "$SETUP_STAGE/sysinfo" --version >/dev/null
     mkdir "$SETUP_STAGE/.previous" "$SETUP_STAGE/.absent"
     for name in $RUST_BINARIES; do
       if [ -e "$TOOL_BIN_DIR/$name" ] || [ -L "$TOOL_BIN_DIR/$name" ]; then
@@ -381,6 +383,10 @@ fi
 if ! "$DOTFILE_BIN" completions --dir "$HOME/.cache/zsh" >/dev/null 2>&1; then
   echo "setup: could not write shell completions (continuing)" >&2
 fi
+
+for retired in doc-keybinds sysinfo-collect tardirs cpa cpas acp update-readme-fastfetch; do
+  rm -f -- "$TOOL_BIN_DIR/$retired" "$HOME/.cache/zsh/$retired-completion.zsh"
+done
 
 release_setup_lock
 

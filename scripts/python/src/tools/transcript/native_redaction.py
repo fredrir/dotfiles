@@ -7,7 +7,7 @@ import subprocess
 import time
 import weakref
 
-from tools.core.native import binary
+from tools.transcript.native import binary
 
 LIMIT = 16 * 1024 * 1024
 TIMEOUT = 60

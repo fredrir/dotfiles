@@ -51,7 +51,7 @@ fn completions_and_the_command_dump_are_data_on_stdout() {
     let root = tree_pairs(&[]);
     for (args, expected) in [
         (["--completions", "zsh"], "#compdef dotfmt"),
-        (["--command-dump", ""], "C\tdotfmt\t"),
+        (["--command-dump", ""], "\"version\":1"),
     ] {
         let args: Vec<&str> = args.iter().copied().filter(|arg| !arg.is_empty()).collect();
         let output = dotfmt(root.path(), &args, "");

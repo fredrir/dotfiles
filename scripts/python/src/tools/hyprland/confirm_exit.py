@@ -1,7 +1,11 @@
+from functools import partial
+from subprocess import run
+
 import typer
 
-from tools.core.process import capture, run
-from tools.surface import entry as surface
+from tools.hyprland import completion as surface
+
+capture = partial(run, capture_output=True, text=True, check=False)
 
 app = typer.Typer(add_completion=False)
 
@@ -21,4 +25,4 @@ WOFI = [
 def confirm_exit(completions: str = surface.COMPLETIONS):
     result = capture(WOFI, input="Yes\nNo\n")
     if "Yes" in result.stdout:
-        run(["hyprctl", "dispatch", "exit"])
+        run(["hyprctl", "dispatch", "exit"], check=False)

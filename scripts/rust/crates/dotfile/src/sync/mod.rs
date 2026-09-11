@@ -50,10 +50,7 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     };
     let changed = ChangeSetSink::new(events);
     crate::cancel::check()?;
-    let packages = artifacts::packages::synchronize(&context, cli.dry_run, &changed)?;
-    crate::cancel::check()?;
-    let docs = artifacts::docs::synchronize(&context, cli.dry_run, &changed)?;
-    let generated = packages + docs;
+    let generated = artifacts::docs::synchronize(&context, cli.dry_run, &changed)?;
     let mut summary = engine::reconcile(&context, &profile, cli, decisions, &changed)?;
     summary.generated += generated;
     summary.changed = changed.changed();

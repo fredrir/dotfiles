@@ -7,11 +7,10 @@ from typing import Annotated
 import typer
 from rich.table import Table
 
-from tools.core import clipboard, menu
-from tools.core.console import die, out, stdout
-from tools.surface import entry as surface
-from tools.transcript import config, detect, manage, migration, store, vault
+from tools.transcript import clipboard, config, detect, manage, menu, migration, store, vault
+from tools.transcript import completion as surface
 from tools.transcript.clean_copy import clean_text
+from tools.transcript.console import die, out, stdout
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
 surface.register(app)

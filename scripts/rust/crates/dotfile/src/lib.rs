@@ -7,6 +7,7 @@ pub mod config;
 pub mod context;
 pub mod decision;
 pub mod dev;
+pub mod docs;
 pub mod doctor;
 pub mod event;
 pub mod fs;

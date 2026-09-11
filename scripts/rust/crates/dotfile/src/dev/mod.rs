@@ -3,6 +3,7 @@ mod changed;
 mod plan;
 mod report;
 mod runner;
+mod suites;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -162,7 +163,7 @@ pub fn run(cli: Cli) -> ExitCode {
 }
 
 pub fn package_names() -> Result<std::collections::BTreeSet<String>, String> {
-    let root = doc_keybinds::root(None)?;
+    let root = crate::context::Context::discover()?.root;
     let catalog = catalog::Catalog::read(&root, true)?;
     let mut names = std::collections::BTreeSet::new();
     names.extend(catalog.rust.iter().map(|package| package.name.clone()));
@@ -189,7 +190,7 @@ fn execute(action: Action) -> Result<ExitCode, String> {
             ..Default::default()
         })
         .map_err(|error| error.to_string())?;
-    let root = doc_keybinds::root(None)?;
+    let root = crate::context::Context::discover()?.root;
     let mut catalog = catalog::Catalog::read(&root, lint)?;
     for target in &options.packages {
         if !catalog.known(&root, target, &options.languages) {

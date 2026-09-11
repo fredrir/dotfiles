@@ -294,6 +294,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest 0.10.7",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -632,6 +641,7 @@ name = "count"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "serde_json",
  "testkit",
  "workstation",
 ]
@@ -764,6 +774,27 @@ checksum = "eb2a7d3066da2de787b7f032c736763eb7ae5d355f81a68bab2675a96008b0bf"
 dependencies = [
  "lab",
  "phf 0.11.3",
+]
+
+[[package]]
+name = "csv"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52cd9d68cf7efc6ddfaaee42e7288d3a99d613d4b50f76ce9827ae0c6e14f938"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde_core",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -998,20 +1029,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doc-keybinds"
-version = "0.1.0"
-dependencies = [
- "clap",
- "serde",
- "serde_json",
- "tempfile",
- "toml 0.9.12+spec-1.1.0",
- "tree-sitter",
- "tree-sitter-lua",
- "workstation",
-]
-
-[[package]]
 name = "doc-purge"
 version = "0.1.0"
 dependencies = [
@@ -1039,7 +1056,6 @@ dependencies = [
  "clap_complete",
  "crossbeam-channel",
  "crossterm",
- "doc-keybinds",
  "globset",
  "hostkit",
  "libc",
@@ -1050,12 +1066,17 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha2 0.10.9",
+ "similar",
  "tachyonfx",
  "tempfile",
  "testkit",
  "toml 0.9.12+spec-1.1.0",
+ "tree-sitter",
+ "tree-sitter-lua",
  "tui-kit",
+ "unicode-width",
  "workstation",
+ "workstation-sysinfo",
  "zeroize",
 ]
 
@@ -1078,6 +1099,7 @@ dependencies = [
  "clap",
  "gix-glob",
  "rayon",
+ "serde_json",
  "tempfile",
  "testkit",
  "workstation",
@@ -2465,6 +2487,7 @@ dependencies = [
  "clap",
  "file-explorer",
  "hostkit",
+ "serde_json",
  "tempfile",
  "testkit",
  "workstation",
@@ -4171,6 +4194,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "siphasher"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4322,18 +4351,6 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-io-kit",
  "windows",
-]
-
-[[package]]
-name = "sysinfo-collect"
-version = "0.1.0"
-dependencies = [
- "core-foundation",
- "io-kit-sys",
- "rustix",
- "serde_json",
- "sysctl",
- "sysinfo",
 ]
 
 [[package]]
@@ -5252,8 +5269,35 @@ dependencies = [
  "nix 0.30.1",
  "rayon",
  "rustix",
+ "serde",
+ "serde_json",
  "tempfile",
  "testkit",
+]
+
+[[package]]
+name = "workstation-sysinfo"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "chrono",
+ "clap",
+ "clap_complete",
+ "core-foundation",
+ "csv",
+ "fs2",
+ "hostkit",
+ "io-kit-sys",
+ "regex",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sysctl",
+ "sysinfo",
+ "tempfile",
+ "testkit",
+ "unicode-width",
+ "workstation",
 ]
 
 [[package]]

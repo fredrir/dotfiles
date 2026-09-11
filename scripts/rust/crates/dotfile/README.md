@@ -13,7 +13,9 @@
 | Palette model, validation, emitters, picker | `src/theme/` |
 | Workstation checks | `src/doctor/` |
 | Reconciliation and remote sync | `src/sync/`, `src/push/` |
-| Docs, packages, completions | `src/artifacts/`, `src/surface/` |
+| Docs, keybind parsers, README capture, benchmark tables | `src/docs/` |
+| Package inventory | `src/artifacts/packages.rs` |
+| Metadata and completion providers | `src/surface/`, `workstation::surface` |
 | Authored reference text | `assets/cli-reference.json` |
 
 | Runtime | Requirement |
@@ -25,7 +27,10 @@
 | Completion shell | Zsh |
 | Remote sync | Matching native push protocol; install with `./setup.sh --commands-only` |
 | Interrupted mutations | Recovered under the next mutation lock; ambiguous or edited paths are preserved |
-| Python tools | Remain separate; setup exports `config/command-surface.json` |
+| Python tools | Standalone Hyprland/transcript; declarative command metadata in `config/command-surface.json` |
+| Rust runtime | No Python imports, launchers, or exporters |
+| Documentation writes | Render/validate all outputs, then durable transaction; unchanged files retain timestamps |
+| Documentation defaults | CLI, keybinds, packages; README and benchmarks require `--only` |
 | Transcript redaction | Native JSON-lines helper; plaintext values stay inside dotfile |
 | Sysinfo colors | Native versioned palette JSON |
 | Commit/push review | `i` inspect, `a` accept exact contents, `q` / Enter abort |
@@ -35,7 +40,7 @@
 ```sh
 cargo build --release --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli
 dotfile dev check -l rust -p dotfile-cli
-dotfile dev test -l python -p dotfile,surface,transcript,utils
+dotfile dev test -l python -p dotfile,hyprland,transcript
 ```
 
 | Contract | Coverage |
@@ -46,17 +51,21 @@ dotfile dev test -l python -p dotfile,surface,transcript,utils
 | Real encryption, rotation, revocation, recovery, Git history | `tests/secret_e2e.rs` |
 | Interactive review, exact staged contents, approvals, commit/push hooks | `tests/secret_scan_review.rs` |
 | System ownership/modes, add/remove, doctor | `tests/system_manage_doctor.rs` |
-| Native metadata, missing/stale exports, permissions, locks | `tests/surface_native.rs` |
+| Native/declarative metadata, permissions, locks | `tests/surface_native.rs` |
+| Documentation checks, JSON/diff, atomicity, no-Python operation | `tests/docs_cli.rs` |
+| Keybind parsers, platform deduplication, source links | `tests/docs_keybinds.rs` |
 | JSONC spans, merge decisions, ignore patterns | `tests/unit/sync/merge_tests.rs`, `tests/native_sync_core.rs` |
 | Comment-preserving JSONC edits and adoption | `tests/unit/sync/adoption_tests.rs` |
 | Sync UI and remote protocol | `tests/native_sync_core.rs`, `tests/push_path.rs`, `tests/sync_*` |
 | Python adapters, hooks, bootstrap | `scripts/python/tests/` |
 
 ```sh
-# Refresh Python metadata after changing Python commands.
-uv run --project scripts/python --locked python -m tools.surface.export
-scripts/rust/target/debug/dotfile __reference
-scripts/rust/target/debug/dotfile __reference --check
+dotfile docs
+dotfile docs --check
+dotfile docs --only keybinds --diff
+dotfile docs --only cli,keybinds --check --json
+dotfile docs --only readme
+dotfile docs --only benchmarks
 scripts/rust/target/debug/dotfile --completions zsh | zsh -n
 
 # Install the workstation commands.

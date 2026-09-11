@@ -96,6 +96,8 @@ pub enum Command {
     Sync(SyncCli),
     #[command(about = "Test and lint the repository")]
     Dev(crate::dev::Cli),
+    #[command(about = "Generate and check repository documentation")]
+    Docs(crate::docs::Args),
     #[command(about = "Keep private material out of the repository")]
     Secret(crate::secret::Args),
     #[command(about = "Manage root-owned system files")]
@@ -117,8 +119,22 @@ pub enum Command {
     Link(LinkArgs),
     #[command(hide = true)]
     Completions {
-        #[arg(long, value_name = "DIRECTORY")]
-        dir: std::path::PathBuf,
+        #[arg(
+            long,
+            value_name = "DIRECTORY",
+            conflicts_with = "program",
+            required_unless_present = "program"
+        )]
+        dir: Option<std::path::PathBuf>,
+        #[arg(
+            long,
+            value_name = "NAME",
+            conflicts_with = "dir",
+            required_unless_present = "dir"
+        )]
+        program: Option<String>,
+        #[arg(long, default_value = "zsh", value_parser = ["zsh"])]
+        shell: String,
     },
     #[command(name = "__complete", hide = true)]
     Complete {
@@ -168,12 +184,17 @@ pub fn dispatch(arguments: Vec<OsString>) -> std::process::ExitCode {
         }
     };
     if cli.completions.dump {
-        return workstation::Completions {
-            shell: None,
-            dump: true,
-        }
-        .emit::<Cli>("dotfile")
-        .unwrap_or(ExitCode::SUCCESS);
+        let document = workstation::surface::Document {
+            version: workstation::surface::VERSION,
+            command: crate::surface::metadata::native(),
+        };
+        return match serde_json::to_string(&document) {
+            Ok(document) => {
+                println!("{document}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => workstation::fail("dotfile", error),
+        };
     }
     if cli.completions.shell.is_some() {
         return match crate::surface::completions::emit(clap_complete::Shell::Zsh) {
@@ -254,12 +275,20 @@ fn execute(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Completions { dir } => {
-            let count = crate::surface::completions::write_all(context, &dir)?;
-            println!(
-                "  {count} tools completed by {}",
-                dir.join("tools-completion.zsh").display()
-            );
+        Command::Completions {
+            dir,
+            program,
+            shell,
+        } => {
+            if let Some(dir) = dir {
+                let count = crate::surface::completions::write_all(context, &dir)?;
+                println!(
+                    "  {count} tools completed by {}",
+                    dir.join("tools-completion.zsh").display()
+                );
+            } else if let Some(program) = program {
+                crate::surface::completions::emit_program(context, &program, &shell)?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Reference { check } => {
@@ -327,6 +356,7 @@ fn execute(
         }
         Command::Sync(_) => Err("sync dispatch unavailable".to_string()),
         Command::Dev(cli) => Ok(crate::dev::run(cli)),
+        Command::Docs(args) => crate::docs::run(context, args),
         Command::External(arguments) => Ok(external(arguments)),
     }
 }
@@ -345,7 +375,7 @@ fn external(arguments: Vec<OsString>) -> std::process::ExitCode {
         Some("status") => {
             Some("'status' is included in 'dotfile doctor'; run that instead.".to_string())
         }
-        Some(name @ ("docs" | "packages")) => Some(format!(
+        Some(name @ "packages") => Some(format!(
             "'{name}' is included in 'dotfile sync'; run that instead."
         )),
         _ => None,

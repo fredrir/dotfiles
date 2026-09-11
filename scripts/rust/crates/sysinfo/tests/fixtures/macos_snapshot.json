@@ -1,0 +1,152 @@
+{
+  "hardware": {
+    "cpu_cooler": "not set",
+    "case": "not set",
+    "power_supply": "not set"
+  },
+  "modules": {
+    "OS": {
+      "id": "macos",
+      "name": "macOS",
+      "prettyName": "macOS 26.0"
+    },
+    "Kernel": {
+      "release": "25.0.0",
+      "architecture": "arm64"
+    },
+    "CPU": {
+      "cpu": "Apple M5 Pro",
+      "vendor": "Apple",
+      "cores": {
+        "physical": 15,
+        "logical": 15
+      },
+      "frequency": {
+        "max": 4610
+      },
+      "temperature": 40.5,
+      "march": "ARMv9.3-A"
+    },
+    "CPUUsage": [
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0,
+      8.0
+    ],
+    "GPU": [
+      {
+        "name": "Apple M5 Pro",
+        "vendor": "Apple",
+        "type": "Integrated",
+        "coreUsage": 21.0,
+        "temperature": 41.0,
+        "frequency": 1620,
+        "driver": "com.apple.AGXG17X 351.2"
+      }
+    ],
+    "Memory": {
+      "used": 19756849561,
+      "total": 25769803776
+    },
+    "PhysicalMemory": [
+      {
+        "manufacturer": "Apple",
+        "type": "LPDDR5X"
+      }
+    ],
+    "Swap": [],
+    "Disk": [
+      {
+        "mountpoint": "/",
+        "filesystem": "apfs",
+        "bytes": {
+          "used": 193273528320,
+          "total": 1067299373056
+        }
+      },
+      {
+        "mountpoint": "/System/Volumes/Preboot",
+        "filesystem": "apfs",
+        "bytes": {
+          "used": 10630044057.6,
+          "total": 10737418240
+        }
+      },
+      {
+        "name": "Apple Disk Image Media",
+        "mountpoint": "/Volumes/Installer",
+        "filesystem": "apfs",
+        "volumeType": [
+          "Virtual",
+          "Read-only"
+        ],
+        "bytes": {
+          "used": 19327352832,
+          "total": 19327352832
+        }
+      }
+    ],
+    "PhysicalDisk": [
+      {
+        "name": "APPLE SSD AP1024Z Media",
+        "size": 1000555581440,
+        "interconnect": "Apple Fabric",
+        "kind": "SSD",
+        "temperature": 35.0
+      },
+      {
+        "name": "Apple Disk Image Media",
+        "size": 18100000000,
+        "interconnect": "Virtual Interface - File",
+        "kind": "Virtual"
+      },
+      {
+        "name": "Apple Disk Image Media",
+        "size": 9100000000,
+        "interconnect": "Virtual Interface - File",
+        "kind": "Virtual"
+      }
+    ],
+    "Board": {
+      "vendor": "Apple",
+      "name": "J714sAP"
+    },
+    "WM": {
+      "prettyName": "Quartz Compositor"
+    },
+    "Battery": [
+      {
+        "modelName": "bq40z651",
+        "manufacturer": "Apple",
+        "capacity": 100.0,
+        "status": [
+          "AC Connected"
+        ],
+        "cycleCount": 3
+      }
+    ],
+    "PowerAdapter": [
+      {
+        "name": "0",
+        "manufacturer": "Apple",
+        "watts": 70
+      }
+    ]
+  },
+  "shell_display": "zsh 5.9.2",
+  "terminal_display": "unknown",
+  "de_display": "unknown",
+  "wm_display": "Quartz Compositor",
+  "nvidia": []
+}

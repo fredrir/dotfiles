@@ -12,7 +12,7 @@ def select(monkeypatch, stdout):
         "capture",
         lambda command, input: SimpleNamespace(stdout=stdout),
     )
-    monkeypatch.setattr(power_menu, "run", lambda command: calls.append(command))
+    monkeypatch.setattr(power_menu, "run", lambda command, **kwargs: calls.append(command))
     power_menu.power_menu()
     return calls
 

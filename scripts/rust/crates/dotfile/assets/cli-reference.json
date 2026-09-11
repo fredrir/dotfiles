@@ -9,30 +9,12 @@
       "source": "scripts/rust/crates/agent-hop/"
     },
     {
-      "name": "clipboard",
-      "title": "clipboard",
-      "programs": [
-        "cpa",
-        "cpas",
-        "acp"
-      ],
-      "source": "scripts/python/src/tools/utils/remote_clipboard.py"
-    },
-    {
       "name": "count",
       "title": "count",
       "programs": [
         "count"
       ],
       "source": "scripts/rust/crates/count/"
-    },
-    {
-      "name": "doc-keybinds",
-      "title": "doc-keybinds",
-      "programs": [
-        "doc-keybinds"
-      ],
-      "source": "scripts/rust/crates/doc-keybinds/"
     },
     {
       "name": "doc-purge",
@@ -131,15 +113,7 @@
       "programs": [
         "sysinfo"
       ],
-      "source": "scripts/python/src/tools/utils/sysinfo/"
-    },
-    {
-      "name": "tardirs",
-      "title": "tardirs",
-      "programs": [
-        "tardirs"
-      ],
-      "source": "scripts/python/src/tools/utils/tardirs.py"
+      "source": "scripts/rust/crates/sysinfo/"
     },
     {
       "name": "transcript",
@@ -153,13 +127,11 @@
   "undocumented": [
     "power-menu",
     "confirm-exit",
-    "clean-copy",
-    "update-readme-fastfetch"
+    "clean-copy"
   ],
   "native": [
     "agent-hop",
     "count",
-    "doc-keybinds",
     "doc-purge",
     "dotfile-format",
     "dotfmt",
@@ -173,7 +145,8 @@
     "mux-route",
     "path",
     "size",
-    "dotfile"
+    "dotfile",
+    "sysinfo"
   ],
   "standard": {
     "--help": "Shows help for the selected command and exits.",
@@ -188,11 +161,7 @@
     "agent-hop cancel": "Cancels a queued move before ownership transfers.",
     "agent-hop follow": "Attaches to the destination that owns the moved agent.",
     "agent-hop recover": "Resolves execution ownership before recovering a managed agent.",
-    "acp": "Copies Archie's text clipboard to this machine.",
-    "cpa": "Copies the local text clipboard to Archie.",
-    "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",
     "count": "Counts items inside a directory.",
-    "doc-keybinds": "Generates docs/keybinds from configured keybindings.",
     "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
     "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
     "dotfile add": "Moves a live config into the repository and symlinks it back.",
@@ -257,7 +226,6 @@
     "sysinfo bench baseline": "Sets, clears, or shows the baseline run for a machine and hardware configuration.",
     "sysinfo bench document": "Regenerates the benchmark documentation from stored runs.",
     "sysinfo bench prune": "Removes superseded runs while preserving baselines and configuration history.",
-    "tardirs": "Shows the directory tree of a tar archive with an entry count for each directory.",
     "transcript": "Archives AI agent sessions as Obsidian notes.",
     "transcript capture": "Wraps clipboard text as a transcript note in the vault.",
     "transcript import": "Imports a Claude Code or Codex session as a transcript note.",
@@ -265,13 +233,10 @@
     "transcript add": "Tracks a project for transcript sync.",
     "transcript rm": "Stops tracking a project while preserving its existing notes.",
     "transcript migrate": "Moves existing transcript groups to their configured destinations.",
-    "transcript sync": "Syncs allowlisted Claude Code and Codex sessions into the vault."
+    "transcript sync": "Syncs allowlisted Claude Code and Codex sessions into the vault.",
+    "dotfile docs": "Generates and checks CLI reference, keybindings, package documentation, and README previews."
   },
   "flags": {
-    "doc-keybinds": {
-      "--root": "Selects the dotfiles repository.",
-      "--check": "Reports stale pages without writing; exits 1 on drift."
-    },
     "agent-hop": {
       "--dry-run": "Reports what would be copied and started without changing either machine.",
       "--no-connect": "Copies the session without opening it on the other workstation.",
@@ -281,9 +246,6 @@
       "--pane": "Selects a managed tmux pane; defaults to the current pane.",
       "--to": "Selects `archie` or `macie` as the execution destination.",
       "--run": "Selects a durable managed-run ID instead of a tmux pane."
-    },
-    "clipboard": {
-      "--sensitive": "Keeps the copy out of Archie's clipboard history."
     },
     "count": {
       "--recursive": "Counts every entry below the directory instead of only its direct children.",
@@ -323,7 +285,9 @@
       "--unused": "Lists only variable names that no secret template references.",
       "--yes": "Installs system files without asking for confirmation.",
       "--group": "Selects the package group for an added system file.",
-      "--no-marker": "Prevents creating the .secret package marker."
+      "--no-marker": "Prevents creating the .secret package marker.",
+      "--only": "Selects documentation outputs; repeat or comma-separate.",
+      "--check": "Reports stale documentation without writing; exits 1 on drift or missing metadata."
     },
     "doc-purge": {
       "--type": "Limits the walk to one file type, named by extension or by language, and repeats or takes a comma-separated list for several.",

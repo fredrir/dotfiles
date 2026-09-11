@@ -26,7 +26,7 @@ impl Sandbox {
             ("home/.config/", ""),
         ]);
         let root = temporary.path().join("repo");
-        doc_keybinds::generate(&root, false).unwrap();
+        dotfile_cli::docs::keybinds::generate(&root, false).unwrap();
         let home = temporary.path().join("home");
         Self {
             temporary,

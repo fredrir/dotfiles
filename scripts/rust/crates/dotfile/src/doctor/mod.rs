@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 #[derive(Debug, ClapArgs)]
 pub struct Args {
@@ -774,100 +774,36 @@ fn package_rows(
 }
 
 fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, String> {
-    let data = context
-        .env("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| context.home.join(".config"));
-    let mut host = context
-        .env("SYSINFO_HOST")
-        .map(|host| host.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let inventory = context.inventory();
+    let mut host = sysinfo::inventory::resolve_with(&inventory, &[], "", &[]);
     if host.is_empty() {
-        host = fs::read_to_string(data.join("dotfile/host"))
-            .unwrap_or_default()
-            .trim()
-            .into();
-    }
-    if host.is_empty() {
-        let path = context
-            .env("SYSINFO_CONFIG")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| context.root.join("config/hosts.dotfile"));
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(error.to_string()),
+        let hosts = match sysinfo::inventory::load_hosts_from(&inventory.hosts_file()) {
+            Ok(hosts) => hosts,
+            Err(error) => return Ok(vec![Row::new("bad", "benchmark", error, 1)]),
         };
-        let entries = match blocks::parse_with_comments(&text, blocks::Comments::Lines) {
-            Ok(entries) => entries,
-            Err(error) => {
-                return Ok(vec![Row::new(
-                    "bad",
-                    "benchmark",
-                    format!("{}: {error}", path.display()),
-                    1,
-                )]);
-            }
-        };
-        let mut local = Vec::new();
-        if let Ok(name) = probes.output(&["hostname"]) {
-            local.push(name.trim().to_lowercase());
-            local.push(
-                name.trim()
-                    .split('.')
-                    .next()
-                    .unwrap_or_default()
-                    .to_lowercase(),
-            );
-        }
-        if std::env::consts::OS == "macos" {
-            for key in ["LocalHostName", "ComputerName"] {
-                if let Ok(name) = probes.output(&["scutil", "--get", key]) {
-                    local.push(name.trim().to_lowercase());
-                }
-            }
-        }
-        for entry in entries {
-            let (key, value) = entry.split();
-            if local.contains(&entry.block.to_lowercase())
-                || key == "hostnames"
-                    && value
-                        .split(',')
-                        .any(|name| local.contains(&name.trim().to_lowercase()))
-            {
-                host = entry.block;
-                break;
-            }
-        }
+        let hostname = context
+            .env("HOSTNAME")
+            .map(|value| value.to_string_lossy().trim().to_string())
+            .filter(|value| !value.is_empty());
+        let local = sysinfo::inventory::local_hostnames_with(hostname.as_deref(), |words| {
+            probes.output(words).ok()
+        });
+        host = sysinfo::inventory::resolve_with(&inventory, &hosts, "", &local);
     }
     if host.is_empty() {
         return Ok(Vec::new());
     }
-    if Path::new(&host).components().count() != 1
-        || host == "."
-        || host == ".."
-        || Path::new(&host).is_absolute()
-    {
+    if !sysinfo::inventory::valid_name(&host) {
         return Err("benchmark host must be a single path component".into());
     }
-    let root = context
-        .env("SYSINFO_BENCHMARKS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| context.root.join("benchmarks"));
-    let mut started = Vec::new();
-    walk_files(&root.join(&host), &mut |path| {
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "json")
-            && let Ok(bytes) = fs::read(path)
-            && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
-            && value.get("grade").and_then(serde_json::Value::as_str) == Some("clean")
-            && let Some(start) = value.get("started").and_then(serde_json::Value::as_str)
-        {
-            started.push(start.to_string());
-        }
-    })?;
-    if started.is_empty() {
+    let store = sysinfo::bench::store::Store::new(
+        context
+            .env("SYSINFO_BENCHMARKS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| context.root.join("benchmarks")),
+    );
+    let runs = store.list_runs(Some(&host), sysinfo::bench::record::CLEAN)?;
+    if runs.is_empty() {
         return Ok(vec![Row::new(
             "note",
             "benchmark",
@@ -875,72 +811,32 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
             0,
         )]);
     }
-    started.sort();
-    let Some(timestamp) = started.last().and_then(|start| timestamp(start)) else {
-        return Ok(Vec::new());
-    };
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_secs() as i64;
-    let age = (now - timestamp).div_euclid(86400);
-    Ok(vec![if age >= 120 {
-        Row::new(
-            "warn",
-            "benchmark",
-            format!("last clean run was {age} days ago"),
-            1,
-        )
-    } else {
-        Row::new(
+    let issues = sysinfo::bench::health::issues_for_runs(&store, &host, &runs)?;
+    if issues.is_empty() {
+        return Ok(vec![Row::new(
             "ok",
             "benchmark",
-            format!(
-                "{} clean {}, newest {age} days old",
-                started.len(),
-                if started.len() == 1 { "run" } else { "runs" }
-            ),
+            format!("{} clean runs; newest {}", runs.len(), runs[0].started),
             0,
-        )
-    }])
-}
-
-fn timestamp(value: &str) -> Option<i64> {
-    // Gregorian civil date conversion, with a strict ISO-8601 time and offset.
-    let year = value.get(0..4)?.parse::<i64>().ok()?;
-    let month = value.get(5..7)?.parse::<i64>().ok()?;
-    let day = value.get(8..10)?.parse::<i64>().ok()?;
-    let hour = value.get(11..13)?.parse::<i64>().ok()?;
-    let minute = value.get(14..16)?.parse::<i64>().ok()?;
-    let second = value.get(17..19)?.parse::<i64>().ok()?;
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 59
-    {
-        return None;
+        )]);
     }
-    let year = year - i64::from(month <= 2);
-    let era = year.div_euclid(400);
-    let yoe = year - era * 400;
-    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-    let days = era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
-    let tail = value.get(19..)?;
-    let offset = if let Some(index) = tail.find(['+', '-']) {
-        let offset = &tail[index..];
-        let hours = offset.get(1..3)?.parse::<i64>().ok()?;
-        let minutes = offset.get(4..6)?.parse::<i64>().ok()?;
-        if hours > 23 || minutes > 59 {
-            return None;
-        }
-        (hours * 3600 + minutes * 60) * if offset.starts_with('-') { -1 } else { 1 }
-    } else if tail.ends_with('Z') {
-        0
-    } else {
-        return None;
-    };
-    Some(days * 86400 + hour * 3600 + minute * 60 + second - offset)
+    Ok(issues
+        .into_iter()
+        .map(|issue| {
+            let mut row = Row::new(
+                if issue.severity == sysinfo::model::Severity::Error {
+                    "bad"
+                } else {
+                    "warn"
+                },
+                "benchmark",
+                issue.title,
+                1,
+            );
+            row.details.push((issue.detail, issue.action));
+            row
+        })
+        .collect())
 }
 
 fn walk_files(directory: &Path, visit: &mut impl FnMut(&Path)) -> Result<(), String> {
@@ -964,16 +860,6 @@ fn walk_files(directory: &Path, visit: &mut impl FnMut(&Path)) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn timestamp_offsets_and_invalid_inputs() {
-        assert_eq!(timestamp("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(
-            timestamp("2026-01-01T01:00:00+01:00"),
-            timestamp("2026-01-01T00:00:00Z")
-        );
-        assert_eq!(timestamp("2026-01-01T00:00:00"), None);
-        assert_eq!(timestamp("invalid"), None);
-    }
     #[test]
     fn font_family_and_weights_are_distinguished() {
         let fonts = [

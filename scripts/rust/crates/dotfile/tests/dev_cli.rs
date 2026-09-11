@@ -473,6 +473,61 @@ fn python_receives_fresh_build_artifacts_before_running() {
 }
 
 #[test]
+fn rust_package_selection_includes_owned_python_suites_and_one_build() {
+    let sandbox = Sandbox::new();
+    for suite in ["dotfile", "hyprland", "transcript", "sysinfo", "tmux"] {
+        fs::create_dir_all(sandbox.root.path().join("scripts/python/tests").join(suite)).unwrap();
+    }
+    let selected = sandbox.preview(&["test", "--pkg", "dotfile-cli", "--lang", "python"]);
+    assert!(selected.success(), "{}", selected.stderr);
+    for suite in ["dotfile", "hyprland", "transcript", "sysinfo", "tmux"] {
+        assert!(
+            selected.stdout.contains(&format!("'tests/{suite}'")),
+            "{}",
+            selected.stdout
+        );
+    }
+    assert!(!selected.stdout.contains("'tests/theme'"));
+    assert_eq!(selected.stdout.matches("python build:").count(), 1);
+    assert_eq!(
+        selected.stdout.matches("'--package' 'dotfile-cli'").count(),
+        1
+    );
+}
+
+#[test]
+fn changed_rust_dependencies_select_the_same_python_suites() {
+    let sandbox = Sandbox::new();
+    for suite in ["dotfile", "transcript"] {
+        fs::create_dir_all(sandbox.root.path().join("scripts/python/tests").join(suite)).unwrap();
+    }
+    sandbox.tool(
+        "cargo",
+        "printf '%s' '{\"packages\":[{\"name\":\"dotfile-cli\",\"dependencies\":[]}]}'",
+    );
+    sandbox.commit();
+    fs::write(
+        sandbox
+            .root
+            .path()
+            .join("scripts/rust/crates/dotfile/new.rs"),
+        "fixture",
+    )
+    .unwrap();
+    let selected = sandbox.preview(&["test", "--changed", "--lang", "python"]);
+    assert!(selected.success(), "{}", selected.stderr);
+    for suite in ["dotfile", "transcript"] {
+        assert!(
+            selected.stdout.contains(&format!("'tests/{suite}'")),
+            "{}",
+            selected.stdout
+        );
+    }
+    assert!(!selected.stdout.contains("'tests/theme'"));
+    assert_eq!(selected.stdout.matches("python build:").count(), 1);
+}
+
+#[test]
 fn changed_selection_follows_transitive_dependents_and_intersects_explicit_packages() {
     let sandbox = Sandbox::new();
     sandbox.tool("cargo", "printf '%s' '{\"packages\":[{\"name\":\"file-explorer\",\"dependencies\":[]},{\"name\":\"gget\",\"dependencies\":[{\"name\":\"file-explorer\"}]},{\"name\":\"dotfile-cli\",\"dependencies\":[{\"name\":\"gget\"}]}]}'");

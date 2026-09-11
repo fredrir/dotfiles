@@ -5,8 +5,8 @@ from typing import Annotated
 
 import typer
 
-from tools.core import clipboard
-from tools.surface import entry as surface
+from tools.transcript import clipboard
+from tools.transcript import completion as surface
 
 app = typer.Typer(add_completion=False)
 

@@ -29,13 +29,43 @@ pub struct CapturedOutput {
     pub stderr_truncated: bool,
 }
 
+#[derive(Debug)]
+pub struct TerminatingOutput {
+    pub output: CapturedOutput,
+    pub deadline_reached: bool,
+}
+
+/// Capture a time-limited workload, sending TERM at its deadline and allowing
+/// bounded cleanup before KILL. Cancellation still kills the entire group
+/// immediately. An exit before the deadline retains its original status.
+pub fn output_terminating(
+    command: &mut Command,
+    limits: CaptureLimits,
+    timeout: Duration,
+    grace: Duration,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<TerminatingOutput> {
+    #[cfg(unix)]
+    {
+        unix::output(command, limits, timeout, None, Some(cancelled), Some(grace))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (command, limits, timeout, grace, cancelled);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "bounded subprocess execution requires Unix",
+        ))
+    }
+}
+
 #[cfg(unix)]
 pub fn output(
     command: &mut Command,
     limits: CaptureLimits,
     timeout: Duration,
 ) -> io::Result<CapturedOutput> {
-    unix::output(command, limits, timeout, None, None)
+    unix::output(command, limits, timeout, None, None, None).map(|result| result.output)
 }
 
 pub fn output_cancellable(
@@ -46,7 +76,8 @@ pub fn output_cancellable(
 ) -> io::Result<CapturedOutput> {
     #[cfg(unix)]
     {
-        unix::output(command, limits, timeout, None, Some(cancelled))
+        unix::output(command, limits, timeout, None, Some(cancelled), None)
+            .map(|result| result.output)
     }
     #[cfg(not(unix))]
     {
@@ -71,7 +102,9 @@ pub fn output_to_file(
         timeout,
         Some((destination, None)),
         None,
+        None,
     )
+    .map(|result| result.output)
 }
 
 #[cfg(unix)]
@@ -91,7 +124,9 @@ pub fn output_to_file_limited(
         timeout,
         Some((destination, Some(max_bytes))),
         None,
+        None,
     )
+    .map(|result| result.output)
 }
 
 #[cfg(not(unix))]
@@ -119,7 +154,7 @@ mod unix {
     use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
-    use super::{CaptureLimits, CapturedOutput};
+    use super::{CaptureLimits, CapturedOutput, TerminatingOutput};
 
     pub struct ChildGroup {
         child: Child,
@@ -247,7 +282,8 @@ mod unix {
         timeout: Duration,
         destination: Option<(&std::fs::File, Option<u64>)>,
         cancelled: Option<&dyn Fn() -> bool>,
-    ) -> io::Result<CapturedOutput> {
+        grace: Option<Duration>,
+    ) -> io::Result<TerminatingOutput> {
         if timeout.is_zero() {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
         }
@@ -272,6 +308,7 @@ mod unix {
         }
         let mut stderr = Capture::new(stderr, limits.stderr)?;
         let mut status = None;
+        let mut deadline_reached = false;
         loop {
             if cancelled.is_some_and(|cancelled| cancelled()) {
                 return Err(io::Error::new(
@@ -287,7 +324,7 @@ mod unix {
             let stderr_progress = stderr.drain()?;
             if status.is_none() {
                 status = owned.child.try_wait()?;
-                if status.is_some() {
+                if status.is_some() && !deadline_reached {
                     owned.terminate();
                 }
             }
@@ -295,16 +332,42 @@ mod unix {
                 && stdout.as_ref().is_none_or(|capture| capture.ended)
                 && stderr.ended
             {
-                return Ok(CapturedOutput {
-                    status,
-                    stdout_truncated: stdout.as_ref().is_some_and(|capture| capture.truncated),
-                    stdout: stdout.map_or_else(Vec::new, |capture| capture.bytes),
-                    stderr: stderr.bytes,
-                    stderr_truncated: stderr.truncated,
+                return Ok(TerminatingOutput {
+                    deadline_reached,
+                    output: CapturedOutput {
+                        status,
+                        stdout_truncated: stdout.as_ref().is_some_and(|capture| capture.truncated),
+                        stdout: stdout.map_or_else(Vec::new, |capture| capture.bytes),
+                        stderr: stderr.bytes,
+                        stderr_truncated: stderr.truncated,
+                    },
                 });
             }
             if started.elapsed() >= timeout {
-                return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
+                let Some(grace) = grace else {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
+                };
+                if !deadline_reached {
+                    deadline_reached = true;
+                    // A child may have exited between try_wait and signal.
+                    match owned.signal(Signal::SIGTERM as i32) {
+                        Ok(()) => {}
+                        Err(error)
+                            if error.raw_os_error() == Some(nix::errno::Errno::ESRCH as i32) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                if started.elapsed() >= timeout.saturating_add(grace) {
+                    owned.terminate();
+                    status = Some(owned.child.wait()?);
+                    if let Some(stdout) = &mut stdout {
+                        stdout.drain()?;
+                        stdout.ended = true;
+                    }
+                    stderr.drain()?;
+                    stderr.ended = true;
+                    continue;
+                }
             }
             if !stdout_progress && !stderr_progress {
                 let mut ready = [
@@ -318,7 +381,12 @@ mod unix {
                     ready[count] = PollFd::new(stdout.pipe.as_fd(), PollFlags::POLLIN);
                     count += 1;
                 }
-                let wait = Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed()));
+                let deadline = if deadline_reached {
+                    timeout.saturating_add(grace.unwrap_or_default())
+                } else {
+                    timeout
+                };
+                let wait = Duration::from_millis(5).min(deadline.saturating_sub(started.elapsed()));
                 match poll(
                     &mut ready[..count],
                     PollTimeout::try_from(wait).map_err(io::Error::other)?,

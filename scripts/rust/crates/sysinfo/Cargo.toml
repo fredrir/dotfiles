@@ -1,0 +1,41 @@
+[package]
+name              = "workstation-sysinfo"
+version.workspace = true
+description       = "Native system inventory, health and reproducible benchmarks"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "sysinfo"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+clap_complete.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hostkit.workspace = true
+workstation.workspace = true
+tempfile.workspace = true
+unicode-width.workspace = true
+rustix = { workspace = true, features = ["system"] }
+sysinfo_backend = { package = "sysinfo", version = "0.37", default-features = false, features = [
+  "system",
+  "disk",
+] }
+regex = "1"
+csv = "1"
+blake2 = "0.10"
+fs2 = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+testkit.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+io-kit-sys      = "0.4"
+sysctl          = "0.7.1"

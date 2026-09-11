@@ -131,7 +131,11 @@ impl Catalog {
     pub fn known(&self, root: &Path, target: &str, languages: &[Language]) -> bool {
         let accepts = |lang| languages.is_empty() || languages.contains(&lang);
         (accepts(Language::Rust) && self.rust.iter().any(|package| package.matches(target)))
-            || (accepts(Language::Python) && self.python.iter().any(|name| name == target))
+            || (accepts(Language::Python)
+                && self
+                    .python
+                    .iter()
+                    .any(|name| super::suites::matches(name, target, self)))
             || (accepts(Language::Javascript)
                 && target == "agent-transcripts"
                 && root

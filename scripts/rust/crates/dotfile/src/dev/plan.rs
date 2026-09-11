@@ -177,7 +177,14 @@ pub(super) fn tasks(
             let packages = catalog
                 .python
                 .iter()
-                .filter(|name| selected_package(name))
+                .filter(|name| {
+                    catalog.selected(name)
+                        && (options.packages.is_empty()
+                            || options
+                                .packages
+                                .iter()
+                                .any(|target| super::suites::matches(name, target, catalog)))
+                })
                 .collect::<Vec<_>>();
             if !packages.is_empty() {
                 let mut task = Task::new(
@@ -368,19 +375,12 @@ fn prepare(
                     || (task.arguments.iter().any(|arg| arg == "tests")
                         && catalog.python.iter().any(|name| name == group))
             };
-            let candidates = [
-                (
-                    "dotfile-cli",
-                    selected("dotfile") || selected("surface") || selected("tmux"),
-                ),
-                ("tmux-workspace", selected("tmux")),
-            ];
-            let packages: Vec<_> = candidates
-                .into_iter()
-                .filter(|(name, needed)| {
-                    *needed && catalog.rust.iter().any(|package| package.name == *name)
-                })
-                .collect();
+            let packages = super::suites::DEPENDENCIES
+                .iter()
+                .filter(|(suite, _)| selected(suite))
+                .flat_map(|(_, packages)| packages.iter().copied())
+                .filter(|name| catalog.rust.iter().any(|package| package.name == *name))
+                .collect::<std::collections::BTreeSet<_>>();
             if !packages.is_empty() {
                 let metadata = directory.join("python-binaries.jsonl");
                 let mut build = Task::new(
@@ -390,7 +390,7 @@ fn prepare(
                     &["build", "--locked", "--bins", "--message-format=json"],
                     usize::MAX,
                 );
-                for (name, _) in packages {
+                for name in packages {
                     build.arguments.extend(["--package".into(), name.into()]);
                 }
                 build.cargo = true;

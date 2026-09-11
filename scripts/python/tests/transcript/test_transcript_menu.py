@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.core.menu import Pick
 from tools.transcript import cli
+from tools.transcript.menu import Pick
 
 
 @pytest.fixture

@@ -77,10 +77,12 @@ fn the_command_dump_describes_the_parser() {
         .arg("--command-dump")
         .output();
     assert!(output.status.success());
-    let text = stdout(&output);
-    assert!(text.starts_with("C\tcount\t0\tCount items inside a directory"));
-    assert!(text.contains("\toption\trecursive\t-r,--recursive\t"));
-    assert!(text.contains("\targument\tdirectory\t\tDIRECTORY\t"));
+    let dump: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(dump["version"], 1);
+    assert_eq!(dump["command"]["path"], serde_json::json!(["count"]));
+    let params = dump["command"]["params"].as_array().unwrap();
+    assert!(params.iter().any(|p| p["opts"] == serde_json::json!(["-r", "--recursive"])));
+    assert!(params.iter().any(|p| p["name"] == "directory" && p["kind"] == "argument" && p["metavar"] == "DIRECTORY"));
 }
 
 #[test]

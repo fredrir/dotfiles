@@ -13,30 +13,40 @@ name = "dotfile"
 path = "src/main.rs"
 
 [dependencies]
-clap.workspace              = true
-clap_complete.workspace     = true
+clap.workspace = true
+clap_complete.workspace = true
 regex = "1"
 zeroize = "1"
 aho-corasick = "1"
 serde_yaml_ng = "0.10"
 globset = "0.4"
 crossbeam-channel.workspace = true
-crossterm.workspace         = true
-doc-keybinds                = { path = "../doc-keybinds" }
-hostkit.workspace           = true
-ratatui.workspace           = true
-serde.workspace             = true
-serde_json                  = { workspace = true, features = ["preserve_order"] }
-sha2.workspace              = true
-tachyonfx.workspace         = true
-tempfile.workspace          = true
-toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std", "preserve_order"] }
-tui-kit.workspace           = true
-workstation.workspace       = true
+crossterm.workspace = true
+similar = "2"
+unicode-width.workspace = true
+tree-sitter = "0.25"
+tree-sitter-lua = "0.5"
+hostkit.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
+sha2.workspace = true
+tachyonfx.workspace = true
+tempfile.workspace = true
+toml = { version = "0.9", default-features = false, features = [
+  "parse",
+  "serde",
+  "std",
+  "preserve_order",
+] }
+tui-kit.workspace = true
+workstation.workspace = true
+
+sysinfo = { package = "workstation-sysinfo", path = "../sysinfo" }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-nix = { workspace = true, features = ["signal", "process", "fs", "term", "user", "poll"] }
+nix            = { workspace = true, features = ["signal", "process", "fs", "term", "user", "poll"] }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -332,7 +332,7 @@ fn doctor_reads_saved_benchmark_host_without_python() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("run.json"),
-        r#"{"grade":"clean","started":"2000-01-01T00:00:00Z"}"#,
+        r#"{"schema":1,"host":"fixture-host","run_id":"run","grade":"clean","started":"2000-01-01T00:00:00Z"}"#,
     )
     .unwrap();
     let result = fixture.command().arg("doctor").run();

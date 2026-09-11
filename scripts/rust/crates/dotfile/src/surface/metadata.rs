@@ -5,233 +5,225 @@ use std::time::Duration;
 
 use crate::context::Context;
 use clap::CommandFactory;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Param {
-    pub kind: String,
-    pub name: String,
-    pub opts: Vec<String>,
-    #[serde(default)]
-    pub secondary: Vec<String>,
-    pub metavar: String,
-    pub help: String,
-    pub multiple: bool,
-    pub required: bool,
-    pub hidden: bool,
-    #[serde(default)]
-    pub choices: Vec<String>,
-    #[serde(default)]
-    pub conflicts: Vec<String>,
-}
-impl Param {
-    pub fn flag(&self) -> &str {
-        self.opts
-            .iter()
-            .find(|s| s.starts_with("--"))
-            .or_else(|| self.opts.first())
-            .map_or(&self.name, String::as_str)
-    }
-    pub fn standard(&self) -> bool {
-        matches!(self.flag(), "--help" | "--completions" | "--version")
-    }
-    pub fn spelling(&self) -> String {
-        let mut opts = self
-            .opts
-            .iter()
-            .chain(&self.secondary)
-            .cloned()
-            .collect::<Vec<_>>();
-        if !self.metavar.is_empty()
-            && let Some(last) = opts.last_mut()
-        {
-            last.push_str(&format!(" <{}>", self.metavar));
-        }
-        opts.iter()
-            .map(|s| format!("`{s}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Command {
-    pub path: Vec<String>,
-    pub help: String,
-    pub hidden: bool,
-    pub params: Vec<Param>,
-    pub children: Vec<Command>,
-}
-impl Command {
-    pub fn label(&self) -> String {
-        self.path.join(" ")
-    }
-    pub fn name(&self) -> &str {
-        self.path.last().map_or("", String::as_str)
-    }
-    pub fn walk(&self) -> Vec<&Self> {
-        if self.hidden || self.path.len() > 1 && self.name() == "help" {
-            return Vec::new();
-        }
-        let mut found = vec![self];
-        for child in &self.children {
-            found.extend(child.walk());
-        }
-        found
-    }
-}
+pub use workstation::surface::{Command, Completion, Param};
 
 pub fn native() -> Command {
     let mut command = crate::cli::Cli::command();
     command.build();
-    from_clap(&command, vec!["dotfile".into()])
+    let mut tree = workstation::surface::from_clap(&command, vec!["dotfile".into()]);
+    customize(&mut tree);
+    tree.children.push(Command {
+        path: vec!["dotfile".into(), "format".into()],
+        help: "Format configured files".into(),
+        delegate: Some("dotfile-format".into()),
+        ..Default::default()
+    });
+    tree
 }
-fn from_clap(command: &clap::Command, path: Vec<String>) -> Command {
-    let params = command
-        .get_arguments()
-        .map(|arg| {
-            let mut opts = Vec::new();
-            if let Some(short) = arg.get_short() {
-                opts.push(format!("-{short}"));
-            }
-            if let Some(long) = arg.get_long() {
-                opts.push(format!("--{long}"));
-            }
-            let secondary = arg
-                .get_visible_aliases()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|s| format!("--{s}"))
+
+fn customize(command: &mut Command) {
+    let label = command.label();
+    for parameter in &mut command.params {
+        let key = if parameter.kind == "option" {
+            parameter.flag()
+        } else {
+            &parameter.name
+        };
+        let source = match key {
+            "profile" if label.starts_with("dotfile theme") => Some("theme-profiles"),
+            "profile" => Some("profiles"),
+            "scope" if label.starts_with("dotfile theme") => Some("theme-scopes"),
+            "--to" => Some("hosts"),
+            "--pkg" if label.starts_with("dotfile dev") => Some("dev-packages"),
+            "--lang" if label.starts_with("dotfile dev") => Some("dev-languages"),
+            "--pkg" => Some("packages"),
+            "label" if label.starts_with("dotfile secret") => Some("recipients"),
+            "path" if label == "dotfile remove" => Some("tracked"),
+            "path" if label == "dotfile secret edit" => Some("secrets"),
+            "path" if label == "dotfile system diff" => Some("system-files"),
+            _ => None,
+        };
+        if let Some(source) = source {
+            parameter.completion = Some(Completion::Call {
+                source: source.into(),
+            });
+        } else if key == "--override" {
+            parameter.completion = Some(Completion::Pair {
+                groups: "override-groups".into(),
+                names: "override-names".into(),
+            });
+        } else if key == "--using" {
+            parameter.completion = Some(Completion::Files {
+                pattern: "*.txt".into(),
+            });
+        } else if key == "--group" {
+            parameter.choices = crate::artifacts::packages::DEFAULT_GROUPS
+                .iter()
+                .map(|group| group.to_string())
                 .collect();
-            let takes = arg.get_action().takes_values();
-            Param {
-                kind: if arg.is_positional() {
-                    "argument"
-                } else {
-                    "option"
-                }
-                .into(),
-                name: arg.get_id().to_string(),
-                opts,
-                secondary,
-                metavar: if takes {
-                    arg.get_value_names()
-                        .and_then(|n| n.first())
-                        .map_or_else(|| arg.get_id().as_str().to_uppercase(), ToString::to_string)
-                } else {
-                    String::new()
-                },
-                help: arg.get_help().map_or(String::new(), ToString::to_string),
-                multiple: matches!(arg.get_action(), clap::ArgAction::Append)
-                    || arg.get_num_args().is_some_and(|n| n.max_values() > 1),
-                required: arg.is_required_set(),
-                hidden: arg.is_hide_set(),
-                conflicts: command
-                    .get_arg_conflicts_with(arg)
-                    .iter()
-                    .flat_map(|other| {
-                        let mut spellings = Vec::new();
-                        if let Some(short) = other.get_short() {
-                            spellings.push(format!("-{short}"));
-                        }
-                        if let Some(long) = other.get_long() {
-                            spellings.push(format!("--{long}"));
-                        }
-                        spellings
-                    })
-                    .collect(),
-                choices: arg
-                    .get_value_parser()
-                    .possible_values()
-                    .map(|v| {
-                        v.filter(|v| !v.is_hide_set())
-                            .map(|v| v.get_name().to_string())
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-            }
-        })
-        .collect();
-    let children = command
-        .get_subcommands()
-        .map(|child| {
-            let mut p = path.clone();
-            p.push(child.get_name().to_string());
-            from_clap(child, p)
-        })
-        .collect();
-    Command {
-        path,
-        help: command
-            .get_about()
-            .map_or(String::new(), ToString::to_string),
-        hidden: command.is_hide_set(),
-        params,
-        children,
+        } else if matches!(key, "path" | "paths") && parameter.completion.is_none() {
+            parameter.completion = Some(Completion::Files {
+                pattern: String::new(),
+            });
+        }
+    }
+    for child in &mut command.children {
+        customize(child);
     }
 }
 
 #[derive(Default, Deserialize)]
-pub struct PythonSurface {
+#[serde(deny_unknown_fields)]
+pub struct DeclaredSurface {
     pub version: u32,
-    pub source_fingerprint: String,
     pub commands: BTreeMap<String, Command>,
-    pub completions: BTreeMap<String, String>,
 }
-pub fn python(context: &Context) -> Result<PythonSurface, String> {
+
+pub fn declared(context: &Context) -> Result<DeclaredSurface, String> {
     let path = context.root.join("config/command-surface.json");
-    match fs::read(&path) {
-        Ok(bytes) => {
-            let surface: PythonSurface =
-                serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-            if surface.version != 1 {
-                return Err("unsupported Python command metadata version".into());
-            }
-            Ok(surface)
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(DeclaredSurface::default()),
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
+    };
+    let surface: DeclaredSurface =
+        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    if surface.version != 2 {
+        return Err("unsupported command metadata version; expected 2".into());
+    }
+    fn identifier(value: &str) -> bool {
+        !value.is_empty()
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+    }
+    fn validate(command: &Command, expected: &[String]) -> Result<(), String> {
+        if command.path != expected || !command.path.iter().all(|part| identifier(part)) {
+            return Err(format!("invalid command path: {}", command.label()));
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PythonSurface::default()),
-        Err(e) => Err(format!("read {}: {e}", path.display())),
+        if !command.aliases.iter().all(|alias| identifier(alias))
+            || command
+                .delegate
+                .as_ref()
+                .is_some_and(|delegate| !identifier(delegate))
+        {
+            return Err(format!(
+                "invalid command alias or delegate: {}",
+                command.label()
+            ));
+        }
+        for parameter in &command.params {
+            if let Some(Completion::Call { source }) = &parameter.completion
+                && !identifier(source)
+            {
+                return Err(format!("invalid completion source: {source}"));
+            }
+            if let Some(Completion::Pair { groups, names }) = &parameter.completion
+                && (!identifier(groups) || !identifier(names))
+            {
+                return Err(format!(
+                    "invalid paired completion source: {}",
+                    parameter.name
+                ));
+            }
+        }
+        let mut children = std::collections::BTreeSet::new();
+        for child in &command.children {
+            if !children.insert(child.name()) {
+                return Err(format!("duplicate command: {}", child.label()));
+            }
+            let mut path = expected.to_vec();
+            path.push(child.name().into());
+            validate(child, &path)?;
+        }
+        Ok(())
+    }
+    for (name, command) in &surface.commands {
+        validate(command, std::slice::from_ref(name))?;
+        if name == "dotfile" {
+            return Err("declarative metadata cannot override dotfile".into());
+        }
+    }
+    Ok(surface)
+}
+
+fn resolver(context: &Context) -> workstation::native::Resolver {
+    workstation::native::Resolver {
+        root: context.root.clone(),
+        home: context.home.clone(),
+        current_exe: std::env::current_exe().ok().filter(|path| {
+            path.starts_with(&context.root) || path.starts_with(context.home.join(".local/bin"))
+        }),
+        manifest: context.env("DOTFILE_DEV_BUILD_MANIFEST").map(PathBuf::from),
     }
 }
 
+pub fn binaries(
+    context: &Context,
+    programs: &[String],
+) -> Result<BTreeMap<String, PathBuf>, String> {
+    resolver(context).resolve_many(programs)
+}
+
 pub fn binary(context: &Context, program: &str) -> Result<Option<PathBuf>, String> {
-    let name = if program == "gdd" {
-        "git-discard"
-    } else {
-        program
-    };
-    if let Some(manifest) = context.env("DOTFILE_DEV_BUILD_MANIFEST") {
-        let manifest = PathBuf::from(manifest);
-        let text = fs::read_to_string(&manifest)
-            .map_err(|e| format!("read {}: {e}", manifest.display()))?;
-        let mut selected = None;
-        for line in text.lines().filter(|line| !line.trim().is_empty()) {
-            let artifact: serde_json::Value =
-                serde_json::from_str(line).map_err(|e| format!("{}: {e}", manifest.display()))?;
-            if artifact["reason"] == "compiler-artifact"
-                && artifact["target"]["name"] == name
-                && let Some(path) = artifact["executable"].as_str()
-            {
-                selected = Some(PathBuf::from(path));
-            }
-        }
-        // A prepared build is authoritative: never use an unrelated installed binary.
-        return Ok(selected.filter(|path| path.is_file()));
-    }
-    let candidates = [
-        context.root.join("scripts/rust/target/debug").join(name),
-        context.root.join("scripts/rust/target/release").join(name),
-        context.home.join(".local/bin").join(name),
-    ];
-    Ok(candidates
-        .into_iter()
-        .filter(|p| p.is_file())
-        .max_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok()))
+    resolver(context).resolve(program)
 }
 
 pub fn external(context: &Context, program: &str) -> Result<Option<Command>, String> {
     let Some(binary) = binary(context, program)? else {
         return Ok(None);
     };
+    external_at(context, program, &binary)
+}
+
+pub fn external_many(
+    context: &Context,
+    programs: &[String],
+) -> Result<BTreeMap<String, Command>, String> {
+    let binaries = binaries(context, programs)?.into_iter().collect::<Vec<_>>();
+    if binaries.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(4);
+    let chunk_size = binaries.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        let handles = binaries
+            .chunks(chunk_size)
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|(name, binary)| {
+                            external_at(context, name, binary).map(|tree| (name.clone(), tree))
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut trees = BTreeMap::new();
+        for handle in handles {
+            for (name, tree) in handle
+                .join()
+                .map_err(|_| "command metadata worker failed".to_string())??
+            {
+                if let Some(tree) = tree {
+                    trees.insert(name, tree);
+                }
+            }
+        }
+        Ok(trees)
+    })
+}
+
+fn external_at(
+    context: &Context,
+    program: &str,
+    binary: &std::path::Path,
+) -> Result<Option<Command>, String> {
     let output = crate::process::output(
         context.command(binary).arg("--command-dump"),
         hostkit::process::CaptureLimits::default(),
@@ -248,6 +240,28 @@ pub fn external(context: &Context, program: &str) -> Result<Option<Command>, Str
 }
 
 pub fn parse_dump(text: &str, program: &str) -> Result<Command, String> {
+    if text.trim_start().starts_with('{') {
+        let mut document: workstation::surface::Document =
+            serde_json::from_str(text).map_err(|error| format!("{program}: {error}"))?;
+        if document.version != workstation::surface::VERSION {
+            return Err(format!(
+                "{program}: unsupported command schema version {}",
+                document.version
+            ));
+        }
+        fn rename(command: &mut Command, program: &str) {
+            if let Some(root) = command.path.first_mut() {
+                *root = program.into();
+            }
+            for child in &mut command.children {
+                rename(child, program);
+            }
+        }
+        rename(&mut document.command, program);
+        return Ok(document.command);
+    }
+    // Installed binaries may predate the JSON protocol until the next setup.
+
     let mut commands: Vec<Command> = Vec::new();
     for line in text.lines() {
         let fields = line.split('\t').collect::<Vec<_>>();
@@ -299,48 +313,4 @@ pub fn parse_dump(text: &str, program: &str) -> Result<Command, String> {
         command
     }
     Ok(build(0, &commands))
-}
-
-pub fn python_inputs(root: &std::path::Path) -> Result<Vec<PathBuf>, String> {
-    fn walk(path: &std::path::Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
-        if !path.is_dir() {
-            return Ok(());
-        }
-        for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let path = entry.path();
-            let kind = entry.file_type().map_err(|e| e.to_string())?;
-            if kind.is_dir() && entry.file_name() != "__pycache__" {
-                walk(&path, out)?;
-            } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "py") {
-                out.push(path);
-            }
-        }
-        Ok(())
-    }
-    let mut inputs = vec![root.join("scripts/python/pyproject.toml")];
-    let mut sources = Vec::new();
-    walk(&root.join("scripts/python/src"), &mut sources)?;
-    sources.sort();
-    inputs.extend(sources);
-    Ok(inputs)
-}
-pub fn python_fingerprint(context: &Context) -> Result<String, String> {
-    use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new();
-    for path in python_inputs(&context.root)? {
-        if !path.is_file() {
-            continue;
-        }
-        hash.update(
-            path.strip_prefix(&context.root)
-                .map_err(|e| e.to_string())?
-                .to_string_lossy()
-                .as_bytes(),
-        );
-        hash.update([0]);
-        hash.update(fs::read(&path).map_err(|e| e.to_string())?);
-        hash.update([0]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
 }

@@ -21,5 +21,6 @@ bstr               = { version = "1", default-features = false, features = ["std
 gix-glob.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
-testkit.workspace  = true
+serde_json.workspace = true
+tempfile.workspace   = true
+testkit.workspace    = true

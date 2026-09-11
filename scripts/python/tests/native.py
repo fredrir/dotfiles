@@ -15,7 +15,11 @@ def prepared_binaries():
     binaries = {}
     for line in Path(manifest).read_text().splitlines():
         artifact = json.loads(line)
-        if artifact.get("reason") == "compiler-artifact" and artifact.get("executable"):
+        if (
+            artifact.get("reason") == "compiler-artifact"
+            and not artifact.get("profile", {}).get("test", False)
+            and artifact.get("executable")
+        ):
             binaries[artifact["target"]["name"]] = Path(artifact["executable"])
     return binaries
 
@@ -25,7 +29,7 @@ def prepared_binary(name):
     if binaries is None:
         return None
     binary = binaries.get(name)
-    if binary is None or not binary.is_file():
+    if binary is None or not binary.is_file() or not os.access(binary, os.X_OK):
         raise RuntimeError(f"prepared native binary missing: {name}")
     return binary
 
@@ -56,6 +60,11 @@ def _build_binary(package, name):
     )
     for line in result.stdout.splitlines():
         artifact = json.loads(line)
-        if artifact.get("executable") and artifact.get("target", {}).get("name") == name:
+        if (
+            artifact.get("reason") == "compiler-artifact"
+            and not artifact.get("profile", {}).get("test", False)
+            and artifact.get("executable")
+            and artifact.get("target", {}).get("name") == name
+        ):
             return Path(artifact["executable"])
     raise RuntimeError(f"native binary missing after build: {name}")

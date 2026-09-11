@@ -1,7 +1,11 @@
+from functools import partial
+from subprocess import run
+
 import typer
 
-from tools.core.process import capture, run
-from tools.surface import entry as surface
+from tools.hyprland import completion as surface
+
+capture = partial(run, capture_output=True, text=True, check=False)
 
 app = typer.Typer(add_completion=False)
 
@@ -42,4 +46,4 @@ def power_menu(completions: str = surface.COMPLETIONS):
         return
     action = ACTIONS.get(fields[-1])
     if action:
-        run(action)
+        run(action, check=False)

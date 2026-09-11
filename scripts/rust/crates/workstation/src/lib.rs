@@ -5,9 +5,12 @@ use std::process::ExitCode;
 use clap::{Args, CommandFactory};
 use clap_complete::Shell;
 
+pub mod blocks;
 pub mod color;
+pub mod native;
 pub mod path;
 pub mod screen;
+pub mod surface;
 pub mod text;
 pub mod units;
 #[cfg(feature = "walk")]
@@ -46,77 +49,20 @@ impl Completions {
         if self.dump {
             let mut command = C::command();
             command.build();
-            dump(&command, program);
-            return Some(ExitCode::SUCCESS);
+            return Some(
+                match serde_json::to_string(&surface::document(&command, program)) {
+                    Ok(document) => {
+                        println!("{document}");
+                        ExitCode::SUCCESS
+                    }
+                    Err(error) => fail(program, error),
+                },
+            );
         }
         let shell = self.shell?;
         clap_complete::generate(shell, &mut C::command(), program, &mut io::stdout());
         Some(ExitCode::SUCCESS)
     }
-}
-
-fn dump(command: &clap::Command, path: &str) {
-    println!(
-        "C\t{path}\t{}\t{}",
-        usize::from(command.is_hide_set()),
-        flatten(command.get_about().map(|about| about.to_string()))
-    );
-    for argument in command.get_arguments() {
-        let takes_value = argument.get_action().takes_values();
-        let repeats = matches!(argument.get_action(), clap::ArgAction::Append)
-            || argument
-                .get_num_args()
-                .is_some_and(|range| range.max_values() > 1);
-        println!(
-            "A\t{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            if argument.is_positional() {
-                "argument"
-            } else {
-                "option"
-            },
-            argument.get_id(),
-            spellings(argument),
-            if takes_value {
-                metavar(argument)
-            } else {
-                String::new()
-            },
-            usize::from(repeats),
-            usize::from(argument.is_required_set()),
-            usize::from(argument.is_hide_set()),
-            flatten(argument.get_help().map(|help| help.to_string())),
-        );
-    }
-    for child in command.get_subcommands() {
-        dump(child, &format!("{path} {}", child.get_name()));
-    }
-}
-
-fn spellings(argument: &clap::Arg) -> String {
-    let mut found = Vec::new();
-    if let Some(short) = argument.get_short() {
-        found.push(format!("-{short}"));
-    }
-    if let Some(long) = argument.get_long() {
-        found.push(format!("--{long}"));
-    }
-    found.join(",")
-}
-
-fn metavar(argument: &clap::Arg) -> String {
-    if let Some(names) = argument.get_value_names()
-        && let Some(first) = names.first()
-    {
-        return first.to_string();
-    }
-    argument.get_id().to_string().to_uppercase()
-}
-
-fn flatten(text: Option<String>) -> String {
-    text.unwrap_or_default()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 pub fn exit_code(code: i32) -> ExitCode {

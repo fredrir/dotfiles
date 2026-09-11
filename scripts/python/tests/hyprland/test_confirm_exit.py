@@ -10,7 +10,7 @@ def select(monkeypatch, stdout):
         "capture",
         lambda command, input: SimpleNamespace(stdout=stdout),
     )
-    monkeypatch.setattr(confirm_exit, "run", lambda command: calls.append(command))
+    monkeypatch.setattr(confirm_exit, "run", lambda command, **kwargs: calls.append(command))
     confirm_exit.confirm_exit()
     return calls
 

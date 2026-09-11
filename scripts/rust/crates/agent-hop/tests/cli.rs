@@ -58,16 +58,15 @@ fn zsh_completions_cover_the_public_surface() {
 fn the_command_dump_describes_the_parser() {
     let output = agent_hop(&["--command-dump"]);
     assert!(output.status.success(), "{output:?}");
-    let dump = stdout(&output);
-    assert!(dump.starts_with(
-        "C\tagent-hop\t0\tMove a Codex or Claude Code CLI session between workstations"
-    ));
-    assert!(dump.contains("\toption\tdry_run\t-n,--dry-run\t"));
-    assert!(dump.contains("\toption\tno_connect\t--no-connect\t"));
-    assert!(dump.contains("\toption\tcolor\t--color\tWHEN\t"));
-    assert!(dump.contains("\toption\tlist\t--list\t"));
-    assert!(dump.contains("\targument\tagent\t\tAGENT\t"));
-    assert!(dump.contains("\targument\tsession_id\t\tSESSION_ID\t"));
+    let dump: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(dump["version"], 1);
+    assert_eq!(dump["command"]["path"], serde_json::json!(["agent-hop"]));
+    let params = dump["command"]["params"].as_array().unwrap();
+    for name in ["dry_run", "no_connect", "color", "list", "agent", "session_id"] {
+        assert!(params.iter().any(|p| p["name"] == name), "missing {name}");
+    }
+    let color = params.iter().find(|p| p["name"] == "color").unwrap();
+    assert_eq!(color["choices"], serde_json::json!(["auto", "always", "never"]));
 }
 
 #[test]

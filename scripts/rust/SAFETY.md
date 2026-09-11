@@ -16,7 +16,7 @@
 | `workstation/src/screen.rs` | Static atomic cancellation flags; signal-safe handler; restore dispositions and terminal before reraising |
 | `hostkit/src/process.rs` | Child-only, signal-safe `setsid` before exec |
 | `testkit/src/pty.rs` | Child-only session and controlling-terminal setup before exec |
-| `sysinfo-collect/src/macos.rs` | Native handle ownership and typed FFI contracts; matching release for owned references |
+| `sysinfo/src/collect/macos.rs` | Native handle ownership and typed FFI contracts; matching release for owned references |
 | `agent-hop/src/handoff/mod.rs` | Lease stays locked until every inherited descriptor closes |
 | `flatten/src/dir.rs`, `agent-hop/src/handoff/snapshot.rs` | Descriptor-relative operations; retain no-follow and directory checks |
 

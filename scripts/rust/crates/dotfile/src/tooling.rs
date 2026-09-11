@@ -48,7 +48,7 @@ impl Refresh {
         }
         let output = crate::process::output(
             Command::new(self.root.join("setup.sh"))
-                .arg("--commands-only")
+                .arg("--native-only")
                 .stdin(Stdio::null()),
             hostkit::process::CaptureLimits::default(),
             std::time::Duration::from_secs(15 * 60),
@@ -106,24 +106,11 @@ fn is_installed(home: &Path, executable: &Path) -> bool {
 }
 
 fn stale(root: &Path, executable: &Path) -> Result<bool, String> {
-    let metadata = root.join("config/command-surface.json");
-    if root.join("scripts/python/src/tools").is_dir() {
-        let exported = fs::metadata(&metadata)
-            .and_then(|m| m.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        if newest(&root.join("scripts/python/src"))? > exported
-            || newest(&root.join("scripts/python/pyproject.toml"))? > exported
-        {
-            return Ok(true);
-        }
-    }
     let installed = fs::metadata(executable)
         .and_then(|metadata| metadata.modified())
         .map_err(|error| format!("{}: {error}", executable.display()))?;
     let inputs = [
         root.join("setup.sh"),
-        root.join("scripts/python/pyproject.toml"),
-        root.join("scripts/python/uv.lock"),
         root.join("scripts/rust"),
         root.join("shared/tools"),
     ];

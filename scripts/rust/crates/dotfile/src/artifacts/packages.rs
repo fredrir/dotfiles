@@ -155,9 +155,7 @@ pub fn render(
         }
         config.push_str(group);
         config.push_str(" {\n");
-        document.push_str("\n## `");
-        document.push_str(group);
-        document.push_str("`\n\n");
+        let mut rows = Vec::new();
         let width = packages
             .iter()
             .filter(|package| {
@@ -182,15 +180,9 @@ pub fn render(
                 config.push_str(description);
             }
             config.push('\n');
-            document.push_str("- `");
-            document.push_str(&package);
-            document.push('`');
-            if !description.is_empty() {
-                document.push_str(" — ");
-                document.push_str(description);
-            }
-            document.push('\n');
+            rows.push((package, description));
         }
+        document.push_str(&crate::docs::packages::group(group, &rows));
         config.push_str("}\n");
         wrote_group = true;
     }

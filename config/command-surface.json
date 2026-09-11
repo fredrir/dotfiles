@@ -1,30 +1,6 @@
 {
-  "version": 1,
-  "source_fingerprint": "80296ede95d942114e3765ff5e7df84b4e4cd1dfe93785672de0d48f7a9f093e",
+  "version": 2,
   "commands": {
-    "acp": {
-      "path": [
-        "acp"
-      ],
-      "help": "Copy Archie's text clipboard to the local clipboard.",
-      "hidden": false,
-      "params": [
-        {
-          "kind": "option",
-          "name": "completions",
-          "opts": [
-            "--completions"
-          ],
-          "secondary": [],
-          "metavar": "SHELL",
-          "help": "Print shell completions and exit",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        }
-      ],
-      "children": []
-    },
     "clean-copy": {
       "path": [
         "clean-copy"
@@ -84,66 +60,6 @@
       ],
       "children": []
     },
-    "cpa": {
-      "path": [
-        "cpa"
-      ],
-      "help": "Copy the local text clipboard to Archie.",
-      "hidden": false,
-      "params": [
-        {
-          "kind": "option",
-          "name": "sensitive",
-          "opts": [
-            "-s",
-            "--sensitive"
-          ],
-          "secondary": [],
-          "metavar": "",
-          "help": "Keep the copy out of clipboard history.",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        },
-        {
-          "kind": "option",
-          "name": "completions",
-          "opts": [
-            "--completions"
-          ],
-          "secondary": [],
-          "metavar": "SHELL",
-          "help": "Print shell completions and exit",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        }
-      ],
-      "children": []
-    },
-    "cpas": {
-      "path": [
-        "cpas"
-      ],
-      "help": "Copy the local text clipboard to Archie as sensitive.",
-      "hidden": false,
-      "params": [
-        {
-          "kind": "option",
-          "name": "completions",
-          "opts": [
-            "--completions"
-          ],
-          "secondary": [],
-          "metavar": "SHELL",
-          "help": "Print shell completions and exit",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        }
-      ],
-      "children": []
-    },
     "power-menu": {
       "path": [
         "power-menu"
@@ -151,605 +67,6 @@
       "help": "Show the Hyprland power menu.",
       "hidden": false,
       "params": [
-        {
-          "kind": "option",
-          "name": "completions",
-          "opts": [
-            "--completions"
-          ],
-          "secondary": [],
-          "metavar": "SHELL",
-          "help": "Print shell completions and exit",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        }
-      ],
-      "children": []
-    },
-    "sysinfo": {
-      "path": [
-        "sysinfo"
-      ],
-      "help": "Summarise the environment and hardware of this machine.",
-      "hidden": false,
-      "params": [
-        {
-          "kind": "option",
-          "name": "completions",
-          "opts": [
-            "--completions"
-          ],
-          "secondary": [],
-          "metavar": "SHELL",
-          "help": "Print shell completions and exit",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        },
-        {
-          "kind": "option",
-          "name": "pretty",
-          "opts": [
-            "-p",
-            "--pretty"
-          ],
-          "secondary": [],
-          "metavar": "",
-          "help": "show the complete branded hardware presentation",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        },
-        {
-          "kind": "option",
-          "name": "full",
-          "opts": [
-            "-f",
-            "--full"
-          ],
-          "secondary": [],
-          "metavar": "",
-          "help": "include the extended inventory",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        },
-        {
-          "kind": "option",
-          "name": "health",
-          "opts": [
-            "-hh",
-            "--health"
-          ],
-          "secondary": [],
-          "metavar": "",
-          "help": "explain active errors and warnings",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        }
-      ],
-      "children": [
-        {
-          "path": [
-            "sysinfo",
-            "__complete"
-          ],
-          "help": "",
-          "hidden": true,
-          "params": [
-            {
-              "kind": "argument",
-              "name": "source",
-              "opts": [],
-              "secondary": [],
-              "metavar": "TEXT",
-              "help": "",
-              "multiple": false,
-              "required": true,
-              "hidden": false
-            },
-            {
-              "kind": "argument",
-              "name": "arguments",
-              "opts": [],
-              "secondary": [],
-              "metavar": "TEXT",
-              "help": "",
-              "multiple": true,
-              "required": false,
-              "hidden": false
-            }
-          ],
-          "children": []
-        },
-        {
-          "path": [
-            "sysinfo",
-            "bench"
-          ],
-          "help": "Measure this machine and compare runs over time.",
-          "hidden": false,
-          "params": [],
-          "children": [
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "run"
-              ],
-              "help": "Measure this machine and store the result.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "option",
-                  "name": "tier",
-                  "opts": [
-                    "--tier"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "quick, standard or heavy.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "only",
-                  "opts": [
-                    "--only"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Comma separated families to measure.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "note",
-                  "opts": [
-                    "--note"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Why this run was taken.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "tag",
-                  "opts": [
-                    "--tag"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Label for this run.",
-                  "multiple": true,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "host",
-                  "opts": [
-                    "--host"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Record against this host.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "workdir",
-                  "opts": [
-                    "--workdir"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Directory the disk tier writes in.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "force",
-                  "opts": [
-                    "--force"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Measure despite poor conditions.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "no_save",
-                  "opts": [
-                    "--no-save"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Print without storing.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "baseline",
-                  "opts": [
-                    "--baseline"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Pin this run as the baseline.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "as_json",
-                  "opts": [
-                    "--json"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Emit the run as JSON.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "show"
-              ],
-              "help": "Show a stored run.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "argument",
-                  "name": "target",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Selector such as archie or archie@a3f19c2e.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "as_json",
-                  "opts": [
-                    "--json"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Emit the run as JSON.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "list"
-              ],
-              "help": "List stored runs.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "option",
-                  "name": "host",
-                  "opts": [
-                    "--host"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Only this machine.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "limit",
-                  "opts": [
-                    "--limit"
-                  ],
-                  "secondary": [],
-                  "metavar": "INTEGER",
-                  "help": "Rows to print.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "all_grades",
-                  "opts": [
-                    "--all"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Include noisy and aborted runs.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "health"
-              ],
-              "help": "Report warnings derived from the benchmark history.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "option",
-                  "name": "host",
-                  "opts": [
-                    "--host"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Machine to judge.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "compare"
-              ],
-              "help": "Compare two runs.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "argument",
-                  "name": "left",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Left selector.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "argument",
-                  "name": "right",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Right selector.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "as_json",
-                  "opts": [
-                    "--json"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Emit the comparison as JSON.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "trend"
-              ],
-              "help": "Show one metric over time.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "argument",
-                  "name": "target",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Selector such as archie.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "argument",
-                  "name": "metric",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Metric key such as cpu.multi.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "baseline"
-              ],
-              "help": "Set or clear the baseline for a machine and hardware configuration.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "argument",
-                  "name": "action",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "set, clear or show.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "argument",
-                  "name": "target",
-                  "opts": [],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Selector such as archie@a3f19c2e.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "document"
-              ],
-              "help": "Regenerate benchmarks/BENCHMARKS.md from the stored runs.",
-              "hidden": false,
-              "params": [],
-              "children": []
-            },
-            {
-              "path": [
-                "sysinfo",
-                "bench",
-                "prune"
-              ],
-              "help": "Thin old runs, keeping baselines and the oldest run of each configuration.",
-              "hidden": false,
-              "params": [
-                {
-                  "kind": "option",
-                  "name": "host",
-                  "opts": [
-                    "--host"
-                  ],
-                  "secondary": [],
-                  "metavar": "TEXT",
-                  "help": "Only this machine.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "keep",
-                  "opts": [
-                    "--keep"
-                  ],
-                  "secondary": [],
-                  "metavar": "INTEGER",
-                  "help": "Runs to keep per configuration.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "dry_run",
-                  "opts": [
-                    "--dry-run"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Report without deleting.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                },
-                {
-                  "kind": "option",
-                  "name": "yes",
-                  "opts": [
-                    "--yes"
-                  ],
-                  "secondary": [],
-                  "metavar": "",
-                  "help": "Delete without confirming.",
-                  "multiple": false,
-                  "required": false,
-                  "hidden": false
-                }
-              ],
-              "children": []
-            }
-          ]
-        }
-      ]
-    },
-    "tardirs": {
-      "path": [
-        "tardirs"
-      ],
-      "help": "Show the directory tree of a tar archive with entry counts.",
-      "hidden": false,
-      "params": [
-        {
-          "kind": "argument",
-          "name": "archive",
-          "opts": [],
-          "secondary": [],
-          "metavar": "TEXT",
-          "help": "",
-          "multiple": false,
-          "required": true,
-          "hidden": false
-        },
-        {
-          "kind": "argument",
-          "name": "max_depth",
-          "opts": [],
-          "secondary": [],
-          "metavar": "INTEGER",
-          "help": "",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        },
         {
           "kind": "option",
           "name": "completions",
@@ -840,7 +157,11 @@
               "help": "Provider override; detected from content when empty.",
               "multiple": false,
               "required": false,
-              "hidden": false
+              "hidden": false,
+              "completion": {
+                "kind": "call",
+                "source": "providers"
+              }
             },
             {
               "kind": "option",
@@ -879,7 +200,10 @@
               "help": "Snapshot file used when the clipboard is empty.",
               "multiple": false,
               "required": false,
-              "hidden": false
+              "hidden": false,
+              "completion": {
+                "kind": "files"
+              }
             }
           ],
           "children": []
@@ -901,7 +225,11 @@
               "help": "Session jsonl path; omit to pick interactively.",
               "multiple": false,
               "required": false,
-              "hidden": false
+              "hidden": false,
+              "completion": {
+                "kind": "call",
+                "source": "sessions"
+              }
             },
             {
               "kind": "option",
@@ -999,7 +327,10 @@
               "help": "Project directory.",
               "multiple": false,
               "required": false,
-              "hidden": false
+              "hidden": false,
+              "completion": {
+                "kind": "dirs"
+              }
             },
             {
               "kind": "option",
@@ -1025,7 +356,11 @@
               "help": "Group to file the project under.",
               "multiple": false,
               "required": false,
-              "hidden": false
+              "hidden": false,
+              "completion": {
+                "kind": "call",
+                "source": "groups"
+              }
             }
           ],
           "children": []
@@ -1047,7 +382,11 @@
               "help": "Project name or directory.",
               "multiple": false,
               "required": true,
-              "hidden": false
+              "hidden": false,
+              "completion": {
+                "kind": "call",
+                "source": "projects"
+              }
             }
           ],
           "children": []
@@ -1141,41 +480,6 @@
           "children": []
         }
       ]
-    },
-    "update-readme-fastfetch": {
-      "path": [
-        "update-readme-fastfetch"
-      ],
-      "help": "Refresh the fastfetch preview block in README.md.",
-      "hidden": false,
-      "params": [
-        {
-          "kind": "option",
-          "name": "completions",
-          "opts": [
-            "--completions"
-          ],
-          "secondary": [],
-          "metavar": "SHELL",
-          "help": "Print shell completions and exit",
-          "multiple": false,
-          "required": false,
-          "hidden": false
-        }
-      ],
-      "children": []
     }
-  },
-  "completions": {
-    "acp": "#compdef acp\n\n# Generated by `acp --completions zsh`; edits are lost on the next sync.\n\n_acp() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_acp\" ]; then\n    _acp \"$@\"\nelse\n    compdef _acp acp\nfi\n",
-    "clean-copy": "#compdef clean-copy\n\n# Generated by `clean-copy --completions zsh`; edits are lost on the next sync.\n\n_clean-copy() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--stdin)--stdin[Read selected text from stdin.]' \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_clean-copy\" ]; then\n    _clean-copy \"$@\"\nelse\n    compdef _clean-copy clean-copy\nfi\n",
-    "confirm-exit": "#compdef confirm-exit\n\n# Generated by `confirm-exit --completions zsh`; edits are lost on the next sync.\n\n_confirm-exit() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_confirm-exit\" ]; then\n    _confirm-exit \"$@\"\nelse\n    compdef _confirm-exit confirm-exit\nfi\n",
-    "cpa": "#compdef cpa\n\n# Generated by `cpa --completions zsh`; edits are lost on the next sync.\n\n_cpa() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--sensitive -s)-s[Keep the copy out of clipboard history.]' \\\n        '(--sensitive -s)--sensitive[Keep the copy out of clipboard history.]' \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_cpa\" ]; then\n    _cpa \"$@\"\nelse\n    compdef _cpa cpa\nfi\n",
-    "cpas": "#compdef cpas\n\n# Generated by `cpas --completions zsh`; edits are lost on the next sync.\n\n_cpas() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_cpas\" ]; then\n    _cpas \"$@\"\nelse\n    compdef _cpas cpas\nfi\n",
-    "power-menu": "#compdef power-menu\n\n# Generated by `power-menu --completions zsh`; edits are lost on the next sync.\n\n_power-menu() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_power-menu\" ]; then\n    _power-menu \"$@\"\nelse\n    compdef _power-menu power-menu\nfi\n",
-    "sysinfo": "#compdef sysinfo\n\n# Generated by `sysinfo --completions zsh`; edits are lost on the next sync.\n\n_sysinfo() {\n    local context state state_descr line ret=1\n    typeset -A opt_args\n    _arguments -s -S -C \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(--pretty -p)-p[show the complete branded hardware presentation]' \\\n        '(--pretty -p)--pretty[show the complete branded hardware presentation]' \\\n        '(--full -f)-f[include the extended inventory]' \\\n        '(--full -f)--full[include the extended inventory]' \\\n        '(--health -hh)-hh[explain active errors and warnings]' \\\n        '(--health -hh)--health[explain active errors and warnings]' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1: :->command' \\\n        '*:: :->argument' && ret=0\n    case $state in\n        command)\n            local -a commands\n            commands=(\n                'bench:Measure this machine and compare runs over time.'\n            )\n            _describe -t commands 'sysinfo command' commands && ret=0\n            ;;\n        argument)\n            case $line[1] in\n                bench) _sysinfo__bench && ret=0 ;;\n            esac\n            ;;\n    esac\n    return ret\n}\n\n_sysinfo__bench() {\n    local context state state_descr line ret=1\n    typeset -A opt_args\n    _arguments -s -S -C \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1: :->command' \\\n        '*:: :->argument' && ret=0\n    case $state in\n        command)\n            local -a commands\n            commands=(\n                'run:Measure this machine and store the result.'\n                'show:Show a stored run.'\n                'list:List stored runs.'\n                'health:Report warnings derived from the benchmark history.'\n                'compare:Compare two runs.'\n                'trend:Show one metric over time.'\n                'baseline:Set or clear the baseline for a machine and hardware configuration.'\n                'document:Regenerate benchmarks/BENCHMARKS.md from the stored runs.'\n                'prune:Thin old runs, keeping baselines and the oldest run of each configuration.'\n            )\n            _describe -t commands 'sysinfo bench command' commands && ret=0\n            ;;\n        argument)\n            case $line[1] in\n                run) _sysinfo__bench__run && ret=0 ;;\n                show) _sysinfo__bench__show && ret=0 ;;\n                list) _sysinfo__bench__list && ret=0 ;;\n                health) _sysinfo__bench__health && ret=0 ;;\n                compare) _sysinfo__bench__compare && ret=0 ;;\n                trend) _sysinfo__bench__trend && ret=0 ;;\n                baseline) _sysinfo__bench__baseline && ret=0 ;;\n                document) _sysinfo__bench__document && ret=0 ;;\n                prune) _sysinfo__bench__prune && ret=0 ;;\n            esac\n            ;;\n    esac\n    return ret\n}\n\n_sysinfo__bench__run() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--tier)--tier=[quick, standard or heavy.]:tier:(quick standard heavy)' \\\n        '(--only)--only=[Comma separated families to measure.]:only:_values -s , family cpu mem cache disk gpu thermal workload' \\\n        '(--note)--note=[Why this run was taken.]:note:' \\\n        '*--tag=[Label for this run.]:tag:' \\\n        '(--host)--host=[Record against this host.]:host:_sysinfo_complete_known_hosts' \\\n        '(--workdir)--workdir=[Directory the disk tier writes in.]:workdir:_files -/' \\\n        '(--force)--force[Measure despite poor conditions.]' \\\n        '(--no-save)--no-save[Print without storing.]' \\\n        '(--baseline)--baseline[Pin this run as the baseline.]' \\\n        '(--json)--json[Emit the run as JSON.]' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_sysinfo__bench__show() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--json)--json[Emit the run as JSON.]' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1::target:_sysinfo_complete_runs' && ret=0\n    return ret\n}\n\n_sysinfo__bench__list() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--host)--host=[Only this machine.]:host:_sysinfo_complete_bench_hosts' \\\n        '(--limit)--limit=[Rows to print.]:limit:' \\\n        '(--all)--all[Include noisy and aborted runs.]' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_sysinfo__bench__health() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--host)--host=[Machine to judge.]:host:_sysinfo_complete_bench_hosts' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_sysinfo__bench__compare() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--json)--json[Emit the comparison as JSON.]' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1::left:_sysinfo_complete_runs' \\\n        '2::right:_sysinfo_complete_runs' && ret=0\n    return ret\n}\n\n_sysinfo__bench__trend() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1::target:_sysinfo_complete_runs' \\\n        '2::metric:_sysinfo_complete_metrics' && ret=0\n    return ret\n}\n\n_sysinfo__bench__baseline() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1::action:(set clear show)' \\\n        '2::target:_sysinfo_complete_runs' && ret=0\n    return ret\n}\n\n_sysinfo__bench__document() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_sysinfo__bench__prune() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--host)--host=[Only this machine.]:host:_sysinfo_complete_bench_hosts' \\\n        '(--keep)--keep=[Runs to keep per configuration.]:keep:' \\\n        '(--dry-run)--dry-run[Report without deleting.]' \\\n        '(--yes)--yes[Delete without confirming.]' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_sysinfo_complete_bench_hosts() {\n    local -a items\n    items=(${(f)\"$(_call_program sysinfo-values sysinfo __complete bench-hosts 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'host' items\n}\n\n_sysinfo_complete_known_hosts() {\n    local -a items\n    items=(${(f)\"$(_call_program sysinfo-values sysinfo __complete known-hosts 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'host' items\n}\n\n_sysinfo_complete_metrics() {\n    local -a items\n    items=(${(f)\"$(_call_program sysinfo-values sysinfo __complete metrics 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'metric' items\n}\n\n_sysinfo_complete_runs() {\n    local -a items\n    items=(${(f)\"$(_call_program sysinfo-values sysinfo __complete runs 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'run' items\n}\n\nif [ \"$funcstack[1]\" = \"_sysinfo\" ]; then\n    _sysinfo \"$@\"\nelse\n    compdef _sysinfo sysinfo\nfi\n",
-    "tardirs": "#compdef tardirs\n\n# Generated by `tardirs --completions zsh`; edits are lost on the next sync.\n\n_tardirs() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1:archive:_files -g \"*.(tar|tgz|tbz2|txz|tar.gz|tar.bz2|tar.xz)\"' \\\n        '2::max-depth:' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_tardirs\" ]; then\n    _tardirs \"$@\"\nelse\n    compdef _tardirs tardirs\nfi\n",
-    "transcript": "#compdef transcript\n\n# Generated by `transcript --completions zsh`; edits are lost on the next sync.\n\n_transcript() {\n    local context state state_descr line ret=1\n    typeset -A opt_args\n    _arguments -s -S -C \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1: :->command' \\\n        '*:: :->argument' && ret=0\n    case $state in\n        command)\n            local -a commands\n            commands=(\n                'capture:Wrap clipboard text as a transcript note in the vault.'\n                'import:Import a Claude Code or Codex session as a transcript note.'\n                'list:List recent Claude Code and Codex sessions.'\n                'add:Track a project for transcript sync (defaults to the current repo).'\n                'rm:Stop tracking a project; existing notes stay in the vault.'\n                'migrate:Move existing transcript groups to their configured destinations.'\n                'sync:Sync allowlisted Claude Code and Codex sessions into the vault.'\n            )\n            _describe -t commands 'transcript command' commands && ret=0\n            ;;\n        argument)\n            case $line[1] in\n                capture) _transcript__capture && ret=0 ;;\n                import) _transcript__import && ret=0 ;;\n                list) _transcript__list && ret=0 ;;\n                add) _transcript__add && ret=0 ;;\n                rm) _transcript__rm && ret=0 ;;\n                migrate) _transcript__migrate && ret=0 ;;\n                sync) _transcript__sync && ret=0 ;;\n            esac\n            ;;\n    esac\n    return ret\n}\n\n_transcript__capture() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--provider)--provider=[Provider override; detected from content when empty.]:provider:_transcript_complete_providers' \\\n        '(--raw)--raw[Skip secret redaction.]' \\\n        '(--quiet)--quiet[Print nothing on success.]' \\\n        '(--fallback)--fallback=[Snapshot file used when the clipboard is empty.]:fallback:_files' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_transcript__import() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--latest)--latest[Import the newest session.]' \\\n        '(--limit)--limit=[Sessions listed in the picker.]:limit:' \\\n        '(--raw)--raw[Skip secret redaction.]' \\\n        '(--tools)--tools[Include tool calls in the note.]' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1::target:_transcript_complete_sessions' && ret=0\n    return ret\n}\n\n_transcript__list() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--limit)--limit=[Number of sessions to show.]:limit:' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_transcript__add() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--name)--name=[Project name; defaults to the repo directory name.]:name:' \\\n        '(--group)--group=[Group to file the project under.]:group:_transcript_complete_groups' \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1::path:_files -/' && ret=0\n    return ret\n}\n\n_transcript__rm() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--help[Show this message and exit.]' \\\n        '1:target:_transcript_complete_projects' && ret=0\n    return ret\n}\n\n_transcript__migrate() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--verbose -v)--verbose[List every file in the preview.]' \\\n        '(--verbose -v)-v[List every file in the preview.]' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_transcript__sync() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(--dry-run)--dry-run[Report without writing.]' \\\n        '(--raw)--raw[Skip secret redaction.]' \\\n        '(--quiet)--quiet[Print nothing on success.]' \\\n        '(--tools)--tools[Include tool calls in the notes.]' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\n_transcript_complete_groups() {\n    local -a items\n    items=(${(f)\"$(_call_program transcript-values transcript __complete groups 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'group' items\n}\n\n_transcript_complete_projects() {\n    local -a items\n    items=(${(f)\"$(_call_program transcript-values transcript __complete projects 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'project' items\n}\n\n_transcript_complete_providers() {\n    local -a items\n    items=(${(f)\"$(_call_program transcript-values transcript __complete providers 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'provider' items\n}\n\n_transcript_complete_sessions() {\n    local -a items\n    items=(${(f)\"$(_call_program transcript-values transcript __complete sessions 2>/dev/null)\"})\n    (( $#items )) || return 1\n    _describe -t values 'session' items\n}\n\nif [ \"$funcstack[1]\" = \"_transcript\" ]; then\n    _transcript \"$@\"\nelse\n    compdef _transcript transcript\nfi\n",
-    "update-readme-fastfetch": "#compdef update-readme-fastfetch\n\n# Generated by `update-readme-fastfetch --completions zsh`; edits are lost on the next sync.\n\n_update-readme-fastfetch() {\n    local ret=1\n    typeset -A opt_args\n    _arguments -s -S \\\n        '(- *)--completions=[Print shell completions and exit]:completions:(zsh)' \\\n        '(- *)--help[Show this message and exit.]' && ret=0\n    return ret\n}\n\nif [ \"$funcstack[1]\" = \"_update-readme-fastfetch\" ]; then\n    _update-readme-fastfetch \"$@\"\nelse\n    compdef _update-readme-fastfetch update-readme-fastfetch\nfi\n"
   }
 }

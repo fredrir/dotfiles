@@ -12,12 +12,14 @@ workspace = true
 walk = ["dep:rayon"]
 
 [dependencies]
+serde.workspace         = true
+serde_json.workspace    = true
 clap.workspace          = true
 clap_complete.workspace = true
 rayon                   = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = { workspace = true, features = ["signal"] }
+nix    = { workspace = true, features = ["signal"] }
 rustix = { workspace = true, features = ["termios"] }
 
 [dev-dependencies]
