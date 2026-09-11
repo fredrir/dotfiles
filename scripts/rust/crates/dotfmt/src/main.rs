@@ -12,7 +12,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, ValueHint};
+use clap::{Parser, ValueHint};
 use rayon::prelude::*;
 
 use config::{Config, Configs};
@@ -79,7 +79,7 @@ fn main() -> ExitCode {
         }
         if cli.targets.is_empty() && !cli.check {
             // Nothing was asked, so answer with what there is to ask for.
-            Cli::command().print_help().ok();
+            workstation::cli::command::<Cli>().print_help().ok();
             return Ok(ExitCode::SUCCESS);
         }
         Ok(run(&cli))

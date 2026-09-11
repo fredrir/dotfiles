@@ -1,9 +1,9 @@
 use super::*;
 
-fn source<'a>(peer: &'a Peer) -> RemoteSource<'a> {
+fn source(peer: &Peer) -> RemoteSource {
     RemoteSource {
-        peer,
-        home: "/home/fredrir",
+        peer: peer.clone(),
+        home: "/home/fredrir".into(),
     }
 }
 
@@ -36,7 +36,7 @@ fn directory(entries: Vec<Entry<String>>, status: DirectoryStatus) -> Directory<
 
 fn context<'a>(
     directory: &'a Directory<String>,
-    selection: Option<&'a file_explorer::Selection<String>>,
+    selection: Option<&'a ui_file_explorer::Selection<String>>,
 ) -> ViewContext<'a, String> {
     ViewContext {
         directory,
@@ -158,7 +158,7 @@ fn hcopy_view_keeps_push_and_pull_selection_semantics() {
         kind: EntryKind::File,
     };
     let directory = directory(vec![item.clone()], DirectoryStatus::Present);
-    let selection = file_explorer::Selection {
+    let selection = ui_file_explorer::Selection {
         location: item.location,
         kind: item.kind,
         label: item.name,

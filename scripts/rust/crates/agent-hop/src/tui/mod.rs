@@ -14,7 +14,6 @@ use crate::cli::{Agent, ColorMode};
 
 pub(crate) use model::{Effect, Model, UiEvent};
 pub(crate) use terminal::run;
-pub(crate) use view::render;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Origin {
@@ -320,29 +319,16 @@ impl PickerOutcome {
 }
 
 pub(crate) fn capable() -> bool {
-    io::stdin().is_terminal()
-        && io::stdout().is_terminal()
-        && std::env::var("TERM")
-            .ok()
-            .is_none_or(|term| !term.eq_ignore_ascii_case("dumb"))
+    ui_terminal::capable(
+        io::stdin().is_terminal(),
+        io::stdout().is_terminal(),
+        std::env::var("TERM").ok().as_deref(),
+        std::env::var("CI").ok().as_deref(),
+    )
 }
 
 fn reduced_motion_requested() -> bool {
-    [
-        "AGENT_HOP_REDUCED_MOTION",
-        "PREFERS_REDUCED_MOTION",
-        "REDUCE_MOTION",
-        "REDUCED_MOTION",
-    ]
-    .into_iter()
-    .any(|name| std::env::var(name).ok().is_some_and(|value| flag(&value)))
-}
-
-fn flag(value: &str) -> bool {
-    !matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "" | "0" | "false" | "no" | "off"
-    )
+    ui_terminal::reduced_motion_requested("AGENT_HOP_REDUCED_MOTION")
 }
 
 fn clean(value: &str) -> String {

@@ -12,6 +12,9 @@ pub fn colors(t: &Theme) -> Result<BTreeMap<String, Color>> {
         .collect()
 }
 pub fn indexed(c: Color, bg: Color) -> Result<usize> {
+    indexed_many(c, &[bg])
+}
+pub fn indexed_many(c: Color, backgrounds: &[Color]) -> Result<usize> {
     let mut best = None;
     for i in 16..256 {
         let rgb = if i >= 232 {
@@ -22,7 +25,10 @@ pub fn indexed(c: Color, bg: Color) -> Result<usize> {
             [ramp[n / 36], ramp[n / 6 % 6], ramp[n % 6]]
         };
         let color = Color(rgb.map(|x| x as u8));
-        if color.contrast(bg) >= 4.5 {
+        if backgrounds
+            .iter()
+            .all(|background| color.contrast(*background) >= 4.5)
+        {
             let distance = rgb
                 .iter()
                 .zip(c.0)

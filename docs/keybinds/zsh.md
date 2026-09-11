@@ -14,14 +14,14 @@
 | --- | --- | --- |
 | <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/conf.d/50-fzf.zsh#L58) | Previous completion group<br><code>:fzf-tab:*; command -v fzf &gt;/dev/null</code> |
 | <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/conf.d/50-fzf.zsh#L58) | Next completion group<br><code>:fzf-tab:*; command -v fzf &gt;/dev/null</code> |
-| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L114) | Wezterm open yazi<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L115) | Wezterm open yazi<br><code>vicmd; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L116) | Wezterm open yazi<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;13;2u</code> | [<code>wezterm-insert-newline</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L89) | Wezterm insert newline<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;13;2u</code> | [<code>wezterm-insert-newline</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L90) | Wezterm insert newline<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L119) | Wezterm open yazi<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L120) | Wezterm open yazi<br><code>vicmd; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L121) | Wezterm open yazi<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L97) | Wezterm open yazi<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L98) | Wezterm open yazi<br><code>vicmd; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L99) | Wezterm open yazi<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;13;2u</code> | [<code>wezterm-insert-newline</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L72) | Wezterm insert newline<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;13;2u</code> | [<code>wezterm-insert-newline</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L73) | Wezterm insert newline<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L102) | Wezterm open yazi<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L103) | Wezterm open yazi<br><code>vicmd; &#91;&#91; -o interactive &#93;&#93;</code> |
+| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L104) | Wezterm open yazi<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
 | <code>^F</code> | [<code>fzf-file-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L45) | Fzf file widget<br><code>emacs; command -v fzf &gt;/dev/null; ! command -v nvim &gt;/dev/null</code> |
 | <code>^F</code> | [<code>fzf-file-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L46) | Fzf file widget<br><code>vicmd; command -v fzf &gt;/dev/null; ! command -v nvim &gt;/dev/null</code> |
 | <code>^F</code> | [<code>fzf-file-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L47) | Fzf file widget<br><code>viins; command -v fzf &gt;/dev/null; ! command -v nvim &gt;/dev/null</code> |

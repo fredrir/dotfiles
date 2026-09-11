@@ -592,12 +592,16 @@ fn copy_description_is_complete_and_terminal_safe() {
 #[test]
 fn search_changes_the_highlight_without_changing_the_displayed_preview() {
     let mut model = loaded();
-    let favorite = model
-        .entries
-        .iter_mut()
-        .find(|entry| entry.favorite)
-        .unwrap();
+    let mut sessions = model.entries.clone();
+    let favorite = sessions.iter_mut().find(|entry| entry.favorite).unwrap();
     favorite.updated = "8m ago".into();
+    model.load(
+        CatalogSnapshot {
+            sessions,
+            warnings: Vec::new(),
+        },
+        true,
+    );
 
     model.apply(key(KeyCode::Char('/')));
     for character in "8m ago".chars() {

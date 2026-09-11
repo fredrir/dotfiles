@@ -9,13 +9,15 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+ui-theme              = { workspace = true, features = ["ratatui"] }
+ui-progress           = { workspace = true, features = ["ratatui"] }
 clap.workspace        = true
 crossterm.workspace   = true
 hostkit.workspace     = true
-ratatui.workspace     = true
+ratatui               = { workspace = true, features = ["unstable-rendered-line-info"] }
 serde_json.workspace  = true
 tachyonfx.workspace   = true
-tui-kit.workspace     = true
+ui-terminal           = { workspace = true, features = ["ratatui"] }
 workstation.workspace = true
 
 [dev-dependencies]

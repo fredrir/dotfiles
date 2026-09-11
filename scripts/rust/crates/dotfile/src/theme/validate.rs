@@ -143,6 +143,43 @@ pub fn pairs(t: &Theme) -> Result<Vec<Pair>> {
     for (state, fg, bg, floor) in tmux::pairs(t)? {
         rows.push(pair("tmux", &state, fg, bg, floor));
     }
+    let palette = super::emitters::ui::document(t)?;
+    for (state, _) in super::emitters::ui::SEMANTICS {
+        let backgrounds: &[&str] = match *state {
+            "background" | "panel" | "surface" => continue,
+            "selection_background" => &["background"],
+            "panel_foreground" => &["panel"],
+            "surface_foreground" => &["surface"],
+            "selection_foreground" => &["selection_background"],
+            _ => &["background", "panel", "surface"],
+        };
+        for background in backgrounds {
+            let name = format!("{state}.{background}");
+            let rgb = |name: &str| Color::parse(&palette.ui[name]);
+            let floor = if *state == "selection_background" {
+                3.0
+            } else {
+                4.5
+            };
+            rows.push(pair("ui", &name, rgb(state)?, rgb(background)?, floor));
+            if *state != "selection_background" {
+                let indexed = |name: &str| {
+                    Color(
+                        ui_theme::Color::Ansi(palette.ui_indexed[name])
+                            .rgb()
+                            .unwrap_or_default(),
+                    )
+                };
+                rows.push(pair(
+                    "ui256",
+                    &name,
+                    indexed(state),
+                    indexed(background),
+                    floor,
+                ));
+            }
+        }
+    }
     Ok(rows)
 }
 pub fn matrix(t: &Theme) -> Result<String> {

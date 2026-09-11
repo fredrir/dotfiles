@@ -9,9 +9,12 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph, Widget};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use tachyonfx::{CellFilter, Effect, EffectRenderer, Interpolation, fx};
-use tui_kit::{Inline, SignalGuard, SignalOptions, Teardown, ui_style};
+use ui_diff_view::{Action as DiffAction, DiffDocument, DiffView, ViewState};
+use ui_progress::{PhaseState, Progress, ProgressBar};
+use ui_terminal::{Inline, SignalGuard, SignalOptions, Teardown, ui_style};
+use ui_theme::{Palette, Role, ThemeHandle};
 use workstation::text::plural;
 
 use crate::decision::{Choice, Prompt, Request, Server};
@@ -67,6 +70,8 @@ struct DecisionState {
     request: Request,
     choices: Vec<Choice>,
     selected: usize,
+    diff: Option<DiffDocument>,
+    diff_view: ViewState,
 }
 
 impl DecisionState {
@@ -81,16 +86,41 @@ impl DecisionState {
                 .position(|choice| *choice == prompt.safe_default())
                 .unwrap_or(0),
         };
+        let diff = match &request.prompt {
+            Prompt::Merge { repo, live, .. } => {
+                Some(DiffDocument::new(&diff_value(repo), &diff_value(live)))
+            }
+            _ => None,
+        };
         Self {
             request,
             choices,
             selected,
+            diff,
+            diff_view: ViewState::default(),
         }
     }
 
     fn selected(&self) -> Choice {
         self.choices[self.selected]
     }
+}
+
+fn diff_value(value: &str) -> std::borrow::Cow<'_, str> {
+    if value.len() <= 256 * 1024
+        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value)
+    {
+        match parsed {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                if let Ok(formatted) = serde_json::to_string_pretty(&parsed) {
+                    return formatted.into();
+                }
+            }
+            serde_json::Value::String(text) if text.contains('\n') => return text.into(),
+            _ => {}
+        }
+    }
+    value.into()
 }
 
 impl UiModel {
@@ -254,6 +284,33 @@ impl UiModel {
         self.decision.as_ref().map(DecisionState::selected)
     }
 
+    pub fn navigate_diff(&mut self, action: DiffAction, height: u16) {
+        if let Some(decision) = &mut self.decision
+            && let Some(document) = &decision.diff
+        {
+            decision
+                .diff_view
+                .apply(action, document, height.saturating_sub(6));
+        }
+    }
+
+    pub fn navigate_diff_in_area(&mut self, action: DiffAction, width: u16, height: u16) {
+        self.fit_diff_view(width, height);
+        self.navigate_diff(action, height);
+    }
+
+    pub fn fit_diff_view(&mut self, width: u16, height: u16) {
+        if let Some(decision) = &mut self.decision
+            && let Some(document) = &decision.diff
+        {
+            decision.diff_view.fit_width(
+                document,
+                width.saturating_sub(2),
+                height.saturating_sub(6),
+            );
+        }
+    }
+
     pub fn select_next(&mut self) {
         if let Some(decision) = &mut self.decision {
             decision.selected = (decision.selected + 1) % decision.choices.len();
@@ -324,6 +381,16 @@ impl UiModel {
     }
 
     fn desired_height(&self) -> u16 {
+        if self
+            .decision
+            .as_ref()
+            .is_some_and(|decision| decision.diff.is_some())
+        {
+            return ui_terminal::terminal_height()
+                .unwrap_or(24)
+                .saturating_sub(2)
+                .clamp(4, 22) as u16;
+        }
         match (self.verbose, self.peer.is_some()) {
             (false, false) => 4,
             (false, true) => 5,
@@ -421,14 +488,18 @@ pub fn run(
             );
         }
     };
+    let mut theme = ThemeHandle::discover();
+    let palette = theme.palette();
     let started = Instant::now();
     let mut last_draw = Instant::now();
     let mut dirty = true;
-    let mut effect =
-        ((phase_changed || model.decision_active()) && policy.motion).then(|| phase_effect(policy));
+    let mut effect = ((phase_changed || model.decision_active()) && policy.motion)
+        .then(|| phase_effect(palette, policy));
 
     let ui_result = (|| -> Result<(), String> {
         loop {
+            dirty |= theme.poll();
+            let palette = theme.palette();
             if crate::cancel::requested() && !model.cancelling {
                 if let Some((request, choice)) = model.cancel_response() {
                     let _ = decisions.respond(&request, choice);
@@ -438,7 +509,7 @@ pub fn run(
                 dirty = true;
             }
             if !pending_output.is_empty() {
-                terminal.write_scrollback(&pending_output, policy.color)?;
+                terminal.write_scrollback(palette, &pending_output, policy.color)?;
                 pending_output.clear();
                 dirty = true;
             }
@@ -461,7 +532,14 @@ pub fn run(
                 } else {
                     0
                 };
-                terminal.draw(&model, frame_index, policy, effect.as_mut(), tick)?;
+                terminal.draw(
+                    palette,
+                    &mut model,
+                    frame_index,
+                    policy,
+                    effect.as_mut(),
+                    tick,
+                )?;
                 last_draw = now;
                 dirty = false;
                 if effect.as_ref().is_some_and(Effect::done) {
@@ -503,6 +581,11 @@ pub fn run(
                     }
                 }
                 InputAction::Redraw => dirty = true,
+                InputAction::Diff(action) if model.decision_active() => {
+                    let area = terminal.inline.terminal().get_frame().area();
+                    model.navigate_diff_in_area(action, area.width, area.height);
+                    dirty = true;
+                }
                 _ => {}
             }
 
@@ -543,7 +626,7 @@ pub fn run(
                         model.show_decision(request);
                         dirty = true;
                         if policy.motion {
-                            effect = Some(phase_effect(policy));
+                            effect = Some(phase_effect(palette, policy));
                         }
                     }
                     continue;
@@ -558,14 +641,14 @@ pub fn run(
             dirty |= update.redraw;
             pending_output.extend(update.output);
             if update.phase_changed && policy.motion && model.active() {
-                effect = Some(phase_effect(policy));
+                effect = Some(phase_effect(palette, policy));
             }
             for event in receiver.try_iter().take(256) {
                 let update = model.apply(&event);
                 dirty |= update.redraw;
                 pending_output.extend(update.output);
                 if update.phase_changed && policy.motion && model.active() {
-                    effect = Some(phase_effect(policy));
+                    effect = Some(phase_effect(palette, policy));
                 }
             }
         }
@@ -617,55 +700,111 @@ pub fn render_buffer(
     frame_index: u64,
     color: bool,
 ) {
+    render_buffer_with_palette(&Palette::current(), model, area, buffer, frame_index, color);
+}
+
+fn theme_color(palette: &Palette, role: Role) -> Color {
+    palette.foreground(role).ratatui()
+}
+
+pub fn render_buffer_with_palette(
+    palette: &Palette,
+    model: &UiModel,
+    area: Rect,
+    buffer: &mut Buffer,
+    frame_index: u64,
+    color: bool,
+) {
     if area.is_empty() {
         return;
     }
     Clear.render(area, buffer);
+    buffer.set_style(
+        area,
+        palette.ratatui(
+            if color {
+                ui_theme::ColorMode::Always
+            } else {
+                ui_theme::ColorMode::Never
+            },
+            true,
+            Role::Background,
+        ),
+    );
     if let Some(decision) = &model.decision {
-        render_decision(decision, area, buffer, color);
+        render_decision(palette, decision, area, buffer, color);
         return;
     }
     let mut row = 0;
-    render_header(model, line_area(area, row), buffer, color);
+    render_header(palette, model, line_area(area, row), buffer, color);
     row += 1;
     if model.peer.is_some() && row < area.height {
-        render_push_track(model, line_area(area, row), buffer, color);
+        render_push_track(palette, model, line_area(area, row), buffer, color);
         row += 1;
     }
     if row < area.height {
-        render_status(model, line_area(area, row), buffer, frame_index, color);
+        render_status(
+            palette,
+            model,
+            line_area(area, row),
+            buffer,
+            frame_index,
+            color,
+        );
         row += 1;
     }
     if row < area.height {
-        render_progress(model, line_area(area, row), buffer, frame_index, color);
+        render_progress(
+            palette,
+            model,
+            line_area(area, row),
+            buffer,
+            frame_index,
+            color,
+        );
         row += 1;
     }
     if model.verbose && row < area.height {
         let panel = Rect::new(area.x, area.y + row, area.width, area.height - row);
-        render_items(model, panel, buffer, color);
+        render_items(palette, model, panel, buffer, color);
     } else if row < area.height {
-        render_notice(model, line_area(area, row), buffer, color);
+        render_notice(palette, model, line_area(area, row), buffer, color);
     }
 }
 
-fn render_decision(decision: &DecisionState, area: Rect, buffer: &mut Buffer, color: bool) {
+fn render_decision(
+    palette: &Palette,
+    decision: &DecisionState,
+    area: Rect,
+    buffer: &mut Buffer,
+    color: bool,
+) {
     if area.height >= 7 {
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(ui_style(color, Color::Rgb(124, 58, 237), Modifier::BOLD))
+            .border_style(ui_style(
+                color,
+                theme_color(palette, Role::Accent),
+                Modifier::BOLD,
+            ))
             .title(Span::styled(
-                " decision ",
-                ui_style(color, Color::Rgb(196, 181, 253), Modifier::BOLD),
+                if decision.diff.is_some() {
+                    " MERGE CONFLICT "
+                } else {
+                    " decision "
+                },
+                ui_style(color, theme_color(palette, Role::Ours), Modifier::BOLD),
             ));
         let inner = block.inner(area);
         block.render(area, buffer);
-        render_decision_body(decision, inner, buffer, color, true);
+        render_decision_body(palette, decision, inner, buffer, color, true);
     } else {
-        render_decision_body(decision, area, buffer, color, false);
+        render_decision_body(palette, decision, area, buffer, color, false);
     }
 }
 
 fn render_decision_body(
+    palette: &Palette,
     decision: &DecisionState,
     area: Rect,
     buffer: &mut Buffer,
@@ -680,6 +819,58 @@ fn render_decision_body(
             repo,
             live,
         } => {
+            if area.height >= 9 {
+                render_labeled_value(
+                    palette,
+                    area,
+                    0,
+                    "path",
+                    &super::compact_path(path),
+                    buffer,
+                    color,
+                );
+                render_labeled_value(
+                    palette,
+                    area,
+                    1,
+                    "key",
+                    &compact_text(key, usize::from(area.width.saturating_sub(12))),
+                    buffer,
+                    color,
+                );
+                if let Some(document) = &decision.diff {
+                    DiffView {
+                        document,
+                        state: &decision.diff_view,
+                        palette,
+                        color,
+                        left_label: "repo",
+                        right_label: "live",
+                    }
+                    .render(
+                        Rect::new(
+                            area.x,
+                            area.y + 2,
+                            area.width,
+                            area.height.saturating_sub(4),
+                        ),
+                        buffer,
+                    );
+                }
+                render_decision_line(
+                    area,
+                    area.height.saturating_sub(2),
+                    Line::from(choice_spans(palette, decision, color)),
+                    buffer,
+                );
+                render_decision_line(
+                    area,
+                    area.height.saturating_sub(1),
+                    Line::from("  ←/→ choose · r repo · l live · enter confirm · q cancel"),
+                    buffer,
+                );
+                return;
+            }
             let display_path = compact_text(&super::compact_path(path), width.max(8));
             let display_key = compact_text(key, width.max(8));
             if spacious {
@@ -688,13 +879,14 @@ fn render_decision_body(
                     0,
                     Line::from(Span::styled(
                         "  MERGE CONFLICT",
-                        ui_style(color, Color::Rgb(244, 114, 182), Modifier::BOLD),
+                        ui_style(color, theme_color(palette, Role::Conflict), Modifier::BOLD),
                     )),
                     buffer,
                 );
-                render_labeled_value(area, 1, "path", &display_path, buffer, color);
-                render_labeled_value(area, 2, "key", &display_key, buffer, color);
+                render_labeled_value(palette, area, 1, "path", &display_path, buffer, color);
+                render_labeled_value(palette, area, 2, "key", &display_key, buffer, color);
                 render_labeled_value(
+                    palette,
                     area,
                     3,
                     "repo",
@@ -703,6 +895,7 @@ fn render_decision_body(
                     color,
                 );
                 render_labeled_value(
+                    palette,
                     area,
                     4,
                     "live",
@@ -720,16 +913,17 @@ fn render_decision_body(
                     Line::from(vec![
                         Span::styled(
                             "  MERGE  ",
-                            ui_style(color, Color::Rgb(244, 114, 182), Modifier::BOLD),
+                            ui_style(color, theme_color(palette, Role::Conflict), Modifier::BOLD),
                         ),
                         Span::styled(
                             format!("{compact_key}  |  {compact_path}"),
-                            ui_style(color, Color::Rgb(203, 213, 225), Modifier::empty()),
+                            ui_style(color, theme_color(palette, Role::Plain), Modifier::empty()),
                         ),
                     ]),
                     buffer,
                 );
                 render_labeled_value(
+                    palette,
                     area,
                     1,
                     "repo",
@@ -738,6 +932,7 @@ fn render_decision_body(
                     color,
                 );
                 render_labeled_value(
+                    palette,
                     area,
                     2,
                     "live",
@@ -759,14 +954,15 @@ fn render_decision_body(
                     0,
                     Line::from(Span::styled(
                         "  MERGE DESTINATION",
-                        ui_style(color, Color::Rgb(129, 140, 248), Modifier::BOLD),
+                        ui_style(color, theme_color(palette, Role::Theirs), Modifier::BOLD),
                     )),
                     buffer,
                 );
-                render_labeled_value(area, 1, "path", &display_path, buffer, color);
-                render_labeled_value(area, 2, "key", &display_key, buffer, color);
-                render_labeled_value(area, 3, "target", &selected, buffer, color);
+                render_labeled_value(palette, area, 1, "path", &display_path, buffer, color);
+                render_labeled_value(palette, area, 2, "key", &display_key, buffer, color);
+                render_labeled_value(palette, area, 3, "target", &selected, buffer, color);
                 render_labeled_value(
+                    palette,
                     area,
                     4,
                     "options",
@@ -782,7 +978,7 @@ fn render_decision_body(
                     Line::from(vec![
                         Span::styled(
                             "  TARGET  ",
-                            ui_style(color, Color::Rgb(129, 140, 248), Modifier::BOLD),
+                            ui_style(color, theme_color(palette, Role::Theirs), Modifier::BOLD),
                         ),
                         Span::styled(
                             format!(
@@ -790,13 +986,14 @@ fn render_decision_body(
                                 compact_text(key, pair_width),
                                 compact_text(&super::compact_path(path), pair_width)
                             ),
-                            ui_style(color, Color::Rgb(203, 213, 225), Modifier::empty()),
+                            ui_style(color, theme_color(palette, Role::Plain), Modifier::empty()),
                         ),
                     ]),
                     buffer,
                 );
-                render_labeled_value(area, 1, "target", &selected, buffer, color);
+                render_labeled_value(palette, area, 1, "target", &selected, buffer, color);
                 render_labeled_value(
+                    palette,
                     area,
                     2,
                     "options",
@@ -815,11 +1012,12 @@ fn render_decision_body(
                 0,
                 Line::from(vec![Span::styled(
                     "  REMOTE CHANGES",
-                    ui_style(color, Color::Rgb(251, 146, 60), Modifier::BOLD),
+                    ui_style(color, theme_color(palette, Role::Warning), Modifier::BOLD),
                 )]),
                 buffer,
             );
             render_labeled_value(
+                palette,
                 area,
                 1,
                 &host,
@@ -835,6 +1033,7 @@ fn render_decision_body(
                     format!("  +{remaining} more")
                 };
                 render_labeled_value(
+                    palette,
                     area,
                     2,
                     "first",
@@ -853,7 +1052,7 @@ fn render_decision_body(
     render_decision_line(
         area,
         choice_row,
-        Line::from(choice_spans(decision, color)),
+        Line::from(choice_spans(palette, decision, color)),
         buffer,
     );
     if spacious {
@@ -862,7 +1061,7 @@ fn render_decision_body(
             area.height.saturating_sub(1),
             Line::from(Span::styled(
                 "  ←/→ navigate  |  enter confirm  |  q cancel",
-                ui_style(color, Color::Rgb(100, 116, 139), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
             )),
             buffer,
         );
@@ -870,6 +1069,7 @@ fn render_decision_body(
 }
 
 fn render_labeled_value(
+    palette: &Palette,
     area: Rect,
     row: u16,
     label: &str,
@@ -883,11 +1083,11 @@ fn render_labeled_value(
         Line::from(vec![
             Span::styled(
                 format!("  {label:<7}"),
-                ui_style(color, Color::Rgb(100, 116, 139), Modifier::BOLD),
+                ui_style(color, theme_color(palette, Role::Muted), Modifier::BOLD),
             ),
             Span::styled(
                 value.to_string(),
-                ui_style(color, Color::Rgb(226, 232, 240), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Strong), Modifier::empty()),
             ),
         ]),
         buffer,
@@ -900,7 +1100,7 @@ fn render_decision_line(area: Rect, row: u16, line: Line<'static>, buffer: &mut 
     }
 }
 
-fn choice_spans(decision: &DecisionState, color: bool) -> Vec<Span<'static>> {
+fn choice_spans(palette: &Palette, decision: &DecisionState, color: bool) -> Vec<Span<'static>> {
     if let Prompt::MergeTarget { targets, .. } = &decision.request.prompt {
         let choice = decision.selected();
         let label = match choice {
@@ -921,14 +1121,14 @@ fn choice_spans(decision: &DecisionState, color: bool) -> Vec<Span<'static>> {
                 format!(" {label} "),
                 ui_style(
                     color,
-                    choice_color(choice),
+                    choice_color(palette, choice),
                     Modifier::BOLD | Modifier::REVERSED,
                 ),
             ),
             Span::raw("  ›  "),
             Span::styled(
                 format!("{position}   ↩ to confirm"),
-                ui_style(color, Color::Rgb(100, 116, 139), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
             ),
         ];
     }
@@ -945,12 +1145,12 @@ fn choice_spans(decision: &DecisionState, color: bool) -> Vec<Span<'static>> {
         };
         spans.push(Span::styled(
             format!(" {} ", choice_name(choice)),
-            ui_style(color, choice_color(choice), modifier),
+            ui_style(color, choice_color(palette, choice), modifier),
         ));
     }
     spans.push(Span::styled(
         "   ↩ to confirm",
-        ui_style(color, Color::Rgb(100, 116, 139), Modifier::empty()),
+        ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
     ));
     spans
 }
@@ -1012,18 +1212,18 @@ fn choice_name(choice: Choice) -> &'static str {
     }
 }
 
-fn choice_color(choice: Choice) -> Color {
+fn choice_color(palette: &Palette, choice: Choice) -> Color {
     match choice {
-        Choice::Repo => Color::Rgb(196, 181, 253),
-        Choice::Live => Color::Rgb(94, 234, 212),
-        Choice::Ignore => Color::Rgb(148, 163, 184),
-        Choice::Target(_) => Color::Rgb(129, 140, 248),
-        Choice::Skip | Choice::Cancel => Color::Rgb(250, 204, 21),
-        Choice::Abort | Choice::Discard => Color::Rgb(248, 113, 113),
+        Choice::Repo => theme_color(palette, Role::Ours),
+        Choice::Live => theme_color(palette, Role::Theirs),
+        Choice::Ignore => theme_color(palette, Role::Muted),
+        Choice::Target(_) => theme_color(palette, Role::Theirs),
+        Choice::Skip | Choice::Cancel => theme_color(palette, Role::Warning),
+        Choice::Abort | Choice::Discard => theme_color(palette, Role::Danger),
     }
 }
 
-fn render_header(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
+fn render_header(palette: &Palette, model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
     let mode = if model.peer.is_some() {
         "PUSH"
     } else if model.dry_run {
@@ -1034,90 +1234,97 @@ fn render_header(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) 
     let mut spans = vec![
         Span::styled(
             "  ",
-            ui_style(color, Color::Rgb(45, 212, 191), Modifier::BOLD),
+            ui_style(color, theme_color(palette, Role::Accent), Modifier::BOLD),
         ),
         Span::styled(
             "DOTFILE",
-            ui_style(color, Color::Rgb(226, 232, 240), Modifier::BOLD),
+            ui_style(color, theme_color(palette, Role::Strong), Modifier::BOLD),
         ),
         Span::styled(
             "  /  ",
-            ui_style(color, Color::Rgb(71, 85, 105), Modifier::empty()),
+            ui_style(color, theme_color(palette, Role::Border), Modifier::empty()),
         ),
         Span::styled(
             mode,
-            ui_style(color, Color::Rgb(167, 139, 250), Modifier::BOLD),
+            ui_style(color, theme_color(palette, Role::Accent), Modifier::BOLD),
         ),
     ];
     if !model.profile.is_empty() {
         spans.push(Span::styled(
             format!("  {}", model.profile),
-            ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
+            ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
         ));
     }
     if let Some(peer) = &model.peer {
         spans.push(Span::styled(
             format!("  →  {peer}"),
-            ui_style(color, Color::Rgb(94, 234, 212), Modifier::empty()),
+            ui_style(color, theme_color(palette, Role::Accent), Modifier::empty()),
         ));
     }
     Paragraph::new(Line::from(spans)).render(area, buffer);
 }
 
-fn render_push_track(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
+fn render_push_track(
+    palette: &Palette,
+    model: &UiModel,
+    area: Rect,
+    buffer: &mut Buffer,
+    color: bool,
+) {
     let push_seen = model.seen_phases.contains(&Phase::Push);
     let remote_seen = model.seen_phases.contains(&Phase::Remote);
     let finished = model.finished.is_some();
-    let nodes = [
+    let state = |done, active| {
+        if done {
+            PhaseState::Complete
+        } else if active {
+            PhaseState::Active
+        } else {
+            PhaseState::Pending
+        }
+    };
+    let phases = [
         (
             "local",
-            push_seen || remote_seen || finished,
-            !push_seen && !remote_seen && !finished,
+            state(
+                push_seen || remote_seen || finished,
+                !push_seen && !remote_seen && !finished,
+            ),
         ),
         (
             "origin",
-            remote_seen || finished,
-            model.phase == Some(Phase::Push) && !finished,
+            state(
+                remote_seen || finished,
+                model.phase == Some(Phase::Push) && !finished,
+            ),
         ),
         (
             "peer",
-            finished,
-            model.phase == Some(Phase::Remote) && !finished,
+            state(finished, model.phase == Some(Phase::Remote) && !finished),
         ),
     ];
-    let mut spans = vec![Span::raw("  ")];
-    for (index, (name, done, current)) in nodes.into_iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled(
-                " ━━━━━ ",
-                ui_style(color, Color::Rgb(51, 65, 85), Modifier::empty()),
-            ));
-        }
-        let (symbol, foreground, modifier) = if done {
-            ("●", Color::Rgb(52, 211, 153), Modifier::BOLD)
-        } else if current {
-            ("◉", Color::Rgb(34, 211, 238), Modifier::BOLD)
-        } else {
-            ("○", Color::Rgb(71, 85, 105), Modifier::empty())
-        };
-        spans.push(Span::styled(
-            format!("{symbol} {name}"),
-            ui_style(color, foreground, modifier),
-        ));
-    }
-    Paragraph::new(Line::from(spans)).render(area, buffer);
+    let mut line = ui_progress::phase_track(&phases, palette, color);
+    line.spans.insert(0, Span::raw("  "));
+    Paragraph::new(line).render(area, buffer);
 }
 
-fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: u64, color: bool) {
+fn render_status(
+    palette: &Palette,
+    model: &UiModel,
+    area: Rect,
+    buffer: &mut Buffer,
+    frame_index: u64,
+    color: bool,
+) {
     let line = if let Some(summary) = &model.finished {
         let (symbol, state, foreground) = if summary.dry_run {
-            ("◇", "PLAN READY", Color::Rgb(250, 204, 21))
+            ("◇", "PLAN READY", theme_color(palette, Role::Warning))
         } else if summary.peer.is_some() {
-            ("✓", "PUSHED", Color::Rgb(52, 211, 153))
+            ("✓", "PUSHED", theme_color(palette, Role::Success))
         } else if summary.changed == 0 {
-            ("✓", "CURRENT", Color::Rgb(52, 211, 153))
+            ("✓", "CURRENT", theme_color(palette, Role::Success))
         } else {
-            ("✓", "SYNCED", Color::Rgb(52, 211, 153))
+            ("✓", "SYNCED", theme_color(palette, Role::Success))
         };
         let detail = if summary.dry_run {
             format!("{} changes pending", summary.changed)
@@ -1140,33 +1347,33 @@ fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: 
             ),
             Span::styled(
                 format!("  {detail} | {} ms", summary.elapsed.as_millis()),
-                ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
             ),
         ])
     } else if let Some((message, _)) = &model.failure {
         Line::from(vec![
             Span::styled(
                 "  × FAILED  ",
-                ui_style(color, Color::Rgb(248, 113, 113), Modifier::BOLD),
+                ui_style(color, theme_color(palette, Role::Danger), Modifier::BOLD),
             ),
             Span::styled(
                 message.clone(),
-                ui_style(color, Color::Rgb(254, 202, 202), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Danger), Modifier::empty()),
             ),
         ])
     } else if model.cancelling {
         Line::from(vec![
             Span::styled(
                 "  ◌ CANCELLING",
-                ui_style(color, Color::Rgb(250, 204, 21), Modifier::BOLD),
+                ui_style(color, theme_color(palette, Role::Warning), Modifier::BOLD),
             ),
             Span::styled(
                 "  waiting for the current operation",
-                ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
             ),
         ])
     } else {
-        let spinner = ["◐", "◓", "◑", "◒"][(frame_index as usize) % 4];
+        let spinner = ui_progress::Spinner::Quarter.frame(frame_index, true);
         let phase = model.phase.map(super::phase_name).unwrap_or("preparing");
         let counter = match model.total {
             Some(total) => format!("  {}/{}", model.completed, total),
@@ -1181,11 +1388,11 @@ fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: 
         Line::from(vec![
             Span::styled(
                 format!("  {spinner} {phase}"),
-                ui_style(color, Color::Rgb(34, 211, 238), Modifier::BOLD),
+                ui_style(color, theme_color(palette, Role::Info), Modifier::BOLD),
             ),
             Span::styled(
                 format!("{counter}{label}"),
-                ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
+                ui_style(color, theme_color(palette, Role::Muted), Modifier::empty()),
             ),
         ])
     };
@@ -1193,6 +1400,7 @@ fn render_status(model: &UiModel, area: Rect, buffer: &mut Buffer, frame_index: 
 }
 
 fn render_progress(
+    palette: &Palette,
     model: &UiModel,
     area: Rect,
     buffer: &mut Buffer,
@@ -1200,51 +1408,28 @@ fn render_progress(
     color: bool,
 ) {
     if model.finished.is_some() || model.failure.is_some() {
-        render_summary_breakdown(model, area, buffer, color);
+        render_summary_breakdown(palette, model, area, buffer, color);
         return;
     }
-    if let Some(total) = model.total {
-        let ratio = if total == 0 {
-            f64::from(model.completed > 0)
-        } else {
-            (model.completed as f64 / total as f64).clamp(0.0, 1.0)
-        };
-        let percent = (ratio * 100.0).round() as usize;
-        let gauge = Gauge::default()
-            .gauge_style(
-                ui_style(color, Color::Rgb(45, 212, 191), Modifier::BOLD).bg(if color {
-                    Color::Rgb(30, 41, 59)
-                } else {
-                    Color::Reset
-                }),
-            )
-            .ratio(ratio)
-            .label(format!("{} / {}  |  {percent}%", model.completed, total));
-        gauge.render(inset(area, 2), buffer);
-    } else {
-        let width = area.width.saturating_sub(4) as usize;
-        let width = width.max(1);
-        let position = frame_index as usize % width;
-        let mut spans = Vec::with_capacity(width + 2);
-        spans.push(Span::raw("  "));
-        for index in 0..width {
-            let (symbol, foreground) = if index == position {
-                ("━", Color::Rgb(94, 234, 212))
-            } else if index.abs_diff(position) == 1 {
-                ("━", Color::Rgb(14, 116, 144))
-            } else {
-                ("─", Color::Rgb(51, 65, 85))
-            };
-            spans.push(Span::styled(
-                symbol,
-                ui_style(color, foreground, Modifier::empty()),
-            ));
-        }
-        Paragraph::new(Line::from(spans)).render(area, buffer);
+    ProgressBar {
+        progress: Progress {
+            completed: model.completed as u64,
+            total: model.total.map(|total| total as u64),
+        },
+        frame: frame_index,
+        palette,
+        color,
     }
+    .render(inset(area, 2), buffer);
 }
 
-fn render_summary_breakdown(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
+fn render_summary_breakdown(
+    palette: &Palette,
+    model: &UiModel,
+    area: Rect,
+    buffer: &mut Buffer,
+    color: bool,
+) {
     let Some(summary) = &model.finished else {
         return;
     };
@@ -1265,7 +1450,7 @@ fn render_summary_breakdown(model: &UiModel, area: Rect, buffer: &mut Buffer, co
         Paragraph::new(format!("    {}", parts.join("  |  ")))
             .style(ui_style(
                 color,
-                Color::Rgb(100, 116, 139),
+                theme_color(palette, Role::Muted),
                 Modifier::empty(),
             ))
             .render(area, buffer);
@@ -1276,13 +1461,17 @@ fn summary_part(count: usize, singular: &str, plural: &str) -> String {
     format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
-fn render_items(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
+fn render_items(palette: &Palette, model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(ui_style(color, Color::Rgb(51, 65, 85), Modifier::empty()))
+        .border_style(ui_style(
+            color,
+            theme_color(palette, Role::Border),
+            Modifier::empty(),
+        ))
         .title(Span::styled(
             " activity ",
-            ui_style(color, Color::Rgb(148, 163, 184), Modifier::BOLD),
+            ui_style(color, theme_color(palette, Role::Muted), Modifier::BOLD),
         ));
     let inner = block.inner(area);
     block.render(area, buffer);
@@ -1296,11 +1485,11 @@ fn render_items(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
             Line::from(vec![
                 Span::styled(
                     "  › ",
-                    ui_style(color, Color::Rgb(45, 212, 191), Modifier::BOLD),
+                    ui_style(color, theme_color(palette, Role::Accent), Modifier::BOLD),
                 ),
                 Span::styled(
                     line.clone(),
-                    ui_style(color, Color::Rgb(203, 213, 225), Modifier::empty()),
+                    ui_style(color, theme_color(palette, Role::Plain), Modifier::empty()),
                 ),
             ])
         })
@@ -1308,29 +1497,33 @@ fn render_items(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
     Paragraph::new(lines).render(inner, buffer);
 }
 
-fn render_notice(model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
+fn render_notice(palette: &Palette, model: &UiModel, area: Rect, buffer: &mut Buffer, color: bool) {
     let line = match &model.warning {
         Some((message, _)) => Line::from(vec![
             Span::styled(
                 "  ! ",
-                ui_style(color, Color::Rgb(250, 204, 21), Modifier::BOLD),
+                ui_style(color, theme_color(palette, Role::Warning), Modifier::BOLD),
             ),
             Span::styled(
                 message.clone(),
-                ui_style(color, Color::Rgb(253, 224, 71), Modifier::empty()),
+                ui_style(
+                    color,
+                    theme_color(palette, Role::Warning),
+                    Modifier::empty(),
+                ),
             ),
         ]),
         None => Line::from(Span::styled(
             "  ctrl-c to cancel",
-            ui_style(color, Color::Rgb(71, 85, 105), Modifier::empty()),
+            ui_style(color, theme_color(palette, Role::Border), Modifier::empty()),
         )),
     };
     Paragraph::new(line).render(area, buffer);
 }
 
-fn phase_effect(policy: UiPolicy) -> Effect {
+fn phase_effect(palette: &Palette, policy: UiPolicy) -> Effect {
     let color = if policy.color {
-        Color::Rgb(51, 65, 85)
+        theme_color(palette, Role::Border)
     } else {
         Color::DarkGray
     };
@@ -1352,6 +1545,7 @@ fn inset(area: Rect, horizontal: u16) -> Rect {
 
 struct InlineTerminal {
     inline: Inline<Stderr>,
+    height: u16,
 }
 
 impl InlineTerminal {
@@ -1362,22 +1556,38 @@ impl InlineTerminal {
             ));
         }
         let inline = Inline::with_signals(io::stderr(), height, Teardown::ClearViewport, signals)?;
-        Ok(Self { inline })
+        Ok(Self { inline, height })
     }
 
     fn draw(
         &mut self,
-        model: &UiModel,
+        palette: &Palette,
+        model: &mut UiModel,
         frame_index: u64,
         policy: UiPolicy,
         effect: Option<&mut Effect>,
         tick: Duration,
     ) -> Result<(), String> {
+        let height = model.desired_height();
+        if self.height != height {
+            self.inline
+                .resize_viewport(io::stderr(), height)
+                .map_err(|error| format!("unable to resize sync status: {error}"))?;
+            self.height = height;
+        }
         self.inline
             .terminal()
             .draw(|frame| {
                 let area = frame.area();
-                render_buffer(model, area, frame.buffer_mut(), frame_index, policy.color);
+                model.fit_diff_view(area.width, area.height);
+                render_buffer_with_palette(
+                    palette,
+                    model,
+                    area,
+                    frame.buffer_mut(),
+                    frame_index,
+                    policy.color,
+                );
                 if let Some(effect) = effect {
                     frame.render_effect(effect, area, tachyonfx::Duration::from(tick));
                 }
@@ -1386,7 +1596,12 @@ impl InlineTerminal {
             .map_err(|error| format!("unable to render sync status: {error}"))
     }
 
-    fn write_scrollback(&mut self, lines: &[String], color: bool) -> Result<(), String> {
+    fn write_scrollback(
+        &mut self,
+        palette: &Palette,
+        lines: &[String],
+        color: bool,
+    ) -> Result<(), String> {
         for chunk in lines.chunks(64) {
             let height = chunk.len() as u16;
             self.inline
@@ -1394,7 +1609,7 @@ impl InlineTerminal {
                 .insert_before(height, |buffer| {
                     let lines = chunk
                         .iter()
-                        .map(|line| scrollback_line(line, color))
+                        .map(|line| scrollback_line(palette, line, color))
                         .collect::<Vec<_>>();
                     Paragraph::new(lines).render(buffer.area, buffer);
                 })
@@ -1426,6 +1641,17 @@ impl InlineTerminal {
                         KeyCode::Char('a') => InputAction::Select(Choice::Abort),
                         KeyCode::Char('d') => InputAction::Select(Choice::Discard),
                         KeyCode::Char('c') => InputAction::Select(Choice::Cancel),
+                        KeyCode::Char('j') => InputAction::Diff(DiffAction::Down),
+                        KeyCode::Char('k') => InputAction::Diff(DiffAction::Up),
+                        KeyCode::PageUp => InputAction::Diff(DiffAction::PageUp),
+                        KeyCode::PageDown => InputAction::Diff(DiffAction::PageDown),
+                        KeyCode::Home | KeyCode::Char('g') => InputAction::Diff(DiffAction::Home),
+                        KeyCode::End | KeyCode::Char('G') => InputAction::Diff(DiffAction::End),
+                        KeyCode::Char('[') => InputAction::Diff(DiffAction::PreviousHunk),
+                        KeyCode::Char(']') => InputAction::Diff(DiffAction::NextHunk),
+                        KeyCode::Char('v') => InputAction::Diff(DiffAction::ToggleMode),
+                        KeyCode::Char('<') => InputAction::Diff(DiffAction::Left),
+                        KeyCode::Char('>') => InputAction::Diff(DiffAction::Right),
                         KeyCode::Char(value @ '1'..='9') => {
                             InputAction::SelectIndex(value.to_digit(10).unwrap_or(1) as usize - 1)
                         }
@@ -1453,6 +1679,7 @@ enum InputAction {
     Select(Choice),
     SelectIndex(usize),
     Confirm,
+    Diff(DiffAction),
 }
 
 enum ChannelInput {
@@ -1461,13 +1688,13 @@ enum ChannelInput {
     Timeout,
 }
 
-fn scrollback_line(line: &str, color: bool) -> Line<'static> {
+fn scrollback_line(palette: &Palette, line: &str, color: bool) -> Line<'static> {
     let foreground = if line.starts_with("warning:") {
-        Color::Rgb(250, 204, 21)
+        theme_color(palette, Role::Warning)
     } else if line.starts_with("  hint:") {
-        Color::Rgb(148, 163, 184)
+        theme_color(palette, Role::Muted)
     } else {
-        Color::Rgb(203, 213, 225)
+        theme_color(palette, Role::Plain)
     };
     Line::from(Span::styled(
         line.to_string(),

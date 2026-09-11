@@ -1,0 +1,19 @@
+[package]
+name              = "ui-file-explorer"
+version.workspace = true
+description       = "Reusable interactive file and location explorer for command-line tools"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+unicode-width.workspace = true
+ui-theme.workspace      = true
+ui-terminal.workspace   = true
+ui-widgets.workspace    = true
+ui-picker.workspace     = true
+
+[dev-dependencies]
+tempfile.workspace = true

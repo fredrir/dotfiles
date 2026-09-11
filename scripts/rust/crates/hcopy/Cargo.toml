@@ -17,10 +17,11 @@ name = "hpull"
 path = "src/bin/hpull.rs"
 
 [dependencies]
-clap.workspace          = true
-file-explorer.workspace = true
-hostkit.workspace       = true
-workstation.workspace   = true
+ui-progress.workspace      = true
+clap.workspace             = true
+ui-file-explorer.workspace = true
+hostkit.workspace          = true
+workstation.workspace      = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -58,6 +58,29 @@ fn sync_ui_policy_honors_terminal_and_accessibility_signals() {
 }
 
 #[test]
+fn sync_ui_uses_the_configured_canvas_and_keeps_no_color_unpainted() {
+    let palette = ui_theme::Palette::from_json(
+        r##"{"version":1,"profile":"custom","colors":{"fg":"#eeeeee"},"ui":{"foreground":"#eeeeee","background":"#123456"}}"##,
+    ).unwrap().with_depth(ui_theme::ColorDepth::TrueColor);
+    let model = UiModel::new(false);
+    let area = Rect::new(0, 0, 60, 4);
+    let mut buffer = Buffer::empty(area);
+    dotfile_cli::ui::tui::render_buffer_with_palette(&palette, &model, area, &mut buffer, 0, true);
+    assert_eq!(
+        buffer[(0, 0)].bg,
+        ratatui::style::Color::Rgb(0x12, 0x34, 0x56)
+    );
+    dotfile_cli::ui::tui::render_buffer_with_palette(&palette, &model, area, &mut buffer, 0, false);
+    assert!(
+        buffer
+            .content()
+            .iter()
+            .all(|cell| cell.fg == ratatui::style::Color::Reset
+                && cell.bg == ratatui::style::Color::Reset)
+    );
+}
+
+#[test]
 fn sync_ui_compact_view_uses_only_reported_progress() {
     let mut model = UiModel::new(false);
     model.apply(&Event::Started {
@@ -308,6 +331,53 @@ fn sync_ui_merge_decision_starts_safe_and_requires_selected_response() {
 }
 
 #[test]
+fn merge_diff_navigation_preserves_safe_choices_and_reaches_each_conflict() {
+    let mut model = UiModel::new(false);
+    let repo = (0..50)
+        .map(|index| format!("line {index}\n"))
+        .collect::<String>();
+    let live = repo
+        .replace("line 3\n", "early replacement\n")
+        .replace("line 42\n", "late replacement\n");
+    model.show_decision(Request {
+        id: 51,
+        prompt: Prompt::Merge {
+            path: "settings.json".into(),
+            key: "config".into(),
+            repo,
+            live,
+        },
+    });
+    assert_eq!(model.selected_choice(), Some(Choice::Skip));
+    model.navigate_diff(ui_diff_view::Action::NextHunk, 22);
+    model.navigate_diff(ui_diff_view::Action::NextHunk, 22);
+    let unified = render(&model, 100, 22);
+    assert!(unified.contains("late replacement"), "{unified}");
+    assert!(unified.contains("MERGE CONFLICT"));
+    assert_eq!(model.selected_choice(), Some(Choice::Skip));
+    model.navigate_diff(ui_diff_view::Action::ToggleMode, 22);
+    let split = render(&model, 100, 22);
+    assert!(split.contains("side by side"));
+    assert!(split.contains("late replacement"));
+    model.select_choice(Choice::Live);
+    let (request, choice) = model.decision_response().unwrap();
+    assert_eq!((request.id, choice), (51, Choice::Live));
+    assert_eq!(model.cancel_response().unwrap().1, Choice::Abort);
+    model.dismiss_decision();
+    model.show_decision(Request {
+        id: 52,
+        prompt: Prompt::Merge {
+            path: "settings.json".into(),
+            key: "another".into(),
+            repo: "repo".into(),
+            live: "live".into(),
+        },
+    });
+    assert_eq!(model.selected_choice(), Some(Choice::Skip));
+    assert_eq!(model.decision_response().unwrap().0.id, 52);
+}
+
+#[test]
 fn sync_ui_merge_target_preselects_default_and_cycles_named_targets() {
     let mut model = UiModel::new(false);
     model.show_decision(Request {
@@ -333,6 +403,25 @@ fn sync_ui_merge_target_preselects_default_and_cycles_named_targets() {
     assert_eq!(model.selected_choice(), Some(Choice::Target(2)));
     assert_eq!(model.decision_response().unwrap().1, Choice::Target(2));
     assert_eq!(model.cancel_response().unwrap().1, Choice::Cancel);
+}
+
+#[test]
+fn merge_arrays_show_the_changed_entries_with_context() {
+    let mut model = UiModel::new(false);
+    model.show_decision(Request {
+        id: 53,
+        prompt: Prompt::Merge {
+            path: "settings.json".into(),
+            key: "tools".into(),
+            repo: r#"["unchanged","before","also unchanged"]"#.into(),
+            live: r#"["unchanged","after","also unchanged"]"#.into(),
+        },
+    });
+    let displayed = render(&model, 100, 22);
+    for value in ["before", "after", "also unchanged", "+1 −1"] {
+        assert!(displayed.contains(value), "missing {value}: {displayed}");
+    }
+    assert_eq!(model.selected_choice(), Some(Choice::Skip));
 }
 
 #[test]

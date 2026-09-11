@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use file_explorer::{
+use hostkit::Route;
+use ui_file_explorer::{
     AcceptTarget, DefaultView, Directory, DirectoryStatus, Entry, EntryKind, Explorer,
     ExplorerError, ExplorerView, FileSource, InputKind, Line, Outcome, Role, Span, ViewContext,
 };
-use hostkit::Route;
 use workstation::Style;
 use workstation::path::home_relative_in;
 
@@ -34,12 +34,13 @@ pub struct Browser<'a> {
     pub here: PathBuf,
 }
 
-struct RemoteSource<'a> {
-    peer: &'a Peer,
-    home: &'a str,
+#[derive(Clone)]
+struct RemoteSource {
+    peer: Peer,
+    home: String,
 }
 
-impl FileSource for RemoteSource<'_> {
+impl FileSource for RemoteSource {
     type Location = String;
     type Error = String;
 
@@ -65,7 +66,7 @@ impl FileSource for RemoteSource<'_> {
     }
 
     fn resolve_input(&self, _current: &String, text: &str) -> Result<String, Self::Error> {
-        Ok(place::expand_remote(text, self.home))
+        Ok(place::expand_remote(text, &self.home))
     }
 
     fn prefetch(&self, location: &String) {
@@ -73,7 +74,7 @@ impl FileSource for RemoteSource<'_> {
     }
 }
 
-impl RemoteSource<'_> {
+impl RemoteSource {
     fn directory(
         &self,
         requested: &str,
@@ -106,7 +107,7 @@ impl RemoteSource<'_> {
             label: format!(
                 "{}:{}",
                 self.peer.host(),
-                home_relative_in(Path::new(&path), Path::new(self.home))
+                home_relative_in(Path::new(&path), Path::new(&self.home))
             ),
             location: path,
             parent,
@@ -255,8 +256,8 @@ impl Browser<'_> {
 
     pub fn choose(&self) -> Result<Chosen, String> {
         let source = RemoteSource {
-            peer: self.peer,
-            home: &self.remote_home,
+            peer: self.peer.clone(),
+            home: self.remote_home.clone(),
         };
         let view = HcopyView { browser: self };
         let mut explorer = Explorer::new(source, self.start.clone(), self.style)
@@ -270,7 +271,7 @@ impl Browser<'_> {
             explorer = explorer.initial_focus(mirror.clone());
         }
         Ok(
-            match explorer.run().map_err(|error| match error {
+            match explorer.into_async().run().map_err(|error| match error {
                 ExplorerError::Source(error) => error,
                 ExplorerError::Terminal(error) => error.to_string(),
             })? {

@@ -1,8 +1,9 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Margin, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
+use ui_theme::{ColorMode, Palette, Role};
 
 use super::model::{Mode, PreviewState, ToolbarItem};
 use super::{
@@ -186,7 +187,34 @@ pub(crate) fn hit_test(model: &Model, point: ratatui::layout::Position) -> HitTa
     HitTarget::None
 }
 
+#[derive(Clone, Copy)]
+struct RenderOptions<'a> {
+    color: bool,
+    palette: &'a Palette,
+}
+
+#[cfg(test)]
 pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
+    render_with_palette(frame, model, options, &Palette::current());
+}
+
+pub(crate) fn render_with_palette(
+    frame: &mut Frame<'_>,
+    model: &Model,
+    options: PickerOptions,
+    palette: &Palette,
+) {
+    render_themed(
+        frame,
+        model,
+        RenderOptions {
+            color: options.color,
+            palette,
+        },
+    );
+}
+
+fn render_themed(frame: &mut Frame<'_>, model: &Model, options: RenderOptions<'_>) {
     let area = frame.area();
     let regions = layout(area);
     frame.render_widget(Block::default().style(base(options)), area);
@@ -207,7 +235,7 @@ pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOption
     }
 }
 
-fn render_header(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_header(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     if area.is_empty() {
         return;
     }
@@ -249,7 +277,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
     render_toolbar(frame, rows[1], model, options);
 }
 
-fn render_toolbar(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_toolbar(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     if area.is_empty() {
         return;
     }
@@ -407,7 +435,7 @@ fn scope_filter_label(filter: ScopeFilter) -> &'static str {
     }
 }
 
-fn render_list(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_list(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     if model.loading && model.entries.is_empty() {
         frame.render_widget(
             Paragraph::new("Scanning session indexes…").style(muted(options)),
@@ -466,7 +494,7 @@ fn render_session_card(
     is_highlighted: bool,
     is_focused: bool,
     compact: bool,
-    options: PickerOptions,
+    options: RenderOptions<'_>,
 ) {
     if area.is_empty() {
         return;
@@ -557,7 +585,7 @@ fn labelled_line(
     label: &'static str,
     value: &str,
     width: u16,
-    options: PickerOptions,
+    options: RenderOptions<'_>,
 ) -> Line<'static> {
     let prefix = format!("  {label:<10}");
     let available = usize::from(width).saturating_sub(prefix.chars().count());
@@ -567,7 +595,7 @@ fn labelled_line(
     ])
 }
 
-fn badge(label: impl Into<String>, style: Style, options: PickerOptions) -> Span<'static> {
+fn badge(label: impl Into<String>, style: Style, options: RenderOptions<'_>) -> Span<'static> {
     let label = label.into();
     if options.color {
         Span::styled(format!(" {label} "), style.add_modifier(Modifier::BOLD))
@@ -576,21 +604,16 @@ fn badge(label: impl Into<String>, style: Style, options: PickerOptions) -> Span
     }
 }
 
-fn agent_badge(name: &str, options: PickerOptions) -> Style {
-    if !options.color {
-        return Style::default().add_modifier(Modifier::BOLD);
-    }
-    match name {
-        "codex" => Style::default()
-            .fg(Color::Rgb(216, 180, 254))
-            .bg(Color::Rgb(76, 29, 149)),
-        "claude" => Style::default()
-            .fg(Color::Rgb(254, 215, 170))
-            .bg(Color::Rgb(124, 45, 18)),
-        _ => Style::default()
-            .fg(Color::Rgb(203, 213, 225))
-            .bg(Color::Rgb(51, 65, 85)),
-    }
+fn agent_badge(name: &str, options: RenderOptions<'_>) -> Style {
+    role(
+        options,
+        match name {
+            "codex" => Role::Accent,
+            "claude" => Role::Warning,
+            _ => Role::Muted,
+        },
+    )
+    .add_modifier(Modifier::BOLD)
 }
 
 fn agent_label(name: &str) -> &'static str {
@@ -609,7 +632,7 @@ fn density_label(density: PreviewDensity) -> &'static str {
     }
 }
 
-fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_preview(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     let selected_session = model.preview_entry().is_some();
     let preview_focused =
         model.mode == Mode::Browse && model.pane == super::model::Pane::Preview && selected_session;
@@ -742,7 +765,7 @@ fn preview_reveal(area: Rect, progress: f32) -> Rect {
     )
 }
 
-fn render_text_selection(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
+fn render_text_selection(frame: &mut Frame<'_>, model: &Model, options: RenderOptions<'_>) {
     let Some(selection) = model.text_selection else {
         return;
     };
@@ -750,13 +773,7 @@ fn render_text_selection(frame: &mut Frame<'_>, model: &Model, options: PickerOp
     if area.is_empty() {
         return;
     }
-    let style = if options.color {
-        Style::default()
-            .fg(Color::Rgb(15, 23, 42))
-            .bg(Color::Rgb(196, 181, 253))
-    } else {
-        Style::default().add_modifier(Modifier::REVERSED)
-    };
+    let style = selected(options);
     let buffer = frame.buffer_mut();
     for y in area.y..area.bottom() {
         for x in area.x..area.right() {
@@ -770,7 +787,7 @@ fn render_text_selection(frame: &mut Frame<'_>, model: &Model, options: PickerOp
     }
 }
 
-fn render_conversation(lines: &mut Vec<Line<'static>>, model: &Model, options: PickerOptions) {
+fn render_conversation(lines: &mut Vec<Line<'static>>, model: &Model, options: RenderOptions<'_>) {
     match model.selected_preview() {
         Some(PreviewState::Loading) | None => lines.push(Line::from(Span::styled(
             "Loading transcript preview…",
@@ -823,7 +840,7 @@ fn render_conversation(lines: &mut Vec<Line<'static>>, model: &Model, options: P
     }
 }
 
-fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     if area.is_empty() {
         return;
     }
@@ -852,7 +869,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Pick
     }
 }
 
-fn render_help(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_help(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     let popup = centered(
         area,
         72.min(area.width.saturating_sub(2)),
@@ -906,7 +923,12 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, model: &Model, options: Picker
     frame.render_widget(paragraph.scroll((scroll, 0)), popup);
 }
 
-fn render_diagnostics(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_diagnostics(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    model: &Model,
+    options: RenderOptions<'_>,
+) {
     let popup = centered(
         area,
         82.min(area.width.saturating_sub(2)),
@@ -956,7 +978,7 @@ fn overlay_scroll(paragraph: &Paragraph<'_>, area: Rect, requested: u16) -> u16 
         .min(usize::from(u16::MAX)) as u16
 }
 
-fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: PickerOptions) {
+fn render_review(frame: &mut Frame<'_>, area: Rect, model: &Model, options: RenderOptions<'_>) {
     let popup = review_area(area);
     frame.render_widget(Clear, popup);
     let Some(entry) = model.preview_entry() else {
@@ -1100,126 +1122,72 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn truncate(value: &str, width: usize) -> String {
-    let count = value.chars().count();
-    if count <= width {
-        return value.to_string();
-    }
-    if width <= 1 {
-        return "…".chars().take(width).collect();
-    }
-    let mut result = value.chars().take(width - 1).collect::<String>();
-    result.push('…');
-    result
+    ui_terminal::text::truncate_back(value, width)
 }
 
 fn truncate_tail(value: &str, width: usize) -> String {
-    let count = value.chars().count();
-    if count <= width {
-        return value.to_string();
-    }
-    if width <= 1 {
-        return "…".chars().take(width).collect();
-    }
-    let tail = value
-        .chars()
-        .skip(count.saturating_sub(width - 1))
-        .collect::<String>();
-    format!("…{tail}")
+    ui_terminal::text::truncate_front(value, width)
 }
 
-fn base(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default()
-            .bg(Color::Rgb(8, 12, 22))
-            .fg(Color::Rgb(226, 232, 240))
-    } else {
-        Style::default()
-    }
+fn role(options: RenderOptions<'_>, role: Role) -> Style {
+    options.palette.ratatui(
+        if options.color {
+            ColorMode::Always
+        } else {
+            ColorMode::Never
+        },
+        true,
+        role,
+    )
 }
 
-fn normal(options: PickerOptions) -> Style {
+fn base(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Background)
+}
+fn normal(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Plain)
+}
+fn muted(options: RenderOptions<'_>) -> Style {
+    let style = role(options, Role::Muted);
     if options.color {
-        Style::default().fg(Color::Rgb(226, 232, 240))
+        style
     } else {
-        Style::default()
+        style.add_modifier(Modifier::DIM)
     }
 }
-
-fn muted(options: PickerOptions) -> Style {
+fn dim(options: RenderOptions<'_>) -> Style {
+    let style = role(options, Role::Border);
     if options.color {
-        Style::default().fg(Color::Rgb(148, 163, 184))
+        style
     } else {
-        Style::default().add_modifier(Modifier::DIM)
+        style.add_modifier(Modifier::DIM)
     }
 }
-
-fn dim(options: PickerOptions) -> Style {
+fn accent(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Accent).add_modifier(Modifier::BOLD)
+}
+fn success(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Success)
+}
+fn warning(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Warning)
+}
+fn danger(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Danger)
+}
+fn selected(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Selection)
+}
+fn selected_field(options: RenderOptions<'_>) -> Style {
+    let style = role(options, Role::Surface);
     if options.color {
-        Style::default().fg(Color::Rgb(71, 85, 105))
+        style
     } else {
-        Style::default().add_modifier(Modifier::DIM)
+        style.add_modifier(Modifier::BOLD)
     }
 }
-
-fn accent(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default().fg(Color::Rgb(167, 139, 250))
-    } else {
-        Style::default().add_modifier(Modifier::BOLD)
-    }
-}
-
-fn success(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default().fg(Color::Rgb(52, 211, 153))
-    } else {
-        Style::default().add_modifier(Modifier::BOLD)
-    }
-}
-
-fn warning(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default().fg(Color::Rgb(250, 204, 21))
-    } else {
-        Style::default().add_modifier(Modifier::BOLD)
-    }
-}
-
-fn danger(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default().fg(Color::Rgb(248, 113, 113))
-    } else {
-        Style::default().add_modifier(Modifier::BOLD)
-    }
-}
-
-fn selected(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default()
-            .fg(Color::Rgb(15, 23, 42))
-            .bg(Color::Rgb(196, 181, 253))
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    }
-}
-
-fn selected_field(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default().bg(Color::Rgb(21, 28, 48))
-    } else {
-        Style::default().add_modifier(Modifier::BOLD)
-    }
-}
-
-fn selected_card(options: PickerOptions) -> Style {
-    if options.color {
-        Style::default()
-            .fg(Color::Rgb(241, 245, 249))
-            .bg(Color::Rgb(21, 28, 48))
-    } else {
-        Style::default()
-    }
+fn selected_card(options: RenderOptions<'_>) -> Style {
+    role(options, Role::Panel)
 }
 
 #[cfg(test)]

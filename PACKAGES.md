@@ -14,6 +14,7 @@
 - `tmux` — Persistent project workspaces, pane tools, navigation and generated theme
 - `tools`
 - `transcript`
+- `ui` — Shared terminal palette generated from the active theme profile
 - `vscode` — VS Code user settings: shared base with platform overlays merged on link
 - `wezterm`
 - `yazi` — Terminal file manager configuration

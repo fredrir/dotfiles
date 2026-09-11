@@ -4,36 +4,8 @@ use super::{
     store::Store,
 };
 use std::collections::BTreeSet;
-use workstation::{Key, Screen};
+pub use ui_picker::{Column, Pick};
 
-#[derive(Clone, Debug)]
-pub struct Pick {
-    pub kind: String,
-    pub option: String,
-}
-#[derive(Clone, Debug)]
-pub struct Column {
-    pub kind: String,
-    pub title: String,
-    pub options: Vec<(String, String)>,
-    pub index: usize,
-}
-impl Column {
-    fn new(kind: &str, title: &str, options: Vec<(String, String)>) -> Self {
-        Self {
-            kind: kind.into(),
-            title: title.into(),
-            options,
-            index: 0,
-        }
-    }
-    fn picked(&self) -> Pick {
-        Pick {
-            kind: self.kind.clone(),
-            option: self.options[self.index].0.clone(),
-        }
-    }
-}
 fn selected<'a>(picks: &'a [Pick], kind: &str) -> &'a str {
     picks
         .iter()
@@ -55,217 +27,34 @@ fn simple(kind: &str, title: &str, options: Vec<String>) -> Column {
     )
 }
 pub fn choose(title: &str, options: &[String]) -> Result<Option<usize>, String> {
-    let found = cascade(title, |picks| {
-        if picks.is_empty() {
-            Some(simple("choice", title, options.to_vec()))
-        } else {
-            None
-        }
-    })?;
-    Ok(found.and_then(|picks| {
-        picks
-            .last()
-            .and_then(|pick| options.iter().position(|option| option == &pick.option))
-    }))
+    super::require_terminal(title)?;
+    ui_picker::choose(title, options)
 }
+
 pub fn cascade(
     title: &str,
     expand: impl Fn(&[Pick]) -> Option<Column>,
 ) -> Result<Option<Vec<Pick>>, String> {
     super::require_terminal(title)?;
-    let Some(root) = expand(&[]).filter(|column| !column.options.is_empty()) else {
-        return Ok(None);
-    };
-    let Some(mut screen) = Screen::open().map_err(|e| e.to_string())? else {
-        return Err("terminal unavailable".into());
-    };
-    let mut columns = vec![root];
-    loop {
-        let size = screen.size().unwrap_or((80, 24));
-        screen
-            .draw(&frame(title, &columns, size.0, size.1))
-            .map_err(|e| e.to_string())?;
-        let key = screen.key().map_err(|e| e.to_string())?;
-        match key {
-            Key::Escape | Key::Interrupt | Key::Char('q') => {
-                screen.clear().map_err(|e| e.to_string())?;
-                return Ok(None);
-            }
-            Key::Left | Key::Backspace | Key::Char('h') => {
-                if columns.len() > 1 {
-                    columns.pop();
-                }
-            }
-            Key::Up | Key::Char('k') => {
-                let column = columns.last_mut().unwrap();
-                column.index = (column.index + column.options.len() - 1) % column.options.len();
-            }
-            Key::Down | Key::Char('j') => {
-                let column = columns.last_mut().unwrap();
-                column.index = (column.index + 1) % column.options.len();
-            }
-            Key::Home => columns.last_mut().unwrap().index = 0,
-            Key::End => {
-                let column = columns.last_mut().unwrap();
-                column.index = column.options.len() - 1;
-            }
-            Key::PageUp | Key::PageDown => {
-                let column = columns.last_mut().unwrap();
-                let step = size.1.saturating_sub(6).max(1);
-                column.index = if key == Key::PageUp {
-                    column.index.saturating_sub(step)
-                } else {
-                    (column.index + step).min(column.options.len() - 1)
-                };
-            }
-            Key::Enter | Key::Right | Key::Char('l') => {
-                let picks = columns.iter().map(Column::picked).collect::<Vec<_>>();
-                if let Some(child) = expand(&picks).filter(|column| !column.options.is_empty()) {
-                    columns.push(child);
-                } else if key == Key::Enter {
-                    screen.clear().map_err(|e| e.to_string())?;
-                    drop(screen);
-                    println!(
-                        "  {title} — {}",
-                        picks
-                            .iter()
-                            .map(|pick| pick.option.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" › ")
-                    );
-                    return Ok(Some(picks));
-                }
-            }
-            Key::Char(digit) if digit.is_ascii_digit() && digit != '0' => {
-                let index = (digit as u8 - b'1') as usize;
-                let column = columns.last_mut().unwrap();
-                if index < column.options.len() {
-                    column.index = index;
-                }
-            }
-            _ => {}
-        }
-    }
-}
-pub fn frame(title: &str, columns: &[Column], width: usize, height: usize) -> Vec<String> {
-    let width = width.saturating_sub(1).max(1);
-    let room = height.saturating_sub(6).max(1);
-    let active = columns.len() - 1;
-    let widths = columns
-        .iter()
-        .enumerate()
-        .map(|(index, column)| {
-            column
-                .options
+    let selected = ui_picker::cascade(title, expand)?;
+    if let Some(picks) = &selected {
+        println!(
+            "  {title} — {}",
+            picks
                 .iter()
-                .map(|(name, detail)| {
-                    unicode_width::UnicodeWidthStr::width(name.as_str())
-                        + 2
-                        + if index == active && !detail.is_empty() {
-                            2 + unicode_width::UnicodeWidthStr::width(detail.as_str())
-                        } else {
-                            0
-                        }
-                })
-                .max()
-                .unwrap_or(0)
-                .max(unicode_width::UnicodeWidthStr::width(column.title.as_str()))
-        })
-        .collect::<Vec<_>>();
-    let mut first = 0;
-    while first < active && 2 + widths[first..].iter().sum::<usize>() + (active - first) * 3 > width
-    {
-        first += 1;
-    }
-    let heading = if first > 0 {
-        format!(
-            "  {title}  ‹ {}",
-            columns[..first]
-                .iter()
-                .map(|column| column.options[column.index].0.as_str())
+                .map(|pick| pick.option.as_str())
                 .collect::<Vec<_>>()
                 .join(" › ")
-        )
-    } else {
-        format!("  {title}")
-    };
-    let mut lines = vec![
-        String::new(),
-        fit(&heading, width),
-        fit("  ↑/↓ move | ←/→ level | ↩ select | q quit", width),
-        String::new(),
-    ];
-    let mut headers = String::from("  ");
-    for (index, column) in columns.iter().enumerate().skip(first) {
-        if index > first {
-            headers.push_str("   ");
-        }
-        headers.push_str(&column.title);
-        if index < active {
-            headers.push_str(
-                &" ".repeat(
-                    widths[index].saturating_sub(unicode_width::UnicodeWidthStr::width(
-                        column.title.as_str(),
-                    )),
-                ),
-            );
-        }
+        );
     }
-    lines.push(fit(&headers, width));
-    let shown = columns[first..]
-        .iter()
-        .map(|column| column.options.len().min(room))
-        .max()
-        .unwrap_or(0);
-    for row in 0..shown {
-        let mut line = String::from("  ");
-        for (index, column) in columns.iter().enumerate().skip(first) {
-            if index > first {
-                line.push_str("   ");
-            }
-            let start = column.index.saturating_sub(room.saturating_sub(1));
-            let item = start + row;
-            let cell = if let Some((option, detail)) = column.options.get(item) {
-                format!(
-                    "{}{}{}",
-                    if item == column.index { "❯ " } else { "  " },
-                    option,
-                    if index == active && !detail.is_empty() {
-                        format!("  {detail}")
-                    } else {
-                        String::new()
-                    }
-                )
-            } else {
-                String::new()
-            };
-            line.push_str(&cell);
-            if index < active {
-                line.push_str(
-                    &" ".repeat(
-                        widths[index]
-                            .saturating_sub(unicode_width::UnicodeWidthStr::width(cell.as_str())),
-                    ),
-                );
-            }
-        }
-        lines.push(fit(&line, width));
-    }
-    lines
+    Ok(selected)
 }
-fn fit(text: &str, width: usize) -> String {
-    let mut result = String::new();
-    let mut used = 0;
-    for ch in text.chars() {
-        let size = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
-        if used + size > width {
-            break;
-        }
-        result.push(ch);
-        used += size;
-    }
-    result
+
+#[cfg(test)]
+pub fn frame(title: &str, columns: &[Column], width: usize, height: usize) -> Vec<String> {
+    ui_picker::cascade_frame(title, columns, width, height, &workstation::Style::plain())
 }
+
 const MENU: [(&str, &str); 8] = [
     ("run", "measure this machine now"),
     ("show", "inspect a stored run"),

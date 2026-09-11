@@ -14,7 +14,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, ValueHint};
+use clap::{Parser, ValueHint};
 use workstation::path::home_relative;
 use workstation::text::plural;
 use workstation::{Completable, Completions, Style};
@@ -69,7 +69,7 @@ fn main() -> ExitCode {
         // Nothing named and nothing asked for: the help is the answer, so it is
         // what the caller wanted rather than a misuse of the tool.
         if cli.target.is_none() && !cli.check && !cli.add && !cli.sync {
-            Cli::command().print_help().ok();
+            workstation::cli::command::<Cli>().print_help().ok();
             println!();
             return Ok(ExitCode::SUCCESS);
         }

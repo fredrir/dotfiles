@@ -83,9 +83,11 @@ struct Inspected {
 
 pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     let Some(command) = args.command else {
-        <Args as clap::Args>::augment_args(clap::Command::new("dotfile system"))
-            .print_help()
-            .map_err(|e| e.to_string())?;
+        workstation::cli::decorate(<Args as clap::Args>::augment_args(clap::Command::new(
+            "dotfile system",
+        )))
+        .print_help()
+        .map_err(|e| e.to_string())?;
         println!();
         return Ok(ExitCode::SUCCESS);
     };

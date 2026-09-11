@@ -1,0 +1,13 @@
+[package]
+name              = "ui-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "Shared command help, diagnostics and prompts"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace     = true
+ui-theme.workspace = true

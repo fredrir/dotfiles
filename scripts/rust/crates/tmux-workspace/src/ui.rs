@@ -3,6 +3,8 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::os::fd::AsFd;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
+use ui_terminal::text::{fit as fit_text, pad_right, width as text_width, wrap};
 
 use nix::poll::{PollFd, PollFlags, poll};
 use serde::{Deserialize, Serialize};
@@ -113,96 +115,39 @@ pub fn choose(
 
 pub fn pick(data: &Path, output: &Path) -> Result<()> {
     let picker: Picker = serde_json::from_str(&fs::read_to_string(data)?)?;
+    let rows = picker
+        .rows
+        .iter()
+        .map(|row| ui_picker::fzf::Row {
+            label: &row.label,
+            copy: &row.copy,
+        })
+        .collect::<Vec<_>>();
     let index = if process::which("fzf").is_some() {
-        let lines = picker
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(i, row)| {
-                let copy = if row.copy.is_empty() {
-                    &row.label
-                } else {
-                    &row.copy
-                };
-                format!("{i}\t{}\t{}", clean(copy, 1200), clean(&row.label, 1200))
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut cmd = Command::new("fzf");
-        cmd.env("FZF_DEFAULT_OPTS", "")
-            .env("FZF_DEFAULT_OPTS_FILE", "")
-            .args([
-                "--layout=reverse",
-                "--no-multi",
-                "--delimiter=\t",
-                "--with-nth=3..",
-                "--cycle",
-                "--header",
-                &format!("{} · ⌃y copy row", picker.header),
-                "--bind",
-                &format!("ctrl-y:execute-silent({} {{2}})", picker.copy),
-            ]);
-        if picker.popup {
-            cmd.args(["--padding=0,1", "--prompt", "› "]);
+        let options = ui_picker::fzf::Options {
+            title: &picker.title,
+            header: &picker.header,
+            colors: &picker.colors,
+            copy_command: &picker.copy,
+            popup: picker.popup,
+        };
+        let result = process::capture_foreground(
+            &mut ui_picker::fzf::command(&options),
+            Some(ui_picker::fzf::input(&rows).as_bytes()),
+        )?;
+        if !matches!(result.code, 0 | 1 | 130) {
+            result.checked()?;
+            None
         } else {
-            cmd.args([
-                "--border=rounded",
-                "--prompt",
-                &format!("{} › ", picker.title),
-            ]);
-        }
-        if !picker.colors.is_empty() {
-            cmd.args(["--color", &picker.colors]);
-        }
-        let result = process::capture_foreground(&mut cmd, Some(lines.as_bytes()))?;
-        match result.code {
-            0 => Some(
-                result
-                    .out
-                    .split('\t')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .parse::<usize>()?,
-            ),
-            1 | 130 => None,
-            _ => {
-                result.checked()?;
-                None
-            }
+            ui_picker::fzf::selection(result.code, &result.out, rows.len())?
         }
     } else {
-        println!(
-            "{} — fzf unavailable; enter a number or search text\n",
-            picker.title
-        );
-        let mut search = String::new();
-        loop {
-            for (i, row) in picker
-                .rows
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| r.label.to_lowercase().contains(&search))
-                .take(80)
-            {
-                println!("{:>3}  {}", i + 1, clean(&row.label, 180));
-            }
-            print!("Number / search / empty to cancel › ");
-            io::stdout().flush()?;
-            let mut line = String::new();
-            io::stdin().read_line(&mut line)?;
-            let value = line.trim();
-            if value.is_empty() {
-                break None;
-            }
-            if let Ok(index) = value.parse::<usize>()
-                && index > 0
-                && index <= picker.rows.len()
-            {
-                break Some(index - 1);
-            }
-            search = value.to_lowercase();
-        }
+        ui_picker::fzf::choose_plain(
+            &picker.title,
+            &rows,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+        )?
     };
     if let Some(index) = index {
         if index >= picker.rows.len() {
@@ -404,7 +349,7 @@ impl Report {
     fn label_width(&self) -> usize {
         self.details
             .iter()
-            .map(|(label, _)| label.chars().count())
+            .map(|(label, _)| text_width(label))
             .max()
             .unwrap_or(0)
     }
@@ -414,25 +359,33 @@ impl Report {
             let width = self.label_width();
             text.push('\n');
             for (label, value) in &self.details {
-                text.push_str(&format!("\n{label:<width$}   {value}"));
+                text.push_str(&format!("\n{}   {value}", pad_right(label, width)));
             }
         }
         text
     }
     fn rows(&self, width: usize) -> Vec<Row> {
-        let inner = width.saturating_sub(4).max(8);
+        let inner = width.saturating_sub(4).max(1);
         let mut rows = vec![Row::Text(String::new())];
         for line in self.body.trim_end().lines() {
             rows.extend(wrap(line, inner).into_iter().map(Row::Text));
         }
         if !self.details.is_empty() {
             rows.push(Row::Text(String::new()));
-            let label_width = self.label_width();
+            let label_width = self.label_width().min(inner.saturating_sub(4) / 3);
             for (label, value) in &self.details {
+                if inner < 5 {
+                    rows.extend(
+                        wrap(&format!("{label} {value}"), inner)
+                            .into_iter()
+                            .map(Row::Text),
+                    );
+                    continue;
+                }
                 let mut pieces =
-                    wrap(value, inner.saturating_sub(label_width + 3).max(8)).into_iter();
+                    wrap(value, inner.saturating_sub(label_width + 3).max(1)).into_iter();
                 rows.push(Row::Detail(
-                    format!("{label:<label_width$}"),
+                    pad_right(&fit_text(label, label_width), label_width),
                     pieces.next().unwrap_or_default(),
                 ));
                 rows.extend(
@@ -456,40 +409,6 @@ enum Row {
 }
 
 const REPORT_HINT: &str = "q close · y copy all · v or drag to select";
-
-fn wrap(text: &str, width: usize) -> Vec<String> {
-    let mut lines = vec![String::new()];
-    for word in text.split(' ') {
-        let mut word: Vec<char> = word.chars().collect();
-        loop {
-            let current = lines.last_mut().expect("at least one line");
-            let used = current.chars().count();
-            if used == 0 && word.len() > width {
-                current.extend(word.drain(..width));
-                lines.push(String::new());
-                continue;
-            }
-            let needed = if used == 0 {
-                word.len()
-            } else {
-                used + 1 + word.len()
-            };
-            if needed <= width {
-                if used > 0 {
-                    current.push(' ');
-                }
-                current.extend(word.iter());
-            } else if used == 0 {
-                current.extend(word.iter());
-            } else {
-                lines.push(String::new());
-                continue;
-            }
-            break;
-        }
-    }
-    lines
-}
 
 fn fit(wanted: usize, least: usize, total: usize, percent: usize) -> usize {
     let most = (total * percent / 100).max(1);
@@ -519,8 +438,8 @@ pub fn report(ctx: &Context, report: &Report) -> Result<()> {
     let widest = report
         .plain()
         .lines()
-        .map(|line| line.chars().count())
-        .chain([REPORT_HINT.chars().count()])
+        .map(text_width)
+        .chain([text_width(REPORT_HINT)])
         .max()
         .unwrap_or(0);
     let width = fit(widest + 4, 40, window_width, 82);
@@ -528,44 +447,12 @@ pub fn report(ctx: &Context, report: &Report) -> Result<()> {
     ctx.float(&command, &report.title, report.failed, width, height)
 }
 
-fn paint(hex: &str) -> String {
-    let hex = hex.trim().trim_start_matches('#');
-    if hex.len() != 6 {
-        return String::new();
-    }
-    let channel = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16);
-    match (channel(0), channel(2), channel(4)) {
-        (Ok(r), Ok(g), Ok(b)) => format!("\x1b[38;2;{r};{g};{b}m"),
-        _ => String::new(),
-    }
-}
-
-struct RawTerminal;
-
-impl RawTerminal {
-    fn enable() -> Result<Self> {
-        crossterm::terminal::enable_raw_mode()?;
-        print!("\x1b[?25l");
-        io::stdout().flush()?;
-        Ok(Self)
-    }
-}
-
-impl Drop for RawTerminal {
-    fn drop(&mut self) {
-        print!("\x1b[?25h");
-        let _ = io::stdout().flush();
-        let _ = crossterm::terminal::disable_raw_mode();
-    }
-}
-
 pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
     use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, read};
 
     let report: Report = serde_json::from_str(&fs::read_to_string(path)?)?;
     let _ = fs::remove_file(path);
-    let muted = paint(&ctx.tmux.option("@theme_muted"));
-    let reset = "\x1b[0m";
+    let style = workstation::Style::for_stdout();
     let own = std::env::var("TMUX_PANE").ok();
     let size = own
         .as_deref()
@@ -580,13 +467,16 @@ pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
         });
     let (width, height) = size.unwrap_or((80, usize::MAX));
     let rows = report.rows(width);
-    let _raw = RawTerminal::enable()?;
+    let _raw = ui_terminal::RawSession::new()?;
     let screen = rows
         .iter()
         .map(|row| match row {
             Row::Text(text) => format!("  {text}"),
-            Row::Detail(label, value) => format!("  {muted}{label}{reset}   {value}"),
-            Row::Hint => format!("  {muted}{REPORT_HINT}{reset}"),
+            Row::Detail(label, value) => format!("  {}   {value}", style.dim(label)),
+            Row::Hint => format!(
+                "  {}",
+                style.dim(&fit_text(REPORT_HINT, width.saturating_sub(3)))
+            ),
         })
         .collect::<Vec<_>>()
         .join("\r\n");
@@ -601,6 +491,16 @@ pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
             .run(&["send-keys", "-X", "-t", pane, "history-top"])?;
     }
     loop {
+        if ui_terminal::termination_requested() {
+            break;
+        }
+        match crossterm::event::poll(Duration::from_millis(100)) {
+            Ok(false) => continue,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => {
+                result?;
+            }
+        }
         let Event::Key(key) = read()? else {
             continue;
         };
@@ -626,16 +526,32 @@ pub fn show_report(ctx: &Context, path: &Path) -> Result<i32> {
 
 pub fn key_reader() -> Result<()> {
     println!("Press keys. Bytes shown after tmux decoding; Ctrl-C exits.\r");
-    let _raw = RawTerminal::enable()?;
+    let _raw = ui_terminal::RawSession::new()?;
     let mut stdin = io::stdin();
     loop {
+        if ui_terminal::termination_requested() {
+            break;
+        }
+        let mut ready = [PollFd::new(stdin.as_fd(), PollFlags::POLLIN)];
+        match poll(&mut ready, 100u16) {
+            Ok(0) | Err(nix::errno::Errno::EINTR) => continue,
+            result => {
+                result?;
+            }
+        }
         let mut buf = [0; 128];
-        let n = stdin.read(&mut buf)?;
+        let n = match stdin.read(&mut buf) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if n == 0 || buf[..n].contains(&3) {
             break;
         }
         let mut bytes = buf[..n].to_vec();
         loop {
+            if ui_terminal::termination_requested() {
+                break;
+            }
             let mut fds = [PollFd::new(stdin.as_fd(), PollFlags::POLLIN)];
             if poll(&mut fds, 30u16)? == 0 {
                 break;
@@ -656,3 +572,7 @@ pub fn key_reader() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/ui_tests.rs"]
+mod tests;

@@ -28,6 +28,51 @@ fn every_profile_renders_an_idempotent_output_set() {
 }
 
 #[test]
+fn ui_palettes_preserve_legacy_exports_and_readable_component_states() {
+    let directory = support::repository();
+    let repo = model::Repository::load(directory.path()).unwrap();
+    for theme in repo.themes.values() {
+        let document = emitters::ui::document(theme).unwrap();
+        let palette = ui_theme::Palette::from_json(&emitters::ui::render(theme).unwrap()).unwrap();
+        assert_eq!(document.version, 1);
+        assert_eq!(palette.profile, theme.profile);
+        assert_eq!(
+            document.colors["red"],
+            theme.color("red").unwrap().to_string()
+        );
+        assert_eq!(
+            document.roles["section_system"],
+            theme.role("section_system").unwrap().to_string()
+        );
+        for role in ui_theme::Role::ALL {
+            assert!(
+                document.ui.contains_key(role.key()),
+                "{}: {}",
+                theme.profile,
+                role.key()
+            );
+        }
+        let foreground = color::Color::parse(&document.ui["selection_foreground"]).unwrap();
+        let background = color::Color::parse(&document.ui["selection_background"]).unwrap();
+        assert!(
+            foreground.contrast(background) >= 4.5 - 1e-9,
+            "{}: selection",
+            theme.profile
+        );
+        let pairs = validate::pairs(theme).unwrap();
+        assert!(pairs.iter().any(|pair| pair.area == "ui"));
+        assert!(
+            pairs
+                .iter()
+                .filter(|pair| pair.area == "ui" || pair.area == "ui256")
+                .all(validate::Pair::passes),
+            "{}",
+            theme.profile
+        );
+    }
+}
+
+#[test]
 fn color_math_and_expression_contracts() {
     use color::Color;
     for (a, b, amount, expected) in [

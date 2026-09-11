@@ -1,0 +1,14 @@
+[package]
+name              = "ui-picker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "Single, multiple and cascading terminal selections"
+
+[lints]
+workspace = true
+
+[dependencies]
+ui-theme.workspace    = true
+ui-terminal.workspace = true
+ui-widgets.workspace  = true

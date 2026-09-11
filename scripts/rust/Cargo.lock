@@ -104,8 +104,10 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "testkit",
- "tui-kit",
  "tungstenite",
+ "ui-terminal",
+ "ui-theme",
+ "ui-widgets",
  "unicode-width",
  "workstation",
 ]
@@ -897,7 +899,6 @@ dependencies = [
  "chrono-tz",
  "clap",
  "configparser",
- "file-explorer",
  "filetime",
  "fs2",
  "globset",
@@ -912,6 +913,8 @@ dependencies = [
  "tempfile",
  "testkit",
  "toml 0.9.12+spec-1.1.0",
+ "ui-file-explorer",
+ "ui-picker",
  "uuid",
  "walkdir",
  "workstation",
@@ -1062,6 +1065,7 @@ dependencies = [
  "nix 0.30.1",
  "ratatui",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -1073,7 +1077,13 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "tree-sitter",
  "tree-sitter-lua",
- "tui-kit",
+ "ui-cli",
+ "ui-diff-view",
+ "ui-gallery",
+ "ui-progress",
+ "ui-terminal",
+ "ui-theme",
+ "ui-widgets",
  "unicode-width",
  "workstation",
  "workstation-sysinfo",
@@ -1235,15 +1245,6 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
-
-[[package]]
-name = "file-explorer"
-version = "0.1.0"
-dependencies = [
- "tempfile",
- "unicode-width",
- "workstation",
-]
 
 [[package]]
 name = "filedescriptor"
@@ -2485,11 +2486,12 @@ name = "hcopy"
 version = "0.1.0"
 dependencies = [
  "clap",
- "file-explorer",
  "hostkit",
  "serde_json",
  "tempfile",
  "testkit",
+ "ui-file-explorer",
+ "ui-progress",
  "workstation",
 ]
 
@@ -2589,7 +2591,9 @@ dependencies = [
  "serde_json",
  "tachyonfx",
  "testkit",
- "tui-kit",
+ "ui-progress",
+ "ui-terminal",
+ "ui-theme",
  "workstation",
 ]
 
@@ -4589,6 +4593,8 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
+ "ui-picker",
+ "ui-terminal",
  "workstation",
 ]
 
@@ -4671,17 +4677,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tui-kit"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "libc",
- "ratatui",
- "testkit",
- "workstation",
-]
-
-[[package]]
 name = "tungstenite"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4718,6 +4713,103 @@ name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
+
+[[package]]
+name = "ui-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "ui-theme",
+]
+
+[[package]]
+name = "ui-diff-view"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "ratatui",
+ "similar",
+ "ui-theme",
+ "unicode-width",
+]
+
+[[package]]
+name = "ui-file-explorer"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "ui-picker",
+ "ui-terminal",
+ "ui-theme",
+ "ui-widgets",
+ "unicode-width",
+]
+
+[[package]]
+name = "ui-gallery"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "ratatui",
+ "ui-diff-view",
+ "ui-picker",
+ "ui-progress",
+ "ui-terminal",
+ "ui-theme",
+ "ui-widgets",
+]
+
+[[package]]
+name = "ui-picker"
+version = "0.1.0"
+dependencies = [
+ "ui-terminal",
+ "ui-theme",
+ "ui-widgets",
+]
+
+[[package]]
+name = "ui-progress"
+version = "0.1.0"
+dependencies = [
+ "ratatui",
+ "ui-theme",
+]
+
+[[package]]
+name = "ui-terminal"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "libc",
+ "nix 0.30.1",
+ "ratatui",
+ "rustix",
+ "tempfile",
+ "testkit",
+ "ui-theme",
+ "unicode-width",
+]
+
+[[package]]
+name = "ui-theme"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "ui-widgets"
+version = "0.1.0"
+dependencies = [
+ "ui-terminal",
+ "ui-theme",
+ "unicode-width",
+]
 
 [[package]]
 name = "uluru"
@@ -5273,6 +5365,9 @@ dependencies = [
  "serde_json",
  "tempfile",
  "testkit",
+ "ui-cli",
+ "ui-terminal",
+ "ui-theme",
 ]
 
 [[package]]
@@ -5296,6 +5391,8 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "testkit",
+ "ui-picker",
+ "ui-theme",
  "unicode-width",
  "workstation",
 ]

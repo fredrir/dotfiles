@@ -13,6 +13,12 @@ name = "dotfile"
 path = "src/main.rs"
 
 [dependencies]
+ui-cli.workspace = true
+ui-theme = { workspace = true, features = ["ratatui"] }
+ui-widgets.workspace = true
+ui-progress = { workspace = true, features = ["ratatui"] }
+ui-diff-view.workspace = true
+ui-gallery.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 regex = "1"
@@ -22,7 +28,7 @@ serde_yaml_ng = "0.10"
 globset = "0.4"
 crossbeam-channel.workspace = true
 crossterm.workspace = true
-similar = "2"
+similar.workspace = true
 unicode-width.workspace = true
 tree-sitter = "0.25"
 tree-sitter-lua = "0.5"
@@ -39,7 +45,7 @@ toml = { version = "0.9", default-features = false, features = [
   "std",
   "preserve_order",
 ] }
-tui-kit.workspace = true
+ui-terminal = { workspace = true, features = ["ratatui"] }
 workstation.workspace = true
 
 sysinfo = { package = "workstation-sysinfo", path = "../sysinfo" }
@@ -51,3 +57,6 @@ nix            = { workspace = true, features = ["signal", "process", "fs", "ter
 [dev-dependencies]
 tempfile.workspace = true
 testkit.workspace  = true
+
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { workspace = true, features = ["termios"] }

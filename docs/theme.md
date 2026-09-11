@@ -1,5 +1,13 @@
 # dotfile theme
 
+| Tool UI | Command / path |
+|---|---|
+| Component gallery | `dotfile theme gallery [PROFILE]` |
+| Component preview | `dotfile theme preview [PROFILE]` |
+| Generated runtime palette | `shared/ui/theme.json` |
+| Installed runtime palette | `~/.config/dotfile/ui/theme.json` |
+| Shared libraries | [Rust UI](../scripts/rust/crates/ui/README.md) |
+
 A theme profile is an immutable set of five UI primitives and sixteen ANSI colors. Semantic
 roles and application mappings live in the generator so every profile follows the same rules.
 

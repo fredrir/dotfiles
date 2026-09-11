@@ -204,20 +204,24 @@ fn slash_focuses_an_empty_search_without_leaving_placeholder_text() {
 
 #[test]
 fn horizontal_focus_moves_the_accent_border_between_card_and_preview() {
-    fn border_colors(mut model: Model) -> (Color, Color) {
+    fn border_colors(
+        mut model: Model,
+        palette: &Palette,
+    ) -> (ratatui::style::Color, ratatui::style::Color) {
         model.area = Rect::new(0, 0, 120, 28);
         let regions = layout(model.area);
         let backend = TestBackend::new(model.area.width, model.area.height);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                render(
+                render_with_palette(
                     frame,
                     &model,
                     PickerOptions {
                         color: true,
                         ..PickerOptions::default()
                     },
+                    palette,
                 )
             })
             .unwrap();
@@ -241,26 +245,21 @@ fn horizontal_focus_moves_the_accent_border_between_card_and_preview() {
     }
 
     let mut model = model();
-    assert_eq!(
-        border_colors(model.clone()),
-        (Color::Rgb(167, 139, 250), Color::Rgb(71, 85, 105))
-    );
+    let palette = Palette::default();
+    let accent = palette.foreground(Role::Accent).ratatui();
+    let border = palette.foreground(Role::Border).ratatui();
+    assert_ne!(accent, border);
+    assert_eq!(border_colors(model.clone(), &palette), (accent, border));
     model.apply(UiEvent::Key(KeyEvent::new(
         KeyCode::Right,
         KeyModifiers::NONE,
     )));
-    assert_eq!(
-        border_colors(model.clone()),
-        (Color::Rgb(71, 85, 105), Color::Rgb(167, 139, 250))
-    );
+    assert_eq!(border_colors(model.clone(), &palette), (border, accent));
     model.apply(UiEvent::Key(KeyEvent::new(
         KeyCode::Left,
         KeyModifiers::NONE,
     )));
-    assert_eq!(
-        border_colors(model),
-        (Color::Rgb(167, 139, 250), Color::Rgb(71, 85, 105))
-    );
+    assert_eq!(border_colors(model, &palette), (accent, border));
 }
 
 #[test]

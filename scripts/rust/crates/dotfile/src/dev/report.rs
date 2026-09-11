@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -91,7 +91,11 @@ pub(super) struct Report {
 
 impl Report {
     pub fn new(action: &str, tasks: &[Task], verbose: bool) -> Self {
-        let policy = UiPolicy::detect();
+        let policy = UiPolicy::detect(
+            io::stdin().is_terminal(),
+            io::stderr().is_terminal(),
+            "DOTFILE_REDUCED_MOTION",
+        );
         let style = Style::for_stdout_with_color(policy.color);
         let mut suites = BTreeMap::<String, Suite>::new();
         for task in tasks {

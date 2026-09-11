@@ -1,6 +1,6 @@
 use super::{
     Result, emitters,
-    model::{Repository, Theme},
+    model::Repository,
     plan, preview,
     selection::{self, Selection},
 };
@@ -31,6 +31,8 @@ pub enum Command {
     Status,
     #[command(about = "Preview a profile")]
     Preview { profile: Option<String> },
+    #[command(about = "Browse shared UI components and themes")]
+    Gallery { profile: Option<String> },
     #[command(about = "Assign a profile globally, to one group, or to one package")]
     Switch {
         profile: Option<String>,
@@ -52,9 +54,11 @@ pub enum Command {
 }
 pub fn run(args: Args, context: &Context) -> Result<ExitCode> {
     if args.command.is_none() && !preview::interactive() {
-        println!(
-            "Stamp selected theme profiles into generated configuration files.\n\nUsage: dotfile theme [COMMAND]\n\nCommands:\n  sync      Regenerate generated theme configs\n  dry       Print a dry run of sync\n  check     Validate every profile and application color pair\n  contrast  Print a resolved contrast matrix\n  status    Show resolved profiles and drift\n  preview   Preview a profile\n  switch    Assign a profile to a scope\n  outputs   Print generated file paths\n\nOptions:\n  -h, --help  Print help"
-        );
+        let command = <Args as clap::Args>::augment_args(clap::Command::new("dotfile theme"));
+        ui_cli::decorate(command)
+            .print_help()
+            .map_err(|error| error.to_string())?;
+        println!();
         return Ok(ExitCode::SUCCESS);
     }
     if matches!(args.command, Some(Command::Profiles)) {
@@ -223,22 +227,19 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode> {
             }
         }
         Command::Palette { profile, .. } => {
-            let theme = repo.theme(profile.as_deref().unwrap_or(selection.default()))?;
-            let mut colors = serde_json::Map::new();
-            for name in Theme::palette_names()
-                .into_iter()
-                .chain(["fg", "muted", "separator"].map(str::to_string))
-            {
-                colors.insert(name.clone(), theme.color(&name)?.to_string().into());
-            }
-            let mut roles = serde_json::Map::new();
-            for name in super::model::table(&theme.data.roles["roles"])?.keys() {
-                roles.insert(name.clone(), theme.role(name)?.to_string().into());
-            }
-            println!(
-                "{}",
-                serde_json::json!({"version":1,"profile":theme.profile,"colors":colors,"roles":roles})
-            );
+            let theme = repo.theme(
+                profile
+                    .as_deref()
+                    .unwrap_or(selection.current("shared", "ui")),
+            )?;
+            print!("{}", emitters::ui::render(theme)?);
+        }
+        Command::Gallery { profile } => {
+            let palette = profile
+                .as_deref()
+                .map(|name| emitters::ui::palette(repo.theme(name)?))
+                .transpose()?;
+            ui_gallery::run(palette).map_err(|error| error.to_string())?;
         }
         Command::Check | Command::Contrast { .. } | Command::Outputs { .. } | Command::Profiles => {
             unreachable!("handled before selection")

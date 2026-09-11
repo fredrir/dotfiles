@@ -395,35 +395,35 @@ impl Palette {
     }
 
     fn selected(&self, text: &str) -> String {
-        self.style.code("1;38;2;52;211;153", text)
+        self.style.paint(ui_theme::Role::Success, text)
     }
 
     fn target(&self, text: &str) -> String {
-        self.style.code("1;38;2;167;139;250", text)
+        self.style.paint(ui_theme::Role::Accent, text)
     }
 
     fn tls(&self, text: &str) -> String {
-        self.style.code("1;38;2;34;211;238", text)
+        self.style.paint(ui_theme::Role::Info, text)
     }
 
     fn green(&self, text: &str) -> String {
-        self.style.code("38;2;52;211;153", text)
+        self.style.paint(ui_theme::Role::Success, text)
     }
 
     fn red(&self, text: &str) -> String {
-        self.style.code("1;38;2;248;113;113", text)
+        self.style.paint(ui_theme::Role::Danger, text)
     }
 
     fn yellow(&self, text: &str) -> String {
-        self.style.code("38;2;250;204;21", text)
+        self.style.paint(ui_theme::Role::Warning, text)
     }
 
     fn dim(&self, text: &str) -> String {
-        self.style.code("2", text)
+        self.style.paint(ui_theme::Role::Muted, text)
     }
 
     fn heading(&self, text: &str) -> String {
-        self.style.code("1;38;2;196;181;253", text)
+        self.style.paint(ui_theme::Role::Strong, text)
     }
 }
 

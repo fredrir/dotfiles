@@ -13,7 +13,6 @@ mod recovery;
 mod tmux;
 mod ui;
 
-use clap::CommandFactory;
 use std::process::ExitCode;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -21,7 +20,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 fn main() -> ExitCode {
     workstation::run::<cli::Cli>("tmux-workspace", |args| {
         let Some(command) = args.command else {
-            let _ = cli::Cli::command().print_help();
+            let _ = workstation::cli::command::<cli::Cli>().print_help();
             println!();
             return Ok(ExitCode::SUCCESS);
         };

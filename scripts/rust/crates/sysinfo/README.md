@@ -6,7 +6,7 @@
 | Binary | `sysinfo` |
 | Platforms | Linux, macOS |
 | Collection | In-process native probes; optional `fastfetch` enrichment |
-| Pretty palette | `dotfile theme palette --json` |
+| Pretty palette | `ui-theme`; generated `~/.config/dotfile/ui/theme.json` |
 | Release measurements | [PERFORMANCE.md](PERFORMANCE.md) |
 
 ```sh
@@ -43,6 +43,7 @@ dotfile dev check --pkg sysinfo --lang rust
 | Env | Default / fallback |
 | --- | --- |
 | `DOTFILE_ROOT` | Repository discovered from executable or build location |
+| `DOTFILE_UI_THEME` | Explicit runtime palette; overrides repository and installed palettes |
 | `SYSINFO_CONFIG` | `$DOTFILE_ROOT/config/hosts.dotfile` |
 | `SYSINFO_HOST` | Pinned host, then local inventory match |
 | `SYSINFO_HOSTNAME` | Detected display hostname |

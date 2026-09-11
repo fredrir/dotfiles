@@ -46,11 +46,10 @@ pub fn endpoints(style: &Style, plan: &Plan, this: &str) -> Vec<String> {
 }
 
 pub fn progress(style: &Style, outcome: &Outcome) -> String {
-    format!(
-        "  {} {} {}",
-        style.dim("▸"),
-        style.bold(&counted(outcome.files, "file", "files")),
-        style.dim(&bytes(outcome.bytes)),
+    ui_progress::transfer_styled(
+        style,
+        u64::try_from(outcome.files).unwrap_or(u64::MAX),
+        &bytes(outcome.bytes),
     )
 }
 

@@ -9,12 +9,12 @@ use crossterm::event::{
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use tui_kit::{Alternate, MouseCapture, SignalGuard, termination_requested};
+use ui_terminal::{Alternate, MouseCapture, SignalGuard, termination_requested};
 use unicode_width::UnicodeWidthStr;
 
 use super::{
     CatalogSnapshot, CatalogSource, Effect, FavoriteStore, Model, PickedSession, PickerOptions,
-    PickerOutcome, Preview, UiEvent, render,
+    PickerOutcome, Preview, UiEvent,
 };
 
 const INPUT_POLL: Duration = Duration::from_millis(25);
@@ -43,6 +43,7 @@ pub(crate) fn run(
         .map_err(|error| format!("could not open the session picker: {error}"))?;
     let worker = SourceWorker::new(source);
     let mut model = Model::new();
+    let mut theme = ui_theme::ThemeHandle::discover();
     let area = terminal
         .screen
         .terminal()
@@ -52,7 +53,7 @@ pub(crate) fn run(
     model.set_reduced_motion(options.reduced_motion);
     model.set_initial_action(options.initial_action);
     model.set_view(options.initial_view);
-    terminal.draw(&model, options)?;
+    terminal.draw(&model, options, theme.palette())?;
     worker.send(WorkerRequest::Refresh)?;
     let mut effect = Effect::None;
     let mut redraw = false;
@@ -85,10 +86,11 @@ pub(crate) fn run(
             }
         }
 
+        redraw |= theme.poll();
         redraw |= advance_animation_if_due(&mut model, &mut next_animation_frame, Instant::now());
 
         if redraw {
-            terminal.draw(&model, options)?;
+            terminal.draw(&model, options, theme.palette())?;
             redraw = false;
         }
         if effect != Effect::None {
@@ -535,11 +537,16 @@ impl PickerTerminal {
         })
     }
 
-    fn draw(&mut self, model: &Model, options: PickerOptions) -> Result<(), String> {
+    fn draw(
+        &mut self,
+        model: &Model,
+        options: PickerOptions,
+        palette: &ui_theme::Palette,
+    ) -> Result<(), String> {
         let frame = self
             .screen
             .terminal()
-            .draw(|frame| render(frame, model, options))
+            .draw(|frame| super::view::render_with_palette(frame, model, options, palette))
             .map_err(|error| format!("could not render the session picker: {error}"))?;
         self.last_frame = frame.buffer.clone();
         Ok(())

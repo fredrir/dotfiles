@@ -9,12 +9,11 @@ fn a_plain_style_paints_nothing() {
 
 #[test]
 fn painting_wraps_the_text_it_is_given() {
-    let style = Style {
-        colored: true,
-        green: "\x1b[32m".into(),
-        red: String::new(),
-        teal: String::new(),
-    };
+    let style = Style::from_palette(
+        std::sync::Arc::new(ui_theme::Palette::default()),
+        ColorMode::Always,
+        true,
+    );
     assert_eq!(style.green("+2"), "\x1b[32m+2\x1b[0m");
     assert_eq!(style.green(""), "");
 }
@@ -39,14 +38,6 @@ fn an_arbitrary_code_paints_the_way_the_named_colours_do() {
     assert_eq!(style.code("2", "idle"), "\x1b[2midle\x1b[0m");
     assert_eq!(style.code("2", ""), "");
     assert_eq!(Style::plain().code("2", "idle"), "idle");
-}
-
-#[test]
-fn an_unset_theme_variable_leaves_the_fallback_in_place() {
-    assert_eq!(
-        theme("WORKSTATION_THEME_THAT_IS_NOT_SET", "\x1b[36m"),
-        "\x1b[36m"
-    );
 }
 
 #[derive(clap::Parser)]

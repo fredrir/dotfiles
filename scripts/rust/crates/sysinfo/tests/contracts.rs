@@ -448,6 +448,21 @@ fn palette_schema_colors_and_missing_roles_fail_actionably() {
             .contains("invalid")
     );
 }
+
+#[test]
+fn sysinfo_accepts_shared_runtime_and_fallback_palettes() {
+    let theme = ui_theme::Palette::from_value(&json!({
+        "version": 1, "profile": "runtime", "dark": false,
+        "colors": {"fg":"#202020","muted":"#505050","separator":"#707070","green":"#008800","yellow":"#886600","red":"#aa0000"},
+        "roles": {"section_system":"#004488","section_hardware":"#886600","section_desktop":"#660088"},
+        "ui": {"foreground":"#202020","background":"#ffffff"}
+    })).unwrap();
+    let colors = presentation::Colors::from_theme(&theme).unwrap();
+    assert_eq!(colors.text, "#202020");
+    assert_eq!(colors.system, "#004488");
+    let fallback = presentation::Colors::from_theme(&ui_theme::Palette::default()).unwrap();
+    assert!(fallback.text.starts_with('#'));
+}
 fn inventory_context(root: &std::path::Path) -> inventory::InventoryContext {
     inventory::InventoryContext {
         root: root.into(),

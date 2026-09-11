@@ -1,0 +1,16 @@
+[package]
+name              = "ui-diff-view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+crossterm.workspace     = true
+ratatui.workspace       = true
+similar.workspace       = true
+ui-theme                = { workspace = true, features = ["ratatui"] }
+unicode-width.workspace = true
+
+[lints]
+workspace = true

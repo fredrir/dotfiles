@@ -187,7 +187,9 @@ pub fn run(args: &ArgMatches) -> Result<(), String> {
     let store = Store::discover();
     let Some((name, args)) = args.subcommand() else {
         if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-            command().print_help().map_err(|e| e.to_string())?;
+            workstation::cli::decorate(command())
+                .print_help()
+                .map_err(|e| e.to_string())?;
             println!();
             return Ok(());
         }

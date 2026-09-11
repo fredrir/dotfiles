@@ -18,11 +18,11 @@ impl Sandbox {
             ("config/targets.dotfile", ""),
             (
                 "scripts/rust/Cargo.toml",
-                "[workspace]\nmembers = ['crates/file-explorer', 'crates/git/gget', 'crates/dotfile']\n",
+                "[workspace]\nmembers = ['crates/ui/file-explorer', 'crates/git/gget', 'crates/dotfile']\n",
             ),
             (
-                "scripts/rust/crates/file-explorer/Cargo.toml",
-                "[package]\nname = 'file-explorer'\n",
+                "scripts/rust/crates/ui/file-explorer/Cargo.toml",
+                "[package]\nname = 'ui-file-explorer'\n",
             ),
             (
                 "scripts/rust/crates/git/gget/Cargo.toml",
@@ -128,13 +128,13 @@ fn package_names_aliases_and_nested_crates_resolve_once() {
     let ran = sandbox.preview(&[
         "test",
         "--pkg",
-        "file-explorer,gget",
+        "ui-file-explorer,gget",
         "--pkg",
         "dotfile,dotfile-cli",
     ]);
     assert!(ran.success(), "{}", ran.stderr);
     assert_eq!(ran.stdout.lines().count(), 2);
-    for name in ["file-explorer", "gget", "dotfile-cli"] {
+    for name in ["ui-file-explorer", "gget", "dotfile-cli"] {
         assert!(ran.stdout.contains(&format!("'--package' '{name}'")));
     }
     assert_eq!(ran.stdout.matches("'dotfile-cli'").count(), 1);
@@ -153,7 +153,7 @@ fn language_and_package_filters_apply_to_both_check_phases() {
     );
     assert!(ran.stdout.contains("'pytest' 'tests/theme'"));
     assert!(!ran.stdout.contains("cargo"));
-    let invalid = sandbox.preview(&["test", "--lang", "python", "--pkg", "file-explorer"]);
+    let invalid = sandbox.preview(&["test", "--lang", "python", "--pkg", "ui-file-explorer"]);
     assert!(!invalid.success());
     assert!(invalid.stderr.contains("unknown package"));
 }
@@ -164,7 +164,7 @@ fn dry_run_renders_worker_limits_and_linter_selection() {
     let ran = sandbox.preview(&[
         "lint",
         "--pkg",
-        "file-explorer",
+        "ui-file-explorer",
         "--jobs",
         "6",
         "--concurrency",
@@ -173,7 +173,7 @@ fn dry_run_renders_worker_limits_and_linter_selection() {
     assert!(ran.success(), "{}", ran.stderr);
     assert!(ran.stdout.contains("CARGO_BUILD_JOBS='6'"));
     assert!(ran.stdout.contains(
-        "'clippy' '--locked' '--package' 'file-explorer' '--all-targets' '--' '-D' 'warnings'"
+        "'clippy' '--locked' '--package' 'ui-file-explorer' '--all-targets' '--' '-D' 'warnings'"
     ));
     let shell = sandbox.preview(&["lint", "--lang", "shell"]);
     assert!(shell.success(), "{}", shell.stderr);
@@ -194,7 +194,7 @@ fn forwarding_preserves_arguments_without_shell_evaluation() {
             "test",
             "--verbose",
             "--pkg",
-            "file-explorer",
+            "ui-file-explorer",
             "--jobs",
             "3",
             "--concurrency",
@@ -226,7 +226,7 @@ fn check_serializes_cargo_and_continues_after_lint_failure() {
         .args([
             "check",
             "--pkg",
-            "file-explorer",
+            "ui-file-explorer",
             "--concurrency",
             "4",
             "--jobs",
@@ -382,7 +382,7 @@ fn short_doctests_do_not_permanently_reduce_nextest_workers() {
     let library = sandbox
         .root
         .path()
-        .join("scripts/rust/crates/file-explorer/src");
+        .join("scripts/rust/crates/ui/file-explorer/src");
     fs::create_dir_all(&library).unwrap();
     fs::write(library.join("lib.rs"), "").unwrap();
     let preview = sandbox.preview(&["test", "--lang", "rust"]);
@@ -395,7 +395,7 @@ fn short_doctests_do_not_permanently_reduce_nextest_workers() {
     sandbox.tool("cargo", "if [ \"$2\" = list ]; then exit 0; fi\nif [ \"$1\" = test ]; then sleep 0.1; touch \"$DOTFILE_ROOT/docs-finished\"; exit 0; fi\n[ -f \"$DOTFILE_ROOT/docs-finished\" ] || exit 80\nprevious=''; for arg do if [ \"$previous\" = --test-threads ]; then [ \"$arg\" = 2 ] || exit 81; fi; previous=$arg; done");
     let ran = sandbox
         .bin()
-        .args(["test", "--pkg", "file-explorer", "-j", "2"])
+        .args(["test", "--pkg", "ui-file-explorer", "-j", "2"])
         .run();
     assert!(ran.success(), "{}", ran.stderr);
 }
@@ -530,19 +530,19 @@ fn changed_rust_dependencies_select_the_same_python_suites() {
 #[test]
 fn changed_selection_follows_transitive_dependents_and_intersects_explicit_packages() {
     let sandbox = Sandbox::new();
-    sandbox.tool("cargo", "printf '%s' '{\"packages\":[{\"name\":\"file-explorer\",\"dependencies\":[]},{\"name\":\"gget\",\"dependencies\":[{\"name\":\"file-explorer\"}]},{\"name\":\"dotfile-cli\",\"dependencies\":[{\"name\":\"gget\"}]}]}'");
+    sandbox.tool("cargo", "printf '%s' '{\"packages\":[{\"name\":\"ui-file-explorer\",\"dependencies\":[]},{\"name\":\"gget\",\"dependencies\":[{\"name\":\"ui-file-explorer\"}]},{\"name\":\"dotfile-cli\",\"dependencies\":[{\"name\":\"gget\"}]}]}'");
     sandbox.commit();
     fs::write(
         sandbox
             .root
             .path()
-            .join("scripts/rust/crates/file-explorer/new.rs"),
+            .join("scripts/rust/crates/ui/file-explorer/new.rs"),
         "fixture",
     )
     .unwrap();
     let ran = sandbox.preview(&["test", "--changed", "--lang", "rust"]);
     assert!(ran.success(), "{}", ran.stderr);
-    for name in ["file-explorer", "gget", "dotfile-cli"] {
+    for name in ["ui-file-explorer", "gget", "dotfile-cli"] {
         assert!(
             ran.stdout.contains(&format!("'--package' '{name}'")),
             "{}",
@@ -552,7 +552,7 @@ fn changed_selection_follows_transitive_dependents_and_intersects_explicit_packa
     let focused = sandbox.preview(&["test", "--changed", "--pkg", "gget", "--lang", "rust"]);
     assert!(focused.success(), "{}", focused.stderr);
     assert!(focused.stdout.contains("'--package' 'gget'"));
-    assert!(!focused.stdout.contains("'--package' 'file-explorer'"));
+    assert!(!focused.stdout.contains("'--package' 'ui-file-explorer'"));
 }
 
 #[test]

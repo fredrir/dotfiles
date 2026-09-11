@@ -11,7 +11,6 @@ members = [
   "crates/dotfile",
   "crates/dotfile-format",
   "crates/dotfmt",
-  "crates/file-explorer",
   "crates/flatten",
   "crates/git/gdd",
   "crates/git/gget",
@@ -26,7 +25,15 @@ members = [
   "crates/sysinfo",
   "crates/testkit",
   "crates/tmux-workspace",
-  "crates/tui-kit",
+  "crates/ui/cli",
+  "crates/ui/diff-view",
+  "crates/ui/file-explorer",
+  "crates/ui/gallery",
+  "crates/ui/picker",
+  "crates/ui/progress",
+  "crates/ui/terminal",
+  "crates/ui/theme",
+  "crates/ui/widgets",
   "crates/workstation",
 ]
 
@@ -66,10 +73,18 @@ tempfile = "3"
 workstation = { path = "crates/workstation" }
 gitkit = { path = "crates/git/gitkit" }
 hostkit = { path = "crates/hostkit" }
-file-explorer = { path = "crates/file-explorer" }
 testkit = { path = "crates/testkit" }
-tui-kit = { path = "crates/tui-kit" }
+ui-cli = { path = "crates/ui/cli" }
+ui-diff-view = { path = "crates/ui/diff-view" }
+ui-file-explorer = { path = "crates/ui/file-explorer" }
+ui-gallery = { path = "crates/ui/gallery" }
+ui-picker = { path = "crates/ui/picker" }
+ui-progress = { path = "crates/ui/progress" }
+ui-terminal = { path = "crates/ui/terminal" }
+ui-theme = { path = "crates/ui/theme" }
+ui-widgets = { path = "crates/ui/widgets" }
 unicode-width = "0.2"
+similar = "2"
 
 gix-glob   = "0.27.1"
 gix-ignore = "0.22.1"

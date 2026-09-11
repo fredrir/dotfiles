@@ -1,5 +1,6 @@
 mod apps;
 pub(crate) mod tmux;
+pub(crate) mod ui;
 mod wezterm;
 use super::{
     Result,
@@ -10,6 +11,7 @@ use std::fs;
 pub enum Kind {
     Wezterm,
     Tmux,
+    Ui,
     FastfetchConfig,
     FastfetchLogo,
     Starship,
@@ -74,6 +76,7 @@ pub fn targets(repo: &Repository) -> Result<Vec<Target>> {
         add(path.into(), Kind::Wezterm, true);
     }
     add("shared/tmux/theme.conf".into(), Kind::Tmux, true);
+    add("shared/ui/theme.json".into(), Kind::Ui, true);
     for group in ["shared", "linux/arch", "linux/ubuntu", "macos"] {
         add(
             format!("{group}/fastfetch/config.jsonc"),
@@ -174,6 +177,7 @@ pub fn emit(repo: &Repository, theme: &Theme, target: &Target) -> Result<String>
     match &target.kind {
         Kind::Wezterm => wezterm::render(repo, theme, &target.path),
         Kind::Tmux => tmux::render(theme),
+        Kind::Ui => ui::render(theme),
         Kind::Yazi => super::validate::yazi_render(theme),
         Kind::YaziSnapshot(name) => super::validate::yazi_render(repo.theme(name)?),
         Kind::Contrast(name) => super::validate::matrix(repo.theme(name)?),

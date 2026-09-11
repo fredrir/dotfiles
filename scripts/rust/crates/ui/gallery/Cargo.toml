@@ -1,0 +1,19 @@
+[package]
+name              = "ui-gallery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description       = "Interactive shared component and theme gallery"
+
+[lints]
+workspace = true
+
+[dependencies]
+ratatui.workspace      = true
+crossterm.workspace    = true
+ui-theme               = { workspace = true, features = ["ratatui"] }
+ui-terminal            = { workspace = true, features = ["ratatui"] }
+ui-widgets.workspace   = true
+ui-picker.workspace    = true
+ui-progress            = { workspace = true, features = ["ratatui"] }
+ui-diff-view.workspace = true

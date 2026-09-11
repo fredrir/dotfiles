@@ -2,6 +2,7 @@
 #![cfg(unix)]
 
 use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -294,4 +295,77 @@ fn sync_tui_signal_restores_terminal_and_cursor() {
     );
     assert!(output.windows(6).any(|window| window == b"\x1b[?25h"));
     assert_eq!(status.code(), Some(143));
+}
+
+#[test]
+fn merge_diff_choices_apply_the_selected_value_and_restore_the_compact_terminal() {
+    for (keys, expected) in [
+        (b"vjk><r\r".as_slice(), "mono"),
+        (b"vjl\r\r".as_slice(), "sans"),
+    ] {
+        let sandbox = Sandbox::new(&[
+            (
+                "repo/config/targets.dotfile",
+                "shared/vscode/settings.json = ~/.config/Code/User/settings.json\nmacos/vscode = ~/.config/Code/User\n",
+            ),
+            ("repo/environment/test/manifest", "shared\nmacos\n"),
+            ("repo/shared/vscode/settings.json", "{\"font\": \"mono\"}\n"),
+            (
+                "repo/macos/vscode/settings.macos.json",
+                "{\"theme\": \"dark\"}\n",
+            ),
+            ("home/.config/Code/User/", ""),
+        ]);
+        let initial = sandbox.batch();
+        assert!(initial.success(), "{}", initial.stderr);
+        let live = sandbox.path("home/.config/Code/User/settings.json");
+        fs::write(&live, "{\"font\": \"sans\", \"theme\": \"dark\"}\n").unwrap();
+        let (master, slave, before) = open_pty(24, 100);
+        let mut child = sandbox
+            .tui(Path::new(env!("CARGO_BIN_EXE_dotfile")), &slave)
+            .spawn()
+            .unwrap();
+        drop(slave);
+        let mut output = Vec::new();
+        let mut cursor_replies = 0;
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            read_available(&master, &mut output, 50);
+            reply_to_cursor_queries(&master, &output, &mut cursor_replies);
+            if String::from_utf8_lossy(&output).contains("MERGE CONFLICT") {
+                break;
+            }
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "sync exited before conflict: {}",
+                String::from_utf8_lossy(&output)
+            );
+            assert!(
+                Instant::now() < deadline,
+                "conflict viewer did not open: {}",
+                String::from_utf8_lossy(&output)
+            );
+        }
+        (&master).write_all(keys).unwrap();
+        let status = loop {
+            read_available(&master, &mut output, 50);
+            reply_to_cursor_queries(&master, &output, &mut cursor_replies);
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "merge decision did not finish: {}",
+                String::from_utf8_lossy(&output)
+            );
+        };
+        assert!(status.success(), "{}", String::from_utf8_lossy(&output));
+        let resolved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(live).unwrap()).unwrap();
+        assert_eq!(resolved["font"], expected);
+        let after = terminal_state(&master);
+        let flags = libc::ECHO | libc::ICANON | libc::ISIG;
+        assert_eq!(before.c_lflag & flags, after.c_lflag & flags);
+        assert!(output.windows(6).any(|window| window == b"\x1b[?25h"));
+    }
 }

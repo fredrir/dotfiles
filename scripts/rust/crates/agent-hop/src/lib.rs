@@ -4,7 +4,6 @@ use std::fs;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
-use clap::CommandFactory;
 use hostkit::Host;
 
 mod catalog;
@@ -57,7 +56,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
         return send_local_session(agent, cli.session_id.as_deref(), options);
     }
     if !tui::capable() {
-        let mut command = Cli::command();
+        let mut command = workstation::cli::command::<Cli>();
         command
             .print_help()
             .map_err(|error| format!("could not print help: {error}"))?;

@@ -1,13 +1,12 @@
 use super::branding::{block_text, header_illustration, illustration, resolve_brand};
 use crate::health::health_summary;
+use crate::identity;
 use crate::model::{Component, HealthIssue, RenderOptions, Severity, SystemView};
-use crate::{collect, identity, inventory};
 use regex::Regex;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io::IsTerminal;
-use std::process::Command;
 use std::sync::LazyLock;
-use std::time::Duration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 #[derive(Clone, Debug)]
@@ -24,22 +23,12 @@ pub struct Colors {
 }
 impl Colors {
     pub fn from_palette(palette: &Value) -> Result<Self, String> {
-        if palette["version"] != 1 {
-            return Err("unsupported palette version".into());
-        }
+        Self::from_theme(&ui_theme::Palette::from_value(palette)?)
+    }
+
+    pub fn from_theme(palette: &ui_theme::Palette) -> Result<Self, String> {
         let color = |group: &str, key: &str| -> Result<String, String> {
-            let value = palette[group][key]
-                .as_str()
-                .ok_or_else(|| format!("missing palette {group}.{key}"))?;
-            if value.len() != 7
-                || !value.starts_with('#')
-                || !value[1..]
-                    .bytes()
-                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-            {
-                return Err(format!("invalid palette color: {group}.{key}"));
-            }
-            Ok(value.into())
+            Ok(palette.named_color(group, key)?.to_string())
         };
         Ok(Self {
             text: color("colors", "fg")?,
@@ -54,15 +43,7 @@ impl Colors {
         })
     }
     pub fn load() -> Result<Self, String> {
-        let text = collect::probe(
-            Command::new(collect::native_binary("dotfile")?)
-                .args(["theme", "palette", "--json"])
-                .current_dir(inventory::repo_root()),
-            Duration::from_secs(10),
-        )
-        .map_err(|e| format!("theme palette: {e}"))?;
-        let palette = serde_json::from_str(&text).map_err(|e| format!("theme palette: {e}"))?;
-        Self::from_palette(&palette).map_err(|e| format!("theme palette: {e}"))
+        Self::from_theme(&ui_theme::Palette::current())
     }
 }
 #[derive(Clone)]
@@ -297,6 +278,22 @@ pub fn render_with(
     options: RenderOptions,
     context: PrettyContext<'_>,
 ) -> String {
+    render_with_depth(
+        view,
+        issues,
+        options,
+        context,
+        ui_theme::ColorDepth::detect(),
+    )
+}
+
+fn render_with_depth(
+    view: &SystemView,
+    issues: &[HealthIssue],
+    options: RenderOptions,
+    context: PrettyContext<'_>,
+    depth: ui_theme::ColorDepth,
+) -> String {
     let PrettyContext {
         colors,
         width: available,
@@ -477,6 +474,7 @@ pub fn render_with(
         }
     }
     let mut output = String::new();
+    let mut codes = HashMap::new();
     for line in lines {
         let plain = line.iter().map(|s| s.text.as_str()).collect::<String>();
         let visible = plain.trim_end().len();
@@ -492,15 +490,12 @@ pub fn render_with(
                 if item.bold {
                     output.push_str("\x1b[1m");
                 }
-                if item.color.len() == 7 {
-                    let rgb = u32::from_str_radix(&item.color[1..], 16).unwrap_or_default();
-                    output.push_str(&format!(
-                        "\x1b[38;2;{};{};{}m",
-                        rgb >> 16,
-                        (rgb >> 8) & 255,
-                        rgb & 255
-                    ));
-                }
+                let code = codes.entry(item.color).or_insert_with_key(|color| {
+                    ui_theme::Color::parse(color)
+                        .map(|color| format!("\x1b[{}m", color.at_depth(depth).sgr(false)))
+                        .unwrap_or_default()
+                });
+                output.push_str(code);
                 output.push_str(text);
                 output.push_str("\x1b[0m");
             } else {
@@ -511,6 +506,10 @@ pub fn render_with(
     }
     output
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/presentation/pretty.rs"]
+mod tests;
 pub fn render_pretty(
     view: &SystemView,
     issues: &[HealthIssue],

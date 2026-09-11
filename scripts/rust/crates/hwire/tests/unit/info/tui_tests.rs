@@ -31,12 +31,13 @@ fn test_backend_renders_the_verbose_snapshot_and_deterministic_effect_ticks() {
     let backend = TestBackend::new(72, 10);
     let mut terminal = Terminal::new(backend).unwrap();
     let snapshot = snapshot();
-    let mut effect = reveal_effect(true);
+    let palette = Palette::default();
+    let mut effect = reveal_effect(&palette, true);
     for tick in [90, 90] {
         terminal
             .draw(|frame| {
                 let area = frame.area();
-                frame.render_widget(Paragraph::new(styled_text(&snapshot, true)), area);
+                frame.render_widget(Paragraph::new(styled_text(&snapshot, &palette, true)), area);
                 frame.render_effect(&mut effect, area, tachyonfx::Duration::from_millis(tick));
             })
             .unwrap();
@@ -58,6 +59,16 @@ fn test_backend_renders_the_verbose_snapshot_and_deterministic_effect_ticks() {
 fn long_diagnostics_are_scrollable_within_the_inline_viewport() {
     let mut snapshot = snapshot();
     snapshot.warnings = (0..30).map(|index| format!("warning {index}")).collect();
-    assert!(scroll_limit(Some(&snapshot), 10) > 0);
-    assert_eq!(scroll_limit(Some(&snapshot), 80), 0);
+    let paragraph = Paragraph::new(styled_text(&snapshot, &Palette::default(), false))
+        .wrap(Wrap { trim: false });
+    let height = measured_height(&paragraph, 78);
+    assert!(scroll_limit(height, 10) > 0);
+    assert_eq!(scroll_limit(height, 80), 0);
+}
+
+#[test]
+fn wrapped_wide_diagnostics_remain_reachable_at_narrow_widths() {
+    let paragraph = Paragraph::new("界界界界界界\ntail").wrap(Wrap { trim: false });
+    assert_eq!(measured_height(&paragraph, 4), 4);
+    assert_eq!(scroll_limit(measured_height(&paragraph, 4), 4), 2);
 }

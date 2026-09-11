@@ -6,67 +6,13 @@ use std::path::Path;
 use std::thread::JoinHandle;
 
 use crossbeam_channel::Receiver;
-use workstation::color::auto_enabled;
 use workstation::path::home_relative;
 use workstation::text::plural;
 
 use crate::decision::{Choice, Prompt, Request, Server};
 use crate::event::{Action, Event, Phase, Summary};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct UiPolicy {
-    pub interactive: bool,
-    pub color: bool,
-    pub motion: bool,
-}
-
-impl UiPolicy {
-    pub fn from_signals(
-        stdin_is_terminal: bool,
-        stderr_is_terminal: bool,
-        term: Option<&str>,
-        ci: Option<&str>,
-        no_color: bool,
-        clicolor: Option<&str>,
-        reduced_motion: bool,
-    ) -> Self {
-        let capable_terminal = stdin_is_terminal
-            && stderr_is_terminal
-            && !term.is_some_and(|value| value.eq_ignore_ascii_case("dumb"))
-            && !ci.is_some_and(environment_flag_enabled);
-        let color = auto_enabled(capable_terminal, no_color, clicolor, term);
-        Self {
-            interactive: capable_terminal,
-            color,
-            motion: color && !reduced_motion,
-        }
-    }
-
-    pub(crate) fn detect() -> Self {
-        let reduced_motion = [
-            "DOTFILE_REDUCED_MOTION",
-            "PREFERS_REDUCED_MOTION",
-            "REDUCE_MOTION",
-            "REDUCED_MOTION",
-        ]
-        .into_iter()
-        .any(|name| {
-            std::env::var(name)
-                .ok()
-                .is_some_and(|value| environment_flag_enabled(&value))
-        });
-        let clicolor = std::env::var("CLICOLOR").ok();
-        Self::from_signals(
-            std::io::stdin().is_terminal(),
-            std::io::stderr().is_terminal(),
-            std::env::var("TERM").ok().as_deref(),
-            std::env::var("CI").ok().as_deref(),
-            std::env::var_os("NO_COLOR").is_some(),
-            clicolor.as_deref(),
-            reduced_motion,
-        )
-    }
-}
+pub use ui_terminal::UiPolicy;
 
 pub fn run(
     receiver: Receiver<Event>,
@@ -74,7 +20,11 @@ pub fn run(
     worker: JoinHandle<Result<Summary, String>>,
     verbose: bool,
 ) -> Result<Summary, String> {
-    let policy = UiPolicy::detect();
+    let policy = UiPolicy::detect(
+        std::io::stdin().is_terminal(),
+        std::io::stderr().is_terminal(),
+        "DOTFILE_REDUCED_MOTION",
+    );
     if policy.interactive {
         tui::run(receiver, decisions, worker, verbose, policy)
     } else {
@@ -83,7 +33,7 @@ pub fn run(
 }
 
 pub fn signal_exit_code() -> Option<u8> {
-    let signal = tui_kit::termination_signal();
+    let signal = ui_terminal::termination_signal();
     (signal > 0).then_some((128 + signal).min(255) as u8)
 }
 
@@ -241,13 +191,6 @@ pub(crate) fn sanitize_text(value: &str) -> String {
             character => character,
         })
         .collect()
-}
-
-fn environment_flag_enabled(value: &str) -> bool {
-    !matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "" | "0" | "false" | "no" | "off"
-    )
 }
 
 #[cfg(test)]

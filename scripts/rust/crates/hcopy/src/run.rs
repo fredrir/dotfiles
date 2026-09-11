@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 
 use hostkit::{Host, Route};
@@ -274,16 +274,13 @@ impl Session {
         }
 
         let live = io::stdout().is_terminal() && !request.verbose;
+        let mut progress = ui_progress::Reporter::new(io::stdout());
         let outcome = transfer::run(plan, |running| {
             if live {
-                let mut out = io::stdout();
-                let _ = write!(out, "\r\x1b[2K{}", report::progress(style, running));
-                let _ = out.flush();
+                let _ = progress.update(&report::progress(style, running));
             }
         })?;
-        if live {
-            transfer::erase(&mut io::stdout());
-        }
+        let _ = progress.finish();
 
         if request.verbose {
             for line in &outcome.lines {

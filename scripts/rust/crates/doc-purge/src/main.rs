@@ -18,7 +18,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, ValueHint};
+use clap::{Parser, ValueHint};
 use rayon::prelude::*;
 use workstation::{Completable, Completions, Style, path, text};
 
@@ -81,7 +81,7 @@ struct Done {
 fn main() -> ExitCode {
     workstation::run::<Cli>(PROGRAM, |cli| {
         if cli.targets.is_empty() {
-            Cli::command().print_help().ok();
+            workstation::cli::command::<Cli>().print_help().ok();
             println!();
             return Ok(ExitCode::SUCCESS);
         }

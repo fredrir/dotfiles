@@ -90,6 +90,7 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
     );
     let outputs = s.outputs();
     assert!(outputs.iter().any(|p| p == "shared/tmux/theme.conf"));
+    assert!(outputs.iter().any(|p| p == "shared/ui/theme.json"));
     assert_eq!(
         outputs.len(),
         outputs
@@ -115,6 +116,10 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
     let palette: Value = serde_json::from_slice(&palette.stdout).unwrap();
     assert_eq!(palette["version"], 1);
     assert_eq!(palette["profile"], "mocha");
+    assert_eq!(
+        palette,
+        serde_json::from_str::<Value>(&s.read("shared/ui/theme.json")).unwrap()
+    );
     assert!(
         palette["roles"]["section_system"]
             .as_str()
@@ -129,6 +134,36 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
             "{p}"
         );
     }
+}
+
+#[test]
+fn ui_scope_switch_updates_runtime_palette_without_changing_other_applications() {
+    let s = Sandbox::new();
+    let terminal = s.read("shared/tmux/theme.conf");
+    s.assert_success(&["switch", "latte", "shared/ui"]);
+    let runtime = ui_theme::Palette::from_path(&s.path("shared/ui/theme.json")).unwrap();
+    assert_eq!(runtime.profile, "latte");
+    assert!(!runtime.dark);
+    assert_eq!(s.read("shared/tmux/theme.conf"), terminal);
+    let exported: Value =
+        serde_json::from_slice(&s.assert_success(&["palette", "--json"]).stdout).unwrap();
+    assert_eq!(exported["profile"], "latte");
+    let gallery = s.assert_success(&["gallery", "latte"]);
+    let gallery = String::from_utf8(gallery.stdout).unwrap();
+    assert!(gallery.contains("latte"));
+    assert!(gallery.contains("Comparison"));
+    assert!(!gallery.contains('\x1b'));
+    fs::write(s.path("shared/ui/theme.json"), "drift").unwrap();
+    let dry = s.run(&["dry"]);
+    assert_eq!(dry.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("shared/ui/theme.json"));
+    s.assert_success(&["sync"]);
+    assert_eq!(
+        ui_theme::Palette::from_path(&s.path("shared/ui/theme.json"))
+            .unwrap()
+            .profile,
+        "latte"
+    );
 }
 #[test]
 fn dry_reports_drift_sync_repairs_it_and_noop_preserves_mtime_and_permissions() {

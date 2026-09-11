@@ -126,7 +126,8 @@ pub fn normalize_arguments(arguments: impl IntoIterator<Item = OsString>) -> Vec
 }
 pub fn run() -> Result<(), String> {
     let started = Instant::now();
-    let matches = command().get_matches_from(normalize_arguments(std::env::args_os()));
+    let matches = workstation::cli::decorate(command())
+        .get_matches_from(normalize_arguments(std::env::args_os()));
     let completions = workstation::Completions {
         shell: matches.get_one::<clap_complete::Shell>("shell").copied(),
         dump: matches.get_flag("dump"),

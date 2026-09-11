@@ -12,6 +12,9 @@ workspace = true
 walk = ["dep:rayon"]
 
 [dependencies]
+ui-cli.workspace        = true
+ui-theme                = { workspace = true, features = ["clap"] }
+ui-terminal.workspace   = true
 serde.workspace         = true
 serde_json.workspace    = true
 clap.workspace          = true

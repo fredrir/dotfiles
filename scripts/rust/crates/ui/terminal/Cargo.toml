@@ -1,0 +1,31 @@
+[package]
+name              = "ui-terminal"
+version.workspace = true
+description       = "Terminal sessions, input, signals and text with optional rich rendering"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default   = []
+crossterm = ["dep:crossterm"]
+ratatui   = ["crossterm", "dep:ratatui", "dep:ui-theme"]
+
+[dependencies]
+crossterm               = { workspace = true, optional = true }
+ratatui                 = { workspace = true, optional = true }
+unicode-width.workspace = true
+ui-theme                = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+nix    = { workspace = true, features = ["signal", "poll"] }
+rustix = { workspace = true, features = ["termios"] }
+
+[dev-dependencies]
+testkit.workspace  = true
+tempfile.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true

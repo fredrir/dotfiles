@@ -281,7 +281,7 @@ fn item_header(style: &Style, item: &Item<'_>) -> String {
         .collect::<Vec<_>>()
         .join(" | ");
     let rules = if item.can_accept {
-        style.code("33", &rules)
+        style.paint(ui_theme::Role::Warning, &rules)
     } else {
         style.red(&rules)
     };
@@ -321,7 +321,7 @@ fn inspection(style: &Style, context: &str) -> String {
         .lines()
         .map(|line| {
             let colored = if line.starts_with("> ") {
-                style.code("33", line)
+                style.paint(ui_theme::Role::Warning, line)
             } else {
                 style.dim(line)
             };

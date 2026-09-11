@@ -8,7 +8,7 @@ use super::{
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
@@ -17,6 +17,7 @@ use std::{
     io::{self, IsTerminal},
     time::Duration,
 };
+use ui_theme::{ColorMode, Role, ThemeHandle};
 pub fn interactive() -> bool {
     io::stdin().is_terminal() && io::stdout().is_terminal()
 }
@@ -46,6 +47,16 @@ pub fn show(t: &Theme, selection: &Selection, targets: &[Target]) -> Result<()> 
         t.size("interface")?
     );
     print_card(t)?;
+    println!("  COMPONENTS\n");
+    let palette = super::emitters::ui::palette(t)?;
+    let colored = ColorMode::Auto.enabled(io::stdout().is_terminal());
+    for line in ui_gallery::preview(
+        &palette,
+        workstation::terminal_width().unwrap_or(80),
+        colored,
+    ) {
+        println!("{line}");
+    }
     println!("  PALETTE\n");
     for name in Theme::palette_names() {
         println!("  {}", swatch(t, &name)?);
@@ -146,6 +157,15 @@ impl Column {
             index: 0,
         }
     }
+
+    fn move_by(&mut self, amount: isize) {
+        let mut viewport = ui_widgets::Viewport {
+            cursor: self.index,
+            offset: 0,
+        };
+        viewport.move_by(amount, self.options.len(), ui_widgets::Navigation::Clamp);
+        self.index = viewport.cursor;
+    }
 }
 fn profile_column(repo: &Repository, default: &str) -> Column {
     let names = repo.names();
@@ -174,14 +194,17 @@ pub fn next(
     if picks.is_empty() && flow.is_empty() {
         return Some(Column::new(
             "menu",
-            ["sync", "switch", "status", "preview", "dry", "check"]
-                .map(str::to_string)
-                .to_vec(),
+            [
+                "sync", "switch", "status", "preview", "gallery", "dry", "check",
+            ]
+            .map(str::to_string)
+            .to_vec(),
             [
                 "regenerate every config",
                 "assign a profile to a scope",
                 "resolved profiles, and drift",
                 "look at a profile in full",
+                "browse shared components",
                 "what sync would change",
                 "validate every profile and application pair",
             ]
@@ -195,7 +218,8 @@ pub fn next(
         flow
     };
     let last = picks.last();
-    if (command == "preview" && (last.is_none() || last.is_some_and(|p| p.kind == "menu")))
+    if (matches!(command, "preview" | "gallery")
+        && (last.is_none() || last.is_some_and(|p| p.kind == "menu")))
         || (command == "switch" && last.is_some_and(|p| p.kind == "scope" && p.index == 0))
     {
         return Some(profile_column(repo, selection.default()));
@@ -268,6 +292,9 @@ fn command(flow: &str, picks: &[Pick]) -> Result<Command> {
         "preview" => Command::Preview {
             profile: picks.last().map(|p| p.option.clone()),
         },
+        "gallery" => Command::Gallery {
+            profile: picks.last().map(|p| p.option.clone()),
+        },
         "switch" => {
             let scope = picks
                 .iter()
@@ -296,21 +323,33 @@ pub fn choose(
     if columns[0].options.is_empty() {
         return Err("no profiles in theme/profiles".into());
     }
-    let _signals = tui_kit::SignalGuard::with_options(tui_kit::SignalOptions {
+    let _signals = ui_terminal::SignalGuard::with_options(ui_terminal::SignalOptions {
         cancellation: Some(crate::cancel::flag()),
         reraise_on_drop: false,
         ..Default::default()
     })
     .map_err(|e| e.to_string())?;
-    let mut surface =
-        tui_kit::Alternate::new(tui_kit::MouseCapture::Disabled).map_err(|e| e.to_string())?;
+    let mut surface = ui_terminal::Alternate::new(ui_terminal::MouseCapture::Disabled)
+        .map_err(|e| e.to_string())?;
+    let mut theme = ThemeHandle::from_path(repo.root.join("shared/ui/theme.json"));
+    let mode = if ColorMode::Auto.enabled(true) {
+        ColorMode::Always
+    } else {
+        ColorMode::Never
+    };
     loop {
-        if tui_kit::termination_requested() {
+        if ui_terminal::termination_requested() {
             return Err("interrupted".into());
         }
+        theme.poll();
+        let palette = theme.palette();
         surface
             .terminal()
             .draw(|frame| {
+                let area = frame.area();
+                frame
+                    .buffer_mut()
+                    .set_style(area, palette.ratatui(mode, true, Role::Background));
                 let vertical = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
@@ -321,8 +360,11 @@ pub fn choose(
                     ])
                     .split(frame.area());
                 frame.render_widget(
-                    Paragraph::new("dotfile theme")
-                        .style(Style::default().add_modifier(Modifier::BOLD)),
+                    Paragraph::new("dotfile theme").style(palette.ratatui(
+                        mode,
+                        true,
+                        Role::Strong,
+                    )),
                     vertical[0],
                 );
                 let constraints = vec![Constraint::Ratio(1, columns.len() as u32); columns.len()];
@@ -340,18 +382,19 @@ pub fn choose(
                                 Line::from(name.clone()),
                                 Line::from(Span::styled(
                                     column.details.get(j).cloned().unwrap_or_default(),
-                                    Style::default().fg(Color::DarkGray),
+                                    palette.ratatui(mode, true, Role::Muted),
                                 )),
                             ])
                         })
                         .collect::<Vec<_>>();
                     let list = List::new(items)
-                        .block(Block::default().borders(Borders::ALL).title(column.kind))
-                        .highlight_style(
-                            Style::default()
-                                .bg(Color::DarkGray)
-                                .add_modifier(Modifier::BOLD),
+                        .block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .title(column.kind)
+                                .border_style(palette.ratatui(mode, true, Role::Border)),
                         )
+                        .highlight_style(palette.ratatui(mode, true, Role::Selection))
                         .highlight_symbol("› ");
                     let mut state = ListState::default();
                     state.select(Some(column.index));
@@ -363,7 +406,7 @@ pub fn choose(
                         .get(column.index)
                         .and_then(|name| repo.themes.get(name))
                 {
-                    let lines = if std::env::var_os("NO_COLOR").is_none() {
+                    let lines = if mode != ColorMode::Never {
                         terminal_card(t).unwrap_or_default()
                     } else {
                         vec![
@@ -385,7 +428,18 @@ pub fn choose(
                     );
                 }
                 frame.render_widget(
-                    Paragraph::new("↑/↓ select   →/enter open   ← back   esc cancel"),
+                    Paragraph::new(Line::from(
+                        ui_widgets::hints(&[
+                            ui_widgets::KeyHint::new("↑/↓", "select"),
+                            ui_widgets::KeyHint::new("→/enter", "open"),
+                            ui_widgets::KeyHint::new("←", "back"),
+                            ui_widgets::KeyHint::new("esc", "cancel"),
+                        ])
+                        .spans
+                        .into_iter()
+                        .map(|span| Span::styled(span.text, palette.ratatui(mode, true, span.role)))
+                        .collect::<Vec<_>>(),
+                    )),
                     vertical[3],
                 );
             })
@@ -405,10 +459,8 @@ pub fn choose(
         }
         let current = columns.last_mut().ok_or("no active column")?;
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => current.index = current.index.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => {
-                current.index = (current.index + 1).min(current.options.len().saturating_sub(1))
-            }
+            KeyCode::Up | KeyCode::Char('k') => current.move_by(-1),
+            KeyCode::Down | KeyCode::Char('j') => current.move_by(1),
             KeyCode::Home => current.index = 0,
             KeyCode::End => current.index = current.options.len().saturating_sub(1),
             KeyCode::Esc | KeyCode::Char('q') => return Ok(None),
@@ -438,18 +490,15 @@ pub fn choose(
     }
 }
 pub fn confirm(prompt: &str) -> Result<bool> {
-    use std::io::Write;
-    print!("  {prompt} [Y/n] ");
-    io::stdout().flush().map_err(|e| e.to_string())?;
-    let mut answer = String::new();
-    let count = io::stdin()
-        .read_line(&mut answer)
-        .map_err(|e| e.to_string())?;
-    Ok(count > 0
-        && matches!(
-            answer.trim().to_ascii_lowercase().as_str(),
-            "" | "y" | "yes"
-        ))
+    let answer = ui_cli::prompt(
+        &mut io::stdin().lock(),
+        &mut io::stdout().lock(),
+        &mut io::stderr().lock(),
+        &format!("  {prompt} [Y/n] "),
+        false,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(answer == Some(ui_cli::Answer::Yes))
 }
 
 fn terminal_card(t: &Theme) -> Result<Vec<Line<'static>>> {

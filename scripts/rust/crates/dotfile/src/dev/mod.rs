@@ -116,7 +116,7 @@ struct Options {
 }
 
 pub fn dispatch(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
-    let cli = match Cli::try_parse_from(
+    let cli = match workstation::cli::try_parse_from::<Cli, _, _>(
         std::iter::once(OsString::from("dotfile dev")).chain(arguments),
     ) {
         Ok(cli) => cli,
@@ -151,8 +151,7 @@ pub fn run(cli: Cli) -> ExitCode {
         };
     }
     let Some(action) = cli.action else {
-        use clap::CommandFactory;
-        let _ = Cli::command().print_help();
+        let _ = workstation::cli::command::<Cli>().print_help();
         println!();
         return ExitCode::SUCCESS;
     };

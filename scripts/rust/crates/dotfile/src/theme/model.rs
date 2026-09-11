@@ -48,6 +48,7 @@ struct ContrastKey {
 }
 pub struct Theme {
     pub kde: RefCell<Option<Rc<Vec<super::resolve::KdeGroup>>>>,
+    pub ui: RefCell<Option<Rc<ui_theme::PaletteDocument>>>,
     pub profile: String,
     pub name: String,
     pub dark: bool,
@@ -177,6 +178,7 @@ impl Theme {
         }
         Ok(Self {
             kde: RefCell::new(None),
+            ui: RefCell::new(None),
             profile: profile.into(),
             name,
             dark,

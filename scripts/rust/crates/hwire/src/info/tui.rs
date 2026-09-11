@@ -5,12 +5,13 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::style::{Color, Modifier};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use tachyonfx::{CellFilter, Effect, EffectRenderer, Interpolation, fx};
-use tui_kit::{Inline, Teardown, ui_style};
+use ui_progress::Spinner;
+use ui_terminal::{Inline, SignalGuard, Teardown, termination_requested};
+use ui_theme::{Palette, Role, ThemeHandle};
 
 use super::model::Snapshot;
 use super::{ColorMode, Options, collect, render};
@@ -19,24 +20,34 @@ const FRAME: Duration = Duration::from_millis(33);
 const IDLE_POLL: Duration = Duration::from_millis(100);
 
 pub fn capable() -> bool {
-    io::stdin().is_terminal()
-        && io::stdout().is_terminal()
-        && std::env::var("TERM")
-            .ok()
-            .is_none_or(|term| !term.eq_ignore_ascii_case("dumb"))
-        && std::env::var("CI").ok().is_none_or(|value| !flag(&value))
+    ui_terminal::capable(
+        io::stdin().is_terminal(),
+        io::stdout().is_terminal(),
+        std::env::var("TERM").ok().as_deref(),
+        std::env::var("CI").ok().as_deref(),
+    )
 }
 
 pub fn run(options: Options) -> Result<(), String> {
     let color = options.color.enabled(true);
-    let motion = motion_enabled() && color;
-    let height = workstation::terminal_height()
+    let motion = !ui_terminal::reduced_motion_requested("HWIRE_REDUCED_MOTION") && color;
+    let mut theme = ThemeHandle::discover();
+    let mut height = workstation::terminal_height()
         .unwrap_or(24)
         .saturating_sub(1)
         .max(6) as u16;
-    let mut inline = Inline::new(io::stdout(), height, Teardown::KeepViewport)
+    let signals =
+        SignalGuard::new().map_err(|error| format!("unable to watch terminal signals: {error}"))?;
+    let mut inline = Inline::with_signals(io::stdout(), height, Teardown::KeepViewport, signals)
         .map_err(|error| format!("unable to open verbose terminal: {error}"))?;
     let mut snapshot = None;
+    let mut text = None;
+    let mut width = inline
+        .terminal()
+        .size()
+        .map_err(|error| error.to_string())?
+        .width;
+    let mut content_height = 0;
     let mut previous_fingerprint = None;
     let mut previous_preferred: Option<Option<hostkit::Route>> = None;
     let mut worker = None;
@@ -49,6 +60,19 @@ pub fn run(options: Options) -> Result<(), String> {
     let mut failure = None;
 
     loop {
+        if termination_requested() {
+            return Ok(());
+        }
+        if theme.poll() {
+            text = snapshot.as_ref().map(|snapshot| {
+                Paragraph::new(styled_text(snapshot, theme.palette(), color))
+                    .wrap(Wrap { trim: false })
+            });
+            content_height = text
+                .as_ref()
+                .map_or(0, |text| measured_height(text, width.saturating_sub(2)));
+            dirty = true;
+        }
         if worker.is_none() && (snapshot.is_none() || options.watch && Instant::now() >= next_probe)
         {
             let (sender, receiver) = mpsc::channel();
@@ -76,11 +100,17 @@ pub fn run(options: Options) -> Result<(), String> {
                     failure = next.failure();
                     previous_preferred = Some(primary_route);
                     previous_fingerprint = Some(fingerprint);
+                    text = Some(
+                        Paragraph::new(styled_text(&next, theme.palette(), color))
+                            .wrap(Wrap { trim: false }),
+                    );
+                    content_height =
+                        measured_height(text.as_ref().unwrap(), width.saturating_sub(2));
                     snapshot = Some(next);
-                    scroll = scroll.min(scroll_limit(snapshot.as_ref(), height));
+                    scroll = scroll.min(scroll_limit(content_height, height));
                     worker = None;
                     if motion && changed {
-                        effect = Some(reveal_effect(color));
+                        effect = Some(reveal_effect(theme.palette(), color));
                     }
                     dirty = true;
                     if options.watch {
@@ -95,9 +125,21 @@ pub fn run(options: Options) -> Result<(), String> {
             }
         }
 
-        let max_scroll = scroll_limit(snapshot.as_ref(), height);
+        let max_scroll = scroll_limit(content_height, height);
         match input()? {
             Input::None => {}
+            Input::Resize(next_width, next_height) => {
+                width = next_width;
+                height = next_height.saturating_sub(1).max(1);
+                inline
+                    .resize_viewport(io::stdout(), height)
+                    .map_err(|error| error.to_string())?;
+                content_height = text
+                    .as_ref()
+                    .map_or(0, |text| measured_height(text, width.saturating_sub(2)));
+                scroll = scroll.min(scroll_limit(content_height, height));
+                dirty = true;
+            }
             Input::Quit => {
                 return match failure {
                     Some(error) => Err(error),
@@ -134,14 +176,15 @@ pub fn run(options: Options) -> Result<(), String> {
             if animating {
                 frame_index = frame_index.wrapping_add(1);
             }
+            text = text.take().map(|paragraph| paragraph.scroll((scroll, 0)));
             draw(
                 inline.terminal(),
+                theme.palette(),
                 DrawState {
-                    snapshot: snapshot.as_ref(),
+                    text: text.as_ref(),
                     frame_index,
                     color,
                     probing: worker.is_some(),
-                    scroll,
                     tick: now.duration_since(last_draw),
                 },
                 effect.as_mut(),
@@ -169,103 +212,102 @@ pub fn run(options: Options) -> Result<(), String> {
     }
 }
 
-fn reveal_effect(color: bool) -> Effect {
-    let foreground = if color {
-        Color::Rgb(51, 65, 85)
-    } else {
-        Color::DarkGray
-    };
+fn reveal_effect(palette: &Palette, color: bool) -> Effect {
+    let foreground = palette
+        .ratatui(
+            if color {
+                ColorMode::Always
+            } else {
+                ColorMode::Never
+            },
+            true,
+            Role::Border,
+        )
+        .fg
+        .unwrap_or_default();
     fx::fade_from_fg(foreground, (180, Interpolation::CubicOut)).with_filter(CellFilter::Text)
 }
 
-fn motion_enabled() -> bool {
-    ![
-        "HWIRE_REDUCED_MOTION",
-        "PREFERS_REDUCED_MOTION",
-        "REDUCE_MOTION",
-        "REDUCED_MOTION",
-    ]
-    .into_iter()
-    .any(|name| std::env::var(name).ok().is_some_and(|value| flag(&value)))
+fn measured_height(text: &Paragraph<'_>, width: u16) -> usize {
+    text.line_count(width.max(1))
 }
 
-fn flag(value: &str) -> bool {
-    !matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "" | "0" | "false" | "no" | "off"
-    )
-}
-
-fn scroll_limit(snapshot: Option<&Snapshot>, viewport_height: u16) -> u16 {
-    let Some(snapshot) = snapshot else {
-        return 0;
-    };
-    let width = workstation::terminal_width()
-        .unwrap_or(80)
-        .saturating_sub(2)
-        .max(1);
-    let content_height = render::verbose(snapshot, ColorMode::Never, false)
-        .lines()
-        .map(|line| line.chars().count().max(1).div_ceil(width))
-        .sum::<usize>();
+fn scroll_limit(content_height: usize, viewport_height: u16) -> u16 {
     content_height
         .saturating_sub(usize::from(viewport_height.saturating_sub(2)))
         .min(usize::from(u16::MAX)) as u16
 }
 
 struct DrawState<'a> {
-    snapshot: Option<&'a Snapshot>,
+    text: Option<&'a Paragraph<'static>>,
     frame_index: u64,
     color: bool,
     probing: bool,
-    scroll: u16,
     tick: Duration,
 }
 
 fn draw(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    terminal: &mut Terminal<ui_terminal::Backend<Stdout>>,
+    palette: &Palette,
     state: DrawState<'_>,
     effect: Option<&mut Effect>,
 ) -> Result<(), String> {
     let DrawState {
-        snapshot,
+        text,
         frame_index,
         color,
         probing,
-        scroll,
         tick,
     } = state;
     terminal
         .draw(|frame| {
             let area = frame.area();
             let title = if probing {
-                let spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-                format!(
-                    " {} probing ",
-                    spinner[frame_index as usize % spinner.len()]
-                )
+                format!(" {} probing ", Spinner::Braille.frame(frame_index, true))
             } else {
                 " hwire info ".to_string()
             };
             let block = Block::default()
+                .style(palette.ratatui(
+                    if color {
+                        ColorMode::Always
+                    } else {
+                        ColorMode::Never
+                    },
+                    true,
+                    Role::Background,
+                ))
                 .borders(Borders::ALL)
                 .title(format!("{title} | ↑/↓ scroll | q quit "))
-                .border_style(ui_style(color, Color::Rgb(124, 58, 237), Modifier::BOLD));
+                .border_style(
+                    palette
+                        .ratatui(
+                            if color {
+                                ColorMode::Always
+                            } else {
+                                ColorMode::Never
+                            },
+                            true,
+                            Role::Accent,
+                        )
+                        .add_modifier(Modifier::BOLD),
+                );
             let inner = block.inner(area);
             frame.render_widget(block, area);
-            let text = match snapshot {
-                Some(snapshot) => styled_text(snapshot, color),
-                None => Text::from(Line::styled(
-                    "Discovering routes…",
-                    ui_style(color, Color::Rgb(148, 163, 184), Modifier::empty()),
-                )),
-            };
-            frame.render_widget(
-                Paragraph::new(text)
-                    .wrap(Wrap { trim: false })
-                    .scroll((scroll, 0)),
-                inner,
-            );
+            let placeholder = Paragraph::new(Line::styled(
+                "Discovering routes…",
+                palette.ratatui(
+                    if color {
+                        ColorMode::Always
+                    } else {
+                        ColorMode::Never
+                    },
+                    true,
+                    Role::Muted,
+                ),
+            ));
+            let text = text.unwrap_or(&placeholder);
+            frame.render_widget(text, inner);
             if let Some(effect) = effect {
                 frame.render_effect(effect, area, tachyonfx::Duration::from(tick));
             }
@@ -278,10 +320,12 @@ fn input() -> Result<Input, String> {
     while event::poll(Duration::ZERO)
         .map_err(|error| format!("unable to poll terminal input: {error}"))?
     {
-        let Event::Key(key) =
-            event::read().map_err(|error| format!("unable to read terminal input: {error}"))?
-        else {
-            continue;
+        let key = match event::read()
+            .map_err(|error| format!("unable to read terminal input: {error}"))?
+        {
+            Event::Key(key) => key,
+            Event::Resize(width, height) => return Ok(Input::Resize(width, height)),
+            _ => continue,
         };
         if key.kind == KeyEventKind::Press
             && (key.code == KeyCode::Char('q')
@@ -304,7 +348,7 @@ fn input() -> Result<Input, String> {
     Ok(Input::None)
 }
 
-fn bell(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), String> {
+fn bell(terminal: &mut Terminal<ui_terminal::Backend<Stdout>>) -> Result<(), String> {
     terminal
         .backend_mut()
         .write_all(b"\x07")
@@ -321,30 +365,37 @@ enum Input {
     PageUp,
     PageDown,
     Home,
+    Resize(u16, u16),
 }
 
-fn styled_text(snapshot: &Snapshot, color: bool) -> Text<'static> {
+fn styled_text(snapshot: &Snapshot, palette: &Palette, color: bool) -> Text<'static> {
     let plain = render::verbose(snapshot, ColorMode::Never, false);
-    let lines = plain
-        .lines()
-        .map(|line| {
-            let style = if line.starts_with("hwire info") {
-                ui_style(color, Color::Rgb(196, 181, 253), Modifier::BOLD)
-            } else if line.contains("up  ") {
-                ui_style(color, Color::Rgb(52, 211, 153), Modifier::empty())
-            } else if line.contains("down") {
-                ui_style(color, Color::Rgb(248, 113, 113), Modifier::empty())
-            } else if line.trim_start().starts_with('!') {
-                ui_style(color, Color::Rgb(250, 204, 21), Modifier::empty())
-            } else if matches!(line, "routes" | "ssh resolution") {
-                ui_style(color, Color::Rgb(167, 139, 250), Modifier::BOLD)
-            } else {
-                ui_style(color, Color::Rgb(203, 213, 225), Modifier::empty())
-            };
-            Line::styled(line.to_string(), style)
-        })
-        .collect::<Vec<_>>();
-    Text::from(lines)
+    let mode = if color {
+        ColorMode::Always
+    } else {
+        ColorMode::Never
+    };
+    Text::from(
+        plain
+            .lines()
+            .map(|line| {
+                let role = if line.starts_with("hwire info") {
+                    Role::Strong
+                } else if line.contains("up  ") {
+                    Role::Success
+                } else if line.contains("down") {
+                    Role::Danger
+                } else if line.trim_start().starts_with('!') {
+                    Role::Warning
+                } else if matches!(line, "routes" | "ssh resolution") {
+                    Role::Accent
+                } else {
+                    Role::Plain
+                };
+                Line::styled(line.to_owned(), palette.ratatui(mode, true, role))
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 #[cfg(test)]

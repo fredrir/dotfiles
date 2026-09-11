@@ -35,6 +35,7 @@ linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
 linux/arch/vscode = ~/.config/Code/User
 
 shared/bin = ~/.local/bin
+shared/ui = ~/.config/dotfile/ui
 
 shared/tools/biome.global.json = ~/biome.json
 shared/tools/.editorconfig = ~/.editorconfig

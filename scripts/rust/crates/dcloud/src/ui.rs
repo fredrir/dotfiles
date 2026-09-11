@@ -1,43 +1,11 @@
 use anyhow::Result;
-use file_explorer::{
-    AcceptTarget, Directory, DirectoryStatus, Entry, EntryKind, Explorer, FileSource, Outcome,
-};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
+use ui_file_explorer::{
+    Directory, DirectoryStatus, Entry, EntryKind, Explorer, FileSource, Outcome,
+};
 
-struct Catalog {
-    rows: Vec<Value>,
-}
-impl FileSource for Catalog {
-    type Location = usize;
-    type Error = std::io::Error;
-    fn read_directory(&self, _: &usize) -> std::io::Result<Directory<usize>> {
-        Ok(Directory {
-            location: usize::MAX,
-            parent: None,
-            label: "dcloud · select a recovery point · type to filter".into(),
-            status: DirectoryStatus::Present,
-            entries: self
-                .rows
-                .iter()
-                .enumerate()
-                .map(|(index, row)| Entry {
-                    location: index,
-                    name: format!(
-                        "{}  {} / {}  {}  {}",
-                        field(row, "time"),
-                        field(row, "host"),
-                        field(row, "job"),
-                        field(row, "destination"),
-                        field(row, "id")
-                    ),
-                    kind: EntryKind::File,
-                })
-                .collect(),
-        })
-    }
-}
 fn field<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(Value::as_str).unwrap_or("")
 }
@@ -47,18 +15,23 @@ pub fn select(rows: &[Value]) -> Result<Option<usize>> {
         return Ok(None);
     }
     let style = workstation::Style::for_stdout();
-    let outcome = Explorer::new(
-        Catalog {
-            rows: rows.to_vec(),
-        },
-        usize::MAX,
-        &style,
-    )
-    .accept_target(AcceptTarget::HighlightedEntry)
-    .selectable(|kind| kind == EntryKind::File)
-    .run()?;
+    let items = rows.iter().enumerate().map(|(index, row)| {
+        ui_picker::Item::new(
+            index,
+            format!(
+                "{}  {} / {}  {}  {}",
+                field(row, "time"),
+                field(row, "host"),
+                field(row, "job"),
+                field(row, "destination"),
+                field(row, "id")
+            ),
+        )
+    });
+    let outcome =
+        ui_picker::Picker::new("dcloud · select a recovery point", items, &style).run()?;
     Ok(match outcome {
-        Outcome::Selected(selection) => Some(selection.location),
+        ui_picker::Outcome::Selected(selection) => selection.first().copied(),
         _ => None,
     })
 }

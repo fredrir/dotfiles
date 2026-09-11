@@ -161,6 +161,10 @@ fn compact_progress_uses_the_theme_and_preserves_terminal_modes() {
     let root = tree_pairs(&[
         ("config/targets.dotfile", ""),
         (
+            "ui-theme.json",
+            r##"{"version":1,"profile":"terminal-test","colors":{"fg":"#ffffff"},"roles":{},"ui":{"theirs":"#0b1621","success":"#2c3742"}}"##,
+        ),
+        (
             "scripts/rust/Cargo.toml",
             "[workspace]\nmembers = ['crates/demo']\n",
         ),
@@ -181,8 +185,8 @@ fn compact_progress_uses_the_theme_and_preserves_terminal_modes() {
             .args(["dev", "test", "--pkg", "demo"])
             .env("DOTFILE_ROOT", root.path())
             .env("TERM", "xterm-256color")
-            .env("THEME_DIR", "\x1b[38;2;11;22;33m")
-            .env("THEME_GIT", "\x1b[38;2;44;55;66m")
+            .env("COLORTERM", "truecolor")
+            .env("DOTFILE_UI_THEME", root.path().join("ui-theme.json"))
             .env_remove("CI")
             .env_remove("CLICOLOR")
             .env(

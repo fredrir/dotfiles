@@ -12,7 +12,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::process::{Child, ExitCode, Stdio};
 use std::time::Duration;
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use hostkit::host;
 use hostkit::ssh::Session;
 use hostkit::{Host, Route};
@@ -234,10 +234,10 @@ enum Half {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = workstation::cli::parse::<Cli>();
     if let Some(status) = cli.completions.emit::<Cli>(PROGRAM) {
         if cli.completions.is_zsh() {
-            let mut command = Cli::command();
+            let mut command = workstation::cli::command::<Cli>();
             command.build();
             print!("{}", completion::zsh(&command));
         }

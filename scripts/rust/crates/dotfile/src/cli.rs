@@ -69,7 +69,7 @@ pub struct SyncCli {
 impl SyncCli {
     pub fn parse_tail(arguments: impl IntoIterator<Item = OsString>) -> Result<Self, clap::Error> {
         let values = std::iter::once(OsString::from("dotfile sync")).chain(arguments);
-        Self::try_parse_from(values)
+        workstation::cli::try_parse_from(values)
     }
 }
 
@@ -165,10 +165,10 @@ pub fn dispatch(arguments: Vec<OsString>) -> std::process::ExitCode {
         return code;
     }
     let original_arguments = arguments.clone();
-    use clap::CommandFactory;
     use std::process::ExitCode;
-    let cli = match Cli::try_parse_from(std::iter::once(OsString::from("dotfile")).chain(arguments))
-    {
+    let cli = match workstation::cli::try_parse_from::<Cli, _, _>(
+        std::iter::once(OsString::from("dotfile")).chain(arguments),
+    ) {
         Ok(cli) => cli,
         Err(error) => {
             let code = error.exit_code();
@@ -199,7 +199,7 @@ pub fn dispatch(arguments: Vec<OsString>) -> std::process::ExitCode {
         };
     }
     let Some(command) = cli.command else {
-        let _ = Cli::command().print_help();
+        let _ = workstation::cli::command::<Cli>().print_help();
         println!();
         return ExitCode::SUCCESS;
     };

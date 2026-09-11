@@ -1,5 +1,4 @@
-use std::fmt::Display;
-use std::io::{self, IsTerminal, Write};
+use std::io;
 use std::process::ExitCode;
 
 use clap::{Args, CommandFactory};
@@ -18,6 +17,10 @@ pub mod walk;
 
 pub use color::ColorMode;
 pub use screen::{Key, Screen};
+pub use ui_cli as cli;
+pub use ui_cli::{Answer, confirm, confirm_each, fail};
+pub use ui_terminal::{terminal_height, terminal_width};
+pub use ui_theme::Style;
 
 // The `--completions <SHELL>` flag, flattened into each tool's parser. A
 // required positional has to opt out of being required when the flag is
@@ -73,11 +76,6 @@ fn exit_byte(code: i32) -> u8 {
     u8::try_from(code).unwrap_or(1)
 }
 
-pub fn fail(program: &str, message: impl Display) -> ExitCode {
-    eprintln!("{program}: {message}");
-    ExitCode::FAILURE
-}
-
 pub trait Completable {
     fn completions(&self) -> &Completions;
 }
@@ -86,7 +84,7 @@ pub fn run<C>(program: &str, body: impl FnOnce(C) -> Result<ExitCode, String>) -
 where
     C: clap::Parser + CommandFactory + Completable,
 {
-    let cli = C::parse();
+    let cli = ui_cli::parse::<C>();
     if let Some(status) = cli.completions().emit::<C>(program) {
         return status;
     }
@@ -94,161 +92,6 @@ where
         Ok(status) => status,
         Err(message) => fail(program, message),
     }
-}
-
-pub struct Style {
-    colored: bool,
-    green: String,
-    red: String,
-    teal: String,
-}
-
-impl Style {
-    pub fn for_stdout() -> Style {
-        Style::for_stream(io::stdout().is_terminal())
-    }
-
-    pub fn for_stdout_with_color(colored: bool) -> Style {
-        Style::new(colored)
-    }
-
-    pub fn for_stderr() -> Style {
-        Style::for_stream(io::stderr().is_terminal())
-    }
-
-    pub fn for_mode(mode: ColorMode, terminal: bool) -> Style {
-        Style::new(mode.enabled(terminal))
-    }
-
-    fn for_stream(terminal: bool) -> Style {
-        Style::for_mode(ColorMode::Auto, terminal)
-    }
-
-    fn new(colored: bool) -> Style {
-        Style {
-            colored,
-            green: theme("THEME_GIT", "\x1b[32m"),
-            red: theme("THEME_SUDO", "\x1b[31m"),
-            teal: theme("THEME_DIR", "\x1b[36m"),
-        }
-    }
-
-    pub fn plain() -> Style {
-        Style {
-            colored: false,
-            green: String::new(),
-            red: String::new(),
-            teal: String::new(),
-        }
-    }
-
-    pub fn bold(&self, text: &str) -> String {
-        self.paint("\x1b[1m", text)
-    }
-
-    pub fn dim(&self, text: &str) -> String {
-        self.paint("\x1b[2m", text)
-    }
-
-    pub fn green(&self, text: &str) -> String {
-        self.paint(&self.green, text)
-    }
-
-    pub fn red(&self, text: &str) -> String {
-        self.paint(&self.red, text)
-    }
-
-    pub fn teal(&self, text: &str) -> String {
-        self.paint(&self.teal, text)
-    }
-
-    pub fn code(&self, code: &str, text: &str) -> String {
-        if !self.colored || text.is_empty() {
-            return text.to_string();
-        }
-        format!("\x1b[{code}m{text}\x1b[0m")
-    }
-
-    fn paint(&self, code: &str, text: &str) -> String {
-        if !self.colored || text.is_empty() {
-            return text.to_string();
-        }
-        format!("{code}{text}\x1b[0m")
-    }
-}
-
-fn theme(name: &str, fallback: &str) -> String {
-    match std::env::var(name) {
-        Ok(value) if !value.is_empty() => value,
-        _ => fallback.to_string(),
-    }
-}
-
-pub fn confirm(question: &str) -> Option<bool> {
-    let mut answer = String::new();
-    loop {
-        print!("{question}");
-        io::stdout().flush().ok()?;
-        answer.clear();
-        if io::stdin().read_line(&mut answer).ok()? == 0 {
-            return None;
-        }
-        match answer.trim().to_ascii_lowercase().as_str() {
-            "" | "y" | "yes" => return Some(true),
-            "n" | "no" => return Some(false),
-            _ => eprintln!("Please answer y or n."),
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Answer {
-    Yes,
-    No,
-    All,
-}
-
-pub fn confirm_each(question: &str) -> Option<Answer> {
-    let mut answer = String::new();
-    loop {
-        print!("{question}");
-        io::stdout().flush().ok()?;
-        answer.clear();
-        if io::stdin().read_line(&mut answer).ok()? == 0 {
-            return None;
-        }
-        match answer.trim().to_ascii_lowercase().as_str() {
-            "" | "y" | "yes" => return Some(Answer::Yes),
-            "n" | "no" => return Some(Answer::No),
-            "a" | "all" => return Some(Answer::All),
-            _ => eprintln!("Please answer y, n or a."),
-        }
-    }
-}
-
-pub fn terminal_width() -> Option<usize> {
-    if let Some(columns) = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok()) {
-        return Some(columns);
-    }
-    terminal_size().map(|(columns, _rows)| columns)
-}
-
-pub fn terminal_height() -> Option<usize> {
-    if let Some(rows) = std::env::var("LINES").ok().and_then(|v| v.parse().ok()) {
-        return Some(rows);
-    }
-    terminal_size().map(|(_columns, rows)| rows)
-}
-
-#[cfg(unix)]
-fn terminal_size() -> Option<(usize, usize)> {
-    let size = rustix::termios::tcgetwinsize(io::stdout()).ok()?;
-    (size.ws_col > 0).then_some((size.ws_col as usize, size.ws_row as usize))
-}
-
-#[cfg(not(unix))]
-fn terminal_size() -> Option<(usize, usize)> {
-    None
 }
 
 #[cfg(test)]

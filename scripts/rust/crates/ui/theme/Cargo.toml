@@ -1,0 +1,23 @@
+[package]
+name              = "ui-theme"
+version.workspace = true
+description       = "Shared terminal design tokens and dotfile theme loading"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+clap    = ["dep:clap"]
+ratatui = ["dep:ratatui"]
+
+[dependencies]
+serde.workspace      = true
+serde_json.workspace = true
+clap                 = { workspace = true, optional = true }
+ratatui              = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

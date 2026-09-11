@@ -143,6 +143,7 @@ pub(crate) enum Effect {
 #[derive(Clone, Debug)]
 pub(crate) struct Model {
     pub(crate) entries: Vec<SessionEntry>,
+    search: ui_widgets::SearchIndex,
     pub(crate) warnings: Vec<String>,
     pub(crate) loading: bool,
     pub(crate) fatal_error: Option<String>,
@@ -184,6 +185,7 @@ impl Model {
     pub(crate) fn new() -> Self {
         Self {
             entries: Vec::new(),
+            search: ui_widgets::SearchIndex::default(),
             warnings: Vec::new(),
             loading: true,
             fatal_error: None,
@@ -345,6 +347,9 @@ impl Model {
             self.favorite_overrides.clear();
         }
         self.entries = snapshot.sessions;
+        self.search = ui_widgets::SearchIndex::new_ascii(
+            self.entries.iter().map(SessionEntry::searchable_text),
+        );
         self.warnings = snapshot
             .warnings
             .into_iter()
@@ -423,8 +428,14 @@ impl Model {
 
     pub(crate) fn favorite_failed(&mut self, key: &str, previous: bool, error: String) {
         self.favorite_overrides.remove(key);
-        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.key == key) {
+        if let Some((index, entry)) = self
+            .entries
+            .iter_mut()
+            .enumerate()
+            .find(|(_, entry)| entry.key == key)
+        {
             entry.favorite = previous;
+            self.search.replace_ascii(index, &entry.searchable_text());
         }
         self.status = Some(format!("Could not save favorite: {}", clean(&error)));
         self.rebuild_filter(Some(key));
@@ -999,6 +1010,7 @@ impl Model {
             return Effect::None;
         }
         entry.favorite = !entry.favorite;
+        self.search.replace_ascii(index, &entry.searchable_text());
         self.favorite_overrides
             .insert(entry.key.clone(), entry.favorite);
         let effect = Effect::SetFavorite {
@@ -1068,8 +1080,10 @@ impl Model {
             .iter()
             .enumerate()
             .filter(|(_, entry)| self.matches_filters(entry))
-            .filter_map(|(index, entry)| {
-                fuzzy_score(&entry.searchable_text(), &tokens).map(|score| (index, score))
+            .filter_map(|(index, _)| {
+                self.search
+                    .score_tokens(index, &tokens)
+                    .map(|score| (index, score))
             })
             .collect::<Vec<_>>();
         matches.sort_by(|(left_index, left_score), (right_index, right_score)| {
@@ -1142,39 +1156,6 @@ fn clamp_point(area: Rect, point: Position) -> Option<Position> {
         point.x.clamp(area.x, area.right().saturating_sub(1)),
         point.y.clamp(area.y, area.bottom().saturating_sub(1)),
     ))
-}
-
-/// Token-aware fuzzy match. Every token must be a case-insensitive
-/// subsequence; contiguous and early matches rank higher. Catalog order is the
-/// final deterministic tie breaker in `rebuild_filter`.
-fn fuzzy_score(haystack: &str, tokens: &[String]) -> Option<i64> {
-    if tokens.is_empty() {
-        return Some(0);
-    }
-    let haystack = haystack.to_ascii_lowercase();
-    let characters = haystack.char_indices().collect::<Vec<_>>();
-    let mut total = 0i64;
-    for token in tokens {
-        let mut after = 0usize;
-        let mut previous = None;
-        let mut first = None;
-        let mut contiguous = 0i64;
-        for needle in token.chars() {
-            let (position, (byte, _)) = characters
-                .iter()
-                .enumerate()
-                .skip(after)
-                .find(|(_, (_, candidate))| *candidate == needle)?;
-            first.get_or_insert(*byte);
-            if previous.is_some_and(|last| last + 1 == position) {
-                contiguous += 8;
-            }
-            previous = Some(position);
-            after = position + 1;
-        }
-        total += 1000 + contiguous - i64::try_from(first.unwrap_or(0)).unwrap_or(i64::MAX) / 4;
-    }
-    Some(total)
 }
 
 #[cfg(test)]

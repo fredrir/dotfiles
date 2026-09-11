@@ -40,6 +40,7 @@
 | `dotfile theme contrast` | Prints one or every profile's resolved contrast matrix.                                      |
 | `dotfile theme status`   | Shows each group's resolved profile and whether generated files have drifted.                |
 | `dotfile theme preview`  | Previews a profile's palette, roles, fonts, and terminal colors.                             |
+| `dotfile theme gallery`  | Shows the shared picker, progress, and comparison components using a theme profile.          |
 | `dotfile theme switch`   | Assigns a profile globally, to a group, or to a package.                                     |
 | `dotfile theme outputs`  | Prints the files owned by the theme generator.                                               |
 | `dotfile add`            | Moves a live config into the repository and symlinks it back.                                |
