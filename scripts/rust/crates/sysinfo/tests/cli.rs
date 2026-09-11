@@ -175,7 +175,7 @@ fn reports_do_not_read_benchmark_history_or_mutate_host_configuration() {
     let fixture = Fixture::new();
     let history = fixture.root.path().join("benchmarks");
     std::fs::create_dir(&history).unwrap();
-    std::fs::write(history.join("baselines.dotfile"), "broken {\n").unwrap();
+    std::fs::write(history.join("store.json"), "{broken\n").unwrap();
     let config = fixture.root.path().join("config/hosts.dotfile");
     let before = std::fs::read(&config).unwrap();
     report(&fixture.output(&["--json", "--health"]));

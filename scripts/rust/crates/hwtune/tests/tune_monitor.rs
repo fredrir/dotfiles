@@ -82,7 +82,6 @@ fn readable_telemetry_finishes_with_complete_evidence() {
     assert!(root.path().join("workload-started").exists());
     assert_eq!(result["workload_success"], true);
     assert_eq!(result["evidence"]["passed"], true);
-    assert_eq!(result["evidence"]["journal_checked"], true);
     assert_eq!(result["evidence"]["peak_temp_c"], 35.0);
     assert!(result["evidence"]["samples"].as_u64().unwrap() >= 2);
 }
@@ -93,7 +92,6 @@ fn unsafe_telemetry_cancels_workload_and_its_descendant_group() {
     assert_eq!(result["interrupted"], true);
     assert_eq!(result["descendant_stopped"], true);
     assert_eq!(result["evidence"]["passed"], false);
-    assert_eq!(result["evidence"]["journal_checked"], true);
     assert_eq!(result["evidence"]["peak_temp_c"], 100.0);
     assert!(
         result["evidence"]["reason"]

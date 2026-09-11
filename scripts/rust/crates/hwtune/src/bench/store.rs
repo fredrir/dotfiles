@@ -92,7 +92,7 @@ fn machine_lock_file(path: &Path) -> Result<File, String> {
 fn acquire_lock(path: &Path) -> Result<Lock, String> {
     let parent = path.parent().ok_or("missing lock directory")?;
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
@@ -101,8 +101,6 @@ fn acquire_lock(path: &Path) -> Result<Lock, String> {
         .map_err(|error| error.to_string())?;
     file.try_lock_exclusive()
         .map_err(|_| "another benchmark is already running".to_string())?;
-    file.set_len(0).map_err(|error| error.to_string())?;
-    writeln!(file, "{}", std::process::id()).map_err(|error| error.to_string())?;
     Ok(Lock { _file: file })
 }
 

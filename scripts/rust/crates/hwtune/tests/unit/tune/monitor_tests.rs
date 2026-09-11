@@ -42,7 +42,6 @@ fn evidence() -> Evidence {
         peak_temp_c: -30.0,
         max_temp_c: 90.0,
         samples: 0,
-        journal_checked: false,
         elapsed_seconds: 0.0,
     }
 }

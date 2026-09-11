@@ -264,13 +264,7 @@ fn settings_can_turn_the_layout_off() {
 
 #[test]
 fn every_tracked_dotfile_survives_a_round_trip() {
-    // The fixtures are the point: these eight files are what the grammar has
-    // to mean, and a change here that moved an entry would be a change to data.
-    let fixtures: [(&str, &str); 8] = [
-        (
-            "benchmarks/baselines.dotfile",
-            include_str!("../../../../../../benchmarks/baselines.dotfile"),
-        ),
+    let fixtures = [
         (
             "config/hosts.dotfile",
             include_str!("../../../../../../config/hosts.dotfile"),

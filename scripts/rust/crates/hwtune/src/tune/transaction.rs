@@ -199,10 +199,6 @@ impl Guard {
         self.armed = false;
         Ok(())
     }
-
-    pub fn finish(mut self, retain: bool) -> Result<(), String> {
-        self.complete(retain)
-    }
 }
 
 impl Drop for Guard {

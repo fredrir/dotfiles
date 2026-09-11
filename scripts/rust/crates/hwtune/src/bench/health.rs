@@ -31,9 +31,6 @@ pub fn regression_issue(delta: &Delta, baseline: &Run, latest: &Run) -> HealthIs
         ),
     }
 }
-pub fn benchmark_issues(host: &str) -> Result<Vec<HealthIssue>, String> {
-    issues(&Store::discover(), host)
-}
 pub fn issues(store: &Store, host: &str) -> Result<Vec<HealthIssue>, String> {
     if host.is_empty() {
         return Ok(Vec::new());

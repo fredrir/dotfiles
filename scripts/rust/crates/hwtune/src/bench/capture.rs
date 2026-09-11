@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command, time::Duration};
 use sysinfo::model::Snapshot;
-pub use sysinfo::report::{describe_hardware, describe_install};
+use sysinfo::report::describe_hardware;
 
 pub fn probe(command: &mut Command, seconds: u64) -> Option<hostkit::process::CapturedOutput> {
     hostkit::process::output(

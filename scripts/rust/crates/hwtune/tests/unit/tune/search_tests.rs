@@ -186,7 +186,7 @@ fn automatic_trials_measure_the_right_settings_and_validate_winner_independently
         ]
     );
     assert_eq!(measurements.records.len(), 2);
-    guard.finish(false).unwrap();
+    guard.complete(false).unwrap();
     assert_eq!(
         std::fs::read_to_string(&measurements.governor)
             .unwrap()
@@ -200,7 +200,7 @@ fn automatic_noise_rejection_restores_starting_settings() {
     let (_temp, mut guard, profiles, mut measurements) = measured_fixture(101.0, 101.0);
     let error = optimize(&mut measurements, &mut guard, &profiles, "cpu.multi", 3.0).unwrap_err();
     assert!(error.contains("no candidate"));
-    guard.finish(false).unwrap();
+    guard.complete(false).unwrap();
     assert_eq!(
         std::fs::read_to_string(&measurements.governor)
             .unwrap()

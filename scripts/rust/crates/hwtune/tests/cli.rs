@@ -139,7 +139,6 @@ impl Fixture {
         );
         self.stub("nvidia-smi", "echo '24, 11.96, 300.00, 345, 405, 0'");
         self.stub("sudo", "exit 1");
-        self.stub("sysinfo", "printf '%s\\n' \"$@\" > \"$CAPTURE\"");
     }
 
     fn command(&self) -> Command {
@@ -445,7 +444,6 @@ fn benchmark_commands_are_owned_by_hwtune() {
             .status
             .success()
     );
-    assert!(!fixture.root.path().join("captured.txt").exists());
 }
 
 #[test]

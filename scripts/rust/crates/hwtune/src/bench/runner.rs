@@ -220,7 +220,7 @@ pub fn execute(options: &Options, report: &mut dyn FnMut(&str, &str, &str)) -> R
         tier: options.tier.clone(),
         grade: grade.into(),
         snapshot: described,
-        install: capture::describe_install(&snapshot),
+        install: sysinfo::report::describe_install(&snapshot),
         conditions,
         metrics,
         note: options.note.clone(),

@@ -16,7 +16,6 @@ pub struct Source {
     pub path: String,
     pub content_sha256: String,
     pub settings_sha256: String,
-    pub active_verified: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,7 +87,6 @@ pub fn bios_source(path: &Path, bytes: &[u8]) -> Result<Source, String> {
         path: path.display().to_string(),
         content_sha256: sha256(bytes),
         settings_sha256: sha256(&serde_json::to_vec(&settings).map_err(|e| e.to_string())?),
-        active_verified: false,
     })
 }
 
@@ -134,7 +132,6 @@ pub fn lact_source(path: &Path, bytes: &[u8]) -> Result<Source, String> {
         path: path.display().to_string(),
         content_sha256: sha256(bytes),
         settings_sha256: sha256(canonical_yaml(&value)?.as_bytes()),
-        active_verified: false,
     })
 }
 

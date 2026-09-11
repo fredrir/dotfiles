@@ -1,7 +1,7 @@
-pub mod controls;
+mod controls;
 pub mod monitor;
-pub mod search;
-pub mod transaction;
+mod search;
+mod transaction;
 
 use std::fs;
 use std::path::PathBuf;
@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use crate::bench::{hosts, provenance, record, runner, store};
 use crate::env::Sysfs;
 use controls::{Control, Profile};
+use search::Measurements;
 
 #[derive(Subcommand)]
 pub enum Command {
@@ -28,7 +29,7 @@ pub enum Command {
     Apply(ValidationOptions),
 }
 
-#[derive(Args, Clone)]
+#[derive(Args)]
 pub struct ValidationOptions {
     /// CPU metric required in each benchmark validation.
     #[arg(long, default_value = "cpu.multi")]
@@ -55,15 +56,15 @@ pub struct AutoOptions {
     pub validation: ValidationOptions,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Desired {
-    pub schema: u32,
-    pub host: String,
-    pub hardware_epoch: String,
-    pub profile: Profile,
-    pub drivers: std::collections::BTreeMap<PathBuf, Option<String>>,
-    pub validated_session: String,
-    pub validated_run: String,
+#[derive(Deserialize, Serialize)]
+struct Desired {
+    schema: u32,
+    host: String,
+    hardware_epoch: String,
+    profile: Profile,
+    drivers: std::collections::BTreeMap<PathBuf, Option<String>>,
+    validated_session: String,
+    validated_run: String,
 }
 
 #[derive(Serialize)]
@@ -210,7 +211,7 @@ struct Experiment<'a> {
     session: &'a mut Session,
 }
 
-impl Experiment<'_> {
+impl Measurements for Experiment<'_> {
     fn benchmark(&mut self, phase: &str) -> Result<record::Run, String> {
         if runner::cancelled() {
             return Err("tuning was interrupted".into());
@@ -254,8 +255,7 @@ impl Experiment<'_> {
             let _lock = self.store.exclusive()?;
             self.store.save_run(&run)?
         };
-        self.session.trials.push(json!({"phase":phase,"run_id":run.run_id,"run_path":path,"grade":run.grade,"monitor":run.conditions["tuning_monitor"]}));
-        save_session(self.store, self.session)?;
+        self.record(json!({"phase":phase,"run_id":run.run_id,"run_path":path,"grade":run.grade,"monitor":run.conditions["tuning_monitor"]}))?;
         monitored?;
         search::complete(&run, &self.options.metric)?;
         Ok(run)
@@ -267,10 +267,7 @@ impl Experiment<'_> {
         }
         let evidence =
             monitor::run_stress(self.sys, self.options.stress_seconds, self.options.max_temp)?;
-        self.session
-            .trials
-            .push(json!({"phase":phase,"stability":evidence}));
-        save_session(self.store, self.session)?;
+        self.record(json!({"phase":phase,"stability":evidence}))?;
         if !evidence.passed {
             return Err(format!(
                 "stability validation failed: {}",
@@ -278,15 +275,6 @@ impl Experiment<'_> {
             ));
         }
         Ok(())
-    }
-}
-
-impl search::Measurements for Experiment<'_> {
-    fn benchmark(&mut self, phase: &str) -> Result<record::Run, String> {
-        Experiment::benchmark(self, phase)
-    }
-    fn stress(&mut self, phase: &str) -> Result<(), String> {
-        Experiment::stress(self, phase)
     }
     fn record(&mut self, evidence: Value) -> Result<(), String> {
         self.session.trials.push(evidence);

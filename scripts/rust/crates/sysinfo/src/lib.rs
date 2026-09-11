@@ -8,6 +8,6 @@ pub mod identity;
 pub mod inventory;
 pub mod model;
 pub mod presentation;
+pub mod report;
 
 pub type Module = (&'static str, serde_json::Value);
-pub mod report;

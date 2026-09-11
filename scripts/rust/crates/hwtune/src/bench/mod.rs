@@ -18,7 +18,6 @@ pub mod suites;
 mod tests;
 
 use clap::{Arg, ArgAction, ArgMatches};
-pub use health::benchmark_issues;
 use record::{ANY, CLEAN, Run};
 use serde_json::json;
 use std::{
@@ -237,7 +236,7 @@ pub fn run(args: &ArgMatches) -> Result<(), String> {
         }
         "health" => {
             let host = crate::paths::host_name(nonempty(text(args, "host")))?;
-            let issues = benchmark_issues(&host)?;
+            let issues = health::issues(&store, &host)?;
             if args.get_flag("json") {
                 json_output(&issues)
             } else {

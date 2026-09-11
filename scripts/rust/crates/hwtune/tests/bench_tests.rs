@@ -1,5 +1,5 @@
 use super::{
-    capture, compare, conditions, health,
+    compare, conditions, health,
     record::{self, Metric, Run},
     runner,
     select::Selector,
@@ -193,25 +193,6 @@ fn store_reloads_pinned_schema_one_runs() {
     assert!(store.load_baselines().unwrap().contains_key("archie"));
 }
 #[test]
-fn store_reports_corrupt_files_and_cannot_escape_history_root() {
-    let (_root, store) = store();
-    store.initialize().unwrap();
-    let path = store.run_path("archie", "bad").unwrap();
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    for content in [
-        b"null".as_slice(),
-        b"[1,2]",
-        b"{broken",
-        b"{\"host\":\"archi\xe9\"}",
-    ] {
-        fs::write(&path, content).unwrap();
-        let error = store.list_runs(None, &[]).unwrap_err();
-        assert!(error.contains("bad.json"), "{error}");
-    }
-    assert!(store.run_path("../outside", "run").is_err());
-    assert!(store.run_path("archie", "../../outside").is_err());
-}
-#[test]
 fn benchmark_lock_is_exclusive_and_reusable() {
     let (_root, store) = store();
     let first = store.exclusive().unwrap();
@@ -317,18 +298,6 @@ fn battery_charging_and_adapter_override_discharge_reports() {
     assert!(conditions::on_battery(&s));
     s.modules.insert("PowerAdapter".into(), json!([{}]));
     assert!(!conditions::on_battery(&s));
-}
-#[test]
-fn capture_removes_serials_virtual_disks_and_removable_media() {
-    let mut s = sysinfo::model::Snapshot::default();
-    s.modules
-        .insert("CPU".into(), json!({"cpu":"CPU","serial":"PRIVATE"}));
-    s.modules.insert("PhysicalDisk".into(),json!([{"name":"ATA Real SSD","size":2000000000000_u64,"serial":"PRIVATE"},{"name":"Disk Image","size":500000},{"name":"USB","removable":true}]));
-    let result = capture::describe_hardware(&s);
-    assert!(!result.to_string().contains("PRIVATE"));
-    assert_eq!(result["disks"].as_array().unwrap().len(), 1);
-    assert_eq!(result["disks"][0]["name"], "Real SSD");
-    assert!(result.get("virtualized").is_none());
 }
 fn counting_job(values: Vec<f64>, repeat: bool) -> (suites::Job, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));

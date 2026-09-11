@@ -30,7 +30,7 @@ dotfile dev check --pkg hwtune --lang rust,python
 | `src/bench/store.rs` | `Store::new(root)`, history, baselines, session paths, mutation and measurement locks |
 | `src/bench/record.rs` | Schema 1 runs, metrics, hardware epochs |
 | `src/bench/compare.rs` | `compare_runs`, method and environment gates |
-| `src/bench/health.rs` | `benchmark_issues`, baseline regressions, stale history |
+| `src/bench/health.rs` | `issues`, `issues_for_runs`, baseline regressions, stale history |
 | `src/bench/hosts.rs` | Host registration and shared inventory pin writes |
 | `src/bench/provenance.rs` | BIOS/LACT source and settings hashes, live controls, stability links |
 | `src/bench/experiments.rs` | Configuration groups and before/after reports |

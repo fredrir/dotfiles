@@ -89,3 +89,7 @@ pub fn platform() -> &'static str {
         std::env::consts::OS
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/report_tests.rs"]
+mod tests;

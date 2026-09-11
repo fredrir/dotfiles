@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::env::{Sysfs, read_text};
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Control {
     /// Path relative to the captured sysfs root.
     pub path: PathBuf,
@@ -29,13 +29,6 @@ pub struct Plan {
     pub unavailable: Vec<String>,
 }
 
-fn words(path: &Path) -> Result<Vec<String>, String> {
-    Ok(read_text(path)?
-        .split_whitespace()
-        .map(str::to_owned)
-        .collect())
-}
-
 fn add_control(
     root: &Path,
     path: PathBuf,
@@ -48,7 +41,10 @@ fn add_control(
     }
     let discovered = (|| {
         let original = read_text(&root.join(&path))?;
-        let choices = words(choices_path)?;
+        let choices = read_text(choices_path)?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
         if !choices.contains(&original) || original == "custom" {
             return Err(format!(
                 "current value {original:?} cannot be restored through this interface"

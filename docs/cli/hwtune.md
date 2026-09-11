@@ -94,7 +94,7 @@
 | BIOS and LACT settings hashes | Configuration identity; export dates do not create another group |
 | BIOS and LACT source hashes | Exact imported or configured file |
 | Live controls | Observed CPU policy and GPU power settings |
-| `active_verified: false` | Source settings are recorded without claiming firmware or daemon activation |
+| Source kind | Imported BIOS export or LACT configuration; activation is unverified |
 
 ## Tuning
 

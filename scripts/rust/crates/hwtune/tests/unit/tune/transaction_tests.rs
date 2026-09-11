@@ -53,7 +53,7 @@ fn validated_winner_can_be_retained() {
     let root = temp.path().join("sys");
     let mut guard = Guard::begin(&root, controls).unwrap();
     guard.apply(&candidate).unwrap();
-    guard.finish(true).unwrap();
+    guard.complete(true).unwrap();
     verify(&root, &candidate).unwrap();
 }
 

@@ -23,12 +23,6 @@ fn auto_restores_by_default_and_only_explicit_apply_retains_the_winner() {
 }
 
 #[test]
-fn no_persistent_undo_interface_is_exposed() {
-    assert!(crate::cli::Cli::try_parse_from(["hwtune", "tune", "restore"]).is_err());
-    assert!(crate::cli::Cli::try_parse_from(["hwtune", "tune", "apply"]).is_ok());
-}
-
-#[test]
 fn invalid_limits_are_rejected_without_collecting_or_writing() {
     let options = ValidationOptions {
         metric: "cpu.multi".into(),

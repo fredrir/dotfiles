@@ -26,7 +26,6 @@ pub struct Evidence {
     pub peak_temp_c: f64,
     pub max_temp_c: f64,
     pub samples: usize,
-    pub journal_checked: bool,
     pub elapsed_seconds: f64,
 }
 
@@ -226,7 +225,6 @@ impl Monitor {
                 .map(|sensor| sensor.limit)
                 .fold(f64::INFINITY, f64::min),
             samples: 0,
-            journal_checked: false,
             elapsed_seconds: 0.0,
         };
         sample(&sensors, &mut evidence)?;
@@ -237,7 +235,6 @@ impl Monitor {
             .ok_or("kernel journal cursor unavailable")?
             .cursor
             .clone();
-        evidence.journal_checked = true;
         if ACTIVE
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()

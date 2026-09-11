@@ -92,9 +92,13 @@ fn malformed_and_misidentified_records_are_reported_with_their_paths() {
     let (_temporary, store) = history();
     let original = run("bad");
     let path = store.save_run(&original).unwrap();
+    let wrong_host = json!({"host":"macie","run_id":"bad"}).to_string();
     for content in [
-        "{broken".to_owned(),
-        json!({"host":"macie","run_id":"bad"}).to_string(),
+        b"null".as_slice(),
+        b"[1,2]",
+        b"{broken",
+        b"{\"host\":\"archi\xe9\"}",
+        wrong_host.as_bytes(),
     ] {
         fs::write(&path, content).unwrap();
         let error = store.list_runs(None, &[]).unwrap_err();
@@ -146,7 +150,7 @@ fn corrupt_and_unknown_baseline_manifests_are_reported() {
 }
 
 #[test]
-fn host_scoped_session_paths_reject_traversal() {
+fn host_scoped_record_paths_reject_traversal() {
     let (_temporary, store) = history();
     assert_eq!(
         store.stability_path("archie", "session").unwrap(),
@@ -156,7 +160,9 @@ fn host_scoped_session_paths_reject_traversal() {
         store.tuning_path("archie", "session").unwrap(),
         store.root.join("hosts/archie/tuning/session.json")
     );
-    for invalid in ["..", "../archie", "a/b", "a\\b", ""] {
+    for invalid in ["..", "../archie", "../../outside", "a/b", "a\\b", ""] {
+        assert!(store.run_path(invalid, "run").is_err());
+        assert!(store.run_path("archie", invalid).is_err());
         assert!(store.stability_path(invalid, "session").is_err());
         assert!(store.tuning_path("archie", invalid).is_err());
     }

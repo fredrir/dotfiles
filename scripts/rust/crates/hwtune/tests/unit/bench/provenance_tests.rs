@@ -14,7 +14,6 @@ fn bios_settings_ignore_export_date_formatting_and_unrelated_order() {
     .unwrap();
     assert_eq!(a.settings_sha256, b.settings_sha256);
     assert_ne!(a.content_sha256, b.content_sha256);
-    assert!(!a.active_verified);
     let changed = bios_source(Path::new("c.txt"), b"Boost [Disabled]\nPower [Auto]\n").unwrap();
     assert_ne!(a.settings_sha256, changed.settings_sha256);
 }
