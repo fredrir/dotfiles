@@ -156,3 +156,5 @@ assert(performed.args == "\x1b[115;9u", "existing native shells require the orig
 binding("Enter", primary .. "|SHIFT").callback(window, pane)
 assert(performed.args == "\x01\x1b[13;2u\x02", "native ZLE needs one cursor-left byte")
 print("tmux input routing: " .. (is_mac and "mac" or "linux") .. " passed")
+
+dofile("shared/wezterm/tests/attach-remote.lua")

@@ -13,6 +13,20 @@ SSH is involved in the mux path; the LAN route borrows only the
 Peer-facing port is 8443 on both hosts. A column that differs from its bind is
 reached through `socat`.
 
+## Host switching
+
+| Name | Value |
+| --- | --- |
+| `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain |
+| `attach_mux`, attach shortcut | Fresh shell on the GUI computer's peer |
+| Request | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID |
+| TLS layouts | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are not imported |
+| Return to GUI computer | Fresh shell in localmux's `local` domain |
+| Failure | Source pane stays open; GUI reports the error |
+| Prerequisite | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
+| Restart | Restarting localmux terminates its active sessions; save work first |
+
+
 | Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing  |
 | --------- | ------------------- | ------------------ | -------------------- | ------------------- |
 | cable     | 127.0.0.1:8443      | 10.77.77.1:8443    | 10.77.77.2:8443      | 10.77.77.2:8443     |

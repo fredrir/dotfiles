@@ -1,5 +1,5 @@
 mux() {
-  mux_socket="$HOME/.local/share/wezterm/localmux.sock"
+  local mux_socket="$HOME/.local/share/wezterm/localmux.sock"
   WEZTERM_UNIX_SOCKET="$mux_socket" wezterm cli --prefer-mux --no-auto-start "$@"
 }
 
@@ -22,39 +22,22 @@ attach_mux() {
     return
   fi
 
-  local domain from route session to remote_home
-  domain=$(mux-route $1) || return
-
-  from=${HOST%%.*}
-  to=${domain%-*}
-  route=${domain##*-}
-
-  case "$from:$to:$route" in
-  macie:archie:cable | macie:archie:wifi | macie:archie:lan | macie:archie:tailscale | \
-    archie:macie:cable | archie:macie:wifi | archie:macie:lan | archie:macie:tailscale)
-    session="v1:${from}:${to}:${route}:tls"
-    ;;
-  *)
-    print -ru2 "mux: refusing invalid TLS domain metadata: $from -> $domain"
-    return 1
-    ;;
-  esac
-
-  case $to in
-  archie) remote_home=/home/fredrir ;;
-  macie) remote_home=/Users/fredrir ;;
-  esac
-
   if [[ -z $WEZTERM_PANE ]]; then
-    print -ru2 "mux: not a wezterm pane; $domain"
+    print -ru2 'mux: not a wezterm pane'
     return 1
   fi
+  local target=${1:-peer}
+  case $target in
+  archie | macie | peer) ;;
+  *)
+    print -ru2 "mux: unknown host: $target"
+    return 1
+    ;;
+  esac
 
-  local -a remote_shell
-  remote_shell=(env -i "HOME=$remote_home" "TERM=xterm-256color" "PATH=/usr/local/bin:/usr/bin:/bin" "HWIRE_SESSION=$session" zsh -l)
-
-  wezterm cli spawn --domain-name "$domain" --cwd "$remote_home" -- $remote_shell >/dev/null || return
-  wezterm cli kill-pane --pane-id "$WEZTERM_PANE"
+  zmodload zsh/datetime
+  local request="v1:$target:$$:$EPOCHREALTIME"
+  printf '\e]1337;SetUserVar=ATTACH_MUX=%s\a' "$(print -rn -- "$request" | base64 | tr -d '\r\n')"
 }
 
 alias archie='attach_mux archie'

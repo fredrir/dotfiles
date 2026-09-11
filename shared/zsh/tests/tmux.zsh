@@ -53,3 +53,18 @@ _wezterm_open_yazi || exit 1
 [[ $PWD == /tmp && ! -e $result_file ]] || exit 1
 builtin cd -- "$original_cwd"
 print -r -- 'tmux shell integration: passed'
+
+unset TMUX WEZTERM_PANE
+if attach_mux archie >/dev/null 2>&1; then exit 1; fi
+WEZTERM_PANE=17
+if attach_mux unknown >/dev/null 2>&1; then exit 1; fi
+for destination in archie macie ''; do
+  request=$(attach_mux $destination)
+  [[ $request == $'\e]1337;SetUserVar=ATTACH_MUX='*$'\a' ]] || exit 1
+  encoded=${request#$'\e]1337;SetUserVar=ATTACH_MUX='}
+  encoded=${encoded%$'\a'}
+  decoded=$(print -rn -- "$encoded" | base64 -d)
+  [[ $decoded == v1:${destination:-peer}:<->:<->.<-> ]] || exit 1
+  [[ $(attach_mux $destination) != $request ]] || exit 1
+done
+print -r -- 'attach mux shell requests: passed'

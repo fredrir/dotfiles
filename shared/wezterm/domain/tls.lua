@@ -1,3 +1,4 @@
+local wezterm = require "wezterm"
 local host = require "domain.hosts"
 
 local pem = host.origin.pem
@@ -27,6 +28,7 @@ for _, route in ipairs(host.target.ip) do
     pem_private_key = pem.key,
     pem_root_certs = { pem.ca },
     connect_automatically = false,
+    local_pane_layout = wezterm.mux.supports_local_pane_layout or nil,
     local_echo_threshold_ms = 20,
   })
 end
