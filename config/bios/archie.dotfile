@@ -1,0 +1,137 @@
+live {
+  base_boost_mhz  = 5200
+  memory_mts      = 6000
+  gpu             = 0000:01:00.0
+}
+
+memory {
+  Ai Overclock Tuner        = EXPO I
+  Memory Frequency          = DDR5-6000MHz
+  FCLK Frequency            = Auto
+  UCLK DIV1 MODE#1          = Auto
+  Memory Context Restore#1  = Enabled
+  Power Down Enable#1       = Enabled
+  Tcl                       = 30
+  Trcd Wr                   = 36
+  Trcd Rd                   = 36
+  Trp                       = 36
+  Tras                      = 76
+  DRAM VDD Voltage          = 1.40000
+  DRAM VDDQ Voltage         = 1.40000
+}
+
+pbo {
+  Precision Boost Overdrive#1 = Enabled
+  Precision Boost Overdrive Scalar = Auto
+  CPU Boost Clock Override#1 = Enabled (Positive)
+  Max CPU Boost Clock Override(+)#1 = Auto
+  Platform Thermal Throttle Limit#1 = Manual
+  Platform Thermal Throttle Limit#2 = 85
+  Curve Optimizer#1         = All Cores
+  All Core Curve Optimizer Sign = Negative
+  All Core Curve Optimizer Magnitude = 25
+}
+
+platform {
+  SVM Mode            = Enabled
+  Above 4G Decoding   = Enabled
+  Resize BAR Support  = Enabled
+  Launch CSM          = Disabled
+  Fast Boot           = Enabled
+}
+
+q-fan-cpu {
+  CPU Fan Q-Fan Control     = PWM Mode
+  CPU Fan Q-Fan Source      = CPU Package
+  CPU Fan Step Up           = Level 5
+  CPU Fan Step Down         = Level 5
+  CPU Fan Speed Low Limit   = 200 RPM
+  CPU Fan Point1 Temperature = 30
+  CPU Fan Point1 Duty Cycle (%) = 15
+  CPU Fan Point2 Temperature = 40
+  CPU Fan Point2 Duty Cycle (%) = 15
+  CPU Fan Point3 Temperature = 50
+  CPU Fan Point3 Duty Cycle (%) = 15
+  CPU Fan Point4 Temperature = 60
+  CPU Fan Point4 Duty Cycle (%) = 20
+  CPU Fan Point5 Temperature = 70
+  CPU Fan Point5 Duty Cycle (%) = 30
+  CPU Fan Point6 Temperature = 80
+  CPU Fan Point6 Duty Cycle (%) = 45
+  CPU Fan Point7 Temperature = 85
+  CPU Fan Point7 Duty Cycle (%) = 60
+  CPU Fan Point8 Temperature = 90
+  CPU Fan Point8 Duty Cycle (%) = 100
+}
+
+q-fan-chassis-1 {
+  Chassis Fan 1 Q-Fan Control = PWM Mode
+  Chassis Fan 1 Q-Fan Source = VRM
+  Chassis Fan 1 Step Up     = Level 4
+  Chassis Fan 1 Step Down   = Level 5
+  Chassis Fan 1 Speed Low Limit = 200 RPM
+  Chassis Fan 1 Point1 Temperature = 30
+  Chassis Fan 1 Point1 Duty Cycle (%) = 10
+  Chassis Fan 1 Point2 Temperature = 40
+  Chassis Fan 1 Point2 Duty Cycle (%) = 10
+  Chassis Fan 1 Point3 Temperature = 50
+  Chassis Fan 1 Point3 Duty Cycle (%) = 10
+  Chassis Fan 1 Point4 Temperature = 60
+  Chassis Fan 1 Point4 Duty Cycle (%) = 25
+  Chassis Fan 1 Point5 Temperature = 70
+  Chassis Fan 1 Point5 Duty Cycle (%) = 40
+  Chassis Fan 1 Point6 Temperature = 80
+  Chassis Fan 1 Point6 Duty Cycle (%) = 60
+  Chassis Fan 1 Point7 Temperature = 85
+  Chassis Fan 1 Point7 Duty Cycle (%) = 80
+  Chassis Fan 1 Point8 Temperature = 90
+  Chassis Fan 1 Point8 Duty Cycle (%) = 100
+}
+
+q-fan-chassis-2 {
+  Chassis Fan 2 Q-Fan Control = PWM Mode
+  Chassis Fan 2 Q-Fan Source = CPU Package
+  Chassis Fan 2 Step Up     = Level 4
+  Chassis Fan 2 Step Down   = Level 5
+  Chassis Fan 2 Speed Low Limit = 200 RPM
+  Chassis Fan 2 Point1 Temperature = 30
+  Chassis Fan 2 Point1 Duty Cycle (%) = 20
+  Chassis Fan 2 Point2 Temperature = 40
+  Chassis Fan 2 Point2 Duty Cycle (%) = 20
+  Chassis Fan 2 Point3 Temperature = 50
+  Chassis Fan 2 Point3 Duty Cycle (%) = 20
+  Chassis Fan 2 Point4 Temperature = 60
+  Chassis Fan 2 Point4 Duty Cycle (%) = 25
+  Chassis Fan 2 Point5 Temperature = 70
+  Chassis Fan 2 Point5 Duty Cycle (%) = 35
+  Chassis Fan 2 Point6 Temperature = 80
+  Chassis Fan 2 Point6 Duty Cycle (%) = 50
+  Chassis Fan 2 Point7 Temperature = 85
+  Chassis Fan 2 Point7 Duty Cycle (%) = 65
+  Chassis Fan 2 Point8 Temperature = 90
+  Chassis Fan 2 Point8 Duty Cycle (%) = 100
+}
+
+q-fan-aio-pump {
+  AIO Pump Q-Fan Control    = PWM Mode
+  AIO Pump Q-Fan Source     = CPU Package
+  AIO Pump Step Up          = Level 4
+  AIO Pump Step Down        = Level 5
+  AIO Pump Speed Low Limit  = 600 RPM
+  AIO Pump Point1 Temperature = 30
+  AIO Pump Point1 Duty Cycle (%) = 30
+  AIO Pump Point2 Temperature = 40
+  AIO Pump Point2 Duty Cycle (%) = 30
+  AIO Pump Point3 Temperature = 50
+  AIO Pump Point3 Duty Cycle (%) = 30
+  AIO Pump Point4 Temperature = 60
+  AIO Pump Point4 Duty Cycle (%) = 35
+  AIO Pump Point5 Temperature = 70
+  AIO Pump Point5 Duty Cycle (%) = 50
+  AIO Pump Point6 Temperature = 80
+  AIO Pump Point6 Duty Cycle (%) = 70
+  AIO Pump Point7 Temperature = 85
+  AIO Pump Point7 Duty Cycle (%) = 85
+  AIO Pump Point8 Temperature = 90
+  AIO Pump Point8 Duty Cycle (%) = 100
+}

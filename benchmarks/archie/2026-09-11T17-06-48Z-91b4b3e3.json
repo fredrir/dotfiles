@@ -1,0 +1,471 @@
+{
+  "schema": 1,
+  "run_id": "2026-09-11T17-06-48Z-91b4b3e3",
+  "host": "archie",
+  "epoch": "91b4b3e3",
+  "started": "2026-09-11T17:06:48Z",
+  "tier": "quick",
+  "grade": "clean",
+  "note": "",
+  "tags": [],
+  "dotfiles_sha": "4a3a11ea",
+  "gate_reasons": [],
+  "bytes_written": 0,
+  "snapshot": {
+    "cpu": {
+      "model": "AMD Ryzen 7 9800X3D",
+      "vendor": "AuthenticAMD",
+      "cores_physical": 8,
+      "cores_logical": 16,
+      "frequency_max": 5455,
+      "march": "x86_64-v4"
+    },
+    "gpu": [
+      {
+        "name": "AMD Radeon Graphics",
+        "vendor": "AMD",
+        "type": "Integrated",
+        "memory_total": 536870912.0,
+        "driver": "amdgpu"
+      },
+      {
+        "name": "NVIDIA GeForce RTX 5070 Ti",
+        "vendor": "NVIDIA",
+        "type": "Discrete",
+        "memory_total": 17094934528.0,
+        "driver": "nvidia (open source) 610.57.04"
+      }
+    ],
+    "memory": {
+      "total": 32779522048,
+      "modules": 0
+    },
+    "board": {
+      "vendor": "ASUSTeK COMPUTER INC.",
+      "name": "TUF GAMING B850-PLUS WIFI"
+    },
+    "disks": [
+      {
+        "name": "KINGSTON SNVS2000G",
+        "size": 2000398934016,
+        "kind": "SSD",
+        "interconnect": "NVMe"
+      }
+    ],
+    "configured": {
+      "case": "Antec FLUX Pro Full Tower",
+      "cpu_cooler": "ARCTIC Liquid Freezer III 420",
+      "memory": "Corsair CMK32GX5M2B6000Z30 32 GB (2×16 GB) DDR5-6000 CL30",
+      "power_supply": "Corsair RM1000e (2025) 1000 W"
+    },
+    "virtualized": false
+  },
+  "install": {
+    "os": "arch",
+    "name": "Arch Linux",
+    "version": "rolling",
+    "kernel": "7.2.4-arch1-2",
+    "arch": "x86_64",
+    "driver": "610.57.04"
+  },
+  "conditions": {
+    "on_battery": false,
+    "governor": "powersave",
+    "loadavg_1": 0.22,
+    "cpu_count": 16,
+    "idle_temp_c": 36.0,
+    "free_ram_bytes": 29531193344,
+    "free_disk_bytes": 392337289216,
+    "free_disk_ratio": 0.44423022054784583,
+    "throttled_at_start": false,
+    "virtualized": false,
+    "platform": "linux",
+    "filesystem": {
+      "fstype": "ext4",
+      "source": "/dev/nvme0n1p6",
+      "target": "/home"
+    }
+  },
+  "metrics": [
+    {
+      "key": "cpu.single",
+      "method": "cpu.single/1.0.0",
+      "tool": "7z",
+      "tool_version": "26.03",
+      "scale": "MIPS",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        13354.0,
+        13445.0,
+        13517.0
+      ],
+      "median": 13445.0,
+      "mad": 72.0,
+      "rsd_pct": 0.6078307755725485,
+      "detail": {
+        "dictionary": "-md22",
+        "passes": "1"
+      }
+    },
+    {
+      "key": "cpu.multi",
+      "method": "cpu.multi/1.0.0",
+      "tool": "7z",
+      "tool_version": "26.03",
+      "scale": "MIPS",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        141733.0,
+        143543.0,
+        143965.0
+      ],
+      "median": 143543.0,
+      "mad": 422.0,
+      "rsd_pct": 0.8287297375053206,
+      "detail": {
+        "dictionary": "-md22",
+        "passes": "1"
+      }
+    },
+    {
+      "key": "cpu.crypto",
+      "method": "cpu.crypto/1.0.0",
+      "tool": "openssl",
+      "tool_version": "3.6.4",
+      "scale": "MB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        25362.13709,
+        25353.666559999998,
+        25314.13197
+      ],
+      "median": 25353.666559999998,
+      "mad": 8.470530000002327,
+      "rsd_pct": 0.10110355191832551,
+      "detail": {
+        "cipher": "aes-256-gcm",
+        "block": "16384",
+        "implementation": "OpenSSL"
+      }
+    },
+    {
+      "key": "cpu.native_single",
+      "method": "cpu.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "Mops/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        893.597,
+        894.977,
+        895.18
+      ],
+      "median": 894.977,
+      "mad": 0.20299999999997453,
+      "rsd_pct": 0.09628441943412111,
+      "detail": {
+        "iterations": 800000000
+      }
+    },
+    {
+      "key": "cpu.native_multi",
+      "method": "cpu.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "Mops/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        12535.926,
+        12698.726,
+        12484.444
+      ],
+      "median": 12535.926,
+      "mad": 51.48199999999997,
+      "rsd_pct": 0.8896526745395823,
+      "detail": {
+        "iterations": 800000000
+      }
+    },
+    {
+      "key": "mem.native_read",
+      "method": "mem.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "GiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        67.299,
+        67.306,
+        67.488
+      ],
+      "median": 67.306,
+      "mad": 0.006999999999990791,
+      "rsd_pct": 0.15906881984518823,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 128,
+        "threads": 1
+      }
+    },
+    {
+      "key": "mem.native_write",
+      "method": "mem.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "GiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        33.23,
+        33.385,
+        32.933
+      ],
+      "median": 33.23,
+      "mad": 0.15500000000000114,
+      "rsd_pct": 0.6921911102810455,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 128,
+        "threads": 1
+      }
+    },
+    {
+      "key": "mem.write",
+      "method": "mem.bandwidth/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        28644.4,
+        28703.59,
+        28609.46
+      ],
+      "median": 28644.4,
+      "mad": 34.94000000000233,
+      "rsd_pct": 0.16606855148550073,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "mem.read",
+      "method": "mem.bandwidth/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        57442.23,
+        57500.63,
+        57474.78
+      ],
+      "median": 57474.78,
+      "mad": 25.849999999998545,
+      "rsd_pct": 0.05091819826662051,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "mem.random",
+      "method": "mem.random/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        961.63,
+        967.87,
+        968.02
+      ],
+      "median": 967.87,
+      "mad": 0.14999999999997726,
+      "rsd_pct": 0.37757167529249225,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "rnd",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "cache.write",
+      "method": "cache.bandwidth/1.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        41841.39,
+        41925.19,
+        41897.21
+      ],
+      "median": 41897.21,
+      "mad": 27.9800000000032,
+      "rsd_pct": 0.10185222311945089,
+      "detail": {
+        "block": "1M",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1048576
+      }
+    },
+    {
+      "key": "cache.read",
+      "method": "cache.bandwidth/1.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        108029.4,
+        110432.41,
+        108260.5
+      ],
+      "median": 108260.5,
+      "mad": 231.10000000000582,
+      "rsd_pct": 1.2172823104851527,
+      "detail": {
+        "block": "1M",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1048576
+      }
+    },
+    {
+      "key": "workload.nvim_startup",
+      "method": "workload.nvim_startup/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        22.213202000000003,
+        20.706085,
+        22.023713,
+        21.545044000000004,
+        21.289924
+      ],
+      "median": 21.545044000000004,
+      "mad": 0.47866899999999646,
+      "rsd_pct": 2.787306658626322,
+      "detail": {
+        "command": "nvim --headless +qa",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.git_status",
+      "method": "workload.git_status/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        3.771262,
+        3.441122,
+        3.532813,
+        3.430002,
+        3.548123
+      ],
+      "median": 3.532813,
+      "mad": 0.09169099999999997,
+      "rsd_pct": 3.872456989102208,
+      "detail": {
+        "command": "git -C . status --porcelain",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.git_log",
+      "method": "workload.git_log/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        1.379097,
+        1.4234570000000002,
+        1.874636,
+        1.399887,
+        1.779196
+      ],
+      "median": 1.4234570000000002,
+      "mad": 0.04436000000000018,
+      "rsd_pct": 15.041114665253799,
+      "detail": {
+        "command": "git -C . log --oneline -n 200",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.tar_repo",
+      "method": "workload.tar_repo/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        0.8312180000000001,
+        0.838238,
+        0.799068,
+        0.752109,
+        0.849778
+      ],
+      "median": 0.8312180000000001,
+      "mad": 0.01855999999999991,
+      "rsd_pct": 4.842919759764888,
+      "detail": {
+        "command": "tar -cf /dev/null scripts/python/src",
+        "runs": "5",
+        "warmup": "2"
+      }
+    }
+  ]
+}

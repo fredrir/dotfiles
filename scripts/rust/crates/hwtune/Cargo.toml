@@ -1,0 +1,24 @@
+[package]
+name              = "hwtune"
+version.workspace = true
+description       = "Declarative BIOS checks and stability tests for the desktop host"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono                  = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap.workspace          = true
+hostkit.workspace       = true
+serde.workspace         = true
+serde_json.workspace    = true
+sha2.workspace          = true
+similar.workspace       = true
+unicode-width.workspace = true
+workstation.workspace   = true
+
+[dev-dependencies]
+tempfile.workspace = true
+testkit.workspace  = true

@@ -13,17 +13,17 @@ gpus:
       temperature_key: GPU
       interval_ms: 1000
       curve:
-        55: 0.3
-        65: 0.35
-        72: 0.42
-        78: 0.55
-        83: 0.75
+        55: 0.35
+        65: 0.45
+        72: 0.55
+        78: 0.7
+        83: 0.85
         88: 1.0
       spindown_delay_ms: 20000
       change_threshold: 2
       auto_threshold: 55
     power_mizer_mode: Auto
-    power_cap: 300.0
+    power_cap: 350.0
     gpu_clock_offsets:
       0: 150
     mem_clock_offsets:

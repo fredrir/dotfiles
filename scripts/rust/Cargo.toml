@@ -19,6 +19,7 @@ members = [
   "crates/hcopy",
   "crates/hostkit",
   "crates/hwire",
+  "crates/hwtune",
   "crates/mux-route",
   "crates/path",
   "crates/size",

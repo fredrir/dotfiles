@@ -13,6 +13,7 @@
 | git            | [git.md](./git.md)                       | [scripts/rust/crates/git/]             |
 | home-copy      | [home-copy.md](./home-copy.md)           | [scripts/rust/crates/hcopy/]           |
 | hwire          | [hwire.md](./hwire.md)                   | [scripts/rust/crates/hwire/]           |
+| hwtune         | [hwtune.md](./hwtune.md)                 | [scripts/rust/crates/hwtune/]          |
 | mux-route      | [mux-route.md](./mux-route.md)           | [scripts/rust/crates/mux-route/]       |
 | path           | [path.md](./path.md)                     | [scripts/rust/crates/path/]            |
 | size           | [size.md](./size.md)                     | [scripts/rust/crates/size/]            |

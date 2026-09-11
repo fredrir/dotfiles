@@ -307,7 +307,7 @@ if [ "$NATIVE_ONLY" = 0 ]; then
 
 fi
 
-RUST_BINARIES="agent-hop bench-workloads count dcloud doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire mux-route path size sysinfo tmux-workspace"
+RUST_BINARIES="agent-hop bench-workloads count dcloud doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire hwtune mux-route path size sysinfo tmux-workspace"
 RUST_HASH="$(
   find "$DOTFILES/scripts/rust" "$DOTFILES/shared/tools" \
     -type d -name target -prune -o -type f -print0 2>/dev/null |

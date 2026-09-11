@@ -83,6 +83,10 @@ linux/arch {
   wezterm-mux-server  = wezterm-nightly-bin
   fan2go              = fan2go-git
   lact
+  hwtune
+  nvme                = nvme-cli
+  fwupdmgr            = fwupd
+  ?memtester
 }
 
 linux/kde {

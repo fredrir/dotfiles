@@ -84,6 +84,14 @@
       "source": "scripts/rust/crates/hwire/"
     },
     {
+      "name": "hwtune",
+      "title": "hwtune",
+      "programs": [
+        "hwtune"
+      ],
+      "source": "scripts/rust/crates/hwtune/"
+    },
+    {
       "name": "mux-route",
       "title": "mux-route",
       "programs": [
@@ -142,6 +150,7 @@
     "hpull",
     "hpush",
     "hwire",
+    "hwtune",
     "mux-route",
     "path",
     "size",
@@ -234,7 +243,21 @@
     "transcript rm": "Stops tracking a project while preserving its existing notes.",
     "transcript migrate": "Moves existing transcript groups to their configured destinations.",
     "transcript sync": "Syncs allowlisted Claude Code and Codex sessions into the vault.",
-    "dotfile docs": "Generates and checks CLI reference, keybindings, package documentation, and README previews."
+    "dotfile docs": "Generates and checks CLI reference, keybindings, package documentation, and README previews.",
+    "hwtune": "Checks BIOS settings declaratively and runs stability tests on the desktop host.",
+    "hwtune bios": "Imports, compares, and verifies BIOS setting exports.",
+    "hwtune bios import": "Normalizes an ASUS export into config/bios/exports and diffs it against the previous one.",
+    "hwtune bios diff": "Diffs two exports, by default the latest two.",
+    "hwtune bios check": "Checks the spec against the latest export and the running system.",
+    "hwtune bios list": "Lists imported exports.",
+    "hwtune status": "Shows daemons, CPU policy, fans, GPU, and kernel error counts.",
+    "hwtune stress": "Runs a stability test while sampling temperatures and fans.",
+    "hwtune stress cpu": "Runs stress-ng on all cores, at light load, or one core at a time.",
+    "hwtune stress mem": "Runs a memory verification with stress-ng or memtester.",
+    "hwtune stress gpu": "Loops a GPU benchmark and watches for Xid errors.",
+    "hwtune sample": "Samples temperatures and fans for a while and prints the peaks.",
+    "hwtune bench": "Runs sysinfo bench tagged with the BIOS export and LACT config hashes.",
+    "hwtune report": "Compares the latest benchmark run per BIOS export."
   },
   "flags": {
     "agent-hop": {
@@ -404,6 +427,21 @@
       "--group": "Assigns a tracked project to a transcript group.",
       "--verbose": "Lists every file in the migration preview.",
       "--dry-run": "Reports sync changes without writing them."
+    },
+    "hwtune": {
+      "--host": "Selects the host name; the default is the short hostname.",
+      "--bios-version": "Overrides the BIOS version read from DMI.",
+      "--dry-run": "Shows the result without writing.",
+      "--no-live": "Skips checks that read the running system.",
+      "--profile": "Selects all-core, light, or per-core.",
+      "--minutes": "Sets the duration in minutes, per core for per-core.",
+      "--cores": "Limits per-core to a core list such as 0-7 or 0,2,4.",
+      "--offset": "Records the Curve Optimizer offset under test in the log.",
+      "--no-log": "Skips appending to the stability log.",
+      "--percent": "Sets the share of available memory to test.",
+      "--tool": "Selects the stress or benchmark program.",
+      "--note": "Records why the benchmark run was taken.",
+      "--metric": "Limits the report to metrics whose key contains the text."
     }
   }
 }
