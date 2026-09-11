@@ -37,3 +37,26 @@ fn csv_rows_follow_the_header_columns() {
     assert_eq!(row.split(',').count(), CSV_HEADER.split(',').count());
     assert_eq!(row, "2026-09-13T20:14:03,5,70.0,,40.0,37,900,,,,,,,0");
 }
+
+#[test]
+fn missing_journal_or_temperature_evidence_never_establishes_stability() {
+    let mut evidence = Evidence {
+        journal_visible: true,
+        samples: 3,
+        cpu_samples: 3,
+        gpu_samples: 3,
+        ..Evidence::default()
+    };
+    assert_eq!(evidence.verdict("all-core", true, 0), "pass");
+    evidence.journal_broken = true;
+    assert_eq!(evidence.verdict("all-core", true, 0), "unknown");
+    evidence.journal_broken = false;
+    evidence.journal_visible = false;
+    assert_eq!(evidence.verdict("all-core", true, 0), "unknown");
+    evidence.journal_visible = true;
+    evidence.gpu_samples = 2;
+    assert_eq!(evidence.verdict("gpu", true, 0), "unknown");
+    assert_eq!(evidence.verdict("all-core", true, 0), "pass");
+    assert_eq!(evidence.verdict("gpu", false, 0), "fail");
+    assert_eq!(evidence.verdict("gpu", true, 1), "fail");
+}

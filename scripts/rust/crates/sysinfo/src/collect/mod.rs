@@ -363,6 +363,23 @@ pub fn collect_snapshot(full: bool) -> Snapshot {
     collect_snapshot_with_timings(full, false)
 }
 pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Snapshot {
+    collect_snapshot_in(full, timings, "", &inventory::InventoryContext::from_env())
+}
+
+pub fn collect_snapshot_for_host(
+    full: bool,
+    host: &str,
+    context: &inventory::InventoryContext,
+) -> Snapshot {
+    collect_snapshot_in(full, false, host, context)
+}
+
+fn collect_snapshot_in(
+    full: bool,
+    timings: bool,
+    host: &str,
+    context: &inventory::InventoryContext,
+) -> Snapshot {
     let started = Instant::now();
     let (modules, (shell_name, shell_version), (terminal_name, terminal_version)) =
         std::thread::scope(|scope| {
@@ -418,11 +435,10 @@ pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Snapshot {
     } else {
         (Vec::new(), String::new())
     };
-    let hardware = inventory::load_hosts()
+    let hardware = inventory::load_hosts_from(&context.hosts_file())
         .ok()
         .and_then(|hosts| {
-            let context = inventory::InventoryContext::from_env();
-            let mut name = inventory::resolve_with(&context, &hosts, "", &[]);
+            let mut name = inventory::resolve_with(context, &hosts, host, &[]);
             if name.is_empty() {
                 name = inventory::match_hostname(&hosts, &inventory::local_hostnames());
             }

@@ -104,6 +104,46 @@ pub struct Finish {
     pub timed_out: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Evidence {
+    pub journal_visible: bool,
+    pub journal_broken: bool,
+    pub samples: usize,
+    pub cpu_samples: usize,
+    pub gpu_samples: usize,
+}
+
+impl Evidence {
+    pub fn missing(&self, profile: &str) -> Vec<String> {
+        let mut missing = Vec::new();
+        if !self.journal_visible || self.journal_broken {
+            missing.push("kernel journal unavailable or incomplete".into());
+        }
+        let measured = if profile == "gpu" {
+            self.gpu_samples
+        } else {
+            self.cpu_samples
+        };
+        if self.samples == 0 || measured != self.samples {
+            missing.push(format!(
+                "{} temperature sampling unavailable or incomplete",
+                if profile == "gpu" { "GPU" } else { "CPU" }
+            ));
+        }
+        missing
+    }
+
+    pub fn verdict(&self, profile: &str, workload_ok: bool, journal_errors: usize) -> &'static str {
+        if !workload_ok || journal_errors > 0 {
+            "fail"
+        } else if self.missing(profile).is_empty() {
+            "pass"
+        } else {
+            "unknown"
+        }
+    }
+}
+
 pub struct Monitor {
     sources: Sources,
     csv: File,
@@ -111,7 +151,7 @@ pub struct Monitor {
     pub peaks: Peaks,
     pub journal: Counts,
     journal_lines: usize,
-    journal_broken: bool,
+    pub evidence: Evidence,
     start_epoch: u64,
     quiet: bool,
     live: Option<Reporter<Stdout>>,
@@ -148,7 +188,10 @@ impl Monitor {
             peaks: Peaks::default(),
             journal: Counts::default(),
             journal_lines: 0,
-            journal_broken: false,
+            evidence: Evidence {
+                journal_visible: journal::since(None).is_ok_and(|lines| !lines.is_empty()),
+                ..Evidence::default()
+            },
             start_epoch: time::epoch_now(),
             quiet,
             live: (!quiet && io::stdout().is_terminal()).then(|| Reporter::new(io::stdout())),
@@ -161,7 +204,7 @@ impl Monitor {
     }
 
     fn poll_journal(&mut self) -> usize {
-        if self.journal_broken {
+        if self.evidence.journal_broken {
             return 0;
         }
         match journal::errors_since(Some(self.start_epoch)) {
@@ -172,7 +215,7 @@ impl Monitor {
                 fresh
             }
             Err(e) => {
-                self.journal_broken = true;
+                self.evidence.journal_broken = true;
                 eprintln!("  journal polling stopped: {e}");
                 0
             }
@@ -197,6 +240,9 @@ impl Monitor {
             sample.gpu = gpu::query().ok().map(|stats| stats.temp_c);
         }
         sample.journal_new = self.poll_journal();
+        self.evidence.samples += 1;
+        self.evidence.cpu_samples += usize::from(sample.tctl.is_some_and(f64::is_finite));
+        self.evidence.gpu_samples += usize::from(sample.gpu.is_some_and(f64::is_finite));
         self.peaks.fold(&sample);
         writeln!(self.csv, "{}", csv_row(&time::now_iso(), &sample))
             .map_err(|e| format!("{}: {e}", self.path.display()))?;

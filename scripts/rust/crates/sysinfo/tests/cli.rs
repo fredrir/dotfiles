@@ -25,7 +25,6 @@ impl Fixture {
         command
             .env("DOTFILE_ROOT", self.root.path())
             .env("SYSINFO_HOST", "fixture")
-            .env("SYSINFO_BENCHMARKS", self.root.path().join("benchmarks"))
             .env(
                 "SYSINFO_CONFIG",
                 self.root.path().join("config/hosts.dotfile"),
@@ -134,12 +133,7 @@ fn help_version_surface_and_completion_do_not_run_probes() {
     for name in ["ps", "fastfetch", "scutil", "hostname"] {
         fixture.script(name, "#!/bin/sh\nprintf called > \"$PROBE_MARKER\"\n");
     }
-    for args in [
-        &["--help"][..],
-        &["--version"],
-        &["--completions", "zsh"],
-        &["bench", "--help"],
-    ] {
+    for args in [&["--help"][..], &["--version"], &["--completions", "zsh"]] {
         stdout(
             &fixture
                 .command()
@@ -168,18 +162,22 @@ fn help_version_surface_and_completion_do_not_run_probes() {
 }
 
 #[test]
-fn completion_failures_are_quiet_and_config_hosts_are_available() {
+fn benchmark_commands_are_not_available() {
     let fixture = Fixture::new();
-    assert_eq!(
-        stdout(&fixture.output(&["__complete", "known-hosts"])),
-        "fixture:server\n"
-    );
-    std::fs::write(
-        fixture.root.path().join("config/hosts.dotfile"),
-        "malformed {\n",
-    )
-    .unwrap();
-    let result = fixture.output(&["__complete", "known-hosts"]);
-    assert_eq!(stdout(&result), "");
-    assert!(result.stderr.is_empty());
+    assert!(!fixture.output(&["bench", "--help"]).status.success());
+    let document: Value =
+        serde_json::from_str(&stdout(&fixture.output(&["--command-dump"]))).unwrap();
+    assert!(!document.to_string().contains("bench"));
+}
+
+#[test]
+fn reports_do_not_read_benchmark_history_or_mutate_host_configuration() {
+    let fixture = Fixture::new();
+    let history = fixture.root.path().join("benchmarks");
+    std::fs::create_dir(&history).unwrap();
+    std::fs::write(history.join("baselines.dotfile"), "broken {\n").unwrap();
+    let config = fixture.root.path().join("config/hosts.dotfile");
+    let before = std::fs::read(&config).unwrap();
+    report(&fixture.output(&["--json", "--health"]));
+    assert_eq!(std::fs::read(config).unwrap(), before);
 }

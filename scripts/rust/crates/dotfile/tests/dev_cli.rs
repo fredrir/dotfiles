@@ -475,12 +475,12 @@ fn python_receives_fresh_build_artifacts_before_running() {
 #[test]
 fn rust_package_selection_includes_owned_python_suites_and_one_build() {
     let sandbox = Sandbox::new();
-    for suite in ["dotfile", "hyprland", "transcript", "sysinfo", "tmux"] {
+    for suite in ["dotfile", "hyprland", "transcript", "tmux"] {
         fs::create_dir_all(sandbox.root.path().join("scripts/python/tests").join(suite)).unwrap();
     }
     let selected = sandbox.preview(&["test", "--pkg", "dotfile-cli", "--lang", "python"]);
     assert!(selected.success(), "{}", selected.stderr);
-    for suite in ["dotfile", "hyprland", "transcript", "sysinfo", "tmux"] {
+    for suite in ["dotfile", "hyprland", "transcript", "tmux"] {
         assert!(
             selected.stdout.contains(&format!("'tests/{suite}'")),
             "{}",
@@ -493,6 +493,37 @@ fn rust_package_selection_includes_owned_python_suites_and_one_build() {
         selected.stdout.matches("'--package' 'dotfile-cli'").count(),
         1
     );
+}
+
+#[test]
+fn hwtune_terminal_suite_prepares_its_native_binaries() {
+    let sandbox = Sandbox::new();
+    fs::create_dir_all(sandbox.root.path().join("scripts/python/tests/hwtune")).unwrap();
+    fs::write(
+        sandbox.root.path().join("scripts/rust/Cargo.toml"),
+        "[workspace]\nmembers = ['crates/hwtune', 'crates/bench-workloads']\n",
+    )
+    .unwrap();
+    for package in ["hwtune", "bench-workloads"] {
+        let directory = sandbox
+            .root
+            .path()
+            .join("scripts/rust/crates")
+            .join(package);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("Cargo.toml"),
+            format!("[package]\nname = '{package}'\n"),
+        )
+        .unwrap();
+    }
+    let selected = sandbox.preview(&["test", "--pkg", "hwtune", "--lang", "python"]);
+    assert!(selected.success(), "{}", selected.stderr);
+    assert!(selected.stdout.contains("'tests/hwtune'"));
+    assert!(selected.stdout.contains("'--package' 'hwtune'"));
+    assert!(selected.stdout.contains("'--package' 'bench-workloads'"));
+    assert!(!selected.stdout.contains("'workstation-sysinfo'"));
+    assert_eq!(selected.stdout.matches("python build:").count(), 1);
 }
 
 #[test]

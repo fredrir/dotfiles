@@ -132,7 +132,7 @@ impl Fixture {
 
     fn stubs(&self) {
         self.stub("stress-ng", "exit 0");
-        self.stub("journalctl", "exit 0");
+        self.stub("journalctl", "echo 'kernel initialized'");
         self.stub(
             "systemctl",
             "case \"$1\" in is-active) echo active;; is-enabled) echo enabled;; esac",
@@ -151,6 +151,8 @@ impl Fixture {
             .env("HWTUNE_SYSFS_ROOT", self.sys())
             .env("HWTUNE_DEV_ROOT", base.join("dev"))
             .env("HWTUNE_LACT_CONFIG", base.join("lact.yaml"))
+            .env("HWTUNE_BENCHMARKS", base.join("benchmarks"))
+            .env("HWTUNE_MEASUREMENT_LOCK", base.join("measurement.lock"))
             .env("HWTUNE_BOOT_ID", "boot-a")
             .env("XDG_STATE_HOME", base.join("state"))
             .env("XDG_CACHE_HOME", base.join("cache"))
@@ -205,7 +207,7 @@ fn help_completions_and_command_dump_work() {
     assert!(
         fixture
             .run(&["--help"])
-            .starts_with("Declarative BIOS checks")
+            .starts_with("Hardware tuning, benchmarks, and stability tests")
     );
     assert!(
         fixture
@@ -428,17 +430,22 @@ fn sample_prints_peaks() {
 }
 
 #[test]
-fn bench_tags_runs_with_export_and_lact_hashes() {
+fn benchmark_commands_are_owned_by_hwtune() {
     let fixture = Fixture::new();
-    fixture.import();
-    fixture.run(&["bench", "--note", "why", "--", "--tier", "quick"]);
-    let captured = fs::read_to_string(fixture.root.path().join("captured.txt")).unwrap();
-    let args = captured.lines().collect::<Vec<_>>();
-    assert_eq!(args[0..2], ["bench", "run"]);
-    assert!(args.iter().any(|arg| arg.starts_with("bios:")));
-    assert!(args.iter().any(|arg| arg.starts_with("lact:")));
-    assert!(args.contains(&"why"));
-    assert_eq!(args[args.len() - 2..], ["--tier", "quick"]);
+    let help = fixture.run(&["bench", "--help"]);
+    for command in [
+        "run", "plan", "show", "list", "health", "compare", "trend", "baseline", "prune", "report",
+    ] {
+        assert!(help.contains(command), "{help}");
+    }
+    assert!(!fixture.output(&["report"]).status.success());
+    assert!(
+        !fixture
+            .output(&["bench", "--note", "why", "--", "--tier", "quick"])
+            .status
+            .success()
+    );
+    assert!(!fixture.root.path().join("captured.txt").exists());
 }
 
 #[test]
@@ -449,4 +456,74 @@ fn missing_spec_or_export_is_reported() {
     assert!(text(&output).contains("no exports imported"));
     let output = fixture.output(&["--host", "nowhere", "bios", "list"]);
     assert!(text(&output).contains("no exports imported for nowhere"));
+}
+
+#[test]
+fn bios_root_discovery_works_outside_checkout_and_honors_explicit_override() {
+    let fixture = Fixture::new();
+    fixture.import();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let explicit = fixture
+        .command()
+        .current_dir(elsewhere.path())
+        .args(["bios", "list"])
+        .output()
+        .unwrap();
+    assert!(explicit.status.success(), "{}", text(&explicit));
+    assert!(text(&explicit).contains("fixture-1681-20260911.txt"));
+    let discovered = fixture
+        .command()
+        .env_remove("DOTFILE_ROOT")
+        .current_dir(elsewhere.path())
+        .args(["--host", "outside-cwd-fixture", "bios", "list"])
+        .output()
+        .unwrap();
+    assert!(discovered.status.success(), "{}", text(&discovered));
+    assert!(!text(&discovered).contains("repository root not found"));
+}
+
+#[test]
+fn missing_journal_evidence_records_unknown_stability_without_a_pass() {
+    let fixture = Fixture::new();
+    fixture.stub("journalctl", "exit 1");
+    let output = fixture.output(&["stress", "cpu", "--profile", "all-core", "--minutes", "0"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(text(&output).contains("unknown"), "{}", text(&output));
+    let directory = fixture
+        .root
+        .path()
+        .join("benchmarks/hosts/fixture/stability");
+    let path = fs::read_dir(directory)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let receipt: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(receipt["result"], "unknown");
+    assert_eq!(receipt["evidence_known"], false);
+}
+
+#[test]
+fn stress_refuses_to_start_while_measurement_lock_is_held() {
+    let fixture = Fixture::new();
+    for tool in ["stress-ng", "vkmark", "glmark2"] {
+        fixture.stub(tool, "printf started > \"$CAPTURE\"; exit 99");
+    }
+    let lock = fs::File::create(fixture.root.path().join("measurement.lock")).unwrap();
+    fs2::FileExt::lock_exclusive(&lock).unwrap();
+    for args in [
+        &["stress", "cpu", "--profile", "all-core", "--minutes", "0"][..],
+        &["stress", "mem", "--minutes", "0"],
+        &["stress", "gpu", "--minutes", "0"],
+    ] {
+        let output = fixture.output(args);
+        assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+        assert!(
+            text(&output).contains("already running"),
+            "{}",
+            text(&output)
+        );
+    }
+    assert!(!fixture.root.path().join("captured.txt").exists());
 }

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod bench;
 pub mod bios;
 pub mod cli;
@@ -7,10 +9,10 @@ pub mod gpu;
 pub mod hwmon;
 pub mod journal;
 pub mod paths;
-pub mod report;
 pub mod rows;
 pub mod services;
 pub mod status;
 pub mod stress;
 pub mod table;
 pub mod time;
+pub mod tune;

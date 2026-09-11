@@ -1,5 +1,5 @@
 use crate::model::RenderOptions;
-use crate::{bench, collect, health, inventory, presentation};
+use crate::{collect, health, presentation, report};
 use clap::{Arg, ArgAction, Args, Command, CommandFactory};
 use std::ffi::OsString;
 use std::io::Write;
@@ -42,12 +42,6 @@ pub fn command() -> Command {
                     .long("timings")
                     .action(ArgAction::SetTrue)
                     .help("Report probe timings to stderr"),
-            )
-            .subcommand(bench::command())
-            .subcommand(
-                Command::new("__complete")
-                    .hide(true)
-                    .arg(Arg::new("source").required(true)),
             ),
     )
 }
@@ -62,34 +56,10 @@ impl CommandFactory for Factory {
 }
 
 pub fn surface_document() -> workstation::surface::Document {
-    use workstation::surface::{Command as SurfaceCommand, Completion};
+    use workstation::surface::Command as SurfaceCommand;
     fn annotate(command: &mut SurfaceCommand) {
         let name = command.name().to_string();
         for parameter in &mut command.params {
-            let source = match (name.as_str(), parameter.name.as_str()) {
-                ("run", "host") => Some("known-hosts"),
-                (_, "host") => Some("bench-hosts"),
-                (_, "target" | "left" | "right") => Some("runs"),
-                ("trend", "metric") => Some("metrics"),
-                _ => None,
-            };
-            if let Some(source) = source {
-                parameter.completion = Some(Completion::Call {
-                    source: source.into(),
-                });
-            }
-            if parameter.name == "workdir" {
-                parameter.completion = Some(Completion::Dirs);
-            }
-            if parameter.name == "only" {
-                parameter.choices = ["cpu", "mem", "cache", "disk", "gpu", "thermal", "workload"]
-                    .map(String::from)
-                    .to_vec();
-                parameter.delimiter = Some(',');
-            }
-            if name == "baseline" && parameter.name == "action" {
-                parameter.choices = ["set", "clear", "show"].map(String::from).to_vec();
-            }
             if name == "sysinfo" && parameter.name == "health" {
                 parameter.secondary.push("-hh".into());
             }
@@ -149,40 +119,6 @@ pub fn run() -> Result<(), String> {
     if completions.emit::<Factory>("sysinfo").is_some() {
         return Ok(());
     }
-    if let Some((name, args)) = matches.subcommand() {
-        return match name {
-            "bench" => bench::run(args),
-            "__complete" => {
-                let source = args
-                    .get_one::<String>("source")
-                    .map(String::as_str)
-                    .unwrap_or("");
-                let values = if source == "known-hosts" {
-                    inventory::load_hosts().map(|hosts| {
-                        hosts
-                            .into_iter()
-                            .map(|h| {
-                                format!(
-                                    "{}:{}",
-                                    h.name.replace(':', "\\:"),
-                                    h.role.split_whitespace().collect::<Vec<_>>().join(" ")
-                                )
-                            })
-                            .collect()
-                    })
-                } else {
-                    bench::complete(source)
-                };
-                if let Ok(values) = values {
-                    for value in values {
-                        println!("{value}");
-                    }
-                }
-                Ok(())
-            }
-            _ => unreachable!(),
-        };
-    }
     let options = RenderOptions {
         full: matches.get_flag("full"),
         health: matches.get_flag("health"),
@@ -191,10 +127,9 @@ pub fn run() -> Result<(), String> {
     let snapshot =
         collect::collect_snapshot_with_timings(options.full || matches.get_flag("pretty"), timings);
     let view = presentation::build_view(&snapshot);
-    let mut issues = health::health_issues(&snapshot);
-    issues.extend(bench::benchmark_issues(&inventory::resolve("")?)?);
+    let issues = health::health_issues(&snapshot);
     let output = if matches.get_flag("json") {
-        serde_json::to_string_pretty(&serde_json::json!({"schema":1,"hardware":bench::capture::describe_hardware(&snapshot),"installation":bench::capture::describe_install(&snapshot),"system":view,"health":issues})).map_err(|e|e.to_string())?+"\n"
+        serde_json::to_string_pretty(&serde_json::json!({"schema":1,"hardware":report::describe_hardware(&snapshot),"installation":report::describe_install(&snapshot),"system":view,"health":issues})).map_err(|e|e.to_string())?+"\n"
     } else if matches.get_flag("pretty") {
         presentation::render_pretty(&view, &issues, options)?
     } else {

@@ -58,6 +58,7 @@ pub fn run(options: CpuOptions, context: &Context) -> Result<ExitCode, String> {
 
 fn whole(profile: Profile, options: CpuOptions, context: &Context) -> Result<ExitCode, String> {
     let session = time::session_id(profile.name());
+    let provenance = context.provenance();
     let threads = cpu::logical_count(context.sys)?;
     let log = stress::session_log(&session)?;
     let args = args(profile, threads, options.minutes, None);
@@ -67,24 +68,28 @@ fn whole(profile: Profile, options: CpuOptions, context: &Context) -> Result<Exi
         profile.name(),
         options.minutes
     );
-    let mut child = stress::spawn("stress-ng", &args, &log)?;
     let mut monitor = Monitor::start(&session, context.sys, false)?;
+    let mut child = stress::spawn("stress-ng", &args, &log)?;
     let finish = monitor.run(budget(options.minutes), Some(&mut child))?;
     let status = stress::describe_status(finish.status, finish.timed_out);
     println!("  stress-ng {status}");
-    let passed =
-        finish.status.is_some_and(|status| status.success()) && monitor.journal.total() == 0;
+    let result = monitor.evidence.verdict(
+        profile.name(),
+        finish.status.is_some_and(|status| status.success()),
+        monitor.journal.total(),
+    );
+    let passed = result == "pass";
     let mut keys = stress::keys(&[
         ("profile", profile.name().to_string()),
         ("minutes", options.minutes.to_string()),
         ("threads", threads.to_string()),
         ("bios", context.bios_sha()),
-        ("result", if passed { "pass".into() } else { "fail".into() }),
+        ("result", result.into()),
         ("stress", status.clone()),
         ("journal", monitor.journal.summary()),
     ]);
     keys.extend(monitor.peaks.keys());
-    report(context, &session, &keys, &monitor, passed)?;
+    report(context, &session, &keys, &monitor, passed, &provenance)?;
     if !passed {
         for line in stress::tail(&log, 5) {
             println!("  {}", context.style.dim(&line));
@@ -103,6 +108,7 @@ fn per_core(options: CpuOptions, context: &Context) -> Result<ExitCode, String> 
         None => cpu::physical_cores(context.sys)?,
     };
     let session = time::session_id(Profile::PerCore.name());
+    let provenance = context.provenance();
     let state_path = state::path()?;
     let boot_id = state::boot_id();
     let mut results: Vec<(u32, String)> = Vec::new();
@@ -159,7 +165,10 @@ fn per_core(options: CpuOptions, context: &Context) -> Result<ExitCode, String> 
         state::clear(&state_path);
         let clean = monitor.journal.total() == before;
         let verdict = match finish.status {
-            Some(status) if status.success() && clean => "pass".to_string(),
+            Some(status) if status.success() && clean => monitor
+                .evidence
+                .verdict(Profile::PerCore.name(), true, 0)
+                .to_string(),
             Some(status) if status.success() => "fail (journal errors)".to_string(),
             other => format!(
                 "fail ({})",
@@ -170,7 +179,17 @@ fn per_core(options: CpuOptions, context: &Context) -> Result<ExitCode, String> 
         results.push((*core, verdict));
     }
     results.sort();
-    let passed = results.iter().all(|(_, verdict)| verdict == "pass");
+    let result = if results
+        .iter()
+        .any(|(_, verdict)| verdict.starts_with("fail"))
+    {
+        "fail"
+    } else if results.iter().any(|(_, verdict)| verdict == "unknown") {
+        "unknown"
+    } else {
+        "pass"
+    };
+    let passed = result == "pass";
     let mut keys = stress::keys(&[
         ("profile", Profile::PerCore.name().to_string()),
         ("minutes", options.minutes.to_string()),
@@ -188,7 +207,7 @@ fn per_core(options: CpuOptions, context: &Context) -> Result<ExitCode, String> 
     }
     keys.extend(stress::keys(&[
         ("bios", context.bios_sha()),
-        ("result", if passed { "pass".into() } else { "fail".into() }),
+        ("result", result.into()),
         ("journal", monitor.journal.summary()),
     ]));
     keys.extend(monitor.peaks.keys());
@@ -197,7 +216,7 @@ fn per_core(options: CpuOptions, context: &Context) -> Result<ExitCode, String> 
             .iter()
             .map(|(core, verdict)| (format!("core{core}"), verdict.clone())),
     );
-    report(context, &session, &keys, &monitor, passed)?;
+    report(context, &session, &keys, &monitor, passed, &provenance)?;
     Ok(if passed {
         ExitCode::SUCCESS
     } else {
@@ -211,7 +230,17 @@ pub fn report(
     keys: &[(String, String)],
     monitor: &Monitor,
     passed: bool,
+    provenance: &crate::bench::provenance::RunContext,
 ) -> Result<(), String> {
+    let result = keys
+        .iter()
+        .find(|(key, _)| key == "result")
+        .map_or("unknown", |(_, value)| value.as_str());
+    let profile = keys
+        .iter()
+        .find(|(key, _)| key == "profile")
+        .map_or("", |(_, value)| value.as_str());
+    let missing = monitor.evidence.missing(profile);
     println!();
     print!(
         "{}",
@@ -222,15 +251,25 @@ pub fn report(
         if passed {
             context.style.green("pass")
         } else {
-            context.style.red("fail")
+            context.style.red(result)
         },
         monitor.peaks.samples,
         monitor.csv_path().display()
     );
-    if let Some(file) = context.record(&time::now_iso(), keys)? {
+    for reason in &missing {
+        println!("  evidence: {reason}");
+    }
+    let mut keys = keys.to_vec();
+    keys.push(("evidence_known".into(), missing.is_empty().to_string()));
+    if !missing.is_empty() {
+        keys.push(("missing_evidence".into(), missing.join("; ")));
+    }
+    if let Some(file) = context.record(&time::now_iso(), &keys)? {
         println!("  logged to {}", file.display());
     }
-    let _ = session;
+    if let Some(file) = context.record_session(session, &keys, monitor.csv_path(), provenance)? {
+        println!("  session {session}  {}", file.display());
+    }
     Ok(())
 }
 

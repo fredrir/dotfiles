@@ -1,5 +1,5 @@
 use super::*;
-use sysinfo::bench::record::Metric;
+use hwtune::bench::record::Metric;
 
 #[test]
 fn different_methods_do_not_share_a_best_score() {

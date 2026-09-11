@@ -1,7 +1,7 @@
 [package]
 name              = "bench-workloads"
 version.workspace = true
-description       = "Self-contained native workloads for sysinfo bench"
+description       = "Self-contained native workloads for hwtune bench"
 edition.workspace = true
 license.workspace = true
 

@@ -68,9 +68,10 @@ impl Fixture {
             .env("SHELL", "/bin/zsh")
             .env_remove("USER")
             .env_remove("SYSINFO_HOST")
+            .env_remove("HWTUNE_HOST")
             .env_remove("SYSINFO_CONFIG")
             .env(
-                "SYSINFO_BENCHMARKS",
+                "HWTUNE_BENCHMARKS",
                 self.temporary.path().join("benchmarks"),
             )
             .current_dir(&self.root)
@@ -328,16 +329,41 @@ fn doctor_caches_package_inventory_and_preserves_section_order() {
 fn doctor_reads_saved_benchmark_host_without_python() {
     let fixture = Fixture::new();
     fs::write(fixture.home.join(".config/dotfile/host"), "fixture-host\n").unwrap();
-    let directory = fixture.temporary.path().join("benchmarks/fixture-host");
-    fs::create_dir_all(&directory).unwrap();
-    fs::write(
-        directory.join("run.json"),
-        r#"{"schema":1,"host":"fixture-host","run_id":"run","grade":"clean","started":"2000-01-01T00:00:00Z"}"#,
-    )
-    .unwrap();
+    hwtune::bench::store::Store::new(fixture.temporary.path().join("benchmarks"))
+        .save_run(&hwtune::bench::record::Run {
+            host: "fixture-host".into(),
+            run_id: "run".into(),
+            grade: "clean".into(),
+            started: "2000-01-01T00:00:00Z".into(),
+            ..Default::default()
+        })
+        .unwrap();
     let result = fixture.command().arg("doctor").run();
     assert_eq!(result.code(), Some(1));
     assert!(result.stdout.contains("last clean run was"));
+}
+
+#[test]
+fn doctor_uses_hwtune_host_for_benchmark_history() {
+    let fixture = Fixture::new();
+    hwtune::bench::store::Store::new(fixture.temporary.path().join("benchmarks"))
+        .save_run(&hwtune::bench::record::Run {
+            host: "benchmark-host".into(),
+            run_id: "run".into(),
+            grade: "clean".into(),
+            started: "2000-01-01T00:00:00Z".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let result = fixture
+        .command()
+        .arg("doctor")
+        .env("HWTUNE_HOST", "benchmark-host")
+        .env("SYSINFO_HOST", "inventory-host")
+        .run();
+    assert_eq!(result.code(), Some(1));
+    assert!(result.stdout.contains("last clean run was"));
+    assert!(!result.stdout.contains("no runs recorded"));
 }
 
 #[test]

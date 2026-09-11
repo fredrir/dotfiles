@@ -4,7 +4,30 @@
 
 ## `archie`
 
-2 clean runs  |  arch
+3 clean runs  |  arch
+
+### `91b4b3e3`
+
+AMD Ryzen 7 9800X3D, NVIDIA GeForce RTX 5070 Ti, 32 GB
+
+| Metric                  | Unit   | Latest  | Runs | Best    |
+| ----------------------- | ------ | ------- | ---- | ------- |
+| `cache.read`            | MiB/s  | 108 260 | 1    | 108 260 |
+| `cache.write`           | MiB/s  | 41 897  | 1    | 41 897  |
+| `cpu.crypto`            | MB/s   | 25 354  | 1    | 25 354  |
+| `cpu.multi`             | MIPS   | 143 543 | 1    | 143 543 |
+| `cpu.native_multi`      | Mops/s | 12 536  | 1    | 12 536  |
+| `cpu.native_single`     | Mops/s | 895.0   | 1    | 895.0   |
+| `cpu.single`            | MIPS   | 13 445  | 1    | 13 445  |
+| `mem.native_read`       | GiB/s  | 67.3    | 1    | 67.3    |
+| `mem.native_write`      | GiB/s  | 33.2    | 1    | 33.2    |
+| `mem.random`            | MiB/s  | 967.9   | 1    | 967.9   |
+| `mem.read`              | MiB/s  | 57 475  | 1    | 57 475  |
+| `mem.write`             | MiB/s  | 28 644  | 1    | 28 644  |
+| `workload.git_log`      | ms     | 1.42    | 1    | 1.42    |
+| `workload.git_status`   | ms     | 3.53    | 1    | 3.53    |
+| `workload.nvim_startup` | ms     | 21.5    | 1    | 21.5    |
+| `workload.tar_repo`     | ms     | 0.83    | 1    | 0.83    |
 
 ### `10db7d1f`
 

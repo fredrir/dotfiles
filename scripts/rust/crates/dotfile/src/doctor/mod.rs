@@ -774,7 +774,12 @@ fn package_rows(
 }
 
 fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, String> {
-    let inventory = context.inventory();
+    let mut inventory = context.inventory();
+    inventory.host = context
+        .env("HWTUNE_HOST")
+        .map(|value| value.to_string_lossy().trim().to_string())
+        .filter(|value| !value.is_empty());
+    inventory.config = None;
     let mut host = sysinfo::inventory::resolve_with(&inventory, &[], "", &[]);
     if host.is_empty() {
         let hosts = match sysinfo::inventory::load_hosts_from(&inventory.hosts_file()) {
@@ -796,13 +801,14 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
     if !sysinfo::inventory::valid_name(&host) {
         return Err("benchmark host must be a single path component".into());
     }
-    let store = sysinfo::bench::store::Store::new(
+    let store = hwtune::bench::store::Store::new(
         context
-            .env("SYSINFO_BENCHMARKS")
+            .env("HWTUNE_BENCHMARKS")
+            .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| context.root.join("benchmarks")),
     );
-    let runs = store.list_runs(Some(&host), sysinfo::bench::record::CLEAN)?;
+    let runs = store.list_runs(Some(&host), hwtune::bench::record::CLEAN)?;
     if runs.is_empty() {
         return Ok(vec![Row::new(
             "note",
@@ -811,7 +817,7 @@ fn benchmark_rows(context: &Context, probes: &Probes<'_>) -> Result<Vec<Row>, St
             0,
         )]);
     }
-    let issues = sysinfo::bench::health::issues_for_runs(&store, &host, &runs)?;
+    let issues = hwtune::bench::health::issues_for_runs(&store, &host, &runs)?;
     if issues.is_empty() {
         return Ok(vec![Row::new(
             "ok",

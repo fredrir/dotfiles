@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use super::plan::Output;
 use crate::context::Context;
-use sysinfo::bench::{
+use hwtune::bench::{
     compare,
     record::{CLEAN, LIB, Run},
     store::{Baselines, Store},
@@ -161,7 +161,8 @@ fn render(runs: &[Run], baselines: &Baselines) -> String {
 
 pub(super) fn output(context: &Context) -> Result<Output, String> {
     let directory = context
-        .env("SYSINFO_BENCHMARKS")
+        .env("HWTUNE_BENCHMARKS")
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| context.root.join("benchmarks"));
     let directory = if directory.is_absolute() {

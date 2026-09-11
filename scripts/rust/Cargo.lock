@@ -1061,6 +1061,7 @@ dependencies = [
  "crossterm",
  "globset",
  "hostkit",
+ "hwtune",
  "libc",
  "nix 0.30.1",
  "ratatui",
@@ -2601,19 +2602,27 @@ dependencies = [
 name = "hwtune"
 version = "0.1.0"
 dependencies = [
+ "blake2",
  "chrono",
  "clap",
+ "fs2",
  "hostkit",
+ "regex",
+ "rustix",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "sha2 0.10.9",
  "similar",
+ "sysinfo",
  "tempfile",
  "testkit",
+ "ui-picker",
  "ui-progress",
  "ui-terminal",
  "ui-theme",
  "workstation",
+ "workstation-sysinfo",
 ]
 
 [[package]]
@@ -5389,13 +5398,10 @@ dependencies = [
 name = "workstation-sysinfo"
 version = "0.1.0"
 dependencies = [
- "blake2",
- "chrono",
  "clap",
  "clap_complete",
  "core-foundation",
  "csv",
- "fs2",
  "hostkit",
  "io-kit-sys",
  "regex",
@@ -5406,7 +5412,6 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "testkit",
- "ui-picker",
  "ui-terminal",
  "ui-theme",
  "unicode-width",

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use workstation::blocks::{self, Comments};
 
@@ -229,16 +228,6 @@ pub fn valid_name(name: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
-pub fn save_host(name: &str) -> Result<(), String> {
-    if !valid_name(name) {
-        return Err("host must be a valid single path component".into());
-    }
-    let path = InventoryContext::from_env().state_file;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(path, format!("{name}\n")).map_err(|e| e.to_string())
-}
 pub fn render_host(host: &Host) -> String {
     let mut out = format!("{} {{\n", host.name);
     if !host.hostnames.is_empty() {
@@ -257,39 +246,4 @@ pub fn render_host(host: &Host) -> String {
     }
     out.push_str("}\n");
     out
-}
-pub fn append_host(host: &Host) -> Result<PathBuf, String> {
-    if !valid_name(&host.name) {
-        return Err("host must be a valid single path component".into());
-    }
-    if host
-        .hostnames
-        .iter()
-        .chain(std::iter::once(&host.role))
-        .chain(host.hardware.values())
-        .any(|value| value.contains(['\n', '\r', '{', '}']))
-    {
-        return Err("host fields must be single lines without braces".into());
-    }
-    let path = InventoryContext::from_env().hosts_file();
-    let previous = fs::read_to_string(&path).unwrap_or_default();
-    let prefix = if previous.is_empty() || previous.ends_with("\n\n") {
-        ""
-    } else if previous.ends_with('\n') {
-        "\n"
-    } else {
-        "\n\n"
-    };
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-    file.write_all(format!("{prefix}{}", render_host(host)).as_bytes())
-        .map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    Ok(path)
 }

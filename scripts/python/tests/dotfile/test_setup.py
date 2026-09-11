@@ -23,6 +23,7 @@ RUST_BINARIES = [
     "hpull",
     "hpush",
     "hwire",
+    "hwtune",
     "mux-route",
     "path",
     "size",

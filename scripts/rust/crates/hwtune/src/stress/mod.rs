@@ -41,6 +41,57 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    pub fn provenance(&self) -> crate::bench::provenance::RunContext {
+        let mut context =
+            crate::bench::provenance::capture_sources(self.paths, self.sys, &paths::lact_config());
+        if let Ok(gpu) = crate::gpu::query() {
+            context
+                .observed
+                .insert("gpu.power_cap_w".into(), gpu.power_cap_w.to_string());
+        }
+        context
+    }
+
+    pub fn record_session(
+        &self,
+        session: &str,
+        keys: &[(String, String)],
+        samples: &Path,
+        before: &crate::bench::provenance::RunContext,
+    ) -> Result<Option<PathBuf>, String> {
+        if !self.log {
+            return Ok(None);
+        }
+        let host = match self.paths {
+            Some(paths) => paths.host.clone(),
+            None => paths::host_name(None)?,
+        };
+        let details = keys
+            .iter()
+            .cloned()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let receipt = crate::bench::provenance::StabilitySession {
+            schema: 1,
+            host,
+            session: session.into(),
+            completed: crate::time::now_iso(),
+            profile: details.get("profile").cloned().unwrap_or_default(),
+            result: details
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| "unknown".into()),
+            context: before.clone(),
+            context_unchanged: crate::bench::provenance::same_settings(before, &self.provenance()),
+            evidence_known: details
+                .get("evidence_known")
+                .is_some_and(|value| value == "true"),
+            details,
+            samples_path: samples.display().to_string(),
+        };
+        crate::bench::provenance::save_stability(&crate::bench::store::Store::discover(), &receipt)
+            .map(Some)
+    }
+
     pub fn bios_sha(&self) -> String {
         self.paths
             .and_then(|paths| {

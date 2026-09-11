@@ -58,6 +58,7 @@ pub fn run(options: MemOptions, context: &Context) -> Result<ExitCode, String> {
     let meminfo = env::read_text(std::path::Path::new("/proc/meminfo"))?;
     let available = available_bytes(&meminfo).ok_or("MemAvailable missing from /proc/meminfo")?;
     let session = time::session_id("mem");
+    let provenance = context.provenance();
     let log = stress::session_log(&session)?;
     let (program, args) = command(options.tool, options.minutes, options.percent, available);
     println!(
@@ -87,7 +88,10 @@ pub fn run(options: MemOptions, context: &Context) -> Result<ExitCode, String> {
             break;
         }
     }
-    let passed = failure.is_none() && monitor.journal.total() == 0;
+    let result = monitor
+        .evidence
+        .verdict("mem", failure.is_none(), monitor.journal.total());
+    let passed = result == "pass";
     let mut keys = stress::keys(&[
         ("profile", "mem".to_string()),
         ("tool", program.clone()),
@@ -95,12 +99,12 @@ pub fn run(options: MemOptions, context: &Context) -> Result<ExitCode, String> {
         ("percent", options.percent.to_string()),
         ("passes", passes.to_string()),
         ("bios", context.bios_sha()),
-        ("result", if passed { "pass".into() } else { "fail".into() }),
+        ("result", result.into()),
         ("stress", failure.clone().unwrap_or_else(|| "exit 0".into())),
         ("journal", monitor.journal.summary()),
     ]);
     keys.extend(monitor.peaks.keys());
-    stress::cpu::report(context, &session, &keys, &monitor, passed)?;
+    stress::cpu::report(context, &session, &keys, &monitor, passed, &provenance)?;
     Ok(if passed {
         ExitCode::SUCCESS
     } else {

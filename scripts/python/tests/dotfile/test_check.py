@@ -24,8 +24,8 @@ def ctx(tmp_path, tool):
         "XDG_DATA_HOME": str(home / ".local/share"),
         "SHELL": "/bin/zsh",
         "USER": "",
-        "SYSINFO_HOST": "fixture",
-        "SYSINFO_BENCHMARKS": str(tmp_path / "benchmarks"),
+        "HWTUNE_HOST": "fixture",
+        "HWTUNE_BENCHMARKS": str(tmp_path / "benchmarks"),
     }
 
     def doctor(*arguments, **overrides):

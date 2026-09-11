@@ -1,19 +1,45 @@
 [package]
 name              = "hwtune"
 version.workspace = true
-description       = "Declarative BIOS checks and stability tests for the desktop host"
+description       = "Hardware benchmarks, stability checks and validated OS tuning"
 edition.workspace = true
 license.workspace = true
+autotests         = false
 
 [lints]
 workspace = true
 
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+
+[[test]]
+name = "bench_cli"
+path = "tests/bench_cli.rs"
+
+[[test]]
+name = "tune_monitor"
+path = "tests/tune_monitor.rs"
+
+[[test]]
+name = "store_tests"
+path = "tests/store_tests.rs"
+
 [dependencies]
+sysinfo = { package = "workstation-sysinfo", path = "../sysinfo" }
+blake2 = "0.10"
+fs2 = "0.4"
+rustix = { workspace = true, features = ["fs"] }
+regex = "1"
+sysinfo_backend = { package = "sysinfo", version = "0.37", default-features = false, features = ["system"] }
+tempfile.workspace = true
+ui-picker.workspace = true
 chrono                  = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap.workspace          = true
 hostkit.workspace       = true
 serde.workspace         = true
 serde_json.workspace    = true
+serde_yaml_ng = "0.10"
 sha2.workspace          = true
 similar.workspace       = true
 ui-progress.workspace   = true
@@ -22,5 +48,4 @@ ui-theme.workspace      = true
 workstation.workspace   = true
 
 [dev-dependencies]
-tempfile.workspace = true
 testkit.workspace  = true

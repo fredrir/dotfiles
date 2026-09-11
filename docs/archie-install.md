@@ -54,7 +54,7 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | UKI with the tracked command line | `sudo mkinitcpio -P` |
 | services | `sudo systemctl enable --now fan2go lactd nvidia-persistenced fstrim.timer` |
 | verify | `hwtune status`, `hwtune bios check`, `dotfile doctor` |
-| baseline | `hwtune bench` then `sysinfo bench baseline` (the disk change moves the hardware epoch) |
+| baseline | `hwtune bench run --baseline` (the disk change moves the hardware epoch) |
 
 ## Replacing the UKI on a running system
 

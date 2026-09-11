@@ -1,7 +1,7 @@
 [package]
 name              = "workstation-sysinfo"
 version.workspace = true
-description       = "Native system inventory, health and reproducible benchmarks"
+description       = "Native system inventory and health"
 edition.workspace = true
 license.workspace = true
 autotests         = false
@@ -14,10 +14,6 @@ name = "sysinfo"
 path = "src/main.rs"
 
 [[test]]
-name = "bench_cli"
-path = "tests/bench_cli.rs"
-
-[[test]]
 name = "cli"
 path = "tests/cli.rs"
 
@@ -28,7 +24,6 @@ path = "tests/contracts.rs"
 [dependencies]
 ui-theme.workspace = true
 ui-terminal.workspace = true
-ui-picker.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true
@@ -44,9 +39,6 @@ sysinfo_backend = { package = "sysinfo", version = "0.37", default-features = fa
 ] }
 regex = "1"
 csv = "1"
-blake2 = "0.10"
-fs2 = "0.4"
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 testkit.workspace = true

@@ -4,10 +4,7 @@ pub(super) const DEPENDENCIES: &[(&str, &[&str])] = &[
     ("dotfile", &["dotfile-cli"]),
     ("hyprland", &["dotfile-cli"]),
     ("transcript", &["dotfile-cli"]),
-    (
-        "sysinfo",
-        &["workstation-sysinfo", "dotfile-cli", "bench-workloads"],
-    ),
+    ("hwtune", &["hwtune", "bench-workloads"]),
     ("tmux", &["dotfile-cli", "tmux-workspace", "agent-hop"]),
 ];
 

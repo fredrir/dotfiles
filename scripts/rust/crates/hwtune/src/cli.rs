@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand, ValueHint};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueHint};
 use workstation::{Completable, Completions, Style};
 
 use crate::bios::{check, diff, export, live, spec};
@@ -18,7 +18,7 @@ use crate::stress::monitor::Monitor;
 use crate::stress::{self, Profile};
 use crate::table;
 use crate::time;
-use crate::{bench, report, status};
+use crate::{bench, status};
 
 pub const PROGRAM: &str = "hwtune";
 
@@ -26,7 +26,7 @@ pub const PROGRAM: &str = "hwtune";
 #[command(
     name = "hwtune",
     version,
-    about = "Declarative BIOS checks and stability tests for the desktop host"
+    about = "Hardware tuning, benchmarks, and stability tests"
 )]
 pub struct Cli {
     #[arg(
@@ -50,6 +50,84 @@ impl Completable for Cli {
     }
 }
 
+pub struct BenchArgs(pub clap::ArgMatches);
+
+impl Args for BenchArgs {
+    fn augment_args(_: clap::Command) -> clap::Command {
+        bench::command()
+    }
+    fn augment_args_for_update(command: clap::Command) -> clap::Command {
+        Self::augment_args(command)
+    }
+}
+impl FromArgMatches for BenchArgs {
+    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+        Ok(Self(matches.clone()))
+    }
+    fn update_from_arg_matches(&mut self, matches: &clap::ArgMatches) -> Result<(), clap::Error> {
+        self.0 = matches.clone();
+        Ok(())
+    }
+}
+
+pub fn surface_document() -> workstation::surface::Document {
+    use workstation::surface::{Command as SurfaceCommand, Completion};
+    fn annotate(command: &mut SurfaceCommand) {
+        let name = command.name().to_string();
+        for parameter in &mut command.params {
+            let source = match (name.as_str(), parameter.name.as_str()) {
+                ("run", "host") | ("hwtune", "host") => Some("known-hosts"),
+                (_, "host") => Some("bench-hosts"),
+                (_, "target" | "left" | "right" | "before" | "after") => Some("runs"),
+                ("trend", "metric") => Some("metrics"),
+                _ => None,
+            };
+            if let Some(source) = source {
+                parameter.completion = Some(Completion::Call {
+                    source: source.into(),
+                });
+            }
+            if parameter.name == "workdir" {
+                parameter.completion = Some(Completion::Dirs);
+            }
+            if parameter.name == "only" {
+                parameter.choices = bench::runner::FAMILIES.map(String::from).to_vec();
+                parameter.delimiter = Some(',');
+            }
+        }
+        for child in &mut command.children {
+            annotate(child);
+        }
+    }
+    let mut command = Cli::command();
+    command.build();
+    let mut document = workstation::surface::document(&command, PROGRAM);
+    annotate(&mut document.command);
+    document
+}
+
+pub fn entry() -> Result<ExitCode, String> {
+    let cli: Cli = workstation::cli::parse();
+    if cli.completions.dump {
+        println!(
+            "{}",
+            serde_json::to_string(&surface_document()).map_err(|e| e.to_string())?
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    if cli.completions.is_zsh() {
+        print!(
+            "{}",
+            workstation::surface::zsh::script(&surface_document().command)
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    if let Some(code) = cli.completions.emit::<Cli>(PROGRAM) {
+        return Ok(code);
+    }
+    run(cli)
+}
+
 #[derive(Subcommand)]
 pub enum Command {
     #[command(about = "Import, compare, and verify BIOS setting exports")]
@@ -69,22 +147,15 @@ pub enum Command {
         #[arg(long, default_value_t = 5, help = "Duration in minutes")]
         minutes: u64,
     },
-    #[command(about = "Run sysinfo bench tagged with the BIOS export and LACT config hashes")]
-    Bench {
-        #[arg(long, help = "Why the run was taken")]
-        note: Option<String>,
-        #[arg(last = true, help = "Extra arguments passed to sysinfo bench run")]
-        extra: Vec<String>,
+    #[command(about = "Plan and apply measured hardware tuning")]
+    Tune {
+        #[command(subcommand)]
+        command: crate::tune::Command,
     },
-    #[command(about = "Compare the latest benchmark run per BIOS export")]
-    Report {
-        #[arg(
-            long,
-            value_name = "KEY",
-            help = "Only metrics whose key contains this text"
-        )]
-        metric: Option<String>,
-    },
+    #[command(about = "Measure this machine and compare runs over time")]
+    Bench(BenchArgs),
+    #[command(name = "__complete", hide = true)]
+    Complete { source: String },
 }
 
 #[derive(Subcommand)]
@@ -187,10 +258,35 @@ pub fn run(cli: Cli) -> Result<ExitCode, String> {
             stress_command(command, paths.as_ref(), &sys, &style)
         }
         Command::Sample { minutes } => sample(minutes, &sys),
-        Command::Bench { note, extra } => {
-            bench::run(&Paths::discover(host)?, note.as_deref(), &extra)
+        Command::Tune { command } => crate::tune::run(command, host, &sys),
+        Command::Bench(args) => {
+            bench::run(&args.0)?;
+            Ok(ExitCode::SUCCESS)
         }
-        Command::Report { metric } => report::run(&Paths::discover(host)?, metric.as_deref()),
+        Command::Complete { source } => {
+            let values = if source == "known-hosts" {
+                bench::hosts::load_hosts().map(|hosts| {
+                    hosts
+                        .into_iter()
+                        .map(|host| {
+                            format!(
+                                "{}:{}",
+                                host.name,
+                                host.role.split_whitespace().collect::<Vec<_>>().join(" ")
+                            )
+                        })
+                        .collect()
+                })
+            } else {
+                bench::complete(&source)
+            };
+            if let Ok(values) = values {
+                for value in values {
+                    println!("{value}");
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -200,6 +296,7 @@ fn stress_command(
     sys: &Sysfs,
     style: &Style,
 ) -> Result<ExitCode, String> {
+    let _measurement = bench::store::measurement_lock()?;
     let context = |no_log: bool| stress::Context {
         sys,
         paths,

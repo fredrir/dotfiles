@@ -38,6 +38,7 @@ pub fn run(options: GpuOptions, context: &Context) -> Result<ExitCode, String> {
     }
     let before = gpu::query()?;
     let session = time::session_id("gpu");
+    let provenance = context.provenance();
     let log = stress::session_log(&session)?;
     let (program, args) = command(options.tool);
     println!(
@@ -47,11 +48,14 @@ pub fn run(options: GpuOptions, context: &Context) -> Result<ExitCode, String> {
         options.minutes,
         before.power_cap_w
     );
-    let mut child = stress::spawn(&program, &args, &log)?;
     let mut monitor = Monitor::start(&session, context.sys, false)?;
+    let mut child = stress::spawn(&program, &args, &log)?;
     let finish = monitor.run(Duration::from_secs(options.minutes * 60), Some(&mut child))?;
     let ended_early = finish.status.is_some();
-    let passed = !ended_early && monitor.journal.xid == 0 && monitor.journal.total() == 0;
+    let result = monitor
+        .evidence
+        .verdict("gpu", !ended_early, monitor.journal.total());
+    let passed = result == "pass";
     let after = gpu::query().unwrap_or(before.clone());
     let mut keys = stress::keys(&[
         ("profile", "gpu".to_string()),
@@ -59,7 +63,7 @@ pub fn run(options: GpuOptions, context: &Context) -> Result<ExitCode, String> {
         ("minutes", options.minutes.to_string()),
         ("power_cap", format!("{:.0}", before.power_cap_w)),
         ("bios", context.bios_sha()),
-        ("result", if passed { "pass".into() } else { "fail".into() }),
+        ("result", result.into()),
         (
             "stress",
             if ended_early {
@@ -73,7 +77,7 @@ pub fn run(options: GpuOptions, context: &Context) -> Result<ExitCode, String> {
         ("mem_mhz_end", after.mem_mhz.to_string()),
     ]);
     keys.extend(monitor.peaks.keys());
-    stress::cpu::report(context, &session, &keys, &monitor, passed)?;
+    stress::cpu::report(context, &session, &keys, &monitor, passed, &provenance)?;
     Ok(if passed {
         ExitCode::SUCCESS
     } else {

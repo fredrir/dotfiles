@@ -39,7 +39,7 @@ impl Repository {
             .env("DOTFILE_ROOT", &self.root)
             .env("DOTFILE_DEV_BUILD_MANIFEST", self.root.join("build.jsonl"))
             .env("PATH", "")
-            .env_remove("SYSINFO_BENCHMARKS")
+            .env_remove("HWTUNE_BENCHMARKS")
             .args(args)
             .output()
             .unwrap()
@@ -210,7 +210,7 @@ fn symlinked_output_is_rejected_before_other_outputs_are_created() {
 
 #[test]
 fn benchmark_document_uses_stored_rust_records_without_running_benchmarks() {
-    use sysinfo::bench::{
+    use hwtune::bench::{
         record::{Metric, Run},
         store::Store,
     };
