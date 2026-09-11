@@ -42,6 +42,8 @@ mod on_a_terminal {
             .arg(directory)
             .env_remove("NO_COLOR")
             .env_remove("CLICOLOR")
+            .env_remove("EZA_COLORS")
+            .env_remove("LS_COLORS")
             .env("TERM", "xterm-256color")
             .envs(variables.iter().copied())
             .stdio(input, output, errors)
@@ -86,5 +88,36 @@ mod on_a_terminal {
 
         let dumb = listing_on_a_pty(root.path(), &[("TERM", "dumb")]);
         assert!(!painted(&dumb), "{:?}", String::from_utf8_lossy(&dumb));
+    }
+
+    #[test]
+    fn file_colors_prefer_eza_and_fall_back_to_ls_colors() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("a.txt"), "one\ntwo\n").unwrap();
+
+        for (variables, expected) in [
+            (
+                vec![("EZA_COLORS", "*.txt=01;35"), ("LS_COLORS", "*.txt=01;34")],
+                "01;35",
+            ),
+            (
+                vec![("EZA_COLORS", ""), ("LS_COLORS", "*.txt=38;2;10;20;30")],
+                "38;2;10;20;30",
+            ),
+            (vec![("LS_COLORS", "*.txt=38;5;123")], "38;5;123"),
+        ] {
+            let output = listing_on_a_pty(root.path(), &variables);
+            let text = String::from_utf8_lossy(&output);
+            assert!(
+                text.contains(&format!("\x1b[{expected}m\u{f15c} a.txt\x1b[0m")),
+                "{text:?}"
+            );
+        }
+
+        let output = listing_on_a_pty(
+            root.path(),
+            &[("EZA_COLORS", "*.txt=01;35"), ("NO_COLOR", "1")],
+        );
+        assert!(!painted(&output), "{:?}", String::from_utf8_lossy(&output));
     }
 }

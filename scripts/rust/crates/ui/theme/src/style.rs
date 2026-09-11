@@ -108,6 +108,19 @@ impl Style {
         self.paint(Role::Theirs, text)
     }
 
+    /// Apply external SGR parameters (e.g. LS_COLORS); use `paint` for semantic roles.
+    pub fn code(&self, code: &str, text: &str) -> String {
+        if !self.colored
+            || text.is_empty()
+            || !code
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b';' | b':'))
+        {
+            return text.to_string();
+        }
+        format!("\x1b[{code}m{text}\x1b[0m")
+    }
+
     fn wrap(&self, prefix: &str, text: &str) -> String {
         if !self.colored || text.is_empty() || prefix.is_empty() {
             return text.to_string();

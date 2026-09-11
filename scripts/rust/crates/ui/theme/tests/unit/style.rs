@@ -71,3 +71,26 @@ fn explicit_modes_control_style_output_independently_of_terminal_detection() {
         assert_eq!(style.green(""), "");
     }
 }
+
+#[test]
+fn external_sgr_styles_preserve_parameters_and_obey_color_policy() {
+    let palette = Arc::new(Palette::default());
+    let colored = Style::from_palette(Arc::clone(&palette), ColorMode::Always, false);
+    let plain = Style::from_palette(palette, ColorMode::Never, true);
+    for code in ["01;34", "38;5;123", "38;2;10;20;30", "4:3", ""] {
+        assert_eq!(
+            colored.code(code, "file"),
+            format!("\x1b[{code}mfile\x1b[0m")
+        );
+        assert_eq!(colored.code(code, ""), "");
+        assert_eq!(plain.code(code, "file"), "file");
+    }
+}
+
+#[test]
+fn external_sgr_styles_reject_non_parameter_content() {
+    let style = Style::from_palette(Arc::new(Palette::default()), ColorMode::Always, true);
+    for code in ["target", "31m\x1b[2J", "\x1b]0;title\x07", "31\n", "３１"] {
+        assert_eq!(style.code(code, "file"), "file", "code: {code:?}");
+    }
+}
