@@ -28,7 +28,7 @@ def test_view_normalizes_software(workstation_snapshot):
     assert view.machine_type == "WORKSTATION"
     assert view.summary == ("Arch Linux", "KDE Plasma", "Wayland")
     assert [badge.kind for badge in view.software] == [
-        "desktop",
+        "hyprland",
         "wm",
         "session",
         "terminal",

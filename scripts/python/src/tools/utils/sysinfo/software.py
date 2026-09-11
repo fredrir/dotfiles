@@ -127,7 +127,7 @@ def software_badges(snapshot):
     if snapshot.de_display != "unknown":
         badges.append(
             SoftwareBadge(
-                "desktop",
+                "hyprland",
                 de.get("prettyName") or snapshot.de_display,
                 snapshot.de_display,
                 (de.get("processName") or "",),

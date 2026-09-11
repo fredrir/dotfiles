@@ -19,7 +19,7 @@ from tools.utils.sysinfo.branding import header_illustration, illustration, reso
         ("storage", "ATA WDC WD20EZRZ", "western_digital"),
         ("storage", "Samsung SSD 990 PRO", "samsung"),
         ("os", "Arch Linux", "arch"),
-        ("desktop", "KDE Plasma", "kde"),
+        ("hyprland", "KDE Plasma", "kde"),
         ("session", "Wayland", "wayland"),
         ("terminal", "Ghostty", "ghostty"),
         ("shell", "zsh 5.9", "zsh"),

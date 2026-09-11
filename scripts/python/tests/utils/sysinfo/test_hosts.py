@@ -5,7 +5,7 @@ from tools.utils.sysinfo import hosts
 DOCUMENT = """
 archie {
   hostnames = archie, archie.local
-  role = desktop
+  role = hyprland
 
   CPU_COOLER = Noctua NH-D15
   MEMORY = Corsair 32 GB DDR5-6000
@@ -33,7 +33,7 @@ def test_hosts_carry_their_aliases_and_hardware(hosts_file):
 
     assert list(known) == ["archie", "macie"]
     assert known["archie"].hostnames == ("archie", "archie.local")
-    assert known["archie"].role == "desktop"
+    assert known["archie"].role == "hyprland"
     assert known["archie"].hardware["cpu_cooler"] == "Noctua NH-D15"
     assert known["macie"].hardware == {}
 
@@ -81,7 +81,7 @@ def test_a_rendered_host_parses_back_to_itself(tmp_path):
         hardware={"memory": "16 GB LPDDR5"},
     )
     path = tmp_path / "hosts.dotfile"
-    path.write_text("archie {\n  role = desktop\n}\n", encoding="utf-8")
+    path.write_text("archie {\n  role = hyprland\n}\n", encoding="utf-8")
 
     hosts.append_host(entry, str(path))
     known = hosts.load_hosts(str(path))

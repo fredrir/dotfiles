@@ -178,13 +178,13 @@ BRANDS = (
     BrandProfile("nixos", "NIXOS", "#7ebae4", "", ("os",), ("nixos", "nix os")),
     BrandProfile("windows", "WINDOWS", "#00a4ef", "", ("os",), ("windows",)),
     BrandProfile(
-        "kde", "KDE PLASMA", "#3daee9", "", ("desktop", "wm"), ("kde plasma", "plasma", "kwin")
+        "kde", "KDE PLASMA", "#3daee9", "", ("hyprland", "wm"), ("kde plasma", "plasma", "kwin")
     ),
-    BrandProfile("gnome", "GNOME", "#4a86cf", "", ("desktop",), ("gnome",)),
-    BrandProfile("hyprland", "HYPRLAND", "#58e1ff", "H◇", ("desktop", "wm"), ("hyprland",)),
-    BrandProfile("sway", "SWAY", "#6f838c", "S◇", ("desktop", "wm"), ("sway",)),
-    BrandProfile("xfce", "XFCE", "#00a6d6", "X◇", ("desktop",), ("xfce",)),
-    BrandProfile("cinnamon", "CINNAMON", "#8fcf3c", "C◇", ("desktop",), ("cinnamon",)),
+    BrandProfile("gnome", "GNOME", "#4a86cf", "", ("hyprland",), ("gnome",)),
+    BrandProfile("hyprland", "HYPRLAND", "#58e1ff", "H◇", ("hyprland", "wm"), ("hyprland",)),
+    BrandProfile("sway", "SWAY", "#6f838c", "S◇", ("hyprland", "wm"), ("sway",)),
+    BrandProfile("xfce", "XFCE", "#00a6d6", "X◇", ("hyprland",), ("xfce",)),
+    BrandProfile("cinnamon", "CINNAMON", "#8fcf3c", "C◇", ("hyprland",), ("cinnamon",)),
     BrandProfile("wayland", "WAYLAND", "#f38ba8", "W", ("session",), ("wayland",)),
     BrandProfile("x11", "X11", "#bac2de", "X", ("session",), ("x11", "xorg")),
     BrandProfile("konsole", "KONSOLE", "#3daee9", ">_", ("terminal",), ("konsole",)),
@@ -212,7 +212,7 @@ GENERIC = {
     "case": BrandProfile("case", "CHASSIS", "#bac2de", "▣", ("case",), ()),
     "power": BrandProfile("power", "POWER", "#f9e2af", "ϟ", ("power",), ()),
     "os": BrandProfile("os", "SYSTEM", "#3daee9", "◆", ("os",), ()),
-    "desktop": BrandProfile("desktop", "DESKTOP", "#cba6f7", "◇", ("desktop",), ()),
+    "hyprland": BrandProfile("hyprland", "DESKTOP", "#cba6f7", "◇", ("hyprland",), ()),
     "wm": BrandProfile("wm", "COMPOSITOR", "#cba6f7", "◇", ("wm",), ()),
     "session": BrandProfile("session", "SESSION", "#f38ba8", "◇", ("session",), ()),
     "terminal": BrandProfile("terminal", "TERMINAL", "#7cff6b", ">_", ("terminal",), ()),

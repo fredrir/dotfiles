@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from tools.desktop import confirm_exit
+from tools.hyprland import confirm_exit
 
 
 def select(monkeypatch, stdout):

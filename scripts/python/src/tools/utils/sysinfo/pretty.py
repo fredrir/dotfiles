@@ -77,7 +77,7 @@ def compact_software_label(label):
 
 def header_environment(view, colors):
     line = Text()
-    badges = [badge for badge in view.software if badge.kind in {"desktop", "wm", "session"}]
+    badges = [badge for badge in view.software if badge.kind in {"hyprland", "wm", "session"}]
     for index, badge in enumerate(badges):
         if index:
             line.append("   ", style=colors.overlay)

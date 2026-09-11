@@ -16,8 +16,8 @@ def test_a_source_that_cannot_answer_stays_quiet(monkeypatch):
 
 
 def test_a_description_is_offered_alongside_its_value(monkeypatch):
-    monkeypatch.setitem(values.PROVIDERS, "hosts", lambda: [("archie", "desktop")])
-    assert values.lines("hosts", []) == ["archie:desktop"]
+    monkeypatch.setitem(values.PROVIDERS, "hosts", lambda: [("archie", "hyprland")])
+    assert values.lines("hosts", []) == ["archie:hyprland"]
 
 
 def test_a_colon_in_a_value_is_escaped_so_it_stays_one_value(monkeypatch):

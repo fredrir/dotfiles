@@ -20,7 +20,7 @@ SECONDS = "2"
 # lives in cache, which is worth measuring but is not memory bandwidth.
 CACHE_BLOCK = "1M"
 
-# Ten times the largest L3 in current desktop parts, because a buffer only a
+# Ten times the largest L3 in current hyprland parts, because a buffer only a
 # couple of times the cache still reads partly from it: on a 96 MiB X3D part a
 # 256 MiB block measures 15% faster than a 1 GiB one.
 DRAM_BLOCK = "1G"

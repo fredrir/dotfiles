@@ -1,6 +1,6 @@
 from io import StringIO
 
-from tools.desktop import clean_copy
+from tools.transcript import clean_copy
 
 
 def test_strips_ansi_escapes():

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.desktop import power_menu
+from tools.hyprland import power_menu
 
 
 def select(monkeypatch, stdout):

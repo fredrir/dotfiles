@@ -87,7 +87,7 @@ def adopt(known):
         die(PROG, "a host name is required")
     if name in known:
         die(PROG, f"{name} is already described in config/hosts.dotfile")
-    role = typer.prompt("role", default="desktop")
+    role = typer.prompt("role", default="hyprland")
     entry = hosts.Host(name=name, hostnames=detected, role=role.strip())
     path = hosts.append_host(entry)
     hosts.save_host(name)

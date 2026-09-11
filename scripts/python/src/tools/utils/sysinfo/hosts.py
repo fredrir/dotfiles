@@ -21,7 +21,7 @@ HARDWARE_KEYS = {
 
 DEFAULT_HARDWARE = {"cpu_cooler": "not set", "case": "not set", "power_supply": "not set"}
 
-ROLES = ("desktop", "laptop", "server")
+ROLES = ("hyprland", "laptop", "server")
 
 
 @dataclass(frozen=True)

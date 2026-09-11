@@ -8,9 +8,9 @@ dependencies    = ["typer>=0.15", "rich>=13", "tomlkit>=0.13"]
 [project.scripts]
 tardirs                 = "tools.utils.tardirs:app"
 sysinfo                 = "tools.utils.sysinfo:app"
-power-menu              = "tools.desktop.power_menu:app"
-confirm-exit            = "tools.desktop.confirm_exit:app"
-clean-copy              = "tools.desktop.clean_copy:app"
+power-menu              = "tools.hyprland.power_menu:app"
+confirm-exit            = "tools.hyprland.confirm_exit:app"
+clean-copy              = "tools.transcript.clean_copy:app"
 cpa                     = "tools.utils.remote_clipboard:cpa_app"
 cpas                    = "tools.utils.remote_clipboard:cpas_app"
 acp                     = "tools.utils.remote_clipboard:acp_app"
