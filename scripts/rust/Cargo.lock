@@ -2610,7 +2610,9 @@ dependencies = [
  "similar",
  "tempfile",
  "testkit",
- "unicode-width",
+ "ui-progress",
+ "ui-terminal",
+ "ui-theme",
  "workstation",
 ]
 

@@ -106,7 +106,7 @@ pub fn tail(log: &Path, lines: usize) -> Vec<String> {
     let all = text.lines().collect::<Vec<_>>();
     all.iter()
         .skip(all.len().saturating_sub(lines))
-        .map(|line| line.to_string())
+        .map(|line| ui_terminal::text::sanitize(line))
         .collect()
 }
 

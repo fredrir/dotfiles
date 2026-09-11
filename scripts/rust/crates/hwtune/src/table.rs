@@ -1,4 +1,4 @@
-use unicode_width::UnicodeWidthStr;
+use ui_terminal::text::width;
 
 pub fn render(headers: &[&str], rows: &[Vec<String>]) -> String {
     let widths = headers
@@ -7,10 +7,10 @@ pub fn render(headers: &[&str], rows: &[Vec<String>]) -> String {
         .map(|(column, title)| {
             rows.iter()
                 .filter_map(|row| row.get(column))
-                .map(|cell| cell.width())
+                .map(|cell| width(cell))
                 .max()
                 .unwrap_or(0)
-                .max(title.width())
+                .max(width(title))
         })
         .collect::<Vec<_>>();
     let line = |cells: Vec<&str>| {
@@ -20,7 +20,7 @@ pub fn render(headers: &[&str], rows: &[Vec<String>]) -> String {
             .map(|(column, cell)| {
                 format!(
                     "{cell}{}",
-                    " ".repeat(widths[column].saturating_sub(cell.width()))
+                    " ".repeat(widths[column].saturating_sub(width(cell)))
                 )
             })
             .collect::<Vec<_>>()

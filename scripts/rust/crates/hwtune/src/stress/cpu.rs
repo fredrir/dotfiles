@@ -119,7 +119,7 @@ fn per_core(options: CpuOptions, context: &Context) -> Result<ExitCode, String> 
             }
             Recovered::Interrupted => println!(
                 "  {} core {} was interrupted in this boot; testing it again",
-                context.style.code("33", "recovered"),
+                context.style.paint(ui_theme::Role::Warning, "recovered"),
                 previous.core
             ),
         }

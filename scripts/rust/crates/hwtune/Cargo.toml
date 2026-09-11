@@ -16,7 +16,9 @@ serde.workspace         = true
 serde_json.workspace    = true
 sha2.workspace          = true
 similar.workspace       = true
-unicode-width.workspace = true
+ui-progress.workspace   = true
+ui-terminal.workspace   = true
+ui-theme.workspace      = true
 workstation.workspace   = true
 
 [dev-dependencies]

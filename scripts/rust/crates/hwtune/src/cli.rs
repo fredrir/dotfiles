@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use clap::{CommandFactory, Parser, Subcommand, ValueHint};
+use clap::{Parser, Subcommand, ValueHint};
 use workstation::{Completable, Completions, Style};
 
 use crate::bios::{check, diff, export, live, spec};
@@ -174,7 +174,9 @@ pub fn run(cli: Cli) -> Result<ExitCode, String> {
     let sys = Sysfs::from_env();
     let host = cli.host.as_deref();
     let Some(command) = cli.command else {
-        Cli::command().print_help().map_err(|e| e.to_string())?;
+        workstation::cli::command::<Cli>()
+            .print_help()
+            .map_err(|e| e.to_string())?;
         return Ok(ExitCode::SUCCESS);
     };
     match command {

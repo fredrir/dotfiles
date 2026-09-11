@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 
+use ui_theme::Role;
 use workstation::Style;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,10 +53,10 @@ impl Row {
 
 pub fn mark(kind: Kind, style: &Style) -> String {
     match kind {
-        Kind::Ok => style.green("ok  "),
-        Kind::Bad => style.red("bad "),
-        Kind::Warn => style.code("33", "warn"),
-        Kind::Note => style.dim("note"),
+        Kind::Ok => style.paint(Role::Success, "ok  "),
+        Kind::Bad => style.paint(Role::Danger, "bad "),
+        Kind::Warn => style.paint(Role::Warning, "warn"),
+        Kind::Note => style.paint(Role::Muted, "note"),
     }
 }
 

@@ -1,9 +1,12 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{self, IsTerminal, Stdout, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use ui_progress::{Reporter, Spinner};
+use ui_terminal::reduced_motion_requested;
 
 use crate::env::Sysfs;
 use crate::gpu;
@@ -111,6 +114,8 @@ pub struct Monitor {
     journal_broken: bool,
     start_epoch: u64,
     quiet: bool,
+    live: Option<Reporter<Stdout>>,
+    motion: bool,
 }
 
 pub fn csv_row(iso: &str, sample: &Sample) -> String {
@@ -146,6 +151,8 @@ impl Monitor {
             journal_broken: false,
             start_epoch: time::epoch_now(),
             quiet,
+            live: (!quiet && io::stdout().is_terminal()).then(|| Reporter::new(io::stdout())),
+            motion: !reduced_motion_requested("HWTUNE_REDUCED_MOTION"),
         })
     }
 
@@ -196,14 +203,14 @@ impl Monitor {
         Ok(sample)
     }
 
-    fn progress(&self, sample: &Sample) {
-        if self.quiet || self.peaks.samples % PROGRESS_EVERY != 1 {
+    fn progress(&mut self, sample: &Sample) {
+        if self.quiet {
             return;
         }
         let degrees =
             |value: Option<f64>| value.map_or("n/a".into(), |value| format!("{value:.0}°C"));
-        println!(
-            "  {:>5}s  tctl {}  vrm {}  gpu {}  radiator {} rpm  journal {}",
+        let line = format!(
+            "{:>5}s  tctl {}  vrm {}  gpu {}  radiator {} rpm  journal {}",
             sample.elapsed,
             degrees(sample.tctl),
             degrees(sample.vrm),
@@ -213,6 +220,18 @@ impl Monitor {
                 .map_or("n/a".into(), |rpm| rpm.to_string()),
             self.journal.summary()
         );
+        if let Some(reporter) = &mut self.live {
+            let frame = Spinner::default().frame(self.peaks.samples as u64, self.motion);
+            let _ = reporter.update(&format!("  {frame} {line}"));
+        } else if self.peaks.samples % PROGRESS_EVERY == 1 {
+            println!("  {line}");
+        }
+    }
+
+    fn clear_progress(&mut self) {
+        if let Some(reporter) = &mut self.live {
+            let _ = reporter.finish();
+        }
     }
 
     pub fn run(
@@ -233,6 +252,7 @@ impl Monitor {
                 && let Some(status) = child.try_wait().map_err(|e| format!("wait: {e}"))?
             {
                 self.sample(start.elapsed())?;
+                self.clear_progress();
                 return Ok(Finish {
                     status: Some(status),
                     elapsed: start.elapsed(),
@@ -245,6 +265,7 @@ impl Monitor {
                     let _ = child.wait();
                 }
                 self.sample(start.elapsed())?;
+                self.clear_progress();
                 return Ok(Finish {
                     status: None,
                     elapsed: start.elapsed(),
