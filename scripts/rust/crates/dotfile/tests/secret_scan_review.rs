@@ -368,7 +368,7 @@ fn compact_review_uses_one_counted_summary_and_honors_terminal_color_policy() {
         assert_eq!(sgr.is_match(&raw), colored, "{policy}: {raw:?}");
         let display = sgr.replace_all(&raw, "");
         assert!(
-            display.contains("Secret review  17 findings · 2 files · staged"),
+            display.contains("Secret review  17 findings 2 files"),
             "{policy}: {display}"
         );
         assert!(display.contains("1/2  first.txt"), "{policy}: {display}");
@@ -399,7 +399,7 @@ fn compact_review_uses_one_counted_summary_and_honors_terminal_color_policy() {
         );
         let inspection = sgr.replace_all(&inspection, "");
         assert!(
-            inspection.contains("Inspection 1/1 · masked"),
+            inspection.contains("Inspection 1/1 masked"),
             "{policy}: {inspection}"
         );
         assert!(inspection.contains("[redacted]"), "{inspection}");
@@ -408,6 +408,42 @@ fn compact_review_uses_one_counted_summary_and_honors_terminal_color_policy() {
         assert!(!terminal.finish().success());
         assert_eq!(fixture.index(), before);
     }
+}
+
+#[test]
+fn short_assigned_secrets_block_the_commit_hook_and_are_masked_during_review() {
+    let fixture = Fixture::new();
+    let assignment = format!("API_KEY={}\n", 123);
+    fixture.stage("test.txt", &assignment);
+    fixture.install_hooks();
+    let head = fixture.git(&["rev-parse", "HEAD"]).stdout;
+    let before = fixture.git(&["ls-files", "--stage", "-z"]).stdout;
+    let output = fixture
+        .git_command(&["commit", "-m", "short secret"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("test.txt:1"), "{error}");
+    assert!(error.contains("value"), "{error}");
+    assert!(!error.contains(assignment.trim()));
+
+    let mut terminal = Terminal::spawn(fixture.git_command(&["commit", "-m", "short secret"]));
+    terminal.wait_for(PROMPT, 0);
+    let after = terminal.send(b"i");
+    terminal.wait_for("API_KEY=[redacted]", after);
+    terminal.wait_for(PROMPT, after);
+    terminal.send(b"q");
+    assert!(!terminal.finish().success());
+    assert!(!terminal.text().contains(assignment.trim()));
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]).stdout, head);
+    assert_eq!(fixture.git(&["ls-files", "--stage", "-z"]).stdout, before);
+    assert!(
+        !fixture
+            .root
+            .join(".git/dotfile/scan-approvals.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -549,7 +585,14 @@ fn canaries_and_encryption_invariants_never_offer_acceptance() {
             terminal.text()
         );
         let after = terminal.send(b"i");
-        terminal.wait_for("Inspection", after);
+        terminal.wait_for(
+            if canary.is_some() {
+                "Inspection"
+            } else {
+                "Withheld"
+            },
+            after,
+        );
         terminal.wait_for(PROMPT, after);
         assert!(!terminal.text().contains(plaintext));
         if let Some((_, value)) = canary {

@@ -29,8 +29,9 @@ pub static TOKENS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
 });
 
 pub static VALUE: LazyLock<Regex> = LazyLock::new(|| {
+    // Sensitive key names provide the signal; short values still need review.
     Regex::new(
-    r#"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|secret[_-]?key|password|passwd)\b(\s*[:=]\s*)("[^"\n]{8,}"|'[^'\n]{8,}'|[^\s]{8,})"#
+    r#"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|secret[_-]?key|password|passwd)\b([ \t]*[:=][ \t]*)("[^"\r\n]+"?|'[^'\r\n]+'?|[^\s"'][^\s]*)"#
 ).expect("valid value pattern")
 });
 
@@ -94,6 +95,37 @@ pub(super) fn redact_with_private(text: &str, private: &[Range<usize>]) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assigned_secrets_have_no_minimum_length_and_are_fully_redacted() {
+        for key in ["API_KEY", "password", "client_secret"] {
+            for value in [
+                "7", "123", "abcdefg", "abcdefgh", "'x'", "\"42\"", "\"x", "'42",
+            ] {
+                let input = format!("{key}={value}");
+                let matched = VALUE.captures(&input).expect("nonempty secret assignment");
+                assert_eq!(&matched[3], value);
+                assert_eq!(
+                    redact_with_private(&input, &[]).unwrap(),
+                    format!("{key}=[redacted:value]")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn empty_assignments_do_not_consume_quotes_or_the_next_line() {
+        for input in [
+            "API_KEY=",
+            "API_KEY=\"\"",
+            "password=''",
+            "API_KEY=  \nordinary text",
+            "password=\r\nordinary text",
+        ] {
+            assert!(!VALUE.is_match(input), "{input:?}");
+            assert_eq!(redact_with_private(input, &[]).unwrap(), input);
+        }
+    }
 
     #[test]
     fn replacement_labels_and_value_prefixes_remain_stable() {

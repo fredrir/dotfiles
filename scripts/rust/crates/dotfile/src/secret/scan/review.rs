@@ -243,7 +243,7 @@ fn summary(style: &Style, findings: usize, files: usize, origin: &str) -> String
         "\n{}  {}\n",
         style.bold(&style.teal("Secret review")),
         style.dim(&format!(
-            "{findings} finding{} · {files} {}{} · {origin}",
+            "{findings} finding{} {files} {}{}",
             if findings == 1 { "" } else { "s" },
             if origin == "commits" {
                 "version"
@@ -279,7 +279,7 @@ fn item_header(style: &Style, item: &Item<'_>) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join(" · ");
+        .join(" | ");
     let rules = if item.can_accept {
         style.code("33", &rules)
     } else {
@@ -290,7 +290,7 @@ fn item_header(style: &Style, item: &Item<'_>) -> String {
         style.teal(&format!("{}/{}", item.position, item.total)),
         item.version
             .map(|version| style.dim(&format!(
-                " · {}",
+                " | {}",
                 inline(version).chars().take(12).collect::<String>()
             )))
             .unwrap_or_default(),

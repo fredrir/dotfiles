@@ -1,7 +1,7 @@
 [projects]
-paths = ["~/dotfiles"]
-roots = ["~/projects", "~/sndbx", "~/llunde-new"]
+paths         = ["~/dotfiles"]
+roots         = ["~/dotfiles", "~/sndbx", "~/llunde", "~/projects/wez-plugins/vertical-tabs"]
 scan_children = true
-zoxide = true
-worktrees = true
-limit = 300
+zoxide        = true
+worktrees     = true
+limit         = 300
