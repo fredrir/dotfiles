@@ -21,14 +21,23 @@ t 'project with spaces'
 [[ $#dispatched == 2 && $dispatched[1] == enter && $dispatched[2] == 'project with spaces' ]] || exit 1
 source shared/zsh/conf.d/94-tmux.zsh
 [[ ${#${(M)precmd_functions:#_tmux_prompt_start}} == 1 ]] || exit 1
+[[ ${#${(M)precmd_functions:#_tmux_report_cwd}} == 1 ]] || exit 1
 [[ ${#${(M)preexec_functions:#_tmux_command_start}} == 1 ]] || exit 1
 [[ $(_tmux_command_start) == $'\e]133;C\a' ]] || exit 1
 [[ $(_tmux_prompt_end) == $'\e]133;B\a' ]] || exit 1
 _tmux_command_running=1
 result=$(false; _tmux_prompt_start)
 [[ $result == $'\e]133;D;1\a\e]133;A\a' ]] || exit 1
+wezterm() {
+  [[ $1 == set-working-directory && $2 == --tmux-passthru && $3 == enable ]] || return 1
+  [[ $4 == $PWD && $5 == ${WEZTERM_HOSTNAME:-${HOST%%.*}} ]] || return 1
+  print -rn -- cwd-reported
+}
+[[ $(_tmux_report_cwd) == cwd-reported ]] || exit 1
+unfunction wezterm
 add-zsh-hook -d preexec _tmux_command_start
 add-zsh-hook -d precmd _tmux_prompt_start
+add-zsh-hook -d precmd _tmux_report_cwd
 
 # The popup must return its directory to the originating shell and remove the
 # temporary handoff file, including paths returned without a trailing newline.

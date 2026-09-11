@@ -1,6 +1,9 @@
 # AI
 alias opencode-stats="$HOME/.opencode/bin/opencode stats --days 7 --models 10 --tools 20"
 
+# IDE
+alias charm="pycharm . &!"
+
 # Projects
 alias cdpw="cd $HOME/projects/wez-plugins/vertical-tabs"
 alias cdwp="cd $HOME/projects/wez-plugins/vertical-tabs"

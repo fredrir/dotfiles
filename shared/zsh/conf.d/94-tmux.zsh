@@ -41,10 +41,21 @@ _tmux_command_start() {
   printf '\e]133;C\a'
 }
 
+# Tmux tracks the active pane's directory, but WezTerm otherwise retains the
+# directory of the outer client process. Forward OSC 7 through tmux so GUI
+# actions such as Open VS Code see the directory of the active shell.
+_tmux_report_cwd() {
+  (( $+commands[wezterm] || $+functions[wezterm] )) || return 0
+  wezterm set-working-directory --tmux-passthru enable "$PWD" "${WEZTERM_HOSTNAME:-${HOST%%.*}}" 2>/dev/null
+  return 0
+}
+
 # Reloading shell configuration should not multiply prompt marks.
 add-zsh-hook -d precmd _tmux_prompt_start
+add-zsh-hook -d precmd _tmux_report_cwd
 add-zsh-hook -d preexec _tmux_command_start
 add-zle-hook-widget -d line-init _tmux_prompt_end
 add-zsh-hook precmd _tmux_prompt_start
+add-zsh-hook precmd _tmux_report_cwd
 add-zsh-hook preexec _tmux_command_start
 add-zle-hook-widget line-init _tmux_prompt_end
