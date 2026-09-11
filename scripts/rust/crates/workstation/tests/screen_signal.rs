@@ -1,6 +1,8 @@
+#![forbid(unsafe_code)]
 #![cfg(unix)]
 
-use std::os::fd::AsRawFd;
+use nix::sys::signal::{Signal, kill, raise};
+use nix::unistd::Pid;
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,17 +15,22 @@ use workstation::screen::{SignalGuard, SignalOptions, termination_requested, ter
 const CHILD: &str = "WORKSTATION_SCREEN_SIGNAL_CHILD";
 const OPTIONS_CHILD: &str = "WORKSTATION_SIGNAL_OPTIONS_CHILD";
 
-static HOOK_RAN: AtomicBool = AtomicBool::new(false);
+static CANCELLED: AtomicBool = AtomicBool::new(false);
 
-fn mark_hook_ran() {
-    HOOK_RAN.store(true, Ordering::Release);
-}
-
-#[allow(unsafe_code)]
 #[test]
 fn termination_signal_restores_terminal_and_status() {
     if std::env::var_os(CHILD).is_some() {
+        let before = terminal_state(std::io::stdin());
         let mut screen = Screen::open().unwrap().unwrap();
+        let raw = terminal_state(std::io::stdin());
+        assert_eq!(raw.c_oflag, before.c_oflag);
+        assert_eq!(
+            raw.c_lflag & (libc::ICANON | libc::ECHO | libc::ISIG | libc::IEXTEN),
+            0
+        );
+        assert_eq!(raw.c_iflag & (libc::IXON | libc::ICRNL), 0);
+        assert_eq!((raw.c_cc[libc::VMIN], raw.c_cc[libc::VTIME]), (0, 1));
+        assert_eq!(screen.size(), Some((80, 24)));
         screen.draw(&["waiting".to_string()]).unwrap();
         let _ = screen.key();
         drop(screen);
@@ -63,10 +70,7 @@ fn termination_signal_restores_terminal_and_status() {
         }
     }
 
-    assert_eq!(
-        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) },
-        0
-    );
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
         read_available(&master, &mut output, 100);
@@ -80,7 +84,7 @@ fn termination_signal_restores_terminal_and_status() {
     };
     read_available(&master, &mut output, 0);
 
-    let after = terminal_state(master.as_raw_fd());
+    let after = terminal_state(&master);
     assert_eq!(status.signal(), Some(libc::SIGTERM));
     assert_eq!(
         before.c_lflag & (libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN),
@@ -95,13 +99,12 @@ fn termination_signal_restores_terminal_and_status() {
     assert!(output.windows(6).any(|window| window == b"\x1b[?25h"));
 }
 
-#[allow(unsafe_code)]
 #[test]
-fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
+fn signal_options_set_cancellation_and_keep_the_number() {
     if let Some(directory) = std::env::var_os(OPTIONS_CHILD) {
         let directory = std::path::PathBuf::from(directory);
         let guard = SignalGuard::with_options(SignalOptions {
-            hook: Some(mark_hook_ran),
+            cancellation: Some(&CANCELLED),
             reset_to_default: true,
             reraise_on_drop: false,
             restart_syscalls: false,
@@ -111,13 +114,7 @@ fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
         while !termination_requested() {
             std::thread::sleep(Duration::from_millis(5));
         }
-        let report = format!(
-            "{} {} {} {}",
-            u8::from(HOOK_RAN.load(Ordering::Acquire)),
-            u8::from(disposition(libc::SIGINT) == libc::SIG_DFL),
-            u8::from(disposition(libc::SIGTERM) == libc::SIG_DFL),
-            u8::from(disposition(libc::SIGHUP) == libc::SIG_DFL),
-        );
+        let report = u8::from(CANCELLED.load(Ordering::Acquire));
         drop(guard);
         let signal = termination_signal();
         std::fs::write(directory.join("report"), format!("{report} {signal}")).unwrap();
@@ -128,7 +125,7 @@ fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number",
+            "signal_options_set_cancellation_and_keep_the_number",
             "--nocapture",
         ])
         .env(OPTIONS_CHILD, temporary.path())
@@ -151,39 +148,120 @@ fn signal_options_run_the_hook_disarm_the_handlers_and_keep_the_number() {
         std::thread::sleep(Duration::from_millis(10));
     }
 
-    assert_eq!(
-        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) },
-        0
-    );
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
     let status = child.wait().unwrap();
     let report = std::fs::read_to_string(temporary.path().join("report")).unwrap_or_default();
-    assert_eq!(report, format!("1 1 1 1 {}", libc::SIGTERM));
+    assert_eq!(report, format!("1 {}", libc::SIGTERM));
     assert_eq!(status.signal(), None);
     assert_eq!(status.code(), Some(128 + libc::SIGTERM));
 }
 
-#[allow(unsafe_code)]
 #[test]
-fn dropping_the_inner_guard_leaves_the_outer_handler_armed() {
-    let original = disposition(libc::SIGINT);
-    let outer = SignalGuard::new().unwrap();
-    let armed = disposition(libc::SIGINT);
-    assert_ne!(armed, libc::SIG_DFL);
-
-    let inner = SignalGuard::new().unwrap();
+fn dropping_the_inner_guard_restores_outer_cancellation_and_pending_signal() {
+    const TEST: &str = "dropping_the_inner_guard_restores_outer_cancellation_and_pending_signal";
+    if std::env::var("SIGNAL_GUARD_TEST").as_deref() != Ok(TEST) {
+        assert_eq!(guard_child(TEST).signal(), Some(libc::SIGINT));
+        return;
+    }
+    let outer = SignalGuard::with_options(SignalOptions {
+        cancellation: Some(&CANCELLED),
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .unwrap();
+    raise(Signal::SIGTERM).unwrap();
+    let inner = SignalGuard::with_options(SignalOptions {
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(termination_signal(), libc::SIGTERM);
+    CANCELLED.store(false, Ordering::Release);
     drop(inner);
-    assert_eq!(disposition(libc::SIGINT), armed);
-
+    raise(Signal::SIGHUP).unwrap();
+    assert!(CANCELLED.load(Ordering::Acquire));
+    assert_eq!(termination_signal(), libc::SIGHUP);
     drop(outer);
-    assert_eq!(disposition(libc::SIGINT), original);
+    raise(Signal::SIGINT).unwrap();
+    panic!("original disposition was not restored");
 }
 
-#[allow(unsafe_code)]
-fn disposition(signal: libc::c_int) -> libc::sighandler_t {
-    let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
-    assert_eq!(
-        unsafe { libc::sigaction(signal, std::ptr::null(), &raw mut current) },
-        0
-    );
-    current.sa_sigaction
+#[test]
+fn dropping_guards_out_of_order_keeps_the_active_cancellation() {
+    const TEST: &str = "dropping_guards_out_of_order_keeps_the_active_cancellation";
+    if std::env::var("SIGNAL_GUARD_TEST").as_deref() != Ok(TEST) {
+        assert_eq!(guard_child(TEST).signal(), Some(libc::SIGTERM));
+        return;
+    }
+    let outer = SignalGuard::with_options(SignalOptions {
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .unwrap();
+    let inner = SignalGuard::with_options(SignalOptions {
+        cancellation: Some(&CANCELLED),
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .unwrap();
+    drop(outer);
+    raise(Signal::SIGINT).unwrap();
+    assert!(CANCELLED.load(Ordering::Acquire));
+    drop(inner);
+    raise(Signal::SIGTERM).unwrap();
+    panic!("original disposition was not restored");
+}
+
+#[test]
+fn dropping_an_inactive_guard_does_not_reraise_before_active_cleanup() {
+    const TEST: &str = "dropping_an_inactive_guard_does_not_reraise_before_active_cleanup";
+    if std::env::var("SIGNAL_GUARD_TEST").as_deref() != Ok(TEST) {
+        assert!(guard_child(TEST).success());
+        return;
+    }
+    let outer = SignalGuard::new().unwrap();
+    let inner = SignalGuard::with_options(SignalOptions {
+        reset_to_default: true,
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .unwrap();
+    raise(Signal::SIGTERM).unwrap();
+    drop(outer);
+    assert_eq!(termination_signal(), libc::SIGTERM);
+    drop(inner);
+}
+
+#[test]
+fn reset_to_default_makes_each_second_termination_signal_fatal() {
+    const TEST: &str = "reset_to_default_makes_each_second_termination_signal_fatal";
+    if let Ok(signal) = std::env::var("SECOND_TERMINATION_SIGNAL") {
+        let _guard = SignalGuard::with_options(SignalOptions {
+            cancellation: Some(&CANCELLED),
+            reset_to_default: true,
+            reraise_on_drop: false,
+            ..Default::default()
+        })
+        .unwrap();
+        raise(Signal::SIGTERM).unwrap();
+        assert!(CANCELLED.load(Ordering::Acquire));
+        raise(Signal::try_from(signal.parse::<i32>().unwrap()).unwrap()).unwrap();
+        panic!("second signal was not fatal");
+    }
+    for signal in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGHUP] {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env("SECOND_TERMINATION_SIGNAL", (signal as i32).to_string())
+            .status()
+            .unwrap();
+        assert_eq!(status.signal(), Some(signal as i32));
+    }
+}
+
+fn guard_child(test: &str) -> std::process::ExitStatus {
+    Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test, "--nocapture"])
+        .env("SIGNAL_GUARD_TEST", test)
+        .status()
+        .unwrap()
 }

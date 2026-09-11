@@ -355,9 +355,10 @@ fn follow(state: &State) -> Result<(), String> {
     }
 }
 
-#[allow(unsafe_code)]
 fn lease(directory: &Path) -> Result<File, String> {
-    use std::os::fd::AsRawFd;
+    use rustix::fs::{FlockOperation, flock};
+    use rustix::io::{FdFlags, fcntl_getfd, fcntl_setfd};
+
     let file = File::options()
         .read(true)
         .write(true)
@@ -366,23 +367,19 @@ fn lease(directory: &Path) -> Result<File, String> {
         .open(directory.join("owner.lock"))
         .map_err(error)?;
     // Advisory lock is scoped to this run and released by the OS after crashes.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    if flock(&file, FlockOperation::NonBlockingLockExclusive).is_err() {
         return Err("managed run is already supervised".into());
     }
     // Native agent children inherit the lease: supervisor crashes cannot release ownership
     // while the app-server, UI, or their inherited children are still alive.
-    let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
-    if flags < 0
-        || unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0
-    {
-        return Err(error(std::io::Error::last_os_error()));
-    }
+    let flags = fcntl_getfd(&file).map_err(error)?;
+    fcntl_setfd(&file, flags & !FdFlags::CLOEXEC).map_err(error)?;
     Ok(file)
 }
 
-#[allow(unsafe_code)]
 fn decision_lease(directory: &Path, operation: &str) -> Result<File, String> {
-    use std::os::fd::AsRawFd;
+    use rustix::fs::{FlockOperation, flock};
+
     let file = File::options()
         .read(true)
         .write(true)
@@ -390,9 +387,7 @@ fn decision_lease(directory: &Path, operation: &str) -> Result<File, String> {
         .truncate(false)
         .open(directory.join("decision.lock"))
         .map_err(error)?;
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err(error(std::io::Error::last_os_error()));
-    }
+    flock(&file, FlockOperation::LockExclusive).map_err(error)?;
     let opposite = if operation == "activate" {
         "abort.json"
     } else {

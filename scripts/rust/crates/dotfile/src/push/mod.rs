@@ -317,24 +317,23 @@ fn execute(
     });
 
     active(Phase::Remote)?;
-    match protocol_session(
-        &host,
-        &directory,
-        &branch.name,
-        &branch.oid,
-        cli,
-        events,
-        decisions,
-    )? {
+    match protocol_session(context, &host, &directory, &branch, cli, events, decisions)? {
         SessionOutcome::Complete(changed) => Ok(Some(changed)),
-        SessionOutcome::Unsupported => {
-            legacy_session(&host, &directory, &branch.name, cli, events, decisions).map(|()| None)
-        }
+        SessionOutcome::Unsupported => legacy_session(
+            context,
+            &host,
+            &directory,
+            &branch.name,
+            cli,
+            events,
+            decisions,
+        )
+        .map(|()| None),
     }
 }
 
 fn resolve_host_inner(context: &Context, requested: Option<&str>) -> Result<String, Failure> {
-    if !executable_exists("ssh") {
+    if !executable_exists(context, "ssh") {
         return Err(Failure::push(
             "ssh is not installed, so --push has no way to reach the other machine",
         ));
@@ -471,7 +470,7 @@ fn valid_host_name(name: &str) -> bool {
 }
 
 fn resolve_local_host(context: &Context, hosts: &[Host]) -> Option<String> {
-    if let Some(candidate) = std::env::var_os("SYSINFO_HOST") {
+    if let Some(candidate) = context.env("SYSINFO_HOST") {
         let candidate = candidate.to_string_lossy().trim().to_string();
         if !candidate.is_empty() {
             return hosts
@@ -489,7 +488,7 @@ fn resolve_local_host(context: &Context, hosts: &[Host]) -> Option<String> {
                 .map(|host| host.name.clone());
         }
     }
-    let candidates = local_hostnames()
+    let candidates = local_hostnames(context)
         .into_iter()
         .map(|name| name.to_ascii_lowercase())
         .collect::<HashSet<_>>();
@@ -503,11 +502,11 @@ fn resolve_local_host(context: &Context, hosts: &[Host]) -> Option<String> {
         .map(|host| host.name.clone())
 }
 
-fn local_hostnames() -> Vec<String> {
+fn local_hostnames(context: &Context) -> Vec<String> {
     let mut names = Vec::new();
     #[cfg(target_os = "macos")]
     for key in ["LocalHostName", "ComputerName"] {
-        if let Ok(output) = Command::new("scutil").args(["--get", key]).output()
+        if let Ok(output) = context.command("scutil").args(["--get", key]).output()
             && output.status.success()
         {
             let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -516,7 +515,7 @@ fn local_hostnames() -> Vec<String> {
             }
         }
     }
-    if let Some(name) = std::env::var_os("HOSTNAME") {
+    if let Some(name) = context.env("HOSTNAME") {
         let name = name.to_string_lossy().trim().to_string();
         if !name.is_empty() {
             names.push(name.clone());
@@ -525,7 +524,7 @@ fn local_hostnames() -> Vec<String> {
             }
         }
     }
-    if let Ok(output) = Command::new("hostname").output()
+    if let Ok(output) = context.command("hostname").output()
         && output.status.success()
     {
         let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -539,8 +538,8 @@ fn local_hostnames() -> Vec<String> {
     names
 }
 
-fn executable_exists(name: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else {
+fn executable_exists(context: &Context, name: &str) -> bool {
+    let Some(path) = context.env("PATH") else {
         return false;
     };
     std::env::split_paths(&path).any(|directory| is_executable(&directory.join(name)))
@@ -647,7 +646,7 @@ fn current_branch(context: &Context) -> Result<LocalBranch, Failure> {
 }
 
 fn git(context: &Context, arguments: &[&str]) -> Result<Output, Failure> {
-    let mut command = Command::new("git");
+    let mut command = context.command("git");
     command
         .env("GIT_OPTIONAL_LOCKS", "0")
         .arg("-C")
@@ -707,14 +706,16 @@ fn push_branch(
 }
 
 fn protocol_session(
+    context: &Context,
     host: &str,
     directory: &str,
-    local_branch: &str,
-    local_head: &str,
+    branch: &LocalBranch,
     cli: &SyncCli,
     events: &dyn EventSink,
     decisions: &dyn DecisionClient,
 ) -> Result<SessionOutcome, Failure> {
+    let local_branch = branch.name.as_str();
+    let local_head = branch.oid.as_str();
     active(Phase::Remote)?;
     let script = protocol_script(
         host,
@@ -723,7 +724,7 @@ fn protocol_session(
         remote_resolution(cli),
         cli.force,
     );
-    let mut child = ChildGuard::new(spawn_ssh(host, &script)?);
+    let mut child = ChildGuard::new(spawn_ssh(context, host, &script)?);
     let mut stdin =
         child.child().stdin.take().ok_or_else(|| {
             Failure::remote(format!("{host}: cannot open the remote control stream"))
@@ -1002,10 +1003,11 @@ fn protocol_session(
     Ok(SessionOutcome::Complete(remote_changed))
 }
 
-fn spawn_ssh(host: &str, script: &str) -> Result<Child, Failure> {
+fn spawn_ssh(context: &Context, host: &str, script: &str) -> Result<Child, Failure> {
     Session::new(host)
         .script(script)
         .command()
+        .envs(&context.process_env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1370,6 +1372,7 @@ fn remote_operation_failure(host: &str, operation: &str, value: &str) -> Failure
 }
 
 fn legacy_session(
+    context: &Context,
     host: &str,
     directory: &str,
     local_branch: &str,
@@ -1378,7 +1381,7 @@ fn legacy_session(
     decisions: &dyn DecisionClient,
 ) -> Result<(), Failure> {
     active(Phase::Remote)?;
-    let state = legacy_remote_state(host, directory)?;
+    let state = legacy_remote_state(context, host, directory)?;
     if state.branch != local_branch {
         return Err(branch_mismatch(host, local_branch, &state.branch));
     }
@@ -1389,7 +1392,7 @@ fn legacy_session(
                 .discard_remote_changes(host, &state.changes)
                 .map_err(Failure::remote)?
         {
-            legacy_discard(host, directory, events)?;
+            legacy_discard(context, host, directory, events)?;
         } else {
             return Err(dirty_failure(host));
         }
@@ -1411,7 +1414,7 @@ fn legacy_session(
         Resolution::Live => "dotfile sync --resolve live",
     };
     command.push(sync.to_string());
-    let output = ssh_output(host, &remote_script(directory, &command))?;
+    let output = ssh_output(context, host, &remote_script(directory, &command))?;
     if !output.status.success() {
         return Err(Failure::remote(format!(
             "{host}: {}; pull with --ff-only or rebase there before retrying",
@@ -1437,8 +1440,13 @@ fn legacy_session(
     Ok(())
 }
 
-fn legacy_remote_state(host: &str, directory: &str) -> Result<RemoteState, Failure> {
+fn legacy_remote_state(
+    context: &Context,
+    host: &str,
+    directory: &str,
+) -> Result<RemoteState, Failure> {
     let output = ssh_output(
+        context,
         host,
         &remote_script(directory, &["git status --porcelain --branch".to_string()]),
     )?;
@@ -1473,8 +1481,14 @@ fn legacy_remote_state(host: &str, directory: &str) -> Result<RemoteState, Failu
     Ok(RemoteState { branch, changes })
 }
 
-fn legacy_discard(host: &str, directory: &str, events: &dyn EventSink) -> Result<(), Failure> {
+fn legacy_discard(
+    context: &Context,
+    host: &str,
+    directory: &str,
+    events: &dyn EventSink,
+) -> Result<(), Failure> {
     let output = ssh_output(
+        context,
         host,
         &remote_script(
             directory,
@@ -1503,9 +1517,10 @@ fn legacy_discard(host: &str, directory: &str, events: &dyn EventSink) -> Result
     Ok(())
 }
 
-fn ssh_output(host: &str, script: &str) -> Result<Output, Failure> {
+fn ssh_output(context: &Context, host: &str, script: &str) -> Result<Output, Failure> {
     active(Phase::Remote)?;
-    let command = Session::new(host).script(script).command();
+    let mut command = Session::new(host).script(script).command();
+    command.envs(&context.process_env);
     captured_output(command, Phase::Remote)
         .map_err(|error| Failure::remote(format!("{host}: cannot run ssh: {error}")))
 }

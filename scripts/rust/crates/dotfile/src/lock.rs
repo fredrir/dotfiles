@@ -49,10 +49,15 @@ fn owner_alive(path: &Path) -> bool {
 }
 
 #[cfg(unix)]
-#[allow(unsafe_code)]
 fn process_alive(pid: u32) -> bool {
-    let result = unsafe { libc::kill(pid as i32, 0) };
-    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    use nix::errno::Errno;
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    pid > 0 && matches!(kill(Pid::from_raw(pid), None), Ok(()) | Err(Errno::EPERM))
 }
 
 #[cfg(not(unix))]

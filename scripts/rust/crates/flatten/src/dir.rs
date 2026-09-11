@@ -16,82 +16,52 @@ fn unusable(name: &OsStr) -> io::Error {
 }
 
 #[cfg(unix)]
-#[allow(unsafe_code)]
 mod unix {
     use std::ffi::{CString, OsStr};
     use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::OwnedFd;
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
+
+    use rustix::fs::{AtFlags, Mode, OFlags, open, openat, renameat, unlinkat};
 
     pub struct Dir(OwnedFd);
 
     impl Dir {
         pub fn open(path: &Path) -> io::Result<Dir> {
             let name = cstring(path.as_os_str())?;
-            let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
-            // SAFETY: the name is a valid NUL-terminated string that outlives
-            // the call, and the call either returns a descriptor this takes
-            // ownership of or reports why it could not.
-            let fd = unsafe { libc::open(name.as_ptr(), flags) };
-            if fd < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            // SAFETY: `fd` is a fresh descriptor nothing else owns.
-            Ok(Dir(unsafe { OwnedFd::from_raw_fd(fd) }))
+            let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+            open(name.as_c_str(), flags, Mode::empty())
+                .map(Dir)
+                .map_err(io::Error::from)
         }
 
         pub fn child(&self, name: &OsStr) -> io::Result<Dir> {
             let name = cstring(name)?;
-            let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW;
-            // SAFETY: as `open` above, with this directory's descriptor as
-            // the name's starting point.
-            let fd = unsafe { libc::openat(self.0.as_raw_fd(), name.as_ptr(), flags) };
-            if fd < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            // SAFETY: `fd` is a fresh descriptor nothing else owns.
-            Ok(Dir(unsafe { OwnedFd::from_raw_fd(fd) }))
+            let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
+            openat(&self.0, name.as_c_str(), flags, Mode::empty())
+                .map(Dir)
+                .map_err(io::Error::from)
         }
 
         pub fn move_entry(&self, name: &OsStr, into: &Dir, as_name: &OsStr) -> io::Result<()> {
             let from = cstring(name)?;
             let to = cstring(as_name)?;
-            // SAFETY: both names are valid NUL-terminated strings that
-            // outlive the call, and both descriptors are open directories.
-            let status = unsafe {
-                libc::renameat(
-                    self.0.as_raw_fd(),
-                    from.as_ptr(),
-                    into.0.as_raw_fd(),
-                    to.as_ptr(),
-                )
-            };
-            result(status)
+            renameat(&self.0, from.as_c_str(), &into.0, to.as_c_str()).map_err(io::Error::from)
         }
 
         pub fn remove_dir(&self, name: &OsStr) -> io::Result<()> {
             let name = cstring(name)?;
-            // SAFETY: the name is a valid NUL-terminated string that outlives
-            // the call, and the descriptor is an open directory.
-            let status =
-                unsafe { libc::unlinkat(self.0.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) };
-            result(status)
+            unlinkat(&self.0, name.as_c_str(), AtFlags::REMOVEDIR).map_err(io::Error::from)
         }
     }
 
     pub fn directory_not_empty(error: &io::Error) -> bool {
         matches!(
             error.raw_os_error(),
-            Some(libc::ENOTEMPTY) | Some(libc::EEXIST)
+            Some(code) if code == rustix::io::Errno::NOTEMPTY.raw_os_error()
+                || code == rustix::io::Errno::EXIST.raw_os_error()
         )
-    }
-
-    fn result(status: libc::c_int) -> io::Result<()> {
-        if status < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
     }
 
     fn cstring(name: &OsStr) -> io::Result<CString> {

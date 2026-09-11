@@ -1,38 +1,10 @@
-#![allow(unsafe_code)]
+#![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use testkit::{Bin, Ran, TempDir, executable, tree_pairs};
-
-struct Environment(Vec<(OsString, Option<OsString>)>);
-
-impl Environment {
-    fn set(values: &[(&str, OsString)]) -> Self {
-        let previous = values
-            .iter()
-            .map(|(name, _)| (OsString::from(name), std::env::var_os(name)))
-            .collect::<Vec<_>>();
-        for (name, value) in values {
-            unsafe { std::env::set_var(name, value) };
-        }
-        Self(previous)
-    }
-}
-
-impl Drop for Environment {
-    fn drop(&mut self) {
-        for (name, value) in self.0.drain(..).rev() {
-            match value {
-                Some(value) => unsafe { std::env::set_var(name, value) },
-                None => unsafe { std::env::remove_var(name) },
-            }
-        }
-    }
-}
 
 struct Sandbox {
     temporary: TempDir,
@@ -55,6 +27,7 @@ impl Sandbox {
             ("home/.config/", ""),
         ]);
         let root = temporary.path().join("repo");
+        doc_keybinds::generate(&root, false).unwrap();
         let home = temporary.path().join("home");
         let backend = temporary.path().join("dotfile-py");
         executable(&backend, "#!/bin/sh\nexit 0\n");
@@ -70,6 +43,7 @@ impl Sandbox {
         let mut command = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
             .args(["sync", "test", "--dry-run"])
             .env("DOTFILE_ROOT", &self.root)
+            .env("DOTFILE_REEXECED", "1")
             .env("HOME", &self.home)
             .env("XDG_CONFIG_HOME", self.home.join(".config"))
             .env("DOTFILE_PYTHON", &self.backend)
@@ -81,13 +55,6 @@ impl Sandbox {
         }
         command.run()
     }
-}
-
-fn lock_environment() -> MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
 }
 
 fn snapshot(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -124,16 +91,19 @@ fn snapshot(path: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 
 #[test]
 fn dry_run_is_read_only_quiet_by_default_and_detailed_only_when_verbose() {
-    let _lock = lock_environment();
     let sandbox = Sandbox::new();
-    let _environment = Environment::set(&[("DOTFILE_REEXECED", OsString::from("1"))]);
     let before = snapshot(sandbox.temporary.path());
 
     let compact = sandbox.command(false);
 
     assert!(compact.success(), "{}", compact.stderr);
     assert_eq!(compact.stdout.lines().count(), 1);
-    assert_eq!(compact.stdout, "○ Plan ready 2 changes\n");
+    assert_eq!(
+        compact.stdout,
+        "○ Plan ready 2 changes\n",
+        "{}",
+        sandbox.command(true).stdout
+    );
     assert!(!compact.stdout.contains(".gitconfig"));
     assert!(!compact.stdout.contains("linking profile"));
     assert!(!compact.stdout.contains("\u{1b}["));
@@ -153,9 +123,7 @@ fn dry_run_is_read_only_quiet_by_default_and_detailed_only_when_verbose() {
 fn warm_verbose_sync_still_lists_current_managed_links() {
     use std::os::unix::fs::symlink;
 
-    let _lock = lock_environment();
     let sandbox = Sandbox::new();
-    let _environment = Environment::set(&[("DOTFILE_REEXECED", OsString::from("1"))]);
     symlink(
         sandbox.root.join("shared/git/.gitconfig"),
         sandbox.home.join(".gitconfig"),

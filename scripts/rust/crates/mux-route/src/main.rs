@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod domain;
 mod probe;
 mod render;

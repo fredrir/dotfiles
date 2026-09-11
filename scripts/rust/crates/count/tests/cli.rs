@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use testkit::{Bin, stderr, stdout, tree};
 
 #[test]

@@ -1,12 +1,14 @@
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::File;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::io::FromRawFd;
 use std::path::Path;
 
 use rayon::prelude::*;
+use rustix::fs::{Mode, OFlags, fstat, open, openat};
 use workstation::path;
 
+use super::bulk_decode::{self, Entry, decode};
 use super::{Link, Measure, Options, Row, Walked, count_lines_in};
 
 // `enum vtype`, from <sys/vnode.h>. Anything else is an "other" to us.
@@ -16,62 +18,47 @@ const VLNK: u32 = 5;
 
 const BATCH: usize = 256 * 1024;
 
-struct Dir(libc::c_int);
+struct Dir(OwnedFd);
 
 impl Dir {
     fn open(path: &Path) -> Option<Dir> {
-        let path = CString::new(path.as_os_str().as_bytes()).ok()?;
-        // SAFETY: `path` is a valid NUL-terminated string for the call.
-        let fd = unsafe {
-            libc::open(
-                path.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
-            )
-        };
-        (fd >= 0).then_some(Dir(fd))
+        open(
+            path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()
+        .map(Dir)
     }
 
     fn open_child(&self, name: &CStr) -> Option<Dir> {
-        // SAFETY: `self.0` is an open directory and `name` is NUL-terminated.
-        let fd = unsafe {
-            libc::openat(
-                self.0,
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        (fd >= 0).then_some(Dir(fd))
+        openat(
+            &self.0,
+            name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()
+        .map(Dir)
     }
 
     fn status(&self) -> Option<Status> {
-        // SAFETY: `stat` is plain data, `self.0` is an open descriptor, and
-        // the fields are only read once the call reports success.
-        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-        let read = unsafe { libc::fstat(self.0, &mut stat) };
-        (read == 0).then(|| Status {
+        let stat = fstat(&self.0).ok()?;
+        Some(Status {
             device: stat.st_dev as u64,
             bytes: stat.st_blocks as u64 * 512,
         })
     }
 
     fn open_file(&self, name: &CStr) -> Option<File> {
-        // SAFETY: as above; the descriptor is handed straight to `File`, which
-        // takes ownership of closing it.
-        let fd = unsafe {
-            libc::openat(
-                self.0,
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        (fd >= 0).then(|| unsafe { File::from_raw_fd(fd) })
-    }
-}
-
-impl Drop for Dir {
-    fn drop(&mut self) {
-        // SAFETY: we own this descriptor and are the last to touch it.
-        unsafe { libc::close(self.0) };
+        openat(
+            &self.0,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()
+        .map(File::from)
     }
 }
 
@@ -80,106 +67,33 @@ struct Status {
     bytes: u64,
 }
 
-struct Entry<'a> {
-    name: &'a CStr,
-    devid: i32,
-    objtype: u32,
-    accessmask: u32,
-    fileid: u64,
-    linkcount: u32,
-    allocated: u64,
-    bytes: u64,
-}
-
 fn attributes() -> libc::attrlist {
-    // SAFETY: `attrlist` is plain data; an all-zero one is a valid empty list.
-    let mut list: libc::attrlist = unsafe { std::mem::zeroed() };
-    list.bitmapcount = libc::ATTR_BIT_MAP_COUNT;
-    list.commonattr = libc::ATTR_CMN_RETURNED_ATTRS
-        | libc::ATTR_CMN_NAME
-        | libc::ATTR_CMN_DEVID
-        | libc::ATTR_CMN_OBJTYPE
-        | libc::ATTR_CMN_ACCESSMASK
-        | libc::ATTR_CMN_FILEID;
-    // Both sizes on every entry: the extra sixteen bytes a reply carries are
-    // nothing beside a second pass for whichever one the flags turn out to
-    // want.
-    list.dirattr = libc::ATTR_DIR_ALLOCSIZE;
-    list.fileattr =
-        libc::ATTR_FILE_LINKCOUNT | libc::ATTR_FILE_ALLOCSIZE | libc::ATTR_FILE_DATALENGTH;
-    list
+    libc::attrlist {
+        bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+        reserved: 0,
+        commonattr: bulk_decode::COMMON,
+        volattr: 0,
+        dirattr: bulk_decode::DIR_ALLOCSIZE,
+        fileattr: bulk_decode::FILE,
+        forkattr: 0,
+    }
 }
 
-unsafe fn decode<'a>(entry: *const u8) -> (Entry<'a>, usize) {
-    let mut field = entry;
-    let length = unsafe { (field as *const u32).read_unaligned() } as usize;
-    field = unsafe { field.add(size_of::<u32>()) };
-    let returned = unsafe { (field as *const libc::attribute_set_t).read_unaligned() };
-    field = unsafe { field.add(size_of::<libc::attribute_set_t>()) };
-
-    let mut name = c"";
-    if returned.commonattr & libc::ATTR_CMN_NAME != 0 {
-        let reference = unsafe { (field as *const libc::attrreference_t).read_unaligned() };
-        let start = unsafe { field.offset(reference.attr_dataoffset as isize) };
-        name = unsafe { CStr::from_ptr(start as *const libc::c_char) };
-        field = unsafe { field.add(size_of::<libc::attrreference_t>()) };
-    }
-    let mut devid = 0;
-    if returned.commonattr & libc::ATTR_CMN_DEVID != 0 {
-        devid = unsafe { (field as *const i32).read_unaligned() };
-        field = unsafe { field.add(size_of::<i32>()) };
-    }
-    let mut objtype = 0;
-    if returned.commonattr & libc::ATTR_CMN_OBJTYPE != 0 {
-        objtype = unsafe { (field as *const u32).read_unaligned() };
-        field = unsafe { field.add(size_of::<u32>()) };
-    }
-    let mut accessmask = 0;
-    if returned.commonattr & libc::ATTR_CMN_ACCESSMASK != 0 {
-        accessmask = unsafe { (field as *const u32).read_unaligned() };
-        field = unsafe { field.add(size_of::<u32>()) };
-    }
-    let mut fileid = 0;
-    if returned.commonattr & libc::ATTR_CMN_FILEID != 0 {
-        fileid = unsafe { (field as *const u64).read_unaligned() };
-        field = unsafe { field.add(size_of::<u64>()) };
-    }
-    // Directory attributes precede file ones, and only one of the two groups
-    // ever arrives for a given entry.
-    let mut allocated = None;
-    if returned.dirattr & libc::ATTR_DIR_ALLOCSIZE != 0 {
-        allocated = Some(unsafe { (field as *const i64).read_unaligned() } as u64);
-        field = unsafe { field.add(size_of::<i64>()) };
-    }
-    let mut linkcount = 0;
-    if returned.fileattr & libc::ATTR_FILE_LINKCOUNT != 0 {
-        linkcount = unsafe { (field as *const u32).read_unaligned() };
-        field = unsafe { field.add(size_of::<u32>()) };
-    }
-    if returned.fileattr & libc::ATTR_FILE_ALLOCSIZE != 0 {
-        allocated = Some(unsafe { (field as *const i64).read_unaligned() } as u64);
-        field = unsafe { field.add(size_of::<i64>()) };
-    }
-    // A directory's own contents are what we sum underneath it, so no data
-    // length arrives for one.
-    let mut bytes = 0;
-    if returned.fileattr & libc::ATTR_FILE_DATALENGTH != 0 {
-        bytes = unsafe { (field as *const i64).read_unaligned() } as u64;
-    }
-
-    let entry = Entry {
-        name,
-        devid,
-        objtype,
-        accessmask,
-        fileid,
-        linkcount,
-        // A filesystem that answers bulk requests without offering an
-        // allocated size leaves the length as the only thing to go on.
-        allocated: allocated.unwrap_or(bytes),
-        bytes,
+#[allow(unsafe_code)]
+fn next_batch(dir: &Dir, list: &mut libc::attrlist, buffer: &mut [u8]) -> Option<usize> {
+    // SAFETY: Dir owns a readable directory fd; list is fully initialized.
+    // The kernel receives exclusive access to exactly buffer.len() writable
+    // bytes. Borrowed entries are consumed before this buffer is reused.
+    let count = unsafe {
+        libc::getattrlistbulk(
+            dir.0.as_raw_fd(),
+            (list as *mut libc::attrlist).cast(),
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            0,
+        )
     };
-    (entry, length)
+    usize::try_from(count).ok()
 }
 
 pub fn walk(options: &Options, target: &Path) -> Option<Walked> {
@@ -207,33 +121,18 @@ fn read(
     let mut children: Vec<Child> = Vec::new();
 
     loop {
-        // SAFETY: `dir` is open, and the kernel writes at most `BATCH` bytes
-        // into a buffer of exactly that size.
-        let count = unsafe {
-            libc::getattrlistbulk(
-                dir.0,
-                &mut list as *mut _ as *mut libc::c_void,
-                buffer.as_mut_ptr() as *mut libc::c_void,
-                buffer.len(),
-                0,
-            )
-        };
+        let count = next_batch(dir, &mut list, &mut buffer)?;
         if count == 0 {
             break;
-        }
-        if count < 0 {
-            return None;
         }
 
         // Decode the batch first. The names borrow the buffer, so everything
         // below must finish with them before the next call overwrites it.
-        let mut batch = Vec::with_capacity(count as usize);
-        let mut entry = buffer.as_ptr();
+        let mut batch = Vec::with_capacity(count.min(buffer.len() / 24));
+        let mut entry = buffer.as_slice();
         for _ in 0..count {
-            // SAFETY: the kernel wrote `count` consecutive entries, and each
-            // step advances by the length that entry declared.
-            let (found, length) = unsafe { decode(entry) };
-            entry = unsafe { entry.add(length) };
+            let (found, length) = decode(entry)?;
+            entry = entry.get(length..)?;
             batch.push(found);
         }
 

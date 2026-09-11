@@ -1,7 +1,7 @@
+#![forbid(unsafe_code)]
 #![cfg(unix)]
 
 use std::fs::{self, File};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -170,7 +170,7 @@ fn sync_tui_noop_does_not_open_or_reserve_an_inline_viewport() {
     );
     let output = String::from_utf8(output).unwrap().replace('\r', "");
     assert_eq!(output.lines().collect::<Vec<_>>(), ["✓ Synced"]);
-    let after = terminal_state(master.as_raw_fd());
+    let after = terminal_state(&master);
     let terminal_flags = libc::ECHO | libc::ICANON | libc::ISIG;
     assert_eq!(
         before.c_lflag & terminal_flags,
@@ -228,7 +228,6 @@ fn sync_tui_animates_a_stale_tooling_refresh_before_reexec() {
     assert!(output.contains("✓ Synced"));
 }
 
-#[allow(unsafe_code)]
 #[test]
 fn sync_tui_signal_restores_terminal_and_cursor() {
     let sandbox = Sandbox::new(&[
@@ -276,10 +275,11 @@ fn sync_tui_signal_restores_terminal_and_cursor() {
         String::from_utf8_lossy(&output),
         early_status
     );
-    assert_eq!(
-        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) },
-        0
-    );
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(child.id() as i32),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
         read_available(&master, &mut output, 100);
@@ -290,7 +290,7 @@ fn sync_tui_signal_restores_terminal_and_cursor() {
         assert!(Instant::now() < deadline, "signal did not unwind the TUI");
     };
     read_available(&master, &mut output, 0);
-    let after = terminal_state(master.as_raw_fd());
+    let after = terminal_state(&master);
     let terminal_flags = libc::ECHO | libc::ICANON | libc::ISIG;
     assert_eq!(
         before.c_lflag & terminal_flags,

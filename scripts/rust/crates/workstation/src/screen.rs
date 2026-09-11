@@ -42,7 +42,7 @@ pub fn fit(text: &str, limit: usize) -> String {
 
 #[derive(Clone, Copy, Debug)]
 pub struct SignalOptions {
-    pub hook: Option<fn()>,
+    pub cancellation: Option<&'static std::sync::atomic::AtomicBool>,
     pub reset_to_default: bool,
     pub reraise_on_drop: bool,
     pub restart_syscalls: bool,
@@ -51,7 +51,7 @@ pub struct SignalOptions {
 impl Default for SignalOptions {
     fn default() -> Self {
         Self {
-            hook: None,
+            cancellation: None,
             reset_to_default: false,
             reraise_on_drop: true,
             restart_syscalls: false,
@@ -60,22 +60,36 @@ impl Default for SignalOptions {
 }
 
 #[cfg(unix)]
-#[allow(unsafe_code)]
 mod imp {
     use super::{Key, SignalOptions};
+    use nix::sys::signal::{self, SaFlags, SigAction, SigHandler, SigSet, Signal};
+    use rustix::termios::{
+        self, InputModes, LocalModes, OptionalActions, SpecialCodeIndex, Termios,
+    };
     use std::fs::{File, OpenOptions};
     use std::io::{self, Read, Write};
-    use std::os::fd::AsRawFd;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, Ordering};
 
-    const TERMINATION_SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
+    const TERMINATION_SIGNALS: [Signal; 3] = [Signal::SIGINT, Signal::SIGTERM, Signal::SIGHUP];
 
     static TERMINATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
-    static TERMINATION_HOOK: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
+    static CANCELLATION: AtomicPtr<AtomicBool> = AtomicPtr::new(std::ptr::null_mut());
     static RESET_TO_DEFAULT: AtomicBool = AtomicBool::new(false);
+    static GUARDS: Mutex<Guards> = Mutex::new(Guards {
+        next_id: 0,
+        active: Vec::new(),
+        previous: Vec::new(),
+    });
+
+    struct Guards {
+        next_id: u64,
+        active: Vec<(u64, SignalOptions)>,
+        previous: Vec<(Signal, SigAction)>,
+    }
 
     pub struct SignalGuard {
-        previous: Vec<(libc::c_int, libc::sigaction)>,
+        id: u64,
         reraise_on_drop: bool,
     }
 
@@ -85,37 +99,33 @@ mod imp {
         }
 
         pub fn with_options(options: SignalOptions) -> io::Result<Self> {
-            TERMINATION_SIGNAL.store(0, Ordering::Release);
-            TERMINATION_HOOK.store(
-                options
-                    .hook
-                    .map_or(std::ptr::null_mut(), |hook| hook as *mut ()),
-                Ordering::Release,
-            );
-            RESET_TO_DEFAULT.store(options.reset_to_default, Ordering::Release);
-            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
-            action.sa_sigaction = terminal_signal as *const () as libc::sighandler_t;
-            action.sa_flags = if options.restart_syscalls {
-                libc::SA_RESTART
-            } else {
-                0
-            };
-            unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
-            let mut previous = Vec::with_capacity(TERMINATION_SIGNALS.len());
-            for signal in TERMINATION_SIGNALS {
-                let mut prior: libc::sigaction = unsafe { std::mem::zeroed() };
-                if unsafe { libc::sigaction(signal, &raw const action, &raw mut prior) } != 0 {
-                    for (installed, handler) in previous.into_iter().rev() {
-                        unsafe {
-                            libc::sigaction(installed, &raw const handler, std::ptr::null_mut())
-                        };
-                    }
-                    return Err(io::Error::last_os_error());
-                }
-                previous.push((signal, prior));
+            let mut guards = GUARDS.lock().unwrap_or_else(|error| error.into_inner());
+            let id = guards.next_id;
+            guards.next_id = id
+                .checked_add(1)
+                .ok_or_else(|| io::Error::other("signal guard limit"))?;
+            if guards.active.is_empty() {
+                TERMINATION_SIGNAL.store(0, Ordering::Release);
             }
+            publish(options);
+            let previous = match install(options) {
+                Ok(previous) => previous,
+                Err(error) => {
+                    publish(
+                        guards
+                            .active
+                            .last()
+                            .map_or_else(SignalOptions::default, |(_, options)| *options),
+                    );
+                    return Err(error.into());
+                }
+            };
+            if guards.active.is_empty() {
+                guards.previous = previous;
+            }
+            guards.active.push((id, options));
             Ok(Self {
-                previous,
+                id,
                 reraise_on_drop: options.reraise_on_drop,
             })
         }
@@ -123,37 +133,86 @@ mod imp {
 
     impl Drop for SignalGuard {
         fn drop(&mut self) {
-            for (signal, handler) in self.previous.drain(..).rev() {
-                unsafe { libc::sigaction(signal, &raw const handler, std::ptr::null_mut()) };
+            let mut guards = GUARDS.lock().unwrap_or_else(|error| error.into_inner());
+            let was_active = guards.active.last().is_some_and(|(id, _)| *id == self.id);
+            guards.active.retain(|(id, _)| *id != self.id);
+            if was_active {
+                if let Some((_, options)) = guards.active.last() {
+                    publish(*options);
+                    let _ = install(*options);
+                } else {
+                    publish(SignalOptions::default());
+                    for (signal, handler) in guards.previous.drain(..).rev() {
+                        let _ = set_action(signal, &handler);
+                    }
+                }
             }
-            TERMINATION_HOOK.store(std::ptr::null_mut(), Ordering::Release);
-            RESET_TO_DEFAULT.store(false, Ordering::Release);
-            if !self.reraise_on_drop {
+            drop(guards);
+            if !was_active || !self.reraise_on_drop {
                 return;
             }
             let signal = TERMINATION_SIGNAL.swap(0, Ordering::AcqRel);
-            if signal != 0 {
-                unsafe { libc::raise(signal) };
+            if let Ok(signal) = Signal::try_from(signal) {
+                let _ = signal::raise(signal);
             }
         }
     }
 
-    extern "C" fn terminal_signal(signal: libc::c_int) {
-        TERMINATION_SIGNAL.store(signal, Ordering::Release);
-        let hook = TERMINATION_HOOK.load(Ordering::Acquire);
-        if !hook.is_null() {
-            let hook: fn() = unsafe { std::mem::transmute(hook) };
-            hook();
-        }
-        if RESET_TO_DEFAULT.load(Ordering::Acquire) {
-            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
-            action.sa_sigaction = libc::SIG_DFL;
-            action.sa_flags = 0;
-            unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
-            for signal in TERMINATION_SIGNALS {
-                unsafe { libc::sigaction(signal, &raw const action, std::ptr::null_mut()) };
+    fn publish(options: SignalOptions) {
+        CANCELLATION.store(
+            options.cancellation.map_or(std::ptr::null_mut(), |flag| {
+                std::ptr::from_ref(flag).cast_mut()
+            }),
+            Ordering::Release,
+        );
+        RESET_TO_DEFAULT.store(options.reset_to_default, Ordering::Release);
+    }
+
+    fn install(options: SignalOptions) -> nix::Result<Vec<(Signal, SigAction)>> {
+        let flags = if options.restart_syscalls {
+            SaFlags::SA_RESTART
+        } else {
+            SaFlags::empty()
+        };
+        let action = SigAction::new(SigHandler::Handler(terminal_signal), flags, SigSet::empty());
+        let mut previous = Vec::with_capacity(TERMINATION_SIGNALS.len());
+        for signal in TERMINATION_SIGNALS {
+            match set_action(signal, &action) {
+                Ok(prior) => previous.push((signal, prior)),
+                Err(error) => {
+                    for (installed, handler) in previous.into_iter().rev() {
+                        let _ = set_action(installed, &handler);
+                    }
+                    return Err(error);
+                }
             }
         }
+        Ok(previous)
+    }
+
+    #[allow(unsafe_code)]
+    fn set_action(signal: Signal, action: &SigAction) -> nix::Result<SigAction> {
+        // SAFETY: Private callers use our handler, SIG_DFL, or a disposition
+        // returned by the OS. Our handler only uses atomics and signal-safe
+        // sigaction/sigemptyset calls; it never locks or allocates.
+        unsafe { signal::sigaction(signal, action) }
+    }
+
+    #[allow(unsafe_code)]
+    extern "C" fn terminal_signal(signal: i32) {
+        let cancellation = CANCELLATION.load(Ordering::Acquire);
+        // SAFETY: publish only stores pointers from shared 'static references.
+        // Replacing a guard cannot invalidate a flag already loaded here.
+        if let Some(flag) = unsafe { cancellation.as_ref() } {
+            flag.store(true, Ordering::Release);
+        }
+        if RESET_TO_DEFAULT.load(Ordering::Acquire) {
+            let action = SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty());
+            for signal in TERMINATION_SIGNALS {
+                let _ = set_action(signal, &action);
+            }
+        }
+        TERMINATION_SIGNAL.store(signal, Ordering::Release);
     }
 
     pub fn termination_requested() -> bool {
@@ -166,7 +225,7 @@ mod imp {
 
     pub struct Screen {
         tty: File,
-        saved: libc::termios,
+        saved: Termios,
         drawn: usize,
         _signals: SignalGuard,
     }
@@ -176,30 +235,22 @@ mod imp {
             let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") else {
                 return Ok(None);
             };
-            let fd = tty.as_raw_fd();
-            // SAFETY: `termios` is a plain struct of integers and arrays, and
-            // tcgetattr either fills it in and reports success or leaves it
-            // alone and reports failure.
-            let saved = unsafe {
-                let mut saved: libc::termios = std::mem::zeroed();
-                if libc::tcgetattr(fd, &mut saved) != 0 {
-                    return Ok(None);
-                }
-                saved
+            let Ok(saved) = termios::tcgetattr(&tty) else {
+                return Ok(None);
             };
             let signals = SignalGuard::new()?;
 
             // OPOST stays on, so a newline still returns the carriage and the
             // frames below need no \r of their own. ISIG goes off so ctrl-c
             // arrives as a byte and the terminal is restored on the way out.
-            let mut raw = saved;
-            raw.c_lflag &= !(libc::ICANON | libc::ECHO | libc::ISIG | libc::IEXTEN);
-            raw.c_iflag &= !(libc::IXON | libc::ICRNL);
-            raw.c_cc[libc::VMIN] = 0;
-            raw.c_cc[libc::VTIME] = 1;
-            // SAFETY: `raw` is the struct tcgetattr just filled in, with only
-            // flag bits and control characters changed.
-            if unsafe { libc::tcsetattr(fd, libc::TCSADRAIN, &raw) } != 0 {
+            let mut raw = saved.clone();
+            raw.local_modes.remove(
+                LocalModes::ICANON | LocalModes::ECHO | LocalModes::ISIG | LocalModes::IEXTEN,
+            );
+            raw.input_modes.remove(InputModes::IXON | InputModes::ICRNL);
+            raw.special_codes[SpecialCodeIndex::VMIN] = 0;
+            raw.special_codes[SpecialCodeIndex::VTIME] = 1;
+            if termios::tcsetattr(&tty, OptionalActions::Drain, &raw).is_err() {
                 return Ok(None);
             }
 
@@ -230,10 +281,8 @@ mod imp {
         }
 
         pub fn size(&self) -> Option<(usize, usize)> {
-            let fd = self.tty.as_raw_fd();
-            let mut size: libc::winsize = unsafe { std::mem::zeroed() };
-            let status = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &raw mut size) };
-            (status == 0 && size.ws_col > 0 && size.ws_row > 0)
+            let size = termios::tcgetwinsize(&self.tty).ok()?;
+            (size.ws_col > 0 && size.ws_row > 0)
                 .then_some((size.ws_col as usize, size.ws_row as usize))
         }
 
@@ -366,12 +415,7 @@ mod imp {
         fn drop(&mut self) {
             let _ = self.clear();
             let _ = self.put("\x1b[?25h");
-            let fd = self.tty.as_raw_fd();
-            // SAFETY: `saved` is what tcgetattr returned for this descriptor
-            // when the screen opened, put back unchanged.
-            unsafe {
-                libc::tcsetattr(fd, libc::TCSADRAIN, &self.saved);
-            }
+            let _ = termios::tcsetattr(&self.tty, OptionalActions::Drain, &self.saved);
         }
     }
 }

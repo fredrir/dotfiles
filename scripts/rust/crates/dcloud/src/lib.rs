@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod app;
 pub mod archive;
 pub mod backups;

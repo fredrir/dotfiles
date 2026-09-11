@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Output, Stdio};
 

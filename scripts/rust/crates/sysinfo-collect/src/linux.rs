@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::env;
-use std::ffi::CStr;
 use std::fs;
 use std::path::Path;
 
@@ -52,28 +51,13 @@ fn os_module() -> Value {
     })
 }
 
-#[allow(unsafe_code)]
-fn uname() -> Option<libc::utsname> {
-    let mut names: libc::utsname = unsafe { std::mem::zeroed() };
-    (unsafe { libc::uname(&mut names) } == 0).then_some(names)
-}
-
-#[allow(unsafe_code)]
-fn c_field(bytes: &[libc::c_char]) -> String {
-    unsafe { CStr::from_ptr(bytes.as_ptr()) }
-        .to_string_lossy()
-        .to_string()
-}
-
 fn kernel_module() -> Value {
-    let Some(names) = uname() else {
-        return json!({});
-    };
+    let names = rustix::system::uname();
     json!({
-        "name": c_field(&names.sysname),
-        "release": c_field(&names.release),
-        "version": c_field(&names.version),
-        "architecture": c_field(&names.machine),
+        "name": names.sysname().to_string_lossy(),
+        "release": names.release().to_string_lossy(),
+        "version": names.version().to_string_lossy(),
+        "architecture": names.machine().to_string_lossy(),
     })
 }
 

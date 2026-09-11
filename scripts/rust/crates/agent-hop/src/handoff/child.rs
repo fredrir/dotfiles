@@ -1,30 +1,28 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::ops::{Deref, DerefMut};
-use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
+use nix::sys::signal::{SigSet, SigmaskHow, Signal, killpg, pthread_sigmask};
+use nix::unistd::{Pid, tcgetpgrp, tcsetpgrp};
+
 pub(super) struct AgentChild {
     child: Child,
     terminal: File,
-    foreground: i32,
+    foreground: Pid,
     reaped: bool,
 }
 
 impl AgentChild {
-    #[allow(unsafe_code)]
     pub fn spawn(command: &mut Command) -> Result<Self, String> {
         let terminal = File::options()
             .read(true)
             .write(true)
             .open("/dev/tty")
             .map_err(super::error)?;
-        let foreground = unsafe { libc::tcgetpgrp(terminal.as_raw_fd()) };
-        if foreground < 0 {
-            return Err(super::error(std::io::Error::last_os_error()));
-        }
+        let foreground = tcgetpgrp(&terminal).map_err(super::error)?;
         let child = command.process_group(0).spawn().map_err(super::error)?;
         let mut owned = Self {
             child,
@@ -32,7 +30,8 @@ impl AgentChild {
             foreground,
             reaped: false,
         };
-        if let Err(error) = foreground_group(&owned.terminal, owned.child.id() as i32) {
+        let group = Pid::from_raw(i32::try_from(owned.child.id()).map_err(super::error)?);
+        if let Err(error) = foreground_group(&owned.terminal, group) {
             let _ = owned.terminate();
             return Err(error);
         }
@@ -40,12 +39,10 @@ impl AgentChild {
         Ok(owned)
     }
 
-    #[allow(unsafe_code)]
     pub fn signal(&self, signal: i32) -> Result<(), String> {
-        if unsafe { libc::kill(-(self.child.id() as i32), signal) } != 0 {
-            return Err(super::error(std::io::Error::last_os_error()));
-        }
-        Ok(())
+        let pid = i32::try_from(self.child.id()).map_err(super::error)?;
+        let signal = Signal::try_from(signal).map_err(super::error)?;
+        killpg(Pid::from_raw(pid), signal).map_err(super::error)
     }
 
     pub fn terminate(&mut self) -> Result<(), String> {
@@ -89,18 +86,32 @@ impl Drop for AgentChild {
     }
 }
 
-#[allow(unsafe_code)]
-fn foreground_group(terminal: &File, pid: i32) -> Result<(), String> {
+fn foreground_group(terminal: &File, pid: Pid) -> Result<(), String> {
     // tcsetpgrp from the supervising background group must not stop the supervisor.
-    unsafe {
-        let previous = libc::signal(libc::SIGTTOU, libc::SIG_IGN);
-        let result = libc::tcsetpgrp(terminal.as_raw_fd(), pid);
-        libc::signal(libc::SIGTTOU, previous);
-        if result != 0 {
-            return Err(super::error(std::io::Error::last_os_error()));
+    let mut previous = SigSet::empty();
+    pthread_sigmask(
+        SigmaskHow::SIG_BLOCK,
+        Some(&SigSet::from(Signal::SIGTTOU)),
+        Some(&mut previous),
+    )
+    .map_err(super::error)?;
+    let mut restore = RestoreMask(Some(previous));
+    let result = tcsetpgrp(terminal, pid);
+    let restored = previous.thread_set_mask();
+    if restored.is_ok() {
+        restore.0 = None;
+    }
+    result.and(restored).map_err(super::error)
+}
+
+struct RestoreMask(Option<SigSet>);
+
+impl Drop for RestoreMask {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0.take() {
+            let _ = previous.thread_set_mask();
         }
     }
-    Ok(())
 }
 
 pub(super) fn descendants(root: u32) -> Result<BTreeSet<(u32, String)>, String> {
@@ -165,5 +176,32 @@ pub(super) fn require_gone(owned: &BTreeSet<(u32, String)>) -> Result<(), String
             );
         }
         std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_foreground_transfer_restores_the_threads_signal_mask() {
+        std::thread::spawn(|| {
+            let original = SigSet::thread_get_mask().unwrap();
+            let _restore = RestoreMask(Some(original));
+            let file = File::open("/dev/null").unwrap();
+            for blocked in [false, true] {
+                let mut expected = original;
+                if blocked {
+                    expected.add(Signal::SIGTTOU);
+                } else {
+                    expected.remove(Signal::SIGTTOU);
+                }
+                expected.thread_set_mask().unwrap();
+                assert!(foreground_group(&file, nix::unistd::getpgrp()).is_err());
+                assert_eq!(SigSet::thread_get_mask().unwrap(), expected);
+            }
+        })
+        .join()
+        .unwrap();
     }
 }

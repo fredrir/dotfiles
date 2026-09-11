@@ -1,6 +1,6 @@
+#![forbid(unsafe_code)]
 #![cfg(unix)]
 
-use std::os::fd::AsRawFd;
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use testkit::pty::{open_pty, read_available, stdio, take_controlling_terminal, terminal_state};
 use testkit::{at, tree};
 
-#[allow(unsafe_code)]
 #[test]
 fn termination_restores_raw_mode_cursor_and_alternate_screen() {
     let temporary = tree(&["home/"]);
@@ -45,10 +44,11 @@ fn termination_restores_raw_mode_cursor_and_alternate_screen() {
         }
     }
 
-    assert_eq!(
-        unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) },
-        0
-    );
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(child.id() as i32),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
         read_available(&master, &mut captured, 100);
@@ -62,7 +62,7 @@ fn termination_restores_raw_mode_cursor_and_alternate_screen() {
     };
     read_available(&master, &mut captured, 0);
 
-    let after = terminal_state(master.as_raw_fd());
+    let after = terminal_state(&master);
     assert_eq!(status.signal(), Some(libc::SIGTERM));
     assert_eq!(
         before.c_lflag & (libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN),

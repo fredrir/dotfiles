@@ -1,7 +1,7 @@
+#![forbid(unsafe_code)]
 #![cfg(unix)]
 
 use std::io;
-use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -16,11 +16,11 @@ const RAW: libc::tcflag_t = libc::ECHO | libc::ICANON;
 #[test]
 fn dropping_an_inline_turns_raw_mode_back_off() {
     if let Some(report) = std::env::var_os(CHILD) {
-        let before = terminal_state(io::stdin().as_raw_fd());
+        let before = terminal_state(io::stdin());
         let inline = Inline::new(io::stdout(), 3, Teardown::KeepViewport).unwrap();
-        let during = terminal_state(io::stdin().as_raw_fd());
+        let during = terminal_state(io::stdin());
         drop(inline);
-        let after = terminal_state(io::stdin().as_raw_fd());
+        let after = terminal_state(io::stdin());
         std::fs::write(
             PathBuf::from(report),
             format!("{} {} {}", before.c_lflag, during.c_lflag, after.c_lflag),
@@ -72,8 +72,5 @@ fn dropping_an_inline_turns_raw_mode_back_off() {
     assert_ne!(flags[0] & RAW, 0);
     assert_eq!(flags[1] & RAW, 0);
     assert_eq!(flags[2], flags[0]);
-    assert_eq!(
-        terminal_state(master.as_raw_fd()).c_lflag & RAW,
-        before.c_lflag & RAW
-    );
+    assert_eq!(terminal_state(&master).c_lflag & RAW, before.c_lflag & RAW);
 }

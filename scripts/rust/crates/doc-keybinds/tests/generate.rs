@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use doc_keybinds::{MARKER, collect, generate};
 use std::fs;
 use std::path::Path;

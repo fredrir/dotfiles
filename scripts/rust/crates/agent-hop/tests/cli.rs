@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::process::Output;
 
 use sha2::{Digest, Sha256};

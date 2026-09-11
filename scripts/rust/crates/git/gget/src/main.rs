@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod fetch;
 mod list;
 mod target;

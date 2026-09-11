@@ -1,8 +1,9 @@
+#![cfg_attr(not(target_os = "macos"), forbid(unsafe_code))]
+
 mod common;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
-#[allow(unsafe_code)]
 mod macos;
 mod parse;
 

@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Clone, Debug)]
 pub struct Context {
@@ -11,6 +14,7 @@ pub struct Context {
     pub packages_doc: PathBuf,
     pub overrides_file: PathBuf,
     pub environment_dir: PathBuf,
+    pub process_env: BTreeMap<OsString, OsString>,
 }
 
 impl Context {
@@ -41,10 +45,24 @@ impl Context {
             packages_doc: root.join("PACKAGES.md"),
             overrides_file: state.join("overrides"),
             environment_dir: root.join("environment"),
+            process_env: BTreeMap::new(),
             root,
             home,
             state,
         })
+    }
+
+    pub fn env(&self, name: &str) -> Option<OsString> {
+        self.process_env
+            .get(OsStr::new(name))
+            .cloned()
+            .or_else(|| std::env::var_os(name))
+    }
+
+    pub fn command(&self, program: impl AsRef<OsStr>) -> Command {
+        let mut command = Command::new(program);
+        command.envs(&self.process_env);
+        command
     }
 
     pub fn profile(&self, requested: Option<&str>) -> Result<String, String> {

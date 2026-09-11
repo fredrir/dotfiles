@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;

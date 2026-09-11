@@ -236,15 +236,14 @@ impl Drop for Codex {
     }
 }
 
-#[allow(unsafe_code)]
 fn signal_group(child: &Child, signal: i32) -> Result<(), String> {
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::Pid;
+
     let pid = i32::try_from(child.id()).map_err(super::error)?;
+    let signal = Signal::try_from(signal).map_err(super::error)?;
     // This process group was created explicitly for this owned child; never a pane PID.
-    if unsafe { libc::kill(-pid, signal) } == 0 {
-        Ok(())
-    } else {
-        Err(super::error(std::io::Error::last_os_error()))
-    }
+    killpg(Pid::from_raw(pid), signal).map_err(super::error)
 }
 
 pub(super) fn ui(

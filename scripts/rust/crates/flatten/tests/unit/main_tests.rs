@@ -244,6 +244,34 @@ fn a_link_that_loops_back_is_not_a_walk_that_never_ends() {
     assert_eq!(listing(root.path()), ["f.txt", "up"]);
 }
 
+#[cfg(unix)]
+#[test]
+fn directory_handles_stay_bound_when_a_path_is_replaced_by_a_symlink() {
+    use std::ffi::OsStr;
+
+    let root = tree(&["source/file=owned"]);
+    let outside = tree(&["file=private"]);
+    let directory = dir::Dir::open(root.path()).unwrap();
+    let source = directory.child(OsStr::new("source")).unwrap();
+    fs::rename(root.path().join("source"), root.path().join("parked")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join("source")).unwrap();
+
+    assert!(directory.child(OsStr::new("source")).is_err());
+    assert!(directory.remove_dir(OsStr::new("source")).is_err());
+    source
+        .move_entry(OsStr::new("file"), &directory, OsStr::new("moved"))
+        .unwrap();
+    directory.remove_dir(OsStr::new("parked")).unwrap();
+    assert_eq!(
+        fs::read_to_string(root.path().join("moved")).unwrap(),
+        "owned"
+    );
+    assert_eq!(
+        fs::read_to_string(outside.path().join("file")).unwrap(),
+        "private"
+    );
+}
+
 #[test]
 fn nothing_below_the_target_is_nothing_to_do() {
     let root = tree(&["a.txt", "b.txt"]);

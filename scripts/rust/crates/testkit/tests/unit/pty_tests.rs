@@ -2,27 +2,17 @@ use std::time::{Duration, Instant};
 
 use super::*;
 
-#[allow(unsafe_code)]
 #[test]
 fn a_new_pty_carries_the_window_size_it_was_asked_for() {
     let (_master, slave, _) = open_pty(30, 110);
-    let mut size = libc::winsize {
-        ws_row: 0,
-        ws_col: 0,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    assert_eq!(
-        unsafe { libc::ioctl(slave.as_raw_fd(), libc::TIOCGWINSZ as _, &raw mut size) },
-        0
-    );
+    let size = rustix::termios::tcgetwinsize(&slave).unwrap();
     assert_eq!((size.ws_row, size.ws_col), (30, 110));
 }
 
 #[test]
 fn the_opening_state_is_the_state_of_the_slave() {
     let (_master, slave, before) = open_pty(24, 80);
-    let now = terminal_state(slave.as_raw_fd());
+    let now = terminal_state(&slave);
     assert_ne!(before.c_lflag & (libc::ECHO | libc::ICANON), 0);
     assert_eq!(
         before.c_lflag & (libc::ECHO | libc::ICANON | libc::ISIG),
@@ -42,15 +32,11 @@ fn reading_drains_what_the_slave_wrote_and_then_stops() {
     assert_eq!(output, b"hello".to_vec());
 }
 
-#[allow(unsafe_code)]
 #[test]
 fn a_cursor_query_is_answered_once_for_each_request() {
     let (master, slave, _) = open_pty(24, 80);
-    let flags = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_GETFL) };
-    assert_eq!(
-        unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
-        0
-    );
+    let flags = OFlag::from_bits_retain(fcntl(&slave, FcntlArg::F_GETFL).unwrap());
+    fcntl(&slave, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).unwrap();
     let mut replied = 0;
     reply_to_cursor_queries(&master, b"\x1b[6n\x1b[6n", &mut replied);
     reply_to_cursor_queries(&master, b"\x1b[6n\x1b[6n", &mut replied);

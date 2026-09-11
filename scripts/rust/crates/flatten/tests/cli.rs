@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::fs;
 
 use testkit::{Bin, TempDir, at, names, stderr, stdout, tree};

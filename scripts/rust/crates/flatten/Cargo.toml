@@ -15,7 +15,7 @@ workstation.workspace = true
 
 # Only the moves are done through descriptors, and only unix has the calls.
 [target.'cfg(unix)'.dependencies]
-libc.workspace = true
+rustix = { workspace = true, features = ["fs"] }
 
 [dev-dependencies]
 testkit.workspace = true

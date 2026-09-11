@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod browse;
 pub mod cli;
 pub mod place;

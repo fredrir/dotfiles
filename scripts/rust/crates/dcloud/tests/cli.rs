@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::Result;
 use dcloud::config::{Config, Destination, Job, Retention};
 use serde_json::Value;

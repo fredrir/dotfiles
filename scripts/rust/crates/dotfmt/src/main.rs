@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod block;
 mod conf;
 mod config;

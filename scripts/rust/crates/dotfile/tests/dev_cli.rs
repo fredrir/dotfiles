@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![cfg(unix)]
 
 use std::fs;

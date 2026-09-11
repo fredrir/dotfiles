@@ -295,16 +295,9 @@ pub fn terminal_height() -> Option<usize> {
 }
 
 #[cfg(unix)]
-#[allow(unsafe_code)]
 fn terminal_size() -> Option<(usize, usize)> {
-    // SAFETY: `winsize` is four integers, and the ioctl either fills them in
-    // and reports success or leaves them alone and reports failure.
-    let (ok, size) = unsafe {
-        let mut size: libc::winsize = std::mem::zeroed();
-        let status = libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &raw mut size);
-        (status == 0, size)
-    };
-    (ok && size.ws_col > 0).then_some((size.ws_col as usize, size.ws_row as usize))
+    let size = rustix::termios::tcgetwinsize(io::stdout()).ok()?;
+    (size.ws_col > 0).then_some((size.ws_col as usize, size.ws_row as usize))
 }
 
 #[cfg(not(unix))]

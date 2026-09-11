@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod alternate;
 mod inline;
 mod raw;

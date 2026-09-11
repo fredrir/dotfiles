@@ -1,62 +1,36 @@
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
-use std::mem::MaybeUninit;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::fd::AsFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
-#[allow(unsafe_code)]
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
+use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
+
 pub fn open_pty(rows: u16, cols: u16) -> (File, File, libc::termios) {
-    let mut master: RawFd = -1;
-    let mut slave: RawFd = -1;
-    let mut state = MaybeUninit::<libc::termios>::uninit();
-    let mut size = libc::winsize {
+    let size = nix::pty::Winsize {
         ws_row: rows,
         ws_col: cols,
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
-    assert_eq!(
-        unsafe {
-            libc::openpty(
-                &raw mut master,
-                &raw mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        },
-        0
-    );
-    assert_eq!(unsafe { libc::tcgetattr(slave, state.as_mut_ptr()) }, 0);
-    let flags = unsafe { libc::fcntl(master, libc::F_GETFL) };
-    assert!(flags >= 0);
-    assert_eq!(
-        unsafe { libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK) },
-        0
-    );
-    (
-        unsafe { File::from_raw_fd(master) },
-        unsafe { File::from_raw_fd(slave) },
-        unsafe { state.assume_init() },
-    )
+    let pair = nix::pty::openpty(Some(&size), None).expect("the pty opens");
+    let state = terminal_state(&pair.slave);
+    let flags = OFlag::from_bits_retain(fcntl(&pair.master, FcntlArg::F_GETFL).unwrap());
+    fcntl(&pair.master, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).unwrap();
+    (File::from(pair.master), File::from(pair.slave), state)
 }
 
-#[allow(unsafe_code)]
-pub fn terminal_state(fd: RawFd) -> libc::termios {
-    let mut state = MaybeUninit::<libc::termios>::uninit();
-    assert_eq!(unsafe { libc::tcgetattr(fd, state.as_mut_ptr()) }, 0);
-    unsafe { state.assume_init() }
+pub fn terminal_state(fd: impl AsFd) -> libc::termios {
+    nix::sys::termios::tcgetattr(fd)
+        .expect("terminal state")
+        .into()
 }
 
-#[allow(unsafe_code)]
 pub fn read_available(master: &File, output: &mut Vec<u8>, timeout_ms: libc::c_int) {
-    let mut descriptor = libc::pollfd {
-        fd: master.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    let _ = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
+    let mut descriptors = [PollFd::new(master.as_fd(), PollFlags::POLLIN)];
+    let timeout = PollTimeout::try_from(timeout_ms).unwrap_or(PollTimeout::NONE);
+    let _ = poll(&mut descriptors, timeout);
     let mut reader = master;
     let mut buffer = [0_u8; 4096];
     loop {
@@ -64,6 +38,7 @@ pub fn read_available(master: &File, output: &mut Vec<u8>, timeout_ms: libc::c_i
             Ok(0) => break,
             Ok(read) => output.extend_from_slice(&buffer[..read]),
             Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
             Err(error) => panic!("read pty: {error}"),
         }
@@ -105,6 +80,9 @@ pub fn stdio(slave: &File) -> (Stdio, Stdio, Stdio) {
 
 #[allow(unsafe_code)]
 pub fn take_controlling_terminal(command: &mut Command) {
+    // SAFETY: The child only calls setsid, ioctl and last_os_error between fork
+    // and exec. No locks, allocation or borrowed parent resources are involved;
+    // Command has already installed the child's stdin at descriptor 0.
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {

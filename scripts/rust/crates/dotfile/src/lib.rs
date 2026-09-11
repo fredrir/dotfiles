@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod artifacts;
 pub mod backend;
 pub mod cancel;

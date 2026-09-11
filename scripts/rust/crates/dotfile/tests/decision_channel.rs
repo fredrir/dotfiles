@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 
 use dotfile_cli::decision::{Choice, Prompt};

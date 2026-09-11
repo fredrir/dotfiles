@@ -341,7 +341,7 @@ pub fn run(
     policy: UiPolicy,
 ) -> Result<Summary, String> {
     let signals = match SignalGuard::with_options(SignalOptions {
-        hook: Some(crate::cancel::request),
+        cancellation: Some(crate::cancel::flag()),
         reset_to_default: true,
         reraise_on_drop: false,
         restart_syscalls: true,

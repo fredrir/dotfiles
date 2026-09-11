@@ -16,6 +16,7 @@ workstation.workspace = true
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 libc.workspace = true
+rustix = { workspace = true, features = ["fs"] }
 
 [dev-dependencies]
 tempfile.workspace = true

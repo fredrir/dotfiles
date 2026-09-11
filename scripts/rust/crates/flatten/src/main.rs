@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod apply;
 mod dir;
 mod plan;

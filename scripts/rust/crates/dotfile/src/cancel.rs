@@ -2,6 +2,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static CANCELLED: AtomicBool = AtomicBool::new(false);
 
+pub fn flag() -> &'static AtomicBool {
+    &CANCELLED
+}
+
 pub fn reset() {
     CANCELLED.store(false, Ordering::Release);
 }

@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[cfg(target_vendor = "apple")]
-#[allow(unsafe_code)]
 mod bulk;
+#[cfg(target_vendor = "apple")]
+mod bulk_decode;
 
 use clap::{Parser, ValueHint};
 use rayon::prelude::*;

@@ -115,8 +115,10 @@ mod unix {
             })
         }
 
-        #[allow(unsafe_code)]
         pub fn spawn_detached(command: &mut Command) -> io::Result<Self> {
+            // SAFETY: this child-only hook calls setsid and converts its errno;
+            // it does not allocate, acquire locks, or access the environment.
+            #[allow(unsafe_code)]
             unsafe {
                 command.pre_exec(|| nix::unistd::setsid().map(|_| ()).map_err(io::Error::from));
             }

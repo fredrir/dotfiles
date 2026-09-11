@@ -1,13 +1,13 @@
 use std::ffi::{CString, c_void};
 use std::fs;
 
-use core_foundation::array::CFArray;
-use core_foundation::base::{CFType, CFTypeRef, TCFType, kCFAllocatorDefault};
+use core_foundation::array::{CFArray, CFArrayRef};
+use core_foundation::base::{CFAllocatorRef, CFType, CFTypeRef, TCFType, kCFAllocatorDefault};
 use core_foundation::boolean::CFBoolean;
 use core_foundation::data::CFData;
-use core_foundation::dictionary::CFDictionary;
+use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::CFNumber;
-use core_foundation::string::CFString;
+use core_foundation::string::{CFString, CFStringRef};
 use io_kit_sys::ret::kIOReturnSuccess;
 use io_kit_sys::types::{io_iterator_t, io_object_t};
 use io_kit_sys::{
@@ -17,6 +17,7 @@ use io_kit_sys::{
     kIORegistryIterateRecursively,
 };
 use serde_json::{Value, json};
+use sysctl::{Ctl, CtlValue, Sysctl};
 
 use crate::Module;
 
@@ -59,51 +60,28 @@ pub fn collect(out: &mut Vec<Module>) {
 // --- sysctl ------------------------------------------------------------------
 
 fn sysctl_string(name: &str) -> Option<String> {
-    let name = CString::new(name).ok()?;
-    let mut size = 0usize;
-    let found = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            std::ptr::null_mut(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if found != 0 || size == 0 {
-        return None;
+    match Ctl::new(name).ok()?.value().ok()? {
+        CtlValue::String(value) => Some(value),
+        _ => None,
     }
-    let mut buffer = vec![0u8; size];
-    let found = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            buffer.as_mut_ptr().cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if found != 0 {
-        return None;
-    }
-    buffer.truncate(size.saturating_sub(1));
-    String::from_utf8(buffer).ok()
 }
 
 fn sysctl_u64(name: &str) -> Option<u64> {
-    let name = CString::new(name).ok()?;
-    let mut value = 0u64;
-    let mut size = std::mem::size_of::<u64>();
-    let found = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            (&mut value as *mut u64).cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    (found == 0).then_some(value)
+    unsigned_value(Ctl::new(name).ok()?.value().ok()?)
+}
+
+fn unsigned_value(value: CtlValue) -> Option<u64> {
+    match value {
+        CtlValue::U64(value) | CtlValue::Ulong(value) => Some(value),
+        CtlValue::Uint(value) | CtlValue::U32(value) => Some(value.into()),
+        CtlValue::U16(value) => Some(value.into()),
+        CtlValue::U8(value) => Some(value.into()),
+        CtlValue::S64(value) | CtlValue::Long(value) => value.try_into().ok(),
+        CtlValue::Int(value) | CtlValue::S32(value) => value.try_into().ok(),
+        CtlValue::S16(value) => value.try_into().ok(),
+        CtlValue::S8(value) => value.try_into().ok(),
+        _ => None,
+    }
 }
 
 fn arm_feature(name: &str) -> bool {
@@ -112,55 +90,73 @@ fn arm_feature(name: &str) -> bool {
 
 // --- IOKit helpers -----------------------------------------------------------
 
-fn matching_services(class: &str) -> Vec<io_object_t> {
+struct IoObject(io_object_t);
+
+impl Drop for IoObject {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        // SAFETY: only successful owning IOKit calls construct IoObject;
+        // it is never copied, and Drop releases that single owned reference.
+        unsafe { IOObjectRelease(self.0) };
+    }
+}
+
+#[allow(unsafe_code)]
+fn matching_services(class: &str) -> Vec<IoObject> {
     let Ok(class) = CString::new(class) else {
         return Vec::new();
     };
+    // SAFETY: class is NUL-terminated and lives through the call.
     let matching = unsafe { IOServiceMatching(class.as_ptr()) };
     if matching.is_null() {
         return Vec::new();
     }
     let mut iterator: io_iterator_t = 0;
+    // SAFETY: matching is nonnull and its owned reference is consumed by this
+    // call even on failure; iterator points to initialized writable storage.
     let status =
         unsafe { IOServiceGetMatchingServices(kIOMasterPortDefault, matching, &mut iterator) };
     if status != kIOReturnSuccess {
         return Vec::new();
     }
+    let iterator = IoObject(iterator);
     let mut services = Vec::new();
     loop {
-        let service = unsafe { IOIteratorNext(iterator) };
+        // SAFETY: iterator owns a live iterator; each nonzero result transfers
+        // one object reference to the new guard.
+        let service = unsafe { IOIteratorNext(iterator.0) };
         if service == 0 {
             break;
         }
-        services.push(service);
+        services.push(IoObject(service));
     }
-    unsafe { IOObjectRelease(iterator) };
     services
 }
 
-fn release(services: Vec<io_object_t>) {
-    for service in services {
-        unsafe { IOObjectRelease(service) };
-    }
-}
-
-fn registry_property(entry: io_object_t, key: &str) -> Option<CFType> {
+#[allow(unsafe_code)]
+fn registry_property(entry: &IoObject, key: &str) -> Option<CFType> {
     let key = CFString::new(key);
+    // SAFETY: entry is owned and key is a live CFString. A nonnull result is
+    // a CF object with a +1 reference, transferred to the owning CFType below.
     let value = unsafe {
-        IORegistryEntryCreateCFProperty(entry, key.as_concrete_TypeRef(), kCFAllocatorDefault, 0)
+        IORegistryEntryCreateCFProperty(entry.0, key.as_concrete_TypeRef(), kCFAllocatorDefault, 0)
     };
     if value.is_null() {
         return None;
     }
+    // SAFETY: the checked nonnull result follows the CF create ownership rule.
     Some(unsafe { CFType::wrap_under_create_rule(value) })
 }
 
-fn search_property(entry: io_object_t, key: &str) -> Option<CFType> {
+#[allow(unsafe_code)]
+fn search_property(entry: &IoObject, key: &str) -> Option<CFType> {
     let key = CFString::new(key);
-    let plane = CString::new("IOService").ok()?;
+    let plane = c"IOService";
+    // SAFETY: entry is owned; key and plane remain live for the call. Search
+    // returns an owned CF object when nonnull, like CreateCFProperty.
     let value = unsafe {
         IORegistryEntrySearchCFProperty(
-            entry,
+            entry.0,
             plane.as_ptr(),
             key.as_concrete_TypeRef(),
             kCFAllocatorDefault,
@@ -170,6 +166,7 @@ fn search_property(entry: io_object_t, key: &str) -> Option<CFType> {
     if value.is_null() {
         return None;
     }
+    // SAFETY: the checked nonnull result carries the caller's +1 reference.
     Some(unsafe { CFType::wrap_under_create_rule(value) })
 }
 
@@ -205,20 +202,26 @@ fn as_bytes(value: Option<CFType>) -> Option<Vec<u8>> {
     Some(value?.downcast::<CFData>()?.bytes().to_vec())
 }
 
+#[allow(unsafe_code)]
 fn dict_value(dict: &CFDictionary, key: &str) -> Option<CFType> {
     let key = CFString::new(key);
     let raw = dict.find(key.as_concrete_TypeRef() as *const c_void)?;
+    // SAFETY: these dictionaries come from IOKit CF properties, whose values
+    // are CF objects. dict keeps the value alive; the get rule retains it.
     Some(unsafe { CFType::wrap_under_get_rule(*raw as CFTypeRef) })
 }
 
-fn entry_name(entry: io_object_t) -> String {
-    let mut buffer = [0i8; 128];
-    if unsafe { IORegistryEntryGetName(entry, buffer.as_mut_ptr()) } != kIOReturnSuccess {
+#[allow(unsafe_code)]
+fn entry_name(entry: &IoObject) -> String {
+    let mut buffer = [0u8; 128];
+    // SAFETY: entry is owned; io_name_t is a 128-byte output array. Conversion
+    // below is bounded even if the returned bytes have no terminating NUL.
+    if unsafe { IORegistryEntryGetName(entry.0, buffer.as_mut_ptr().cast()) } != kIOReturnSuccess {
         return String::new();
     }
-    unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
-        .to_string_lossy()
-        .to_string()
+    std::ffi::CStr::from_bytes_until_nul(&buffer)
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 // --- OS / Kernel -------------------------------------------------------------
@@ -271,20 +274,12 @@ fn os_module() -> Value {
 }
 
 fn kernel_module() -> Value {
-    let mut names: libc::utsname = unsafe { std::mem::zeroed() };
-    if unsafe { libc::uname(&mut names) } != 0 {
-        return json!({});
-    }
-    let field = |bytes: &[libc::c_char]| {
-        unsafe { std::ffi::CStr::from_ptr(bytes.as_ptr()) }
-            .to_string_lossy()
-            .to_string()
-    };
+    let names = rustix::system::uname();
     json!({
-        "name": field(&names.sysname),
-        "release": field(&names.release),
-        "version": field(&names.version),
-        "architecture": field(&names.machine),
+        "name": names.sysname().to_string_lossy(),
+        "release": names.release().to_string_lossy(),
+        "version": names.version().to_string_lossy(),
+        "architecture": names.machine().to_string_lossy(),
     })
 }
 
@@ -294,17 +289,16 @@ fn max_frequency_mhz() -> u64 {
     let services = matching_services("AppleARMIODevice");
     let mut best = 0u64;
     for service in &services {
-        if entry_name(*service) != "pmgr" {
+        if entry_name(service) != "pmgr" {
             continue;
         }
-        if let Some(bytes) = as_bytes(registry_property(*service, "voltage-states5-sram")) {
+        if let Some(bytes) = as_bytes(registry_property(service, "voltage-states5-sram")) {
             for pair in bytes.chunks_exact(8) {
                 let raw = u64::from(u32::from_le_bytes([pair[0], pair[1], pair[2], pair[3]]));
                 best = best.max(raw);
             }
         }
     }
-    release(services);
     if best > 100_000_000 {
         best / 1_000_000
     } else if best > 100_000 {
@@ -351,11 +345,12 @@ const HID_USAGE_TEMPERATURE_SENSOR: i64 = 5;
 const HID_EVENT_TYPE_TEMPERATURE: i64 = 15;
 
 #[link(name = "IOKit", kind = "framework")]
+#[allow(unsafe_code)]
 unsafe extern "C" {
-    fn IOHIDEventSystemClientCreate(allocator: CFTypeRef) -> *mut c_void;
-    fn IOHIDEventSystemClientSetMatching(client: *mut c_void, matching: CFTypeRef);
-    fn IOHIDEventSystemClientCopyServices(client: *mut c_void) -> CFTypeRef;
-    fn IOHIDServiceClientCopyProperty(service: *mut c_void, key: CFTypeRef) -> CFTypeRef;
+    fn IOHIDEventSystemClientCreate(allocator: CFAllocatorRef) -> *mut c_void;
+    fn IOHIDEventSystemClientSetMatching(client: *mut c_void, matching: CFDictionaryRef);
+    fn IOHIDEventSystemClientCopyServices(client: *mut c_void) -> CFArrayRef;
+    fn IOHIDServiceClientCopyProperty(service: *mut c_void, key: CFStringRef) -> CFTypeRef;
     fn IOHIDServiceClientCopyEvent(
         service: *mut c_void,
         event_type: i64,
@@ -365,13 +360,25 @@ unsafe extern "C" {
     fn IOHIDEventGetFloatValue(event: *mut c_void, field: i32) -> f64;
 }
 
-fn cpu_temperature() -> Option<f64> {
-    let mut readings: Vec<f64> = Vec::new();
-    unsafe {
-        let client = IOHIDEventSystemClientCreate(kCFAllocatorDefault.cast());
+struct HidClient(CFType);
+
+impl HidClient {
+    #[allow(unsafe_code)]
+    fn new() -> Option<Self> {
+        // SAFETY: the default allocator is valid; Create returns a +1 CF
+        // reference, transferred into the guard after the null check.
+        let client = unsafe { IOHIDEventSystemClientCreate(kCFAllocatorDefault) };
         if client.is_null() {
             return None;
         }
+        // SAFETY: client is the checked, owned CF object returned by Create.
+        Some(Self(unsafe {
+            CFType::wrap_under_create_rule(client.cast())
+        }))
+    }
+
+    #[allow(unsafe_code)]
+    fn temperature_services(&self) -> Option<Vec<HidService>> {
         let matching = CFDictionary::from_CFType_pairs(&[
             (
                 CFString::new("PrimaryUsagePage").as_CFType(),
@@ -382,44 +389,100 @@ fn cpu_temperature() -> Option<f64> {
                 CFNumber::from(HID_USAGE_TEMPERATURE_SENSOR).as_CFType(),
             ),
         ]);
-        IOHIDEventSystemClientSetMatching(client, matching.as_concrete_TypeRef().cast());
-        let services = IOHIDEventSystemClientCopyServices(client);
+        let client = self.0.as_CFTypeRef().cast_mut();
+        // SAFETY: self owns this HID client and matching is a live dictionary.
+        unsafe { IOHIDEventSystemClientSetMatching(client, matching.as_concrete_TypeRef()) };
+        // SAFETY: client remains alive. CopyServices returns an owned CFArray
+        // of HID service clients; it does not transfer ownership of self.
+        let services = unsafe { IOHIDEventSystemClientCopyServices(client) };
         if services.is_null() {
             return None;
         }
-        let services: CFArray<*const c_void> = CFArray::wrap_under_create_rule(services.cast());
-        let product_key = CFString::new("Product");
-        for service in services.iter() {
-            let service = (*service).cast_mut();
-            let product =
-                IOHIDServiceClientCopyProperty(service, product_key.as_concrete_TypeRef().cast());
-            if product.is_null() {
-                continue;
-            }
-            let product = CFType::wrap_under_create_rule(product);
-            let Some(name) = product.downcast::<CFString>().map(|s| s.to_string()) else {
-                continue;
-            };
-            // Older Apple Silicon exposes per-cluster sensors (pACC/eACC);
-            // newer generations expose die sensors named "PMU tdie<n>".
-            if !(name.contains("pACC") || name.contains("eACC") || name.starts_with("PMU tdie")) {
-                continue;
-            }
-            let event = IOHIDServiceClientCopyEvent(service, HID_EVENT_TYPE_TEMPERATURE, 0, 0);
-            if event.is_null() {
-                continue;
-            }
-            let value = IOHIDEventGetFloatValue(event, (HID_EVENT_TYPE_TEMPERATURE << 16) as i32);
-            core_foundation::base::CFRelease(event.cast());
-            if value > 0.0 && value < 150.0 {
-                readings.push(value);
-            }
+        // SAFETY: CopyServices returns a +1 CFArray whose elements are HID
+        // CF objects, so CFType is the valid element type for this array.
+        let services: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(services) };
+        Some(
+            services
+                .iter()
+                .map(|service| HidService((*service).clone()))
+                .collect(),
+        )
+    }
+}
+
+struct HidService(CFType);
+
+impl HidService {
+    #[allow(unsafe_code)]
+    fn product(&self) -> Option<String> {
+        let key = CFString::new("Product");
+        // SAFETY: self owns a HID service; key is a live CFString. CopyProperty
+        // returns either null or one owned reference to a CF object.
+        let product = unsafe {
+            IOHIDServiceClientCopyProperty(
+                self.0.as_CFTypeRef().cast_mut(),
+                key.as_concrete_TypeRef(),
+            )
+        };
+        if product.is_null() {
+            return None;
         }
+        // SAFETY: product is the checked +1 result of CopyProperty.
+        let product = unsafe { CFType::wrap_under_create_rule(product) };
+        product.downcast::<CFString>().map(|name| name.to_string())
     }
-    if readings.is_empty() {
-        return None;
+
+    #[allow(unsafe_code)]
+    fn temperature(&self) -> Option<f64> {
+        // SAFETY: self owns a HID service. The retained event uses the same
+        // private Apple temperature ABI as the existing collector (type15).
+        let event = unsafe {
+            IOHIDServiceClientCopyEvent(
+                self.0.as_CFTypeRef().cast_mut(),
+                HID_EVENT_TYPE_TEMPERATURE,
+                0,
+                0,
+            )
+        };
+        if event.is_null() {
+            return None;
+        }
+        // SAFETY: CopyEvent returns a +1 CF object, now owned by this guard.
+        let event = unsafe { CFType::wrap_under_create_rule(event.cast()) };
+        // SAFETY: event is live and the field belongs to its temperature type.
+        Some(unsafe {
+            IOHIDEventGetFloatValue(
+                event.as_CFTypeRef().cast_mut(),
+                (HID_EVENT_TYPE_TEMPERATURE << 16) as i32,
+            )
+        })
     }
-    Some(readings.iter().sum::<f64>() / readings.len() as f64)
+}
+
+fn cpu_temperature() -> Option<f64> {
+    let client = HidClient::new()?;
+    let services = client.temperature_services()?;
+    average_temperature(services.iter().filter_map(|service| {
+        let name = service.product()?;
+        if !cpu_sensor(&name) {
+            return None;
+        }
+        service.temperature()
+    }))
+}
+
+fn cpu_sensor(name: &str) -> bool {
+    name.contains("pACC") || name.contains("eACC") || name.starts_with("PMU tdie")
+}
+
+fn average_temperature(readings: impl IntoIterator<Item = f64>) -> Option<f64> {
+    let (total, count) = readings
+        .into_iter()
+        .filter(|&value| value > 0.0 && value < 150.0)
+        .fold((0.0, 0usize), |(total, count), value| {
+            (total + value, count + 1)
+        });
+    (count > 0).then(|| total / count as f64)
 }
 
 // --- GPU ---------------------------------------------------------------------
@@ -429,8 +492,8 @@ fn gpu_module() -> Value {
     let services = matching_services("IOAccelerator");
     for (index, service) in services.iter().enumerate() {
         let bundle =
-            as_string(registry_property(*service, "CFBundleIdentifier")).unwrap_or_default();
-        let version = as_string(registry_property(*service, "IOSourceVersion")).unwrap_or_default();
+            as_string(registry_property(service, "CFBundleIdentifier")).unwrap_or_default();
+        let version = as_string(registry_property(service, "IOSourceVersion")).unwrap_or_default();
         let mut driver = bundle.clone();
         if !driver.is_empty() && !version.is_empty() {
             driver = format!("{driver} {version}");
@@ -439,9 +502,9 @@ fn gpu_module() -> Value {
         let name = if apple_silicon {
             sysctl_string("machdep.cpu.brand_string").unwrap_or_default()
         } else {
-            as_string(search_property(*service, "model")).unwrap_or_default()
+            as_string(search_property(service, "model")).unwrap_or_default()
         };
-        let usage = registry_property(*service, "PerformanceStatistics")
+        let usage = registry_property(service, "PerformanceStatistics")
             .and_then(|stats| stats.downcast::<CFDictionary>())
             .and_then(|stats| as_f64(dict_value(&stats, "Device Utilization %")));
         gpus.push(json!({
@@ -450,61 +513,62 @@ fn gpu_module() -> Value {
             "vendor": if apple_silicon { "Apple" } else { "" },
             "type": "Integrated",
             "driver": driver,
-            "coreCount": as_i64(search_property(*service, "gpu-core-count")),
+            "coreCount": as_i64(search_property(service, "gpu-core-count")),
             "coreUsage": usage,
             "memory": {"dedicated": {"total": Value::Null, "used": Value::Null}},
             "temperature": Value::Null,
         }));
     }
-    release(services);
     json!(gpus)
 }
 
 // --- Physical disks ----------------------------------------------------------
 
-fn conforms_to(service: io_object_t, class: &str) -> bool {
+#[allow(unsafe_code)]
+fn conforms_to(service: &IoObject, class: &str) -> bool {
     let Ok(class) = CString::new(class) else {
         return false;
     };
-    unsafe { IOObjectConformsTo(service, class.as_ptr().cast_mut()) != 0 }
+    // SAFETY: service is owned and class is NUL-terminated; IOKit treats the
+    // historical mutable class pointer as an input string.
+    unsafe { IOObjectConformsTo(service.0, class.as_ptr().cast_mut()) != 0 }
 }
 
 fn physical_disks() -> Value {
     let mut disks: Vec<Value> = Vec::new();
     let services = matching_services("IOMedia");
     for service in &services {
-        if as_bool(registry_property(*service, "Whole")) != Some(true) {
+        if as_bool(registry_property(service, "Whole")) != Some(true) {
             continue;
         }
         // APFS containers are whole IOMedia objects too, but they are views of
         // a physical disk that is already listed; keeping them would give the
         // machine phantom disks and change its benchmark identity.
-        if conforms_to(*service, "AppleAPFSMedia") {
+        if conforms_to(service, "AppleAPFSMedia") {
             continue;
         }
-        let characteristics = search_property(*service, "Device Characteristics")
+        let characteristics = search_property(service, "Device Characteristics")
             .and_then(|value| value.downcast::<CFDictionary>());
         let medium = characteristics
             .as_ref()
             .and_then(|dict| as_string(dict_value(dict, "Medium Type")))
             .unwrap_or_default();
-        let interconnect = search_property(*service, "Protocol Characteristics")
+        let interconnect = search_property(service, "Protocol Characteristics")
             .and_then(|value| value.downcast::<CFDictionary>())
             .and_then(|dict| as_string(dict_value(&dict, "Physical Interconnect")))
             .unwrap_or_default();
-        let device = as_string(registry_property(*service, "BSD Name")).unwrap_or_default();
+        let device = as_string(registry_property(service, "BSD Name")).unwrap_or_default();
         disks.push(json!({
-            "name": entry_name(*service),
+            "name": entry_name(service),
             "devPath": if device.is_empty() { String::new() } else { format!("/dev/{device}") },
-            "size": as_i64(registry_property(*service, "Size")).unwrap_or(0),
+            "size": as_i64(registry_property(service, "Size")).unwrap_or(0),
             "kind": if medium == "Solid State" { "SSD" } else { "HDD" },
             "interconnect": interconnect,
-            "removable": as_bool(registry_property(*service, "Removable")).unwrap_or(false),
-            "readOnly": as_bool(registry_property(*service, "Writable")) == Some(false),
+            "removable": as_bool(registry_property(service, "Removable")).unwrap_or(false),
+            "readOnly": as_bool(registry_property(service, "Writable")) == Some(false),
             "temperature": Value::Null,
         }));
     }
-    release(services);
     json!(disks)
 }
 
@@ -515,8 +579,8 @@ fn power_modules() -> (Value, Value) {
     let mut adapters: Vec<Value> = Vec::new();
     let services = matching_services("AppleSmartBattery");
     for service in &services {
-        let external = as_bool(registry_property(*service, "ExternalConnected")) == Some(true);
-        let charging = as_bool(registry_property(*service, "IsCharging")) == Some(true);
+        let external = as_bool(registry_property(service, "ExternalConnected")) == Some(true);
+        let charging = as_bool(registry_property(service, "IsCharging")) == Some(true);
         let mut status: Vec<&str> = Vec::new();
         if external {
             status.push("AC Connected");
@@ -525,18 +589,18 @@ fn power_modules() -> (Value, Value) {
             status.push("Charging");
         }
         batteries.push(json!({
-            "modelName": as_string(registry_property(*service, "DeviceName"))
+            "modelName": as_string(registry_property(service, "DeviceName"))
                 .unwrap_or_default(),
-            "manufacturer": as_string(registry_property(*service, "Manufacturer"))
+            "manufacturer": as_string(registry_property(service, "Manufacturer"))
                 .unwrap_or_else(|| "Apple Inc.".to_string()),
-            "capacity": as_f64(registry_property(*service, "CurrentCapacity")),
+            "capacity": as_f64(registry_property(service, "CurrentCapacity")),
             "status": status,
-            "cycleCount": as_i64(registry_property(*service, "CycleCount")),
-            "temperature": as_f64(registry_property(*service, "Temperature"))
+            "cycleCount": as_i64(registry_property(service, "CycleCount")),
+            "temperature": as_f64(registry_property(service, "Temperature"))
                 .map(|centi| centi / 100.0),
         }));
         if external
-            && let Some(details) = registry_property(*service, "AdapterDetails")
+            && let Some(details) = registry_property(service, "AdapterDetails")
                 .and_then(|value| value.downcast::<CFDictionary>())
         {
             adapters.push(json!({
@@ -550,6 +614,9 @@ fn power_modules() -> (Value, Value) {
             }));
         }
     }
-    release(services);
     (json!(batteries), json!(adapters))
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/macos_tests.rs"]
+mod tests;

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod curly;
 mod dash;
 mod docstring;

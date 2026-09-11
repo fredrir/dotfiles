@@ -694,39 +694,29 @@ fn resolved_link(root: &Path, relative: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[allow(unsafe_code)]
 fn open_source(root: &Path, relative: &Path) -> Result<File, String> {
-    use std::ffi::CString;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use rustix::fs::{Mode, OFlags, open, openat};
+
     safe_relative(relative)?;
-    let path = CString::new(root.as_os_str().as_bytes()).map_err(error)?;
-    let root_fd = unsafe {
-        libc::open(
-            path.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-        )
-    };
-    if root_fd < 0 {
-        return Err(error(std::io::Error::last_os_error()));
-    }
-    let mut directory = unsafe { OwnedFd::from_raw_fd(root_fd) };
+    let mut directory = open(
+        root,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(error)?;
     let components = relative.components().collect::<Vec<_>>();
     for (index, component) in components.iter().enumerate() {
-        let name = CString::new(component.as_os_str().as_bytes()).map_err(error)?;
         let last = index + 1 == components.len();
-        let flags = libc::O_RDONLY
-            | libc::O_NOFOLLOW
-            | libc::O_CLOEXEC
-            | if last { 0 } else { libc::O_DIRECTORY };
-        let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
-        if descriptor < 0 {
-            return Err(format!(
-                "unsafe workspace read {}: {}",
-                relative.display(),
-                std::io::Error::last_os_error()
-            ));
-        }
-        directory = unsafe { OwnedFd::from_raw_fd(descriptor) };
+        let flags = OFlags::RDONLY
+            | OFlags::NOFOLLOW
+            | OFlags::CLOEXEC
+            | if last {
+                OFlags::empty()
+            } else {
+                OFlags::DIRECTORY
+            };
+        directory = openat(&directory, component.as_os_str(), flags, Mode::empty())
+            .map_err(|error| format!("unsafe workspace read {}: {error}", relative.display()))?;
     }
     let file = File::from(directory);
     if !file.metadata().map_err(error)?.is_file() {

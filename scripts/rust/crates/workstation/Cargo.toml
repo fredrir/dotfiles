@@ -16,10 +16,13 @@ clap.workspace          = true
 clap_complete.workspace = true
 rayon                   = { workspace = true, optional = true }
 
-# Only for the terminal-size ioctl; there is no other way to ask.
 [target.'cfg(unix)'.dependencies]
-libc.workspace = true
+nix = { workspace = true, features = ["signal"] }
+rustix = { workspace = true, features = ["termios"] }
 
 [dev-dependencies]
 tempfile.workspace = true
 testkit.workspace  = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
