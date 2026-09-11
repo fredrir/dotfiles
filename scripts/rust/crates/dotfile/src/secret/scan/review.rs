@@ -1,3 +1,16 @@
+use std::collections::BTreeMap;
+use std::path::Path;
+use workstation::Style;
+
+pub(super) struct Item<'a> {
+    pub path: &'a Path,
+    pub rules: &'a BTreeMap<&'a str, usize>,
+    pub position: usize,
+    pub total: usize,
+    pub can_accept: bool,
+    pub version: Option<&'a str>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Decision {
     Accept,
@@ -9,7 +22,7 @@ pub(super) use terminal::Session;
 
 #[cfg(unix)]
 mod terminal {
-    use super::{Decision, escaped};
+    use super::{Decision, Item, Style, inspection, item_header, prompt, summary};
     use nix::sys::select::{FD_SETSIZE, FdSet, select};
     use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
     use nix::sys::termios::{
@@ -25,6 +38,7 @@ mod terminal {
     pub(in super::super) struct Session {
         terminal: File,
         original: Termios,
+        style: Style,
     }
 
     impl Session {
@@ -60,44 +74,43 @@ mod terminal {
             raw.control_chars[SpecialCharacterIndices::VINTR as usize] = 3;
             raw.control_chars[SpecialCharacterIndices::VQUIT as usize] = libc::_POSIX_VDISABLE;
             raw.control_chars[SpecialCharacterIndices::VSUSP as usize] = libc::_POSIX_VDISABLE;
-            let session = Self { terminal, original };
+            let session = Self {
+                terminal,
+                original,
+                style: Style::for_stderr(),
+            };
             if set_attributes(&session.terminal, &raw).is_err() {
                 return Ok(None);
             }
             Ok(Some(session))
         }
 
-        /// Position is one-based; inspection supplies only redacted context.
+        pub(in super::super) fn begin(
+            &mut self,
+            findings: usize,
+            files: usize,
+            origin: &str,
+        ) -> Result<(), String> {
+            self.put(&summary(&self.style, findings, files, origin))
+        }
+
         pub(in super::super) fn choose(
             &mut self,
-            title: &str,
-            position: usize,
-            total: usize,
-            can_accept: bool,
-            mut inspection: impl FnMut() -> Result<String, String>,
+            item: &Item<'_>,
+            mut inspect: impl FnMut() -> Result<String, String>,
         ) -> Result<Decision, String> {
-            self.put(&format!(
-                "\nSecret scan {position}/{total}\n{}\n",
-                escaped(title)
-            ))?;
-            if !can_accept {
-                self.put("This finding must be fixed.\n")?;
-            }
+            self.put(&item_header(&self.style, item))?;
             loop {
-                self.put(if can_accept {
-                    "[i] Inspect  [a] Accept this content  [q] Abort (default): "
-                } else {
-                    "[i] Inspect  [q] Abort (default): "
-                })?;
+                self.put(&prompt(&self.style, item.can_accept))?;
                 match self.key()?.map(|key| key.to_ascii_lowercase()) {
                     Some(b'i') => {
-                        self.put("i\n\nInspection\n")?;
-                        let context = inspection()?;
-                        self.put(&escaped(&context))?;
                         self.put("\n\n")?;
+                        let context = inspect()?;
+                        self.put(&inspection(&self.style, &context))?;
+                        self.put("\n")?;
                     }
-                    Some(b'a') if can_accept => {
-                        self.put("a\n")?;
+                    Some(b'a') if item.can_accept => {
+                        self.put(&format!("  {}\n", self.style.green("✓")))?;
                         return Ok(Decision::Accept);
                     }
                     Some(3) => {
@@ -208,16 +221,117 @@ impl Session {
     pub(super) fn open() -> Result<Option<Self>, String> {
         Ok(None)
     }
+    pub(super) fn begin(
+        &mut self,
+        _findings: usize,
+        _files: usize,
+        _origin: &str,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     pub(super) fn choose(
         &mut self,
-        _title: &str,
-        _position: usize,
-        _total: usize,
-        _can_accept: bool,
+        _item: &Item<'_>,
         _inspection: impl FnMut() -> Result<String, String>,
     ) -> Result<Decision, String> {
         Ok(Decision::Abort)
     }
+}
+
+fn summary(style: &Style, findings: usize, files: usize, origin: &str) -> String {
+    format!(
+        "\n{}  {}\n",
+        style.bold(&style.teal("Secret review")),
+        style.dim(&format!(
+            "{findings} finding{} · {files} {}{} · {origin}",
+            if findings == 1 { "" } else { "s" },
+            if origin == "commits" {
+                "version"
+            } else {
+                "file"
+            },
+            if files == 1 { "" } else { "s" },
+        )),
+    )
+}
+
+fn item_header(style: &Style, item: &Item<'_>) -> String {
+    let path = inline(&item.path.to_string_lossy());
+    let path = if let Some((directory, name)) = path.rsplit_once('/') {
+        format!(
+            "{}{}",
+            style.dim(&format!("{directory}/")),
+            style.bold(name)
+        )
+    } else {
+        style.bold(&path)
+    };
+    let mut rules = item.rules.iter().collect::<Vec<_>>();
+    rules.sort_by(|(a, na), (b, nb)| nb.cmp(na).then_with(|| a.cmp(b)));
+    let rules = rules
+        .into_iter()
+        .map(|(name, count)| {
+            let label = inline(name);
+            if *count == 1 {
+                label
+            } else {
+                format!("{label} ×{count}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let rules = if item.can_accept {
+        style.code("33", &rules)
+    } else {
+        style.red(&rules)
+    };
+    format!(
+        "\n  {}  {path}{}\n       {rules}\n{}\n",
+        style.teal(&format!("{}/{}", item.position, item.total)),
+        item.version
+            .map(|version| style.dim(&format!(
+                " · {}",
+                inline(version).chars().take(12).collect::<String>()
+            )))
+            .unwrap_or_default(),
+        if item.can_accept {
+            String::new()
+        } else {
+            format!("       {}\n", style.red("Must fix before continuing"))
+        },
+    )
+}
+
+fn prompt(style: &Style, can_accept: bool) -> String {
+    format!(
+        "  {} Inspect  {}{} Abort  ",
+        style.teal("[i]"),
+        if can_accept {
+            format!("{} Accept & remember  ", style.green("[a]"))
+        } else {
+            String::new()
+        },
+        style.dim("[q/Enter]"),
+    )
+}
+
+fn inspection(style: &Style, context: &str) -> String {
+    let context = escaped(context);
+    context
+        .lines()
+        .map(|line| {
+            let colored = if line.starts_with("> ") {
+                style.code("33", line)
+            } else {
+                style.dim(line)
+            };
+            format!("  {colored}\n")
+        })
+        .collect()
+}
+
+fn inline(text: &str) -> String {
+    escaped(text).replace('\n', "\\n")
 }
 
 fn escaped(text: &str) -> String {

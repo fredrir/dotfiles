@@ -11,16 +11,14 @@ pub(super) fn render(
     page: usize,
 ) -> Result<String, String> {
     if findings.iter().any(|finding| finding.tier == 1) {
-        return Ok(
-            "Contents withheld: this file must be encrypted or removed from the repository.".into(),
-        );
+        return Ok("Withheld\nContents withheld: encrypt or remove this file.".into());
     }
     if source.sha256.is_empty() {
-        return Ok("Source is not text or exceeds the 2 MiB inspection limit.".into());
+        return Ok("Unavailable\nNot text or over 2 MiB.".into());
     }
     let bytes = zeroize::Zeroizing::new(source_bytes(context, source)?);
     if bytes.len() > MAX_BYTES || bytes.iter().take(8192).any(|byte| *byte == 0) {
-        return Ok("Source is binary or exceeds the 2 MiB inspection limit.".into());
+        return Ok("Unavailable\nBinary content or over 2 MiB.".into());
     }
     let text = zeroize::Zeroizing::new(String::from_utf8_lossy(&bytes).into_owned());
     let redacted = redact(&text, canaries)?;
@@ -34,11 +32,7 @@ pub(super) fn render(
     }
     let pages = selected.len().div_ceil(60).max(1);
     let page = page % pages;
-    let mut output = format!(
-        "Matched values are masked. Context {}/{}.\n",
-        page + 1,
-        pages
-    );
+    let mut output = format!("Inspection {}/{} masked\n", page + 1, pages);
     let mut previous = 0;
     for number in selected.iter().copied().skip(page * 60).take(60) {
         if previous != 0 && number > previous + 1 {
@@ -58,7 +52,7 @@ pub(super) fn render(
         previous = number;
     }
     if pages > 1 {
-        output.push_str("Press i again for the next context page.\n");
+        output.push_str("i next page\n");
     }
     Ok(output)
 }

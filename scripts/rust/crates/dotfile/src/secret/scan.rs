@@ -616,6 +616,19 @@ pub fn run(
         );
         return Ok(ExitCode::SUCCESS);
     }
+    if review_requested
+        && scanner.total_findings == scanner.findings.len()
+        && let Some(session) = review::Session::open()?
+    {
+        return review_findings(
+            context,
+            &scanner,
+            staged,
+            !commits.is_empty(),
+            index_snapshot.as_deref(),
+            session,
+        );
+    }
     for finding in scanner
         .findings
         .iter()
@@ -659,13 +672,23 @@ pub fn run(
         eprintln!("Canaries and encryption violations must be fixed before continuing.");
     }
     if review_requested {
-        return review_findings(
-            context,
-            &scanner,
-            staged,
-            !commits.is_empty(),
-            index_snapshot.as_deref(),
+        if scanner.total_findings != scanner.findings.len() {
+            return Err("report limit reached; narrow the scan before reviewing".into());
+        }
+        eprintln!(
+            "Review needs an interactive terminal; unresolved findings still block this operation."
         );
+        eprintln!(
+            "{}",
+            if !commits.is_empty() {
+                "Repeat this --commits scan with --review in an interactive terminal."
+            } else if staged {
+                "Run dotfile secret scan --staged --review in a terminal, then retry."
+            } else {
+                "Run dotfile secret scan --review in a terminal, then retry."
+            }
+        );
+        return Ok(ExitCode::FAILURE);
     }
     eprintln!("Review with --review to inspect findings, accept false positives, or abort.");
     Ok(ExitCode::FAILURE)
@@ -736,26 +759,11 @@ fn review_findings(
     staged: bool,
     history: bool,
     index_snapshot: Option<&[u8]>,
+    mut session: review::Session,
 ) -> Result<ExitCode, String> {
     if scanner.total_findings != scanner.findings.len() {
         return Err("report limit reached; narrow the scan before reviewing".into());
     }
-    let Some(mut session) = review::Session::open()? else {
-        eprintln!(
-            "Review needs an interactive terminal; unresolved findings still block this operation."
-        );
-        eprintln!(
-            "{}",
-            if history {
-                "Repeat this --commits scan with --review in an interactive terminal."
-            } else if staged {
-                "Run dotfile secret scan --staged --review in a terminal, then retry."
-            } else {
-                "Run dotfile secret scan --review in a terminal, then retry."
-            }
-        );
-        return Ok(ExitCode::FAILURE);
-    };
     let mut groups = BTreeMap::<(&Path, &str), Vec<&Finding>>::new();
     for finding in &scanner.findings {
         groups
@@ -763,6 +771,17 @@ fn review_findings(
             .or_default()
             .push(finding);
     }
+    session.begin(
+        scanner.total_findings,
+        groups.len(),
+        if staged {
+            "staged"
+        } else if history {
+            "commits"
+        } else {
+            "working tree"
+        },
+    )?;
     let mut pending = Vec::new();
     for (index, findings) in groups.values().enumerate() {
         crate::cancel::check()?;
@@ -772,48 +791,29 @@ fn review_findings(
             .map(|f| f.label.clone())
             .collect::<BTreeSet<_>>();
         let can_accept = findings.iter().all(|finding| finding.tier == 2);
-        let origin = if staged {
-            "staged"
-        } else if history {
-            "commit"
-        } else {
-            "working tree"
+        let mut rules = BTreeMap::new();
+        for finding in findings {
+            *rules.entry(finding.label.as_str()).or_insert(0) += 1;
+        }
+        let item = review::Item {
+            path: &source.path,
+            rules: &rules,
+            position: index + 1,
+            total: groups.len(),
+            can_accept,
+            version: history.then_some(source.oid.as_deref().unwrap_or(&source.sha256)),
         };
-        let title = format!(
-            "{} ({origin}, {}{})\n{} findings: {}\n{}",
-            crate::ui::sanitize_text(&source.path.to_string_lossy()),
-            if source.oid.is_some() {
-                "blob "
-            } else {
-                "sha256 "
-            },
-            source
-                .oid
-                .as_deref()
-                .unwrap_or(&source.sha256)
-                .chars()
-                .take(12)
-                .collect::<String>(),
-            findings.len(),
-            labels
-                .iter()
-                .map(|label| crate::ui::sanitize_text(label))
-                .collect::<Vec<_>>()
-                .join(", "),
-            if can_accept {
-                "Accept remembers this exact file content locally."
-            } else {
-                "Canaries and encryption violations cannot be accepted."
-            }
-        );
         let mut page = 0;
-        let choice = session.choose(&title, index + 1, groups.len(), can_accept, || {
+        let choice = session.choose(&item, || {
             let context = inspect::render(context, source, findings, &scanner.canaries, page)?;
             page += 1;
             Ok(context)
         })?;
         if choice == review::Decision::Abort {
-            eprintln!("Aborted; no approvals saved.");
+            eprintln!(
+                "{}",
+                workstation::Style::for_stderr().dim("Aborted · no approvals saved")
+            );
             return Ok(ExitCode::FAILURE);
         }
         if !can_accept {
@@ -839,8 +839,12 @@ fn review_findings(
     scanner.approvals.save(context, &pending, verify)?;
     verify()?;
     eprintln!(
-        "Accepted {} file contents locally; changes require review again.",
-        pending.len()
+        "{}",
+        workstation::Style::for_stderr().green(&format!(
+            "✓ {} approval{} saved",
+            pending.len(),
+            if pending.len() == 1 { "" } else { "s" }
+        ))
     );
     Ok(ExitCode::SUCCESS)
 }

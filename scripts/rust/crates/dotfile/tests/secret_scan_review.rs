@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use testkit::pty::{open_pty, read_available, stdio, take_controlling_terminal, terminal_state};
 
-const PROMPT: &str = "Abort (default)";
+const PROMPT: &str = "[q/Enter] Abort";
 
 fn token(character: char) -> String {
     format!("{}{}", "ghp_", character.to_string().repeat(36))
@@ -54,6 +54,7 @@ impl Fixture {
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("TERM", "xterm-256color")
+            .env("NO_COLOR", "1")
             .env_remove("GIT_INDEX_FILE")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
@@ -241,12 +242,13 @@ impl Drop for Terminal {
 #[test]
 fn inspection_reads_redacted_staged_context_with_stdout_hidden_and_stdin_untouched() {
     let fixture = Fixture::new();
+    let path = "example\n\x1b[2J\u{202e}.txt";
     let secret = token('Q');
     let staged = format!(
         "STAGED_BEFORE café \x1b]0;fixture-title\x07\u{202e}\nexample = {secret}\nSTAGED_AFTER\n"
     );
-    fixture.stage("example.txt", &staged);
-    fixture.write("example.txt", "WORKTREE_ONLY\n");
+    fixture.stage(path, &staged);
+    fixture.write(path, "WORKTREE_ONLY\n");
     let before = fixture.index();
     let stream = "refs/heads/first 111111 refs/heads/first 000000\nrefs/heads/second 222222 refs/heads/second 000000\n";
     let input = fixture.temporary.path().join("hook-input");
@@ -271,11 +273,13 @@ fn inspection_reads_redacted_staged_context_with_stdout_hidden_and_stdin_untouch
     assert!(!output.contains(&secret));
     assert!(!output.contains("WORKTREE_ONLY"));
     assert!(!output.contains("\x1b]0;fixture-title\x07"));
+    assert!(!output.contains("\x1b[2J"));
     assert!(!output.contains('\u{202e}'));
+    assert!(output.contains("example\\n\\u{1b}[2J\\u{202e}.txt"));
     assert_eq!(fs::read_to_string(unread).unwrap(), stream);
     assert_eq!(fixture.index(), before);
     assert_eq!(
-        fs::read_to_string(fixture.root.join("example.txt")).unwrap(),
+        fs::read_to_string(fixture.root.join(path)).unwrap(),
         "WORKTREE_ONLY\n"
     );
 }
@@ -332,6 +336,78 @@ fn redirected_stderr_and_ci_fail_closed_without_a_review_prompt() {
     assert!(!terminal.finish().success());
     assert!(!terminal.text().contains(PROMPT));
     assert_eq!(fixture.index(), before);
+}
+
+#[test]
+fn compact_review_uses_one_counted_summary_and_honors_terminal_color_policy() {
+    let sgr = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+    for (policy, setting, colored) in [
+        ("enabled", None, true),
+        ("NO_COLOR", Some(("NO_COLOR", "1")), false),
+        ("TERM=dumb", Some(("TERM", "dumb")), false),
+        ("CLICOLOR=0", Some(("CLICOLOR", "0")), false),
+    ] {
+        let fixture = Fixture::new();
+        let secret = token('P');
+        fixture.stage("first.txt", &format!("{secret}\n").repeat(16));
+        fixture.stage("second.txt", &token('N'));
+        let before = fixture.index();
+        let mut command = fixture.command(&["--staged", "--review"]);
+        command
+            .env_remove("NO_COLOR")
+            .env_remove("CLICOLOR")
+            .env_remove("THEME_DIR")
+            .env_remove("THEME_GIT")
+            .env_remove("THEME_SUDO");
+        if let Some((name, value)) = setting {
+            command.env(name, value);
+        }
+        let mut terminal = Terminal::spawn(command);
+        terminal.wait_for("Abort", 0);
+        let raw = terminal.text();
+        assert_eq!(sgr.is_match(&raw), colored, "{policy}: {raw:?}");
+        let display = sgr.replace_all(&raw, "");
+        assert!(
+            display.contains("Secret review  17 findings · 2 files · staged"),
+            "{policy}: {display}"
+        );
+        assert!(display.contains("1/2  first.txt"), "{policy}: {display}");
+        assert!(display.contains("github-token ×16"), "{policy}: {display}");
+        assert!(display.contains("[a] Accept & remember"), "{display}");
+        assert!(display.contains(PROMPT), "{display}");
+        for once in ["Secret review", "first.txt", "github-token"] {
+            assert_eq!(display.matches(once).count(), 1, "{policy}: {display}");
+        }
+        for absent in [
+            "second.txt",
+            "✗ pattern",
+            "blob ",
+            "sha256 ",
+            "this exact file",
+        ] {
+            assert!(!display.contains(absent), "{policy}: {display}");
+        }
+        assert!(!display.contains(&secret));
+        let after = terminal.send(b"i");
+        terminal.wait_for("Inspection", after);
+        terminal.wait_for("Abort", after);
+        let inspection = String::from_utf8_lossy(&terminal.output[after..]);
+        assert_eq!(
+            sgr.is_match(&inspection),
+            colored,
+            "{policy}: {inspection:?}"
+        );
+        let inspection = sgr.replace_all(&inspection, "");
+        assert!(
+            inspection.contains("Inspection 1/1 · masked"),
+            "{policy}: {inspection}"
+        );
+        assert!(inspection.contains("[redacted]"), "{inspection}");
+        assert!(!inspection.contains(&secret));
+        terminal.send(b"q");
+        assert!(!terminal.finish().success());
+        assert_eq!(fixture.index(), before);
+    }
 }
 
 #[test]
@@ -531,8 +607,8 @@ fn a_real_two_ref_push_reviews_both_stream_records_without_consuming_hook_stdin(
     assert!(terminal.finish().success(), "{}", terminal.text());
     assert!(terminal.text().contains("first-example.txt"));
     assert!(terminal.text().contains("second-example.txt"));
-    assert!(terminal.text().contains("Secret scan 1/2"));
-    assert!(terminal.text().contains("Secret scan 2/2"));
+    assert!(terminal.text().contains("1/2  first-example.txt"));
+    assert!(terminal.text().contains("2/2  second-example.txt"));
     assert!(!terminal.text().contains(&token('A')));
     assert!(!terminal.text().contains(&token('B')));
     let remote_heads = fixture.git(&["ls-remote", "--heads", "origin"]);
@@ -585,7 +661,7 @@ fn identical_content_shared_by_outgoing_refs_is_reviewed_once() {
     assert!(terminal.finish().success(), "{}", terminal.text());
     let output = terminal.text();
     assert_eq!(output.matches(PROMPT).count(), 1, "{output}");
-    assert!(output.contains("Secret scan 1/1"), "{output}");
+    assert!(output.contains("1/1  example.txt"), "{output}");
     assert!(!output.contains(&secret));
     let heads = fixture.git(&["ls-remote", "--heads", "origin"]);
     let heads = String::from_utf8_lossy(&heads.stdout);
