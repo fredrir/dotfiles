@@ -63,9 +63,14 @@ pub fn build(tier: &str, families: &[String], workdir: &Path) -> Plan {
         ])
         .is_some(),
     );
-    let native = suites::native_path();
+    let native = suites::native::native_path();
     let native_reason = native.as_ref().err().cloned().unwrap_or_default();
-    for (name, family) in [("cpu.native", "cpu"), ("mem.native", "mem")] {
+    for (name, family) in [
+        ("cpu.native", "cpu"),
+        ("mem.native", "mem"),
+        ("mem.latency", "mem"),
+        ("sched.wake", "sched"),
+    ] {
         add(
             name,
             family,
@@ -173,6 +178,43 @@ pub fn build(tier: &str, families: &[String], workdir: &Path) -> Plan {
         },
         0,
         suites::tool_path(&["stress-ng"]).is_some(),
+    );
+    add(
+        "compile",
+        "compile",
+        &["cargo", "rustc"],
+        "",
+        0,
+        suites::tool_path(&["cargo"]).is_some(),
+    );
+    let sys = crate::env::Sysfs::from_env();
+    let idle = suites::idle::Sources {
+        rapl: crate::power::Rapl::discover(&sys).ok(),
+        chip: crate::hwmon::Hwmon::find(&sys, crate::hwmon::CHIP).ok(),
+        cpu: crate::hwmon::Hwmon::find(&sys, crate::hwmon::CPU_SENSOR).ok(),
+        gpu: suites::tool_path(&["nvidia-smi"]).is_some(),
+    };
+    add("idle", "idle", &["hwtune"], "", 0, !idle.keys().is_empty());
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let model = crate::paths::Paths::discover(None)
+        .ok()
+        .and_then(|paths| {
+            suites::ai::load_settings(&suites::ai::settings_path(&paths), home.as_deref())
+                .ok()
+                .flatten()
+        })
+        .is_some_and(|settings| settings.model.is_file());
+    add(
+        "ai",
+        "ai",
+        &["llama-cli"],
+        if model {
+            ""
+        } else {
+            "no ai model in config/hwtune/<host>.bench.dotfile"
+        },
+        0,
+        suites::tool_path(&["llama-cli"]).is_some(),
     );
     Plan {
         tier: tier.into(),

@@ -4,7 +4,7 @@ use workstation::Style;
 
 use crate::bios::{export, live};
 use crate::cpu;
-use crate::env::Sysfs;
+use crate::env::{self, Sysfs};
 use crate::gpu;
 use crate::hwmon::{self, Hwmon};
 use crate::journal;
@@ -14,6 +14,64 @@ use crate::table;
 
 fn line(style: &Style, label: &str, value: &str) {
     println!("  {:<9}  {value}", style.bold(label));
+}
+
+fn idle_line(sys: &Sysfs) -> String {
+    let cpuidle = sys.sys.join("devices/system/cpu/cpuidle");
+    let read = |path: std::path::PathBuf| env::read_text(&path).unwrap_or_else(|_| "?".into());
+    let zswap = match env::read_text(&sys.sys.join("module/zswap/parameters/enabled")).as_deref() {
+        Ok("Y") => "on",
+        Ok("N") => "off",
+        _ => "?",
+    };
+    let rapl = match crate::power::Rapl::discover(sys) {
+        Ok(_) => "readable",
+        Err(_) if sys.sys.join("class/powercap/intel-rapl:0").exists() => "root-only",
+        Err(_) => "absent",
+    };
+    format!(
+        "cpuidle {}/{}  zswap {zswap}  rapl {rapl}",
+        read(cpuidle.join("current_driver")),
+        read(cpuidle.join("current_governor"))
+    )
+}
+
+pub fn link(device: &std::path::Path) -> Option<String> {
+    let speed = |name: &str| {
+        env::read_text(&device.join(name))
+            .ok()
+            .and_then(|text| text.split_whitespace().next().map(str::to_owned))
+    };
+    Some(format!(
+        "{}/{} GT/s x{}",
+        speed("current_link_speed")?,
+        speed("max_link_speed")?,
+        env::read_text(&device.join("current_link_width")).ok()?
+    ))
+}
+
+fn link_line(paths: Option<&Paths>, sys: &Sysfs) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(gpu) = paths
+        .and_then(|paths| crate::bios::spec::load(&paths.spec_file()).ok())
+        .and_then(|spec| spec.live.gpu)
+        && let Some(text) = link(&sys.sys.join("bus/pci/devices").join(gpu))
+    {
+        parts.push(format!("gpu {text}"));
+    }
+    if let Ok(entries) = std::fs::read_dir(sys.sys.join("class/nvme")) {
+        let mut names = entries
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        for name in names {
+            if let Some(text) = link(&sys.sys.join("class/nvme").join(&name).join("device")) {
+                parts.push(format!("{name} {text}"));
+            }
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("  "))
 }
 
 pub fn run(paths: Option<&Paths>, sys: &Sysfs, style: &Style) -> Result<ExitCode, String> {
@@ -49,6 +107,7 @@ pub fn run(paths: Option<&Paths>, sys: &Sysfs, style: &Style) -> Result<ExitCode
         ),
         Err(e) => line(style, "cpu", &style.dim(&e)),
     }
+    line(style, "idle", &idle_line(sys));
     if let Ok(cores) = cpu::physical_cores(sys) {
         let ranking = cpu::prefcore_ranking(sys, &cores)
             .into_iter()
@@ -104,6 +163,9 @@ pub fn run(paths: Option<&Paths>, sys: &Sysfs, style: &Style) -> Result<ExitCode
         Err(e) => line(style, "gpu", &style.dim(&e)),
     }
 
+    if let Some(links) = link_line(paths, sys) {
+        line(style, "links", &links);
+    }
     match journal::errors_since(None) {
         Ok(lines) => {
             let counts = journal::counts(&lines);

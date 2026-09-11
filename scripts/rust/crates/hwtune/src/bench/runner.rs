@@ -14,7 +14,9 @@ pub fn cancelled() -> bool {
     ui_terminal::termination_requested() || crate::tune::monitor::cancelled()
 }
 
-pub const FAMILIES: [&str; 7] = ["cpu", "mem", "cache", "disk", "gpu", "thermal", "workload"];
+pub const FAMILIES: [&str; 11] = [
+    "cpu", "mem", "cache", "disk", "gpu", "thermal", "workload", "compile", "idle", "sched", "ai",
+];
 #[derive(Clone, Debug)]
 pub struct Setting {
     pub tier: String,

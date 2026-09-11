@@ -4,30 +4,43 @@
 
 ## `archie`
 
-3 clean runs  |  arch
+4 clean runs  |  arch
 
 ### `91b4b3e3`
 
 AMD Ryzen 7 9800X3D, NVIDIA GeForce RTX 5070 Ti, 32 GB
 
+Baseline: `2026-09-11T22-28-20.001535375Z-91b4b3e3-3d3f7`
+
 | Metric                  | Unit   | Latest  | Runs | Best    |
 | ----------------------- | ------ | ------- | ---- | ------- |
-| `cache.read`            | MiB/s  | 108 260 | 1    | 108 260 |
-| `cache.write`           | MiB/s  | 41 897  | 1    | 41 897  |
-| `cpu.crypto`            | MB/s   | 25 354  | 1    | 25 354  |
-| `cpu.multi`             | MIPS   | 143 543 | 1    | 143 543 |
-| `cpu.native_multi`      | Mops/s | 12 536  | 1    | 12 536  |
-| `cpu.native_single`     | Mops/s | 895.0   | 1    | 895.0   |
-| `cpu.single`            | MIPS   | 13 445  | 1    | 13 445  |
-| `mem.native_read`       | GiB/s  | 67.3    | 1    | 67.3    |
-| `mem.native_write`      | GiB/s  | 33.2    | 1    | 33.2    |
-| `mem.random`            | MiB/s  | 967.9   | 1    | 967.9   |
-| `mem.read`              | MiB/s  | 57 475  | 1    | 57 475  |
-| `mem.write`             | MiB/s  | 28 644  | 1    | 28 644  |
-| `workload.git_log`      | ms     | 1.42    | 1    | 1.42    |
-| `workload.git_status`   | ms     | 3.53    | 1    | 3.53    |
-| `workload.nvim_startup` | ms     | 21.5    | 1    | 21.5    |
-| `workload.tar_repo`     | ms     | 0.83    | 1    | 0.83    |
+| `ai.generate_tps`       | t/s    | 218.2   | 1    | 218.2   |
+| `ai.gpu_w`              | W      | 166.0   | 1    | 166.0   |
+| `ai.prompt_tps`         | t/s    | 9 664   | 1    | 9 664   |
+| `cache.read`            | MiB/s  | 107 393 | 2    | 108 260 |
+| `cache.write`           | MiB/s  | 41 918  | 2    | 41 918  |
+| `compile.dev`           | ms     | 3 792   | 1    | 3 792   |
+| `compile.release`       | ms     | 5 494   | 1    | 5 494   |
+| `cpu.crypto`            | MB/s   | 25 402  | 2    | 25 402  |
+| `cpu.multi`             | MIPS   | 144 075 | 2    | 144 075 |
+| `cpu.native_multi`      | Mops/s | 12 623  | 2    | 12 623  |
+| `cpu.native_single`     | Mops/s | 896.0   | 2    | 896.0   |
+| `cpu.single`            | MIPS   | 13 409  | 2    | 13 445  |
+| `idle.fan_rpm`          | rpm    | 3 093   | 1    | 3 093   |
+| `idle.gpu_w`            | W      | 7.69    | 1    | 7.69    |
+| `idle.tctl_c`           | C      | 38.0    | 1    | 38.0    |
+| `mem.latency`           | ns     | 65.5    | 1    | 65.5    |
+| `mem.native_read`       | GiB/s  | 66.7    | 2    | 67.3    |
+| `mem.native_write`      | GiB/s  | 33.0    | 2    | 33.2    |
+| `mem.random`            | MiB/s  | 958.7   | 2    | 967.9   |
+| `mem.read`              | MiB/s  | 56 303  | 2    | 57 475  |
+| `mem.write`             | MiB/s  | 28 563  | 2    | 28 644  |
+| `sched.wake_idle`       | us     | 52.0    | 1    | 52.0    |
+| `sched.wake_loaded`     | us     | 51.0    | 1    | 51.0    |
+| `workload.git_log`      | ms     | 1.55    | 1    | 1.55    |
+| `workload.git_status`   | ms     | 4.00    | 1    | 4.00    |
+| `workload.nvim_startup` | ms     | 21.7    | 1    | 21.7    |
+| `workload.tar_repo`     | ms     | 0.87    | 1    | 0.87    |
 
 ### `10db7d1f`
 

@@ -81,8 +81,14 @@ fn the_command_dump_describes_the_parser() {
     assert_eq!(dump["version"], 1);
     assert_eq!(dump["command"]["path"], serde_json::json!(["count"]));
     let params = dump["command"]["params"].as_array().unwrap();
-    assert!(params.iter().any(|p| p["opts"] == serde_json::json!(["-r", "--recursive"])));
-    assert!(params.iter().any(|p| p["name"] == "directory" && p["kind"] == "argument" && p["metavar"] == "DIRECTORY"));
+    assert!(
+        params
+            .iter()
+            .any(|p| p["opts"] == serde_json::json!(["-r", "--recursive"]))
+    );
+    assert!(params.iter().any(|p| p["name"] == "directory"
+        && p["kind"] == "argument"
+        && p["metavar"] == "DIRECTORY"));
 }
 
 #[test]

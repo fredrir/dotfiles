@@ -86,7 +86,12 @@ linux/arch {
   hwtune
   nvme                = nvme-cli
   fwupdmgr            = fwupd
+  mold
+  sccache
+  taskset             = util-linux
   ?memtester
+  ?y-cruncher
+  ?llama-cli
 }
 
 linux/kde {

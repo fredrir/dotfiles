@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::env::{Sysfs, read_text};
 
+pub const CPUIDLE_GOVERNOR: &str = "devices/system/cpu/cpuidle/current_governor";
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Control {
     /// Path relative to the captured sysfs root.
@@ -129,6 +131,14 @@ pub fn discover(sys: &Sysfs) -> Result<Plan, String> {
         None,
         &mut plan,
     );
+    add_control(
+        &sys.sys,
+        PathBuf::from(CPUIDLE_GOVERNOR),
+        &sys.sys
+            .join("devices/system/cpu/cpuidle/available_governors"),
+        None,
+        &mut plan,
+    );
     plan.controls
         .sort_by_key(|control| (order(&control.path), control.path.clone()));
     plan.candidates = candidates(&plan.controls);
@@ -152,7 +162,7 @@ pub fn allowed_path(path: &Path) -> bool {
     {
         return false;
     }
-    if path == Path::new("firmware/acpi/platform_profile") {
+    if path == Path::new("firmware/acpi/platform_profile") || path == Path::new(CPUIDLE_GOVERNOR) {
         return true;
     }
     let parts = path.iter().map(|part| part.to_str()).collect::<Vec<_>>();
@@ -267,6 +277,23 @@ fn candidates(controls: &[Control]) -> Vec<Profile> {
                 .iter()
                 .any(|previous| previous.values == candidate.values)
         {
+            result.push(candidate);
+        }
+    }
+    for control in controls
+        .iter()
+        .filter(|control| control.path == Path::new(CPUIDLE_GOVERNOR))
+    {
+        for choice in control
+            .choices
+            .iter()
+            .filter(|choice| **choice != control.original)
+        {
+            let mut candidate = original.clone();
+            candidate.name = format!("cpuidle-{choice}");
+            candidate
+                .values
+                .insert(control.path.clone(), choice.clone());
             result.push(candidate);
         }
     }

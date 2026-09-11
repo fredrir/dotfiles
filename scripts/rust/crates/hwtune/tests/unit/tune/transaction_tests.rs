@@ -163,3 +163,38 @@ fn failed_restoration_does_not_recreate_missing_sysfs_attributes() {
         controls[1].original
     );
 }
+
+#[test]
+fn cpuidle_candidate_applies_and_restores_only_the_governor() {
+    let (temp, _, _) = fixture();
+    let root = temp.path().join("sys");
+    let cpuidle = root.join("devices/system/cpu/cpuidle");
+    fs::create_dir_all(&cpuidle).unwrap();
+    fs::write(cpuidle.join("current_governor"), "menu").unwrap();
+    fs::write(cpuidle.join("available_governors"), "ladder menu teo").unwrap();
+    let plan = controls::discover(&Sysfs {
+        sys: root.clone(),
+        dev: temp.path().into(),
+    })
+    .unwrap();
+    let candidate = plan
+        .candidates
+        .iter()
+        .find(|profile| profile.name == "cpuidle-teo")
+        .unwrap();
+    let mut guard = Guard::begin(&root, plan.controls.clone()).unwrap();
+    guard.apply(candidate).unwrap();
+    assert_eq!(
+        controls::read(&root, Path::new(controls::CPUIDLE_GOVERNOR)).unwrap(),
+        "teo"
+    );
+    assert_eq!(
+        controls::read(&root, &plan.controls[0].path).unwrap(),
+        plan.controls[0].original
+    );
+    guard.complete(false).unwrap();
+    assert_eq!(
+        controls::read(&root, Path::new(controls::CPUIDLE_GOVERNOR)).unwrap(),
+        "menu"
+    );
+}

@@ -152,6 +152,20 @@ pub enum Command {
         #[command(subcommand)]
         command: crate::tune::Command,
     },
+    #[command(about = "Run a command under a trial OS profile, then restore the original settings")]
+    Run(crate::tune::ScopedOptions),
+    #[command(
+        about = "Per-core Curve Optimizer ladder: record stress evidence and suggest the next step"
+    )]
+    Curve {
+        #[command(subcommand)]
+        command: crate::curve::Command,
+    },
+    #[command(about = "GPU power-cap sweep through LACT")]
+    Gpu {
+        #[command(subcommand)]
+        command: crate::gpu_sweep::Command,
+    },
     #[command(about = "Measure this machine and compare runs over time")]
     Bench(BenchArgs),
     #[command(name = "__complete", hide = true)]
@@ -259,6 +273,11 @@ pub fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Sample { minutes } => sample(minutes, &sys),
         Command::Tune { command } => crate::tune::run(command, host, &sys),
+        Command::Run(options) => crate::tune::scoped(options, host, &sys),
+        Command::Curve { command } => {
+            crate::curve::run(command, Paths::discover(host).ok().as_ref(), &sys)
+        }
+        Command::Gpu { command } => crate::gpu_sweep::run(command, host, &sys),
         Command::Bench(args) => {
             bench::run(&args.0)?;
             Ok(ExitCode::SUCCESS)

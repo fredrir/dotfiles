@@ -1,0 +1,2 @@
+# Package energy counters are root-only by default; hwtune reads them as a wheel member for idle and compile energy.
+SUBSYSTEM=="powercap", ACTION=="add", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chgrp wheel /sys%p/energy_uj", RUN+="/usr/bin/chmod 0440 /sys%p/energy_uj"

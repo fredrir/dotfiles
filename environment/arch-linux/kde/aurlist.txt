@@ -2,6 +2,8 @@ beekeeper-studio-bin
 bibata-cursor-theme-bin
 brave-bin
 fredulator-git
+ryzen_smu-dkms-git
 ttf-work-sans
 visual-studio-code-bin
+y-cruncher
 yay

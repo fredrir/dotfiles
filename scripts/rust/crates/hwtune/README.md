@@ -4,7 +4,8 @@
 | --- | --- |
 | Package / binary | `hwtune` |
 | Benchmarks | Linux, macOS |
-| Automatic tuning | Linux CPU governors, energy preference, and platform profiles |
+| Automatic tuning | Linux CPU governors, energy preference, cpuidle governor, and platform profiles |
+| Guards | Families measured with the objective; a regression there rejects a candidate |
 | Collection API | [sysinfo](../sysinfo/README.md): normalized hardware and installation snapshots |
 | Measurement worker | `bench-workloads`, built separately |
 | CLI reference | [hwtune.md](../../../../docs/cli/hwtune.md) |
@@ -15,10 +16,16 @@ hwtune bench run --tier quick --host archie --baseline
 hwtune bench compare archie@a3f19c2e archie
 hwtune bench report --before archie@a3f19c2e --after archie --json
 hwtune bench health --host archie --json
+hwtune bench run --only compile,idle,sched,ai --note "before"
 hwtune tune plan --json
-hwtune tune auto
+hwtune tune auto --metric compile.dev --guard idle
 hwtune tune auto --apply
 hwtune tune apply
+sudo hwtune run --profile performance -- cargo build --release
+hwtune curve status
+hwtune curve bench
+hwtune gpu sweep --caps 250,275,300,325,350
+hwtune stress mem --tool y-cruncher --minutes 30
 dotfile docs --only benchmarks
 dotfile dev check --pkg hwtune --lang rust,python
 ```
@@ -34,8 +41,12 @@ dotfile dev check --pkg hwtune --lang rust,python
 | `src/bench/hosts.rs` | Host registration and shared inventory pin writes |
 | `src/bench/provenance.rs` | BIOS/LACT source and settings hashes, live controls, stability links |
 | `src/bench/experiments.rs` | Configuration groups and before/after reports |
-| `src/bench/suites/` | CPU, memory, cache, disk, GPU, thermal, workload jobs |
-| `src/tune/` | OS control discovery, candidate trials, monitored validation, reversible application |
+| `src/bench/suites/` | CPU, memory, cache, disk, GPU, thermal, workload, compile, idle, sched, AI jobs |
+| `src/bench/suites/compile/` | Pinned crate and lockfile built by the compile job |
+| `src/power.rs` | RAPL package energy counters |
+| `src/tune/` | OS control discovery, candidate trials, guards, monitored validation, reversible application, scoped runs |
+| `src/curve.rs` | Per-core Curve Optimizer evidence, suggestions, per-core throughput samples |
+| `src/gpu_sweep.rs` | LACT power-cap sweep with restoration |
 | `tests/` | Store, comparison, CLI, tuning, and platform contracts |
 | `../bench-workloads/` | Native measurement worker |
 
@@ -49,6 +60,9 @@ dotfile dev check --pkg hwtune --lang rust,python
 | Stability sessions | `benchmarks/hosts/<host>/stability/<id>.json` |
 | Tuning sessions | `benchmarks/hosts/<host>/tuning/<id>.json` |
 | Desired OS settings | `config/hwtune/<host>.json` |
+| Bench settings | `config/hwtune/<host>.bench.dotfile` |
+| Per-core throughput samples | `benchmarks/hosts/<host>/curve/<id>.json` |
+| GPU sweep sessions | `benchmarks/hosts/<host>/tuning/gpu-sweep-<id>.json` |
 
 ## Environment
 
@@ -77,6 +91,13 @@ dotfile dev check --pkg hwtune --lang rust,python
 | Workload compatibility | Same committed dotfiles revision; dirty revisions block comparisons |
 | Measurement changes | Change method major/minor when workloads or measurement semantics change |
 | Quick tier | No disk or sustained thermal suite |
+| Metric families | `cpu`, `mem`, `cache`, `disk`, `gpu`, `thermal`, `workload`, `compile`, `idle`, `sched`, `ai` |
+| Compile job | Embedded pinned crate, clean dev and release builds, `RUSTC_WRAPPER` and `RUSTFLAGS` cleared, default linker |
+| Idle job | 8 s windows: package W, GPU W, fan rpm, Tctl; lower is better |
+| AI job | `llama-cli` prompt and generation t/s on the configured model; GPU W sampled |
+| Guards | Default `idle`; `evaluate` rejects any candidate with a regression outside noise |
+| Scoped run | Root only; child runs as `SUDO_UID`; original controls restored on exit or signal |
+| GPU sweep | Caps within the LACT range; original cap restored, also on error |
 | Disk budget | Standard: 30 GiB; heavy: 70 GiB; failed attempts consume reserved writes |
 | Plan | Reports dependencies and predicted writes without running measurement workloads |
 | Configuration groups | BIOS and LACT settings hashes; export timestamps do not split equal settings |

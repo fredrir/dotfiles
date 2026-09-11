@@ -62,11 +62,21 @@ fn the_command_dump_describes_the_parser() {
     assert_eq!(dump["version"], 1);
     assert_eq!(dump["command"]["path"], serde_json::json!(["agent-hop"]));
     let params = dump["command"]["params"].as_array().unwrap();
-    for name in ["dry_run", "no_connect", "color", "list", "agent", "session_id"] {
+    for name in [
+        "dry_run",
+        "no_connect",
+        "color",
+        "list",
+        "agent",
+        "session_id",
+    ] {
         assert!(params.iter().any(|p| p["name"] == name), "missing {name}");
     }
     let color = params.iter().find(|p| p["name"] == "color").unwrap();
-    assert_eq!(color["choices"], serde_json::json!(["auto", "always", "never"]));
+    assert_eq!(
+        color["choices"],
+        serde_json::json!(["auto", "always", "never"])
+    );
 }
 
 #[test]

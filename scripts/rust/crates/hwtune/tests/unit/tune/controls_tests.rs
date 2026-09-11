@@ -125,3 +125,69 @@ fn discovery_rejects_controls_resolving_outside_captured_sysfs() {
             .any(|reason| reason.contains("escapes sysfs"))
     );
 }
+
+fn with_cpuidle(temp: &tempfile::TempDir) {
+    let cpuidle = temp.path().join("devices/system/cpu/cpuidle");
+    fs::create_dir_all(&cpuidle).unwrap();
+    fs::write(cpuidle.join("current_governor"), "menu\n").unwrap();
+    fs::write(cpuidle.join("available_governors"), "ladder menu teo \n").unwrap();
+    fs::write(cpuidle.join("current_governor_ro"), "menu\n").unwrap();
+}
+
+#[test]
+fn cpuidle_governor_is_a_single_factor_candidate_per_alternative() {
+    let temp = fixture();
+    with_cpuidle(&temp);
+    let plan = discover(&Sysfs {
+        sys: temp.path().into(),
+        dev: temp.path().join("dev"),
+    })
+    .unwrap();
+    let cpuidle = Path::new(CPUIDLE_GOVERNOR);
+    let control = plan
+        .controls
+        .iter()
+        .find(|control| control.path == cpuidle)
+        .unwrap();
+    assert_eq!(control.original, "menu");
+    assert_eq!(control.choices, ["ladder", "menu", "teo"]);
+    assert!(control.driver.is_none());
+    let original = original_profile(&plan.controls);
+    let names = plan
+        .candidates
+        .iter()
+        .map(|candidate| candidate.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"cpuidle-teo") && names.contains(&"cpuidle-ladder"));
+    assert!(!names.contains(&"cpuidle-menu"));
+    for candidate in &plan.candidates {
+        let changed = candidate
+            .values
+            .iter()
+            .filter(|(path, value)| original.values.get(*path) != Some(*value))
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        if let Some(governor) = candidate.name.strip_prefix("cpuidle-") {
+            assert_eq!(changed, [cpuidle.to_path_buf()], "{}", candidate.name);
+            assert_eq!(candidate.values[cpuidle], governor);
+        } else {
+            assert_eq!(candidate.values[cpuidle], "menu", "{}", candidate.name);
+        }
+    }
+    assert_eq!(
+        read_text(&temp.path().join(CPUIDLE_GOVERNOR)).unwrap(),
+        "menu"
+    );
+}
+
+#[test]
+fn cpuidle_allowlist_accepts_only_the_writable_governor_attribute() {
+    assert!(allowed_path(Path::new(CPUIDLE_GOVERNOR)));
+    for path in [
+        "devices/system/cpu/cpuidle/current_governor_ro",
+        "devices/system/cpu/cpuidle/current_driver",
+        "devices/system/cpu/cpu0/cpuidle/state1/disable",
+    ] {
+        assert!(!allowed_path(Path::new(path)), "{path}");
+    }
+}

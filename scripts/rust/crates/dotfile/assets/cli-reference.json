@@ -261,7 +261,13 @@
     "hwtune tune": "Plans, validates, and applies operating-system tuning profiles.",
     "hwtune tune plan": "Shows supported controls and proposed trials without applying settings.",
     "hwtune tune auto": "Benchmarks candidate settings and restores the original settings unless --apply is selected.",
-    "hwtune tune apply": "Validates and applies the checked-out host profile."
+    "hwtune tune apply": "Validates and applies the checked-out host profile.",
+    "hwtune run": "Runs a command under a trial OS profile, then restores the original settings.",
+    "hwtune curve": "Tracks the per-core Curve Optimizer ladder from stress evidence and BIOS exports.",
+    "hwtune curve status": "Shows per-core Curve Optimizer evidence, throughput drift, and the next suggested step.",
+    "hwtune curve bench": "Measures per-core single-thread throughput as a clock-stretching detector.",
+    "hwtune gpu": "Sweeps GPU power caps through LACT.",
+    "hwtune gpu sweep": "Measures GPU metrics at each power cap, then restores the original cap."
   },
   "flags": {
     "agent-hop": {
@@ -423,7 +429,7 @@
       "--bios-version": "Overrides the BIOS version read from DMI.",
       "--dry-run": "Shows planned changes without writing.",
       "--no-live": "Skips checks that read the running system.",
-      "--profile": "Selects all-core, light, or per-core.",
+      "--profile": "Selects the stress profile (all-core, light, per-core) or the trial OS profile for hwtune run.",
       "--minutes": "Sets the duration in minutes, per core for per-core.",
       "--cores": "Limits per-core to a core list such as 0-7 or 0,2,4.",
       "--offset": "Records the Curve Optimizer offset under test in the log.",
@@ -431,9 +437,9 @@
       "--percent": "Sets the share of available memory to test.",
       "--tool": "Selects the stress or benchmark program.",
       "--note": "Records why a benchmark run was taken.",
-      "--metric": "Selects the CPU validation metric or filters benchmark report metric keys.",
+      "--metric": "Selects the objective metric as family.name, or filters benchmark report metric keys.",
       "--tier": "Selects the quick, standard, or heavy benchmark tier.",
-      "--only": "Limits a run to a comma-separated list of measurement families.",
+      "--only": "Limits a run or sweep to a comma-separated list of measurement families.",
       "--tag": "Adds a label to a benchmark run.",
       "--workdir": "Selects the directory used by the disk benchmark tier.",
       "--force": "Runs benchmarks despite unsuitable measurement conditions.",
@@ -451,7 +457,11 @@
       "--after": "Selects the run after a tuning change; requires --before.",
       "--max-temp": "Sets the tuning temperature ceiling in Celsius; the hardware safety ceiling still applies.",
       "--stress-seconds": "Sets the duration of each monitored CPU stability test.",
-      "--min-improvement": "Sets the required improvement percentage in addition to the measured noise band."
+      "--min-improvement": "Sets the required improvement percentage in addition to the measured noise band.",
+      "--guard": "Selects families measured alongside the objective; any regression there rejects a candidate.",
+      "--caps": "Lists the power caps in watts to sweep, within the range LACT reports.",
+      "--settle": "Sets the seconds to wait after applying a power cap before measuring.",
+      "--iterations": "Sets the per-core workload iterations for the throughput sample."
     }
   }
 }

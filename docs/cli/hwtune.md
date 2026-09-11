@@ -21,6 +21,12 @@
 | `hwtune tune plan`      | Shows supported controls and proposed trials without applying settings.                      |
 | `hwtune tune auto`      | Benchmarks candidate settings and restores the original settings unless --apply is selected. |
 | `hwtune tune apply`     | Validates and applies the checked-out host profile.                                          |
+| `hwtune run`            | Runs a command under a trial OS profile, then restores the original settings.                |
+| `hwtune curve`          | Tracks the per-core Curve Optimizer ladder from stress evidence and BIOS exports.            |
+| `hwtune curve status`   | Shows per-core Curve Optimizer evidence, throughput drift, and the next suggested step.      |
+| `hwtune curve bench`    | Measures per-core single-thread throughput as a clock-stretching detector.                   |
+| `hwtune gpu`            | Sweeps GPU power caps through LACT.                                                          |
+| `hwtune gpu sweep`      | Measures GPU metrics at each power cap, then restores the original cap.                      |
 | `hwtune bench`          | Opens the benchmark command menu or prints its help.                                         |
 | `hwtune bench run`      | Measures the current machine and optionally stores the result.                               |
 | `hwtune bench plan`     | Shows available suites and expected writes without measuring.                                |
@@ -37,44 +43,48 @@
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                                  | Description                                                                                |
-| ------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `--host <NAME>`                       | Selects the host for tuning context and benchmark storage.                                 |
-| `--bios-version <VERSION>`            | Overrides the BIOS version read from DMI.                                                  |
-| `-n`, `--dry-run`                     | Shows planned changes without writing.                                                     |
-| `--no-live`                           | Skips checks that read the running system.                                                 |
-| `--profile <PROFILE>`                 | Selects all-core, light, or per-core.                                                      |
-| `--minutes <MINUTES>`                 | Sets the duration in minutes, per core for per-core.                                       |
-| `--cores <LIST>`                      | Limits per-core to a core list such as 0-7 or 0,2,4.                                       |
-| `--offset <OFFSET>`                   | Records the Curve Optimizer offset under test in the log.                                  |
-| `--no-log`                            | Skips appending to the stability log.                                                      |
-| `--percent <PERCENT>`                 | Sets the share of available memory to test.                                                |
-| `--tool <TOOL>`                       | Selects the stress or benchmark program.                                                   |
-| `--json`                              | Prints structured results as JSON.                                                         |
-| `--apply`                             | Saves the validated winner as the host profile and retains its settings.                   |
-| `--min-improvement <MIN_IMPROVEMENT>` | Sets the required improvement percentage in addition to the measured noise band.           |
-| `--metric <METRIC>`                   | Selects the CPU validation metric or filters benchmark report metric keys.                 |
-| `--max-temp <MAX_TEMP>`               | Sets the tuning temperature ceiling in Celsius; the hardware safety ceiling still applies. |
-| `--stress-seconds <STRESS_SECONDS>`   | Sets the duration of each monitored CPU stability test.                                    |
-| `--tier <TIER>`                       | Selects the quick, standard, or heavy benchmark tier.                                      |
-| `--only <ONLY>`                       | Limits a run to a comma-separated list of measurement families.                            |
-| `--workdir <WORKDIR>`                 | Selects the directory used by the disk benchmark tier.                                     |
-| `--note <NOTE>`                       | Records why a benchmark run was taken.                                                     |
-| `--stability <STABILITY>`             | Links a stored stability session to the benchmark run.                                     |
-| `--tag <TAG>`                         | Adds a label to a benchmark run.                                                           |
-| `--force`                             | Runs benchmarks despite unsuitable measurement conditions.                                 |
-| `--no-save`                           | Prints a benchmark result without storing it.                                              |
-| `--baseline`                          | Pins the new benchmark run as its machine's baseline.                                      |
-| `--group-by <GROUP-BY>`               | Groups reports by BIOS or BIOS and LACT settings.                                          |
-| `--before <BEFORE>`                   | Selects the run before a tuning change; requires --after.                                  |
-| `--after <AFTER>`                     | Selects the run after a tuning change; requires --before.                                  |
-| `--limit <LIMIT>`                     | Limits the number of stored runs listed.                                                   |
-| `--all`                               | Includes noisy and aborted runs in a listing.                                              |
-| `--keep <KEEP>`                       | Sets the number of runs retained per machine configuration.                                |
-| `--yes`                               | Prunes stored runs without asking for confirmation.                                        |
-| `-h`, `--help`                        | Shows help for the selected command and exits.                                             |
-| `--completions <SHELL>`               | Prints a shell completion script for the named shell and exits.                            |
-| `-V`, `--version`                     | Prints the version and exits.                                                              |
+| Flag                                  | Description                                                                                    |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `--host <NAME>`                       | Selects the host for tuning context and benchmark storage.                                     |
+| `--bios-version <VERSION>`            | Overrides the BIOS version read from DMI.                                                      |
+| `-n`, `--dry-run`                     | Shows planned changes without writing.                                                         |
+| `--no-live`                           | Skips checks that read the running system.                                                     |
+| `--profile <PROFILE>`                 | Selects the stress profile (all-core, light, per-core) or the trial OS profile for hwtune run. |
+| `--minutes <MINUTES>`                 | Sets the duration in minutes, per core for per-core.                                           |
+| `--cores <LIST>`                      | Limits per-core to a core list such as 0-7 or 0,2,4.                                           |
+| `--offset <OFFSET>`                   | Records the Curve Optimizer offset under test in the log.                                      |
+| `--no-log`                            | Skips appending to the stability log.                                                          |
+| `--percent <PERCENT>`                 | Sets the share of available memory to test.                                                    |
+| `--tool <TOOL>`                       | Selects the stress or benchmark program.                                                       |
+| `--json`                              | Prints structured results as JSON.                                                             |
+| `--apply`                             | Saves the validated winner as the host profile and retains its settings.                       |
+| `--min-improvement <MIN_IMPROVEMENT>` | Sets the required improvement percentage in addition to the measured noise band.               |
+| `--metric <METRIC>`                   | Selects the objective metric as family.name, or filters benchmark report metric keys.          |
+| `--guard <FAMILIES>`                  | Selects families measured alongside the objective; any regression there rejects a candidate.   |
+| `--max-temp <MAX_TEMP>`               | Sets the tuning temperature ceiling in Celsius; the hardware safety ceiling still applies.     |
+| `--stress-seconds <STRESS_SECONDS>`   | Sets the duration of each monitored CPU stability test.                                        |
+| `--iterations <ITERATIONS>`           | Sets the per-core workload iterations for the throughput sample.                               |
+| `--caps <WATTS>`                      | Lists the power caps in watts to sweep, within the range LACT reports.                         |
+| `--only <FAMILIES>`                   | Limits a run or sweep to a comma-separated list of measurement families.                       |
+| `--settle <SETTLE>`                   | Sets the seconds to wait after applying a power cap before measuring.                          |
+| `--tier <TIER>`                       | Selects the quick, standard, or heavy benchmark tier.                                          |
+| `--workdir <WORKDIR>`                 | Selects the directory used by the disk benchmark tier.                                         |
+| `--note <NOTE>`                       | Records why a benchmark run was taken.                                                         |
+| `--stability <STABILITY>`             | Links a stored stability session to the benchmark run.                                         |
+| `--tag <TAG>`                         | Adds a label to a benchmark run.                                                               |
+| `--force`                             | Runs benchmarks despite unsuitable measurement conditions.                                     |
+| `--no-save`                           | Prints a benchmark result without storing it.                                                  |
+| `--baseline`                          | Pins the new benchmark run as its machine's baseline.                                          |
+| `--group-by <GROUP-BY>`               | Groups reports by BIOS or BIOS and LACT settings.                                              |
+| `--before <BEFORE>`                   | Selects the run before a tuning change; requires --after.                                      |
+| `--after <AFTER>`                     | Selects the run after a tuning change; requires --before.                                      |
+| `--limit <LIMIT>`                     | Limits the number of stored runs listed.                                                       |
+| `--all`                               | Includes noisy and aborted runs in a listing.                                                  |
+| `--keep <KEEP>`                       | Sets the number of runs retained per machine configuration.                                    |
+| `--yes`                               | Prunes stored runs without asking for confirmation.                                            |
+| `-h`, `--help`                        | Shows help for the selected command and exits.                                                 |
+| `--completions <SHELL>`               | Prints a shell completion script for the named shell and exits.                                |
+| `-V`, `--version`                     | Prints the version and exits.                                                                  |
 <!-- cli:flags:end -->
 
 ## Benchmarks
@@ -88,6 +98,16 @@
 | compare BIOS and LACT configurations | `hwtune bench report` |
 | inspect history health | `hwtune bench health` |
 | measure without storing | `hwtune bench run --no-save --json` |
+| compile, quiet, wake latency, AI | `hwtune bench run --only compile,idle,sched,ai` |
+| power-cap sweep | `hwtune gpu sweep --caps 250,275,300,325,350` |
+
+| Family | Metrics |
+| --- | --- |
+| `compile` | `compile.dev`, `compile.release` ms; `compile.package_j` with readable RAPL |
+| `idle` | `idle.package_w`, `idle.gpu_w`, `idle.fan_rpm`, `idle.tctl_c` |
+| `sched` | `sched.wake_idle`, `sched.wake_loaded` p99 µs |
+| `mem` | `mem.latency` ns, bandwidth and random access |
+| `ai` | `ai.prompt_tps`, `ai.generate_tps`, `ai.gpu_w` |
 
 | Data | Meaning |
 | --- | --- |
@@ -102,6 +122,9 @@
 | --- | --- |
 | inspect supported OS controls and trials | `hwtune tune plan` |
 | compare candidates, then restore the original settings | `hwtune tune auto` |
+| optimize compile time without raising idle power | `hwtune tune auto --metric compile.dev --guard idle` |
+| one command under a profile, then restore | `sudo hwtune run --profile performance -- cargo build` |
+| per-core Curve Optimizer evidence | `hwtune curve status`, `hwtune curve bench` |
 | save and retain a validated winner | `hwtune tune auto --apply` |
 | validate and apply the checked-out host profile | `hwtune tune apply` |
 | inspect profile changes | `git diff -- config/hwtune/<host>.json` |
@@ -110,6 +133,8 @@
 | Data | Path |
 | --- | --- |
 | Desired OS settings | `config/hwtune/<host>.json` |
+| Bench settings | `config/hwtune/<host>.bench.dotfile` |
+| Per-core throughput samples | `benchmarks/hosts/<host>/curve/<id>.json` |
 | Store schema | `benchmarks/store.json` |
 | Benchmark runs | `benchmarks/hosts/<host>/runs/<id>.json` |
 | Baselines | `benchmarks/hosts/<host>/baselines.json` |

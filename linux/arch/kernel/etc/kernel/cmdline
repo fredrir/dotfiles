@@ -1,1 +1,1 @@
-rw quiet splash loglevel=3 vt.global_cursor_default=0
+rw quiet splash loglevel=3 vt.global_cursor_default=0 zswap.enabled=0 cpuidle.governor=teo

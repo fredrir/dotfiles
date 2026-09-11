@@ -53,8 +53,21 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | root-owned configs | `dotfile system install` |
 | UKI with the tracked command line | `sudo mkinitcpio -P` |
 | services | `sudo systemctl enable --now fan2go lactd nvidia-persistenced fstrim.timer` |
+| energy counters without reboot | `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=powercap --action=add` |
+| sysctl without reboot | `sudo sysctl --system` |
 | verify | `hwtune status`, `hwtune bios check`, `dotfile doctor` |
 | baseline | `hwtune bench run --baseline` (the disk change moves the hardware epoch) |
+
+| Kernel command line | Why |
+| --- | --- |
+| `zswap.enabled=0` | swap is zram; zswap in front of it compresses twice |
+| `cpuidle.governor=teo` | shorter idle exit latency than `menu` on Zen 5 |
+
+| Tuning package | Path |
+| --- | --- |
+| `linux/arch/tuning-sysctl` | `/etc/sysctl.d/40-tuning.conf` |
+| `linux/arch/rapl` | `/etc/udev/rules.d/70-rapl-energy.rules` |
+| `linux/arch/cargo` | `~/.cargo/config.toml`; needs `mold` and `sccache` installed first |
 
 ## Replacing the UKI on a running system
 
@@ -73,3 +86,50 @@ mount --mkdir /dev/nvme0n1p1 /mnt/efi
 | export the settings | Tool → ASUS User Profile → save the text export to USB |
 | verify | `hwtune bios import /mnt/usb/Archie_BIOS_setting.txt && hwtune bios check` |
 | boot order | the UKI only; Windows entries are gone with the Kingston |
+
+## Memory ladder
+
+One change per reboot; every step is `hwtune stress mem --tool y-cruncher --minutes 30`, then export, `hwtune bios import`, `hwtune bench run --only mem,compile --note "<step>"`, and `hwtune bench report --before <run> --after <run>`.
+
+| Step | Setting | From | To | Guard |
+| --- | --- | --- | --- | --- |
+| 1 | Refresh Interval (tREFI) | Auto | 65535 | DIMM temp below 55 °C in `sensors spd5118-*` under stress |
+| 2 | Trfc1 / Trfc2 / Trfcsb | Auto | 520 / 520 / 400 | y-cruncher pass; step to 500 / 500 / 380 next |
+| 3 | TrrdS / TrrdL / Tfaw | Auto | 8 / 12 / 32 | y-cruncher pass |
+| 4 | Twr / Trtp | Auto | 48 / 12 | y-cruncher pass |
+| 5 | TwtrS / TwtrL | Auto | 4 / 24 | y-cruncher pass |
+| 6 | TrdrdScl / TwrwrScl | Auto | 5 / 5 | y-cruncher pass; 4 / 4 next |
+| 7 | FCLK Frequency | Auto | 2100 | `mem.latency` improves; WHEA-free journal |
+| 8 | Power Down Enable | Enabled | Disabled | idle package power in `hwtune bench run --only idle` |
+
+| Voltage | Ceiling |
+| --- | --- |
+| CPU SOC Voltage | 1.30 V |
+| DRAM VDD / VDDQ | 1.40 V as set by EXPO; 1.45 V only for step 7 |
+| Memory Context Restore | Enabled; Disabled if training fails after a step |
+
+## Curve Optimizer ladder
+
+| Step | Command |
+| --- | --- |
+| current evidence and suggestion | `hwtune curve status` |
+| throughput sample before a change | `hwtune curve bench` |
+| BIOS | Ai Tweaker → Curve Optimizer → Per Core; set the suggested magnitudes |
+| export and import | `hwtune bios import /mnt/usb/Archie_BIOS_setting.txt` |
+| stress the changed cores | `hwtune stress cpu --profile per-core --minutes 10 --cores 0-7 --offset -30` |
+| clock-stretch check | `hwtune curve bench`, then `hwtune curve status` |
+
+| Rule | Value |
+| --- | --- |
+| step size | -5 until a core fails, then back off to the shallowest passing value |
+| prefcore | the two highest ranked cores usually hold the least negative offset |
+| stretching | a core whose single-thread throughput drops more than 3 % at a passing offset is not stable |
+| reboot during per-core stress | recorded as a failure for the core under test |
+
+## GPU power cap
+
+| Step | Command |
+| --- | --- |
+| sweep | `hwtune gpu sweep --caps 250,275,300,325,350` |
+| keep a cap | edit `power_cap` in `linux/arch/lact/etc/lact/config.yaml`, then `dotfile system install` |
+| verify | `hwtune status` shows the cap; `hwtune bench run --only ai` matches the sweep |

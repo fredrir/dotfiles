@@ -93,10 +93,19 @@ fn only_one_path_is_taken() {
 
 #[test]
 fn the_command_dump_describes_the_parser() {
-    let dump: serde_json::Value = serde_json::from_str(&stdout(&push(&["--command-dump"]))).unwrap();
+    let dump: serde_json::Value =
+        serde_json::from_str(&stdout(&push(&["--command-dump"]))).unwrap();
     assert_eq!(dump["version"], 1);
     assert_eq!(dump["command"]["path"], serde_json::json!(["hpush"]));
     let params = dump["command"]["params"].as_array().unwrap();
-    assert!(params.iter().any(|p| p["name"] == "path" && p["kind"] == "argument"));
-    assert!(params.iter().any(|p| p["opts"] == serde_json::json!(["--to"])));
+    assert!(
+        params
+            .iter()
+            .any(|p| p["name"] == "path" && p["kind"] == "argument")
+    );
+    assert!(
+        params
+            .iter()
+            .any(|p| p["opts"] == serde_json::json!(["--to"]))
+    );
 }

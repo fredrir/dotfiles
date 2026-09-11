@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -12,6 +14,28 @@ use crate::time;
 pub enum MemTool {
     StressNg,
     Memtester,
+    YCruncher,
+}
+
+pub const Y_CRUNCHER_TESTS: [&str; 5] = ["VT3", "N63", "FFTv4", "SFTv4", "BBP"];
+
+pub fn test_list(tool: MemTool) -> String {
+    match tool {
+        MemTool::StressNg => "all".into(),
+        MemTool::Memtester => "memtester".into(),
+        MemTool::YCruncher => Y_CRUNCHER_TESTS.join(","),
+    }
+}
+
+pub fn log_failure(log: &Path) -> Option<String> {
+    let text = fs::read_to_string(log).ok()?;
+    text.lines()
+        .map(str::trim)
+        .find(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("error") || lower.contains("failed")
+        })
+        .map(|line| format!("log: {}", ui_terminal::text::sanitize(line)))
 }
 
 pub struct MemOptions {
@@ -51,6 +75,18 @@ pub fn command(tool: MemTool, minutes: u64, percent: u8, available: u64) -> (Str
             "memtester".into(),
             vec![format!("{}M", bytes / (1 << 20)), "1".into()],
         ),
+        MemTool::YCruncher => {
+            let seconds = minutes * 60;
+            let per_test = (seconds / Y_CRUNCHER_TESTS.len() as u64).max(30);
+            let mut args = vec![
+                "stress".to_string(),
+                format!("-M:{bytes}"),
+                format!("-D:{per_test}"),
+                format!("-TL:{seconds}"),
+            ];
+            args.extend(Y_CRUNCHER_TESTS.iter().map(|test| test.to_string()));
+            ("y-cruncher".into(), args)
+        }
     }
 }
 
@@ -82,7 +118,13 @@ pub fn run(options: MemOptions, context: &Context) -> Result<ExitCode, String> {
                 break;
             }
         }
-        if options.tool == MemTool::StressNg
+        if options.tool == MemTool::YCruncher
+            && let Some(reason) = log_failure(&log)
+        {
+            failure = Some(reason);
+            break;
+        }
+        if options.tool != MemTool::Memtester
             || finish.elapsed >= Duration::from_secs(options.minutes * 60)
         {
             break;
@@ -95,6 +137,7 @@ pub fn run(options: MemOptions, context: &Context) -> Result<ExitCode, String> {
     let mut keys = stress::keys(&[
         ("profile", "mem".to_string()),
         ("tool", program.clone()),
+        ("tests", test_list(options.tool)),
         ("minutes", options.minutes.to_string()),
         ("percent", options.percent.to_string()),
         ("passes", passes.to_string()),

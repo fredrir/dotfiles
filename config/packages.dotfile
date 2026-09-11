@@ -32,6 +32,7 @@ linux/common {
 
 linux/arch {
   archie-direct       = Reversible shared Wi-Fi AP for Macie
+  cargo               = mold linker and sccache wrapper for every Rust build on this machine
   cpu-power           = amd_pstate boost, governor and energy preference applied at boot
   fan2go              = Fan curves for the NCT6799 headers: radiator, pump, VRM fan, and case fans keyed to CPU and GPU
   fastfetch           = Arch fastfetch logo and configuration
@@ -40,7 +41,9 @@ linux/arch {
   lact                = RTX 5070 Ti power cap, clock offsets and fan curve through lactd
   macie-usb           = USB-C direct link to the Mac: interface naming, DHCP, NetworkManager opt-out
   nvidia              = nvidia_drm modeset and the nouveau blacklist
+  rapl                = Package energy counters readable by wheel, for hwtune idle and compile energy metrics
   ssh                 = Cable, direct Wi-Fi, LAN, then Tailscale routing to macie
+  tuning-sysctl       = NMI watchdog off
   vscode              = Arch-specific settings overlay merged into the shared VS Code settings
   wezterm-mux         = Mutual-TLS mux server for the link to macie
   wezterm-mux-sysctl  = Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up

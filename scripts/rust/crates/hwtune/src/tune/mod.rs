@@ -30,10 +30,28 @@ pub enum Command {
 }
 
 #[derive(Args)]
+pub struct ScopedOptions {
+    /// Trial profile name from `hwtune tune plan`, or original.
+    #[arg(long, default_value = "performance")]
+    pub profile: String,
+    /// Command to run while the profile is applied.
+    #[arg(required = true, last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
+#[derive(Args)]
 pub struct ValidationOptions {
-    /// CPU metric required in each benchmark validation.
+    /// Objective metric, <family>.<name>, measured in each benchmark validation.
     #[arg(long, default_value = "cpu.multi")]
     pub metric: String,
+    /// Families measured alongside the objective; any regression there rejects a candidate.
+    #[arg(
+        long,
+        value_name = "FAMILIES",
+        value_delimiter = ',',
+        default_value = "idle"
+    )]
+    pub guard: Vec<String>,
     /// Abort above this Celsius temperature; default uses the sensor limit.
     #[arg(long)]
     pub max_temp: Option<f64>,
@@ -76,6 +94,7 @@ struct Session {
     started: String,
     finished: Option<String>,
     objective: String,
+    guards: Vec<String>,
     minimum_improvement_pct: Option<f64>,
     original: Profile,
     controls: Vec<Control>,
@@ -181,9 +200,40 @@ fn undo_profile(
     }
 }
 
+fn metric_family(metric: &str) -> &str {
+    metric.split('.').next().unwrap_or("")
+}
+
+pub(crate) fn trial_families(options: &ValidationOptions) -> Vec<String> {
+    let mut families = vec![metric_family(&options.metric).to_string()];
+    for guard in &options.guard {
+        if !families.contains(guard) {
+            families.push(guard.clone());
+        }
+    }
+    families
+}
+
 fn validate_options(options: &ValidationOptions) -> Result<(), String> {
-    if !options.metric.starts_with("cpu.") {
-        return Err("OS tuning requires a CPU benchmark metric such as cpu.multi".into());
+    let family = metric_family(&options.metric);
+    if family.is_empty()
+        || options.metric.len() <= family.len() + 1
+        || !runner::FAMILIES.contains(&family)
+    {
+        return Err(format!(
+            "--metric must be <family>.<name> with a family in {}",
+            runner::FAMILIES.join(", ")
+        ));
+    }
+    if let Some(guard) = options
+        .guard
+        .iter()
+        .find(|guard| !runner::FAMILIES.contains(&guard.as_str()))
+    {
+        return Err(format!(
+            "unknown guard family {guard}; expected one of {}",
+            runner::FAMILIES.join(", ")
+        ));
     }
     if options
         .max_temp
@@ -222,7 +272,7 @@ impl Measurements for Experiment<'_> {
         let options = runner::Options {
             host: self.session.host.clone(),
             tier: "quick".into(),
-            families: vec!["cpu".into()],
+            families: trial_families(self.options),
             note: format!("{}: {phase}", self.session.session),
             context: Some(context),
             ..runner::Options::default()
@@ -370,6 +420,7 @@ fn execute(
         started: now(),
         finished: None,
         objective: options.metric.clone(),
+        guards: options.guard.clone(),
         minimum_improvement_pct: automatic.map(|(_, minimum)| minimum),
         original: controls::original_profile(&plan.controls),
         controls: plan.controls.clone(),
@@ -515,6 +566,104 @@ fn execute(
     }
     result?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn effective_uid() -> Result<u32, String> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata("/proc/self")
+        .map(|metadata| metadata.uid())
+        .map_err(|error| format!("/proc/self: {error}"))
+}
+
+pub(crate) fn passwd_home(passwd: &str, user: &str) -> Option<String> {
+    passwd.lines().find_map(|line| {
+        let fields = line.split(':').collect::<Vec<_>>();
+        (fields.len() >= 6 && fields[0] == user).then(|| fields[5].to_string())
+    })
+}
+
+fn child_command(program: &str, arguments: &[String]) -> std::process::Command {
+    let id = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+    };
+    let (Some(uid), Some(gid)) = (id("SUDO_UID"), id("SUDO_GID")) else {
+        let mut command = std::process::Command::new(program);
+        command.args(arguments);
+        return command;
+    };
+    let mut command = std::process::Command::new("setpriv");
+    command
+        .arg("--reuid")
+        .arg(uid.to_string())
+        .arg("--regid")
+        .arg(gid.to_string())
+        .arg("--init-groups")
+        .arg("--")
+        .arg(program)
+        .args(arguments);
+    if let Ok(user) = std::env::var("SUDO_USER") {
+        command.env("USER", &user).env("LOGNAME", &user);
+        if let Some(home) = fs::read_to_string("/etc/passwd")
+            .ok()
+            .and_then(|passwd| passwd_home(&passwd, &user))
+        {
+            command.env("HOME", home);
+        }
+    }
+    command
+}
+
+pub(crate) fn select_profile(plan: &controls::Plan, name: &str) -> Result<Profile, String> {
+    if name == "original" {
+        return Ok(controls::original_profile(&plan.controls));
+    }
+    plan.candidates
+        .iter()
+        .find(|candidate| candidate.name == name)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "unknown profile {name}; available: original, {}",
+                plan.candidates
+                    .iter()
+                    .map(|candidate| candidate.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+}
+
+pub fn scoped(options: ScopedOptions, host: Option<&str>, sys: &Sysfs) -> Result<ExitCode, String> {
+    if effective_uid()? != 0 {
+        return Err("run under sudo".into());
+    }
+    local_host(host)?;
+    let plan = controls::discover(sys)?;
+    if plan.controls.is_empty() {
+        return Err(plan.unavailable.join("; "));
+    }
+    let profile = select_profile(&plan, &options.profile)?;
+    let program = options.command.first().ok_or("missing command")?;
+    let _signals = ui_terminal::SignalGuard::new().map_err(|error| error.to_string())?;
+    let mut guard = transaction::Guard::begin(&sys.sys, plan.controls.clone())?;
+    guard.apply(&profile)?;
+    eprintln!("hwtune run: applied {}", profile.name);
+    let status = child_command(program, &options.command[1..])
+        .status()
+        .map_err(|error| format!("{program}: {error}"));
+    let restored = guard.complete(false);
+    match &restored {
+        Ok(()) => eprintln!("hwtune run: restored original settings"),
+        Err(error) => eprintln!("hwtune run: restoration failed: {error}"),
+    }
+    let status = status?;
+    restored?;
+    match status.code() {
+        Some(code) => Ok(ExitCode::from(u8::try_from(code).unwrap_or(1))),
+        None => Err(format!("{program} killed by signal")),
+    }
 }
 
 pub fn run(command: Command, host: Option<&str>, sys: &Sysfs) -> Result<ExitCode, String> {

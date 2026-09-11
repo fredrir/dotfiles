@@ -8,8 +8,13 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
+pub mod ai;
+pub mod compile;
 pub mod disk;
 pub mod gpu;
+pub mod idle;
+pub mod native;
+pub mod sched;
 pub mod thermal;
 pub mod workload;
 
@@ -177,13 +182,20 @@ pub fn collect_jobs(setting: &Setting) -> (Vec<Job>, Vec<String>) {
     let mut jobs = Vec::new();
     let mut failures = Vec::new();
     for (name, builder) in [
-        ("cpu", cpu as fn(&Setting) -> Result<Vec<Job>, String>),
-        ("native", native),
+        (
+            "idle",
+            idle::jobs as fn(&Setting) -> Result<Vec<Job>, String>,
+        ),
+        ("cpu", cpu),
+        ("native", native::jobs),
         ("memory", memory),
         ("disk", disk::jobs),
         ("gpu", gpu::jobs),
         ("workload", workload::jobs),
         ("thermal", thermal::jobs),
+        ("compile", compile::jobs),
+        ("sched", sched::jobs),
+        ("ai", ai::jobs),
     ] {
         match builder(setting) {
             Ok(found) => jobs.extend(found.into_iter().filter(|job| {
@@ -355,81 +367,6 @@ fn memory(setting: &Setting) -> Result<Vec<Job>, String> {
                     ]), 120)?;
                     let throughput = number(&text, r"\(([\d.]+)\s*MiB/sec\)", &format!("sysbench reported no {mode} {operation} throughput"))?;
                     values.push((key.to_string(), vec![throughput]));
-                }
-                Ok(Measurement::values(values))
-            },
-        ));
-    }
-    Ok(jobs)
-}
-pub fn native_path() -> Result<Option<PathBuf>, String> {
-    workstation::native::Resolver::discover(sysinfo::inventory::repo_root())
-        .resolve("bench-workloads")
-}
-fn native(setting: &Setting) -> Result<Vec<Job>, String> {
-    if !setting.accepts("cpu") && !setting.accepts("mem") {
-        return Ok(Vec::new());
-    }
-    let Some(path) = native_path()? else {
-        return Ok(Vec::new());
-    };
-    let ver = version(&path, &["--version"], r"(\d[\d.]*)");
-    let mut jobs = Vec::new();
-    for (name, scale, detail, measurements) in [
-        (
-            "cpu.native",
-            "Mops/s",
-            json!({"iterations":800000000}),
-            vec![
-                (
-                    "cpu.native_single",
-                    vec!["cpu", "--threads", "1", "--iterations", "800000000"],
-                ),
-                (
-                    "cpu.native_multi",
-                    vec!["cpu", "--threads", "0", "--iterations", "800000000"],
-                ),
-            ],
-        ),
-        (
-            "mem.native",
-            "GiB/s",
-            json!({"buffer_mib":256,"passes":128,"threads":1}),
-            vec![
-                (
-                    "mem.native_read",
-                    vec!["memory", "--op", "read", "--mib", "256", "--passes", "128"],
-                ),
-                (
-                    "mem.native_write",
-                    vec!["memory", "--op", "write", "--mib", "256", "--passes", "128"],
-                ),
-            ],
-        ),
-    ] {
-        let binary = path.clone();
-        let outputs = measurements
-            .iter()
-            .map(|(key, _)| output(key, scale, "HIB", "world"))
-            .collect();
-        jobs.push(job(
-            name,
-            "bench-workloads",
-            &ver,
-            &format!("{name}/1.0.0"),
-            outputs,
-            detail,
-            move || {
-                let mut values = Vec::new();
-                for (key, args) in &measurements {
-                    let text = require(Command::new(&binary).args(args), 300)?;
-                    let payload: Value = serde_json::from_str(&text)
-                        .map_err(|_| "bench-workloads produced unreadable output")?;
-                    let value = payload["value"]
-                        .as_f64()
-                        .filter(|n| n.is_finite() && *n > 0.0)
-                        .ok_or("bench-workloads reported no value")?;
-                    values.push((key.to_string(), vec![value]));
                 }
                 Ok(Measurement::values(values))
             },

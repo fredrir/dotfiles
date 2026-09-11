@@ -61,6 +61,7 @@ libxml2-legacy
 linux
 linux-firmware
 mkcert
+mold
 msmtp
 msmtp-mta
 ncdu
@@ -100,6 +101,7 @@ python-pynvim
 rclone
 rsync
 s-nail
+sccache
 sddm
 sddm-kcm
 speedtest-cli

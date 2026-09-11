@@ -525,3 +525,123 @@ fn stress_refuses_to_start_while_measurement_lock_is_held() {
     }
     assert!(!fixture.root.path().join("captured.txt").exists());
 }
+
+#[test]
+fn scoped_run_refuses_without_root_before_touching_controls() {
+    let fixture = Fixture::new();
+    fixture.stub("true", "printf started > \"$CAPTURE\"; exit 0");
+    let output = fixture.output(&["run", "--profile", "performance", "--", "true"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(
+        text(&output).contains("run under sudo"),
+        "{}",
+        text(&output)
+    );
+    assert!(!fixture.root.path().join("captured.txt").exists());
+    assert_eq!(
+        fs::read_to_string(
+            fixture
+                .sys()
+                .join("devices/system/cpu/cpu0/cpufreq/scaling_governor")
+        )
+        .unwrap(),
+        "powersave\n"
+    );
+}
+
+#[test]
+fn gpu_sweep_fails_cleanly_without_lact_and_restores_nothing() {
+    let fixture = Fixture::new();
+    let output = fixture.output(&["gpu", "sweep", "--caps", "300"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(text(&output).contains("lact"), "{}", text(&output));
+    assert!(!fixture.root.path().join("benchmarks").exists());
+    assert!(
+        !fixture
+            .output(&["gpu", "sweep", "--caps", "300", "--only", "nope"])
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn curve_status_reads_offsets_from_exports_and_suggests_the_next_step() {
+    let fixture = Fixture::new();
+    let stick = fixture.root.path().join("stick/curve.txt");
+    write(
+        &stick,
+        utf16le(
+            "[2026/09/12 10:00:00]\r\nCurve Optimizer [All Cores]\r\nAll Core Curve Optimizer Sign [Negative]\r\nAll Core Curve Optimizer Magnitude [25]\r\nCurve Optimizer [Disable]\r\n",
+        ),
+    );
+    fixture.run(&["bios", "import", &stick.display().to_string()]);
+    let stored = fs::read_to_string(
+        fixture
+            .root
+            .path()
+            .join("config/bios/exports/fixture-1681-20260912.txt"),
+    )
+    .unwrap();
+    let sha = hwtune::bios::export::sha8(&stored);
+    let before = fixture.run(&["curve", "status"]);
+    assert!(before.contains("curve optimizer  All Cores"), "{before}");
+    assert!(before.contains("stress -25 first"), "{before}");
+    assert!(
+        before
+            .contains("hwtune stress cpu --profile per-core --cores 0,1 --offset -25 --minutes 10"),
+        "{before}"
+    );
+    let session = serde_json::json!({
+        "schema": 1,
+        "host": "fixture",
+        "session": "20260912-per-core-1-0",
+        "completed": "2026-09-12T11:00:00",
+        "profile": "per-core",
+        "result": "pass",
+        "context": {"observed": {}},
+        "context_unchanged": true,
+        "evidence_known": true,
+        "details": {
+            "profile": "per-core",
+            "minutes": "10",
+            "bios": sha,
+            "result": "pass",
+            "core0": "pass",
+            "core1": "fail (exit 1)"
+        },
+        "samples_path": ""
+    });
+    write(
+        &fixture
+            .root
+            .path()
+            .join("benchmarks/hosts/fixture/stability/20260912-per-core-1-0.json"),
+        serde_json::to_vec(&session).unwrap(),
+    );
+    let after = fixture.run(&["curve", "status"]);
+    assert!(after.contains("try -30"), "{after}");
+    assert!(after.contains("back off to -20"), "{after}");
+    assert!(after.contains("bios    core 0 -30  core 1 -20"), "{after}");
+    let json: serde_json::Value =
+        serde_json::from_str(&fixture.run(&["curve", "status", "--json"])).unwrap();
+    assert_eq!(json["cores"][0]["next"]["action"], "try");
+    assert_eq!(json["cores"][1]["shallowest_failed"], -25);
+    assert_eq!(json["ryzen_smu"], serde_json::Value::Null);
+}
+
+#[test]
+fn curve_bench_fails_without_the_native_worker_and_writes_nothing() {
+    let fixture = Fixture::new();
+    fixture.stub("taskset", "exit 0");
+    let output = fixture.output(&["curve", "bench", "--iterations", "1"]);
+    assert!(!output.status.success(), "{}", text(&output));
+    assert!(
+        !fixture
+            .root
+            .path()
+            .join("benchmarks/hosts/fixture/curve")
+            .exists()
+    );
+    let output = fixture.output(&["curve", "bench", "--iterations", "0"]);
+    assert!(text(&output).contains("--iterations must be at least 1"));
+}
