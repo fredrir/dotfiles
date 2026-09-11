@@ -4,15 +4,17 @@ local host = require "domain.hosts"
 
 local MUX_ROUTE = wezterm.home_dir .. "/.local/bin/mux-route"
 local SOCKET = wezterm.home_dir .. "/.local/share/wezterm/localmux.sock"
+local CLI = wezterm.executable_dir .. "/wezterm"
 local TOAST_MS = 4000
 local pending = {}
 
 local function fail(window, message)
+  wezterm.log_error(message)
   window:toast_notification("wezterm", message, nil, TOAST_MS)
 end
 
 local function mux(...)
-  local args = { "env", "WEZTERM_UNIX_SOCKET=" .. SOCKET, "wezterm", "cli", "--prefer-mux", "--no-auto-start" }
+  local args = { "/usr/bin/env", "WEZTERM_UNIX_SOCKET=" .. SOCKET, CLI, "cli", "--prefer-mux", "--no-auto-start" }
   for _, arg in ipairs { ... } do
     table.insert(args, tostring(arg))
   end

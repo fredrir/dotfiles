@@ -10,6 +10,8 @@ local host = {
 }
 local wezterm = {
   home_dir = homes[origin],
+  executable_dir = "/fixture/bin",
+  log_error = function() end,
   action = {},
   action_callback = function(callback)
     return callback
@@ -26,8 +28,10 @@ local wezterm = {
       return true, peer .. "-lan\n", ""
     end
     assert(
-      args[1] == "env" and args[2] == "WEZTERM_UNIX_SOCKET=" .. homes[origin] .. "/.local/share/wezterm/localmux.sock"
+      args[1] == "/usr/bin/env"
+        and args[2] == "WEZTERM_UNIX_SOCKET=" .. homes[origin] .. "/.local/share/wezterm/localmux.sock"
     )
+    assert(args[3] == "/fixture/bin/wezterm")
     assert(args[5] == "--prefer-mux" and args[6] == "--no-auto-start")
     if args[7] == failure then
       return false, "", "failed"
