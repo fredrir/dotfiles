@@ -78,6 +78,36 @@ attach(window, pane)
 assert(#toasts == 0 and #calls == 4)
 assert(split_command():find("--pane-id 17 --domain-name " .. peer .. "-lan", 1, true))
 assert(split_command():find("HWIRE_SESSION=v1:" .. origin .. ":" .. peer .. ":lan:tls", 1, true))
+-- Run the emitted environment wrapper with a harmless probe instead of a login shell.
+local spawn = calls[2]
+local args, after_separator = {}, false
+local function quote(value)
+  return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+for _, value in ipairs(spawn) do
+  if after_separator then
+    table.insert(args, value)
+  elseif value == "--" then
+    after_separator = true
+  end
+end
+args[#args] = nil
+args[#args] = "/usr/bin/env"
+for i, value in ipairs(args) do
+  args[i] = quote(value)
+end
+local probe = assert(
+  io.popen(
+    "TMUX=stale TMUX_PANE=stale ZDOTDIR=/wrong WEZTERM_PANE=81 WEZTERM_UNIX_SOCKET=/remote.sock "
+      .. table.concat(args, " ")
+  )
+)
+local environment = probe:read "*a"
+assert(probe:close())
+assert(environment:find("WEZTERM_PANE=81\n", 1, true))
+assert(environment:find("WEZTERM_UNIX_SOCKET=/remote.sock\n", 1, true))
+assert(environment:find("HOME=" .. homes[peer] .. "\n", 1, true))
+assert(not environment:find("TMUX", 1, true) and not environment:find("ZDOTDIR", 1, true))
 assert(calls[3][7] == "kill-pane" and calls[3][9] == "17")
 assert(calls[4][7] == "activate-pane" and calls[4][9] == "23")
 reset()

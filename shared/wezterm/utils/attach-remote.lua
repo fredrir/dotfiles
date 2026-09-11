@@ -47,7 +47,15 @@ local function replace(window, pane, target)
     home = host.target.home
   end
 
-  local args = { "env", "HOME=" .. home, "TERM=xterm-256color", "PATH=/usr/local/bin:/usr/bin:/bin" }
+  local args = {
+    "/bin/sh",
+    "-c",
+    'exec /usr/bin/env -i WEZTERM_PANE="$WEZTERM_PANE" WEZTERM_UNIX_SOCKET="$WEZTERM_UNIX_SOCKET" "$@"',
+    "attach_mux",
+    "HOME=" .. home,
+    "TERM=xterm-256color",
+    "PATH=/usr/local/bin:/usr/bin:/bin",
+  }
   table.insert(args, "HWIRE_SESSION=" .. (session or ""))
   table.insert(args, "zsh")
   table.insert(args, "-l")
