@@ -467,3 +467,12 @@ fn stored_summaries_recompute_statistics_instead_of_trusting_derived_json() {
     assert_eq!(run.epoch(), "5178acc2");
     assert_eq!(run.metrics[0].median(), Some(100.0));
 }
+
+#[test]
+fn memory_totals_only_differ_across_whole_gib() {
+    let left = json!({"memory": {"total": 32783523840_u64}});
+    let right = json!({"memory": {"total": 32783527936_u64}});
+    assert!(record::snapshot_differences(&left, &right).is_empty());
+    let smaller = json!({"memory": {"total": 16 * 1024_u64.pow(3)}});
+    assert_eq!(record::snapshot_differences(&left, &smaller).len(), 1);
+}

@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "kind": "gpu-sweep",
+  "session": "gpu-sweep-20260911T225711.527752857Z-53214",
+  "host": "archie",
+  "gpu": "10DE:2C05-1458:4181-0000:01:00.0",
+  "started": "2026-09-11T22:57:11.527Z",
+  "finished": "2026-09-11T22:59:17.124Z",
+  "original_cap_w": 350.0,
+  "caps_w": [
+    250,
+    275,
+    300,
+    325,
+    350
+  ],
+  "families": [
+    "ai"
+  ],
+  "settle_seconds": 15,
+  "trials": [
+    {
+      "cap_w": 250,
+      "run_id": "2026-09-11T22-57-27.290167468Z-91b4b3e3-cfde",
+      "grade": "clean",
+      "medians": {
+        "ai.generate_tps": 218.1,
+        "ai.gpu_w": 168.88628571428575,
+        "ai.prompt_tps": 9676.35
+      },
+      "error": null
+    },
+    {
+      "cap_w": 275,
+      "run_id": "2026-09-11T22-57-53.263483181Z-91b4b3e3-cfde",
+      "grade": "clean",
+      "medians": {
+        "ai.generate_tps": 218.25,
+        "ai.gpu_w": 175.70214285714286,
+        "ai.prompt_tps": 9674.25
+      },
+      "error": null
+    },
+    {
+      "cap_w": 300,
+      "run_id": "2026-09-11T22-58-19.369696308Z-91b4b3e3-cfde",
+      "grade": "clean",
+      "medians": {
+        "ai.generate_tps": 218.3,
+        "ai.gpu_w": 171.329,
+        "ai.prompt_tps": 9693.65
+      },
+      "error": null
+    },
+    {
+      "cap_w": 325,
+      "run_id": "2026-09-11T22-58-45.462428864Z-91b4b3e3-cfde",
+      "grade": "clean",
+      "medians": {
+        "ai.generate_tps": 218.2,
+        "ai.gpu_w": 172.13157142857142,
+        "ai.prompt_tps": 9729.4
+      },
+      "error": null
+    },
+    {
+      "cap_w": 350,
+      "run_id": "2026-09-11T22-59-11.400460507Z-91b4b3e3-cfde",
+      "grade": "clean",
+      "medians": {
+        "ai.generate_tps": 218.4,
+        "ai.gpu_w": 164.408,
+        "ai.prompt_tps": 9716.7
+      },
+      "error": null
+    }
+  ],
+  "status": "completed",
+  "error": null,
+  "restored": true
+}

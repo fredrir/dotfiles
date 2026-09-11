@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::bench::provenance::StabilitySession;
-use crate::bench::record::median;
 use crate::bench::store::{self, Store};
 use crate::bench::suites::{native, require, tool_path};
 use crate::bios::export::{self, Export};
@@ -630,7 +629,11 @@ fn measure_core(taskset: &Path, binary: &Path, core: u32, iterations: u64) -> Re
         )?;
         values.push(parse_mops(&text)?);
     }
-    median(&values).ok_or_else(|| "no samples".into())
+    values
+        .iter()
+        .copied()
+        .reduce(f64::max)
+        .ok_or_else(|| "no samples".into())
 }
 
 fn bench(paths: Option<&Paths>, sys: &Sysfs, iterations: u64) -> Result<ExitCode, String> {

@@ -263,7 +263,13 @@ pub fn snapshot_differences(left: &Value, right: &Value) -> Vec<Change> {
     let mut changes = Vec::new();
     for (label, key) in [("CPU", "cpu"), ("Memory", "memory")] {
         for name in ["model", "total", "modules", "cores_physical"] {
-            if left[key][name] != right[key][name] {
+            let (before, after) = (&left[key][name], &right[key][name]);
+            let differs = if name == "total" {
+                whole_gib(before) != whole_gib(after)
+            } else {
+                before != after
+            };
+            if differs {
                 changes.push((
                     label.into(),
                     name.into(),

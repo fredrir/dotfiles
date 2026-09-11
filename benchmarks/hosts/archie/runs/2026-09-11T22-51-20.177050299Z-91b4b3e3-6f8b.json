@@ -1,0 +1,917 @@
+{
+  "schema": 1,
+  "run_id": "2026-09-11T22-51-20.177050299Z-91b4b3e3-6f8b",
+  "host": "archie",
+  "epoch": "91b4b3e3",
+  "started": "2026-09-11T22:51:20Z",
+  "tier": "quick",
+  "grade": "clean",
+  "note": "after zswap=0 and cpuidle=teo, nmi_watchdog=0",
+  "tags": [],
+  "dotfiles_sha": "f947ae92",
+  "gate_reasons": [],
+  "bytes_written": 0,
+  "snapshot": {
+    "cpu": {
+      "model": "AMD Ryzen 7 9800X3D",
+      "vendor": "AuthenticAMD",
+      "cores_physical": 8,
+      "cores_logical": 16,
+      "frequency_max": 5455,
+      "march": "x86_64-v4"
+    },
+    "gpu": [
+      {
+        "name": "AMD Radeon Graphics",
+        "vendor": "AMD",
+        "type": "Integrated",
+        "memory_total": 536870912.0,
+        "driver": "amdgpu"
+      },
+      {
+        "name": "NVIDIA GeForce RTX 5070 Ti",
+        "vendor": "NVIDIA",
+        "type": "Discrete",
+        "memory_total": 17094934528.0,
+        "driver": "nvidia (open source) 610.57.04"
+      }
+    ],
+    "memory": {
+      "total": 32783527936,
+      "modules": 0
+    },
+    "board": {
+      "vendor": "ASUSTeK COMPUTER INC.",
+      "name": "TUF GAMING B850-PLUS WIFI"
+    },
+    "disks": [
+      {
+        "name": "KINGSTON SNVS2000G",
+        "size": 2000398934016,
+        "kind": "SSD",
+        "interconnect": "NVMe"
+      }
+    ],
+    "configured": {
+      "case": "Antec FLUX Pro Full Tower",
+      "cpu": "AMD Ryzen 7 9800X3D",
+      "cpu_cooler": "ARCTIC Liquid Freezer III 420",
+      "gpu": "Gigabyte GAMING OC GeForce RTX 5070 Ti 16 GB",
+      "memory": "Corsair CMK32GX5M2B6000Z30 32 GB (2×16 GB) DDR5-6000 CL30",
+      "motherboard": "ASUS TUF GAMING B850-PLUS WIFI",
+      "power_supply": "Corsair RM1000e (2025) 1000 W"
+    },
+    "virtualized": false
+  },
+  "install": {
+    "os": "arch",
+    "name": "Arch Linux",
+    "version": "rolling",
+    "kernel": "7.2.4-arch1-2",
+    "arch": "x86_64",
+    "driver": "610.57.04"
+  },
+  "conditions": {
+    "on_battery": false,
+    "governor": "powersave",
+    "loadavg_1": 0.91,
+    "cpu_count": 16,
+    "idle_temp_c": 36.375,
+    "free_ram_bytes": 26778652672,
+    "free_disk_bytes": 378815287296,
+    "free_disk_ratio": 0.42891971588698774,
+    "throttled_at_start": false,
+    "virtualized": false,
+    "platform": "linux",
+    "filesystem": {
+      "fstype": "ext4",
+      "source": "/dev/nvme0n1p6",
+      "target": "/home"
+    }
+  },
+  "metrics": [
+    {
+      "key": "idle.package_w",
+      "method": "idle/1.0.0",
+      "tool": "hwtune",
+      "tool_version": "0.1.0",
+      "scale": "W",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        21.247076829984863,
+        21.14510931832747,
+        21.28825301798646,
+        21.21767999728155,
+        21.207740650635166,
+        21.384463410866427
+      ],
+      "median": 21.232378413633207,
+      "mad": 0.04025618367564654,
+      "rsd_pct": 0.38446912840661984,
+      "detail": {
+        "window_s": 8,
+        "interval_s": 1,
+        "samples": 9
+      }
+    },
+    {
+      "key": "idle.gpu_w",
+      "method": "idle/1.0.0",
+      "tool": "hwtune",
+      "tool_version": "0.1.0",
+      "scale": "W",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        9.075555555555557,
+        8.149999999999999,
+        8.321111111111112,
+        8.316666666666666,
+        8.278888888888888,
+        8.245555555555555
+      ],
+      "median": 8.297777777777778,
+      "mad": 0.037777777777778354,
+      "rsd_pct": 4.022386750763501,
+      "detail": {
+        "window_s": 8,
+        "interval_s": 1,
+        "samples": 9
+      }
+    },
+    {
+      "key": "idle.fan_rpm",
+      "method": "idle/1.0.0",
+      "tool": "hwtune",
+      "tool_version": "0.1.0",
+      "scale": "rpm",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        3075.8888888888887,
+        3079.1111111111113,
+        3077.222222222222,
+        3075.6666666666665,
+        3082.1111111111113,
+        3080.5555555555557
+      ],
+      "median": 3078.166666666667,
+      "mad": 2.333333333333485,
+      "rsd_pct": 0.08481328318391554,
+      "detail": {
+        "window_s": 8,
+        "interval_s": 1,
+        "samples": 9
+      }
+    },
+    {
+      "key": "idle.tctl_c",
+      "method": "idle/1.0.0",
+      "tool": "hwtune",
+      "tool_version": "0.1.0",
+      "scale": "C",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        36.93055555555556,
+        36.44444444444444,
+        36.375,
+        36.43055555555556,
+        36.30555555555556,
+        36.44444444444444
+      ],
+      "median": 36.4375,
+      "mad": 0.03472222222222143,
+      "rsd_pct": 0.6115929330708648,
+      "detail": {
+        "window_s": 8,
+        "interval_s": 1,
+        "samples": 9
+      }
+    },
+    {
+      "key": "cpu.single",
+      "method": "cpu.single/1.0.0",
+      "tool": "7z",
+      "tool_version": "26.03",
+      "scale": "MIPS",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        13515.0,
+        13459.0,
+        13530.0
+      ],
+      "median": 13515.0,
+      "mad": 15.0,
+      "rsd_pct": 0.277165425315989,
+      "detail": {
+        "dictionary": "-md22",
+        "passes": "1"
+      }
+    },
+    {
+      "key": "cpu.multi",
+      "method": "cpu.multi/1.0.0",
+      "tool": "7z",
+      "tool_version": "26.03",
+      "scale": "MIPS",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        143950.0,
+        143820.0,
+        144938.0
+      ],
+      "median": 143950.0,
+      "mad": 130.0,
+      "rsd_pct": 0.42389885524269394,
+      "detail": {
+        "dictionary": "-md22",
+        "passes": "1"
+      }
+    },
+    {
+      "key": "cpu.crypto",
+      "method": "cpu.crypto/1.0.0",
+      "tool": "openssl",
+      "tool_version": "3.6.4",
+      "scale": "MB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        25720.33138,
+        25637.286010000003,
+        25461.047300000002
+      ],
+      "median": 25637.286010000003,
+      "mad": 83.04536999999618,
+      "rsd_pct": 0.5170773005491143,
+      "detail": {
+        "cipher": "aes-256-gcm",
+        "block": "16384",
+        "implementation": "OpenSSL"
+      }
+    },
+    {
+      "key": "cpu.native_single",
+      "method": "cpu.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "Mops/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        895.074,
+        896.35,
+        894.719
+      ],
+      "median": 895.074,
+      "mad": 0.3549999999999045,
+      "rsd_pct": 0.09579668322101403,
+      "detail": {
+        "iterations": 800000000
+      }
+    },
+    {
+      "key": "cpu.native_multi",
+      "method": "cpu.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "Mops/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        12694.789,
+        12726.614,
+        12699.384
+      ],
+      "median": 12699.384,
+      "mad": 4.594999999999345,
+      "rsd_pct": 0.13537361480384355,
+      "detail": {
+        "iterations": 800000000
+      }
+    },
+    {
+      "key": "mem.native_read",
+      "method": "mem.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "GiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        67.232,
+        67.513,
+        67.75
+      ],
+      "median": 67.513,
+      "mad": 0.23699999999999477,
+      "rsd_pct": 0.38417432618628944,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 128,
+        "threads": 1
+      }
+    },
+    {
+      "key": "mem.native_write",
+      "method": "mem.native/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "GiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        33.544,
+        33.526,
+        33.569
+      ],
+      "median": 33.544,
+      "mad": 0.017999999999993577,
+      "rsd_pct": 0.06437291442381378,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 128,
+        "threads": 1
+      }
+    },
+    {
+      "key": "mem.latency",
+      "method": "mem.latency/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "ns",
+      "proportion": "LIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        64.807,
+        64.52,
+        64.597
+      ],
+      "median": 64.597,
+      "mad": 0.07699999999999818,
+      "rsd_pct": 0.22980251706190427,
+      "detail": {
+        "buffer_mib": 256,
+        "passes": 4,
+        "threads": 1,
+        "access": "dependent pointer chase"
+      }
+    },
+    {
+      "key": "mem.write",
+      "method": "mem.bandwidth/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        28614.04,
+        28657.73,
+        28717.82
+      ],
+      "median": 28657.73,
+      "mad": 43.68999999999869,
+      "rsd_pct": 0.18178545368173843,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "mem.read",
+      "method": "mem.bandwidth/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        57376.01,
+        57566.95,
+        57452.88
+      ],
+      "median": 57452.88,
+      "mad": 76.86999999999534,
+      "rsd_pct": 0.16718279450666618,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "mem.random",
+      "method": "mem.random/3.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        961.95,
+        961.78,
+        968.91
+      ],
+      "median": 961.95,
+      "mad": 0.17000000000007276,
+      "rsd_pct": 0.4219315955540784,
+      "detail": {
+        "block": "1G",
+        "seconds": "2",
+        "mode": "rnd",
+        "threads": 1,
+        "working_set": 1073741824
+      }
+    },
+    {
+      "key": "cache.write",
+      "method": "cache.bandwidth/1.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        41547.38,
+        41952.78,
+        41991.71
+      ],
+      "median": 41952.78,
+      "mad": 38.93000000000029,
+      "rsd_pct": 0.5882461099281955,
+      "detail": {
+        "block": "1M",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1048576
+      }
+    },
+    {
+      "key": "cache.read",
+      "method": "cache.bandwidth/1.0.0",
+      "tool": "sysbench",
+      "tool_version": "1.0.20",
+      "scale": "MiB/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        110836.52,
+        111534.24,
+        113189.69
+      ],
+      "median": 111534.24,
+      "mad": 697.7200000000012,
+      "rsd_pct": 1.0805485990697197,
+      "detail": {
+        "block": "1M",
+        "seconds": "2",
+        "mode": "seq",
+        "threads": 1,
+        "working_set": 1048576
+      }
+    },
+    {
+      "key": "workload.nvim_startup",
+      "method": "workload.nvim_startup/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        21.424064,
+        20.391408,
+        20.297677,
+        21.252253,
+        20.134677
+      ],
+      "median": 20.391408,
+      "mad": 0.2567309999999985,
+      "rsd_pct": 2.8640588870307364,
+      "detail": {
+        "command": "nvim --headless +qa",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.git_status",
+      "method": "workload.git_status/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        4.207487,
+        4.252577,
+        3.7784630000000003,
+        3.7217830000000003,
+        3.8427740000000004
+      ],
+      "median": 3.8427740000000004,
+      "mad": 0.12099100000000007,
+      "rsd_pct": 6.315860750974933,
+      "detail": {
+        "command": "git -C . status --porcelain",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.git_log",
+      "method": "workload.git_log/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        1.545009,
+        1.60539,
+        1.5604000000000002,
+        1.52487,
+        1.5323790000000002
+      ],
+      "median": 1.545009,
+      "mad": 0.015391000000000155,
+      "rsd_pct": 2.05518692416557,
+      "detail": {
+        "command": "git -C . log --oneline -n 200",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "workload.tar_repo",
+      "method": "workload.tar_repo/1.0.0",
+      "tool": "hyperfine",
+      "tool_version": "1.20.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 5,
+      "samples": [
+        0.838605,
+        0.7647050000000001,
+        0.8311050000000001,
+        0.825435,
+        0.913836
+      ],
+      "median": 0.8311050000000001,
+      "mad": 0.007499999999999951,
+      "rsd_pct": 6.360542607083225,
+      "detail": {
+        "command": "tar -cf /dev/null scripts/python/src",
+        "runs": "5",
+        "warmup": "2"
+      }
+    },
+    {
+      "key": "compile.dev",
+      "method": "compile.pinned/1.0.0",
+      "tool": "rustc",
+      "tool_version": "1.98.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        3930.601868,
+        3784.029411,
+        3795.5152399999997
+      ],
+      "median": 3795.5152399999997,
+      "mad": 11.48582899999974,
+      "rsd_pct": 2.1244874036304253,
+      "detail": {
+        "packages": 162,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "profiles": [
+          "dev",
+          "release"
+        ],
+        "jobs": 16
+      }
+    },
+    {
+      "key": "compile.release",
+      "method": "compile.pinned/1.0.0",
+      "tool": "rustc",
+      "tool_version": "1.98.0",
+      "scale": "ms",
+      "proportion": "LIB",
+      "comparable": "world",
+      "times_to_run": 3,
+      "samples": [
+        5484.820812999999,
+        5538.312596,
+        5474.859766
+      ],
+      "median": 5484.820812999999,
+      "mad": 9.96104699999978,
+      "rsd_pct": 0.6205194133714556,
+      "detail": {
+        "packages": 162,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "profiles": [
+          "dev",
+          "release"
+        ],
+        "jobs": 16
+      }
+    },
+    {
+      "key": "compile.package_j",
+      "method": "compile.pinned/1.0.0",
+      "tool": "rustc",
+      "tool_version": "1.98.0",
+      "scale": "J",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 3,
+      "samples": [
+        933.886274,
+        943.6335740000001,
+        941.610469
+      ],
+      "median": 941.610469,
+      "mad": 2.0231050000001005,
+      "rsd_pct": 0.5474055905381051,
+      "detail": {
+        "packages": 162,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "profiles": [
+          "dev",
+          "release"
+        ],
+        "jobs": 16
+      }
+    },
+    {
+      "key": "sched.wake_idle",
+      "method": "sched.wake/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "us",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        54.0,
+        66.0,
+        62.0,
+        51.0,
+        62.0,
+        66.0
+      ],
+      "median": 62.0,
+      "mad": 4.0,
+      "rsd_pct": 10.428176423226578,
+      "detail": {
+        "iterations": "2000",
+        "sleep_us": "1000",
+        "statistic": "p99 oversleep"
+      }
+    },
+    {
+      "key": "sched.wake_loaded",
+      "method": "sched.wake/1.0.0",
+      "tool": "bench-workloads",
+      "tool_version": "0.1.0",
+      "scale": "us",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        53.0,
+        51.0,
+        52.0,
+        53.0,
+        51.0,
+        53.0
+      ],
+      "median": 52.5,
+      "mad": 0.5,
+      "rsd_pct": 1.8847132528757349,
+      "detail": {
+        "iterations": "2000",
+        "sleep_us": "1000",
+        "statistic": "p99 oversleep"
+      }
+    },
+    {
+      "key": "ai.prompt_tps",
+      "method": "ai.llama/1.0.0",
+      "tool": "llama-cli",
+      "tool_version": "10586",
+      "scale": "t/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        8640.7,
+        9630.4,
+        9631.8,
+        9642.8,
+        9661.6,
+        9592.6
+      ],
+      "median": 9631.099999999999,
+      "mad": 21.100000000001273,
+      "rsd_pct": 4.280926619043965,
+      "detail": {
+        "model": "Phi-4-mini-instruct-Q6_K.gguf",
+        "model_bytes": 3155622880,
+        "predict": 128,
+        "prompt_words": 286,
+        "gpu_w": "mean of samples in the upper half of the observed range"
+      }
+    },
+    {
+      "key": "ai.generate_tps",
+      "method": "ai.llama/1.0.0",
+      "tool": "llama-cli",
+      "tool_version": "10586",
+      "scale": "t/s",
+      "proportion": "HIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        218.3,
+        218.1,
+        218.3,
+        218.5,
+        218.2,
+        218.4
+      ],
+      "median": 218.3,
+      "mad": 0.10000000000000853,
+      "rsd_pct": 0.06478303080041846,
+      "detail": {
+        "model": "Phi-4-mini-instruct-Q6_K.gguf",
+        "model_bytes": 3155622880,
+        "predict": 128,
+        "prompt_words": 286,
+        "gpu_w": "mean of samples in the upper half of the observed range"
+      }
+    },
+    {
+      "key": "ai.gpu_w",
+      "method": "ai.llama/1.0.0",
+      "tool": "llama-cli",
+      "tool_version": "10586",
+      "scale": "W",
+      "proportion": "LIB",
+      "comparable": "host",
+      "times_to_run": 6,
+      "samples": [
+        160.86,
+        176.20666666666668,
+        160.79,
+        174.448,
+        170.4457142857143,
+        192.98
+      ],
+      "median": 172.44685714285714,
+      "mad": 7.673333333333332,
+      "rsd_pct": 6.921181360881152,
+      "detail": {
+        "model": "Phi-4-mini-instruct-Q6_K.gguf",
+        "model_bytes": 3155622880,
+        "predict": 128,
+        "prompt_words": 286,
+        "gpu_w": "mean of samples in the upper half of the observed range"
+      }
+    }
+  ],
+  "context": {
+    "bios": {
+      "kind": "imported-bios-export",
+      "path": "/home/fredrir/dotfiles/config/bios/exports/archie-1681-20260911.txt",
+      "content_sha256": "a48c7487004a3938ba437a11020ee86249441732bcd3401dba3325a0a1559972",
+      "settings_sha256": "1c5de78948cf6bb27095f2be4e6bc369ca8d52d7aa7cb057f1a62256aeaaf1fb"
+    },
+    "lact": {
+      "kind": "lact-config-file",
+      "path": "/etc/lact/config.yaml",
+      "content_sha256": "2f4be07cdc53dd9ed937df0b9708e7ed8b5c30b912777c0dc326b3afb7cc356b",
+      "settings_sha256": "6291896241c7e6e23a1ec971e68b7346b995138ef11cf348ea5d98452a61f833"
+    },
+    "observed": {
+      "cpu.boost": "1",
+      "cpu.policy0.energy_performance_preference": "balance_performance",
+      "cpu.policy0.scaling_driver": "amd-pstate-epp",
+      "cpu.policy0.scaling_governor": "powersave",
+      "cpu.policy0.scaling_max_freq": "5455945",
+      "cpu.policy0.scaling_min_freq": "624476",
+      "cpu.policy1.energy_performance_preference": "balance_performance",
+      "cpu.policy1.scaling_driver": "amd-pstate-epp",
+      "cpu.policy1.scaling_governor": "powersave",
+      "cpu.policy1.scaling_max_freq": "5455945",
+      "cpu.policy1.scaling_min_freq": "624476",
+      "cpu.policy10.energy_performance_preference": "balance_performance",
+      "cpu.policy10.scaling_driver": "amd-pstate-epp",
+      "cpu.policy10.scaling_governor": "powersave",
+      "cpu.policy10.scaling_max_freq": "5455945",
+      "cpu.policy10.scaling_min_freq": "624476",
+      "cpu.policy11.energy_performance_preference": "balance_performance",
+      "cpu.policy11.scaling_driver": "amd-pstate-epp",
+      "cpu.policy11.scaling_governor": "powersave",
+      "cpu.policy11.scaling_max_freq": "5455945",
+      "cpu.policy11.scaling_min_freq": "624476",
+      "cpu.policy12.energy_performance_preference": "balance_performance",
+      "cpu.policy12.scaling_driver": "amd-pstate-epp",
+      "cpu.policy12.scaling_governor": "powersave",
+      "cpu.policy12.scaling_max_freq": "5455945",
+      "cpu.policy12.scaling_min_freq": "624476",
+      "cpu.policy13.energy_performance_preference": "balance_performance",
+      "cpu.policy13.scaling_driver": "amd-pstate-epp",
+      "cpu.policy13.scaling_governor": "powersave",
+      "cpu.policy13.scaling_max_freq": "5455945",
+      "cpu.policy13.scaling_min_freq": "624476",
+      "cpu.policy14.energy_performance_preference": "balance_performance",
+      "cpu.policy14.scaling_driver": "amd-pstate-epp",
+      "cpu.policy14.scaling_governor": "powersave",
+      "cpu.policy14.scaling_max_freq": "5455945",
+      "cpu.policy14.scaling_min_freq": "624476",
+      "cpu.policy15.energy_performance_preference": "balance_performance",
+      "cpu.policy15.scaling_driver": "amd-pstate-epp",
+      "cpu.policy15.scaling_governor": "powersave",
+      "cpu.policy15.scaling_max_freq": "5455945",
+      "cpu.policy15.scaling_min_freq": "624476",
+      "cpu.policy2.energy_performance_preference": "balance_performance",
+      "cpu.policy2.scaling_driver": "amd-pstate-epp",
+      "cpu.policy2.scaling_governor": "powersave",
+      "cpu.policy2.scaling_max_freq": "5455945",
+      "cpu.policy2.scaling_min_freq": "624476",
+      "cpu.policy3.energy_performance_preference": "balance_performance",
+      "cpu.policy3.scaling_driver": "amd-pstate-epp",
+      "cpu.policy3.scaling_governor": "powersave",
+      "cpu.policy3.scaling_max_freq": "5455945",
+      "cpu.policy3.scaling_min_freq": "624476",
+      "cpu.policy4.energy_performance_preference": "balance_performance",
+      "cpu.policy4.scaling_driver": "amd-pstate-epp",
+      "cpu.policy4.scaling_governor": "powersave",
+      "cpu.policy4.scaling_max_freq": "5455945",
+      "cpu.policy4.scaling_min_freq": "624476",
+      "cpu.policy5.energy_performance_preference": "balance_performance",
+      "cpu.policy5.scaling_driver": "amd-pstate-epp",
+      "cpu.policy5.scaling_governor": "powersave",
+      "cpu.policy5.scaling_max_freq": "5455945",
+      "cpu.policy5.scaling_min_freq": "624476",
+      "cpu.policy6.energy_performance_preference": "balance_performance",
+      "cpu.policy6.scaling_driver": "amd-pstate-epp",
+      "cpu.policy6.scaling_governor": "powersave",
+      "cpu.policy6.scaling_max_freq": "5455945",
+      "cpu.policy6.scaling_min_freq": "624476",
+      "cpu.policy7.energy_performance_preference": "balance_performance",
+      "cpu.policy7.scaling_driver": "amd-pstate-epp",
+      "cpu.policy7.scaling_governor": "powersave",
+      "cpu.policy7.scaling_max_freq": "5455945",
+      "cpu.policy7.scaling_min_freq": "624476",
+      "cpu.policy8.energy_performance_preference": "balance_performance",
+      "cpu.policy8.scaling_driver": "amd-pstate-epp",
+      "cpu.policy8.scaling_governor": "powersave",
+      "cpu.policy8.scaling_max_freq": "5455945",
+      "cpu.policy8.scaling_min_freq": "624476",
+      "cpu.policy9.energy_performance_preference": "balance_performance",
+      "cpu.policy9.scaling_driver": "amd-pstate-epp",
+      "cpu.policy9.scaling_governor": "powersave",
+      "cpu.policy9.scaling_max_freq": "5455945",
+      "cpu.policy9.scaling_min_freq": "624476",
+      "gpu.power_cap_w": "350"
+    }
+  }
+}

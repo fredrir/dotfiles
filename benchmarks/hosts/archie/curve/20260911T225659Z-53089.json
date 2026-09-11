@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "host": "archie",
+  "taken": "2026-09-12T00:56:54",
+  "bios": "a48c7487",
+  "iterations": 200000000,
+  "worker": "a10b07e7",
+  "worker_path": "/home/fredrir/.local/bin/bench-workloads",
+  "cores": {
+    "0": {
+      "mops": 895.857,
+      "prefcore": 196
+    },
+    "1": {
+      "mops": 895.405,
+      "prefcore": 176
+    },
+    "2": {
+      "mops": 895.837,
+      "prefcore": 191
+    },
+    "3": {
+      "mops": 895.301,
+      "prefcore": 186
+    },
+    "4": {
+      "mops": 895.897,
+      "prefcore": 181
+    },
+    "5": {
+      "mops": 895.865,
+      "prefcore": 196
+    },
+    "6": {
+      "mops": 895.687,
+      "prefcore": 166
+    },
+    "7": {
+      "mops": 896.139,
+      "prefcore": 171
+    }
+  }
+}

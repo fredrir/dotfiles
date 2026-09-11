@@ -4,43 +4,45 @@
 
 ## `archie`
 
-4 clean runs  |  arch
+10 clean runs  |  arch
 
 ### `91b4b3e3`
 
 AMD Ryzen 7 9800X3D, NVIDIA GeForce RTX 5070 Ti, 32 GB
 
-Baseline: `2026-09-11T22-28-20.001535375Z-91b4b3e3-3d3f7`
+Baseline: `2026-09-11T22-51-20.177050299Z-91b4b3e3-6f8b`
 
 | Metric                  | Unit   | Latest  | Runs | Best    |
 | ----------------------- | ------ | ------- | ---- | ------- |
-| `ai.generate_tps`       | t/s    | 218.2   | 1    | 218.2   |
-| `ai.gpu_w`              | W      | 166.0   | 1    | 166.0   |
-| `ai.prompt_tps`         | t/s    | 9 664   | 1    | 9 664   |
-| `cache.read`            | MiB/s  | 107 393 | 2    | 108 260 |
-| `cache.write`           | MiB/s  | 41 918  | 2    | 41 918  |
-| `compile.dev`           | ms     | 3 792   | 1    | 3 792   |
-| `compile.release`       | ms     | 5 494   | 1    | 5 494   |
-| `cpu.crypto`            | MB/s   | 25 402  | 2    | 25 402  |
-| `cpu.multi`             | MIPS   | 144 075 | 2    | 144 075 |
-| `cpu.native_multi`      | Mops/s | 12 623  | 2    | 12 623  |
-| `cpu.native_single`     | Mops/s | 896.0   | 2    | 896.0   |
-| `cpu.single`            | MIPS   | 13 409  | 2    | 13 445  |
-| `idle.fan_rpm`          | rpm    | 3 093   | 1    | 3 093   |
-| `idle.gpu_w`            | W      | 7.69    | 1    | 7.69    |
-| `idle.tctl_c`           | C      | 38.0    | 1    | 38.0    |
-| `mem.latency`           | ns     | 65.5    | 1    | 65.5    |
-| `mem.native_read`       | GiB/s  | 66.7    | 2    | 67.3    |
-| `mem.native_write`      | GiB/s  | 33.0    | 2    | 33.2    |
-| `mem.random`            | MiB/s  | 958.7   | 2    | 967.9   |
-| `mem.read`              | MiB/s  | 56 303  | 2    | 57 475  |
-| `mem.write`             | MiB/s  | 28 563  | 2    | 28 644  |
-| `sched.wake_idle`       | us     | 52.0    | 1    | 52.0    |
-| `sched.wake_loaded`     | us     | 51.0    | 1    | 51.0    |
+| `ai.generate_tps`       | t/s    | 218.4   | 7    | 218.4   |
+| `ai.gpu_w`              | W      | 164.4   | 7    | 164.4   |
+| `ai.prompt_tps`         | t/s    | 9 717   | 7    | 9 729   |
+| `cache.read`            | MiB/s  | 111 534 | 3    | 111 534 |
+| `cache.write`           | MiB/s  | 41 953  | 3    | 41 953  |
+| `compile.dev`           | ms     | 3 796   | 2    | 3 792   |
+| `compile.package_j`     | J      | 941.6   | 1    | 941.6   |
+| `compile.release`       | ms     | 5 485   | 2    | 5 485   |
+| `cpu.crypto`            | MB/s   | 25 637  | 3    | 25 637  |
+| `cpu.multi`             | MIPS   | 143 950 | 3    | 144 075 |
+| `cpu.native_multi`      | Mops/s | 12 699  | 3    | 12 699  |
+| `cpu.native_single`     | Mops/s | 895.1   | 3    | 896.0   |
+| `cpu.single`            | MIPS   | 13 515  | 3    | 13 515  |
+| `idle.fan_rpm`          | rpm    | 3 078   | 2    | 3 078   |
+| `idle.gpu_w`            | W      | 8.30    | 2    | 7.69    |
+| `idle.package_w`        | W      | 21.2    | 1    | 21.2    |
+| `idle.tctl_c`           | C      | 36.4    | 2    | 36.4    |
+| `mem.latency`           | ns     | 64.6    | 2    | 64.6    |
+| `mem.native_read`       | GiB/s  | 67.5    | 3    | 67.5    |
+| `mem.native_write`      | GiB/s  | 33.5    | 3    | 33.5    |
+| `mem.random`            | MiB/s  | 962.0   | 3    | 967.9   |
+| `mem.read`              | MiB/s  | 57 453  | 3    | 57 475  |
+| `mem.write`             | MiB/s  | 28 658  | 3    | 28 658  |
+| `sched.wake_idle`       | us     | 62.0    | 2    | 52.0    |
+| `sched.wake_loaded`     | us     | 52.5    | 2    | 51.0    |
 | `workload.git_log`      | ms     | 1.55    | 1    | 1.55    |
-| `workload.git_status`   | ms     | 4.00    | 1    | 4.00    |
-| `workload.nvim_startup` | ms     | 21.7    | 1    | 21.7    |
-| `workload.tar_repo`     | ms     | 0.87    | 1    | 0.87    |
+| `workload.git_status`   | ms     | 3.84    | 1    | 3.84    |
+| `workload.nvim_startup` | ms     | 20.4    | 1    | 20.4    |
+| `workload.tar_repo`     | ms     | 0.83    | 1    | 0.83    |
 
 ### `10db7d1f`
 
