@@ -4,8 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub use crate::config::sorted_directories as directories;
 use crate::config::{blocks, read_manifest};
-use crate::context::{Context, write_atomic};
-use crate::event::{Action, Event, EventSink, Phase};
+use crate::context::Context;
 
 pub const DEFAULT_GROUPS: &[&str] = &[
     "shared",
@@ -17,52 +16,6 @@ pub const DEFAULT_GROUPS: &[&str] = &[
     "linux/server",
     "macos",
 ];
-
-pub fn synchronize(
-    context: &Context,
-    dry_run: bool,
-    events: &dyn EventSink,
-) -> Result<usize, String> {
-    events.emit(Event::PhaseStarted {
-        phase: Phase::Artifacts,
-        total: Some(2),
-    });
-    let metadata = load_metadata(&context.packages_config)?;
-    let groups = package_groups(context)?;
-    validate_packages(context, &groups)?;
-    let (config, document) = render(context, &groups, &metadata)?;
-    let outputs = [
-        (&context.packages_config, config, "package index"),
-        (&context.packages_doc, document, "package documentation"),
-    ];
-    let mut changed = 0;
-    for (index, (path, content, detail)) in outputs.into_iter().enumerate() {
-        let differs = match fs::read(path) {
-            Ok(current) => current != content.as_bytes(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
-            Err(error) => return Err(format!("read {}: {error}", path.display())),
-        };
-        if differs {
-            changed += 1;
-            if !dry_run {
-                write_atomic(path, content.as_bytes())?;
-            }
-        }
-        events.emit(Event::Item {
-            action: Action::Generate,
-            path: path.clone(),
-            detail: detail.to_string(),
-            changed: differs,
-        });
-        events.emit(Event::Progress {
-            phase: Phase::Artifacts,
-            completed: index + 1,
-            total: Some(2),
-            label: detail.to_string(),
-        });
-    }
-    Ok(changed)
-}
 
 pub fn load_metadata(path: &Path) -> Result<BTreeMap<String, String>, String> {
     let mut metadata = BTreeMap::new();

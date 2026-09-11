@@ -49,9 +49,6 @@ dotfile dev check --pkg sysinfo --lang rust
 | `XDG_CONFIG_HOME` | `$HOME/.config`; host pin: `dotfile/host` |
 | `SYSINFO_BENCHMARKS` | `$DOTFILE_ROOT/benchmarks` |
 | `XDG_CACHE_HOME` | `$HOME/.cache`; benchmark work/cache: `dotfile/bench` |
-| `SYSINFO_BENCH_WORKLOADS` | Shared native resolver for `bench-workloads` |
-| `SYSINFO_COLLECTOR` | In-process collector; override executable emits module JSON |
-| `SYSINFO_COLLECT_TRACE` | Unset; presence enables collector timing output |
 | `DOTFILE_DEV_BUILD_MANIFEST` | Unset; prepared native artifacts are authoritative when set |
 
 ## Contracts

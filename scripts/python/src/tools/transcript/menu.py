@@ -15,7 +15,6 @@ from tools.transcript.screen import (
     GAP,
     HIDE,
     INDENT,
-    RESET,
     SHOW,
     colors_for,
     compose,
@@ -23,7 +22,6 @@ from tools.transcript.screen import (
     normalise,
     scripted,
     tty_keys,
-    visible,
 )
 
 GUTTER = "    "
@@ -32,7 +30,6 @@ DIGITS = "123456789"
 HEADER = 4
 SPARE = 1
 MIN_ROWS = 3
-MIN_PANEL = 4
 MIN_WIDTH = 24
 
 HINT = "↑/↓ move | ↩ select | q quit"
@@ -45,22 +42,12 @@ _height = 0
 
 
 class Column:
-    def __init__(self, options, details=None, preview=None, default=0, kind="", title=""):
+    def __init__(self, options, details=None, default=0, kind=""):
         self.options = list(options)
         details = list(details or [])[: len(self.options)]
         self.details = details + [""] * (len(self.options) - len(details))
-        self.preview = preview
         self.kind = kind
-        self.title = title
         self.index = min(max(default, 0), max(len(self.options) - 1, 0))
-
-    @property
-    def head(self):
-        return 1 if self.title else 0
-
-    @property
-    def span(self):
-        return self.head + len(self.options)
 
     def label_width(self):
         return max(len(option) for option in self.options)
@@ -69,7 +56,7 @@ class Column:
         room = len(CURSOR) + self.label_width()
         if detailed and any(self.details):
             room += len(GAP) + max(len(detail) for detail in self.details)
-        return max(room, len(self.title))
+        return room
 
 
 class Cascade:
@@ -112,40 +99,22 @@ class Cascade:
                 offsets.append(0)
                 continue
             previous = self.columns[position - 1]
-            offset = offsets[-1] + previous.head + previous.index - column.head
-            if limit is not None:
-                offset = min(offset, limit - column.span)
+            offset = min(offsets[-1] + previous.index, limit - len(column.options))
             offsets.append(max(0, offset))
-        return offsets, max(o + c.span for o, c in zip(offsets, self.columns))
-
-    def geometry(self, avail):
-        budget = max(shutil.get_terminal_size().lines - HEADER - SPARE, MIN_ROWS)
-        _offsets, natural = self.stack(None)
-        active = self.columns[-1]
-        room = budget - natural - 1
-        panel = []
-        if active.preview and room >= MIN_PANEL:
-            drawn = _panels(active.preview, len(active.options), room)
-            if drawn and all(visible(line) <= avail for line in drawn[active.index]):
-                panel = drawn[active.index]
-        offsets, height = self.stack(budget - len(panel) - 1 if panel else budget)
-        return offsets, height, panel
+        return offsets, max(o + len(c.options) for o, c in zip(offsets, self.columns))
 
     def cell(self, column, index, label, active):
-        if column.head and not index:
-            return [(column.title, DIM)], len(column.title)
-        position = index - column.head
-        if position < 0 or position >= len(column.options):
+        if index < 0 or index >= len(column.options):
             return [], 0
-        chosen = position == column.index
+        chosen = index == column.index
         if active:
             mark = tint = CYAN + BOLD if chosen else ""
         else:
             mark, tint = (CYAN if chosen else ""), ("" if chosen else DIM)
-        option = column.options[position]
+        option = column.options[index]
         segments = [(CURSOR if chosen else BLANK, mark), (option, tint)]
         used = len(CURSOR) + len(option)
-        detail = column.details[position] if active else ""
+        detail = column.details[index] if active else ""
         if detail:
             segments.append((" " * (label - len(option)) + GAP, ""))
             segments.append((detail, DIM))
@@ -177,14 +146,15 @@ class Cascade:
 
     def frame(self):
         avail = max(shutil.get_terminal_size().columns - 1, MIN_WIDTH)
-        offsets, height, panel = self.geometry(avail)
+        budget = max(shutil.get_terminal_size().lines - HEADER - SPARE, MIN_ROWS)
+        offsets, height = self.stack(budget)
         last = len(self.columns) - 1
         widths = [column.width(position == last) for position, column in enumerate(self.columns)]
         first = self.trimmed(widths, avail)
         if first:
             lift = min(offsets[first:])
             offsets = [offset - lift for offset in offsets]
-            height = max(offsets[at] + self.columns[at].span for at in range(first, last + 1))
+            height = max(offsets[at] + len(self.columns[at].options) for at in range(first, last + 1))
         heading = [(INDENT, ""), (self.title, BOLD)]
         if first:
             walked = " › ".join(one.options[one.index] for one in self.columns[:first])
@@ -197,9 +167,6 @@ class Cascade:
             "",
         ]
         lines += [self.row(index, offsets, widths, first, avail) for index in range(height)]
-        if panel:
-            lines.append("")
-            lines.extend(line + (RESET if self.color_on else "") for line in panel)
         return lines
 
     def draw(self):
@@ -287,14 +254,6 @@ def cascade(title, expand, start=(), keys=None, out=None):
         return picks
 
 
-def pick(title, options, descriptions=None, default=0, preview=None):
-    if not options:
-        return None
-    column = Column(options, descriptions, preview, default)
-    picks = cascade(title, lambda path: None if path else column)
-    return None if picks is None else picks[0].index
-
-
 def erase():
     global _height
     if not _height or _stream is None:
@@ -302,13 +261,3 @@ def erase():
     _stream.write(f"\033[{_height}A" + ERASE)
     flush(_stream)
     _height = 0
-
-
-def _panels(preview, count, room):
-    if preview is None:
-        return []
-    drawn = [list(preview(index) or []) for index in range(count)]
-    height = min(max((len(panel) for panel in drawn), default=0), room)
-    if height < 1:
-        return []
-    return [panel[:height] + [""] * (height - len(panel)) for panel in drawn]

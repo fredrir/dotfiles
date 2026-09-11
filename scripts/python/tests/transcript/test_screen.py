@@ -109,17 +109,16 @@ def test_a_closed_terminal_reads_as_an_abort():
 
 
 def test_fit_marks_the_cut_with_an_ellipsis():
-    assert screen.fit("linux/common", 20) == "linux/common"
-    assert screen.fit("linux/common", 8) == "linux/c…"
-    assert screen.fit("linux/common", 1) == "…"
-    assert screen.fit("linux/common", 0) == ""
+    assert screen.fit("session.jsonl", 20) == "session.jsonl"
+    assert screen.fit("session.jsonl", 8) == "session…"
+    assert screen.fit("session.jsonl", 1) == "…"
+    assert screen.fit("session.jsonl", 0) == ""
 
 
 def test_compose_reports_the_printed_width_not_the_escaped_length():
     line, used = screen.compose([("abc", screen.BOLD), ("de", "")], 40, True)
     assert used == 5
-    assert screen.visible(line) == 5
-    assert line.startswith(screen.BOLD)
+    assert line == f"{screen.BOLD}abc{screen.RESET}de"
 
 
 def test_compose_clips_cumulatively_and_drops_what_will_not_fit():

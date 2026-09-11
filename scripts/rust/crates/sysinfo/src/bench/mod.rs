@@ -11,6 +11,7 @@ pub mod select;
 pub mod store;
 pub mod suites;
 #[cfg(test)]
+#[path = "../../tests/unit/bench_tests.rs"]
 mod tests;
 
 use clap::{Arg, ArgAction, ArgMatches};
@@ -22,7 +23,6 @@ use std::{
     fs,
     io::{self, IsTerminal, Write},
     path::PathBuf,
-    process::Command,
 };
 use store::Store;
 
@@ -115,7 +115,6 @@ pub fn command() -> clap::Command {
                 )
                 .arg(target("target", "Selector such as archie@a3f19c2e")),
         )
-        .subcommand(clap::Command::new("document").about("Regenerate the benchmark documentation"))
         .subcommand(
             clap::Command::new("prune")
                 .about("Thin old runs, retaining baselines and oldest runs")
@@ -155,7 +154,7 @@ pub fn complete(source: &str) -> Result<Vec<String>, String> {
     let mut epochs = BTreeMap::<String, usize>::new();
     for run in &runs {
         match source {
-            "runs" | "bench-runs" => {
+            "runs" => {
                 *hosts.entry(&run.host).or_default() += 1;
                 *epochs
                     .entry(format!("{}@{}", run.host, run.epoch()))
@@ -166,7 +165,7 @@ pub fn complete(source: &str) -> Result<Vec<String>, String> {
                     run.host, run.run_id, run.started, run.tier, run.grade
                 ));
             }
-            "metrics" | "bench-metrics" if run.grade == "clean" => {
+            "metrics" if run.grade == "clean" => {
                 rows.extend(run.metrics.iter().map(|m| m.key.clone()))
             }
             _ => {}
@@ -322,20 +321,6 @@ pub fn run(args: &ArgMatches) -> Result<(), String> {
             args.get_flag("dry-run"),
             args.get_flag("yes"),
         ),
-        "document" => {
-            let binary = workstation::native::Resolver::discover(crate::inventory::repo_root())
-                .resolve("dotfile")?
-                .ok_or("dotfile binary is not installed; run dotfile setup")?;
-            let status = Command::new(binary)
-                .args(["docs", "--only", "benchmarks"])
-                .status()
-                .map_err(|e| format!("dotfile: {e}"))?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err("benchmark documentation failed".into())
-            }
-        }
         _ => Err(format!("unknown benchmark command: {name}")),
     }
 }

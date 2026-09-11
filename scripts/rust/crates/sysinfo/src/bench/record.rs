@@ -4,7 +4,6 @@ use serde_json::{Value, json};
 
 pub const HIB: &str = "HIB";
 pub const LIB: &str = "LIB";
-pub const WORLD: &str = "world";
 pub const HOST: &str = "host";
 pub const CLEAN: &[&str] = &["clean"];
 pub const ANY: &[&str] = &["clean", "noisy", "aborted"];

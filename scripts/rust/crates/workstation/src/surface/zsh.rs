@@ -107,13 +107,12 @@ fn function_body(c: &Command, helpers: &mut Helpers) -> String {
         .iter()
         .filter(|c| !c.hidden && c.name() != "help")
         .collect::<Vec<_>>();
-    let root = c.path.len() == 1 && c.name() == "dotfile";
     let mut lines = vec![
         format!("{}() {{", name(c)),
         "    local context state state_descr line ret=1".into(),
         "    typeset -A opt_args".into(),
     ];
-    if !children.is_empty() || root {
+    if !children.is_empty() {
         specs.extend(["'1: :->command'".into(), "'*:: :->argument'".into()]);
         lines.push(arguments(&specs, true));
         lines.extend([
@@ -168,7 +167,6 @@ fn action(c: &Command, p: &Param, helpers: &mut Helpers) -> String {
             }
             Completion::Files { .. } => "_files".into(),
             Completion::Dirs => "_files -/".into(),
-            Completion::None => String::new(),
             Completion::Pair { groups, names } => pair(&c.path[0], &p.name, groups, names, helpers),
         };
     }

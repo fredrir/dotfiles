@@ -1,4 +1,4 @@
-use crate::formatting::{gpu_memory, is_virtual_disk, named_gpu, nvidia_for};
+use crate::formatting::{gpu_memory, is_virtual_disk, named_gpu, nvidia_for, string};
 use crate::model::Snapshot;
 use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command, time::Duration};
@@ -22,9 +22,6 @@ pub fn detect_virtualized() -> bool {
         }
     }
     fs::read_to_string("/proc/cpuinfo").is_ok_and(|text| text.contains(" hypervisor"))
-}
-fn string<'a>(value: &'a Value, key: &str) -> &'a str {
-    value[key].as_str().unwrap_or("")
 }
 pub fn describe_snapshot(snapshot: &Snapshot) -> Value {
     let mut value = describe_hardware(snapshot);

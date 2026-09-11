@@ -26,8 +26,14 @@ impl Sandbox {
             ("home/.config/", ""),
         ]);
         let root = temporary.path().join("repo");
-        dotfile_cli::docs::keybinds::generate(&root, false).unwrap();
         let home = temporary.path().join("home");
+        let docs = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+            .args(["docs", "--only", "keybinds"])
+            .env("DOTFILE_ROOT", &root)
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .run();
+        assert!(docs.success(), "{}", docs.stderr);
         Self {
             temporary,
             root,

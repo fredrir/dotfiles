@@ -68,11 +68,6 @@ impl Context {
     pub fn inventory(&self) -> sysinfo::inventory::InventoryContext {
         sysinfo::inventory::InventoryContext {
             root: self.root.clone(),
-            home: self.home.clone(),
-            config_home: self
-                .env("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| self.home.join(".config")),
             host: self
                 .env("SYSINFO_HOST")
                 .map(|value| value.to_string_lossy().trim().to_string())

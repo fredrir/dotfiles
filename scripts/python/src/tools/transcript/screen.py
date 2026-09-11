@@ -1,6 +1,5 @@
 import contextlib
 import os
-import re
 import select
 import termios
 import tty
@@ -8,9 +7,6 @@ import tty
 BOLD = "\033[1m"
 DIM = "\033[2m"
 CYAN = "\033[36m"
-GREEN = "\033[32m"
-RED = "\033[31m"
-YELLOW = "\033[33m"
 RESET = "\033[0m"
 
 HIDE = "\033[?25l"
@@ -25,8 +21,6 @@ ESC_DELAY = 0.05
 ESC_LIMIT = 16
 ESC_DRAIN = 256
 CSI_FINAL = "\x40", "\x7e"
-
-ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 ARROWS = {
     "\033[A": "up",
@@ -44,10 +38,6 @@ ABORT = ("q", "\033", "\003", "")
 
 def paint(text, color, color_on):
     return f"{color}{text}{RESET}" if color_on else text
-
-
-def visible(text):
-    return len(ANSI.sub("", text))
 
 
 def fit(text, width):

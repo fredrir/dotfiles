@@ -363,12 +363,6 @@ fn memory(setting: &Setting) -> Result<Vec<Job>, String> {
     Ok(jobs)
 }
 pub fn native_path() -> Result<Option<PathBuf>, String> {
-    if let Some(value) =
-        std::env::var_os("SYSINFO_BENCH_WORKLOADS").filter(|value| !value.is_empty())
-    {
-        let path = PathBuf::from(value);
-        return Ok(executable(&path).then_some(path));
-    }
     workstation::native::Resolver::discover(crate::inventory::repo_root())
         .resolve("bench-workloads")
 }

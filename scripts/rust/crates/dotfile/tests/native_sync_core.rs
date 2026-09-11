@@ -9,7 +9,7 @@ use dotfile_cli::context::{Context, write_atomic};
 use dotfile_cli::decision::{self, Choice, Prompt};
 use dotfile_cli::event::{Action, Event, VecSink};
 use dotfile_cli::sync::engine;
-use testkit::{TempDir, tree_pairs};
+use testkit::{Bin, Ran, TempDir, tree_pairs};
 
 struct Sandbox {
     _temporary: TempDir,
@@ -50,6 +50,16 @@ impl Sandbox {
     fn sync(&self, cli: &SyncCli) -> Result<dotfile_cli::event::Summary, String> {
         let (decisions, _server) = decision::channel();
         engine::reconcile(&self.context, "test", cli, &decisions, &VecSink::default())
+    }
+
+    fn package_docs(&self, args: &[&str]) -> Ran {
+        Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+            .args(["docs", "--only", "packages", "--json"])
+            .args(args)
+            .env("DOTFILE_ROOT", &self.root)
+            .env("HOME", &self.home)
+            .env("XDG_CONFIG_HOME", self.home.join(".config"))
+            .run()
     }
 }
 
@@ -1019,28 +1029,25 @@ fn package_metadata_generation_is_stable_and_dry_run_is_read_only() {
         "shared {\n  alpha  = First package\n  long-package\n}\n\ncustom {\n  tool  = Custom tool\n}",
     );
     fs::write(&sandbox.context.packages_doc, "stale\n").expect("stale package document");
-    let sink = VecSink::default();
-    assert_eq!(
-        packages::synchronize(&sandbox.context, true, &sink).unwrap(),
-        1
-    );
+    let preview = sandbox.package_docs(&["--dry-run"]);
+    assert!(preview.success(), "{preview:?}");
+    let report: serde_json::Value = serde_json::from_str(&preview.stdout).unwrap();
+    assert_eq!(report["changes"][0]["path"], "PACKAGES.md");
     assert_eq!(
         fs::read_to_string(&sandbox.context.packages_doc).unwrap(),
         "stale\n"
     );
-    assert_eq!(
-        packages::synchronize(&sandbox.context, false, &sink).unwrap(),
-        1
-    );
+    let generated = sandbox.package_docs(&[]);
+    assert!(generated.success(), "{generated:?}");
     let config = fs::read_to_string(&sandbox.context.packages_config).unwrap();
     let document = fs::read_to_string(&sandbox.context.packages_doc).unwrap();
     assert!(config.contains("alpha  = First package"));
     assert!(config.contains("tool  = Custom tool"));
     assert!(document.contains("- `alpha` — First package"));
-    assert_eq!(
-        packages::synchronize(&sandbox.context, false, &sink).unwrap(),
-        0
-    );
+    let checked = sandbox.package_docs(&["--check"]);
+    assert!(checked.success(), "{checked:?}");
+    let report: serde_json::Value = serde_json::from_str(&checked.stdout).unwrap();
+    assert!(report["changes"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -1049,8 +1056,8 @@ fn invalid_package_metadata_never_rewrites_generated_artifacts() {
     sandbox.directory("shared/tool");
     fs::write(&sandbox.context.packages_config, [0xff]).unwrap();
     fs::write(&sandbox.context.packages_doc, "preserve me\n").unwrap();
-    let result = packages::synchronize(&sandbox.context, false, &VecSink::default());
-    assert!(result.is_err());
+    let result = sandbox.package_docs(&[]);
+    assert!(!result.success());
     assert_eq!(fs::read(&sandbox.context.packages_config).unwrap(), [0xff]);
     assert_eq!(
         fs::read_to_string(&sandbox.context.packages_doc).unwrap(),
@@ -1069,8 +1076,8 @@ fn invalid_manifest_never_rewrites_generated_package_artifacts() {
     )
     .unwrap();
     fs::write(&sandbox.context.packages_doc, "preserve docs\n").unwrap();
-    let result = packages::synchronize(&sandbox.context, false, &VecSink::default());
-    assert!(result.is_err());
+    let result = sandbox.package_docs(&[]);
+    assert!(!result.success());
     assert_eq!(
         fs::read_to_string(&sandbox.context.packages_config).unwrap(),
         "shared {\n  tool  = preserve config\n}"
@@ -1095,7 +1102,13 @@ fn checked_in_package_artifacts_match_the_native_renderer() {
         temporary.path().join(".config/dotfile"),
     )
     .expect("repository context");
-    let sink = VecSink::default();
-    let changed = packages::synchronize(&context, true, &sink).unwrap();
-    assert_eq!(changed, 0, "{:?}", sink.events());
+    let groups = packages::package_groups(&context).unwrap();
+    packages::validate_packages(&context, &groups).unwrap();
+    let metadata = packages::load_metadata(&context.packages_config).unwrap();
+    let (config, document) = packages::render(&context, &groups, &metadata).unwrap();
+    assert_eq!(
+        config,
+        fs::read_to_string(&context.packages_config).unwrap()
+    );
+    assert_eq!(document, fs::read_to_string(&context.packages_doc).unwrap());
 }

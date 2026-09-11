@@ -37,10 +37,3 @@ def test_unavailable_completion_source_stays_quiet(monkeypatch):
 
     monkeypatch.setattr(completion, "values", failed)
     assert completion.lines("sessions", []) == []
-
-
-def test_installed_help_works_outside_repository(tool, tmp_path):
-    for program in ["transcript", "clean-copy"]:
-        result = tool(program, "--help", cwd=tmp_path)
-        assert result.returncode == 0, result.stderr
-        assert f"Usage: {program}" in result.stdout

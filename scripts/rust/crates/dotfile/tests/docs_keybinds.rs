@@ -1,14 +1,39 @@
 #![forbid(unsafe_code)]
 
-use dotfile_cli::docs::keybinds::{MARKER, collect, generate};
+use dotfile_cli::docs::keybinds::{MARKER, collect};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn put(root: &Path, name: &str, body: &str) {
     let path = root.join(name);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, body).unwrap();
+}
+
+fn generate(root: &Path, check: bool) -> Result<Vec<PathBuf>, String> {
+    fs::create_dir_all(root.join("config")).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
+    command
+        .env("DOTFILE_ROOT", root)
+        .env("HOME", root.join("home"))
+        .env("XDG_CONFIG_HOME", root.join("home/.config"))
+        .args(["docs", "--only", "keybinds", "--json"]);
+    if check {
+        command.arg("--check");
+    }
+    let output = command.output().unwrap();
+    if !output.status.success() && !(check && output.status.code() == Some(1)) {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| String::from_utf8_lossy(&output.stderr).into_owned())?;
+    Ok(report["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|change| PathBuf::from(change["path"].as_str().unwrap()))
+        .collect())
 }
 
 #[test]
@@ -343,7 +368,7 @@ fn scalar_kde_launchers_and_zsh_completion_keys_are_documented() {
 }
 
 #[test]
-fn cli_check_reports_drift_and_finds_the_repository_from_a_child_directory() {
+fn cli_check_reports_drift_from_a_child_directory() {
     let dir = tempfile::tempdir().unwrap();
     put(dir.path(), "config/targets.dotfile", "");
     put(
@@ -364,7 +389,6 @@ fn cli_check_reports_drift_and_finds_the_repository_from_a_child_directory() {
     assert!(!dir.path().join("docs").exists());
     assert!(run(&[]).status.success());
     assert!(run(&["--check"]).status.success());
-    assert!(run(&["--help"]).status.success());
 }
 
 #[test]

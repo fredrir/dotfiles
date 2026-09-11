@@ -160,29 +160,14 @@ fn resolver(context: &Context) -> workstation::native::Resolver {
     }
 }
 
-pub fn binaries(
-    context: &Context,
-    programs: &[String],
-) -> Result<BTreeMap<String, PathBuf>, String> {
-    resolver(context).resolve_many(programs)
-}
-
-pub fn binary(context: &Context, program: &str) -> Result<Option<PathBuf>, String> {
-    resolver(context).resolve(program)
-}
-
-pub fn external(context: &Context, program: &str) -> Result<Option<Command>, String> {
-    let Some(binary) = binary(context, program)? else {
-        return Ok(None);
-    };
-    external_at(context, program, &binary)
-}
-
 pub fn external_many(
     context: &Context,
     programs: &[String],
 ) -> Result<BTreeMap<String, Command>, String> {
-    let binaries = binaries(context, programs)?.into_iter().collect::<Vec<_>>();
+    let binaries = resolver(context)
+        .resolve_many(programs)?
+        .into_iter()
+        .collect::<Vec<_>>();
     if binaries.is_empty() {
         return Ok(BTreeMap::new());
     }
@@ -239,78 +224,23 @@ fn external_at(
     parse_dump(&String::from_utf8_lossy(&output.stdout), program).map(Some)
 }
 
-pub fn parse_dump(text: &str, program: &str) -> Result<Command, String> {
-    if text.trim_start().starts_with('{') {
-        let mut document: workstation::surface::Document =
-            serde_json::from_str(text).map_err(|error| format!("{program}: {error}"))?;
-        if document.version != workstation::surface::VERSION {
-            return Err(format!(
-                "{program}: unsupported command schema version {}",
-                document.version
-            ));
-        }
-        fn rename(command: &mut Command, program: &str) {
-            if let Some(root) = command.path.first_mut() {
-                *root = program.into();
-            }
-            for child in &mut command.children {
-                rename(child, program);
-            }
-        }
-        rename(&mut document.command, program);
-        return Ok(document.command);
+fn parse_dump(text: &str, program: &str) -> Result<Command, String> {
+    let mut document: workstation::surface::Document =
+        serde_json::from_str(text).map_err(|error| format!("{program}: {error}"))?;
+    if document.version != workstation::surface::VERSION {
+        return Err(format!(
+            "{program}: unsupported command schema version {}",
+            document.version
+        ));
     }
-    // Installed binaries may predate the JSON protocol until the next setup.
-
-    let mut commands: Vec<Command> = Vec::new();
-    for line in text.lines() {
-        let fields = line.split('\t').collect::<Vec<_>>();
-        if fields.first() == Some(&"C") && fields.len() >= 4 {
-            let mut path = fields[1].split(' ').map(str::to_string).collect::<Vec<_>>();
-            if let Some(first) = path.first_mut() {
-                *first = program.into();
-            }
-            commands.push(Command {
-                path,
-                hidden: fields[2] == "1",
-                help: fields[3].into(),
-                ..Default::default()
-            });
-        } else if fields.first() == Some(&"A")
-            && fields.len() >= 10
-            && let Some(command) = commands.last_mut()
-        {
-            command.params.push(Param {
-                kind: fields[2].into(),
-                name: fields[3].into(),
-                opts: fields[4]
-                    .split(',')
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-                    .collect(),
-                metavar: fields[5].into(),
-                multiple: fields[6] == "1",
-                required: fields[7] == "1",
-                hidden: fields[8] == "1",
-                help: fields[9].into(),
-                ..Default::default()
-            });
+    fn rename(command: &mut Command, program: &str) {
+        if let Some(root) = command.path.first_mut() {
+            *root = program.into();
+        }
+        for child in &mut command.children {
+            rename(child, program);
         }
     }
-    if commands.is_empty() {
-        return Err(format!("{program}: invalid command metadata"));
-    }
-    fn build(index: usize, commands: &[Command]) -> Command {
-        let mut command = commands[index].clone();
-        command.children = commands
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| {
-                c.path.len() == command.path.len() + 1 && c.path.starts_with(&command.path)
-            })
-            .map(|(i, _)| build(i, commands))
-            .collect();
-        command
-    }
-    Ok(build(0, &commands))
+    rename(&mut document.command, program);
+    Ok(document.command)
 }

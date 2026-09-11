@@ -187,10 +187,8 @@ pub fn run() -> Result<(), String> {
         health: matches.get_flag("health"),
     };
     let timings = matches.get_flag("timings");
-    let snapshot = collect::collect_snapshot_with_timings(
-        options.full || matches.get_flag("pretty"),
-        timings,
-    )?;
+    let snapshot =
+        collect::collect_snapshot_with_timings(options.full || matches.get_flag("pretty"), timings);
     let view = presentation::build_view(&snapshot);
     let mut issues = health::health_issues(&snapshot);
     issues.extend(bench::benchmark_issues(&inventory::resolve("")?)?);

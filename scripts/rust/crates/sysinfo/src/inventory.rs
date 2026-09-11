@@ -5,7 +5,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use workstation::blocks::{self, Comments};
 
-pub const ROLES: &[&str] = &["hyprland", "laptop", "server"];
 pub const HARDWARE_KEYS: &[(&str, &str)] = &[
     ("GPU", "gpu"),
     ("CPU", "cpu"),
@@ -41,8 +40,6 @@ pub fn default_hardware() -> BTreeMap<String, String> {
 #[derive(Clone, Debug)]
 pub struct InventoryContext {
     pub root: PathBuf,
-    pub home: PathBuf,
-    pub config_home: PathBuf,
     pub host: Option<String>,
     pub config: Option<PathBuf>,
     pub state_file: PathBuf,
@@ -59,8 +56,6 @@ impl InventoryContext {
         Self {
             root: repo_root(),
             state_file: config_home.join("dotfile/host"),
-            home,
-            config_home,
             host: std::env::var("SYSINFO_HOST").ok().filter(|v| !v.is_empty()),
             config: std::env::var_os("SYSINFO_CONFIG")
                 .filter(|v| !v.is_empty())

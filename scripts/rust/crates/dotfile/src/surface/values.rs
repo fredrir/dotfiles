@@ -3,14 +3,14 @@ use crate::context::Context;
 use std::collections::BTreeSet;
 use std::fs;
 
-pub fn lines(context: &Context, source: &str, arguments: &[String]) -> Result<Vec<String>, String> {
+pub fn lines(context: &Context, source: &str, arguments: &[String]) -> Vec<String> {
     // A partial config must not print diagnostics into the command being completed.
-    Ok(values(context, source, arguments)
+    values(context, source, arguments)
         .unwrap_or_default()
         .into_iter()
         .filter(|v| !v.is_empty())
         .map(|v| v.replace(['\n', '\r', '\t'], " "))
-        .collect())
+        .collect()
 }
 fn escaped(s: &str) -> String {
     s.replace(':', "\\:")
@@ -137,25 +137,12 @@ fn values(context: &Context, source: &str, arguments: &[String]) -> Result<Vec<S
         "theme-scopes" => crate::theme::scopes(context),
         "dev-packages" => Ok(crate::dev::package_names()?.into_iter().collect()),
         "dev-languages" => Ok(crate::dev::language_names()),
-        "hosts" | "known-hosts" => {
-            let text = fs::read_to_string(context.root.join("config/hosts.dotfile"))
-                .map_err(|e| e.to_string())?;
-            let entries =
-                config::blocks::parse_with_comments(&text, config::blocks::Comments::Lines)?;
-            let mut rows = Vec::new();
-            for entry in &entries {
-                if entry.opens {
-                    let role = entries
-                        .iter()
-                        .find(|e| {
-                            e.block == entry.block && e.split().0.eq_ignore_ascii_case("role")
-                        })
-                        .map_or("", |e| e.split().1);
-                    rows.push(row(&entry.block, role));
-                }
-            }
-            Ok(rows)
-        }
+        "hosts" => Ok(
+            sysinfo::inventory::load_hosts_from(&context.inventory().hosts_file())?
+                .into_iter()
+                .map(|host| row(&host.name, &host.role))
+                .collect(),
+        ),
         _ => Ok(Vec::new()),
     }
 }

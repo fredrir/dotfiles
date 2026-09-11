@@ -1,22 +1,11 @@
 #![forbid(unsafe_code)]
 
 use dotfile_cli::{
-    artifacts::docs,
     context::Context,
     surface::{completions, metadata},
 };
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
-
-fn native_fixture(path: &std::path::Path) {
-    fs::write(path, b"\x7fELFfixture").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-}
 
 fn sandbox() -> (tempfile::TempDir, Context) {
     let temp = tempfile::tempdir().unwrap();
@@ -26,51 +15,6 @@ fn sandbox() -> (tempfile::TempDir, Context) {
     fs::create_dir_all(&home).unwrap();
     let context = Context::new(root, home, temp.path().join("state")).unwrap();
     (temp, context)
-}
-
-#[test]
-fn reference_preserves_prose_and_mtime_and_check_does_not_write() {
-    let (_temp, context) = sandbox();
-    let (changed, _) = docs::generate(&context, false).unwrap();
-    assert!(changed.contains(&PathBuf::from("docs/cli/dotfile.md")));
-    let path = context.root.join("docs/cli/dotfile.md");
-    let text = fs::read_to_string(&path).unwrap();
-    fs::write(&path, format!("intro\n{text}\nclosing\n")).unwrap();
-    let before = fs::metadata(&path).unwrap().modified().unwrap();
-    assert!(docs::generate(&context, false).unwrap().0.is_empty());
-    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), before);
-    let stale = fs::read_to_string(&path)
-        .unwrap()
-        .replace("Manages this repository", "stale");
-    assert!(stale.contains("stale"));
-    fs::write(&path, &stale).unwrap();
-    assert!(
-        docs::generate(&context, true)
-            .unwrap()
-            .0
-            .contains(&PathBuf::from("docs/cli/dotfile.md"))
-    );
-    assert_eq!(fs::read_to_string(&path).unwrap(), stale);
-    docs::generate(&context, false).unwrap();
-    let text = fs::read_to_string(path).unwrap();
-    assert!(text.starts_with("intro\n"));
-    assert!(text.ends_with("closing\n"));
-}
-
-#[test]
-fn unavailable_external_metadata_keeps_its_document() {
-    let (_temp, mut context) = sandbox();
-    // Explicitly isolate resolution from installed tools and the caller's prepared build.
-    let manifest = context.root.join("build.jsonl");
-    fs::write(&manifest, "").unwrap();
-    context
-        .process_env
-        .insert("DOTFILE_DEV_BUILD_MANIFEST".into(), manifest.into());
-    let path = context.root.join("docs/cli/count.md");
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(&path, "retained\n").unwrap();
-    docs::generate(&context, false).unwrap();
-    assert_eq!(fs::read_to_string(path).unwrap(), "retained\n");
 }
 
 #[test]
@@ -96,43 +40,19 @@ fn declarative_metadata_generates_scripts_without_python_sources() {
 }
 
 #[test]
-fn prepared_artifact_paths_are_authoritative_and_aliases_resolve() {
+fn host_completions_follow_the_inventory_override_and_fail_quietly() {
     let (_temp, mut context) = sandbox();
-    let installed = context.home.join(".local/bin/git-discard");
-    fs::create_dir_all(installed.parent().unwrap()).unwrap();
-    native_fixture(&installed);
-    let prepared = context.root.join("prepared binary");
-    native_fixture(&prepared);
-    let manifest = context.root.join("build.jsonl");
-    fs::write(&manifest, format!("{}\n", json!({"reason":"compiler-artifact","target":{"name":"git-discard"},"executable":prepared}))).unwrap();
+    let hosts = context.root.join("custom-hosts.dotfile");
+    fs::write(&hosts, "laptop {\n  ROLE = laptop\n}\n").unwrap();
     context
         .process_env
-        .insert("DOTFILE_DEV_BUILD_MANIFEST".into(), manifest.into());
-    assert_eq!(metadata::binary(&context, "gdd").unwrap(), Some(prepared));
-    assert_eq!(metadata::binary(&context, "count").unwrap(), None);
-}
-
-#[test]
-fn artifact_precedence_is_stable_when_a_debug_file_is_newer() {
-    let (_temp, context) = sandbox();
-    let debug = context.root.join("scripts/rust/target/debug/count");
-    let release = context.root.join("scripts/rust/target/release/count");
-    let installed = context.home.join(".local/bin/count");
-    for path in [&release, &installed, &debug] {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        native_fixture(path);
-    }
+        .insert("SYSINFO_CONFIG".into(), hosts.clone().into());
     assert_eq!(
-        metadata::binary(&context, "count").unwrap(),
-        Some(release.clone())
+        dotfile_cli::surface::values::lines(&context, "hosts", &[]),
+        ["laptop:laptop"]
     );
-    fs::remove_file(release).unwrap();
-    assert_eq!(
-        metadata::binary(&context, "count").unwrap(),
-        Some(installed.clone())
-    );
-    fs::remove_file(installed).unwrap();
-    assert_eq!(metadata::binary(&context, "count").unwrap(), Some(debug));
+    fs::write(&hosts, "invalid inventory").unwrap();
+    assert!(dotfile_cli::surface::values::lines(&context, "hosts", &[]).is_empty());
 }
 
 #[cfg(unix)]
@@ -146,7 +66,11 @@ fn native_metadata_never_executes_a_retired_interpreter_launcher() {
         &launcher,
         &format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
     );
-    assert!(metadata::external(&context, "sysinfo").unwrap().is_none());
+    assert!(
+        metadata::external_many(&context, &["sysinfo".into()])
+            .unwrap()
+            .is_empty()
+    );
     assert!(!marker.exists());
 }
 

@@ -1,5 +1,5 @@
 use super::{
-    capture, compare, conditions, health, menu, plan,
+    capture, compare, conditions, health, menu,
     record::{self, Metric, Run},
     runner,
     select::Selector,
@@ -18,8 +18,8 @@ use std::{
 
 fn archived(name: &str) -> Run {
     serde_json::from_str(match name {
-        "archie" => include_str!("../../tests/fixtures/bench/archie-schema1.json"),
-        _ => include_str!("../../tests/fixtures/bench/macie-schema1.json"),
+        "archie" => include_str!("../fixtures/bench/archie-schema1.json"),
+        _ => include_str!("../fixtures/bench/macie-schema1.json"),
     })
     .unwrap()
 }
@@ -193,14 +193,13 @@ fn store_ignores_corrupt_files_and_cannot_escape_history_root() {
     assert!(store.run_path("archie", "../../outside").is_err());
 }
 #[test]
-fn flock_is_exclusive_and_uses_the_same_inode_after_release() {
+fn benchmark_lock_is_exclusive_and_reusable() {
     let (_root, store) = store();
     let first = store.exclusive().unwrap();
     assert!(store.exclusive().is_err());
-    assert!(store.root.join(".lock").is_file());
     drop(first);
     let _again = store.exclusive().unwrap();
-    assert!(store.root.join(".lock").is_file());
+    assert!(store.exclusive().is_err());
 }
 #[test]
 fn atomic_updates_leave_no_partial_files_and_retain_other_hosts_pins() {
@@ -372,17 +371,6 @@ fn fio_parser_extracts_throughput_iops_latency_and_actual_writes() {
     assert!(suites::disk::parse(&json!({"jobs":[]})).is_err());
 }
 #[test]
-fn plan_never_creates_its_work_directory() {
-    let root = tempfile::tempdir().unwrap();
-    let path = root.path().join("absent");
-    let plan = plan::build("heavy", &["disk".into()], &path);
-    assert!(!path.exists());
-    assert_eq!(plan.write_budget, 70 * 1024_u64.pow(3));
-    assert_eq!(plan.jobs.len(), 1);
-    assert_eq!(plan.jobs[0].name, "disk");
-    assert!(plan.expected_bytes_written <= plan.write_budget);
-}
-#[test]
 fn workload_recording_does_not_publish_repository_absolute_path() {
     let root = std::path::Path::new("/home/someone/dotfiles");
     let command = ["git", "-C", "/home/someone/dotfiles", "status"].map(String::from);
@@ -406,10 +394,6 @@ fn menu_handles_wide_unicode_and_small_terminals_without_overflow() {
             .all(|line| unicode_width::UnicodeWidthStr::width(line.as_str()) <= 19)
     );
     assert!(frame.len() <= 10);
-}
-#[test]
-fn command_definition_is_consistent() {
-    super::command().debug_assert();
 }
 
 #[test]
@@ -464,7 +448,11 @@ fn metal_uses_valid_cache_without_a_compiler_and_preserves_it_on_failed_rebuild(
     let source = directory.path().join("gpu_bench.swift");
     fs::write(&binary, "cached").unwrap();
     fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
-    fs::write(&source, include_str!("suites/metal/gpu_bench.swift")).unwrap();
+    fs::write(
+        &source,
+        include_str!("../../src/bench/suites/metal/gpu_bench.swift"),
+    )
+    .unwrap();
     assert_eq!(
         suites::gpu::metal_binary_at(directory.path(), None).unwrap(),
         Some(binary.clone())

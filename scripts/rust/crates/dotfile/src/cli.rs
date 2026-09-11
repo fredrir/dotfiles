@@ -141,13 +141,6 @@ pub enum Command {
         source: String,
         arguments: Vec<String>,
     },
-    #[command(name = "__reference", hide = true)]
-    Reference {
-        #[arg(long)]
-        check: bool,
-    },
-    #[command(name = "__inventory", hide = true)]
-    Inventory,
     #[command(external_subcommand)]
     External(Vec<OsString>),
 }
@@ -270,7 +263,7 @@ fn execute(
             Ok(ExitCode::SUCCESS)
         }
         Command::Complete { source, arguments } => {
-            for line in crate::surface::values::lines(context, &source, &arguments)? {
+            for line in crate::surface::values::lines(context, &source, &arguments) {
                 println!("{line}");
             }
             Ok(ExitCode::SUCCESS)
@@ -289,37 +282,6 @@ fn execute(
             } else if let Some(program) = program {
                 crate::surface::completions::emit_program(context, &program, &shell)?;
             }
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Reference { check } => {
-            let _lock = if check {
-                None
-            } else {
-                Some(crate::lock::MutationLock::acquire(context)?)
-            };
-            let (changed, missing) = crate::artifacts::docs::generate(context, check)?;
-            for program in missing {
-                println!("  {program} is not built here, so its page was left alone");
-            }
-            for path in &changed {
-                println!(
-                    "  {} {}",
-                    if check { "drifted" } else { "updated" },
-                    path.display()
-                );
-            }
-            if changed.is_empty() {
-                println!("  docs/cli is current");
-            }
-            Ok(if check && !changed.is_empty() {
-                ExitCode::FAILURE
-            } else {
-                ExitCode::SUCCESS
-            })
-        }
-        Command::Inventory => {
-            let _lock = crate::lock::MutationLock::acquire(context)?;
-            crate::artifacts::packages::synchronize(context, false, &Silent)?;
             Ok(ExitCode::SUCCESS)
         }
         Command::Link(args) => {
@@ -359,11 +321,6 @@ fn execute(
         Command::Docs(args) => crate::docs::run(context, args),
         Command::External(arguments) => Ok(external(arguments)),
     }
-}
-
-struct Silent;
-impl crate::event::EventSink for Silent {
-    fn emit(&self, _event: crate::event::Event) {}
 }
 
 fn external(arguments: Vec<OsString>) -> std::process::ExitCode {

@@ -3,7 +3,8 @@ mod common;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
-pub(crate) mod parse;
+#[cfg(any(target_os = "linux", test))]
+mod parse;
 
 use crate::{inventory, model::Snapshot};
 use hostkit::process::{CaptureLimits, output};
@@ -69,7 +70,7 @@ pub fn index_modules(entries: Vec<Value>) -> Map<String, Value> {
         })
         .collect()
 }
-fn required_modules(full: bool) -> Vec<Value> {
+fn enrichment_modules() -> Vec<Value> {
     let mut modules = vec![
         json!("OS"),
         json!("Kernel"),
@@ -88,27 +89,25 @@ fn required_modules(full: bool) -> Vec<Value> {
         json!("Battery"),
         json!("PowerAdapter"),
     ];
-    if full {
-        modules.extend(
-            [
-                "Host",
-                "Uptime",
-                "Packages",
-                "CPUCache",
-                "CPUUsage",
-                "OpenCL",
-                "Vulkan",
-                "TerminalFont",
-                "Theme",
-                "WMTheme",
-                "Display",
-                "BIOS",
-                "Bootmgr",
-                "InitSystem",
-            ]
-            .map(|m| json!(m)),
-        );
-    }
+    modules.extend(
+        [
+            "Host",
+            "Uptime",
+            "Packages",
+            "CPUCache",
+            "CPUUsage",
+            "OpenCL",
+            "Vulkan",
+            "TerminalFont",
+            "Theme",
+            "WMTheme",
+            "Display",
+            "BIOS",
+            "Bootmgr",
+            "InitSystem",
+        ]
+        .map(|m| json!(m)),
+    );
     modules
 }
 fn fastfetch(modules: Vec<Value>, trace: bool) -> Option<Vec<Value>> {
@@ -137,53 +136,37 @@ fn fastfetch(modules: Vec<Value>, trace: bool) -> Option<Vec<Value>> {
     let text = result.ok()?;
     serde_json::from_str(&text).ok()
 }
-pub fn collect_modules(full: bool) -> Result<Map<String, Value>, String> {
-    collect_modules_timed(full, false)
-}
-fn collect_modules_timed(full: bool, timings: bool) -> Result<Map<String, Value>, String> {
-    let trace = timings || std::env::var_os("SYSINFO_COLLECT_TRACE").is_some();
+fn collect_modules(full: bool, trace: bool) -> Map<String, Value> {
     let started = Instant::now();
-    let mut entries = if let Some(path) =
-        std::env::var_os("SYSINFO_COLLECTOR").filter(|path| !path.is_empty())
-    {
-        probe(&mut Command::new(path), Duration::from_secs(30))
-            .ok()
-            .and_then(|text| serde_json::from_str::<Vec<Value>>(&text).ok())
-            .or_else(|| fastfetch(required_modules(full), trace))
-            .ok_or_else(|| {
-                "system collector and fastfetch could not collect system information".to_string()
-            })?
-    } else {
-        let mut collected = Vec::new();
-        common::collect(&mut collected);
-        if trace {
-            eprintln!("common: {:?}", started.elapsed());
-        }
-        #[cfg(target_os = "linux")]
-        linux::collect(&mut collected);
-        #[cfg(target_os = "macos")]
-        macos::collect(&mut collected);
-        if trace {
-            eprintln!("platform: {:?}", started.elapsed());
-        }
-        collected
-            .into_iter()
-            .map(|(kind, result)| json!({"type":kind,"result":result}))
-            .collect()
-    };
+    let mut collected = Vec::new();
+    common::collect(&mut collected);
+    if trace {
+        eprintln!("common: {:?}", started.elapsed());
+    }
+    #[cfg(target_os = "linux")]
+    linux::collect(&mut collected);
+    #[cfg(target_os = "macos")]
+    macos::collect(&mut collected);
+    if trace {
+        eprintln!("platform: {:?}", started.elapsed());
+    }
+    let mut modules: Map<String, Value> = collected
+        .into_iter()
+        .map(|(kind, result)| (kind.into(), result))
+        .collect();
     if full {
-        let missing = required_modules(true)
+        let missing = enrichment_modules()
             .into_iter()
             .filter(|module| {
                 let kind = module.as_str().or_else(|| module["type"].as_str());
-                !entries.iter().any(|entry| entry["type"].as_str() == kind)
+                !kind.is_some_and(|kind| modules.contains_key(kind))
             })
             .collect();
         if let Some(extras) = fastfetch(missing, trace) {
-            entries.extend(extras);
+            modules.extend(index_modules(extras));
         }
     }
-    Ok(index_modules(entries))
+    modules
 }
 pub fn shell_info() -> (String, String) {
     let path = std::env::var("SHELL").unwrap_or_default();
@@ -376,10 +359,10 @@ pub fn parse_nvidia(bytes: &[u8]) -> Vec<Value> {
         json!({"index":row[0].parse::<u32>().ok(),"name":row[1],"memory_total_mib":number(2),"memory_used_mib":number(3),"utilization":number(4),"temperature":number(5),"power_draw":number(6),"power_limit":number(7),"clock_mhz":number(8),"driver":row[9]})
     }).collect()
 }
-pub fn collect_snapshot(full: bool) -> Result<Snapshot, String> {
+pub fn collect_snapshot(full: bool) -> Snapshot {
     collect_snapshot_with_timings(full, false)
 }
-pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Result<Snapshot, String> {
+pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Snapshot {
     let started = Instant::now();
     let (modules, (shell_name, shell_version), (terminal_name, terminal_version)) =
         std::thread::scope(|scope| {
@@ -400,12 +383,11 @@ pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Result<Snapsh
                 result
             });
             (
-                collect_modules_timed(full, timings),
+                collect_modules(full, timings),
                 shell.join().unwrap_or_default(),
                 terminal.join().unwrap_or_default(),
             )
         });
-    let modules = modules?;
     let fallback = Value::Null;
     let module = |name: &str| modules.get(name).unwrap_or(&fallback);
     let terminal = if recognized_terminal(module("Terminal")) {
@@ -453,7 +435,7 @@ pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Result<Snapsh
     if timings {
         eprintln!("collection: {:?}", started.elapsed());
     }
-    Ok(Snapshot {
+    Snapshot {
         hardware,
         shell_display: versioned_name(shell_name, shell_version, module("Shell")),
         terminal_display: versioned_name(terminal_name, terminal_version, terminal),
@@ -466,5 +448,5 @@ pub fn collect_snapshot_with_timings(full: bool, timings: bool) -> Result<Snapsh
             vec![error]
         },
         modules,
-    })
+    }
 }

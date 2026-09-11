@@ -15,7 +15,6 @@
 | `sysinfo bench compare`  | Compares two benchmark runs.                                                      |
 | `sysinfo bench trend`    | Shows one benchmark metric over time.                                             |
 | `sysinfo bench baseline` | Sets, clears, or shows the baseline run for a machine and hardware configuration. |
-| `sysinfo bench document` | Regenerates the benchmark documentation from stored runs.                         |
 | `sysinfo bench prune`    | Removes superseded runs while preserving baselines and configuration history.     |
 <!-- cli:commands:end -->
 

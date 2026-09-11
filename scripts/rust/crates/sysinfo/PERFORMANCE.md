@@ -27,14 +27,23 @@ Machine-specific measurements; the first invocation is not a cold-cache benchmar
 
 | Report | Path |
 | --- | --- |
-| Python baseline | [macos-before.json](../../../python/tests/performance/baselines/macos-before.json) |
-| Rust release | [macos-after.json](../../../python/tests/performance/baselines/macos-after.json) |
+| Python baseline | [macos-before.json](benchmarks/cli-macos-before.json) |
+| Rust release | [macos-after.json](benchmarks/cli-macos-after.json) |
 
 The reports include observed subprocess probes: Python counts `Popen` calls; Rust counts bounded collector probes. These are not total descendant-process counts.
 
+New measurements use Hyperfine directly; its timings exclude the shell and time wrapper used above.
+
 ```sh
-DOTFILE_PERF_SYSINFO="$PWD/scripts/rust/target/release/sysinfo" \
-DOTFILE_PERF_DOTFILE="$PWD/scripts/rust/target/release/dotfile" \
-DOTFILE_PERF_OUTPUT=/tmp/dotfile-performance.json \
-  dotfile dev test -l python -p performance --python-workers 1
+cargo build --release --locked --manifest-path scripts/rust/Cargo.toml -p workstation-sysinfo -p dotfile-cli
+hyperfine --shell=none --warmup 1 --runs 5 --export-json /tmp/sysinfo-timings.json \
+  'scripts/rust/target/release/sysinfo --help' \
+  'scripts/rust/target/release/sysinfo' \
+  'scripts/rust/target/release/sysinfo --pretty' \
+  'scripts/rust/target/release/sysinfo --full' \
+  'scripts/rust/target/release/sysinfo bench list' \
+  'scripts/rust/target/release/sysinfo __complete runs'
+hyperfine --shell=none --warmup 1 --runs 5 \
+  'scripts/rust/target/release/dotfile docs --dry-run' \
+  'scripts/rust/target/release/dotfile docs --only keybinds --dry-run'
 ```

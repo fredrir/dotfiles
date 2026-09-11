@@ -3,9 +3,9 @@ mod cli;
 pub mod keybinds;
 mod markdown;
 pub(crate) mod packages;
-pub mod plan;
+mod plan;
 mod readme;
-pub mod reference;
+mod reference;
 
 use crate::context::Context;
 use crate::event::{Action, Event, EventSink, Phase};

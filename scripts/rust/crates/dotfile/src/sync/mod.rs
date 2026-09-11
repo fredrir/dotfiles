@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-use crate::artifacts;
 use crate::cli::SyncCli;
 use crate::context::Context;
 use crate::decision::Client;
@@ -50,7 +49,7 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     };
     let changed = ChangeSetSink::new(events);
     crate::cancel::check()?;
-    let generated = artifacts::docs::synchronize(&context, cli.dry_run, &changed)?;
+    let generated = crate::docs::synchronize(&context, cli.dry_run, &changed)?;
     let mut summary = engine::reconcile(&context, &profile, cli, decisions, &changed)?;
     summary.generated += generated;
     summary.changed = changed.changed();

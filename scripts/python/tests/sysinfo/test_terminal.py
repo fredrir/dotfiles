@@ -86,6 +86,16 @@ class Terminal:
 
 @pytest.mark.parametrize("cancel", [b"q", b"\x03"])
 def test_native_history_menu_restores_terminal_after_resize_and_cancel(history, cancel):
+    history_root = Path(history["SYSINFO_BENCHMARKS"])
+
+    def saved_files():
+        return {
+            path.relative_to(history_root): path.read_bytes()
+            for path in history_root.rglob("*")
+            if path.is_file()
+        }
+
+    before = saved_files()
     terminal = Terminal(history)
     try:
         terminal.expect("sysinfo bench")
@@ -94,6 +104,6 @@ def test_native_history_menu_restores_terminal_after_resize_and_cancel(history, 
         os.write(terminal.master, b"j")
         os.write(terminal.master, cancel)
         terminal.finish()
-        assert not (Path(history["SYSINFO_BENCHMARKS"]) / "baselines.json").exists()
+        assert saved_files() == before
     finally:
         terminal.close()

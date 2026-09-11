@@ -98,20 +98,24 @@ fn plan_does_not_spawn_benchmark_tools_or_create_directories() {
     ] {
         testkit::executable(
             &tools.join(tool),
-            "#!/bin/sh\necho unexpectedly-ran >&2\nexit 99\n",
+            "#!/bin/sh\nprintf called > \"$PROBE_MARKER\"\nexit 99\n",
         );
     }
     let store = Store::new(root.path().join("absent-history"));
     let work = root.path().join("absent-work");
+    let marker = root.path().join("probe-called");
     let result = binary(&store)
         .args(["plan", "--tier", "heavy", "--json", "--workdir"])
         .arg(&work)
         .env("PATH", &tools)
+        .env("PROBE_MARKER", &marker)
         .run();
     assert!(result.success(), "{result:?}");
     assert!(result.stderr.is_empty());
+    assert!(!marker.exists());
     let plan: Value = serde_json::from_str(&result.stdout).unwrap();
     assert_eq!(plan["expected_bytes_written"], 58 * 1024_u64.pow(3));
+    assert_eq!(plan["write_budget"], 70 * 1024_u64.pow(3));
     assert!(!store.root.exists());
     assert!(!work.exists());
 }
@@ -166,50 +170,19 @@ fn baseline_mutations_respect_the_benchmark_lock() {
     );
 }
 #[test]
-fn benchmark_run_uses_only_native_tools_and_writes_history_under_lock() {
+fn benchmark_run_persists_samples_and_pins_its_baseline() {
     let root = tempfile::tempdir().unwrap();
-    let tools = root.path().join("bin");
-    fs::create_dir(&tools).unwrap();
-    let config = root.path().join("hosts.dotfile");
-    fs::write(&config, "archie {\n  role = hyprland\n}\n").unwrap();
-    let collector = tools.join("collector");
-    let modules = json!([{"type":"CPU","result":{"cpu":"Fixture CPU","cores":{"physical":2,"logical":4}}},{"type":"Memory","result":{"total":34359738368_u64,"used":1073741824_u64}},{"type":"OS","result":{"id":"fixture"}}]);
-    testkit::executable(
-        &collector,
-        &format!("#!/bin/sh\nprintf '%s' '{}'\n", modules),
-    );
-    let workload = tools.join("bench-workloads");
-    testkit::executable(
-        &workload,
-        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'bench-workloads 0.1.0'; else echo '{\"value\":123.4}'; fi\n",
-    );
     let store = Store::new(root.path().join("history"));
-    let result = binary(&store)
-        .args([
-            "run",
-            "--host",
-            "archie",
-            "--only",
-            "mem",
-            "--force",
-            "--json",
-            "--baseline",
-            "--workdir",
-        ])
-        .arg(root.path().join("work"))
-        .env("PATH", &tools)
-        .env("SYSINFO_CONFIG", &config)
-        .env("SYSINFO_COLLECTOR", &collector)
-        .env("SYSINFO_BENCH_WORKLOADS", &workload)
-        .env("DOTFILE_ROOT", root.path())
-        .run();
+    let command = fixture_measurement(root.path(), &store, "cache");
+    sysbench_fixture(root.path());
+    let result = command.arg("--baseline").run();
     assert!(result.success(), "{result:?}");
     let run: Run = serde_json::from_str(&result.stdout).unwrap();
     assert_eq!(run.metrics.len(), 2);
     assert!(
         run.metrics
             .iter()
-            .all(|metric| metric.tool == "bench-workloads" && metric.samples.len() == 3)
+            .all(|metric| metric.tool == "sysbench" && metric.samples == [123.4; 3])
     );
     assert!(
         store
@@ -224,11 +197,8 @@ fn fixture_measurement(root: &std::path::Path, store: &Store, family: &str) -> B
     fs::create_dir_all(&tools).unwrap();
     let config = root.join("hosts.dotfile");
     fs::write(&config, "archie {\n  role = hyprland\n}\n").unwrap();
-    let collector = tools.join("collector");
-    testkit::executable(
-        &collector,
-        "#!/bin/sh\necho '[{\"type\":\"CPU\",\"result\":{\"cpu\":\"Fixture CPU\"}},{\"type\":\"Memory\",\"result\":{\"total\":34359738368,\"used\":1073741824}}]'\n",
-    );
+    let manifest = root.join("artifacts.jsonl");
+    fs::write(&manifest, "").unwrap();
     binary(store)
         .args([
             "run",
@@ -245,30 +215,30 @@ fn fixture_measurement(root: &std::path::Path, store: &Store, family: &str) -> B
         .arg(root.join("work"))
         .env("PATH", &tools)
         .env("SYSINFO_CONFIG", &config)
-        .env("SYSINFO_COLLECTOR", &collector)
+        .env("DOTFILE_DEV_BUILD_MANIFEST", &manifest)
         .env("XDG_CACHE_HOME", root.join("cache"))
         .env("DOTFILE_ROOT", root)
+}
+
+fn sysbench_fixture(root: &std::path::Path) {
+    testkit::executable(
+        &root.join("bin/sysbench"),
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'sysbench 1.0.20'; else echo '(123.4 MiB/sec)'; fi\n",
+    );
 }
 
 #[test]
 fn fio_failure_after_layout_is_not_retried_and_still_consumes_the_write_budget() {
     let root = tempfile::tempdir().unwrap();
     let store = Store::new(root.path().join("history"));
-    let command = fixture_measurement(root.path(), &store, "mem,disk");
+    let command = fixture_measurement(root.path(), &store, "cache,disk");
     let attempts = root.path().join("attempts");
-    let workload = root.path().join("bin/bench-workloads");
-    testkit::executable(
-        &workload,
-        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'bench-workloads 0.1.0'; else echo '{\"value\":123.4}'; fi\n",
-    );
+    sysbench_fixture(root.path());
     testkit::executable(
         &root.path().join("bin/fio"),
         "#!/bin/sh\nif [ \"$1\" = --version ]; then echo fio-3.33; exit 0; fi\necho attempt >> \"$ATTEMPTS\"\nwhile IFS= read -r line; do case \"$line\" in directory=*) directory=${line#directory=};; esac; done < \"$2\"\n: > \"$directory/seq-read.0.0\"\necho engine-failed-after-layout >&2\nexit 1\n",
     );
-    let result = command
-        .env("SYSINFO_BENCH_WORKLOADS", workload)
-        .env("ATTEMPTS", &attempts)
-        .run();
+    let result = command.env("ATTEMPTS", &attempts).run();
     assert!(result.success(), "{result:?}");
     let run: Run = serde_json::from_str(&result.stdout).unwrap();
     assert_eq!(fs::read_to_string(attempts).unwrap(), "attempt\n");

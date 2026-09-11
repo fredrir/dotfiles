@@ -16,9 +16,9 @@ RIGHT = "\x1b[C"
 LEFT = "\x1b[D"
 ENTER = "\r"
 
-MENU = ["sync", "switch", "status", "preview", "dry"]
-SCOPES = ["global", "linux/arch", "linux/common"]
-DETAILS = ["mocha", "mocha   fastfetch", "mocha   gtk, quicklaunch"]
+MENU = ["sync", "import", "list", "capture", "add"]
+PROJECTS = ["webapp", "server/api", "infra/common"]
+DETAILS = ["Codex", "Claude   sessions", "Codex   archived session"]
 
 
 class Screen(io.StringIO):
@@ -60,12 +60,12 @@ def tail(sheet):
 def two_levels(picks):
     if not picks:
         return Column(MENU, kind="menu")
-    if picks[-1].kind == "menu" and picks[-1].option == "switch":
-        return Column(SCOPES, DETAILS, kind="scope")
+    if picks[-1].kind == "menu" and picks[-1].option == "import":
+        return Column(PROJECTS, DETAILS, kind="project")
     return None
 
 
-def run(expand, keys, title="dotfile theme", start=()):
+def run(expand, keys, title="transcript", start=()):
     sheet = Screen()
     picks = menu.cascade(title, expand, start=start, keys=keys, out=sheet)
     return picks, sheet
@@ -75,28 +75,30 @@ def rows(frame):
     return frame[4:]
 
 
-def test_pick_needs_a_terminal(monkeypatch):
+def test_cascade_needs_a_terminal(monkeypatch):
     monkeypatch.setattr(menu.sys, "stdout", Screen(False))
-    assert menu.pick("pick one", ["a", "b"]) is None
+    assert menu.cascade("transcript", two_levels, keys=[ENTER]) is None
 
 
-def test_pick_needs_options(monkeypatch):
-    monkeypatch.setattr(menu.sys, "stdout", Screen(True))
-    assert menu.pick("pick one", []) is None
+@pytest.mark.parametrize("root", [None, Column([])])
+def test_an_empty_cascade_returns_without_drawing_and_restores_the_cursor(root):
+    picks, sheet = run(lambda _picks: root, [ENTER])
+    assert picks is None
+    assert sheet.getvalue() == menu.HIDE + menu.SHOW
 
 
 def test_a_single_column_frame_reads_like_a_plain_list():
     _picks, sheet = run(lambda picks: None if picks else Column(MENU, kind="menu"), ["q"])
     assert frames(sheet)[0] == [
         "",
-        "  dotfile theme",
+        "  transcript",
         "  ↑/↓ move | ↩ select | q quit",
         "",
         "  ❯ sync",
-        "    switch",
-        "    status",
-        "    preview",
-        "    dry",
+        "    import",
+        "    list",
+        "    capture",
+        "    add",
     ]
 
 
@@ -104,29 +106,29 @@ def test_a_child_column_opens_beside_its_parent():
     _picks, sheet = run(two_levels, [DOWN, ENTER, DOWN, "q"])
     assert rows(frames(sheet)[-1]) == [
         "    sync",
-        "  ❯ switch       global        mocha",
-        "    status     ❯ linux/arch    mocha   fastfetch",
-        "    preview      linux/common  mocha   gtk, quicklaunch",
-        "    dry",
+        "  ❯ import       webapp        Codex",
+        "    list       ❯ server/api    Claude   sessions",
+        "    capture      infra/common  Codex   archived session",
+        "    add",
     ]
 
 
 def test_only_the_active_column_shows_details():
     def expand(picks):
         column = two_levels(picks)
-        if column is None and picks[-1].kind == "scope":
-            return Column(["group", "plasma"], ["every file", "mocha"], kind="package")
+        if column is None and picks[-1].kind == "project":
+            return Column(["first", "latest"], ["full note", "summary"], kind="session")
         return column
 
     _picks, sheet = run(expand, [DOWN, ENTER, DOWN, DOWN, ENTER, "q"])
     body = rows(frames(sheet)[-1])
-    assert "mocha   gtk, quicklaunch" not in "\n".join(body)
+    assert "Codex   archived session" not in "\n".join(body)
     assert body == [
         "    sync",
-        "  ❯ switch       global",
-        "    status       linux/arch",
-        "    preview    ❯ linux/common    ❯ group   every file",
-        "    dry                            plasma  mocha",
+        "  ❯ import       webapp",
+        "    list         server/api",
+        "    capture    ❯ infra/common    ❯ first   full note",
+        "    add                            latest  summary",
     ]
 
 
@@ -158,8 +160,16 @@ def test_right_on_a_leaf_does_not_select():
 def test_enter_on_a_leaf_returns_the_whole_path():
     picks, _sheet = run(two_levels, [DOWN, ENTER, DOWN, ENTER])
     assert picks == [
-        menu.Pick("menu", 1, "switch"),
-        menu.Pick("scope", 1, "linux/arch"),
+        menu.Pick("menu", 1, "import"),
+        menu.Pick("project", 1, "server/api"),
+    ]
+
+
+def test_reopening_a_cascade_restores_the_selected_path():
+    picks, _sheet = run(two_levels, [ENTER], start=(1, 1))
+    assert picks == [
+        menu.Pick("menu", 1, "import"),
+        menu.Pick("project", 1, "server/api"),
     ]
 
 
@@ -170,7 +180,7 @@ def test_quitting_deep_returns_nothing():
 
 def test_a_finished_cascade_collapses_to_one_line():
     _picks, sheet = run(two_levels, [DOWN, ENTER, DOWN, ENTER])
-    assert tail(sheet).splitlines() == ["  dotfile theme — switch › linux/arch"]
+    assert tail(sheet).splitlines() == ["  transcript — import › server/api"]
 
 
 def test_an_abandoned_cascade_leaves_nothing_behind():
@@ -197,12 +207,12 @@ def test_vi_keys_match_the_arrows():
 
 def test_the_cursor_wraps_at_both_ends():
     _picks, sheet = run(two_levels, [UP, "q"])
-    assert rows(frames(sheet)[-1])[-1] == "  ❯ dry"
+    assert rows(frames(sheet)[-1])[-1] == "  ❯ add"
 
 
 def test_digits_jump_within_the_active_column():
     _picks, sheet = run(two_levels, ["3", "q"])
-    assert rows(frames(sheet)[-1])[2] == "  ❯ status"
+    assert rows(frames(sheet)[-1])[2] == "  ❯ list"
 
 
 def test_a_superscript_digit_is_not_a_jump():
@@ -227,63 +237,6 @@ def test_a_narrow_terminal_drops_the_leftmost_column(monkeypatch):
     monkeypatch.setattr(menu.shutil, "get_terminal_size", lambda: os.terminal_size((34, 40)))
     _picks, sheet = run(two_levels, [DOWN, ENTER, "q"])
     frame = frames(sheet)[-1]
-    assert frame[1] == "  dotfile theme  ‹ switch"
-    assert rows(frame)[0] == "  ❯ global        mocha"
-    assert rows(frame)[2] == "    linux/common  mocha   gtk, q…"
-
-
-def test_a_column_title_sits_above_its_options():
-    def expand(picks):
-        if not picks:
-            return Column(MENU, kind="menu")
-        return Column(["alpha", "beta"], kind="side", title="which side?")
-
-    _picks, sheet = run(expand, [ENTER, "q"])
-    assert rows(frames(sheet)[-1]) == [
-        "  ❯ sync       which side?",
-        "    switch     ❯ alpha",
-        "    status       beta",
-        "    preview",
-        "    dry",
-    ]
-
-
-def test_the_panel_renders_below_the_block():
-    column = Column(MENU, kind="menu", preview=lambda index: [f"card {index}"] * 3)
-    _picks, sheet = run(lambda picks: None if picks else column, [DOWN, "q"])
-    frame = frames(sheet)[-1]
-    assert frame[-4:] == ["", "card 1", "card 1", "card 1"]
-
-
-def test_the_panel_is_dropped_when_the_screen_is_short(monkeypatch):
-    monkeypatch.setattr(menu.shutil, "get_terminal_size", screen(12))
-    column = Column(MENU, kind="menu", preview=lambda index: ["card"] * 6)
-    _picks, sheet = run(lambda picks: None if picks else column, ["q"])
-    assert frames(sheet)[-1][-1] == "    dry"
-
-
-def test_panel_lines_are_not_clipped_by_the_composer():
-    painted = "\x1b[48;2;30;30;46m" + " " * 40 + "\x1b[0m"
-    column = Column(MENU, kind="menu", preview=lambda index: [painted])
-    sheet = Screen()
-    menu.cascade("t", lambda picks: None if picks else column, keys=["q"], out=sheet)
-    assert painted in sheet.getvalue()
-
-
-def test_no_preview_means_no_panels():
-    assert menu._panels(None, 3, 30) == []
-
-
-def test_panels_are_padded_to_a_single_height():
-    panels = menu._panels(lambda index: ["line"] * (index + 1), 3, 31)
-    assert [len(panel) for panel in panels] == [3, 3, 3]
-    assert panels[0] == ["line", "", ""]
-
-
-def test_panels_are_clipped_to_the_room_that_is_left():
-    panels = menu._panels(lambda index: ["line"] * 10, 3, 5)
-    assert [len(panel) for panel in panels] == [5, 5, 5]
-
-
-def test_an_empty_preview_is_treated_as_none():
-    assert menu._panels(lambda index: [], 2, 30) == []
+    assert frame[1] == "  transcript  ‹ import"
+    assert rows(frame)[0] == "  ❯ webapp        Codex"
+    assert rows(frame)[2] == "    infra/common  Codex   archiv…"

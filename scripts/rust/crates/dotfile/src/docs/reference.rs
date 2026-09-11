@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use super::markdown::{block, replace_block, table};
-use super::plan::{Output, Plan, read};
+use super::plan::{Output, read};
 use crate::context::Context;
 use crate::surface::metadata::{self, Command, Param};
 
@@ -25,16 +25,6 @@ struct Catalog {
 }
 const CATALOG: &str = include_str!("../../assets/cli-reference.json");
 const STANDARD: &[&str] = &["--help", "--completions", "--version"];
-
-pub fn generate(context: &Context, check: bool) -> Result<(Vec<PathBuf>, Vec<String>), String> {
-    let (outputs, missing) = outputs(context)?;
-    let plan = Plan::new(&context.root, outputs)?;
-    let changed = plan.paths();
-    if !check {
-        plan.apply(&context.root)?;
-    }
-    Ok((changed, missing))
-}
 
 pub(super) fn outputs(context: &Context) -> Result<(Vec<Output>, Vec<String>), String> {
     let catalog: Catalog = serde_json::from_str(CATALOG).map_err(|e| e.to_string())?;

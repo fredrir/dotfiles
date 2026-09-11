@@ -50,7 +50,6 @@ pub enum Completion {
         pattern: String,
     },
     Dirs,
-    None,
     Pair {
         groups: String,
         names: String,

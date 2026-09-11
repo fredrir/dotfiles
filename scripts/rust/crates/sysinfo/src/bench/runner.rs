@@ -95,7 +95,7 @@ pub fn metrics_for(job: &Job, collected: &Samples) -> Vec<Metric> {
 pub fn execute(options: &Options, report: &mut dyn FnMut(&str, &str, &str)) -> Result<Run, String> {
     let workdir = options.workdir.clone().unwrap_or_else(default_workdir);
     fs::create_dir_all(&workdir).map_err(|error| format!("{}: {error}", workdir.display()))?;
-    let mut snapshot = crate::collect::collect_snapshot(true)?;
+    let mut snapshot = crate::collect::collect_snapshot(true);
     let mut conditions = conditions::capture_conditions(&snapshot, &workdir);
     if !options.force && conditions["throttled_at_start"] == true {
         let deadline = Instant::now() + Duration::from_secs(240);
@@ -114,7 +114,7 @@ pub fn execute(options: &Options, report: &mut dyn FnMut(&str, &str, &str)) -> R
                 }
                 thread::sleep(Duration::from_millis(100));
             }
-            let cooled = crate::collect::collect_snapshot(true)?;
+            let cooled = crate::collect::collect_snapshot(true);
             let values = conditions::capture_conditions(&cooled, &workdir);
             if values["throttled_at_start"] != true {
                 snapshot = cooled;

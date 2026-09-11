@@ -188,13 +188,6 @@ impl Store {
             .and_then(|pins| pins.get(epoch))
             .and_then(|id| self.load_run(host, id)))
     }
-    pub fn total_bytes_written(&self, host: Option<&str>) -> Result<u64, String> {
-        Ok(self
-            .list_runs(host, &[])?
-            .iter()
-            .map(|run| run.bytes_written)
-            .sum())
-    }
     pub fn prunable(&self, host: Option<&str>, keep: usize) -> Result<Vec<Run>, String> {
         let pins = self.load_baselines()?;
         let protected = pins

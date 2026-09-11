@@ -79,6 +79,30 @@ fn docs_checks_and_plans_are_read_only_and_writes_are_idempotent() {
 }
 
 #[test]
+fn reference_updates_preserve_authored_text_and_noop_mtime() {
+    let repo = Repository::new();
+    let args = ["docs", "--only", "cli"];
+    assert!(repo.run(&args).status.success());
+    let path = repo.root.join("docs/cli/dotfile.md");
+    let text = fs::read_to_string(&path).unwrap();
+    let authored = format!("intro\n{text}\nclosing\n");
+    fs::write(&path, &authored).unwrap();
+    let before = fs::metadata(&path).unwrap().modified().unwrap();
+    assert!(repo.run(&args).status.success());
+    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), before);
+    let stale = authored.replace("Manages this repository", "stale");
+    assert!(stale.contains("stale"));
+    fs::write(&path, &stale).unwrap();
+    assert_eq!(
+        repo.run(&[&args[..], &["--check"]].concat()).status.code(),
+        Some(1)
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), stale);
+    assert!(repo.run(&args).status.success());
+    assert_eq!(fs::read_to_string(path).unwrap(), authored);
+}
+
+#[test]
 fn json_diff_reports_exact_changes_without_writing() {
     let repo = Repository::new();
     repo.put("shared/tmux/keys.conf", "bind r refresh-client\n");
@@ -131,12 +155,18 @@ fn malformed_managed_blocks_preserve_authored_content_and_other_outputs() {
 fn missing_native_metadata_fails_check_without_launching_interpreters() {
     let repo = Repository::new();
     fs::create_dir_all(repo.root.join("scripts/rust/crates/count")).unwrap();
+    repo.put("docs/cli/count.md", "retained\n");
     let result = repo.run(&["docs", "--only", "cli", "--check"]);
     assert_eq!(result.status.code(), Some(1));
     assert!(
         String::from_utf8_lossy(&result.stderr).contains("count: command metadata unavailable")
     );
-    assert!(!repo.root.join("docs").exists());
+    assert!(!repo.root.join("docs/cli/dotfile.md").exists());
+    assert!(repo.run(&["docs", "--only", "cli"]).status.success());
+    assert_eq!(
+        fs::read_to_string(repo.root.join("docs/cli/count.md")).unwrap(),
+        "retained\n"
+    );
 }
 
 #[test]

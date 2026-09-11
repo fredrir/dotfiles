@@ -1,5 +1,3 @@
-#![cfg_attr(target_os = "macos", allow(dead_code))]
-
 use std::collections::HashSet;
 
 pub fn pruned_cpu_name(raw: &str) -> String {
