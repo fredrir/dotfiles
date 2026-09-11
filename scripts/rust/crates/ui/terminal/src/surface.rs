@@ -17,7 +17,12 @@ pub trait Surface {
 impl Surface for Screen {
     type Error = io::Error;
     fn size(&self) -> (usize, usize) {
-        Screen::size(self).unwrap_or((80, 24))
+        Screen::size(self).unwrap_or_else(|| {
+            (
+                crate::terminal_width().unwrap_or(80),
+                crate::terminal_height().unwrap_or(24),
+            )
+        })
     }
     fn draw(&mut self, lines: &[String]) -> io::Result<()> {
         Screen::draw(self, lines)

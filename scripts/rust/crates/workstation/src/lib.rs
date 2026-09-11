@@ -5,22 +5,18 @@ use clap::{Args, CommandFactory};
 use clap_complete::Shell;
 
 pub mod blocks;
-pub mod color;
 pub mod native;
 pub mod path;
-pub mod screen;
 pub mod surface;
 pub mod text;
 pub mod units;
 #[cfg(feature = "walk")]
 pub mod walk;
 
-pub use color::ColorMode;
-pub use screen::{Key, Screen};
 pub use ui_cli as cli;
 pub use ui_cli::{Answer, confirm, confirm_each, fail};
 pub use ui_terminal::{terminal_height, terminal_width};
-pub use ui_theme::Style;
+pub use ui_theme::{ColorMode, Style};
 
 // The `--completions <SHELL>` flag, flattened into each tool's parser. A
 // required positional has to opt out of being required when the flag is

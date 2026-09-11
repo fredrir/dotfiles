@@ -23,3 +23,24 @@ fn wrapping_preserves_words_and_bounds_wide_or_unbroken_text() {
     }
     assert_eq!(pad_right("東京", 6), "東京  ");
 }
+
+#[test]
+fn plain_and_styled_widths_and_truncation_share_the_same_boundaries() {
+    for text in ["my-app", "\x1b[1mmy-app\x1b[0m"] {
+        assert_eq!(width(text), 6);
+    }
+    for text in ["", "\x1b[0m"] {
+        assert_eq!(width(text), 0);
+    }
+    for (text, limit, expected) in [
+        ("my-app", 10, "my-app"),
+        ("my-app", 6, "my-app"),
+        ("my-application", 6, "my-ap…"),
+        ("my-app", 1, "…"),
+        ("my-app", 0, ""),
+        ("émigré", 6, "émigré"),
+        ("émigré", 3, "ém…"),
+    ] {
+        assert_eq!(truncate_back(text, limit), expected);
+    }
+}

@@ -82,7 +82,7 @@ pub fn sustained(path: &Path, seconds: u64) -> Result<Measurement, String> {
             },
             Duration::from_secs(seconds),
             Duration::from_secs(30),
-            &workstation::screen::termination_requested,
+            &ui_terminal::termination_requested,
         )
         .map_err(|error| error.to_string());
         let _ = sender.send(reply);

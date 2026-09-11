@@ -83,9 +83,6 @@ impl SearchIndex {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
-    pub fn filter(&self, query: &str) -> Vec<usize> {
-        self.search(query, MatchMode::Contains)
-    }
     pub fn filter_into(&self, query: &str, rows: &mut Vec<usize>) {
         let query = query.to_lowercase();
         rows.clear();

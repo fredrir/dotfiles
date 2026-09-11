@@ -193,11 +193,6 @@ struct RenderOptions<'a> {
     palette: &'a Palette,
 }
 
-#[cfg(test)]
-pub(crate) fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
-    render_with_palette(frame, model, options, &Palette::current());
-}
-
 pub(crate) fn render_with_palette(
     frame: &mut Frame<'_>,
     model: &Model,

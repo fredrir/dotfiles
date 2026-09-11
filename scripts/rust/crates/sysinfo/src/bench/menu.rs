@@ -50,11 +50,6 @@ pub fn cascade(
     Ok(selected)
 }
 
-#[cfg(test)]
-pub fn frame(title: &str, columns: &[Column], width: usize, height: usize) -> Vec<String> {
-    ui_picker::cascade_frame(title, columns, width, height, &workstation::Style::plain())
-}
-
 const MENU: [(&str, &str); 8] = [
     ("run", "measure this machine now"),
     ("show", "inspect a stored run"),

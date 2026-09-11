@@ -458,12 +458,11 @@ fn measure(store: &Store, args: &ArgMatches) -> Result<(), String> {
     let (host, persist) = resolve_host(text(args, "host"))?;
     let persist = persist && !args.get_flag("no-save");
     let as_json = args.get_flag("json");
-    let _signals =
-        workstation::screen::SignalGuard::with_options(workstation::screen::SignalOptions {
-            reraise_on_drop: false,
-            ..Default::default()
-        })
-        .map_err(|e| e.to_string())?;
+    let _signals = ui_terminal::SignalGuard::with_options(ui_terminal::SignalOptions {
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .map_err(|e| e.to_string())?;
     let options = runner::Options {
         host,
         tier: text(args, "tier").into(),

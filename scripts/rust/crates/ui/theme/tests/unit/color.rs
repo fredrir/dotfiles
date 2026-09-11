@@ -3,13 +3,20 @@ use super::*;
 #[test]
 fn color_policy_respects_explicit_modes_and_terminal_signals() {
     assert!(ColorMode::Always.enabled(false));
+    assert!(ColorMode::Always.enabled(true));
     assert!(!ColorMode::Never.enabled(true));
+    assert!(!ColorMode::Never.enabled(false));
+    assert_eq!(ColorMode::default(), ColorMode::Auto);
     for (terminal, no_color, clicolor, term, expected) in [
         (true, false, None, Some("xterm"), true),
         (false, false, None, Some("xterm"), false),
         (true, true, None, Some("xterm"), false),
         (true, false, Some("0"), Some("xterm"), false),
         (true, false, None, Some("DUMB"), false),
+        (true, false, None, Some("Dumb"), false),
+        (true, false, None, None, true),
+        (true, false, Some("1"), Some("xterm-256color"), true),
+        (true, false, Some(""), Some("dumber"), true),
     ] {
         assert_eq!(auto_enabled(terminal, no_color, clicolor, term), expected);
     }

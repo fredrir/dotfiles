@@ -2,9 +2,10 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::convert::Infallible;
 
-use crate::{Directory, DirectoryStatus, Entry, EntryKind, ScriptedTerminal, Selection, Size};
+use crate::{Directory, DirectoryStatus, Entry, EntryKind, Selection};
 
 use super::*;
+use ui_terminal::ScriptedSurface;
 
 struct Source {
     directories: HashMap<String, Directory<String>>,
@@ -83,14 +84,8 @@ impl FileSource for Source {
     }
 }
 
-fn terminal(keys: impl IntoIterator<Item = Key>) -> ScriptedTerminal {
-    ScriptedTerminal::new(
-        Size {
-            width: 60,
-            height: 12,
-        },
-        keys,
-    )
+fn terminal(keys: impl IntoIterator<Item = Key>) -> ScriptedSurface {
+    ScriptedSurface::keys((60, 12), keys)
 }
 
 #[test]
@@ -163,4 +158,34 @@ fn refresh_and_prefetch_are_driven_only_by_relevant_actions() {
     assert_eq!(explorer.run_in(&mut terminal).unwrap(), Outcome::Cancelled);
     assert_eq!(explorer.source.refreshes.get(), 1);
     assert_eq!(explorer.source.prefetched.borrow().as_slice(), ["/docs"]);
+}
+
+#[test]
+fn shared_surface_resize_preserves_selection_and_bounds_the_frame() {
+    let style = Style::plain();
+    let explorer = Explorer::new(Source::new(), "/".to_string(), &style)
+        .accept_target(AcceptTarget::HighlightedEntry);
+    let mut terminal = ScriptedSurface::new(
+        (60, 12),
+        [
+            ui_terminal::Event::Key(Key::Down),
+            ui_terminal::Event::Resize {
+                width: 18,
+                height: 5,
+            },
+            ui_terminal::Event::Key(Key::Enter),
+        ],
+    );
+    let Outcome::Selected(selection) = explorer.run_in(&mut terminal).unwrap() else {
+        panic!("selection expected");
+    };
+    assert_eq!(selection.location, "/notes.txt");
+    let frame = terminal.frames.last().unwrap();
+    assert!(frame.len() <= 5);
+    assert!(
+        frame
+            .iter()
+            .all(|line| ui_terminal::text::width(line) <= 18)
+    );
+    assert_eq!(terminal.clears, 1);
 }

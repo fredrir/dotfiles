@@ -19,7 +19,7 @@
 | Runtime palette contract | `ui-theme` |
 | Git operations and merge decisions | Consumer |
 | File/remote identity and transport | Consumer/source adapter |
-| Compatibility imports | `workstation` reexports |
+| CLI convenience imports | `workstation` reexports |
 
 ## Commands
 
@@ -82,6 +82,8 @@ match result {
 | `Enter` | Accept |
 | `Esc` | Leave search or cancel |
 | `?` | Contextual help |
+
+Native pickers and explorers use `ui_terminal::Surface` and `ScriptedSurface`.
 
 Selections survive filtering; disabled items remain inspectable. Search input has precedence over letter navigation. `SelectionState`, `ScriptedSurface`, and explicit palettes support deterministic behavior checks without a live terminal.
 

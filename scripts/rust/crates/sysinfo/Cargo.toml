@@ -27,6 +27,7 @@ path = "tests/contracts.rs"
 
 [dependencies]
 ui-theme.workspace = true
+ui-terminal.workspace = true
 ui-picker.workspace = true
 clap.workspace = true
 clap_complete.workspace = true

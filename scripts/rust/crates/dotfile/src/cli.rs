@@ -213,18 +213,17 @@ pub fn dispatch(arguments: Vec<OsString>) -> std::process::ExitCode {
         return synchronize(cli, original_arguments);
     }
     crate::cancel::reset();
-    let _signals =
-        match workstation::screen::SignalGuard::with_options(workstation::screen::SignalOptions {
-            cancellation: Some(crate::cancel::flag()),
-            reraise_on_drop: false,
-            ..Default::default()
-        }) {
-            Ok(guard) => guard,
-            Err(error) => {
-                eprintln!("dotfile: {error}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let _signals = match ui_terminal::SignalGuard::with_options(ui_terminal::SignalOptions {
+        cancellation: Some(crate::cancel::flag()),
+        reraise_on_drop: false,
+        ..Default::default()
+    }) {
+        Ok(guard) => guard,
+        Err(error) => {
+            eprintln!("dotfile: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let result = crate::context::Context::discover().and_then(|context| execute(command, &context));
     if crate::cancel::requested() {
         let signal = crate::cancel::signal();

@@ -322,6 +322,6 @@ fn colored_semantic_spans_do_not_change_cell_width() {
     ]);
     let painted = paint(&line, &Style::for_stdout_with_color(true), 20);
 
-    assert_eq!(ui_terminal::screen::width(&painted), 12);
+    assert_eq!(ui_terminal::text::width(&painted), 12);
     assert!(painted.contains("\x1b["));
 }

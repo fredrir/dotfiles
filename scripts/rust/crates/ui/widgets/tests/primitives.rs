@@ -3,9 +3,9 @@ use ui_widgets::{Line, MatchMode, Navigation, PromptBuffer, Role, SearchIndex, V
 #[test]
 fn filtering_and_fuzzy_matching_keep_deterministic_item_identity() {
     let index = SearchIndex::new(["Alpha Beta", "Alphabet", "日本"]);
-    assert_eq!(index.filter("BETA"), [0]);
+    assert_eq!(index.search("BETA", MatchMode::Contains), [0]);
     assert_eq!(index.search("abt", MatchMode::Fuzzy), [0, 1]);
-    assert_eq!(index.filter("日"), [2]);
+    assert_eq!(index.search("日", MatchMode::Contains), [2]);
 }
 
 #[test]

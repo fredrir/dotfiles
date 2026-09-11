@@ -1,5 +1,5 @@
 use super::{
-    capture, compare, conditions, health, menu,
+    capture, compare, conditions, health,
     record::{self, Metric, Run},
     runner,
     select::Selector,
@@ -399,22 +399,6 @@ fn workload_recording_does_not_publish_repository_absolute_path() {
         suites::workload::displayed(&command, root),
         "git -C . status"
     );
-}
-#[test]
-fn menu_handles_wide_unicode_and_small_terminals_without_overflow() {
-    let columns = vec![menu::Column {
-        kind: "run".into(),
-        title: "choose".into(),
-        options: vec![("界面 configuration".into(), "some details".into()); 30],
-        index: 29,
-    }];
-    let frame = menu::frame("bench", &columns, 20, 10);
-    assert!(
-        frame
-            .iter()
-            .all(|line| unicode_width::UnicodeWidthStr::width(line.as_str()) <= 19)
-    );
-    assert!(frame.len() <= 10);
 }
 
 #[test]

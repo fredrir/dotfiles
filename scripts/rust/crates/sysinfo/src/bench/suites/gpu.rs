@@ -187,7 +187,7 @@ pub fn jobs(setting: &Setting) -> Result<Vec<Job>, String> {
     }
     let metal = match metal_binary() {
         Ok(binary) => binary,
-        Err(error) if workstation::screen::termination_requested() => return Err(error),
+        Err(error) if ui_terminal::termination_requested() => return Err(error),
         Err(error) => {
             eprintln!("  gpu.compute skipped: {error}");
             None

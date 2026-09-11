@@ -183,12 +183,11 @@ fn execute(action: Action) -> Result<ExitCode, String> {
         Action::Lint(options) => (false, true, options),
         Action::Check(options) => (true, true, options),
     };
-    let _signals =
-        workstation::screen::SignalGuard::with_options(workstation::screen::SignalOptions {
-            reraise_on_drop: false,
-            ..Default::default()
-        })
-        .map_err(|error| error.to_string())?;
+    let _signals = ui_terminal::SignalGuard::with_options(ui_terminal::SignalOptions {
+        reraise_on_drop: false,
+        ..Default::default()
+    })
+    .map_err(|error| error.to_string())?;
     let root = crate::context::Context::discover()?.root;
     let mut catalog = catalog::Catalog::read(&root, lint)?;
     for target in &options.packages {

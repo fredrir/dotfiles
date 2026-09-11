@@ -21,19 +21,18 @@ pub(crate) struct State<L> {
     directory: Directory<L>,
     selection_policy: SelectionPolicy,
     rows: Vec<usize>,
-    search: ui_picker::SearchIndex,
+    search: ui_widgets::SearchIndex,
     cursor: usize,
     offset: usize,
     focus_anchor: Option<L>,
     prompt: Option<Prompt>,
     error: Option<String>,
-    #[cfg(test)]
-    filter_rebuilds: usize,
 }
 
 impl<L: Clone + Eq> State<L> {
     pub(crate) fn new(directory: Directory<L>, selection_policy: SelectionPolicy) -> Self {
-        let search = ui_picker::SearchIndex::new(directory.entries.iter().map(|entry| &entry.name));
+        let search =
+            ui_widgets::SearchIndex::new(directory.entries.iter().map(|entry| &entry.name));
         let rows = (0..directory.entries.len()).collect();
         let focus_anchor = directory
             .entries
@@ -49,8 +48,6 @@ impl<L: Clone + Eq> State<L> {
             focus_anchor,
             prompt: None,
             error: None,
-            #[cfg(test)]
-            filter_rebuilds: 1,
         }
     }
 
@@ -217,7 +214,7 @@ impl<L: Clone + Eq> State<L> {
 
     pub(crate) fn replace_directory(&mut self, directory: Directory<L>, restore_focus: Option<&L>) {
         self.search =
-            ui_picker::SearchIndex::new(directory.entries.iter().map(|entry| &entry.name));
+            ui_widgets::SearchIndex::new(directory.entries.iter().map(|entry| &entry.name));
         self.directory = directory;
         self.prompt = None;
         self.error = None;
@@ -304,10 +301,6 @@ impl<L: Clone + Eq> State<L> {
             })
             .unwrap_or_else(|| self.cursor.min(self.rows.len().saturating_sub(1)));
         self.offset = self.offset.min(self.rows.len().saturating_sub(1));
-        #[cfg(test)]
-        {
-            self.filter_rebuilds += 1;
-        }
     }
 }
 

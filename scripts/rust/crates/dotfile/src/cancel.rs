@@ -22,7 +22,7 @@ pub fn request_signal(signal: i32) {
 }
 
 pub fn signal() -> i32 {
-    let signal = workstation::screen::termination_signal();
+    let signal = ui_terminal::termination_signal();
     if signal != 0 {
         signal
     } else {

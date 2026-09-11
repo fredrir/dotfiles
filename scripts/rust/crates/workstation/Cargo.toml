@@ -21,13 +21,6 @@ clap.workspace          = true
 clap_complete.workspace = true
 rayon                   = { workspace = true, optional = true }
 
-[target.'cfg(unix)'.dependencies]
-nix    = { workspace = true, features = ["signal"] }
-rustix = { workspace = true, features = ["termios"] }
-
 [dev-dependencies]
 tempfile.workspace = true
 testkit.workspace  = true
-
-[target.'cfg(unix)'.dev-dependencies]
-libc.workspace = true

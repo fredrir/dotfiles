@@ -1,7 +1,7 @@
 use crate::state::State;
 use crate::{
-    Directory, Explorer, ExplorerError, ExplorerView, FileSource, InputKind, Key, Outcome,
-    SystemExplorerResult, SystemTerminal, Terminal, TerminalExplorerResult,
+    Directory, Explorer, ExplorerError, ExplorerResult, ExplorerView, FileSource, InputKind,
+    Outcome,
 };
 use std::fmt;
 use std::sync::{
@@ -10,6 +10,7 @@ use std::sync::{
     mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
 };
 use std::time::Duration;
+use ui_terminal::{Key, Screen, Surface};
 
 #[derive(Clone, Default)]
 pub struct Cancellation(Arc<AtomicBool>);
@@ -62,17 +63,17 @@ where
     S::Error: Send + fmt::Display + 'static,
     V: ExplorerView<S::Location>,
 {
-    pub fn run(&self) -> SystemExplorerResult<S::Location, S::Error> {
-        let Some(mut terminal) = SystemTerminal::open().map_err(ExplorerError::Terminal)? else {
+    pub fn run(&self) -> ExplorerResult<S::Location, S::Error> {
+        let Some(mut terminal) = Screen::open().map_err(ExplorerError::Terminal)? else {
             return Ok(Outcome::Unavailable);
         };
         self.run_in(&mut terminal)
     }
 
-    pub fn run_in<T: Terminal>(
+    pub fn run_in<T: Surface>(
         &self,
         terminal: &mut T,
-    ) -> TerminalExplorerResult<S::Location, S::Error, T::Error> {
+    ) -> ExplorerResult<S::Location, S::Error, T::Error> {
         let result = self.interact(terminal);
         let cleared = terminal.clear().map_err(ExplorerError::Terminal);
         match (result, cleared) {
@@ -119,10 +120,10 @@ where
         }
     }
 
-    fn interact<T: Terminal>(
+    fn interact<T: Surface>(
         &self,
         terminal: &mut T,
-    ) -> TerminalExplorerResult<S::Location, S::Error, T::Error> {
+    ) -> ExplorerResult<S::Location, S::Error, T::Error> {
         let worker = self.worker();
         let mut generation = 0u64;
         let mut pending = Some(Request {
@@ -192,9 +193,9 @@ where
                     Vec::new()
                 };
                 if loading {
-                    let size = terminal.size();
-                    if size.height > 0 {
-                        if lines.len() == size.height {
+                    let (width, height) = terminal.size();
+                    if height > 0 {
+                        if lines.len() == height {
                             lines.pop();
                         }
                         lines.push(
@@ -202,7 +203,7 @@ where
                                 "Loading…   esc cancel",
                                 ui_theme::Role::Muted,
                             )
-                            .paint(style.style(), size.width),
+                            .paint(style.style(), width),
                         );
                     }
                 }

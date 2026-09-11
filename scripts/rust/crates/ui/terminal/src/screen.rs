@@ -25,14 +25,6 @@ pub enum Event {
     Resize { width: usize, height: usize },
 }
 
-pub fn width(text: &str) -> usize {
-    crate::text::width(text)
-}
-
-pub fn fit(text: &str, limit: usize) -> String {
-    crate::text::truncate_back(text, limit)
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct SignalOptions {
     pub cancellation: Option<&'static std::sync::atomic::AtomicBool>,
@@ -516,7 +508,3 @@ mod imp {
 }
 
 pub use imp::{Screen, SignalGuard, termination_requested, termination_signal};
-
-#[cfg(test)]
-#[path = "../tests/unit/screen_tests.rs"]
-mod tests;

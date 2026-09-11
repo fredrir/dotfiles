@@ -9,7 +9,6 @@ fn plain_output_never_contains_styling_sequences() {
         assert_eq!(style.paint(role, "value"), "value");
     }
     assert_eq!(style.bold("value"), "value");
-    assert_eq!(style.code("31", "value"), "value");
 }
 
 #[test]
@@ -57,4 +56,18 @@ fn explicit_preview_styles_do_not_follow_runtime_theme() {
     let mut live = LiveStyle::new(&style);
     assert!(!live.poll_at(Instant::now() + std::time::Duration::from_secs(2)));
     assert_eq!(live.style().palette(), style.palette());
+}
+
+#[test]
+fn explicit_modes_control_style_output_independently_of_terminal_detection() {
+    let palette = Arc::new(Palette::default());
+    for (mode, terminal, expected) in [
+        (ColorMode::Never, true, "text"),
+        (ColorMode::Always, false, "\x1b[1mtext\x1b[0m"),
+        (ColorMode::Auto, false, "text"),
+    ] {
+        let style = Style::from_palette(Arc::clone(&palette), mode, terminal);
+        assert_eq!(style.bold("text"), expected);
+        assert_eq!(style.green(""), "");
+    }
 }

@@ -1,7 +1,13 @@
 use ui_theme::Style;
 
 use crate::view::ViewContext;
-use crate::{Directory, EntryKind, ExplorerView, InputKind, Line, Role, Selection, Size, Span};
+use crate::{Directory, EntryKind, ExplorerView, InputKind, Line, Role, Selection, Span};
+
+#[derive(Clone, Copy)]
+pub(crate) struct Size {
+    pub width: usize,
+    pub height: usize,
+}
 
 const DEFAULT_MAX_WIDTH: usize = 78;
 const DEFAULT_MAX_ROWS: usize = 14;

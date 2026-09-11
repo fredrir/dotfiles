@@ -13,7 +13,6 @@ unicode-width.workspace = true
 ui-theme.workspace      = true
 ui-terminal.workspace   = true
 ui-widgets.workspace    = true
-ui-picker.workspace     = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -6,6 +6,10 @@ use super::*;
 use crate::cli::Agent;
 use crate::tui::{CatalogSnapshot, Origin, UiEvent};
 
+fn render(frame: &mut Frame<'_>, model: &Model, options: PickerOptions) {
+    render_with_palette(frame, model, options, &Palette::default());
+}
+
 fn model() -> Model {
     let mut model = Model::new();
     model.load(

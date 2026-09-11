@@ -91,3 +91,20 @@ fn cascade_backtracking_changes_only_the_selected_branch() {
     assert_eq!(picks[1].option, "two");
     assert_eq!(terminal.clears, 1);
 }
+
+#[test]
+fn cascade_handles_wide_unicode_and_small_terminals_without_overflow() {
+    let columns = vec![Column {
+        kind: "run".into(),
+        title: "choose".into(),
+        options: vec![("界面 configuration".into(), "some details".into()); 30],
+        index: 29,
+    }];
+    let frame = ui_picker::cascade_frame("bench", &columns, 20, 10, &ui_theme::Style::plain());
+    assert!(
+        frame
+            .iter()
+            .all(|line| ui_terminal::text::width(line) <= 19)
+    );
+    assert!(frame.len() <= 10);
+}

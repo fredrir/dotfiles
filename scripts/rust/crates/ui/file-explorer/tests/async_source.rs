@@ -1,9 +1,7 @@
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
-use ui_file_explorer::{
-    Cancellation, Directory, DirectoryStatus, Explorer, FileSource, Key, Outcome, Size, Terminal,
-};
-use ui_terminal::Event;
+use ui_file_explorer::{Cancellation, Directory, DirectoryStatus, Explorer, FileSource, Outcome};
+use ui_terminal::{Event, Key, Surface};
 use ui_theme::Style;
 
 #[derive(Clone)]
@@ -47,20 +45,17 @@ struct CancellingTerminal {
     frames: Vec<Vec<String>>,
 }
 
-impl Terminal for CancellingTerminal {
+impl Surface for CancellingTerminal {
     type Error = std::io::Error;
-    fn size(&self) -> Size {
-        Size {
-            width: 40,
-            height: 8,
-        }
+    fn size(&self) -> (usize, usize) {
+        (40, 8)
     }
     fn draw(&mut self, lines: &[String]) -> Result<(), Self::Error> {
         self.frames.push(lines.to_vec());
         Ok(())
     }
-    fn read_key(&mut self) -> Result<Key, Self::Error> {
-        Ok(Key::Escape)
+    fn event(&mut self) -> Result<Event, Self::Error> {
+        Ok(Event::Key(Key::Escape))
     }
     fn clear(&mut self) -> Result<(), Self::Error> {
         self.clears += 1;
@@ -144,19 +139,16 @@ struct FrameDrivenTerminal {
     clears: usize,
 }
 
-impl Terminal for FrameDrivenTerminal {
+impl Surface for FrameDrivenTerminal {
     type Error = std::io::Error;
-    fn size(&self) -> Size {
-        Size {
-            width: 60,
-            height: 12,
-        }
+    fn size(&self) -> (usize, usize) {
+        (60, 12)
     }
     fn draw(&mut self, lines: &[String]) -> Result<(), Self::Error> {
         self.frames.push(lines.to_vec());
         Ok(())
     }
-    fn read_key(&mut self) -> Result<Key, Self::Error> {
+    fn event(&mut self) -> Result<Event, Self::Error> {
         unreachable!("async polling")
     }
     fn clear(&mut self) -> Result<(), Self::Error> {

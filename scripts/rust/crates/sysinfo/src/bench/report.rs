@@ -42,7 +42,7 @@ fn table(headers: &[&str], rows: Vec<Vec<String>>) {
         .map(|(column, title)| {
             rows.iter()
                 .filter_map(|row| row.get(column))
-                .map(|cell| workstation::screen::width(cell))
+                .map(|cell| ui_terminal::text::width(cell))
                 .max()
                 .unwrap_or(0)
                 .max(title.len())
@@ -55,7 +55,7 @@ fn table(headers: &[&str], rows: Vec<Vec<String>>) {
             .map(|(column, cell)| {
                 format!(
                     "{cell}{}",
-                    " ".repeat(widths[column].saturating_sub(workstation::screen::width(cell)))
+                    " ".repeat(widths[column].saturating_sub(ui_terminal::text::width(cell)))
                 )
             })
             .collect::<Vec<_>>()

@@ -7,7 +7,8 @@
 | `Explorer::run` | Borrowed synchronous source |
 | `Explorer::into_async().run` | Owned source, bounded worker, immediate UI cancellation |
 | `Cancellation` | Cooperative source cancellation; blocked sources may outlive the UI |
-| `Terminal` | Scripted input, resize events and captured frames |
+| `ui_terminal::Surface` | Shared input, resize events and captured frames |
+| `ui_terminal::ScriptedSurface` | Deterministic explorer and picker sessions |
 | `Outcome` | Single selection, cancellation, interruption or unavailable terminal |
 
 ```rust

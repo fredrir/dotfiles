@@ -110,7 +110,7 @@ pub fn capture_for(
             stderr: 128 * 1024,
         },
         timeout,
-        &workstation::screen::termination_requested,
+        &ui_terminal::termination_requested,
     )
     .map_err(|e| format!("{}: {e}", command.get_program().to_string_lossy()))?;
     if result.stdout_truncated {

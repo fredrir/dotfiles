@@ -1,12 +1,13 @@
 use std::fmt;
 
+use ui_terminal::{Key, Screen, Surface};
 use ui_theme::Style;
 
-use crate::render::{RenderContext, RenderLimits, render};
+use crate::render::{RenderContext, RenderLimits, Size, render};
 use crate::state::{PromptEdit, State};
 use crate::{
-    AcceptTarget, DefaultView, EntryKind, ExplorerView, FileSource, InputKind, Key, Outcome,
-    SelectionPolicy, SystemTerminal, Terminal,
+    AcceptTarget, DefaultView, EntryKind, ExplorerView, FileSource, InputKind, Outcome,
+    SelectionPolicy,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,30 +25,19 @@ impl Default for Layout {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Prefetch {
-    None,
-    #[default]
-    FocusedDirectory,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ExplorerConfig {
     pub selection: SelectionPolicy,
     pub layout: Layout,
-    pub prefetch: Prefetch,
 }
 
 #[derive(Debug)]
-pub enum ExplorerError<S, T> {
+pub enum ExplorerError<S, T = std::io::Error> {
     Source(S),
     Terminal(T),
 }
 
-pub type SystemExplorerError<S> = ExplorerError<S, std::io::Error>;
-pub type TerminalExplorerError<S, T> = ExplorerError<S, T>;
-pub type SystemExplorerResult<L, S> = Result<Outcome<L>, SystemExplorerError<S>>;
-pub type TerminalExplorerResult<L, S, T> = Result<Outcome<L>, TerminalExplorerError<S, T>>;
+pub type ExplorerResult<L, S, T = std::io::Error> = Result<Outcome<L>, ExplorerError<S, T>>;
 
 impl<S: fmt::Display, T: fmt::Display> fmt::Display for ExplorerError<S, T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -142,11 +132,6 @@ where
         self
     }
 
-    pub fn prefetch(mut self, prefetch: Prefetch) -> Self {
-        self.config.prefetch = prefetch;
-        self
-    }
-
     pub fn view<W>(self, view: W) -> Explorer<'a, S, W> {
         Explorer {
             source: self.source,
@@ -165,23 +150,20 @@ where
     S::Error: fmt::Display,
     V: ExplorerView<S::Location>,
 {
-    pub fn run(&self) -> SystemExplorerResult<S::Location, S::Error> {
+    pub fn run(&self) -> ExplorerResult<S::Location, S::Error> {
         let directory = self
             .source
             .read_directory(&self.start)
             .map_err(ExplorerError::Source)?;
-        let Some(mut terminal) = SystemTerminal::open().map_err(ExplorerError::Terminal)? else {
+        let Some(mut terminal) = Screen::open().map_err(ExplorerError::Terminal)? else {
             return Ok(Outcome::Unavailable);
         };
         self.run_loaded(&mut terminal, directory)
     }
 
-    pub fn run_in<T>(
-        &self,
-        terminal: &mut T,
-    ) -> TerminalExplorerResult<S::Location, S::Error, T::Error>
+    pub fn run_in<T>(&self, terminal: &mut T) -> ExplorerResult<S::Location, S::Error, T::Error>
     where
-        T: Terminal,
+        T: Surface,
     {
         let directory = self
             .source
@@ -194,9 +176,9 @@ where
         &self,
         terminal: &mut T,
         directory: crate::Directory<S::Location>,
-    ) -> TerminalExplorerResult<S::Location, S::Error, T::Error>
+    ) -> ExplorerResult<S::Location, S::Error, T::Error>
     where
-        T: Terminal,
+        T: Surface,
     {
         let mut state = State::new(directory, self.config.selection);
         if let Some(location) = &self.initial_focus {
@@ -215,9 +197,9 @@ where
         &self,
         terminal: &mut T,
         state: &mut State<S::Location>,
-    ) -> TerminalExplorerResult<S::Location, S::Error, T::Error>
+    ) -> ExplorerResult<S::Location, S::Error, T::Error>
     where
-        T: Terminal,
+        T: Surface,
     {
         let mut last_prefetched = None;
         let mut help = false;
@@ -262,8 +244,9 @@ where
         style: &Style,
     ) -> crate::render::RenderedFrame
     where
-        T: Terminal,
+        T: Surface,
     {
+        let (width, height) = terminal.size();
         let selection = state.selection();
         let prompt = state.prompt().zip(state.input_kind());
         render(
@@ -279,7 +262,7 @@ where
             },
             &self.view,
             style,
-            terminal.size(),
+            Size { width, height },
             RenderLimits {
                 max_width: self.config.layout.max_width,
                 max_rows: self.config.layout.max_rows,
@@ -419,9 +402,6 @@ where
         state: &State<S::Location>,
         previous: &mut Option<S::Location>,
     ) {
-        if self.config.prefetch == Prefetch::None {
-            return;
-        }
         let focused = state.focused().map(|entry| entry.location.clone());
         if previous.as_ref() == focused.as_ref() {
             return;

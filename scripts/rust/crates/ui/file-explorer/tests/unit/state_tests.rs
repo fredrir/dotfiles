@@ -64,20 +64,17 @@ fn location_input_never_filters_entries() {
 }
 
 #[test]
-fn row_cache_changes_only_when_prompt_or_directory_changes() {
+fn reapplying_a_filter_preserves_focus_and_scroll() {
     let mut state = state(AcceptTarget::HighlightedEntry);
-    assert_eq!(state.filter_rebuilds, 1);
-    state.move_by(2);
+    state.set_prompt("a".into(), InputKind::Search);
+    state.move_by(3);
     state.settle(2);
-    assert_eq!(state.filter_rebuilds, 1);
-    state.set_prompt("a".to_string(), InputKind::Search);
-    assert_eq!(state.filter_rebuilds, 2);
-    state.set_prompt("a".to_string(), InputKind::Search);
-    assert_eq!(state.filter_rebuilds, 2);
-    state.set_prompt("a".to_string(), InputKind::Location);
-    assert_eq!(state.filter_rebuilds, 3);
-    state.replace_directory(directory(DirectoryStatus::Present), None);
-    assert_eq!(state.filter_rebuilds, 4);
+    let before = (state.rows().to_vec(), state.cursor(), state.offset());
+    state.set_prompt("a".into(), InputKind::Search);
+    assert_eq!(
+        (state.rows().to_vec(), state.cursor(), state.offset()),
+        before
+    );
 }
 
 #[test]

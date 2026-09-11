@@ -88,10 +88,6 @@ impl Style {
         self.wrap(&self.prefixes[role as usize], text)
     }
 
-    pub fn role(&self, role: Role, text: &str) -> String {
-        self.paint(role, text)
-    }
-
     pub fn bold(&self, text: &str) -> String {
         self.wrap("\x1b[1m", text)
     }
@@ -110,13 +106,6 @@ impl Style {
 
     pub fn teal(&self, text: &str) -> String {
         self.paint(Role::Theirs, text)
-    }
-
-    pub fn code(&self, code: &str, text: &str) -> String {
-        if !self.colored || text.is_empty() {
-            return text.to_string();
-        }
-        format!("\x1b[{code}m{text}\x1b[0m")
     }
 
     fn wrap(&self, prefix: &str, text: &str) -> String {

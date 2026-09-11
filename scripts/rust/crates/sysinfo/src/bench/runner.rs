@@ -54,7 +54,7 @@ pub fn measure_job(job: &mut Job) -> Result<Samples, String> {
     let minimum = if job.repeat { 3 } else { 1 };
     let limit = if job.repeat { 6 } else { 1 };
     for attempt in 1..=limit {
-        if workstation::screen::termination_requested() {
+        if ui_terminal::termination_requested() {
             return Err("benchmark interrupted".into());
         }
         let measured = (job.measure)()?;
@@ -109,7 +109,7 @@ pub fn execute(options: &Options, report: &mut dyn FnMut(&str, &str, &str)) -> R
                 ),
             );
             for _ in 0..150 {
-                if workstation::screen::termination_requested() {
+                if ui_terminal::termination_requested() {
                     return Err("benchmark interrupted".into());
                 }
                 thread::sleep(Duration::from_millis(100));
@@ -147,7 +147,7 @@ pub fn execute(options: &Options, report: &mut dyn FnMut(&str, &str, &str)) -> R
     let mut metrics = Vec::new();
     let mut written = 0_u64;
     for (position, job) in jobs.iter_mut().enumerate() {
-        if workstation::screen::termination_requested() {
+        if ui_terminal::termination_requested() {
             break;
         }
         if job.writes > 0 && written.saturating_add(job.writes) > budget {
@@ -188,7 +188,7 @@ pub fn execute(options: &Options, report: &mut dyn FnMut(&str, &str, &str)) -> R
             &format!("{}s, n={samples}", began.elapsed().as_secs()),
         );
     }
-    let grade = if workstation::screen::termination_requested() {
+    let grade = if ui_terminal::termination_requested() {
         "aborted"
     } else {
         conditions::grade_for(&reasons, metrics.len(), &failures)

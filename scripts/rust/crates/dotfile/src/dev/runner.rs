@@ -162,7 +162,7 @@ pub(super) fn run(
     let mut blocked = BTreeSet::new();
     let mut output_owner = None;
     loop {
-        let signal = workstation::screen::termination_signal();
+        let signal = ui_terminal::termination_signal();
         if signal == 0 {
             let mut index = 0;
             while index < pending.len() {
@@ -222,7 +222,7 @@ pub(super) fn run(
                         });
                     }
                 }
-                if workstation::screen::termination_requested() {
+                if ui_terminal::termination_requested() {
                     break;
                 }
             }
@@ -303,7 +303,7 @@ pub(super) fn run(
         std::thread::sleep(Duration::from_millis(20));
     }
     report.finish(passed, cancelled, skipped, &failures);
-    let signal = workstation::screen::termination_signal();
+    let signal = ui_terminal::termination_signal();
     Ok(workstation::exit_code(if signal != 0 {
         128 + signal
     } else {
