@@ -618,5 +618,5 @@ fn power_modules() -> (Value, Value) {
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/macos_tests.rs"]
+#[path = "../../tests/macos_tests.rs"]
 mod tests;

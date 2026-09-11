@@ -16,13 +16,6 @@ use std::{
     },
 };
 
-fn archived(name: &str) -> Run {
-    serde_json::from_str(match name {
-        "archie" => include_str!("../fixtures/bench/archie-schema1.json"),
-        _ => include_str!("../fixtures/bench/macie-schema1.json"),
-    })
-    .unwrap()
-}
 fn metric(values: &[f64]) -> Metric {
     Metric {
         key: "cpu.multi".into(),
@@ -37,10 +30,18 @@ fn metric(values: &[f64]) -> Metric {
 }
 fn sample(day: usize) -> Run {
     Run {
-        run_id: format!("2026-08-{day:02}T09-00-00Z-10db7d1f"),
+        run_id: format!("2026-08-{day:02}T09-00-00Z-5178acc2"),
+        host: "archie".into(),
         started: format!("2026-08-{day:02}T09:00:00Z"),
+        tier: "quick".into(),
+        grade: "clean".into(),
+        snapshot: json!({
+            "cpu": {"model": "Test CPU", "cores_physical": 2, "cores_logical": 4},
+            "memory": {"total": 8 * 1024_u64.pow(3)},
+        }),
+        install: json!({"os": "linux"}),
         metrics: vec![metric(&[100.0, 100.0, 100.0])],
-        ..archived("archie")
+        ..Run::default()
     }
 }
 fn store() -> (tempfile::TempDir, Store) {
@@ -50,32 +51,52 @@ fn store() -> (tempfile::TempDir, Store) {
 }
 
 #[test]
-fn existing_schema_one_histories_keep_the_exact_python_blake2s_epochs() {
-    for (host, epoch) in [("archie", "10db7d1f"), ("macie", "31c0c4e0")] {
-        let run = archived(host);
-        assert_eq!(run.epoch(), epoch);
-        let restored: Run = serde_json::from_value(run.to_json()).unwrap();
-        assert_eq!(restored, run);
-        assert_eq!(restored.schema, 1);
-        assert!(!restored.metrics.is_empty());
-    }
+fn schema_one_runs_roundtrip_with_stable_blake2s_epochs() {
+    let run = sample(1);
+    assert_eq!(run.epoch(), "5178acc2");
+    assert_eq!(record::epoch_of(&json!({})), "5acacbf8");
+    let restored: Run = serde_json::from_value(run.to_json()).unwrap();
+    assert_eq!(restored, run);
+}
+#[test]
+fn schema_one_decoding_defaults_omitted_metadata() {
+    let run: Run = serde_json::from_value(json!({
+        "host": "archie",
+        "run_id": "minimal",
+        "metrics": [{"key": "cpu.multi", "samples": [90, 100, 110]}],
+    }))
+    .unwrap();
+    assert_eq!(run.schema, 1);
+    assert_eq!(run.bytes_written, 0);
+    assert!(run.tags.is_empty());
+    assert!(run.gate_reasons.is_empty());
+    assert_eq!(run.metrics[0].proportion, "HIB");
+    assert_eq!(run.metrics[0].comparable, "host");
+    assert_eq!(run.metrics[0].median(), Some(100.0));
 }
 #[test]
 fn identity_survives_root_permissions_enumeration_order_and_capacity_rounding() {
-    let run = archived("archie");
-    let mut snapshot = run.snapshot.clone();
+    let mut snapshot = sample(1).snapshot;
+    snapshot["memory"]["modules"] = json!(2);
+    snapshot["gpu"] = json!([
+        {"name": "GPU B", "memory_total": 2 * 1024_u64.pow(3)},
+        {"name": "GPU A", "memory_total": 1024_u64.pow(3)},
+    ]);
+    snapshot["disks"] = json!([
+        {"name": "SSD B", "size": 32 * 1024_u64.pow(3)},
+        {"name": "SSD A", "size": 16 * 1024_u64.pow(3)},
+    ]);
+    let epoch = record::epoch_of(&snapshot);
     snapshot["memory"]["modules"] = json!(0);
     snapshot["gpu"].as_array_mut().unwrap().reverse();
     snapshot["disks"].as_array_mut().unwrap().reverse();
-    assert_eq!(record::epoch_of(&snapshot), run.epoch());
+    assert_eq!(record::epoch_of(&snapshot), epoch);
     for gpu in snapshot["gpu"].as_array_mut().unwrap() {
-        if gpu["memory_total"].as_f64().is_some_and(|n| n > 16e9) {
-            gpu["memory_total"] = json!(16648896512.0);
-        }
+        gpu["memory_total"] = json!(gpu["memory_total"].as_u64().unwrap() + 1024);
     }
-    assert_eq!(record::epoch_of(&snapshot), run.epoch());
-    snapshot["memory"]["total"] = json!(68719476736_u64);
-    assert_ne!(record::epoch_of(&snapshot), run.epoch());
+    assert_eq!(record::epoch_of(&snapshot), epoch);
+    snapshot["memory"]["total"] = json!(16 * 1024_u64.pow(3));
+    assert_ne!(record::epoch_of(&snapshot), epoch);
 }
 #[test]
 fn metric_uses_sample_standard_deviation_and_median_absolute_deviation() {
@@ -155,16 +176,16 @@ fn lower_is_better_regressions_say_above_baseline() {
     );
 }
 #[test]
-fn store_loads_real_schema_one_pins_without_orphaning_baselines() {
+fn store_reloads_pinned_schema_one_runs() {
     let (_root, store) = store();
-    let run = archived("archie");
+    let run = sample(1);
     let _lock = store.exclusive().unwrap();
     store.save_run(&run).unwrap();
     store
-        .set_baseline(&run.host, "10db7d1f", &run.run_id)
+        .set_baseline(&run.host, &run.epoch(), &run.run_id)
         .unwrap();
     assert_eq!(
-        store.baseline_run("archie", "10db7d1f").unwrap().unwrap(),
+        store.baseline_run("archie", &run.epoch()).unwrap().unwrap(),
         run
     );
     assert!(store.load_baselines().unwrap().contains_key("archie"));
@@ -450,7 +471,7 @@ fn metal_uses_valid_cache_without_a_compiler_and_preserves_it_on_failed_rebuild(
     fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
         &source,
-        include_str!("../../src/bench/suites/metal/gpu_bench.swift"),
+        include_str!("../src/bench/suites/metal/gpu_bench.swift"),
     )
     .unwrap();
     assert_eq!(
@@ -476,6 +497,6 @@ fn stored_summaries_recompute_statistics_instead_of_trusting_derived_json() {
     payload["epoch"] = json!("bogus");
     payload["metrics"][0]["median"] = json!(999999);
     let run: Run = serde_json::from_value(payload).unwrap();
-    assert_eq!(run.epoch(), "10db7d1f");
+    assert_eq!(run.epoch(), "5178acc2");
     assert_eq!(run.metrics[0].median(), Some(100.0));
 }

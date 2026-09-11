@@ -106,5 +106,5 @@ pub fn pci_device_name_in(body: &str, vendor_id: &str, device_id: &str) -> Optio
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/parse_tests.rs"]
+#[path = "../../tests/parse_tests.rs"]
 mod tests;

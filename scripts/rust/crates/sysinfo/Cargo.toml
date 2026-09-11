@@ -4,6 +4,7 @@ version.workspace = true
 description       = "Native system inventory, health and reproducible benchmarks"
 edition.workspace = true
 license.workspace = true
+autotests         = false
 
 [lints]
 workspace = true
@@ -11,6 +12,18 @@ workspace = true
 [[bin]]
 name = "sysinfo"
 path = "src/main.rs"
+
+[[test]]
+name = "bench_cli"
+path = "tests/bench_cli.rs"
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+
+[[test]]
+name = "contracts"
+path = "tests/contracts.rs"
 
 [dependencies]
 clap.workspace = true

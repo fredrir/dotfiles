@@ -174,5 +174,5 @@ pub fn jobs(setting: &Setting) -> Result<Vec<Job>, String> {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/thermal_tests.rs"]
+#[path = "../../../tests/thermal_tests.rs"]
 mod tests;

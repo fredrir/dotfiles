@@ -10,16 +10,22 @@ import time
 from pathlib import Path
 
 import pytest
-from native import ROOT, rust_binary
+from native import rust_binary
 
 
 @pytest.fixture
 def history(tmp_path):
-    source = ROOT / "scripts/rust/crates/sysinfo/tests/fixtures/bench/archie-schema1.json"
-    run = json.loads(source.read_text())
+    run = {
+        "schema": 1,
+        "host": "test-host",
+        "run_id": "2026-01-01T00-00-00Z",
+        "started": "2026-01-01T00:00:00Z",
+        "tier": "quick",
+        "grade": "clean",
+    }
     directory = tmp_path / "benchmarks" / run["host"]
     directory.mkdir(parents=True)
-    (directory / f"{run['run_id']}.json").write_text(source.read_text())
+    (directory / f"{run['run_id']}.json").write_text(json.dumps(run))
     return dict(
         os.environ,
         HOME=str(tmp_path),
@@ -99,7 +105,7 @@ def test_native_history_menu_restores_terminal_after_resize_and_cancel(history, 
     terminal = Terminal(history)
     try:
         terminal.expect("sysinfo bench")
-        terminal.expect("archie")
+        terminal.expect(history["SYSINFO_HOST"])
         terminal.resize(10, 22)
         os.write(terminal.master, b"j")
         os.write(terminal.master, cancel)

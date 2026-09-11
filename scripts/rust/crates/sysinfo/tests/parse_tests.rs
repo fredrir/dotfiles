@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn prunes_the_names_the_committed_baselines_depend_on() {
+fn normalizes_cpu_names_without_core_counts_or_frequency_suffixes() {
     assert_eq!(
         pruned_cpu_name("AMD Ryzen 7 9800X3D 8-Core Processor"),
         "AMD Ryzen 7 9800X3D"

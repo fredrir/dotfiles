@@ -11,7 +11,7 @@ pub mod select;
 pub mod store;
 pub mod suites;
 #[cfg(test)]
-#[path = "../../tests/unit/bench_tests.rs"]
+#[path = "../../tests/bench_tests.rs"]
 mod tests;
 
 use clap::{Arg, ArgAction, ArgMatches};

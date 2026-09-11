@@ -35,7 +35,7 @@ dotfile dev check --pkg sysinfo --lang rust
 | `src/bench/compare.rs` | `compare_runs`, method and environment gates |
 | `src/bench/health.rs` | `benchmark_issues` |
 | `src/bench/suites/` | CPU, memory, cache, disk, GPU, thermal, workload jobs |
-| `tests/` | Linux/macOS contract fixtures, CLI/probe isolation, render regressions |
+| `tests/` | Linux/macOS contracts, CLI/probe isolation, render regressions |
 | `../bench-workloads/` | Separate native measurement worker |
 
 ## Environment

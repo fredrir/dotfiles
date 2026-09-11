@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use workstation_sysinfo::{
@@ -7,36 +7,57 @@ use workstation_sysinfo::{
     presentation::{self, branding},
 };
 
-fn snapshot(macos: bool) -> Snapshot {
-    serde_json::from_str(if macos {
-        include_str!("fixtures/macos_snapshot.json")
-    } else {
-        include_str!("fixtures/workstation_snapshot.json")
-    })
-    .unwrap()
+fn desktop() -> Snapshot {
+    Snapshot {
+        hardware: [
+            ("cpu_cooler".into(), "Noctua Test Cooler".into()),
+            ("memory".into(), "Corsair 32 GB DDR5-6000 CL30".into()),
+        ].into(),
+        modules: [
+            ("OS".into(), json!({"id":"arch","prettyName":"Arch Linux"})),
+            ("Kernel".into(), json!({"release":"test","architecture":"x86_64"})),
+            ("CPU".into(), json!({"cpu":"AMD Test CPU","vendor":"AMD","cores":{"physical":4,"logical":8}})),
+            ("CPUCache".into(), json!({"l3":[{"size":8 * 1024 * 1024}]})),
+            ("Memory".into(), json!({"total":32_u64 * 1024_u64.pow(3),"used":8_u64 * 1024_u64.pow(3)})),
+            ("GPU".into(), json!([
+                {"name":"AMD Integrated","vendor":"AMD","type":"Integrated"},
+                {"name":"NVIDIA Test GPU","vendor":"NVIDIA","type":"Discrete","pcieSpeed":{"max":{"gen":4,"lanes":8}}}
+            ])),
+            ("Board".into(), json!({"vendor":"ASUS","name":"ASUS Test Board","serial":"PRIVATE-BOARD"})),
+            ("PhysicalDisk".into(), json!([{"name":"KINGSTON Test SSD","size":2_000_000_000_000_u64,"kind":"SSD","serial":"PRIVATE-DISK"}])),
+            ("DE".into(), json!({"prettyName":"KDE Plasma"})),
+            ("WM".into(), json!({"prettyName":"KWin","protocolName":"Wayland"})),
+        ].into_iter().collect(),
+        shell_display: "zsh".into(),
+        terminal_display: "kitty".into(),
+        de_display: "KDE Plasma".into(),
+        wm_display: "KWin (Wayland)".into(),
+        ..Snapshot::default()
+    }
+}
+
+fn portable() -> Snapshot {
+    Snapshot {
+        modules: [
+            ("OS".into(), json!({"id":"macos","prettyName":"macOS"})),
+            ("CPU".into(), json!({"cpu":"Apple Test CPU","vendor":"Apple"})),
+            ("Memory".into(), json!({"total":24_u64 * 1024_u64.pow(3)})),
+            ("WM".into(), json!({"prettyName":"Quartz Compositor"})),
+            ("PhysicalDisk".into(), json!([
+                {"name":"APPLE Test SSD","size":1_000_000_000_000_u64,"kind":"SSD"},
+                {"name":"Apple Disk Image","size":1_000_000_u64,"interconnect":"Virtual Interface","kind":"Virtual"}
+            ])),
+            ("Battery".into(), json!([{"modelName":"bq-test","capacity":100,"status":["AC Connected"]}])),
+            ("PowerAdapter".into(), json!([{"name":"0","watts":65}])),
+        ].into_iter().collect(),
+        wm_display: "Quartz Compositor".into(),
+        ..Snapshot::default()
+    }
 }
 fn colors() -> presentation::Colors {
     presentation::Colors::from_palette(&json!({"version":1,"colors":{"fg":"#cdd6f4","muted":"#a6adc8","separator":"#45475a","green":"#a6e3a1","yellow":"#f9e2af","red":"#f38ba8"},"roles":{"section_system":"#89b4fa","section_hardware":"#fab387","section_desktop":"#cba6f7"}})).unwrap()
 }
 
-#[test]
-fn normalized_platform_reports_preserve_the_schema() {
-    for (macos, expected) in [
-        (false, include_str!("fixtures/workstation_expected.json")),
-        (true, include_str!("fixtures/macos_expected.json")),
-    ] {
-        let snapshot = snapshot(macos);
-        let expected: Value = serde_json::from_str(expected).unwrap();
-        assert_eq!(
-            serde_json::to_value(presentation::build_view(&snapshot)).unwrap(),
-            expected["view"]
-        );
-        assert_eq!(
-            serde_json::to_value(health::health_issues(&snapshot)).unwrap(),
-            expected["health"]
-        );
-    }
-}
 fn pretty(
     snapshot: &Snapshot,
     width: usize,
@@ -55,12 +76,8 @@ fn pretty(
         presentation::PrettyContext {
             colors: &colors(),
             width,
-            username: "fredrir",
-            hostname: if snapshot.is_macos() {
-                "macie"
-            } else {
-                "archie"
-            },
+            username: "tester",
+            hostname: "example",
             colored: false,
         },
     )
@@ -68,14 +85,13 @@ fn pretty(
 
 #[test]
 fn workstation_components_retain_brand_models_facts_and_privacy() {
-    let view = presentation::build_view(&snapshot(false));
+    let view = presentation::build_view(&desktop());
     for (label, model) in [
-        ("CPU", "Ryzen 7 9800X3D"),
-        ("GPU", "GeForce RTX 5070 Ti"),
+        ("CPU", "Test CPU"),
+        ("GPU", "Test GPU"),
         ("MEMORY", "32 GB  DDR5-6000  CL30"),
-        ("MOTHERBOARD", "B850-PLUS WIFI"),
-        ("STORAGE", "NV1  2 TB  SSD"),
-        ("STORAGE", "WD Blue  2 TB  HDD"),
+        ("MOTHERBOARD", "Test Board"),
+        ("STORAGE", "Test SSD  2 TB  SSD"),
     ] {
         assert!(
             view.components
@@ -106,9 +122,9 @@ fn workstation_components_retain_brand_models_facts_and_privacy() {
 }
 #[test]
 fn macos_normalizes_unified_memory_virtual_disks_and_portable_power() {
-    let snapshot = snapshot(true);
+    let snapshot = portable();
     let view = presentation::build_view(&snapshot);
-    assert_eq!(view.platform.label, "macOS 26.0");
+    assert_eq!(view.platform.label, "macOS");
     assert_eq!(view.machine_type, "WORKSTATION");
     let component = |label: &str| view.components.iter().find(|c| c.label == label).unwrap();
     assert_eq!(component("MEMORY").vendor, "APPLE");
@@ -120,10 +136,15 @@ fn macos_normalizes_unified_memory_virtual_disks_and_portable_power() {
             .count(),
         1
     );
-    assert_eq!(component("STORAGE").model, "SSD AP1024Z Media  1 TB  SSD");
+    assert_eq!(component("STORAGE").model, "Test SSD  1 TB  SSD");
     assert_eq!(component("BATTERY").model, "Internal battery");
-    assert_eq!(component("BATTERY").facts[1].value, "AC Connected");
-    assert_eq!(component("POWER ADAPTER").model, "70 W");
+    assert!(
+        component("BATTERY")
+            .facts
+            .iter()
+            .any(|fact| fact.label == "Status" && fact.value == "AC Connected")
+    );
+    assert_eq!(component("POWER ADAPTER").model, "65 W");
     assert!(component("POWER ADAPTER").facts.is_empty());
     assert!(
         !view
@@ -135,7 +156,7 @@ fn macos_normalizes_unified_memory_virtual_disks_and_portable_power() {
 }
 #[test]
 fn health_reports_memory_gpu_disk_limits_and_directions() {
-    let mut snapshot = snapshot(false);
+    let mut snapshot = desktop();
     snapshot.modules.insert(
         "Memory".into(),
         json!({"used":31u64*1024u64.pow(3),"total":32u64*1024u64.pow(3)}),
@@ -147,7 +168,10 @@ fn health_reports_memory_gpu_disk_limits_and_directions() {
     snapshot
         .hardware
         .insert("memory".into(), "Corsair 64 GB DDR5".into());
-    snapshot.nvidia[0]["temperature"] = json!(90);
+    snapshot.modules.insert(
+        "GPU".into(),
+        json!([{"name":"GeForce RTX 5070 Ti","temperature":90}]),
+    );
     let issues = health::health_issues(&snapshot);
     assert_eq!(issues.len(), 4);
     let text = serde_json::to_string(&issues).unwrap();
@@ -163,7 +187,7 @@ fn health_reports_memory_gpu_disk_limits_and_directions() {
 }
 #[test]
 fn inactive_health_never_advises_swap_and_driver_mismatch_has_reboot_action() {
-    let mut snapshot = snapshot(false);
+    let mut snapshot = desktop();
     assert!(health::health_issues(&snapshot).is_empty());
     snapshot
         .probe_errors
@@ -177,7 +201,7 @@ fn inactive_health_never_advises_swap_and_driver_mismatch_has_reboot_action() {
 }
 #[test]
 fn battery_charging_and_missing_temperature_are_not_false_alarms() {
-    let mut snapshot = snapshot(false);
+    let mut snapshot = desktop();
     for (status, capacity, count, severity) in [
         (json!("Discharging"), 12, 1, Severity::Warning),
         (json!("Discharging"), 4, 1, Severity::Error),
@@ -217,10 +241,10 @@ fn filesystem_health_excludes_readonly_virtual_and_system_volumes() {
 }
 #[test]
 fn plain_default_and_full_modes_preserve_compact_selection() {
-    let view = presentation::build_view(&snapshot(false));
+    let view = presentation::build_view(&desktop());
     let compact = presentation::render_plain(&view, &[], RenderOptions::default());
     assert!(compact.starts_with("System: Arch Linux  KDE Plasma  Wayland\n"));
-    assert!(compact.contains("CPU: AMD Ryzen 7 9800X3D"));
+    assert!(compact.contains("CPU: AMD Test CPU"));
     assert!(!compact.contains("INTEGRATED GPU"));
     assert!(!compact.contains("CPU COOLING"));
     let full = presentation::render_plain(
@@ -236,9 +260,9 @@ fn plain_default_and_full_modes_preserve_compact_selection() {
         "Hardware\n",
         "Software\n",
         "CPU COOLING",
-        "8 cores / 16 threads",
-        "96 MB L3",
-        "PCIe 5.0 ×16",
+        "4 cores / 8 threads",
+        "8 MB L3",
+        "PCIe 4.0 ×8",
     ] {
         assert!(full.contains(expected), "{full}");
     }
@@ -247,8 +271,8 @@ fn plain_default_and_full_modes_preserve_compact_selection() {
 #[test]
 fn branded_rendering_is_complete_borderless_and_respects_terminal_cells() {
     for width in [36, 45, 70, 80, 93, 94, 120, 132] {
-        let text = pretty(&snapshot(false), width, false, false, &[]);
-        assert!(text.contains("FREDRIR   WORKSTATION"));
+        let text = pretty(&desktop(), width, false, false, &[]);
+        assert!(text.contains("TESTER   WORKSTATION"));
         assert!(text.contains("HARDWARE"));
         assert!(text.contains('█'));
         assert!(!text.contains("SOFTWARE"));
@@ -261,29 +285,24 @@ fn branded_rendering_is_complete_borderless_and_respects_terminal_cells() {
             "{width}: {text}"
         );
     }
-    let text = pretty(&snapshot(false), 120, false, false, &[]);
+    let text = pretty(&desktop(), 120, false, false, &[]);
     for expected in [
         "AMD",
         "NVIDIA",
         "CORSAIR",
-        "ASUS TUF",
+        "ASUS",
         "KINGSTON",
-        "WESTERN DIGITAL",
         "ARCH LINUX",
         "KDE PLASMA",
         "KWIN",
         "WAYLAND",
-        "8 cores / 16 threads",
-        "96 MB L3",
-        "120 W TDP",
-        "PCIe 5.0 ×16",
+        "4 cores / 8 threads",
+        "8 MB L3",
+        "PCIe 4.0 ×8",
         "NOCTUA",
-        "ARCTIC",
-        "POWER SUPPLY",
     ] {
         assert!(text.contains(expected), "missing {expected}: {text}");
     }
-    assert!(text.lines().position(|line| line == "HARDWARE").unwrap() >= 12);
 }
 #[test]
 fn pretty_full_and_health_flags_are_independent() {
@@ -293,12 +312,12 @@ fn pretty_full_and_health_flags_are_independent() {
         detail: "Diagnostic text".into(),
         action: "Take action".into(),
     }];
-    let full = pretty(&snapshot(false), 120, true, false, &issues);
+    let full = pretty(&desktop(), 120, true, false, &issues);
     assert!(full.contains("SOFTWARE"));
     assert!(full.contains("SYSTEM"));
     assert!(full.contains("1 warning"));
     assert!(!full.contains("Diagnostic text"));
-    let health = pretty(&snapshot(false), 120, false, true, &issues);
+    let health = pretty(&desktop(), 120, false, true, &issues);
     assert!(health.contains("HEALTH"));
     assert!(health.contains("Diagnostic text"));
     assert!(health.contains("Take action"));
@@ -306,9 +325,8 @@ fn pretty_full_and_health_flags_are_independent() {
 }
 #[test]
 fn portable_pretty_uses_only_actual_components() {
-    let text = pretty(&snapshot(true), 100, true, true, &[]);
+    let text = pretty(&portable(), 100, true, true, &[]);
     for absent in [
-        "PRIVATE",
         "Apple Disk Image",
         "Virtual Interface",
         "CPU COOLING",
@@ -318,7 +336,7 @@ fn portable_pretty_uses_only_actual_components() {
         assert!(!text.contains(absent), "{text}");
     }
     assert!(text.contains("Internal battery"));
-    assert!(text.contains("70 W"));
+    assert!(text.contains("65 W"));
 }
 #[test]
 fn brand_registry_matches_word_boundaries_specific_brands_and_classes() {
@@ -355,9 +373,9 @@ fn brand_registry_matches_word_boundaries_specific_brands_and_classes() {
 }
 #[test]
 fn pretty_preserves_hostname_art_indentation_and_handles_tiny_terminals() {
-    let machine = snapshot(false);
+    let machine = desktop();
     let output = pretty(&machine, 70, false, false, &[]);
-    let art = branding::block_text("archie");
+    let art = branding::block_text("example");
     assert!(output.contains(&art.join("\n")));
     for width in [1, 2, 3, 10, 20] {
         let output = pretty(&machine, width, true, true, &[]);

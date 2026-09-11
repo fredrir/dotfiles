@@ -1,9 +1,27 @@
 use serde_json::{Value, json};
 use std::fs;
 use testkit::Bin;
-use workstation_sysinfo::bench::{record::Run, store::Store};
-fn archived() -> Run {
-    serde_json::from_str(include_str!("fixtures/bench/archie-schema1.json")).unwrap()
+use workstation_sysinfo::bench::{
+    record::{Metric, Run},
+    store::Store,
+};
+fn run(day: usize) -> Run {
+    let mut run = Run {
+        host: "archie".into(),
+        started: format!("2026-08-{day:02}T09:00:00Z"),
+        tier: "quick".into(),
+        grade: "clean".into(),
+        snapshot: json!({"cpu": {"model": "Test CPU"}}),
+        metrics: vec![Metric {
+            key: "cpu.multi".into(),
+            method: "cpu.multi/1.0.0".into(),
+            samples: vec![100.0; 3],
+            ..Metric::default()
+        }],
+        ..Run::default()
+    };
+    run.run_id = format!("2026-08-{day:02}T09-00-00Z-{}", run.epoch());
+    run
 }
 fn binary(store: &Store) -> Bin {
     Bin::new(env!("CARGO_BIN_EXE_sysinfo"))
@@ -12,38 +30,34 @@ fn binary(store: &Store) -> Bin {
         .plain()
 }
 #[test]
-fn historical_show_and_compare_emit_parseable_schema_one_json() {
+fn stored_runs_show_and_compare_as_schema_one_json() {
     let root = tempfile::tempdir().unwrap();
     let store = Store::new(root.path().join("history"));
-    let run = archived();
+    let run = run(1);
     store.save_run(&run).unwrap();
     let result = binary(&store).args(["show", "archie", "--json"]).run();
     assert!(result.success(), "{result:?}");
     let value: Value = serde_json::from_str(&result.stdout).unwrap();
-    assert_eq!(value["epoch"], "10db7d1f");
+    assert_eq!(value["epoch"], run.epoch());
     assert_eq!(value["schema"], 1);
     let result = binary(&store)
         .args(["compare", "archie", "archie", "--json"])
         .run();
     assert!(result.success(), "{result:?}");
     let value: Value = serde_json::from_str(&result.stdout).unwrap();
-    assert!(
-        value["deltas"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|delta| delta["verdict"] == "noise" || delta["verdict"] == "blocked")
-    );
+    assert_eq!(value["deltas"].as_array().unwrap().len(), 1);
+    assert_eq!(value["deltas"][0]["verdict"], "noise");
+    assert_eq!(value["deltas"][0]["change_pct"], 0.0);
 }
 
 #[test]
 fn completions_preserve_hardware_selectors_and_escape_exact_run_colons() {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::new(directory.path().join("history"));
-    let run = archived();
+    let run = run(1);
     store.save_run(&run).unwrap();
     let mut noisy = run.clone();
-    noisy.run_id = "2026-08-19T03-57-50Z-10db7d1f".into();
+    noisy.run_id = format!("noisy-{}", noisy.epoch());
     noisy.grade = "noisy".into();
     noisy.metrics[0].key = "noisy.only".into();
     store.save_run(&noisy).unwrap();
@@ -60,7 +74,7 @@ fn completions_preserve_hardware_selectors_and_escape_exact_run_colons() {
     assert!(
         result
             .stdout
-            .contains("archie@10db7d1f:2 runs on this hardware")
+            .contains(&format!("archie@{}:2 runs on this hardware", run.epoch()))
     );
     assert!(result.stdout.contains(&format!("archie\\:{}:", run.run_id)));
     let metrics = complete("metrics");
@@ -124,9 +138,7 @@ fn pruning_requires_yes_and_retains_oldest_newest_and_baseline() {
     let root = tempfile::tempdir().unwrap();
     let store = Store::new(root.path().join("history"));
     for day in 1..=6 {
-        let mut run = archived();
-        run.run_id = format!("2026-08-{day:02}T09-00-00Z-10db7d1f");
-        run.started = format!("2026-08-{day:02}T09:00:00Z");
+        let run = run(day);
         store.save_run(&run).unwrap();
         if day == 3 {
             store
@@ -156,7 +168,7 @@ fn pruning_requires_yes_and_retains_oldest_newest_and_baseline() {
 fn baseline_mutations_respect_the_benchmark_lock() {
     let root = tempfile::tempdir().unwrap();
     let store = Store::new(root.path().join("history"));
-    store.save_run(&archived()).unwrap();
+    store.save_run(&run(1)).unwrap();
     let held = store.exclusive().unwrap();
     let result = binary(&store).args(["baseline", "set", "archie"]).run();
     assert!(!result.success());
