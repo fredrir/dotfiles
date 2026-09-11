@@ -2,10 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub use crate::config::sorted_directories as directories;
+use crate::config::{blocks, read_manifest};
 use crate::context::{Context, write_atomic};
 use crate::event::{Action, Event, EventSink, Phase};
 
-const DEFAULT_GROUPS: &[&str] = &[
+pub const DEFAULT_GROUPS: &[&str] = &[
     "shared",
     "linux/common",
     "linux/arch",
@@ -62,58 +64,28 @@ pub fn synchronize(
     Ok(changed)
 }
 
-fn load_metadata(path: &Path) -> Result<BTreeMap<String, String>, String> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(BTreeMap::new());
-        }
-        Err(error) => return Err(format!("read {}: {error}", path.display())),
-    };
-    let mut current = None::<String>;
+pub fn load_metadata(path: &Path) -> Result<BTreeMap<String, String>, String> {
     let mut metadata = BTreeMap::new();
-    for (offset, raw) in text.lines().enumerate() {
-        let line = raw.split('#').next().unwrap_or_default().trim();
-        if line.is_empty() {
+    for entry in blocks::read(path)? {
+        let error = |message: String| format!("{}:{}: {message}", path.display(), entry.number);
+        validate_group(&entry.block).map_err(&error)?;
+        if entry.opens {
             continue;
         }
-        if let Some(group) = line.strip_suffix('{') {
-            let group = group.trim();
-            validate_group(group)
-                .map_err(|error| format!("{}:{}: {error}", path.display(), offset + 1))?;
-            current = Some(group.to_string());
-            continue;
-        }
-        if line == "}" {
-            current = None;
-            continue;
-        }
-        let group = current
-            .as_ref()
-            .ok_or_else(|| format!("{}:{}: package outside a group", path.display(), offset + 1))?;
-        let (name, description) = line
-            .split_once('=')
-            .map_or((line, ""), |(name, description)| {
-                (name.trim(), description.trim())
-            });
-        validate_package(name)
-            .map_err(|error| format!("{}:{}: {error}", path.display(), offset + 1))?;
-        let key = format!("{group}/{name}");
+        let (name, description) = entry.split();
+        validate_package(name).map_err(&error)?;
+        let key = format!("{}/{name}", entry.block);
         if metadata
-            .insert(key.clone(), description.to_string())
+            .insert(key.clone(), description.to_owned())
             .is_some()
         {
-            return Err(format!(
-                "{}:{}: duplicate package: {key}",
-                path.display(),
-                offset + 1
-            ));
+            return Err(error(format!("duplicate package: {key}")));
         }
     }
     Ok(metadata)
 }
 
-fn package_groups(context: &Context) -> Result<Vec<String>, String> {
+pub fn package_groups(context: &Context) -> Result<Vec<String>, String> {
     let mut groups = DEFAULT_GROUPS
         .iter()
         .map(|group| (*group).to_string())
@@ -129,7 +101,7 @@ fn package_groups(context: &Context) -> Result<Vec<String>, String> {
     Ok(groups)
 }
 
-fn validate_packages(context: &Context, groups: &[String]) -> Result<(), String> {
+pub fn validate_packages(context: &Context, groups: &[String]) -> Result<(), String> {
     for group in groups {
         for package in directories(&context.root.join(group))? {
             let name = package
@@ -151,7 +123,7 @@ fn validate_packages(context: &Context, groups: &[String]) -> Result<(), String>
     Ok(())
 }
 
-fn render(
+pub fn render(
     context: &Context,
     groups: &[String],
     metadata: &BTreeMap<String, String>,
@@ -228,38 +200,6 @@ fn render(
     Ok((config, document))
 }
 
-fn read_manifest(path: &Path) -> Result<Vec<String>, String> {
-    let text =
-        fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?;
-    Ok(text
-        .lines()
-        .filter_map(|line| {
-            let group = line.split('#').next().unwrap_or_default().trim();
-            (!group.is_empty()).then(|| group.to_string())
-        })
-        .collect())
-}
-
-fn directories(path: &Path) -> Result<Vec<PathBuf>, String> {
-    let entries = match fs::read_dir(path) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("read {}: {error}", path.display())),
-    };
-    let mut found = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("read {}: {error}", path.display()))?;
-        let child = entry.path();
-        let metadata =
-            fs::metadata(&child).map_err(|error| format!("read {}: {error}", child.display()))?;
-        if metadata.is_dir() {
-            found.push(child);
-        }
-    }
-    found.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
-    Ok(found)
-}
-
 fn collect_named_files(
     directory: &Path,
     name: &str,
@@ -273,8 +213,8 @@ fn collect_named_files(
     for entry in entries {
         let entry = entry.map_err(|error| format!("read {}: {error}", directory.display()))?;
         let path = entry.path();
-        let metadata =
-            fs::metadata(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("read {}: {error}", path.display()))?;
         if metadata.is_dir() {
             collect_named_files(&path, name, found)?;
         } else if path.file_name().and_then(|value| value.to_str()) == Some(name) {
@@ -284,7 +224,8 @@ fn collect_named_files(
     Ok(())
 }
 
-fn validate_group(group: &str) -> Result<(), String> {
+pub fn validate_group(group: &str) -> Result<(), String> {
+    crate::config::validate_relative(group)?;
     if group.is_empty() {
         return Err("empty group".to_string());
     }
@@ -298,7 +239,8 @@ fn validate_group(group: &str) -> Result<(), String> {
     }
 }
 
-fn validate_package(package: &str) -> Result<(), String> {
+pub fn validate_package(package: &str) -> Result<(), String> {
+    crate::config::validate_relative(package)?;
     if package.is_empty() {
         return Err("empty package".to_string());
     }

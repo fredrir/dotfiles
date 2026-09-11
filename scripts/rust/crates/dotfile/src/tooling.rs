@@ -46,11 +46,14 @@ impl Refresh {
         if !std::io::stderr().is_terminal() {
             eprintln!("dotfile: updating workstation commands…");
         }
-        let output = Command::new(self.root.join("setup.sh"))
-            .arg("--commands-only")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|error| format!("cannot update workstation commands: {error}"))?;
+        let output = crate::process::output(
+            Command::new(self.root.join("setup.sh"))
+                .arg("--commands-only")
+                .stdin(Stdio::null()),
+            hostkit::process::CaptureLimits::default(),
+            std::time::Duration::from_secs(15 * 60),
+        )
+        .map_err(|error| format!("cannot update workstation commands: {error}"))?;
         if !output.status.success() {
             let message = String::from_utf8_lossy(&output.stderr)
                 .lines()
@@ -103,6 +106,17 @@ fn is_installed(home: &Path, executable: &Path) -> bool {
 }
 
 fn stale(root: &Path, executable: &Path) -> Result<bool, String> {
+    let metadata = root.join("config/command-surface.json");
+    if root.join("scripts/python/src/tools").is_dir() {
+        let exported = fs::metadata(&metadata)
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        if newest(&root.join("scripts/python/src"))? > exported
+            || newest(&root.join("scripts/python/pyproject.toml"))? > exported
+        {
+            return Ok(true);
+        }
+    }
     let installed = fs::metadata(executable)
         .and_then(|metadata| metadata.modified())
         .map_err(|error| format!("{}: {error}", executable.display()))?;

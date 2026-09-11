@@ -2,13 +2,14 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-bin="$root/scripts/python/.venv/bin"
-dotfile="$bin/dotfile-py"
+export DOTFILE_ROOT="$root"
+source "$root/.githooks/_dotfile.sh"
+dotfile="$(resolve_dotfile "$root" || true)"
 
 staged() { git diff --cached --name-only -- "$@" | grep -q .; }
 
 if [ ! -x "$dotfile" ]; then
-	echo "pre-commit: error: dotfile secret scan cannot run: missing scripts/python/.venv" >&2
+	echo "pre-commit: error: dotfile secret scan cannot run: native dotfile missing" >&2
 	echo "pre-commit: error: dotfile secret: run: ./setup.sh" >&2
 	exit 1
 fi

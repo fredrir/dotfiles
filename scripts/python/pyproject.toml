@@ -16,7 +16,6 @@ cpas                    = "tools.utils.remote_clipboard:cpas_app"
 acp                     = "tools.utils.remote_clipboard:acp_app"
 transcript              = "tools.transcript.cli:app"
 update-readme-fastfetch = "tools.readme.fastfetch:app"
-dotfile-py              = "tools.dotfile.cli:run"
 
 [dependency-groups]
 dev = [

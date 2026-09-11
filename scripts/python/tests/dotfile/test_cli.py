@@ -38,11 +38,13 @@ def test_sync_rejects_an_unknown_resolution_natively(tool, sandbox):
     assert "invalid value 'sideways'" in result.stderr
 
 
-def test_private_python_backend_refuses_to_duplicate_sync(tool, sandbox):
+def test_all_native_help_works_without_python(tool, sandbox):
     _repo, _home, env = sandbox
-    result = tool("dotfile-py", "sync", env=env)
-    assert result.returncode == 1
-    assert "native dotfile executable" in result.stderr
+    env |= {"PATH": "", "DOTFILE_PYTHON": "/missing/python"}
+    for command in ("secret", "system", "theme", "add", "remove", "doctor", "sync", "dev"):
+        result = tool("dotfile", command, "--help", env=env)
+        assert result.returncode == 0, result.stderr
+        assert "Usage" in result.stdout
 
 
 def test_generation_commands_point_to_sync(tool, sandbox):

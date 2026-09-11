@@ -66,13 +66,7 @@ def programs():
     path = os.path.join(str(repo_root()), "scripts/python/pyproject.toml")
     with open(path, encoding="utf-8") as handle:
         data = tomlkit.parse(handle.read())
-    found = dict(data["project"]["scripts"])
-    backend = found.pop("dotfile-py", None)
-    if backend:
-        if backend.endswith(":run"):
-            backend = backend.removesuffix(":run") + ":app"
-        found["dotfile"] = backend
-    return found
+    return dict(data["project"]["scripts"])
 
 
 def load(target):
@@ -88,15 +82,9 @@ def trees():
             found[program] = introspect.from_typer(load(target), program)
         except Exception:  # a tool this machine cannot import still has no completions
             continue
+    from tools.surface import rust
+
+    native = rust.tree("dotfile")
+    if native is not None:
+        found["dotfile"] = native
     return found
-
-
-def write_all(directory):
-    """Every tool's script in one file, which is what the shell sources."""
-    scripts = [zsh.script(tree, program) for program, tree in trees().items()]
-    body = "\n".join(scripts)
-    os.makedirs(directory, exist_ok=True)
-    path = os.path.join(directory, FILENAME)
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(body)
-    return path, len(scripts)

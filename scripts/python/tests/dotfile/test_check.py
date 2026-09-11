@@ -1,196 +1,201 @@
 import os
 
 import pytest
-import typer
-
-from tools.dotfile import doctor, report
-
-
-class FakeContext:
-    def __init__(self, root):
-        self.root = str(root)
-        self.home = str(root / "home")
-        self.environment_dir = str(root / "environment")
-        self.requires_file = str(root / "config" / "requirements.dotfile")
 
 
 @pytest.fixture
-def ctx(tmp_path):
-    (tmp_path / "shared").mkdir()
-    (tmp_path / "config").mkdir()
-    (tmp_path / "environment" / "macos").mkdir(parents=True)
-    return FakeContext(tmp_path)
+def ctx(tmp_path, tool):
+    root = tmp_path / "repo"
+    home = tmp_path / "home"
+    for path in (
+        root / "shared",
+        root / "config",
+        root / "environment/test",
+        home / ".config/dotfile",
+    ):
+        path.mkdir(parents=True)
+    (root / "config/targets.dotfile").write_text("")
+    (root / "environment/test/manifest").write_text("shared\n")
+    (home / ".config/dotfile/profile").write_text("test\n")
+    env = {
+        "DOTFILE_ROOT": str(root),
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "XDG_DATA_HOME": str(home / ".local/share"),
+        "SHELL": "/bin/zsh",
+        "USER": "",
+        "SYSINFO_HOST": "fixture",
+        "SYSINFO_BENCHMARKS": str(tmp_path / "benchmarks"),
+    }
+
+    def doctor(*arguments, **overrides):
+        return tool("dotfile", "doctor", *arguments, env=dict(env, **overrides))
+
+    return root, home, doctor
 
 
 def write_requires(ctx, text):
-    with open(ctx.requires_file, "w", encoding="utf-8") as handle:
-        handle.write(text)
+    (ctx[0] / "config/requirements.dotfile").write_text(text)
 
 
 def write_project(ctx, *commands):
-    scripts = os.path.join(ctx.root, "scripts", "python")
-    os.makedirs(scripts, exist_ok=True)
+    scripts = ctx[0] / "scripts/python"
+    scripts.mkdir(parents=True, exist_ok=True)
     entries = "".join(f'{name} = "tools.commands:{name}"\n' for name in commands)
-    with open(os.path.join(scripts, "pyproject.toml"), "w", encoding="utf-8") as handle:
-        handle.write(f'[project]\nname = "tools"\nversion = "0.1.0"\n[project.scripts]\n{entries}')
+    (scripts / "pyproject.toml").write_text(
+        f'[project]\nname = "tools"\nversion = "0.1.0"\n[project.scripts]\n{entries}'
+    )
 
 
 def install_commands(ctx, *commands):
-    bindir = os.path.join(ctx.home, ".local", "bin")
-    tool_bindir = os.path.join(ctx.home, ".local", "share", "uv", "tools", "tools", "bin")
-    os.makedirs(bindir, exist_ok=True)
-    os.makedirs(tool_bindir, exist_ok=True)
+    bindir = ctx[1] / ".local/bin"
+    tool_bindir = ctx[1] / ".local/share/uv/tools/tools/bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    tool_bindir.mkdir(parents=True, exist_ok=True)
     for name in commands:
-        source = os.path.join(tool_bindir, name)
-        with open(source, "w", encoding="utf-8") as handle:
-            handle.write("exit 0\n")
-        os.chmod(source, 0o755)
-        os.symlink(source, os.path.join(bindir, name))
-    return bindir
+        source = tool_bindir / name
+        source.write_text("#!/bin/sh\nexit 0\n")
+        source.chmod(0o755)
+        (bindir / name).symlink_to(source)
+    return str(bindir)
 
 
 def test_reads_every_entry_kind(ctx):
     write_requires(
         ctx,
-        "# a comment\nshared {\n  git\n  nvim = neovim\n  ?docker  # trailing\n"
-        "  font Hack Nerd Font Mono\n  file ~/.config/hypr/wallpaper.png\n}\n",
+        "# a comment\nshared {\n native-test-missing = install-me\n ?native-test-optional # trailing\n font Nonexistent Test Font\n file ~/.config/missing-file\n}\n",
     )
-    assert doctor.load_requirements(ctx) == {
-        "shared": [
-            ("command", "git", "git", False),
-            ("command", "nvim", "neovim", False),
-            ("command", "docker", "docker", True),
-            ("font", "Hack Nerd Font Mono", "Hack Nerd Font Mono", False),
-            ("file", "~/.config/hypr/wallpaper.png", "~/.config/hypr/wallpaper.png", False),
-        ]
-    }
+    result = ctx[2]("--all")
+    assert result.returncode == 1
+    for expected in ("tools", "fonts", "files", "optional", "install-me", "missing-file"):
+        assert expected in result.stdout
 
 
 def test_missing_file_means_no_requirements(ctx):
-    assert doctor.load_requirements(ctx) == {}
+    result = ctx[2]()
+    assert result.returncode == 0, result.stderr
+    assert "tools" not in result.stdout
 
 
 def test_rejects_a_group_that_is_not_in_the_repository(ctx):
-    write_requires(ctx, "linux/kde {\n  konsole\n}\n")
-    with pytest.raises(typer.Exit):
-        doctor.load_requirements(ctx)
+    write_requires(ctx, "linux/kde {\n konsole\n}\n")
+    result = ctx[2]()
+    assert result.returncode == 1
+    assert "unknown group: linux/kde" in result.stderr
 
 
 def test_rejects_an_entry_outside_a_group(ctx):
     write_requires(ctx, "git\n")
-    with pytest.raises(typer.Exit):
-        doctor.load_requirements(ctx)
-
-
-def test_accepts_a_profile_for_this_platform(ctx):
-    assert doctor.wrong_platform(ctx, "macos", "macos") == ""
-
-
-def test_warns_about_a_profile_from_another_platform(ctx):
-    assert doctor.wrong_platform(ctx, "arch-linux/kde", "macos") == "not a macos profile"
-
-
-def test_stays_quiet_when_the_platform_has_no_profiles_in_the_repository(ctx):
-    assert doctor.wrong_platform(ctx, "ubuntu/server", "ubuntu") == ""
+    result = ctx[2]()
+    assert result.returncode == 1
+    assert "outside a block" in result.stderr
 
 
 def test_reads_declared_project_commands(ctx):
     write_project(ctx, "size", "count")
-    assert doctor.project_commands(ctx) == ["count", "size"]
+    result = ctx[2]("--all")
+    assert result.returncode == 1
+    assert "size" in result.stdout and "count" in result.stdout
 
 
-def test_accepts_commands_installed_as_uv_tools(ctx, monkeypatch):
+def test_accepts_commands_installed_as_uv_tools(ctx):
     write_project(ctx, "count", "size")
     bindir = install_commands(ctx, "count", "size")
-    monkeypatch.setenv("PATH", bindir + os.pathsep + "/usr/bin")
-    assert doctor.commands_problem(ctx) == ""
+    result = ctx[2](PATH=bindir + os.pathsep + "/usr/bin")
+    assert result.returncode == 0, result.stdout
+    assert "workstation commands need attention" not in result.stdout
 
 
-def test_reports_a_missing_public_command(ctx, monkeypatch):
+def test_reports_a_missing_public_command(ctx):
     write_project(ctx, "count", "size")
     bindir = install_commands(ctx, "count")
-    monkeypatch.setenv("PATH", bindir + os.pathsep + "/usr/bin")
-    assert doctor.commands_problem(ctx) == "missing from ~/.local/bin: size"
+    result = ctx[2](PATH=bindir + os.pathsep + "/usr/bin")
+    assert result.returncode == 1
+    assert "size" in result.stdout and "missing from ~/.local/bin" in result.stdout
 
 
-def test_rejects_a_public_command_outside_the_uv_tool_directory(ctx, monkeypatch):
+def test_rejects_a_public_command_outside_the_uv_tool_directory(ctx):
     write_project(ctx, "count")
-    bindir = os.path.join(ctx.home, ".local", "bin")
-    os.makedirs(bindir, exist_ok=True)
-    command = os.path.join(bindir, "count")
-    with open(command, "w", encoding="utf-8") as handle:
-        handle.write("exit 0\n")
-    os.chmod(command, 0o755)
-    monkeypatch.setenv("PATH", bindir + os.pathsep + "/usr/bin")
-    assert doctor.commands_problem(ctx) == "not installed by uv: count"
+    bindir = ctx[1] / ".local/bin"
+    bindir.mkdir(parents=True)
+    command = bindir / "count"
+    command.write_text("#!/bin/sh\nexit 0\n")
+    command.chmod(0o755)
+    result = ctx[2](PATH=str(bindir) + os.pathsep + "/usr/bin")
+    assert result.returncode == 1
+    assert "not installed by uv" in result.stdout
 
 
-def test_reports_a_uv_command_shadowed_earlier_on_path(ctx, monkeypatch):
+def test_reports_a_uv_command_shadowed_earlier_on_path(ctx):
     write_project(ctx, "count")
     bindir = install_commands(ctx, "count")
-    earlier = os.path.join(ctx.home, "earlier")
-    os.makedirs(earlier)
-    command = os.path.join(earlier, "count")
-    with open(command, "w", encoding="utf-8") as handle:
-        handle.write("exit 0\n")
-    os.chmod(command, 0o755)
-    monkeypatch.setenv("PATH", earlier + os.pathsep + bindir + os.pathsep + "/usr/bin")
-    assert doctor.commands_problem(ctx) == "shadowed on PATH: count"
+    earlier = ctx[1] / "earlier"
+    earlier.mkdir()
+    command = earlier / "count"
+    command.write_text("#!/bin/sh\nexit 0\n")
+    command.chmod(0o755)
+    result = ctx[2](PATH=str(earlier) + os.pathsep + bindir + os.pathsep + "/usr/bin")
+    assert result.returncode == 1
+    assert "shadowed on PATH" in result.stdout
 
 
-def test_font_matches_a_family_and_its_weights():
-    assert not doctor.font_missing("Hack Nerd Font Mono", {"hacknerdfontmonoregular"})
-    assert not doctor.font_missing("Hack Nerd Font Mono", {"hacknerdfontmonobolditalic"})
-    assert not doctor.font_missing("Hack Nerd Font Mono", {"hacknerdfontmono"})
-
-
-def test_font_does_not_match_a_longer_family_name():
-    assert doctor.font_missing("Noto Sans", {"notosansadlamregular", "notosansbatakregular"})
-    assert doctor.font_missing("Hack Nerd Font Mono", {"hacknerdfontregular"})
-
-
-def test_brewfile_lists_formulae_and_casks(tmp_path):
-    path = tmp_path / "Brewfile"
-    path.write_text(
-        '# comment\ntap "homebrew/bundle"\nbrew "starship"\n'
-        'brew \'eza\'\nbrew "some/tap/tool"\ncask "kitty"\n'
+def test_brewfile_lists_formulae_and_casks(ctx):
+    root, home, doctor = ctx
+    (root / "macos").mkdir()
+    (root / "environment/test/manifest").write_text("shared\nmacos\n")
+    (root / "macos/Brewfile").write_text(
+        '# comment\ntap "homebrew/bundle"\nbrew "starship"\nbrew \'eza\'\nbrew "some/tap/tool"\ncask "kitty"\n'
     )
-    assert doctor.read_brewfile(str(path)) == ["starship", "eza", "tool", "kitty"]
+    binary = home / "bin"
+    binary.mkdir()
+    script = binary / "brew"
+    script.write_text("#!/bin/sh\nprintf 'starship\\neza\\ntool\\nkitty\\n'\n")
+    script.chmod(0o755)
+    result = doctor(PATH=str(binary) + os.pathsep + "/usr/bin")
+    assert result.returncode == 0, result.stdout
+    assert "4 installed" in result.stdout
 
 
-def test_pkglist_drops_comments_and_blank_lines(tmp_path):
-    path = tmp_path / "pkglist.txt"
-    path.write_text("git\n\n# comment\nneovim\n")
-    assert doctor.read_pkglist(str(path)) == ["git", "neovim"]
+def test_pkglist_drops_comments_and_blank_lines(ctx):
+    root, home, doctor = ctx
+    (root / "environment/test/pkglist.txt").write_text("git\n\n# comment\nneovim\n")
+    binary = home / "bin"
+    binary.mkdir()
+    script = binary / "pacman"
+    script.write_text("#!/bin/sh\nprintf 'git\\nneovim\\n'\n")
+    script.chmod(0o755)
+    result = doctor(PATH=str(binary) + os.pathsep + "/usr/bin")
+    assert result.returncode == 0, result.stdout
+    assert "2 installed" in result.stdout
 
 
-def test_row_lists_items_under_the_label(capsys):
-    report.emit(report.row("bad", "tools", "2 missing", [("yazi", ""), ("rg", "ripgrep")]), False)
-    assert capsys.readouterr().out == "  ✗ tools      2 missing\n      yazi\n      rg  ripgrep\n"
+def test_missing_tools_show_package_hints_below_the_section(ctx):
+    write_requires(ctx, "shared {\n missing-tool-one\n missing-tool-two = install-package\n}\n")
+    result = ctx[2]()
+    assert result.returncode == 1
+    assert result.stdout.index("tools") < result.stdout.index("missing-tool-one")
+    assert "install-package" in result.stdout
 
 
-def test_items_align_on_the_widest_name_that_carries_a_note():
-    assert report.align([("short", "note"), ("much-longer-name", "")]) == [
-        ("short", "note"),
-        ("much-longer-name", ""),
-    ]
-    assert report.align([("short", "note"), ("much-longer-name", "other")])[0] == (
-        "short           ",
-        "note",
+def test_clips_items_and_all_lists_every_finding(ctx):
+    write_requires(
+        ctx, "shared {\n" + "".join(f" missing-native-{index:02}\n" for index in range(15)) + "}\n"
     )
+    result = ctx[2]()
+    assert "and 3 more" in result.stdout
+    assert "missing-native-14" not in result.stdout
+    full = ctx[2]("--all")
+    assert "missing-native-14" in full.stdout
+    assert "and 3 more" not in full.stdout
 
 
-def test_clips_items_and_says_how_many_were_dropped():
-    items = [(f"tool{index}", "") for index in range(15)]
-    assert report.clip(items, False)[-1] == ("+3 more", "")
-    assert report.clip(items, True) == items
-
-
-def test_a_requirement_in_two_groups_is_checked_once():
-    requirements = {
-        "shared": [("command", "git", "git", True)],
-        "macos": [("command", "git", "git", False)],
-    }
-    assert doctor.profile_requirements(requirements, ["shared", "macos"]) == [
-        ("command", "git", "git", False)
-    ]
+def test_a_requirement_in_two_groups_is_checked_once(ctx):
+    root, _home, doctor = ctx
+    (root / "macos").mkdir()
+    (root / "environment/test/manifest").write_text("shared\nmacos\n")
+    write_requires(ctx, "shared {\n ?missing-native-check\n}\nmacos {\n missing-native-check\n}\n")
+    result = doctor()
+    assert result.returncode == 1
+    assert result.stdout.count("missing-native-check") == 1
+    assert "1 missing" in result.stdout
+    assert "optional" not in result.stdout

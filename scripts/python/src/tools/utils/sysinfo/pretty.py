@@ -1,13 +1,17 @@
+import json
 import re
 from dataclasses import dataclass
+from subprocess import TimeoutExpired
 
 from rich.console import Console, Group
 from rich.table import Table
 from rich.text import Text
 
 from tools.core.console import colors_enabled
+from tools.core.native import binary
+from tools.core.paths import dotfiles_root
+from tools.core.process import capture
 from tools.core.typography import block_text
-from tools.theme.model import Theme
 from tools.utils.sysinfo.branding import header_illustration, illustration, resolve_brand
 from tools.utils.sysinfo.health import health_summary
 from tools.utils.sysinfo.identity import display_hostname, display_username
@@ -28,18 +32,37 @@ class Colors:
 
 
 def load_colors():
-    theme = Theme.load()
-    return Colors(
-        text=theme.hex("fg"),
-        subtext=theme.hex("muted"),
-        overlay=theme.hex("separator"),
-        system=theme.role("section_system"),
-        hardware=theme.role("section_hardware"),
-        desktop=theme.role("section_desktop"),
-        green=theme.hex("green"),
-        yellow=theme.hex("yellow"),
-        red=theme.hex("red"),
-    )
+    try:
+        result = capture(
+            [binary("dotfile"), "theme", "palette", "--json"],
+            cwd=dotfiles_root(),
+            timeout=10,
+        )
+        if result.returncode:
+            raise ValueError(result.stderr.strip() or "native palette failed")
+        palette = json.loads(result.stdout)
+        if palette["version"] != 1:
+            raise ValueError("unsupported palette version")
+        colors, roles = palette["colors"], palette["roles"]
+        values = Colors(
+            text=colors["fg"],
+            subtext=colors["muted"],
+            overlay=colors["separator"],
+            system=roles["section_system"],
+            hardware=roles["section_hardware"],
+            desktop=roles["section_desktop"],
+            green=colors["green"],
+            yellow=colors["yellow"],
+            red=colors["red"],
+        )
+        if not all(
+            isinstance(value, str) and re.fullmatch(r"#[0-9a-f]{6}", value)
+            for value in vars(values).values()
+        ):
+            raise ValueError("invalid palette color")
+        return values
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError, TimeoutExpired) as error:
+        raise SystemExit(f"sysinfo: theme palette: {error}") from error
 
 
 def heading(label, color):

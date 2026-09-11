@@ -9,7 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-nix = { workspace = true, features = ["signal", "process", "fs"] }
+nix = { workspace = true, features = ["signal", "process", "fs", "poll"] }
 clap.workspace = true
 
 socket2 = "0.6"

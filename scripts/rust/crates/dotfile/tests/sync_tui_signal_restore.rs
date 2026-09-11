@@ -12,8 +12,6 @@ use testkit::pty::{
 };
 use testkit::{Bin, Ran, TempDir, executable, tree_pairs};
 
-const BACKEND: &str = "#!/bin/sh\nexit 0\n";
-
 struct Sandbox {
     temporary: TempDir,
 }
@@ -23,7 +21,6 @@ impl Sandbox {
         let mut all = entries.to_vec();
         all.push(("home/.config/", ""));
         let temporary = tree_pairs(&all);
-        executable(&temporary.path().join("dotfile-py"), BACKEND);
         Sandbox { temporary }
     }
 
@@ -36,7 +33,7 @@ impl Sandbox {
             ("DOTFILE_ROOT", self.path("repo")),
             ("HOME", self.path("home")),
             ("XDG_CONFIG_HOME", self.path("home/.config")),
-            ("DOTFILE_PYTHON", self.path("dotfile-py")),
+            ("DOTFILE_PYTHON", self.path("missing-python")),
         ]
     }
 

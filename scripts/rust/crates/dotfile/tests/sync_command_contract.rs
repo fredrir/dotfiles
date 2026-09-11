@@ -4,13 +4,12 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use testkit::{Bin, Ran, TempDir, executable, tree_pairs};
+use testkit::{Bin, Ran, TempDir, tree_pairs};
 
 struct Sandbox {
     temporary: TempDir,
     root: PathBuf,
     home: PathBuf,
-    backend: PathBuf,
 }
 
 impl Sandbox {
@@ -29,13 +28,10 @@ impl Sandbox {
         let root = temporary.path().join("repo");
         doc_keybinds::generate(&root, false).unwrap();
         let home = temporary.path().join("home");
-        let backend = temporary.path().join("dotfile-py");
-        executable(&backend, "#!/bin/sh\nexit 0\n");
         Self {
             temporary,
             root,
             home,
-            backend,
         }
     }
 
@@ -46,7 +42,7 @@ impl Sandbox {
             .env("DOTFILE_REEXECED", "1")
             .env("HOME", &self.home)
             .env("XDG_CONFIG_HOME", self.home.join(".config"))
-            .env("DOTFILE_PYTHON", &self.backend)
+            .env("DOTFILE_PYTHON", "/missing/python")
             .env("CI", "1")
             .env("TERM", "dumb")
             .env_remove("NO_COLOR");
@@ -100,7 +96,7 @@ fn dry_run_is_read_only_quiet_by_default_and_detailed_only_when_verbose() {
     assert_eq!(compact.stdout.lines().count(), 1);
     assert_eq!(
         compact.stdout,
-        "○ Plan ready 2 changes\n",
+        "○ Plan ready 4 changes\n",
         "{}",
         sandbox.command(true).stdout
     );

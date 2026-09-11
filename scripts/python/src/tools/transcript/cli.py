@@ -8,10 +8,8 @@ import typer
 from rich.table import Table
 
 from tools.core import clipboard, menu
-from tools.core.console import die, err, out, stdout
+from tools.core.console import die, out, stdout
 from tools.desktop.clean_copy import clean_text
-from tools.dotfile.secret.canaries import private_values
-from tools.dotfile.state import Context
 from tools.surface import entry as surface
 from tools.transcript import config, detect, manage, migration, redact, store, vault
 
@@ -186,13 +184,9 @@ def _untrack(name):
 def _redactor(raw):
     if raw:
         return redact.passthrough
-    try:
-        values, notes = private_values(Context())
-    except SystemExit:
-        return redact.redact
-    for note in notes:
-        err(f"transcript: {note}")
-    return redact.redactor(values)
+    from tools.transcript.native_redaction import Redactor
+
+    return Redactor()
 
 
 def _parse(provider, path):

@@ -165,7 +165,8 @@ then reload tmux; do not edit generated `shared/tmux/theme.conf`.
 ```sh
 cargo build --locked --manifest-path scripts/rust/Cargo.toml -p tmux-workspace
 cargo clippy --manifest-path scripts/rust/Cargo.toml -p tmux-workspace --all-targets -- -D warnings
-uv run --project scripts/python --locked pytest scripts/python/tests/tmux scripts/python/tests/theme/test_tmux.py
+uv run --project scripts/python --locked pytest scripts/python/tests/tmux
+cargo test --manifest-path scripts/rust/Cargo.toml -p dotfile-cli --test theme_cli
 
 # Explicit machine-readable diagnostics and test sockets
 tmux-workspace --socket /tmp/workspace-test/socket inspect --json

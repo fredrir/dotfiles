@@ -1,0 +1,541 @@
+{
+  "semantics": {
+    "background": "ui.background",
+    "primary": "ui.primary",
+    "accent": "ui.accent",
+    "surface": "ui.surface",
+    "foreground": "ui.foreground",
+    "sidebar": "ui.accent",
+    "border": "ui.surface",
+    "error": "ansi.normal.red",
+    "warning": "ansi.normal.yellow",
+    "success": "ansi.normal.green",
+    "info": "ansi.normal.blue",
+    "canvas_bg": "ui.background",
+    "panel_bg": "ui.accent",
+    "surface_fill": "ui.surface",
+    "primary_fill": "ui.primary",
+    "primary_hover_fill": "ui.primary~ui.foreground/150",
+    "text_on_canvas": "readable(ui.foreground,ui.background,4.5)",
+    "text_on_panel": "readable(ui.foreground,ui.accent,4.5)",
+    "text_on_surface": "readable(ui.foreground,ui.surface,4.5)",
+    "on_primary": "on(ui.primary,4.5)",
+    "on_primary_hover": "on(primary_hover_fill,4.5)",
+    "primary_text_on_canvas": "readable(ui.primary,ui.background,4.5)",
+    "primary_text_on_panel": "readable(ui.primary,ui.accent,4.5)",
+    "primary_fill_on_canvas": "visible(ui.primary,ui.background,3)",
+    "primary_fill_on_panel": "visible(ui.primary,ui.accent,3)",
+    "primary_visible_on_surface": "visible(ui.primary,ui.surface,3)",
+    "on_primary_fill_on_canvas": "on(primary_fill_on_canvas,4.5)",
+    "on_primary_fill_on_panel": "on(primary_fill_on_panel,4.5)",
+    "focus_ring": "visible(ui.primary,ui.background,3)",
+    "focus_ring_on_surface": "visible(ui.primary,ui.surface,3)",
+    "border_on_canvas": "visible(ui.surface,ui.background,3)",
+    "border_on_panel": "visible(ui.surface,ui.accent,3)",
+    "border_on_surface": "visible(ui.accent,ui.surface,3)",
+    "sunken": "ui.background/-100",
+    "muted_on_canvas": "readable(ui.background~ui.foreground/600,ui.background,4.5)",
+    "muted_on_panel": "readable(ui.accent~ui.foreground/600,ui.accent,4.5)",
+    "disabled_on_canvas": "visible(ui.background~ui.foreground/450,ui.background,3)",
+    "disabled_on_panel": "visible(ui.accent~ui.foreground/450,ui.accent,3)",
+    "disabled_on_surface": "visible(ui.surface~ui.foreground/450,ui.surface,3)",
+    "separator": "border_on_canvas",
+    "muted": "muted_on_canvas",
+    "disabled": "disabled_on_canvas",
+    "cursor": "ui.foreground",
+    "cursor_text": "ui.background",
+    "selection_bg": "primary_fill",
+    "selection_fg": "on_primary",
+    "orange": "ansi.bright.yellow~ansi.normal.yellow/400",
+    "black": "ansi.normal.black",
+    "bright_black": "ansi.bright.black",
+    "ansi_black_text_on_canvas": "readable(ansi.normal.black,ui.background,4.5)",
+    "ansi_black_text_on_panel": "readable(ansi.normal.black,ui.accent,4.5)",
+    "bright_ansi_black_text_on_canvas": "readable(ansi.bright.black,ui.background,4.5)",
+    "bright_ansi_black_text_on_panel": "readable(ansi.bright.black,ui.accent,4.5)",
+    "red": "ansi.normal.red",
+    "bright_red": "ansi.bright.red",
+    "ansi_red_text_on_canvas": "readable(ansi.normal.red,ui.background,4.5)",
+    "ansi_red_text_on_panel": "readable(ansi.normal.red,ui.accent,4.5)",
+    "bright_ansi_red_text_on_canvas": "readable(ansi.bright.red,ui.background,4.5)",
+    "bright_ansi_red_text_on_panel": "readable(ansi.bright.red,ui.accent,4.5)",
+    "green": "ansi.normal.green",
+    "bright_green": "ansi.bright.green",
+    "ansi_green_text_on_canvas": "readable(ansi.normal.green,ui.background,4.5)",
+    "ansi_green_text_on_panel": "readable(ansi.normal.green,ui.accent,4.5)",
+    "bright_ansi_green_text_on_canvas": "readable(ansi.bright.green,ui.background,4.5)",
+    "bright_ansi_green_text_on_panel": "readable(ansi.bright.green,ui.accent,4.5)",
+    "yellow": "ansi.normal.yellow",
+    "bright_yellow": "ansi.bright.yellow",
+    "ansi_yellow_text_on_canvas": "readable(ansi.normal.yellow,ui.background,4.5)",
+    "ansi_yellow_text_on_panel": "readable(ansi.normal.yellow,ui.accent,4.5)",
+    "bright_ansi_yellow_text_on_canvas": "readable(ansi.bright.yellow,ui.background,4.5)",
+    "bright_ansi_yellow_text_on_panel": "readable(ansi.bright.yellow,ui.accent,4.5)",
+    "blue": "ansi.normal.blue",
+    "bright_blue": "ansi.bright.blue",
+    "ansi_blue_text_on_canvas": "readable(ansi.normal.blue,ui.background,4.5)",
+    "ansi_blue_text_on_panel": "readable(ansi.normal.blue,ui.accent,4.5)",
+    "bright_ansi_blue_text_on_canvas": "readable(ansi.bright.blue,ui.background,4.5)",
+    "bright_ansi_blue_text_on_panel": "readable(ansi.bright.blue,ui.accent,4.5)",
+    "magenta": "ansi.normal.magenta",
+    "bright_magenta": "ansi.bright.magenta",
+    "ansi_magenta_text_on_canvas": "readable(ansi.normal.magenta,ui.background,4.5)",
+    "ansi_magenta_text_on_panel": "readable(ansi.normal.magenta,ui.accent,4.5)",
+    "bright_ansi_magenta_text_on_canvas": "readable(ansi.bright.magenta,ui.background,4.5)",
+    "bright_ansi_magenta_text_on_panel": "readable(ansi.bright.magenta,ui.accent,4.5)",
+    "cyan": "ansi.normal.cyan",
+    "bright_cyan": "ansi.bright.cyan",
+    "ansi_cyan_text_on_canvas": "readable(ansi.normal.cyan,ui.background,4.5)",
+    "ansi_cyan_text_on_panel": "readable(ansi.normal.cyan,ui.accent,4.5)",
+    "bright_ansi_cyan_text_on_canvas": "readable(ansi.bright.cyan,ui.background,4.5)",
+    "bright_ansi_cyan_text_on_panel": "readable(ansi.bright.cyan,ui.accent,4.5)",
+    "white": "ansi.normal.white",
+    "bright_white": "ansi.bright.white",
+    "ansi_white_text_on_canvas": "readable(ansi.normal.white,ui.background,4.5)",
+    "ansi_white_text_on_panel": "readable(ansi.normal.white,ui.accent,4.5)",
+    "bright_ansi_white_text_on_canvas": "readable(ansi.bright.white,ui.background,4.5)",
+    "bright_ansi_white_text_on_panel": "readable(ansi.bright.white,ui.accent,4.5)",
+    "error_fill": "ansi.normal.red",
+    "on_error": "on(ansi.normal.red,4.5)",
+    "error_text_on_canvas": "readable(ansi.normal.red,ui.background,4.5)",
+    "error_text_on_panel": "readable(ansi.normal.red,ui.accent,4.5)",
+    "error_visible_on_panel": "visible(ansi.normal.red,ui.accent,3)",
+    "error_fill_on_canvas": "visible(ansi.normal.red,ui.background,3)",
+    "on_error_fill_on_canvas": "on(error_fill_on_canvas,4.5)",
+    "warning_fill": "ansi.normal.yellow",
+    "on_warning": "on(ansi.normal.yellow,4.5)",
+    "warning_text_on_canvas": "readable(ansi.normal.yellow,ui.background,4.5)",
+    "warning_text_on_panel": "readable(ansi.normal.yellow,ui.accent,4.5)",
+    "warning_visible_on_panel": "visible(ansi.normal.yellow,ui.accent,3)",
+    "warning_fill_on_canvas": "visible(ansi.normal.yellow,ui.background,3)",
+    "on_warning_fill_on_canvas": "on(warning_fill_on_canvas,4.5)",
+    "success_fill": "ansi.normal.green",
+    "on_success": "on(ansi.normal.green,4.5)",
+    "success_text_on_canvas": "readable(ansi.normal.green,ui.background,4.5)",
+    "success_text_on_panel": "readable(ansi.normal.green,ui.accent,4.5)",
+    "success_visible_on_panel": "visible(ansi.normal.green,ui.accent,3)",
+    "success_fill_on_canvas": "visible(ansi.normal.green,ui.background,3)",
+    "on_success_fill_on_canvas": "on(success_fill_on_canvas,4.5)",
+    "info_fill": "ansi.normal.blue",
+    "on_info": "on(ansi.normal.blue,4.5)",
+    "info_text_on_canvas": "readable(ansi.normal.blue,ui.background,4.5)",
+    "info_text_on_panel": "readable(ansi.normal.blue,ui.accent,4.5)",
+    "info_visible_on_panel": "visible(ansi.normal.blue,ui.accent,3)",
+    "info_fill_on_canvas": "visible(ansi.normal.blue,ui.background,3)",
+    "on_info_fill_on_canvas": "on(info_fill_on_canvas,4.5)"
+  },
+  "yazi_schema": {
+    "flavor": [
+      "dark",
+      "light"
+    ],
+    "app": [
+      "overall"
+    ],
+    "mgr": [
+      "border_style",
+      "border_symbol",
+      "count_copied",
+      "count_cut",
+      "count_selected",
+      "cwd",
+      "find_keyword",
+      "find_position",
+      "marker_copied",
+      "marker_cut",
+      "marker_marked",
+      "marker_selected",
+      "marker_symbol",
+      "symlink_target",
+      "syntect_theme"
+    ],
+    "indicator": [
+      "current",
+      "padding",
+      "parent",
+      "preview"
+    ],
+    "tabs": [
+      "active",
+      "inactive",
+      "sep_inner",
+      "sep_outer"
+    ],
+    "mode": [
+      "normal_alt",
+      "normal_main",
+      "select_alt",
+      "select_main",
+      "unset_alt",
+      "unset_main"
+    ],
+    "status": [
+      "overall",
+      "perm_exec",
+      "perm_read",
+      "perm_sep",
+      "perm_type",
+      "perm_write",
+      "progress_error",
+      "progress_label",
+      "progress_normal",
+      "sep_left",
+      "sep_right"
+    ],
+    "which": [
+      "border",
+      "cand",
+      "cols",
+      "desc",
+      "mask",
+      "rest",
+      "separator",
+      "separator_style"
+    ],
+    "confirm": [
+      "body",
+      "border",
+      "btn_labels",
+      "btn_no",
+      "btn_yes",
+      "list",
+      "title"
+    ],
+    "spot": [
+      "border",
+      "tbl_cell",
+      "tbl_col",
+      "title"
+    ],
+    "notify": [
+      "icon_error",
+      "icon_info",
+      "icon_warn",
+      "title_error",
+      "title_info",
+      "title_warn"
+    ],
+    "pick": [
+      "active",
+      "border",
+      "inactive"
+    ],
+    "input": [
+      "border",
+      "selected",
+      "title",
+      "value"
+    ],
+    "cmp": [
+      "active",
+      "border",
+      "icon_command",
+      "icon_file",
+      "icon_folder",
+      "inactive"
+    ],
+    "tasks": [
+      "border",
+      "hovered",
+      "title"
+    ],
+    "help": [
+      "action",
+      "border",
+      "chord",
+      "hovered"
+    ],
+    "filetype": [
+      "rules"
+    ],
+    "icon": [
+      "append_conds",
+      "append_dirs",
+      "append_exts",
+      "append_files",
+      "append_globs",
+      "conds",
+      "dirs",
+      "exts",
+      "files",
+      "globs",
+      "prepend_conds",
+      "prepend_dirs",
+      "prepend_exts",
+      "prepend_files",
+      "prepend_globs"
+    ]
+  },
+  "semantic_pairs": [
+    [
+      "text.canvas",
+      "text_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.panel",
+      "text_on_panel",
+      "panel_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.surface",
+      "text_on_surface",
+      "surface_fill",
+      4.5,
+      "text"
+    ],
+    [
+      "text.muted.canvas",
+      "muted_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.muted.panel",
+      "muted_on_panel",
+      "panel_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.disabled.canvas",
+      "disabled_on_canvas",
+      "canvas_bg",
+      3.0,
+      "inactive"
+    ],
+    [
+      "text.disabled.panel",
+      "disabled_on_panel",
+      "panel_bg",
+      3.0,
+      "inactive"
+    ],
+    [
+      "primary.on_fill",
+      "on_primary",
+      "primary_fill",
+      4.5,
+      "text"
+    ],
+    [
+      "primary.text.canvas",
+      "primary_text_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "primary.text.panel",
+      "primary_text_on_panel",
+      "panel_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "primary.focus",
+      "focus_ring",
+      "canvas_bg",
+      3.0,
+      "graphic"
+    ],
+    [
+      "border.canvas",
+      "border_on_canvas",
+      "canvas_bg",
+      3.0,
+      "graphic"
+    ],
+    [
+      "border.panel",
+      "border_on_panel",
+      "panel_bg",
+      3.0,
+      "graphic"
+    ]
+  ],
+  "gtk_pairs": [
+    [
+      "text.window",
+      "theme_fg_color",
+      "theme_bg_color",
+      4.5,
+      "text"
+    ],
+    [
+      "text.view",
+      "theme_text_color",
+      "theme_base_color",
+      4.5,
+      "text"
+    ],
+    [
+      "text.button",
+      "theme_button_foreground_normal",
+      "theme_button_background_normal",
+      4.5,
+      "text"
+    ],
+    [
+      "text.tooltip",
+      "tooltip_text",
+      "tooltip_background",
+      4.5,
+      "text"
+    ],
+    [
+      "text.header",
+      "theme_header_foreground",
+      "theme_header_background",
+      4.5,
+      "text"
+    ],
+    [
+      "selection",
+      "theme_selected_fg_color",
+      "theme_selected_bg_color",
+      4.5,
+      "text"
+    ],
+    [
+      "negative",
+      "error_color",
+      "theme_base_color",
+      4.5,
+      "text"
+    ],
+    [
+      "neutral",
+      "warning_color",
+      "theme_base_color",
+      4.5,
+      "text"
+    ],
+    [
+      "positive",
+      "success_color",
+      "theme_base_color",
+      4.5,
+      "text"
+    ],
+    [
+      "link",
+      "link_color",
+      "theme_base_color",
+      4.5,
+      "text"
+    ],
+    [
+      "visited",
+      "link_visited_color",
+      "theme_base_color",
+      4.5,
+      "text"
+    ],
+    [
+      "inactive.button",
+      "theme_button_foreground_insensitive",
+      "theme_button_background_insensitive",
+      3.0,
+      "inactive"
+    ],
+    [
+      "focus.button",
+      "theme_button_decoration_focus",
+      "theme_button_background_normal",
+      3.0,
+      "graphic"
+    ],
+    [
+      "focus.view",
+      "theme_view_active_decoration_color",
+      "theme_base_color",
+      3.0,
+      "graphic"
+    ],
+    [
+      "border.tooltip",
+      "tooltip_border",
+      "tooltip_background",
+      3.0,
+      "graphic"
+    ]
+  ],
+  "obsidian_pairs": [
+    [
+      "text.normal",
+      "text_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.muted",
+      "muted_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.faint",
+      "disabled_on_canvas",
+      "canvas_bg",
+      3.0,
+      "inactive"
+    ],
+    [
+      "text.accent",
+      "primary_text_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "text.on_accent",
+      "on_primary",
+      "primary_fill",
+      4.5,
+      "text"
+    ],
+    [
+      "titlebar.text",
+      "text_on_panel",
+      "panel_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "titlebar.muted",
+      "muted_on_panel",
+      "panel_bg",
+      4.5,
+      "text"
+    ],
+    [
+      "border",
+      "border_on_canvas",
+      "canvas_bg",
+      3.0,
+      "graphic"
+    ],
+    [
+      "focus",
+      "focus_ring",
+      "canvas_bg",
+      3.0,
+      "graphic"
+    ],
+    [
+      "tag.text",
+      "primary_text_on_canvas",
+      "canvas_bg",
+      4.5,
+      "text"
+    ]
+  ]
+}

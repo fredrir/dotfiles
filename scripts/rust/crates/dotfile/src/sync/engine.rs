@@ -5,7 +5,7 @@ use crate::context::Context;
 use crate::decision::Client;
 use crate::event::{ChangeSetSink, EventSink, Summary};
 
-use super::config::Configuration;
+use crate::config::Configuration;
 
 pub fn reconcile(
     context: &Context,

@@ -8,7 +8,7 @@
 | count          | [count.md](./count.md)                   | [scripts/rust/crates/count/]                         |
 | doc-keybinds   | [doc-keybinds.md](./doc-keybinds.md)     | [scripts/rust/crates/doc-keybinds/]                  |
 | doc-purge      | [doc-purge.md](./doc-purge.md)           | [scripts/rust/crates/doc-purge/]                     |
-| dotfile        | [dotfile.md](./dotfile.md)               | [scripts/python/src/tools/dotfile/]                  |
+| dotfile        | [dotfile.md](./dotfile.md)               | [scripts/rust/crates/dotfile/]                       |
 | dotfile-format | [dotfile-format.md](./dotfile-format.md) | [scripts/rust/crates/dotfile-format/]                |
 | dotfmt         | [dotfmt.md](./dotfmt.md)                 | [scripts/rust/crates/dotfmt/]                        |
 | flatten        | [flatten.md](./flatten.md)               | [scripts/rust/crates/flatten/]                       |

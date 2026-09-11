@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+use crate::config::Configuration;
 use crate::context::Context;
 use crate::event::{Action, Event, VecSink};
-use crate::sync::config::Configuration;
 
 use super::synchronize_with_systemd;
 

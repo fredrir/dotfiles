@@ -11,7 +11,7 @@ use crate::context::{Context, write_atomic};
 use crate::decision::{Choice, Client, Prompt};
 use crate::event::{Action, Event, EventSink, Phase};
 
-use super::config::{Configuration, PackageKind};
+use crate::config::{Configuration, PackageKind};
 
 #[derive(Clone, Debug)]
 enum LayerKind {
@@ -845,13 +845,16 @@ fn adopt_changes(entry: &MergeEntry, changes: &[(Change, Option<usize>)]) -> Res
         let text = texts
             .get_mut(&owner)
             .ok_or_else(|| format!("missing merge layer text {}", owner.display()))?;
-        *text = if let Some(value) = &change.theirs {
+        let updated = if let Some(value) = &change.theirs {
             apply_jsonc_set(text, &change.path, value)?
         } else {
             apply_jsonc_remove(text, &change.path)?.unwrap_or_else(|| text.clone())
         };
         set_path(document, &change.path, change.theirs.clone());
-        touched.insert(owner);
+        if updated != *text {
+            *text = updated;
+            touched.insert(owner);
+        }
     }
     let mut paths = touched.into_iter().collect::<Vec<_>>();
     paths.sort();
@@ -1440,6 +1443,9 @@ fn nest_value(keys: &[String], mut value: Value) -> Value {
 }
 
 fn json_value_span(text: &str, path: &[String]) -> Result<Option<(usize, usize)>, String> {
+    if path.is_empty() {
+        return Ok(None);
+    }
     let Some(body) = json_descend(text, &path[..path.len() - 1])? else {
         return Ok(None);
     };
@@ -1662,3 +1668,11 @@ fn vault_owned(path: &Path) -> bool {
 fn sha256(input: &[u8]) -> String {
     format!("{:x}", Sha256::digest(input))
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/sync/adoption_legacy_tests.rs"]
+mod adoption_legacy_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/sync/merge_legacy_tests.rs"]
+mod merge_legacy_tests;

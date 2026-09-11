@@ -1,0 +1,1903 @@
+[
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        1,
+        141
+      ]
+    ],
+    "result": [
+      [
+        "editor.formatOnSave",
+        14,
+        37,
+        41
+      ],
+      [
+        "[lua]",
+        44,
+        53,
+        90
+      ],
+      [
+        "files.associations",
+        93,
+        115,
+        139
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "editor.formatOnSave"
+      ]
+    ],
+    "result": [
+      14,
+      41
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "editor.formatOnSave"
+      ]
+    ],
+    "result": [
+      37,
+      41
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "editor",
+        "formatOnSave"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"editor\": {\"formatOnSave\": false},\n\t\"editor.formatOnSave\": true\n}\n",
+      [
+        1,
+        67
+      ]
+    ],
+    "result": [
+      [
+        "editor",
+        3,
+        13,
+        36
+      ],
+      [
+        "editor.formatOnSave",
+        39,
+        62,
+        66
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"editor\": {\"formatOnSave\": false},\n\t\"editor.formatOnSave\": true\n}\n",
+      [
+        "editor.formatOnSave"
+      ]
+    ],
+    "result": [
+      62,
+      66
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"editor\": {\"formatOnSave\": false},\n\t\"editor.formatOnSave\": true\n}\n",
+      [
+        14,
+        35
+      ]
+    ],
+    "result": [
+      [
+        "formatOnSave",
+        14,
+        30,
+        35
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"editor\": {\"formatOnSave\": false},\n\t\"editor.formatOnSave\": true\n}\n",
+      [
+        "editor",
+        "formatOnSave"
+      ]
+    ],
+    "result": [
+      30,
+      35
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        54,
+        89
+      ]
+    ],
+    "result": [
+      [
+        "editor.tabSize",
+        57,
+        75,
+        76
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "[lua]",
+        "editor.tabSize"
+      ]
+    ],
+    "result": [
+      57,
+      76
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "nope"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "nope",
+        "deeper"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "nope",
+        "deeper"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "editor.formatOnSave",
+        "x"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "editor.formatOnSave",
+        "x"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t// \"a\": 1\n\t/* \"a\": 2 */\n\t\"a\": 3\n}\n",
+      [
+        1,
+        35
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        28,
+        33,
+        34
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// \"a\": 1\n\t/* \"a\": 2 */\n\t\"a\": 3\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      28,
+      34
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\" /* here */ : /* and here */ 7\n}\n",
+      [
+        1,
+        37
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        35,
+        36
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\" /* here */ : /* and here */ 7\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      35,
+      36
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"say \\\"hi\\\"\": 1,\n\t\"b\": 2\n}\n",
+      [
+        1,
+        28
+      ]
+    ],
+    "result": [
+      [
+        "say \"hi\"",
+        3,
+        17,
+        18
+      ],
+      [
+        "b",
+        21,
+        26,
+        27
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t\"say \\\"hi\\\"\": 1,\n\t\"b\": 2\n}\n",
+      [
+        "say \"hi\""
+      ]
+    ],
+    "result": [
+      3,
+      18
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": \"{ } [ ] // /* \\\" ,\",\n\t\"b\": 2\n}\n",
+      [
+        1,
+        38
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        8,
+        28
+      ],
+      [
+        "b",
+        31,
+        36,
+        37
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": \"{ } [ ] // /* \\\" ,\",\n\t\"b\": 2\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      8,
+      28
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": \"{ } [ ] // /* \\\" ,\",\n\t\"b\": 2\n}\n",
+      [
+        "b"
+      ]
+    ],
+    "result": [
+      36,
+      37
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": {\"b\": [1, {\"c\": 2}], \"d\": \"}\"},\n\t\"e\": 3\n}\n",
+      [
+        1,
+        48
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        8,
+        38
+      ],
+      [
+        "e",
+        41,
+        46,
+        47
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": {\"b\": [1, {\"c\": 2}], \"d\": \"}\"},\n\t\"e\": 3\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      8,
+      38
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": {\"b\": [1, {\"c\": 2}], \"d\": \"}\"},\n\t\"e\": 3\n}\n",
+      [
+        "e"
+      ]
+    ],
+    "result": [
+      46,
+      47
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": {\n\t\t/* } not the end */\n\t\t\"b\": 1\n\t},\n\t\"c\": 2\n}\n",
+      [
+        1,
+        53
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        8,
+        43
+      ],
+      [
+        "c",
+        46,
+        51,
+        52
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": {\n\t\t/* } not the end */\n\t\t\"b\": 1\n\t},\n\t\"c\": 2\n}\n",
+      [
+        9,
+        42
+      ]
+    ],
+    "result": [
+      [
+        "b",
+        34,
+        39,
+        40
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": {\n\t\t/* } not the end */\n\t\t\"b\": 1\n\t},\n\t\"c\": 2\n}\n",
+      [
+        "a",
+        "b"
+      ]
+    ],
+    "result": [
+      39,
+      40
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": {\n\t\t/* } not the end */\n\t\t\"b\": 1\n\t},\n\t\"c\": 2\n}\n",
+      [
+        "c"
+      ]
+    ],
+    "result": [
+      51,
+      52
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": 1,\n\t\"a\": 2\n}\n",
+      [
+        1,
+        19
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        8,
+        9
+      ],
+      [
+        "a",
+        12,
+        17,
+        18
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": 1,\n\t\"a\": 2\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      17,
+      18
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"o\": {\"a\": 1},\n\t\"o\": {\"a\": 2}\n}\n",
+      [
+        1,
+        33
+      ]
+    ],
+    "result": [
+      [
+        "o",
+        3,
+        8,
+        16
+      ],
+      [
+        "o",
+        19,
+        24,
+        32
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"o\": {\"a\": 1},\n\t\"o\": {\"a\": 2}\n}\n",
+      [
+        25,
+        31
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        25,
+        30,
+        31
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"o\": {\"a\": 1},\n\t\"o\": {\"a\": 2}\n}\n",
+      [
+        "o",
+        "a"
+      ]
+    ],
+    "result": [
+      30,
+      31
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": [1, 2,],\n\t\"b\": {\"c\": 3,},\n}\n",
+      [
+        1,
+        34
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        8,
+        15
+      ],
+      [
+        "b",
+        18,
+        23,
+        32
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": [1, 2,],\n\t\"b\": {\"c\": 3,},\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      8,
+      15
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": [1, 2,],\n\t\"b\": {\"c\": 3,},\n}\n",
+      [
+        24,
+        31
+      ]
+    ],
+    "result": [
+      [
+        "c",
+        24,
+        29,
+        30
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t\"a\": [1, 2,],\n\t\"b\": {\"c\": 3,},\n}\n",
+      [
+        "b",
+        "c"
+      ]
+    ],
+    "result": [
+      29,
+      30
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\"a\": -1.5e+10, \"b\": null, \"c\": false, \"d\": 0}",
+      [
+        1,
+        45
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        1,
+        6,
+        14
+      ],
+      [
+        "b",
+        16,
+        21,
+        25
+      ],
+      [
+        "c",
+        27,
+        32,
+        37
+      ],
+      [
+        "d",
+        39,
+        44,
+        45
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\"a\": -1.5e+10, \"b\": null, \"c\": false, \"d\": 0}",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      6,
+      14
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\"a\": -1.5e+10, \"b\": null, \"c\": false, \"d\": 0}",
+      [
+        "b"
+      ]
+    ],
+    "result": [
+      21,
+      25
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\"a\": -1.5e+10, \"b\": null, \"c\": false, \"d\": 0}",
+      [
+        "c"
+      ]
+    ],
+    "result": [
+      32,
+      37
+    ]
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\"a\": -1.5e+10, \"b\": null, \"c\": false, \"d\": 0}",
+      [
+        "d"
+      ]
+    ],
+    "result": [
+      44,
+      45
+    ]
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "[lua]",
+        "editor.tabSize"
+      ]
+    ],
+    "result": [
+      54,
+      89
+    ]
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "anything"
+      ]
+    ],
+    "result": [
+      1,
+      141
+    ]
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "[lua]",
+        "brand.new"
+      ]
+    ],
+    "result": [
+      54,
+      89
+    ]
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      []
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.value_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      []
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      []
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t// a note\n\t\"editor.formatOnSave\": true,\n\t\"[lua]\": {\n\t\t\"editor.tabSize\": 4 /* four */\n\t},\n\t\"files.associations\": {\"*.zsh\": \"shellscript\"},\n}\n",
+      [
+        "x"
+      ]
+    ],
+    "result": [
+      1,
+      141
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{}",
+      [
+        1,
+        1
+      ]
+    ],
+    "result": []
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "{\n\t\"a\": 12\n}\n",
+      [
+        "a"
+      ]
+    ],
+    "result": [
+      1,
+      11
+    ]
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\n\t\"a\": 12\n}\n",
+      [
+        1,
+        11
+      ]
+    ],
+    "result": [
+      [
+        "a",
+        3,
+        8,
+        10
+      ]
+    ]
+  },
+  {
+    "function": "jsonspan.detect_indent",
+    "args": [
+      "{\n\t\"a\": 1\n}\n"
+    ],
+    "result": "\t"
+  },
+  {
+    "function": "jsonspan.detect_indent",
+    "args": [
+      "{\n  \"a\": 1\n}\n"
+    ],
+    "result": "  "
+  },
+  {
+    "function": "jsonspan.detect_indent",
+    "args": [
+      "{\n    \"a\": 1\n}\n"
+    ],
+    "result": "    "
+  },
+  {
+    "function": "jsonspan.detect_indent",
+    "args": [
+      "{\n   \n\t\"a\": 1\n}\n"
+    ],
+    "result": "\t"
+  },
+  {
+    "function": "jsonspan.detect_indent",
+    "args": [
+      "{\"a\": 1}\n"
+    ],
+    "result": "\t"
+  },
+  {
+    "function": "jsonspan.detect_indent",
+    "args": [
+      "{}"
+    ],
+    "result": "\t"
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "[1, 2]",
+      [
+        "a"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "",
+      [
+        "a"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.container_span",
+    "args": [
+      "// only a comment\n",
+      [
+        "a"
+      ]
+    ],
+    "result": null
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\"a\": \"oops",
+      [
+        "a"
+      ]
+    ],
+    "error": "unterminated string at offset 6"
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\"a\": 1 /* oops",
+      [
+        "a"
+      ]
+    ],
+    "error": "unterminated block comment"
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\"a\": 1",
+      [
+        "a"
+      ]
+    ],
+    "error": "unterminated container"
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{1: 2}",
+      [
+        1,
+        5
+      ]
+    ],
+    "error": "expected a key at offset 1"
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{1: 2}",
+      [
+        "a"
+      ]
+    ],
+    "error": "expected a key at offset 1"
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\"a\" 2}",
+      [
+        1,
+        6
+      ]
+    ],
+    "error": "expected ':' after the key at offset 1"
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\"a\" 2}",
+      [
+        "a"
+      ]
+    ],
+    "error": "expected ':' after the key at offset 1"
+  },
+  {
+    "function": "jsonspan.members",
+    "args": [
+      "{\"a\": , \"b\": 1}",
+      [
+        1,
+        14
+      ]
+    ],
+    "error": "expected a value at offset 6"
+  },
+  {
+    "function": "jsonspan.key_span",
+    "args": [
+      "{\"a\": , \"b\": 1}",
+      [
+        "a"
+      ]
+    ],
+    "error": "expected a value at offset 6"
+  },
+  {
+    "function": "jsonc.loads",
+    "args": [
+      "{\n // note\n \"a\": 1, /* block */ \"b\": [1, 2,],\n \"c\": {\"d\": 2,},\n}\n"
+    ],
+    "result": {
+      "a": 1,
+      "b": [
+        1,
+        2
+      ],
+      "c": {
+        "d": 2
+      }
+    }
+  },
+  {
+    "function": "jsonc.loads",
+    "args": [
+      "{\"url\": \"http://x//y\", \"tricky\": \"a,}\", \"esc\": \"say \\\"hi\\\"\", \"tab\": \"\\t\"}"
+    ],
+    "result": {
+      "url": "http://x//y",
+      "tricky": "a,}",
+      "esc": "say \"hi\"",
+      "tab": "\t"
+    }
+  },
+  {
+    "function": "jsonc.loads",
+    "args": [
+      "{oops"
+    ],
+    "error": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "a"
+      ],
+      []
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "b"
+      ],
+      []
+    ],
+    "result": false
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 1
+      },
+      {
+        "a": 1
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {}
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 1
+      },
+      {
+        "a": 1,
+        "b": 2
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {
+        "b": "delete"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 1
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "b": "add"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 1,
+        "b": 2
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {}
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 2
+      },
+      {
+        "a": 1
+      },
+      {
+        "a": 1
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 2
+      },
+      {}
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 2
+      },
+      {
+        "a": 1
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 2
+      },
+      {
+        "a": "modify"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 2
+      },
+      {
+        "a": 3
+      },
+      {
+        "a": 1
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 3
+      },
+      {
+        "a": "conflict"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 1
+      },
+      {
+        "a": 0
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {}
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]"
+      ],
+      []
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "editor.tabSize"
+      ],
+      []
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "editor.formatOnSave"
+      ],
+      []
+    ],
+    "result": false
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "[lua]": {
+          "editor.tabSize": 4,
+          "editor.formatOnSave": true
+        }
+      },
+      {
+        "[lua]": {
+          "editor.tabSize": 2,
+          "editor.formatOnSave": true
+        }
+      },
+      {
+        "[lua]": {
+          "editor.tabSize": 4,
+          "editor.formatOnSave": true
+        }
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "[lua]": {
+          "editor.tabSize": 2,
+          "editor.formatOnSave": true
+        }
+      },
+      {
+        "[lua]/editor.tabSize": "modify"
+      }
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "c"
+      ],
+      []
+    ],
+    "result": false
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 9,
+        "c": 3
+      },
+      null,
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 9,
+        "c": 3
+      },
+      {
+        "a": "modify",
+        "b": "add",
+        "c": "add"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "b": 2
+      },
+      {},
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "b": "add"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 2
+      },
+      {
+        "a": 1
+      },
+      [],
+      [
+        [
+          "a"
+        ]
+      ]
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {
+        "a": "modify"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {},
+      {
+        "a": 1
+      },
+      [],
+      [
+        [
+          "a"
+        ]
+      ]
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {
+        "a": "delete"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 1
+      },
+      [],
+      [
+        [
+          "b"
+        ]
+      ]
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {
+        "b": "add"
+      }
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 1,
+        "[lua]": {
+          "editor.tabSize": 2
+        }
+      },
+      {
+        "a": 1,
+        "[lua]": {
+          "editor.tabSize": 2
+        }
+      },
+      [],
+      []
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {}
+    ]
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "[lua]": {}
+      },
+      {},
+      {},
+      [],
+      []
+    ],
+    "result": [
+      {
+        "[lua]": {}
+      },
+      {}
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "workbench.colorTheme"
+      ],
+      [
+        "workbench.colorTheme"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "workbench.colorTheme": "Dark"
+      },
+      {
+        "workbench.colorTheme": "Solarized"
+      },
+      {
+        "workbench.colorTheme": "Dark"
+      },
+      [
+        "workbench.colorTheme"
+      ],
+      []
+    ],
+    "result": [
+      {
+        "workbench.colorTheme": "Solarized"
+      },
+      {}
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "a"
+      ],
+      [
+        "cSpell.*"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "cSpell.userWords"
+      ],
+      [
+        "cSpell.*"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1
+      },
+      {
+        "a": 1,
+        "cSpell.userWords": [
+          "kubectl"
+        ]
+      },
+      {
+        "a": 1
+      },
+      [
+        "cSpell.*"
+      ],
+      []
+    ],
+    "result": [
+      {
+        "a": 1,
+        "cSpell.userWords": [
+          "kubectl"
+        ]
+      },
+      {}
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "a"
+      ],
+      [
+        "theme"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "theme"
+      ],
+      [
+        "theme"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "a": 1,
+        "theme": "Dark"
+      },
+      {
+        "a": 1
+      },
+      {
+        "a": 1
+      },
+      [
+        "theme"
+      ],
+      []
+    ],
+    "result": [
+      {
+        "a": 1
+      },
+      {}
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]"
+      ],
+      [
+        "[lua]/editor.tabSize"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "editor.tabSize"
+      ],
+      [
+        "[lua]/editor.tabSize"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "editor.formatOnSave"
+      ],
+      [
+        "[lua]/editor.tabSize"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "merge.resolve",
+    "args": [
+      {
+        "[lua]": {
+          "editor.tabSize": 4,
+          "editor.formatOnSave": true
+        }
+      },
+      {
+        "[lua]": {
+          "editor.tabSize": 2
+        }
+      },
+      {
+        "[lua]": {
+          "editor.tabSize": 4
+        }
+      },
+      [
+        "[lua]/editor.tabSize"
+      ],
+      []
+    ],
+    "result": [
+      {
+        "[lua]": {
+          "editor.tabSize": 2,
+          "editor.formatOnSave": true
+        }
+      },
+      {}
+    ]
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "editor.formatOnSave"
+      ],
+      [
+        "editor.formatOnSave"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "editor",
+        "formatOnSave"
+      ],
+      [
+        "editor.formatOnSave"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "cSpell.language"
+      ],
+      [
+        "cSpell.*"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "editor.tabSize"
+      ],
+      [
+        "cSpell.*"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[python]",
+        "editor.tabSize"
+      ],
+      [
+        "[lua]/editor.tabSize"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "editor.tabSize"
+      ],
+      [
+        "[lua]/editor.tabSize"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "l",
+        "editor.tabSize"
+      ],
+      [
+        "[lua]/editor.tabSize"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "u"
+      ],
+      [
+        "[lua]"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "editor.tabSize"
+      ],
+      [
+        "[lua]/*"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "a",
+        "b"
+      ],
+      [
+        "[lua]/*"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "[lua]",
+        "editor.tabSize"
+      ],
+      [
+        "[lua]"
+      ]
+    ],
+    "result": true
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "cspell.userWords"
+      ],
+      [
+        "cSpell.*"
+      ]
+    ],
+    "result": false
+  },
+  {
+    "function": "mergeconf.matches",
+    "args": [
+      [
+        "anything"
+      ],
+      []
+    ],
+    "result": false
+  }
+]

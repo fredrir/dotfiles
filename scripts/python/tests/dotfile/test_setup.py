@@ -69,7 +69,7 @@ def setup_environment(tmp_path):
     driver = '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$DOTFILE_TEST_LOG"\nexit 0\n'
     for name in RUST_BINARIES:
         executable(binaries / name, driver if name == "dotfile" else "#!/bin/sh\nexit 0\n")
-    executable(binaries / "dotfile-py")
+    executable(binaries / "sysinfo")
     for name in ("cargo", "git", "uv"):
         executable(fake_path / name)
     python_hash = digest([ROOT / "scripts/python/pyproject.toml", ROOT / "scripts/python/uv.lock"])

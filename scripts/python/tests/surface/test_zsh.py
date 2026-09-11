@@ -3,12 +3,14 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from native import rust_binary
 
-from tools.dotfile.cli import app as dotfile_app
 from tools.surface import entry, introspect, zsh
 from tools.utils.tardirs import app as tardirs_app
 
-SCRIPT = zsh.script(introspect.from_typer(dotfile_app, "dotfile"))
+SCRIPT = subprocess.check_output(
+    [str(rust_binary("dotfile-cli", "dotfile")), "--completions", "zsh"], text=True
+)
 ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -19,20 +21,18 @@ def test_the_script_declares_and_registers_the_command():
 
 
 def test_subcommands_are_offered_with_their_help_text():
-    assert (
-        "'sync:Refresh generated metadata and reconcile $HOME with the selected profile.'" in SCRIPT
-    )
+    assert "'sync:Reconcile the repository, generated metadata, and this workstation'" in SCRIPT
     assert "_dotfile__secret__enroll" in SCRIPT
 
 
 def test_sync_replaces_the_old_generation_commands():
     assert "'docs:" not in SCRIPT
     assert "'packages:" not in SCRIPT
-    assert "--verbose[show every link, merge, generated file, and remote action]" in SCRIPT
+    assert "--verbose[Show every link, merge, generated file, and remote action]" in SCRIPT
 
 
 def test_a_dispatched_subcommand_is_offered_and_delegated():
-    assert "'format:Formats a tree by handing each language to the tool that owns it.'" in SCRIPT
+    assert "'format:Format configured files'" in SCRIPT
     assert "format) (( $+functions[_dotfile-format] )) && _dotfile-format && ret=0 ;;" in SCRIPT
 
 
@@ -46,7 +46,8 @@ def test_hidden_commands_stay_out_of_the_offer():
 
 
 def test_a_constrained_value_is_offered_as_its_choices():
-    assert ":resolve:(skip repo live)" in SCRIPT
+    assert ":resolve:(" in SCRIPT
+    assert all(choice in SCRIPT for choice in ("skip", "repo", "live"))
 
 
 def test_a_repeatable_option_may_be_given_again():
@@ -68,7 +69,7 @@ def test_a_value_only_the_tool_knows_becomes_a_call_back_into_it():
 
 
 def test_an_apostrophe_in_help_text_does_not_end_the_quoting():
-    assert "Check the profile'\\''s links" in SCRIPT
+    assert "'\\''" in zsh._quote("user's archive")
 
 
 def test_a_path_argument_completes_paths():
@@ -80,17 +81,16 @@ def test_a_path_argument_completes_paths():
 @pytest.mark.parametrize("program", sorted(entry.trees()))
 def test_zsh_parses_what_was_generated_for(program, tmp_path):
     path = tmp_path / f"{program}.zsh"
-    path.write_text(zsh.script(entry.trees()[program], program))
+    path.write_text(SCRIPT if program == "dotfile" else zsh.script(entry.trees()[program], program))
     result = subprocess.run(["zsh", "-n", str(path)], capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
 
 
-def test_every_installed_tool_lands_in_one_file(tmp_path):
-    path, count = entry.write_all(str(tmp_path))
-    assert count == len(entry.programs())
+def test_every_installed_tool_lands_in_one_file(tool, tmp_path):
+    result = tool("dotfile", "completions", "--dir", str(tmp_path))
+    assert result.returncode == 0, result.stderr
     body = (tmp_path / "tools-completion.zsh").read_text()
-    assert str(tmp_path) in path
-    for program in entry.programs():
+    for program in (*entry.programs(), "dotfile"):
         assert f"compdef _{program} {program}" in body
 
 

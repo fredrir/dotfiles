@@ -14,6 +14,12 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace              = true
+clap_complete.workspace     = true
+regex = "1"
+zeroize = "1"
+aho-corasick = "1"
+serde_yaml_ng = "0.10"
+globset = "0.4"
 crossbeam-channel.workspace = true
 crossterm.workspace         = true
 doc-keybinds                = { path = "../doc-keybinds" }
@@ -24,13 +30,13 @@ serde_json                  = { workspace = true, features = ["preserve_order"] 
 sha2.workspace              = true
 tachyonfx.workspace         = true
 tempfile.workspace          = true
-toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std", "preserve_order"] }
 tui-kit.workspace           = true
 workstation.workspace       = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-nix = { workspace = true, features = ["signal", "process"] }
+nix = { workspace = true, features = ["signal", "process", "fs", "term", "user"] }
 
 [dev-dependencies]
 tempfile.workspace = true

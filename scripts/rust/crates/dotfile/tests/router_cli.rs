@@ -36,16 +36,29 @@ fn force_and_resolution_are_exclusive() {
 
 #[cfg(unix)]
 #[test]
-fn unrelated_commands_exec_the_private_backend() {
-    use testkit::{Bin, TempDir, executable};
-
-    let directory = TempDir::new().unwrap();
-    let backend = directory.path().join("dotfile-py");
-    executable(&backend, "#!/bin/sh\nprintf '%s' \"$*\"\nexit 7\n");
+fn commands_execute_natively_when_the_python_backend_is_missing() {
+    use testkit::Bin;
     let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
-        .args(["secret", "status", "--all"])
-        .env("DOTFILE_PYTHON", &backend)
+        .args(["secret", "--help"])
+        .env("DOTFILE_PYTHON", "/missing/dotfile-py")
+        .run();
+    assert!(ran.success(), "{}", ran.stderr);
+    assert!(ran.stdout.contains("rekey"));
+}
+
+#[cfg(unix)]
+#[test]
+fn extension_dispatch_preserves_arguments_and_exit_status() {
+    use testkit::{Bin, TempDir, executable};
+    let directory = TempDir::new().unwrap();
+    executable(
+        &directory.path().join("dotfile-example"),
+        "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 7\n",
+    );
+    let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
+        .args(["example", "two words", "--flag"])
+        .env("PATH", directory.path())
         .run();
     assert_eq!(ran.code(), Some(7));
-    assert_eq!(ran.stdout, "secret status --all");
+    assert_eq!(ran.stdout, "two words\n--flag\n");
 }

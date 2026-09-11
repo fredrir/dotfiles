@@ -1,0 +1,444 @@
+{
+  "pages": [
+    {
+      "name": "agent-hop",
+      "title": "agent-hop",
+      "programs": [
+        "agent-hop"
+      ],
+      "source": "scripts/rust/crates/agent-hop/"
+    },
+    {
+      "name": "clipboard",
+      "title": "clipboard",
+      "programs": [
+        "cpa",
+        "cpas",
+        "acp"
+      ],
+      "source": "scripts/python/src/tools/utils/remote_clipboard.py"
+    },
+    {
+      "name": "count",
+      "title": "count",
+      "programs": [
+        "count"
+      ],
+      "source": "scripts/rust/crates/count/"
+    },
+    {
+      "name": "doc-keybinds",
+      "title": "doc-keybinds",
+      "programs": [
+        "doc-keybinds"
+      ],
+      "source": "scripts/rust/crates/doc-keybinds/"
+    },
+    {
+      "name": "doc-purge",
+      "title": "doc-purge",
+      "programs": [
+        "doc-purge"
+      ],
+      "source": "scripts/rust/crates/doc-purge/"
+    },
+    {
+      "name": "dotfile",
+      "title": "dotfile",
+      "programs": [
+        "dotfile"
+      ],
+      "source": "scripts/rust/crates/dotfile/"
+    },
+    {
+      "name": "dotfile-format",
+      "title": "dotfile format",
+      "programs": [
+        "dotfile-format"
+      ],
+      "source": "scripts/rust/crates/dotfile-format/"
+    },
+    {
+      "name": "dotfmt",
+      "title": "dotfmt",
+      "programs": [
+        "dotfmt"
+      ],
+      "source": "scripts/rust/crates/dotfmt/"
+    },
+    {
+      "name": "flatten",
+      "title": "flatten",
+      "programs": [
+        "flatten"
+      ],
+      "source": "scripts/rust/crates/flatten/"
+    },
+    {
+      "name": "git",
+      "title": "Git CLI",
+      "programs": [
+        "gdd",
+        "gget",
+        "gppf"
+      ],
+      "source": "scripts/rust/crates/git/"
+    },
+    {
+      "name": "home-copy",
+      "title": "hpush and hpull",
+      "programs": [
+        "hpush",
+        "hpull"
+      ],
+      "source": "scripts/rust/crates/hcopy/"
+    },
+    {
+      "name": "hwire",
+      "title": "hwire",
+      "programs": [
+        "hwire"
+      ],
+      "source": "scripts/rust/crates/hwire/"
+    },
+    {
+      "name": "mux-route",
+      "title": "mux-route",
+      "programs": [
+        "mux-route"
+      ],
+      "source": "scripts/rust/crates/mux-route/"
+    },
+    {
+      "name": "path",
+      "title": "path",
+      "programs": [
+        "path"
+      ],
+      "source": "scripts/rust/crates/path/"
+    },
+    {
+      "name": "size",
+      "title": "size",
+      "programs": [
+        "size"
+      ],
+      "source": "scripts/rust/crates/size/"
+    },
+    {
+      "name": "sysinfo",
+      "title": "sysinfo",
+      "programs": [
+        "sysinfo"
+      ],
+      "source": "scripts/python/src/tools/utils/sysinfo/"
+    },
+    {
+      "name": "tardirs",
+      "title": "tardirs",
+      "programs": [
+        "tardirs"
+      ],
+      "source": "scripts/python/src/tools/utils/tardirs.py"
+    },
+    {
+      "name": "transcript",
+      "title": "transcript",
+      "programs": [
+        "transcript"
+      ],
+      "source": "scripts/python/src/tools/transcript/"
+    }
+  ],
+  "undocumented": [
+    "power-menu",
+    "confirm-exit",
+    "clean-copy",
+    "update-readme-fastfetch"
+  ],
+  "native": [
+    "agent-hop",
+    "count",
+    "doc-keybinds",
+    "doc-purge",
+    "dotfile-format",
+    "dotfmt",
+    "flatten",
+    "gdd",
+    "gget",
+    "gppf",
+    "hpull",
+    "hpush",
+    "hwire",
+    "mux-route",
+    "path",
+    "size",
+    "dotfile"
+  ],
+  "standard": {
+    "--help": "Shows help for the selected command and exits.",
+    "--completions": "Prints a shell completion script for the named shell and exits.",
+    "--version": "Prints the version and exits."
+  },
+  "commands": {
+    "agent-hop": "Moves a Codex or Claude Code CLI session between the two workstations.",
+    "agent-hop run": "Starts a managed native agent session that can transfer execution.",
+    "agent-hop move": "Queues a managed agent handoff after its active work reaches a safe boundary.",
+    "agent-hop status": "Shows the recorded ownership and handoff state of a managed run.",
+    "agent-hop cancel": "Cancels a queued move before ownership transfers.",
+    "agent-hop follow": "Attaches to the destination that owns the moved agent.",
+    "agent-hop recover": "Resolves execution ownership before recovering a managed agent.",
+    "acp": "Copies Archie's text clipboard to this machine.",
+    "cpa": "Copies the local text clipboard to Archie.",
+    "cpas": "Copies the local text clipboard to Archie, keeping it out of clipboard history.",
+    "count": "Counts items inside a directory.",
+    "doc-keybinds": "Generates docs/keybinds from configured keybindings.",
+    "doc-purge": "Purges comments, doc strings and typographic glyphs from source files.",
+    "dotfile": "Manages this repository's symlinks, packages, themes, secrets, and system files.",
+    "dotfile add": "Moves a live config into the repository and symlinks it back.",
+    "dotfile remove": "Moves a tracked path out of the repository and keeps it live.",
+    "dotfile sync": "Refreshes generated metadata and reconciles `$HOME` with a selected profile.",
+    "dotfile dev": "Tests and lints the repository.",
+    "dotfile dev test": "Runs the selected test suites.",
+    "dotfile dev lint": "Runs the selected linters.",
+    "dotfile dev check": "Runs the selected linters and test suites.",
+    "dotfile doctor": "Checks dotfiles health: profile's links, required tools, and packages.",
+    "dotfile secret": "Keeps private material out of the repository.",
+    "dotfile secret scan": "Scans for leaked tokens, private values, and encryption invariants.",
+    "dotfile secret init": "Creates this machine's age identity and prints its public key.",
+    "dotfile secret enroll": "Adds a recipient or enrolls this machine when no key is provided.",
+    "dotfile secret revoke": "Removes a recipient and gives every encrypted file a new data key.",
+    "dotfile secret roll": "Replaces a recipient's key while keeping its label.",
+    "dotfile secret rekey": "Gives every encrypted file a new data key without changing recipients.",
+    "dotfile secret keys": "Lists the enrolled recipients.",
+    "dotfile secret sync": "Regenerates `.sops.yaml` from `config/keys.dotfile`.",
+    "dotfile secret doctor": "Checks identities, recipients, hooks, and encrypted files.",
+    "dotfile secret add": "Encrypts a live file into the repository and keeps it in place.",
+    "dotfile secret edit": "Opens a tracked secret in `$EDITOR` and reapplies it.",
+    "dotfile secret apply": "Decrypts every tracked secret to its destination.",
+    "dotfile secret status": "Shows what each tracked secret looks like on this machine.",
+    "dotfile secret vars": "Lists the names that secret templates can reference.",
+    "dotfile secret clean": "Removes materialized secrets from their destinations.",
+    "dotfile system": "Tracks root-owned files under `/etc` and installs them as root.",
+    "dotfile system status": "Compares tracked system files with their installed versions.",
+    "dotfile system diff": "Shows what would change on disk without modifying anything.",
+    "dotfile system install": "Installs tracked system files at their destinations as root.",
+    "dotfile system add": "Copies a root-owned file into the repository.",
+    "dotfile theme": "Stamps selected theme profiles into generated configuration files.",
+    "dotfile theme sync": "Regenerates every config from the selected theme profiles.",
+    "dotfile theme dry": "Reports what theme generation would change without writing.",
+    "dotfile theme status": "Shows each group's resolved profile and whether generated files have drifted.",
+    "dotfile theme preview": "Previews a profile's palette, roles, fonts, and terminal colors.",
+    "dotfile theme switch": "Assigns a profile globally, to a group, or to a package.",
+    "dotfile theme check": "Validates every profile and resolved application color pair.",
+    "dotfile theme contrast": "Prints one or every profile's resolved contrast matrix.",
+    "dotfile theme outputs": "Prints the files owned by the theme generator.",
+    "dotfile-format": "Formats a tree by handing each language to the tool that owns it.",
+    "dotfmt": "Formats the `.conf`, `.config`, and `.dotfile` files in a tree.",
+    "flatten": "Lifts a directory's contents out of the directories holding them.",
+    "gdd": "Discards tracked and untracked working-tree changes while preserving ignored files and nested repositories.",
+    "gget": "Downloads a file or directory from a GitHub repository into the current directory.",
+    "gppf": "Stages everything, commits with the supplied message, and pushes the commit.",
+    "hpull": "Copies a path from the other machine to the same place on this one.",
+    "hpush": "Copies a path from this machine to the same place on the other one.",
+    "hwire": "Inspects connections or measures latency and throughput between two machines.",
+    "hwire serve": "Answers measurements until told to stop.",
+    "mux-route": "Prints the WezTerm mux domain for the best route to the peer.",
+    "path": "Prints the repository-relative or home-relative path of a target.",
+    "size": "Reports sizes and line counts for files and directories.",
+    "sysinfo": "Summarizes the current machine's environment and hardware.",
+    "sysinfo bench": "Opens the benchmark command menu or prints its help.",
+    "sysinfo bench run": "Measures the current machine and optionally stores the result.",
+    "sysinfo bench show": "Displays a stored benchmark run.",
+    "sysinfo bench list": "Lists stored benchmark runs.",
+    "sysinfo bench health": "Reports warnings derived from benchmark history.",
+    "sysinfo bench compare": "Compares two benchmark runs.",
+    "sysinfo bench trend": "Shows one benchmark metric over time.",
+    "sysinfo bench baseline": "Sets, clears, or shows the baseline run for a machine and hardware configuration.",
+    "sysinfo bench document": "Regenerates the benchmark documentation from stored runs.",
+    "sysinfo bench prune": "Removes superseded runs while preserving baselines and configuration history.",
+    "tardirs": "Shows the directory tree of a tar archive with an entry count for each directory.",
+    "transcript": "Archives AI agent sessions as Obsidian notes.",
+    "transcript capture": "Wraps clipboard text as a transcript note in the vault.",
+    "transcript import": "Imports a Claude Code or Codex session as a transcript note.",
+    "transcript list": "Lists recent Claude Code and Codex sessions.",
+    "transcript add": "Tracks a project for transcript sync.",
+    "transcript rm": "Stops tracking a project while preserving its existing notes.",
+    "transcript migrate": "Moves existing transcript groups to their configured destinations.",
+    "transcript sync": "Syncs allowlisted Claude Code and Codex sessions into the vault."
+  },
+  "flags": {
+    "doc-keybinds": {
+      "--root": "Selects the dotfiles repository.",
+      "--check": "Reports stale pages without writing; exits 1 on drift."
+    },
+    "agent-hop": {
+      "--dry-run": "Reports what would be copied and started without changing either machine.",
+      "--no-connect": "Copies the session without opening it on the other workstation.",
+      "--color": "Chooses `auto`, `always`, or `never` color output.",
+      "--list": "Prints the local and remote sessions as tab-separated rows instead of opening the picker.",
+      "--resume": "Starts a managed run from this agent conversation ID.",
+      "--pane": "Selects a managed tmux pane; defaults to the current pane.",
+      "--to": "Selects `archie` or `macie` as the execution destination.",
+      "--run": "Selects a durable managed-run ID instead of a tmux pane."
+    },
+    "clipboard": {
+      "--sensitive": "Keeps the copy out of Archie's clipboard history."
+    },
+    "count": {
+      "--recursive": "Counts every entry below the directory instead of only its direct children.",
+      "--no-hidden": "Excludes hidden entries and everything inside hidden directories."
+    },
+    "dotfile": {
+      "--lang": "Selects languages; repeat or comma-separate.",
+      "--jobs": "Limits the total worker budget; defaults to CPU count.",
+      "--concurrency": "Limits simultaneous development tasks; defaults to two.",
+      "--python-workers": "Caps Python workers within the total worker budget; defaults to four.",
+      "--changed": "Selects affected packages and dependents from working changes or --changed=REF.",
+      "--shared": "Places an added file in the shared package group.",
+      "--linux": "Places an added file in the `linux/common` package group.",
+      "--arch": "Places an added file in the `linux/arch` package group.",
+      "--ubuntu": "Places an added file in the `linux/ubuntu` package group.",
+      "--kde": "Places an added file in the `linux/kde` package group.",
+      "--hyprland": "Places an added file in the `linux/hyprland` package group.",
+      "--server": "Places an added config in the `linux/server` package group.",
+      "--macos": "Places an added file in the `macos` package group.",
+      "--pkg": "Selects development targets or names an added config, secret, or system package.",
+      "--description": "Adds a package description to `PACKAGES.md`.",
+      "--dry-run": "Plans without changing files or contacting the peer.",
+      "--override": "Selects a machine override with `<group>=<name|none>`.",
+      "--force": "Resolves local edits from the repository and discards remote edits with `--push`.",
+      "--resolve": "Chooses `skip`, `repo`, or `live` for locally edited merged configs.",
+      "--push": "Pushes commits, then pulls and syncs the peer.",
+      "--to": "Selects the peer and implies `--push`.",
+      "--verbose": "Shows detailed sync actions or live development commands, output, and timings.",
+      "--all": "Shows every finding or file location instead of summarized output.",
+      "--staged": "Scans the content staged for commit.",
+      "--commits": "Scans blobs added within a revision-list range.",
+      "--no-canaries": "Skips the private-value tier of secret scanning.",
+      "--using": "Uses the selected identity file for recipient and re-encryption operations.",
+      "--rewrap": "Updates the recipients on every encrypted file during secret sync.",
+      "--marker": "Forces the `.secret` package marker on or off.",
+      "--unused": "Lists only variable names that no secret template references.",
+      "--yes": "Installs system files without asking for confirmation.",
+      "--group": "Selects the package group for an added system file.",
+      "--no-marker": "Prevents creating the .secret package marker."
+    },
+    "doc-purge": {
+      "--type": "Limits the walk to one file type, named by extension or by language, and repeats or takes a comma-separated list for several.",
+      "--dry": "Shows what would go without writing anything.",
+      "--yes": "Runs without asking for confirmation.",
+      "--verbose": "Lists every row instead of truncating sections after 12 rows."
+    },
+    "dotfile-format": {
+      "--check": "Verifies formatting and runs each language's linter instead of writing anything.",
+      "--add": "Offers this repository's tool configuration to the target, asking per file.",
+      "--sync": "Replaces the tool configuration the target already has, without asking.",
+      "--verbose": "Names every file as it is formatted.",
+      "--quiet": "Reports nothing but failures."
+    },
+    "dotfmt": {
+      "--check": "Reports files that are not formatted instead of rewriting them.",
+      "--stdin": "Formats standard input as the named file and writes the result to standard output.",
+      "--owns": "Reads NUL-separated paths from standard input and answers with the ones it formats.",
+      "--verbose": "Names every file as it is formatted.",
+      "--quiet": "Reports nothing but failures."
+    },
+    "flatten": {
+      "--deep": "Brings every nested entry to the top instead of removing only wrappers.",
+      "--dry-run": "Shows what would happen without changing the directory.",
+      "--yes": "Runs without asking for confirmation.",
+      "--verbose": "Names every move as it is made.",
+      "--all": "Lists every row instead of truncating sections after 12 rows."
+    },
+    "git": {
+      "--dry-run": "Shows what `gdd` would discard without changing the working tree.",
+      "--all": "Makes `gdd` list every entry instead of truncating its sections, and includes dotfiles in a `gget` listing.",
+      "--list": "Prints the contents of the `gget` target instead of downloading it.",
+      "--yes": "Skips confirmation before discarding changes or replacing a download.",
+      "--fredrir": "Reads the `gget` target as a repository owned by `fredrir`.",
+      "--branch": "Selects the branch or tag from which `gget` downloads."
+    },
+    "home-copy": {
+      "--dry-run": "Reports what would be transferred and changes nothing.",
+      "--checksum": "Compares file contents instead of size and modification time.",
+      "--all": "Includes files that .gitignore, .git, and the shared exclude list would otherwise skip.",
+      "--yes": "Accepts the mirrored location without opening the browser or asking.",
+      "--verbose": "Lists every transferred path instead of counting them.",
+      "--to": "Sets the directory on the other machine to copy into.",
+      "--from": "Sets the path on the other machine to copy out of."
+    },
+    "hwire": {
+      "--route": "Selects the cable, Wi-Fi, LAN, or Tailscale route to measure.",
+      "--all": "Measures every available route sequentially.",
+      "--both": "Provides a compatibility spelling for `--all`.",
+      "--time": "Sets the transfer duration for each direction.",
+      "--streams": "Sets the number of concurrent transfer connections.",
+      "--samples": "Limits the number of round trips timed.",
+      "--latency": "Measures round-trip latency without running transfers.",
+      "--up": "Transfers only from this machine to the peer.",
+      "--down": "Transfers only from the peer to this machine.",
+      "--at": "Measures an already-running server without starting one over SSH.",
+      "--token": "Uses or requires the server's authentication token.",
+      "--info": "Shows the current connection or the routes available to the peer.",
+      "--verbose": "Shows detailed information, with an animated view on a terminal.",
+      "--watch": "Refreshes connection information as routes change.",
+      "--interval": "Sets the refresh interval for watched connection information.",
+      "--notify": "Rings the terminal bell when the preferred route changes.",
+      "--color": "Chooses `auto`, `always`, or `never` color output.",
+      "--json": "Prints connection information or measurements as JSON.",
+      "--bind": "Sets the address on which `hwire serve` listens.",
+      "--port": "Sets the server port, with zero selecting an available port.",
+      "--idle": "Sets how long an idle server waits before exiting."
+    },
+    "mux-route": {
+      "--list": "Prints every route with its state, peer address, and domain instead of one domain."
+    },
+    "path": {
+      "--full": "Prints the full path instead of a relative one."
+    },
+    "size": {
+      "-r": "Lists the immediate contents of the directory.",
+      "-R": "Lists the contents of the directory recursively.",
+      "--lines": "Counts lines instead of bytes.",
+      "--apparent": "Measures logical lengths rather than the space actually taken up.",
+      "--limit": "Limits how deep the recursive listing goes.",
+      "--all": "Includes hidden entries in listings, which totals count either way.",
+      "--ignore": "Leaves matching entries out of both the listing and the totals.",
+      "--one-file-system": "Stays on the filesystem the target sits on, leaving other mounts out."
+    },
+    "sysinfo": {
+      "--pretty": "Shows the complete branded hardware presentation.",
+      "--full": "Includes the extended hardware inventory.",
+      "--health": "Explains active errors and warnings.",
+      "--tier": "Selects the quick, standard, or heavy benchmark tier.",
+      "--only": "Limits a run to a comma-separated list of measurement families.",
+      "--note": "Records why a benchmark run was taken.",
+      "--tag": "Adds a label to a benchmark run.",
+      "--host": "Selects the host to record, list, assess, or prune.",
+      "--workdir": "Selects the directory used by the disk benchmark tier.",
+      "--force": "Runs benchmarks despite unsuitable measurement conditions.",
+      "--no-save": "Prints a benchmark result without storing it.",
+      "--baseline": "Pins the new benchmark run as its machine's baseline.",
+      "--json": "Emits a run or comparison as JSON.",
+      "--limit": "Limits the number of stored runs listed.",
+      "--all": "Includes noisy and aborted runs in a listing.",
+      "--keep": "Sets the number of runs retained per machine configuration.",
+      "--dry-run": "Reports which runs would be pruned without deleting them.",
+      "--yes": "Prunes stored runs without asking for confirmation."
+    },
+    "transcript": {
+      "--provider": "Overrides clipboard provider detection for `capture`.",
+      "--raw": "Skips secret redaction during capture, import, or sync.",
+      "--quiet": "Prints nothing after a successful capture or sync.",
+      "--fallback": "Selects a snapshot file when the clipboard is empty.",
+      "--latest": "Imports the newest available session.",
+      "--limit": "Sets how many sessions appear in the import picker or session list.",
+      "--tools": "Includes tool calls in imported or synchronized notes.",
+      "--name": "Sets the tracked project name instead of deriving it from the directory.",
+      "--group": "Assigns a tracked project to a transcript group.",
+      "--verbose": "Lists every file in the migration preview.",
+      "--dry-run": "Reports sync changes without writing them."
+    }
+  }
+}

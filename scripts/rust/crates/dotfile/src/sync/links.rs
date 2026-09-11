@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::context::Context;
 use crate::event::{Action, Event, EventSink, Phase};
 
-use super::config::{Configuration, Package, PackageKind, never_fold};
+use crate::config::{Configuration, Package, PackageKind, never_fold};
 
 const PRUNE_DEPTH: usize = 6;
 

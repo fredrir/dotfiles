@@ -152,10 +152,14 @@ def test_enc_file_must_carry_sops_metadata(tool, repo):
     assert "not-encrypted" in result.stderr
 
 
-def test_encrypted_file_passes_and_skips_content_tiers(tool, repo):
+def test_fake_encryption_marker_cannot_hide_a_plaintext_token(tool, repo):
     root, _home, env = repo
     stage(root, "shared/ssh/config.enc", f"data: ENC[AES256_GCM,data:xx] {TOKEN}\n")
-    assert scan(tool, env).returncode == 0
+    result = scan(tool, env)
+    assert result.returncode == 1
+    assert "not-encrypted" in result.stderr
+    assert "github-token" in result.stderr
+    assert TOKEN not in result.stderr
 
 
 def test_secret_package_rejects_plaintext(tool, repo):

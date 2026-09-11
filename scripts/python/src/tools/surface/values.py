@@ -46,113 +46,28 @@ def _escape(value):
     return str(value).replace(":", r"\:")
 
 
-def _context():
-    from tools.dotfile.state import Context
-    from tools.dotfile.targets import load_targets
+def _native(source, *args):
+    import subprocess
 
-    ctx = Context()
-    ctx.link_groups = [
-        group for group in GROUP_DIRS if os.path.isdir(os.path.join(ctx.root, group))
-    ]
-    load_targets(ctx)
-    return ctx
+    from tools.core.native import binary
 
+    result = subprocess.run(
+        [binary("dotfile"), "__complete", source, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        return []
+    from re import split
 
-def _profiles():
-    from tools.dotfile import profiles as profiles_module
-
-    ctx = _context()
-    relevant = set(profiles_module.list_relevant_profiles(ctx.environment_dir))
-    found = []
-    for name in profiles_module.list_profiles(ctx.environment_dir):
-        found.append((name, "runs on this machine") if name in relevant else name)
-    return found
-
-
-def _override_groups():
-    ctx = _context()
-    found = []
-    for group in GROUP_DIRS:
-        if os.path.isdir(os.path.join(ctx.root, group, "overrides")):
-            found.append(group)
-    return found
-
-
-def _override_names(group=""):
-    from tools.dotfile.state import available_overrides
-
-    ctx = _context()
-    names = available_overrides(ctx, group).split() if group else []
-    return [*names, ("none", "link the group without an override")]
-
-
-def _hosts():
-    ctx = _context()
-    hosts, local = _known_hosts(ctx)
-    return [(name, "this machine" if name == local else host.role) for name, host in hosts.items()]
-
-
-def _known_hosts(ctx):
-    from tools.utils.sysinfo import hosts as hosts_config
-
-    path = os.path.join(ctx.root, "config/hosts.dotfile")
-    hosts = hosts_config.load_hosts(path) if os.path.isfile(path) else {}
-    return hosts, hosts_config.resolve(hosts=hosts)
-
-
-def _packages():
-    from tools.dotfile.state import each_package
-
-    ctx = _context()
-    return [(os.path.basename(name), name) for _state, _pkgdir, name in each_package(ctx)]
-
-
-def _tracked():
-    from tools.dotfile.state import each_package
-
-    ctx = _context()
-    return [name for _state, _pkgdir, name in each_package(ctx)]
-
-
-def _recipients():
-    from tools.dotfile.secret.keys import load_recipients
-
-    return sorted(load_recipients(_context()))
-
-
-def _secrets():
-    from tools.dotfile.secret.vault import plan
-
-    ctx = _context()
-    found = [("vars", "the shared variables file")]
-    for entry in plan(ctx):
-        found.append((os.path.relpath(entry.src, ctx.root), entry.dst.replace(ctx.home, "~")))
-    return found
-
-
-def _system_files():
-    from tools.dotfile.system import plan
-
-    ctx = _context()
-    return [(entry.dst, os.path.relpath(entry.src, ctx.root)) for entry in plan(ctx)]
-
-
-def _theme_profiles():
-    from tools.theme.model import list_profiles
-
-    return list_profiles()
-
-
-def _theme_scopes():
-    from tools.theme.cli import _owned
-    from tools.theme.profiles import inventory
-
-    groups = inventory(_owned())
-    found = [("everything", "every group and package")]
-    for group, packages in groups.items():
-        found.append((group, "the whole group"))
-        found.extend(f"{group}/{package}" for package in packages)
-    return found
+    values = []
+    for line in result.stdout.splitlines():
+        fields = split(r"(?<!\\):", line, maxsplit=1)
+        value = fields[0].replace(r"\:", ":")
+        values.append((value, fields[1]) if len(fields) == 2 else value)
+    return values
 
 
 def _projects():
@@ -189,8 +104,9 @@ def _bench_hosts():
 
 
 def _config_hosts():
-    hosts, _local = _known_hosts(_context())
-    return [(name, host.role) for name, host in hosts.items()]
+    from tools.utils.sysinfo import hosts
+
+    return [(name, host.role) for name, host in hosts.load_hosts().items()]
 
 
 def _runs():
@@ -215,34 +131,20 @@ def _metrics():
     return sorted(keys)
 
 
-def _dev_values(flag):
-    import subprocess
-
-    from tools.surface.rust import native_binary
-
-    binary = native_binary("dotfile")
-    if not binary:
-        return []
-    result = subprocess.run(
-        [binary, "dev", flag], capture_output=True, text=True, check=False, timeout=5
-    )
-    return result.stdout.splitlines() if result.returncode == 0 else []
-
-
 PROVIDERS = {
-    "dev-packages": lambda: _dev_values("--list-packages"),
-    "dev-languages": lambda: _dev_values("--list-languages"),
-    "profiles": _profiles,
-    "override-groups": _override_groups,
-    "override-names": _override_names,
-    "hosts": _hosts,
-    "packages": _packages,
-    "tracked": _tracked,
-    "recipients": _recipients,
-    "secrets": _secrets,
-    "system-files": _system_files,
-    "theme-profiles": _theme_profiles,
-    "theme-scopes": _theme_scopes,
+    "dev-packages": lambda: _native("dev-packages"),
+    "dev-languages": lambda: _native("dev-languages"),
+    "profiles": lambda: _native("profiles"),
+    "override-groups": lambda: _native("override-groups"),
+    "override-names": lambda group="": _native("override-names", group),
+    "hosts": lambda: _native("hosts"),
+    "packages": lambda: _native("packages"),
+    "tracked": lambda: _native("tracked"),
+    "recipients": lambda: _native("recipients"),
+    "secrets": lambda: _native("secrets"),
+    "system-files": lambda: _native("system-files"),
+    "theme-profiles": lambda: _native("theme-profiles"),
+    "theme-scopes": lambda: _native("theme-scopes"),
     "projects": _projects,
     "groups": _groups,
     "providers": _providers,

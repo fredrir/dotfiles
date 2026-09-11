@@ -57,8 +57,9 @@ def cap_lines(text, head=TOOL_HEAD_LINES, tail=TOOL_TAIL_LINES, limit=TOOL_LINE_
     return "\n".join([*lines[:head], f"… (+{omitted} lines omitted)", *lines[-tail:]])
 
 
-def clean_inline(text, limit=64):
-    text = re.sub(r"[#>*`\[\]|{}]", "", " ".join(text.split())).strip()
+def clean_inline(text, limit=64, *, allow_pipe=False):
+    pattern = r"[#>*`\[\]{}]" if allow_pipe else r"[#>*`\[\]|{}]"
+    text = re.sub(pattern, "", " ".join(text.split())).strip()
     if len(text) > limit:
         text = text[: limit - 1].rstrip() + "…"
     return text
@@ -68,7 +69,7 @@ def render_turn(turn, provider):
     if turn.kind == "me":
         return "> [!me]+ You\n" + prefix_quote(retag_fences(turn.body.strip()))
     if turn.kind == "tool":
-        header = f"> [!tool]- {clean_inline(turn.title, 90)}"
+        header = f"> [!tool]- {clean_inline(turn.title, 90, allow_pipe=True)}"
         body = cap_lines(turn.body.strip())
         if not body:
             return header

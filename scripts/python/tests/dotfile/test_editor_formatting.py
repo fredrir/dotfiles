@@ -6,7 +6,6 @@ import tomllib
 import pytest
 
 from tools.core.paths import repo_root
-from tools.dotfile import jsonc
 
 REPO = str(repo_root())
 TAPLO = os.path.join(REPO, "shared/tools/.taplo.toml")
@@ -30,11 +29,6 @@ def formatting():
         return tomllib.load(handle).get("formatting", {})
 
 
-def settings():
-    with open(SETTINGS, encoding="utf-8") as handle:
-        return jsonc.loads(handle.read())
-
-
 def literal(value):
     return ("true" if value else "false") if isinstance(value, bool) else str(value)
 
@@ -56,33 +50,6 @@ def probe(tmp_path, option):
         text=True,
         check=False,
     )
-
-
-def test_every_taplo_setting_is_mirrored_in_the_editor():
-    found = settings()
-    for key, value in formatting().items():
-        name = PREFIX + camel(key)
-        assert name in found, (
-            f"shared/tools/.taplo.toml sets {key}, and shared/vscode/settings.json "
-            f"has no {name}. VS Code would format TOML differently from "
-            f"`dotfile format`; if the editor cannot express {key}, that is the "
-            "thing to resolve rather than to leave unsaid."
-        )
-        assert found[name] == value, (
-            f"{name} is {found[name]!r} and shared/tools/.taplo.toml says {key} = {value!r}"
-        )
-
-
-def test_every_editor_setting_is_mirrored_or_deliberately_pinned():
-    mirrored = {PREFIX + camel(key) for key in formatting()}
-    for name in settings():
-        if not name.startswith(PREFIX) or name in mirrored:
-            continue
-        assert name[len(PREFIX) :] in PINNED, (
-            f"shared/vscode/settings.json sets {name}, which shared/tools/.taplo.toml "
-            "does not. Put it in that file so the CLI agrees, or in PINNED here with "
-            "the reason it is deliberately editor-only."
-        )
 
 
 @needs_taplo

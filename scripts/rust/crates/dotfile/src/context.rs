@@ -33,7 +33,7 @@ impl Context {
     }
 
     pub fn new(root: PathBuf, home: PathBuf, state: PathBuf) -> Result<Self, String> {
-        if !root.join("config/targets.dotfile").is_file() {
+        if !root.join("config").is_dir() && !root.join(".git").exists() {
             return Err(format!(
                 "dotfiles repository not found at {}",
                 root.display()
@@ -108,6 +108,7 @@ impl Context {
     }
 
     fn require_profile(&self, profile: &str) -> Result<String, String> {
+        crate::config::validate_relative(profile)?;
         let manifest = self.manifest(profile);
         match fs::metadata(&manifest) {
             Ok(metadata) if metadata.is_file() => Ok(profile.to_string()),
@@ -125,51 +126,7 @@ impl Context {
 }
 
 pub fn write_atomic(path: &Path, content: &[u8]) -> Result<(), String> {
-    match fs::read(path) {
-        Ok(current) if current == content => return Ok(()),
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("read {}: {error}", path.display())),
-    }
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
-    fs::create_dir_all(parent).map_err(|error| format!("create {}: {error}", parent.display()))?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)
-        .map_err(|error| format!("create temporary file in {}: {error}", parent.display()))?;
-    use std::io::Write;
-    temporary
-        .write_all(content)
-        .map_err(|error| format!("write {}: {error}", path.display()))?;
-    set_output_permissions(path, temporary.as_file())?;
-    temporary
-        .persist(path)
-        .map_err(|error| format!("replace {}: {}", path.display(), error.error))?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_output_permissions(path: &Path, file: &fs::File) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = match fs::metadata(path) {
-        Ok(metadata) => metadata.permissions().mode() & 0o7777,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0o644,
-        Err(error) => return Err(format!("read permissions for {}: {error}", path.display())),
-    };
-    file.set_permissions(fs::Permissions::from_mode(mode))
-        .map_err(|error| format!("set permissions for {}: {error}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn set_output_permissions(path: &Path, file: &fs::File) -> Result<(), String> {
-    match fs::metadata(path) {
-        Ok(metadata) => file
-            .set_permissions(metadata.permissions())
-            .map_err(|error| format!("set permissions for {}: {error}", path.display()))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("read permissions for {}: {error}", path.display())),
-    }
-    Ok(())
+    crate::fs::write_generated(path, content).map(|_| ())
 }
 
 fn collect_profiles(directory: &Path, base: &Path, found: &mut Vec<String>) -> Result<(), String> {

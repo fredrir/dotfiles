@@ -5,7 +5,7 @@ use crate::cli::SyncCli;
 use crate::context::Context;
 use crate::decision::Client;
 use crate::event::{ChangeSetSink, Event, EventSink, Summary};
-use crate::lock::SyncLock;
+use crate::lock::MutationLock;
 
 pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<Summary, String> {
     let started = Instant::now();
@@ -34,7 +34,7 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     let _lock = if cli.dry_run {
         None
     } else {
-        Some(SyncLock::acquire(&context.state)?)
+        Some(MutationLock::acquire(&context)?)
     };
     events.emit(Event::Progress {
         phase: crate::event::Phase::Preflight,
@@ -68,7 +68,6 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     Ok(summary)
 }
 
-pub mod config;
 pub mod engine;
 pub mod integrations;
 pub mod links;

@@ -35,7 +35,24 @@ pub fn output(
     limits: CaptureLimits,
     timeout: Duration,
 ) -> io::Result<CapturedOutput> {
-    unix::output(command, limits, timeout, None)
+    unix::output(command, limits, timeout, None, None)
+}
+
+pub fn output_cancellable(
+    command: &mut Command,
+    limits: CaptureLimits,
+    timeout: Duration,
+    cancelled: &dyn Fn() -> bool,
+) -> io::Result<CapturedOutput> {
+    #[cfg(unix)]
+    {
+        unix::output(command, limits, timeout, None, Some(cancelled))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cancelled;
+        output(command, limits, timeout)
+    }
 }
 
 #[cfg(unix)]
@@ -53,6 +70,7 @@ pub fn output_to_file(
         },
         timeout,
         Some((destination, None)),
+        None,
     )
 }
 
@@ -72,6 +90,7 @@ pub fn output_to_file_limited(
         },
         timeout,
         Some((destination, Some(max_bytes))),
+        None,
     )
 }
 
@@ -93,10 +112,10 @@ mod unix {
     use std::os::fd::AsFd;
     use std::os::unix::process::CommandExt;
     use std::process::{Child, Command, Stdio};
-    use std::thread;
     use std::time::{Duration, Instant};
 
     use nix::fcntl::{FcntlArg, OFlag, fcntl};
+    use nix::poll::{PollFd, PollFlags, PollTimeout, poll};
     use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
@@ -227,6 +246,7 @@ mod unix {
         limits: CaptureLimits,
         timeout: Duration,
         destination: Option<(&std::fs::File, Option<u64>)>,
+        cancelled: Option<&dyn Fn() -> bool>,
     ) -> io::Result<CapturedOutput> {
         if timeout.is_zero() {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
@@ -253,6 +273,12 @@ mod unix {
         let mut stderr = Capture::new(stderr, limits.stderr)?;
         let mut status = None;
         loop {
+            if cancelled.is_some_and(|cancelled| cancelled()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "command cancelled",
+                ));
+            }
             let stdout_progress = if let Some(stdout) = &mut stdout {
                 stdout.drain()?
             } else {
@@ -281,9 +307,25 @@ mod unix {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
             }
             if !stdout_progress && !stderr_progress {
-                thread::sleep(
-                    Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed())),
-                );
+                let mut ready = [
+                    PollFd::new(stderr.pipe.as_fd(), PollFlags::POLLIN),
+                    PollFd::new(stderr.pipe.as_fd(), PollFlags::POLLIN),
+                ];
+                let mut count = usize::from(!stderr.ended);
+                if let Some(stdout) = &stdout
+                    && !stdout.ended
+                {
+                    ready[count] = PollFd::new(stdout.pipe.as_fd(), PollFlags::POLLIN);
+                    count += 1;
+                }
+                let wait = Duration::from_millis(5).min(timeout.saturating_sub(started.elapsed()));
+                match poll(
+                    &mut ready[..count],
+                    PollTimeout::try_from(wait).map_err(io::Error::other)?,
+                ) {
+                    Ok(_) | Err(nix::errno::Errno::EINTR) => {}
+                    Err(error) => return Err(io::Error::from(error)),
+                }
             }
         }
     }

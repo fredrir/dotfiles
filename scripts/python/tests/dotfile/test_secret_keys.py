@@ -3,18 +3,10 @@ import shutil
 import subprocess
 
 import pytest
-import typer
-
-from tools.dotfile.secret import doctor, keys
 
 KEY_A = "age1" + "q" * 58
 KEY_B = "age1" + "p" * 58
 ALIGNED = f"recipients {{\n  archie   = {KEY_A}\n  recovery = {KEY_B}\n}}"
-
-
-class Ctx:
-    def __init__(self, root):
-        self.root = str(root)
 
 
 def run_git(cwd, *args):
@@ -58,51 +50,6 @@ def formatter(tmp_path):
         return dict(env, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}")
 
     return build
-
-
-def test_parses_a_recipients_block(repo):
-    root, _home, _env = repo
-    write_keys(root, f"recipients {{\n  archie = {KEY_A}\n  recovery = {KEY_B}\n}}\n")
-    assert keys.load_recipients(Ctx(root)) == {"archie": KEY_A, "recovery": KEY_B}
-
-
-def test_missing_file_is_empty(repo):
-    root, _home, _env = repo
-    assert keys.load_recipients(Ctx(root)) == {}
-
-
-def test_rejects_a_value_that_is_not_an_age_key(repo):
-    root, _home, _env = repo
-    write_keys(root, "recipients {\n  archie = not-a-key\n}\n")
-    with pytest.raises(typer.Exit):
-        keys.load_recipients(Ctx(root))
-
-
-def test_rejects_a_duplicate_label(repo):
-    root, _home, _env = repo
-    write_keys(root, f"recipients {{\n  archie = {KEY_A}\n  archie = {KEY_B}\n}}\n")
-    with pytest.raises(typer.Exit):
-        keys.load_recipients(Ctx(root))
-
-
-def test_rejects_an_unterminated_block(repo):
-    root, _home, _env = repo
-    write_keys(root, f"recipients {{\n  archie = {KEY_A}\n")
-    with pytest.raises(typer.Exit):
-        keys.load_recipients(Ctx(root))
-
-
-def test_documents_are_sorted_and_stable():
-    recipients = {"zeta": KEY_B, "alpha": KEY_A}
-    assert (
-        keys.keys_document(recipients)
-        == f"recipients {{\n  alpha = {KEY_A}\n  zeta = {KEY_B}\n}}\n"
-    )
-    assert keys.sops_document(recipients) == f"creation_rules:\n  - age: {KEY_A},{KEY_B}\n"
-
-
-def test_empty_recipients_produce_no_sops_document():
-    assert keys.sops_document({}) == ""
 
 
 def test_enroll_writes_both_files(tool, repo, formatter):
@@ -170,9 +117,9 @@ def test_sync_rewrites_a_drifted_sops_file(tool, repo):
     root, _home, env = repo
     secret(tool, env, "enroll", "archie", KEY_A)
     (root / ".sops.yaml").write_text("creation_rules: []\n")
-    assert keys.sops_drifted(Ctx(root), {"archie": KEY_A})
+    assert (root / ".sops.yaml").read_text() != f"creation_rules:\n  - age: {KEY_A}\n"
     assert secret(tool, env, "sync").returncode == 0
-    assert not keys.sops_drifted(Ctx(root), {"archie": KEY_A})
+    assert (root / ".sops.yaml").read_text() == f"creation_rules:\n  - age: {KEY_A}\n"
 
 
 def test_sync_leaves_a_formatted_file_byte_for_byte(tool, repo):
@@ -183,13 +130,13 @@ def test_sync_leaves_a_formatted_file_byte_for_byte(tool, repo):
     assert KEY_A in (root / ".sops.yaml").read_text()
 
 
-def test_a_changed_recipient_is_written_through_the_formatter(tool, repo, formatter):
+def test_a_changed_recipient_uses_stable_native_formatting(tool, repo, formatter):
     root, _home, env = repo
     write_keys(root, ALIGNED)
     marked = formatter(env, "tr 'a-z' 'A-Z'")
     assert secret(tool, marked, "revoke", "recovery").returncode == 0
     assert (root / "config" / "keys.dotfile").read_text() == (
-        f"RECIPIENTS {{\n  ARCHIE = {KEY_A.upper()}\n}}\n"
+        f"recipients {{\n  archie = {KEY_A}\n}}\n"
     )
     assert KEY_B not in (root / ".sops.yaml").read_text()
 
@@ -222,45 +169,6 @@ def test_doctor_reports_a_missing_recovery_key(tool, repo):
     secret(tool, env, "enroll", "archie", KEY_A)
     result = secret(tool, env, "doctor")
     assert "none named recovery" in result.stdout
-
-
-@pytest.mark.skipif(not shutil.which("age-keygen"), reason="needs age")
-def test_doctor_tells_a_duplicate_identity_from_a_different_one(repo, tmp_path):
-    root, home, _env = repo
-    ctx = Ctx(root)
-    ctx.state_dir = str(home / ".config" / "dotfile")
-    ctx.home = str(home)
-
-    identity = home / ".config" / "dotfile" / "age" / "keys.txt"
-    identity.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["age-keygen", "-o", str(identity)], check=True, capture_output=True)
-    stray = home / ".config" / "sops" / "age" / "keys.txt"
-    stray.parent.mkdir(parents=True)
-
-    assert doctor.strays_row(ctx, {})[0] == "ok"
-
-    shutil.copy(identity, stray)
-    mine = doctor.strays_row(ctx, {})
-    assert mine[0] == "warn"
-    assert "own key" in mine[3][0][1]
-
-    stray.unlink()
-    subprocess.run(["age-keygen", "-o", str(stray)], check=True, capture_output=True)
-    other = subprocess.run(
-        ["age-keygen", "-y", str(stray)], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    unrelated = doctor.strays_row(ctx, {})
-    assert unrelated[0] == "note"
-    assert "opens nothing" in unrelated[3][0][1]
-    held = doctor.strays_row(ctx, {"recovery2": other})
-    assert held[0] == "warn"
-    assert "recovery2" in held[3][0][1] and "off-machine" in held[3][0][1]
-    held = doctor.strays_row(ctx, {"otherbox": other})
-    assert held[0] == "warn"
-    assert "otherbox" in held[3][0][1] and "wrong machine" in held[3][0][1]
-
-    stray.write_text("junk\n")
-    assert "not readable" in doctor.strays_row(ctx, {})[3][0][1]
 
 
 def test_enroll_stages_what_it_changed(tool, repo):
@@ -296,11 +204,6 @@ def test_a_machine_that_is_a_recipient_says_so(tool, repo):
     assert secret(tool, env, "enroll", "here").returncode == 0
     result = secret(tool, env, "doctor")
     assert "this machine is 'here'" in result.stdout
-
-
-def test_the_suggested_label_is_a_usable_name():
-    assert doctor.suggested_label()
-    assert " " not in doctor.suggested_label()
 
 
 @pytest.mark.skipif(
@@ -372,13 +275,6 @@ def test_a_label_that_merely_contains_recovery_does_not_count(tool, repo):
     secret(tool, env, "enroll", "my-recovery-box", KEY_A)
     result = secret(tool, env, "doctor")
     assert "none named recovery" in result.stdout
-
-
-def test_recovery_labels_are_matched_by_prefix():
-    assert keys.recovery_labels({"recovery": "x"}) == ["recovery"]
-    assert keys.recovery_labels({"recovery2": "x"}) == ["recovery2"]
-    assert keys.recovery_labels({"Recovery-yubikey": "x"}) == ["Recovery-yubikey"]
-    assert keys.recovery_labels({"archie": "x", "macie": "x"}) == []
 
 
 needs_both = pytest.mark.skipif(

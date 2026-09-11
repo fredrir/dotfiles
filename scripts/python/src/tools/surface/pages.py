@@ -11,64 +11,11 @@ class Page:
     source: str
 
 
-PAGES = (
-    Page("agent-hop", "agent-hop", ("agent-hop",), "scripts/rust/crates/agent-hop/"),
-    Page(
-        "clipboard",
-        "clipboard",
-        ("cpa", "cpas", "acp"),
-        "scripts/python/src/tools/utils/remote_clipboard.py",
-    ),
-    Page("count", "count", ("count",), "scripts/rust/crates/count/"),
-    Page("doc-keybinds", "doc-keybinds", ("doc-keybinds",), "scripts/rust/crates/doc-keybinds/"),
-    Page("doc-purge", "doc-purge", ("doc-purge",), "scripts/rust/crates/doc-purge/"),
-    Page("dotfile", "dotfile", ("dotfile",), "scripts/python/src/tools/dotfile/"),
-    Page(
-        "dotfile-format",
-        "dotfile format",
-        ("dotfile-format",),
-        "scripts/rust/crates/dotfile-format/",
-    ),
-    Page("dotfmt", "dotfmt", ("dotfmt",), "scripts/rust/crates/dotfmt/"),
-    Page("flatten", "flatten", ("flatten",), "scripts/rust/crates/flatten/"),
-    Page("git", "Git CLI", ("gdd", "gget", "gppf"), "scripts/rust/crates/git/"),
-    Page(
-        "home-copy",
-        "hpush and hpull",
-        ("hpush", "hpull"),
-        "scripts/rust/crates/hcopy/",
-    ),
-    Page("hwire", "hwire", ("hwire",), "scripts/rust/crates/hwire/"),
-    Page("mux-route", "mux-route", ("mux-route",), "scripts/rust/crates/mux-route/"),
-    Page("path", "path", ("path",), "scripts/rust/crates/path/"),
-    Page("size", "size", ("size",), "scripts/rust/crates/size/"),
-    Page("sysinfo", "sysinfo", ("sysinfo",), "scripts/python/src/tools/utils/sysinfo/"),
-    Page("tardirs", "tardirs", ("tardirs",), "scripts/python/src/tools/utils/tardirs.py"),
-    Page("transcript", "transcript", ("transcript",), "scripts/python/src/tools/transcript/"),
-)
+from tools.surface.catalog import CATALOG
 
-# Tools that are documented nowhere on purpose: a Hyprland keybinding target, a
-# hook's helper. They still get completions.
-UNDOCUMENTED = ("power-menu", "confirm-exit", "clean-copy", "update-readme-fastfetch")
-
-RUST = (
-    "agent-hop",
-    "count",
-    "doc-keybinds",
-    "doc-purge",
-    "dotfile-format",
-    "dotfmt",
-    "flatten",
-    "gdd",
-    "gget",
-    "gppf",
-    "hpull",
-    "hpush",
-    "hwire",
-    "mux-route",
-    "path",
-    "size",
-)
+PAGES = tuple(Page(**(page | {"programs": tuple(page["programs"])})) for page in CATALOG["pages"])
+UNDOCUMENTED = tuple(CATALOG["undocumented"])
+RUST = tuple(CATALOG["native"])
 
 
 def page_for(program):

@@ -6,7 +6,7 @@ use std::process::Command;
 use crate::context::{Context, write_atomic};
 use crate::event::{Action, Event, EventSink, Phase};
 
-use super::config::Configuration;
+use crate::config::Configuration;
 
 #[derive(Default)]
 pub struct IntegrationOutcome {

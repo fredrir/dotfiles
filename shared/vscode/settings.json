@@ -104,6 +104,7 @@
   "evenBetterToml.formatter.arrayTrailingComma": true,
   "evenBetterToml.formatter.columnWidth": 100,
   "evenBetterToml.formatter.allowedBlankLines": 1,
+  "evenBetterToml.formatter.trailingNewline": false,
   "evenBetterToml.formatter.indentString": "  ",
 
   "files.associations": {

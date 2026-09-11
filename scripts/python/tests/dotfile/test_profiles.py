@@ -1,10 +1,15 @@
-import pytest
+import sys
 
-from tools.dotfile import profiles
+import pytest
 
 
 @pytest.fixture
-def envdir(tmp_path):
+def profiles(tmp_path, tool):
+    root = tmp_path / "repo"
+    home = tmp_path / "home"
+    (root / "config").mkdir(parents=True)
+    (root / "config/targets.dotfile").write_text("")
+    home.mkdir()
     layout = {
         "arch-linux/kde": ["shared", "linux/common", "linux/kde"],
         "arch-linux/hyprland": ["shared", "linux/common", "linux/hyprland"],
@@ -13,38 +18,35 @@ def envdir(tmp_path):
         "ubuntu/server": ["shared", "linux/server"],
     }
     for profile, groups in layout.items():
-        directory = tmp_path / profile
+        directory = root / "environment" / profile
         directory.mkdir(parents=True)
         (directory / "manifest").write_text("".join(group + "\n" for group in groups))
-    return str(tmp_path)
+
+    def run(*args):
+        return tool(
+            "dotfile",
+            "profiles",
+            *args,
+            env={
+                "DOTFILE_ROOT": str(root),
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+            },
+        )
+
+    return sorted(layout), run
 
 
-def test_filters_for_arch_with_kde_only(envdir):
-    assert profiles.filter_profiles(envdir, "arch-linux", ["kde"]) == ["arch-linux/kde"]
+def test_profiles_lists_all_manifests_through_native_cli(profiles):
+    expected, run = profiles
+    result = run()
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == expected
 
 
-def test_includes_combined_profile_when_both_desktops_are_installed(envdir):
-    assert profiles.filter_profiles(envdir, "arch-linux", ["kde", "hyprland"]) == [
-        "arch-linux/hyprland",
-        "arch-linux/kde",
-        "arch-linux/kde-hyprland",
-    ]
-
-
-def test_filters_profiles_by_operating_system(envdir):
-    assert profiles.filter_profiles(envdir, "macos", []) == ["macos"]
-    assert profiles.filter_profiles(envdir, "ubuntu", []) == ["ubuntu/server"]
-
-
-def test_normalizes_explicit_environment_override():
-    assert profiles.normalize_profile_arg("--arch-linux/hyprland") == "arch-linux/hyprland"
-    assert profiles.normalize_profile_arg("arch-linux/kde") == "arch-linux/kde"
-    assert profiles.normalize_profile_arg("--") == "--"
-
-
-def test_detects_platform_from_os_release():
-    assert profiles.detect_linux_platform({"ID": "arch"}) == "arch-linux"
-    assert profiles.detect_linux_platform({"ID": "ubuntu"}) == "ubuntu"
-    assert profiles.detect_linux_platform({"ID": "cachyos", "ID_LIKE": "arch"}) == "arch-linux"
-    assert profiles.detect_linux_platform({"ID": "neon", "ID_LIKE": "ubuntu debian"}) == "ubuntu"
-    assert profiles.detect_linux_platform({"ID": "gentoo"}) == ""
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS profile relevance")
+def test_macos_relevance_omits_linux_profiles(profiles):
+    _expected, run = profiles
+    result = run("--relevant")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["macos"]

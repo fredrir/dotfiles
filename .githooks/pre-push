@@ -2,12 +2,13 @@
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
-bin="$root/scripts/python/.venv/bin"
-dotfile="$bin/dotfile-py"
+export DOTFILE_ROOT="$root"
+source "$root/.githooks/_dotfile.sh"
+dotfile="$(resolve_dotfile "$root" || true)"
 
 if [ ! -x "$dotfile" ]; then
-	echo "pre-push: scripts/python/.venv missing, the secret scan cannot run" >&2
-	echo "pre-push: run ./setup.sh (or: uv sync --project scripts/python --locked)" >&2
+	echo "pre-push: native dotfile missing, the secret scan cannot run" >&2
+	echo "pre-push: run ./setup.sh" >&2
 	exit 1
 fi
 

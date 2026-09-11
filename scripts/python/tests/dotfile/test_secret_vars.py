@@ -3,54 +3,12 @@ import shutil
 import pytest
 from gitrepo import run_git
 
-from tools.dotfile.secret import variables
-
 needs_sops = pytest.mark.skipif(
     not (shutil.which("sops") and shutil.which("age-keygen")),
     reason="needs age and sops",
 )
 
 DECLARED = "hosts:\n  parser:\n    origin: 203.0.113.77\n    port: 2222\nopen:\n  user: someone\n"
-
-
-def test_flatten_produces_dotted_names():
-    out = {}
-    assert variables.flatten({"a": {"b": {"c": "x"}}, "d": "y"}, "", out) == ""
-    assert out == {"a.b.c": "x", "d": "y"}
-
-
-def test_scalars_render_as_config_text():
-    out = {}
-    variables.flatten({"port": 22, "on": True, "off": False, "ratio": 1.5}, "", out)
-    assert out == {"port": "22", "on": "true", "off": "false", "ratio": "1.5"}
-
-
-def test_lists_are_rejected():
-    out = {}
-    assert "list" in variables.flatten({"hosts": ["a", "b"]}, "", out)
-
-
-def test_empty_values_are_rejected():
-    out = {}
-    assert "no value" in variables.flatten({"host": None}, "", out)
-
-
-def test_references_are_found_and_deduplicated():
-    text = "{{ a.b }} and {{a.b}} and {{  c  }}"
-    assert variables.references(text) == ["a.b", "c"]
-
-
-def test_render_substitutes_and_reports_what_is_missing():
-    rendered, missing = variables.render("{{ a }} {{ b }}", {"a": "1"})
-    assert rendered == "1 {{ b }}"
-    assert missing == ["b"]
-
-
-def test_render_leaves_ordinary_braces_alone():
-    text = "${HOME} and {single} and }}{{"
-    rendered, missing = variables.render(text, {})
-    assert rendered == text
-    assert missing == []
 
 
 @needs_sops
@@ -185,11 +143,8 @@ def test_transcript_redaction_strips_var_values(vault, writer):
     import sys
 
     code = (
-        "from tools.dotfile.secret.canaries import private_values;"
-        "from tools.dotfile.state import Context;"
-        "from tools.transcript import redact;"
-        "values, _ = private_values(Context());"
-        "print(redact.redactor(values)('box at 203.0.113.77 ok'))"
+        "from tools.transcript.native_redaction import Redactor;"
+        "print(Redactor()('box at 203.0.113.77 ok'))"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -198,5 +153,6 @@ def test_transcript_redaction_strips_var_values(vault, writer):
         env=dict(os.environ, **env),
         check=False,
     )
+    assert result.returncode == 0, result.stderr
     assert "203.0.113.77" not in result.stdout
     assert "[redacted:private]" in result.stdout

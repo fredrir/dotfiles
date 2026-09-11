@@ -83,3 +83,17 @@ fn streamed_output_stops_at_the_file_size_limit() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     assert!(error.to_string().contains("maximum file size"));
 }
+
+#[test]
+fn cancellation_interrupts_a_child_without_waiting_for_the_deadline() {
+    let started = Instant::now();
+    let error = output_cancellable(
+        Command::new("sh").args(["-c", "sleep 30 & wait"]),
+        CaptureLimits::default(),
+        Duration::from_secs(60),
+        &|| started.elapsed() >= Duration::from_millis(30),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+    assert!(started.elapsed() < Duration::from_secs(2));
+}

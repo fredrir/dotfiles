@@ -33,6 +33,11 @@ def prepared_binary(name):
 def rust_binary(package, name):
     if binary := prepared_binary(name):
         return binary
+    return _build_binary(package, name)
+
+
+@functools.cache
+def _build_binary(package, name):
     result = subprocess.run(
         [
             "cargo",

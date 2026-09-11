@@ -1,66 +1,92 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Seek, Write};
+use std::path::Path;
+
+use crate::context::Context;
 
 pub struct SyncLock {
-    path: PathBuf,
+    #[cfg(unix)]
+    _file: nix::fcntl::Flock<File>,
+    #[cfg(not(unix))]
     _file: File,
 }
 
 impl SyncLock {
     pub fn acquire(state: &Path) -> Result<Self, String> {
-        fs::create_dir_all(state).map_err(|error| format!("{}: {error}", state.display()))?;
-        let path = state.join("sync.lock");
-        for _ in 0..2 {
-            match create(&path) {
-                Ok(file) => return Ok(Self { path, _file: file }),
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                    if owner_alive(&path) {
-                        return Err("another dotfile sync is already running".to_string());
-                    }
-                    fs::remove_file(&path)
-                        .map_err(|remove| format!("{}: {remove}", path.display()))?;
-                }
-                Err(error) => return Err(format!("{}: {error}", path.display())),
-            }
+        fs::create_dir_all(state).map_err(|e| format!("{}: {e}", state.display()))?;
+        Self::at(&state.join("sync.lock"))
+    }
+
+    fn at(path: &Path) -> Result<Self, String> {
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
-        Err("could not acquire the dotfile sync lock".to_string())
+        let file = options
+            .open(path)
+            .map_err(|e| format!("lock {}: {e}", path.display()))?;
+        #[cfg(unix)]
+        let mut file = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock)
+            .map_err(|(_, e)| {
+            if e == nix::errno::Errno::EWOULDBLOCK {
+                "another dotfile mutation is already running".to_string()
+            } else {
+                format!("lock {}: {e}", path.display())
+            }
+        })?;
+        #[cfg(not(unix))]
+        let mut file = file;
+        file.set_len(0)
+            .map_err(|e| format!("lock {}: {e}", path.display()))?;
+        file.rewind().map_err(|e| e.to_string())?;
+        writeln!(file, "{}", std::process::id()).map_err(|e| e.to_string())?;
+        Ok(Self { _file: file })
     }
 }
 
-impl Drop for SyncLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+/// Advisory lock files stay in place: unlinking would let waiters lock different inodes.
+pub struct MutationLock {
+    _repository: Option<SyncLock>,
+    _state: SyncLock,
+}
+
+impl MutationLock {
+    pub fn acquire(context: &Context) -> Result<Self, String> {
+        let git = context.root.join(".git");
+        let git = if git.is_file() {
+            let text =
+                fs::read_to_string(&git).map_err(|e| format!("read {}: {e}", git.display()))?;
+            let relative = text
+                .trim()
+                .strip_prefix("gitdir: ")
+                .ok_or("invalid .git file")?;
+            context.root.join(relative)
+        } else {
+            git
+        };
+        let repository = if git.is_dir() {
+            let common = git.join("commondir");
+            let directory = if common.is_file() {
+                git.join(
+                    fs::read_to_string(&common)
+                        .map_err(|e| e.to_string())?
+                        .trim(),
+                )
+            } else {
+                git
+            };
+            Some(SyncLock::at(&directory.join("dotfile.lock"))?)
+        } else {
+            None
+        };
+        let lock = Self {
+            _repository: repository,
+            _state: SyncLock::acquire(&context.state)?,
+        };
+        crate::fs::transaction::recover(context)?;
+        Ok(lock)
     }
-}
-
-fn create(path: &Path) -> std::io::Result<File> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
-    writeln!(file, "{}", std::process::id())?;
-    file.sync_data()?;
-    Ok(file)
-}
-
-fn owner_alive(path: &Path) -> bool {
-    let pid = fs::read_to_string(path)
-        .ok()
-        .and_then(|value| value.trim().parse::<u32>().ok());
-    pid.is_some_and(process_alive)
-}
-
-#[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
-    use nix::errno::Errno;
-    use nix::sys::signal::kill;
-    use nix::unistd::Pid;
-
-    let Ok(pid) = i32::try_from(pid) else {
-        return false;
-    };
-    pid > 0 && matches!(kill(Pid::from_raw(pid), None), Ok(()) | Err(Errno::EPERM))
-}
-
-#[cfg(not(unix))]
-fn process_alive(_pid: u32) -> bool {
-    true
 }

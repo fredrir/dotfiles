@@ -23,7 +23,7 @@ def test_the_flag_answers_before_a_missing_argument_does(tool):
 def test_a_shell_with_no_script_says_so(tool):
     result = tool("dotfile", "--completions", "bash")
     assert result.returncode == 2
-    assert "no bash completions" in result.stderr
+    assert "invalid value 'bash'" in result.stderr
 
 
 def test_the_value_command_answers_the_generated_script(tool):
@@ -45,7 +45,7 @@ def test_writing_every_script_leaves_one_file_to_source(tool, tmp_path):
 
 
 def test_the_documentation_matches_the_tools(tool):
-    assert tool("dotfile-py", "__reference", "--check").returncode == 0
+    assert tool("dotfile", "__reference", "--check").returncode == 0
 
 
 def test_native_development_commands_join_the_main_surface(tool):

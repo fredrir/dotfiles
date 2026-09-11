@@ -80,3 +80,7 @@ benchmarks/.lock
 
 /shared/wezterm/lua
 /config/dcloud/.*.lock
+
+# Private dotfile recovery journals.
+/.dotfile-transaction-*/
+**/.dotfile-recovery-*/

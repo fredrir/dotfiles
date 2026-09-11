@@ -125,6 +125,10 @@ pub fn dispatch(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
             return workstation::exit_code(code);
         }
     };
+    run(cli)
+}
+
+pub fn run(cli: Cli) -> ExitCode {
     if let Some(code) = cli.completions.emit::<Cli>("dotfile dev") {
         return code;
     }
@@ -157,7 +161,7 @@ pub fn dispatch(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     }
 }
 
-fn package_names() -> Result<std::collections::BTreeSet<String>, String> {
+pub fn package_names() -> Result<std::collections::BTreeSet<String>, String> {
     let root = doc_keybinds::root(None)?;
     let catalog = catalog::Catalog::read(&root, true)?;
     let mut names = std::collections::BTreeSet::new();
@@ -218,4 +222,11 @@ fn execute(action: Action) -> Result<ExitCode, String> {
         _ => "lint",
     };
     runner::run(tasks, budget, action, options.verbose)
+}
+
+pub fn language_names() -> Vec<String> {
+    Language::value_variants()
+        .iter()
+        .map(|v| v.name().to_string())
+        .collect()
 }

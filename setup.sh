@@ -7,7 +7,7 @@ STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
 TOOL_BIN_DIR="$HOME/.local/bin"
 TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
-DOTFILE_BACKEND_BIN="$TOOL_BIN_DIR/dotfile-py"
+PYTHON_TOOL_BIN="$TOOL_BIN_DIR/sysinfo"
 COMMANDS_ONLY=0
 SYNC=0
 ARG_PROFILE=""
@@ -272,8 +272,8 @@ acquire_setup_lock
 PYTHON_HASH="$(content_hash "$DOTFILES/scripts/python/pyproject.toml" "$DOTFILES/scripts/python/uv.lock")"
 
 python_current() {
-  [ -x "$DOTFILE_BACKEND_BIN" ] || return 1
-  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/dotfile-py" ]; then
+  [ -x "$PYTHON_TOOL_BIN" ] || return 1
+  if [ "$COMMANDS_ONLY" = 0 ] && [ ! -x "$DOTFILES/scripts/python/.venv/bin/sysinfo" ]; then
     return 1
   fi
   unchanged python "$PYTHON_HASH"
@@ -298,6 +298,12 @@ else
     --editable --reinstall --quiet "$DOTFILES/scripts/python"
   stamp python "$PYTHON_HASH"
 fi
+
+SURFACE_PYTHON="$TOOL_DIR/tools/bin/python"
+if [ -x "$DOTFILES/scripts/python/.venv/bin/python" ]; then
+  SURFACE_PYTHON="$DOTFILES/scripts/python/.venv/bin/python"
+fi
+PYTHONDONTWRITEBYTECODE=1 "$SURFACE_PYTHON" -m tools.surface.export
 
 RUST_BINARIES="agent-hop bench-workloads count dcloud doc-keybinds doc-purge dotfile dotfile-format dotfmt flatten gget git-discard gppf hpull hpush hwire mux-route path size sysinfo-collect tmux-workspace"
 RUST_HASH="$(
