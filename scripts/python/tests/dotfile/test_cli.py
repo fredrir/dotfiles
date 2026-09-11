@@ -38,9 +38,9 @@ def test_sync_rejects_an_unknown_resolution_natively(tool, sandbox):
     assert "invalid value 'sideways'" in result.stderr
 
 
-def test_all_native_help_works_without_python(tool, sandbox):
+def test_all_help_works_with_an_empty_path(tool, sandbox):
     _repo, _home, env = sandbox
-    env |= {"PATH": "", "DOTFILE_PYTHON": "/missing/python"}
+    env |= {"PATH": ""}
     for command in ("secret", "system", "theme", "add", "remove", "doctor", "sync", "dev"):
         result = tool("dotfile", command, "--help", env=env)
         assert result.returncode == 0, result.stderr

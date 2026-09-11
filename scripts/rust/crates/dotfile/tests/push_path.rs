@@ -15,6 +15,32 @@ use dotfile_cli::push::{self, DecisionClient};
 use testkit::{Bin, Ran, TempDir, executable};
 
 const HOSTS: &str = "archie {\n  hostnames = archie, archie.local\n  role = desktop\n}\n\nmacie {\n  hostnames = macie\n  role = laptop\n}\n";
+const SSH_STUB: &str = r#"#!/bin/sh
+for script in "$@"; do :; done
+if [ "${PUSH_SSH_BLOCK:-0}" = 1 ]; then
+  printf 'blocked\n' >> "$PUSH_SSH_LOG"
+  exec sleep 30
+fi
+if [ "${PUSH_SSH_HANDSHAKE_EOF:-0}" = 1 ]; then
+  printf '%s\n' '{"message":"hello","version":2,"host":"archie"}' '{"message":"state","branch":"main"}'
+  printf 'zsh: read-only variable: status\n' >&2
+  exit 1
+fi
+printf 'session\n' >> "$PUSH_SSH_LOG"
+case "${PUSH_SSH_SCENARIO:-}" in
+  missing-hello) exit 0 ;;
+  malformed-hello) printf 'unstructured remote output\n'; exit 0 ;;
+  wrong-first-frame) printf '%s\n' '{"message":"ready"}'; exit 0 ;;
+  incompatible-version)
+    printf '%s\n' '{"message":"hello","version":99,"host":"archie"}'
+    IFS= read -r reply
+    exit 0
+    ;;
+  connection-failed) printf 'ssh: Permission denied\n' >&2; exit 255 ;;
+esac
+export HOME="$PUSH_REMOTE_HOME"
+exec "${PUSH_REMOTE_SHELL:-/bin/sh}" -c "$script"
+"#;
 const WIRE_STUB: &str = r#"#!/bin/sh
 case "$*" in
   'sync --wire-probe 2')
@@ -118,10 +144,7 @@ impl Machine {
 
         let ssh_log = temporary.path().join("ssh.log");
         let sync_log = temporary.path().join("sync.log");
-        executable(
-            &bin.join("ssh"),
-            "#!/bin/sh\nfor script in \"$@\"; do :; done\nif [ \"${PUSH_SSH_BLOCK:-0}\" = 1 ]; then printf 'blocked\\n' >> \"$PUSH_SSH_LOG\"; exec sleep 30; fi\nif [ \"${PUSH_SSH_HANDSHAKE_EOF:-0}\" = 1 ]; then printf '%s\\n' '{\"message\":\"hello\",\"version\":2,\"host\":\"archie\"}' '{\"message\":\"state\",\"branch\":\"main\"}'; printf 'zsh: read-only variable: status\\n' >&2; exit 1; fi\nif [ \"${PUSH_LEGACY:-0}\" = 1 ]; then\n  case \"$script\" in\n    *json_string*) printf 'protocol\\n' >> \"$PUSH_SSH_LOG\"; exit 0 ;;\n    *'git status --porcelain --branch'*) printf 'status\\n' >> \"$PUSH_SSH_LOG\"; printf '## main...origin/main\\n'; exit 0 ;;\n    *'git pull --ff-only || exit 1'*) printf 'sync\\n' >> \"$PUSH_SSH_LOG\"; exit 0 ;;\n  esac\nfi\nprintf 'session\\n' >> \"$PUSH_SSH_LOG\"\nexport HOME=\"$PUSH_REMOTE_HOME\"\nexec \"${PUSH_REMOTE_SHELL:-/bin/sh}\" -c \"$script\"\n",
-        );
+        executable(&bin.join("ssh"), SSH_STUB);
         executable(&remote_home.join(".local/bin/dotfile"), WIRE_STUB);
         let state = home.join(".config/dotfile");
         let context = Context::new(root.clone(), home, state).unwrap();
@@ -136,7 +159,7 @@ impl Machine {
         }
     }
 
-    fn environment(mut self, legacy: bool) -> Self {
+    fn environment(mut self) -> Self {
         let path = std::env::join_paths(
             std::iter::once(self.bin.as_os_str()).chain(
                 std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
@@ -157,10 +180,7 @@ impl Machine {
                 ),
                 ("PUSH_SSH_LOG", self.ssh_log.as_os_str().to_os_string()),
                 ("PUSH_SYNC_LOG", self.sync_log.as_os_str().to_os_string()),
-                (
-                    "PUSH_LEGACY",
-                    OsString::from(if legacy { "1" } else { "0" }),
-                ),
+                ("PUSH_SSH_SCENARIO", OsString::new()),
                 ("PUSH_SSH_BLOCK", OsString::from("0")),
                 ("PUSH_SSH_HANDSHAKE_EOF", OsString::from("0")),
                 ("PUSH_REMOTE_SHELL", OsString::from("/bin/sh")),
@@ -287,7 +307,7 @@ fn command_environments_are_isolated_between_contexts() {
 #[test]
 fn push_structured_session_transfers_commits_and_streams_remote_phases() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     fs::write(machine.root.join("shared/alpha/value"), "beta\n").unwrap();
     git(&machine.root, &["commit", "-qam", "second"]);
 
@@ -337,7 +357,7 @@ fn push_structured_session_is_compatible_with_zsh() {
         return;
     }
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let machine = machine.env("PUSH_REMOTE_SHELL", "zsh");
 
     let (result, _) = run(&machine, &cli());
@@ -349,7 +369,7 @@ fn push_structured_session_is_compatible_with_zsh() {
 #[test]
 fn push_noop_skips_remote_pull_and_native_update() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     git(
         &machine.remote,
         &["remote", "set-url", "origin", "/missing-origin"],
@@ -364,7 +384,7 @@ fn push_noop_skips_remote_pull_and_native_update() {
 #[test]
 fn push_reports_an_incomplete_handshake_before_writing_to_the_remote() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let machine = machine.env("PUSH_SSH_HANDSHAKE_EOF", "1");
 
     let (result, _) = run(&machine, &cli());
@@ -377,7 +397,7 @@ fn push_reports_an_incomplete_handshake_before_writing_to_the_remote() {
 #[test]
 fn push_wire_round_trips_remote_merge_and_target_decisions_on_one_ssh() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let machine = machine.env("PUSH_WIRE_SCENARIO", "decisions");
     cancel::reset();
     let plan = push::preflight(&machine.context, &cli()).unwrap();
@@ -428,7 +448,7 @@ fn push_wire_round_trips_remote_merge_and_target_decisions_on_one_ssh() {
 #[test]
 fn push_wire_updates_a_compatible_but_stale_remote_before_sync() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let machine = machine.env("PUSH_WIRE_SCENARIO", "stale");
 
     let (result, _) = run(&machine, &cli());
@@ -444,7 +464,7 @@ fn push_wire_updates_a_compatible_but_stale_remote_before_sync() {
 #[test]
 fn push_wire_reports_update_failure_without_running_stale_sync() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let machine = machine.env("PUSH_WIRE_SCENARIO", "update-fail");
 
     let (result, _) = run(&machine, &cli());
@@ -465,7 +485,7 @@ fn push_wire_rejects_version_malformed_and_early_eof_frames() {
         ("error-eof", "remote failed"),
         ("eof", "ended unexpectedly"),
     ] {
-        let machine = Machine::new().environment(false);
+        let machine = Machine::new().environment();
         let machine = machine.env("PUSH_WIRE_SCENARIO", scenario);
 
         let (result, _) = run(&machine, &cli());
@@ -481,7 +501,7 @@ fn push_wire_rejects_version_malformed_and_early_eof_frames() {
 #[test]
 fn push_refuses_a_branch_behind_its_upstream_before_network_access() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     fs::write(machine.remote.join("shared/alpha/value"), "remote commit\n").unwrap();
     git(&machine.remote, &["commit", "-qam", "remote"]);
     git(&machine.remote, &["push", "-q"]);
@@ -497,7 +517,7 @@ fn push_refuses_a_branch_behind_its_upstream_before_network_access() {
 #[test]
 fn push_race_checks_origin_again_after_preflight_before_ssh() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     cancel::reset();
     let options = cli();
     let plan = push::preflight(&machine.context, &options).unwrap();
@@ -514,7 +534,7 @@ fn push_race_checks_origin_again_after_preflight_before_ssh() {
 #[test]
 fn push_dry_run_contacts_no_peer_and_changes_nothing() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     fs::write(machine.root.join("shared/alpha/value"), "uncommitted\n").unwrap();
     let before = git(&machine.root, &["status", "--porcelain"]).stdout;
     let mut options = cli();
@@ -534,7 +554,7 @@ fn push_dry_run_contacts_no_peer_and_changes_nothing() {
 #[test]
 fn push_refuses_remote_changes_without_force_and_preserves_them() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     fs::write(machine.remote.join("shared/alpha/value"), "remote edit\n").unwrap();
 
     let (result, _) = run(&machine, &cli());
@@ -551,7 +571,7 @@ fn push_refuses_remote_changes_without_force_and_preserves_them() {
 #[test]
 fn push_force_discards_remote_changes_and_forwards_repo_resolution() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     fs::write(machine.remote.join("shared/alpha/value"), "remote edit\n").unwrap();
     let mut options = cli();
     options.force = true;
@@ -572,7 +592,7 @@ fn push_force_discards_remote_changes_and_forwards_repo_resolution() {
 #[test]
 fn push_decision_client_routes_remote_changes_and_discards_only_on_discard() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     fs::write(machine.remote.join("shared/alpha/value"), "remote edit\n").unwrap();
     cancel::reset();
     let plan = push::preflight(&machine.context, &cli()).unwrap();
@@ -614,7 +634,7 @@ fn push_decision_client_rejects_choices_from_the_wrong_prompt() {
 #[test]
 fn push_stops_on_remote_branch_mismatch() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     git(&machine.remote, &["checkout", "-qb", "other"]);
 
     let (result, _) = run(&machine, &cli());
@@ -627,7 +647,7 @@ fn push_stops_on_remote_branch_mismatch() {
 #[test]
 fn push_named_host_works_when_push_boolean_is_false() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let mut options = cli();
     options.push = false;
     options.to = Some("archie".to_string());
@@ -639,30 +659,70 @@ fn push_named_host_works_when_push_boolean_is_false() {
 }
 
 #[test]
-fn push_legacy_fallback_completes_without_a_protocol_hello() {
+fn push_rejects_unsupported_native_sessions_without_remote_changes_or_retries() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(true);
-    cancel::reset();
-    let options = cli();
-    let plan = push::preflight(&machine.context, &options).unwrap();
-    let (decisions, _server) = decision::channel();
+    for scenario in [
+        "missing-hello",
+        "malformed-hello",
+        "wrong-first-frame",
+        "incompatible-version",
+    ] {
+        let machine = Machine::new()
+            .environment()
+            .env("PUSH_SSH_SCENARIO", scenario);
+        let tracked = machine.remote.join("shared/alpha/value");
+        let untracked = machine.remote.join("local-only");
+        fs::write(&tracked, "keep my tracked edit\n").unwrap();
+        fs::write(&untracked, "keep my untracked edit\n").unwrap();
+        let before = git(&machine.remote, &["rev-parse", "HEAD"]).stdout;
+        let mut options = cli();
+        options.force = true;
+        let (result, events) = run(&machine, &options);
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("does not support native push protocol")
+                || error.contains("is incompatible"),
+            "{scenario}: {error}"
+        );
+        assert!(
+            error.contains("./setup.sh --commands-only on archie"),
+            "{error}"
+        );
+        assert!(events.iter().any(|event| matches!(event, Event::Failed { phase: Phase::Remote, message, .. } if message == &error)));
+        assert_eq!(
+            machine.calls(),
+            ["session"],
+            "must not retry without the native protocol"
+        );
+        assert!(!machine.sync_log.exists());
+        assert_eq!(git(&machine.remote, &["rev-parse", "HEAD"]).stdout, before);
+        assert_eq!(
+            fs::read_to_string(tracked).unwrap(),
+            "keep my tracked edit\n"
+        );
+        assert_eq!(
+            fs::read_to_string(untracked).unwrap(),
+            "keep my untracked edit\n"
+        );
+    }
+}
 
-    let result = push::run_preflighted_with_decisions_summary(
-        &machine.context,
-        &options,
-        plan,
-        &VecSink::default(),
-        &decisions,
-    );
-
-    assert_eq!(result, Ok(None));
-    assert_eq!(machine.calls(), ["protocol", "status", "sync"]);
+#[test]
+fn push_preserves_connection_errors_without_retrying_as_an_unsupported_peer() {
+    let _lock = lock_cancellation();
+    let machine = Machine::new()
+        .environment()
+        .env("PUSH_SSH_SCENARIO", "connection-failed");
+    let (result, _) = run(&machine, &cli());
+    assert_eq!(result.unwrap_err(), "archie: ssh: Permission denied");
+    assert_eq!(machine.calls(), ["session"]);
+    assert!(!machine.sync_log.exists());
 }
 
 #[test]
 fn push_unknown_host_fails_without_network_access() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let mut options = cli();
     options.to = Some("nosuch".to_string());
 
@@ -693,7 +753,7 @@ fn push_requires_ssh_before_inspecting_git() {
 #[test]
 fn push_requires_an_upstream_before_network_access() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     git(&machine.root, &["branch", "--unset-upstream"]);
 
     let (result, _) = run(&machine, &cli());
@@ -705,7 +765,7 @@ fn push_requires_an_upstream_before_network_access() {
 #[test]
 fn push_honors_cancellation_before_starting_commands() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     cancel::request();
     let sink = VecSink::default();
 
@@ -719,7 +779,7 @@ fn push_honors_cancellation_before_starting_commands() {
 #[test]
 fn push_cancellation_terminates_and_waits_for_an_active_ssh_child() {
     let _lock = lock_cancellation();
-    let machine = Machine::new().environment(false);
+    let machine = Machine::new().environment();
     let machine = machine.env("PUSH_SSH_BLOCK", "1");
     let context = machine.context.clone();
     let started = std::time::Instant::now();

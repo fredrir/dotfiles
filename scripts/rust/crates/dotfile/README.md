@@ -23,30 +23,33 @@
 | Git operations | External `git`; literal pathspecs and bounded blob batches |
 | System installation | Linux, `sudo install`; inspection and dry-run also work on macOS |
 | Completion shell | Zsh |
+| Remote sync | Matching native push protocol; install with `./setup.sh --commands-only` |
 | Interrupted mutations | Recovered under the next mutation lock; ambiguous or edited paths are preserved |
 | Python tools | Remain separate; setup exports `config/command-surface.json` |
 | Transcript redaction | Native JSON-lines helper; plaintext values stay inside dotfile |
 | Sysinfo colors | Native versioned palette JSON |
+| Commit/push review | `i` inspect, `a` accept exact contents, `q` / Enter abort |
+| Accepted findings | Local `.git/dotfile/scan-approvals.json`; path, SHA-256, pattern labels only |
+| Review limits | Canary/encryption violations block; CI and unavailable terminals fail closed |
 
 ```sh
 cargo build --release --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli
-cargo test --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli
-cargo test --locked --manifest-path scripts/rust/Cargo.toml -p hostkit -- --test-threads=1
-cargo clippy --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli -p hostkit --all-targets -- -D warnings
-uv run --project scripts/python --locked pytest scripts/python/tests/dotfile scripts/python/tests/surface scripts/python/tests/transcript scripts/python/tests/utils/sysinfo
+dotfile dev check -l rust -p dotfile-cli
+dotfile dev test -l python -p dotfile,surface,transcript,utils
 ```
 
 | Contract | Coverage |
 | --- | --- |
-| All theme profiles and emitters | `tests/fixtures/theme/oracle.json`: 160 byte-exact outputs |
-| Color expressions | `tests/fixtures/theme/expressions.json` |
+| All theme profiles and emitters | `tests/unit/theme_tests.rs`, `tests/theme_cli.rs` |
+| Color expressions | `tests/unit/theme_tests.rs` |
 | Picker, preview, signals, tmux | `tests/theme_cli.rs` |
 | Real encryption, rotation, revocation, recovery, Git history | `tests/secret_e2e.rs` |
+| Interactive review, exact staged contents, approvals, commit/push hooks | `tests/secret_scan_review.rs` |
 | System ownership/modes, add/remove, doctor | `tests/system_manage_doctor.rs` |
 | Native metadata, missing/stale exports, permissions, locks | `tests/surface_native.rs` |
-| JSONC spans, merge decisions, ignore patterns | `tests/fixtures/merge-legacy.json` |
-| Comment-preserving JSONC edits and adoption | `tests/unit/sync/adoption_legacy_tests.rs` |
-| Existing sync UI and remote behavior | `tests/native_sync_core.rs`, `tests/push_path.rs`, `tests/sync_*` |
+| JSONC spans, merge decisions, ignore patterns | `tests/unit/sync/merge_tests.rs`, `tests/native_sync_core.rs` |
+| Comment-preserving JSONC edits and adoption | `tests/unit/sync/adoption_tests.rs` |
+| Sync UI and remote protocol | `tests/native_sync_core.rs`, `tests/push_path.rs`, `tests/sync_*` |
 | Python adapters, hooks, bootstrap | `scripts/python/tests/` |
 
 ```sh
@@ -60,23 +63,11 @@ scripts/rust/target/debug/dotfile --completions zsh | zsh -n
 ./setup.sh --commands-only
 ```
 
-## Measurements
-
-macOS arm64, release builds, warm cache; startup and child processes included.
-
-| Operation | Python median | Rust median | Ratio |
-| --- | ---: | ---: | ---: |
-| Theme dry-run, same checkout | 2358 ms | 22.1 ms | 106.6× |
-| Secret scan, 1,000 worktree files | 332 ms | 47.5 ms | 7.0× |
-| Secret scan, 1,000 staged files | 9917 ms | 187 ms | 52.9× |
-
-| Staged scanner | Python | Rust |
-| --- | ---: | ---: |
-| Git processes | 1,002 | 5 |
-| Peak RSS | 33.6 MB | 17.1 MB |
-
-Raw samples and reproduction: `tests/fixtures/theme/benchmark.json`, `tests/fixtures/secret-scan-benchmark.json`, `tests/fixtures/startup-benchmark.json`.
-
 ```sh
-cargo test --release --locked --manifest-path scripts/rust/Cargo.toml -p dotfile-cli --test theme_cli benchmark_theme_commands -- --ignored --nocapture
+# Review the Git index; approvals apply to identical blobs in later pushes.
+dotfile secret scan --staged --review
+# Review outgoing ranges together.
+dotfile secret scan --commits 'origin/main..HEAD' --review
+# Forget local approvals.
+rm -f "$(git rev-parse --git-path dotfile/scan-approvals.json)"
 ```

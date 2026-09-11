@@ -392,13 +392,13 @@ fn changing_override_prunes_the_old_layer_and_restores_the_base() {
 
 #[cfg(unix)]
 #[test]
-fn missing_link_index_runs_one_time_bounded_migration() {
+fn missing_link_index_discovers_existing_links_with_a_bounded_scan() {
     let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");
     sandbox.write("shared/git/.gitconfig", "repo\n");
     let stale = sandbox.home.join(".config/stale-link");
     std::os::unix::fs::symlink(sandbox.root.join("shared/removed"), &stale).unwrap();
     assert!(!sandbox.context.state.join("links").exists());
-    sandbox.sync(&cli()).expect("migration sync");
+    sandbox.sync(&cli()).expect("initial sync");
     assert!(fs::symlink_metadata(stale).is_err());
     let index = fs::read_to_string(sandbox.context.state.join("links")).unwrap();
     assert!(index.contains(".gitconfig"));
@@ -423,7 +423,7 @@ fn warm_sync_uses_the_managed_link_index_instead_of_rescanning_home() {
 
 #[cfg(unix)]
 #[test]
-fn migrated_folded_merge_package_rebuilds_only_eligible_children() {
+fn folded_merge_package_rebuilds_only_eligible_children() {
     let sandbox = Sandbox::new(
         "shared\nmacos\n",
         "shared/vscode = ~/.config/Code/User\nmacos/vscode = ~/.config/Code/User\n",

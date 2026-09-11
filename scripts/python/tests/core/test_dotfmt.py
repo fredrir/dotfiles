@@ -30,7 +30,6 @@ def test_the_filename_is_passed_along_so_the_mode_can_be_chosen(stub):
 
 
 def test_a_formatter_that_is_not_installed_leaves_the_text_alone(monkeypatch, tmp_path):
-    # setup.sh builds dotfmt, and runs the generators on the way there.
     monkeypatch.setenv("PATH", str(tmp_path))
     assert formatted("a = 1\n", "x.dotfile") == "a = 1\n"
 

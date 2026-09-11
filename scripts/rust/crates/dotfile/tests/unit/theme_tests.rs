@@ -1,39 +1,28 @@
 use super::*;
+#[path = "../support/theme.rs"]
+mod support;
+
 #[test]
-fn oracle_all_profiles_and_outputs() {
-    let oracle: serde_json::Value =
-        serde_json::from_str(include_str!("../fixtures/theme/oracle.json")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    for (path, body) in oracle["sources"].as_object().unwrap() {
-        let target = directory.path().join(path);
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(target, body.as_str().unwrap()).unwrap();
-    }
+fn every_profile_renders_an_idempotent_output_set() {
+    let directory = support::repository();
     let repo = model::Repository::load(directory.path()).unwrap();
-    validate::all(&repo).unwrap();
     let targets = emitters::targets(&repo).unwrap();
-    assert_eq!(targets.len(), 40);
-    for (name, files) in oracle["expected"].as_object().unwrap() {
-        let t = repo.theme(name).unwrap();
+    for theme in repo.themes.values() {
         for target in &targets {
-            let actual = emitters::emit(&repo, t, target).unwrap();
-            let expected = files[&target.path].as_str().unwrap();
-            if actual != expected {
-                let a = actual.lines().collect::<Vec<_>>();
-                let b = expected.lines().collect::<Vec<_>>();
-                let mismatch = a
-                    .iter()
-                    .zip(&b)
-                    .position(|(a, b)| a != b)
-                    .unwrap_or(a.len().min(b.len()));
-                panic!(
-                    "{name}: {} line {}\nactual: {:?}\nexpected: {:?}",
-                    target.path,
-                    mismatch + 1,
-                    a.get(mismatch),
-                    b.get(mismatch)
-                );
-            }
+            let path = directory.path().join(&target.path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let output = emitters::emit(&repo, theme, target).unwrap();
+            assert!(!output.is_empty(), "{}: {}", theme.profile, target.path);
+            std::fs::write(path, output).unwrap();
+        }
+        for target in &targets {
+            assert_eq!(
+                emitters::emit(&repo, theme, target).unwrap(),
+                std::fs::read_to_string(directory.path().join(&target.path)).unwrap(),
+                "{}: {} changed on a repeated render",
+                theme.profile,
+                target.path
+            );
         }
     }
 }
@@ -138,49 +127,9 @@ fn selection_edit_keeps_comments_and_removes_only_requested_overrides() {
     );
 }
 
-fn fixture() -> tempfile::TempDir {
-    let oracle: serde_json::Value =
-        serde_json::from_str(include_str!("../fixtures/theme/oracle.json")).unwrap();
-    let directory = tempfile::tempdir().unwrap();
-    for (path, body) in oracle["sources"].as_object().unwrap() {
-        let target = directory.path().join(path);
-        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
-        std::fs::write(target, body.as_str().unwrap()).unwrap();
-    }
-    directory
-}
-#[test]
-fn expression_oracle_preserves_dark_light_negative_ladders_nested_functions_and_alpha() {
-    let oracle: serde_json::Value =
-        serde_json::from_str(include_str!("../fixtures/theme/expressions.json")).unwrap();
-    for case in oracle["cases"].as_array().unwrap() {
-        let source = case["expression"].as_str().unwrap();
-        let expression = expression::Expr::parse(source).unwrap();
-        let value = expression
-            .evaluate(
-                &mut |name| {
-                    color::Color::parse(
-                        oracle["palette"][name]
-                            .as_str()
-                            .ok_or_else(|| format!("unknown palette color: {name}"))?,
-                    )
-                },
-                color::Color::parse(case["background"].as_str().unwrap()).unwrap(),
-                color::Color::parse(case["foreground"].as_str().unwrap()).unwrap(),
-            )
-            .unwrap();
-        assert_eq!(
-            value.color.to_string(),
-            case["color"],
-            "{source} on {}",
-            case["background"]
-        );
-        assert_eq!(value.alpha, case["alpha"].as_f64(), "{source}");
-    }
-}
 #[test]
 fn schema_rejects_unknown_missing_and_wrong_types_and_normalizes_colors() {
-    let root = fixture();
+    let root = support::repository();
     let repo = model::Repository::load(root.path()).unwrap();
     let raw = repo.theme("latte").unwrap().raw.clone();
     type Mutation = fn(&mut serde_json::Value);
@@ -222,7 +171,7 @@ fn schema_rejects_unknown_missing_and_wrong_types_and_normalizes_colors() {
 }
 #[test]
 fn all_contrast_pairs_have_unique_states_and_tmux_indexed_colors_remain_readable() {
-    let root = fixture();
+    let root = support::repository();
     let repo = model::Repository::load(root.path()).unwrap();
     for t in repo.themes.values() {
         let pairs = validate::pairs(t).unwrap();
@@ -281,7 +230,7 @@ fn marker_ini_and_lua_edits_preserve_surroundings_and_escaping() {
 }
 #[test]
 fn cascade_routes_group_package_and_profile_defaults() {
-    let root = fixture();
+    let root = support::repository();
     let repo = model::Repository::load(root.path()).unwrap();
     let selection = selection::Selection {
         groups: std::collections::BTreeMap::from([

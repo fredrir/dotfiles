@@ -28,12 +28,11 @@ impl Sandbox {
         self.temporary.path().join(relative)
     }
 
-    fn environment(&self) -> [(&'static str, PathBuf); 4] {
+    fn environment(&self) -> [(&'static str, PathBuf); 3] {
         [
             ("DOTFILE_ROOT", self.path("repo")),
             ("HOME", self.path("home")),
             ("XDG_CONFIG_HOME", self.path("home/.config")),
-            ("DOTFILE_PYTHON", self.path("missing-python")),
         ]
     }
 

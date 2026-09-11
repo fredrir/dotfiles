@@ -64,11 +64,6 @@ struct RemoteState {
     changes: Vec<String>,
 }
 
-enum SessionOutcome {
-    Complete(usize),
-    Unsupported,
-}
-
 #[derive(Debug)]
 pub struct PushPlan {
     host: String,
@@ -205,7 +200,7 @@ pub fn run_preflighted_with_decisions_summary(
     plan: PushPlan,
     events: &dyn EventSink,
     decisions: &dyn DecisionClient,
-) -> Result<Option<usize>, String> {
+) -> Result<usize, String> {
     finish(execute(context, cli, plan, events, decisions), events)
 }
 
@@ -273,7 +268,7 @@ fn execute(
     plan: PushPlan,
     events: &dyn EventSink,
     decisions: &dyn DecisionClient,
-) -> Result<Option<usize>, Failure> {
+) -> Result<usize, Failure> {
     let PushPlan {
         host,
         directory,
@@ -300,7 +295,7 @@ fn execute(
             total: Some(3),
             label: format!("{host}:~/{directory}"),
         });
-        return Ok(Some(0));
+        return Ok(0);
     }
 
     active(Phase::Push)?;
@@ -317,19 +312,7 @@ fn execute(
     });
 
     active(Phase::Remote)?;
-    match protocol_session(context, &host, &directory, &branch, cli, events, decisions)? {
-        SessionOutcome::Complete(changed) => Ok(Some(changed)),
-        SessionOutcome::Unsupported => legacy_session(
-            context,
-            &host,
-            &directory,
-            &branch.name,
-            cli,
-            events,
-            decisions,
-        )
-        .map(|()| None),
-    }
+    protocol_session(context, &host, &directory, &branch, cli, events, decisions)
 }
 
 fn resolve_host_inner(context: &Context, requested: Option<&str>) -> Result<String, Failure> {
@@ -705,6 +688,23 @@ fn push_branch(
     }
 }
 
+fn unsupported_remote(host: &str, directory: &str) -> Failure {
+    remote_upgrade_failure(
+        host,
+        directory,
+        format!(
+            "remote does not support native push protocol {}",
+            protocol::VERSION
+        ),
+    )
+}
+
+fn remote_upgrade_failure(host: &str, directory: &str, reason: String) -> Failure {
+    Failure::remote(format!(
+        "{host}: {reason}; update ~/{directory} and run ./setup.sh --commands-only on {host}, then retry"
+    ))
+}
+
 fn protocol_session(
     context: &Context,
     host: &str,
@@ -713,7 +713,7 @@ fn protocol_session(
     cli: &SyncCli,
     events: &dyn EventSink,
     decisions: &dyn DecisionClient,
-) -> Result<SessionOutcome, Failure> {
+) -> Result<usize, Failure> {
     let local_branch = branch.name.as_str();
     let local_head = branch.oid.as_str();
     active(Phase::Remote)?;
@@ -767,10 +767,14 @@ fn protocol_session(
                     send_decision(&mut stdin, &Message::Cancel)?;
                     drop(stdin);
                     let _ = finish_child(child, stderr_thread, stdout_thread);
-                    return Err(Failure::remote(format!(
-                        "{host}: push protocol {version} is incompatible with {}",
-                        protocol::VERSION
-                    )));
+                    return Err(remote_upgrade_failure(
+                        host,
+                        directory,
+                        format!(
+                            "push protocol {version} is incompatible with {}",
+                            protocol::VERSION
+                        ),
+                    ));
                 }
                 if remote_host != host {
                     send_decision(&mut stdin, &Message::Cancel)?;
@@ -812,15 +816,18 @@ fn protocol_session(
             Err(_) | Ok(_) => {
                 drop(stdin);
                 let _ = finish_child(child, stderr_thread, stdout_thread);
-                return Ok(SessionOutcome::Unsupported);
+                return Err(unsupported_remote(host, directory));
             }
         }
     }
 
     if !hello {
         drop(stdin);
-        let _ = finish_child(child, stderr_thread, stdout_thread);
-        return Ok(SessionOutcome::Unsupported);
+        let (success, stderr) = finish_child(child, stderr_thread, stdout_thread)?;
+        if !success && let Some(reason) = first_line(stderr.as_bytes()) {
+            return Err(Failure::remote(format!("{host}: {reason}")));
+        }
+        return Err(unsupported_remote(host, directory));
     }
     if !ready {
         drop(stdin);
@@ -1000,7 +1007,7 @@ fn protocol_session(
         total: Some(2),
         label: format!("{host} synced"),
     });
-    Ok(SessionOutcome::Complete(remote_changed))
+    Ok(remote_changed)
 }
 
 fn spawn_ssh(context: &Context, host: &str, script: &str) -> Result<Child, Failure> {
@@ -1371,160 +1378,6 @@ fn remote_operation_failure(host: &str, operation: &str, value: &str) -> Failure
     Failure::remote(message)
 }
 
-fn legacy_session(
-    context: &Context,
-    host: &str,
-    directory: &str,
-    local_branch: &str,
-    cli: &SyncCli,
-    events: &dyn EventSink,
-    decisions: &dyn DecisionClient,
-) -> Result<(), Failure> {
-    active(Phase::Remote)?;
-    let state = legacy_remote_state(context, host, directory)?;
-    if state.branch != local_branch {
-        return Err(branch_mismatch(host, local_branch, &state.branch));
-    }
-    report_remote_changes(host, &state, cli.force, events);
-    if !state.changes.is_empty() {
-        if cli.force
-            || decisions
-                .discard_remote_changes(host, &state.changes)
-                .map_err(Failure::remote)?
-        {
-            legacy_discard(context, host, directory, events)?;
-        } else {
-            return Err(dirty_failure(host));
-        }
-    }
-    active(Phase::Remote)?;
-    events.emit(Event::Progress {
-        phase: Phase::Remote,
-        completed: 1,
-        total: Some(2),
-        label: format!("{host} | pull"),
-    });
-    let mut command = vec![
-        "export PATH=\"$HOME/.local/bin:$PATH\"".to_string(),
-        "git pull --ff-only || exit 1".to_string(),
-    ];
-    let sync = match remote_resolution(cli) {
-        Resolution::Skip => "dotfile sync",
-        Resolution::Repo => "dotfile sync --resolve repo",
-        Resolution::Live => "dotfile sync --resolve live",
-    };
-    command.push(sync.to_string());
-    let output = ssh_output(context, host, &remote_script(directory, &command))?;
-    if !output.status.success() {
-        return Err(Failure::remote(format!(
-            "{host}: {}; pull with --ff-only or rebase there before retrying",
-            first_line(&output.stderr).unwrap_or("remote pull or sync failed")
-        )));
-    }
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if !line.trim().is_empty() {
-            events.emit(Event::Item {
-                action: Action::Sync,
-                path: PathBuf::from(host),
-                detail: line.trim().to_string(),
-                changed: false,
-            });
-        }
-    }
-    events.emit(Event::Progress {
-        phase: Phase::Remote,
-        completed: 2,
-        total: Some(2),
-        label: format!("{host} synced"),
-    });
-    Ok(())
-}
-
-fn legacy_remote_state(
-    context: &Context,
-    host: &str,
-    directory: &str,
-) -> Result<RemoteState, Failure> {
-    let output = ssh_output(
-        context,
-        host,
-        &remote_script(directory, &["git status --porcelain --branch".to_string()]),
-    )?;
-    if !output.status.success() {
-        return Err(Failure::remote(format!(
-            "{host}: {}",
-            first_line(&output.stderr).unwrap_or("cannot read repository")
-        )));
-    }
-    let mut branch = String::new();
-    let mut changes = Vec::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if let Some(header) = line.strip_prefix("## ") {
-            let name = header
-                .split_once("...")
-                .map(|(name, _)| name)
-                .unwrap_or(header);
-            branch = name
-                .split_once(" [")
-                .map(|(name, _)| name)
-                .unwrap_or(name)
-                .to_string();
-        } else if !line.trim().is_empty() {
-            changes.push(line.to_string());
-        }
-    }
-    if branch.is_empty() {
-        return Err(Failure::remote(format!(
-            "{host}: cannot read repository state"
-        )));
-    }
-    Ok(RemoteState { branch, changes })
-}
-
-fn legacy_discard(
-    context: &Context,
-    host: &str,
-    directory: &str,
-    events: &dyn EventSink,
-) -> Result<(), Failure> {
-    let output = ssh_output(
-        context,
-        host,
-        &remote_script(
-            directory,
-            &[
-                "git reset --hard || exit 1".to_string(),
-                "git clean -fd".to_string(),
-            ],
-        ),
-    )?;
-    if !output.status.success() {
-        return Err(Failure::remote(format!(
-            "{host}: {}",
-            first_line(&output.stderr).unwrap_or("cannot discard the working tree")
-        )));
-    }
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if !line.trim().is_empty() {
-            events.emit(Event::Item {
-                action: Action::Prune,
-                path: PathBuf::from(host),
-                detail: line.trim().to_string(),
-                changed: true,
-            });
-        }
-    }
-    Ok(())
-}
-
-fn ssh_output(context: &Context, host: &str, script: &str) -> Result<Output, Failure> {
-    active(Phase::Remote)?;
-    let mut command = Session::new(host).script(script).command();
-    command.envs(&context.process_env);
-    captured_output(command, Phase::Remote)
-        .map_err(|error| Failure::remote(format!("{host}: cannot run ssh: {error}")))
-}
-
 fn captured_output(mut command: Command, phase: Phase) -> Result<Output, String> {
     active(phase).map_err(|failure| failure.message)?;
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -1576,13 +1429,6 @@ fn active(phase: Phase) -> Result<(), Failure> {
         message,
         hint: None,
     })
-}
-
-fn remote_script(directory: &str, commands: &[String]) -> String {
-    std::iter::once(format!("cd \"$HOME\"/{} || exit 1", shell_quote(directory)))
-        .chain(commands.iter().cloned())
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn first_line(bytes: &[u8]) -> Option<&str> {

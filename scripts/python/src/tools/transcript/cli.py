@@ -11,7 +11,7 @@ from tools.core import clipboard, menu
 from tools.core.console import die, out, stdout
 from tools.desktop.clean_copy import clean_text
 from tools.surface import entry as surface
-from tools.transcript import config, detect, manage, migration, redact, store, vault
+from tools.transcript import config, detect, manage, migration, store, vault
 
 app = typer.Typer(add_completion=False, help="Archive AI agent sessions as Obsidian notes.")
 surface.register(app)
@@ -183,7 +183,7 @@ def _untrack(name):
 
 def _redactor(raw):
     if raw:
-        return redact.passthrough
+        return lambda text: text
     from tools.transcript.native_redaction import Redactor
 
     return Redactor()

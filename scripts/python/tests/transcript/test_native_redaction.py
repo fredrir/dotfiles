@@ -3,8 +3,82 @@ import sys
 import time
 
 import pytest
+from native import rust_binary
 
-from tools.transcript import native_redaction
+from tools.transcript import cli, native_redaction
+
+
+@pytest.fixture
+def native_redactor(tmp_path, monkeypatch):
+    executable = str(rust_binary("dotfile-cli", "dotfile"))
+    root = tmp_path / "repo"
+    (root / "config").mkdir(parents=True)
+    home = tmp_path / "home"
+    state = home / ".config" / "dotfile"
+    state.mkdir(parents=True)
+    canaries = state / "canaries"
+    canaries.write_text(
+        "host = private-fixture.example\n"
+        "unicode-host = prİvate-fixture.example\n"
+        "overlap = prefix ghp_abcdefghijklmnopqrstuv1234567890 suffix\n"
+    )
+    canaries.chmod(0o600)
+    monkeypatch.setenv("DOTFILE_ROOT", str(root))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.setattr(native_redaction, "binary", lambda _: executable)
+    redactor = native_redaction.Redactor()
+    try:
+        yield redactor
+    finally:
+        redactor._cleanup()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "token ghp_abcdefghijklmnopqrstuv1234567890 done",
+            "token [redacted:github-token] done",
+        ),
+        (
+            "sk-abcdefghijklmnop1234 and AKIAABCDEFGHIJKLMNOP",
+            "[redacted:api-key] and [redacted:aws-key]",
+        ),
+        ("export API_KEY=supersecretvalue123", "export API_KEY=[redacted:value]"),
+        (
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----",
+            "[redacted:private-key]",
+        ),
+        (
+            "git commit -m 'update config' && git push origin main",
+            "git commit -m 'update config' && git push origin main",
+        ),
+        (
+            "box at PRIVATE-Fixture.Example and private-fixture.example",
+            "box at [redacted:private] and [redacted:private]",
+        ),
+        (
+            "İK at PRİVATE-fixture.example and pri\u0307vate-fixture.example",
+            "İK at [redacted:private] and [redacted:private]",
+        ),
+        (
+            "start prefix ghp_abcdefghijklmnopqrstuv1234567890 suffix end",
+            "start [redacted:private] end",
+        ),
+    ],
+)
+def test_native_redaction_filters_tokens_and_private_values(native_redactor, text, expected):
+    assert native_redactor(text) == expected
+
+
+def test_raw_transcript_text_does_not_start_a_redaction_service(monkeypatch):
+    def unexpected(_):
+        raise AssertionError("raw text must not start the redaction service")
+
+    monkeypatch.setattr(native_redaction, "binary", unexpected)
+    text = "ghp_abcdefghijklmnopqrstuv1234567890 private-fixture.example"
+    assert cli._redactor(True)(text) == text
 
 
 def helper(tmp_path, monkeypatch, body):

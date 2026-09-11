@@ -21,4 +21,4 @@ if staged config/keys.dotfile; then
 	fi
 fi
 
-"$dotfile" secret scan --staged >/dev/null
+"$dotfile" secret scan --review --staged >/dev/null

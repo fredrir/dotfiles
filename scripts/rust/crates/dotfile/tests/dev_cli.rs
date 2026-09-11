@@ -58,7 +58,6 @@ impl Sandbox {
         Bin::new(env!("CARGO_BIN_EXE_dotfile"))
             .arg("dev")
             .env("DOTFILE_ROOT", self.root.path())
-            .env("DOTFILE_PYTHON", "/missing-backend")
             .env("TMPDIR", self.root.path())
             .env("DEV_LOG", self.root.path().join("log"))
             .env("DEV_LOCK", self.root.path().join("running"))

@@ -1,5 +1,8 @@
 use regex::Regex;
+use std::ops::Range;
 use std::sync::LazyLock;
+
+pub(super) const MAX_REDACTION_MATCHES: usize = 32_768;
 
 pub static TOKENS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     [
@@ -31,14 +34,112 @@ pub static VALUE: LazyLock<Regex> = LazyLock::new(|| {
 ).expect("valid value pattern")
 });
 
-pub fn redact_patterns(text: &str) -> String {
-    let mut output = text.to_string();
-    for (label, pattern) in TOKENS.iter() {
-        output = pattern
-            .replace_all(&output, format!("[redacted:{label}]"))
-            .into_owned();
+pub(super) fn redact_with_private(text: &str, private: &[Range<usize>]) -> Result<String, String> {
+    let mut ranges: Vec<(Range<usize>, &str, u8)> = Vec::new();
+    let mut add = |range: Range<usize>, label, priority| -> Result<(), String> {
+        if ranges.len() == MAX_REDACTION_MATCHES {
+            return Err("too many matches to redact safely".into());
+        }
+        if range.start >= range.end || text.get(range.clone()).is_none() {
+            return Err("invalid redaction match".into());
+        }
+        ranges.push((range, label, priority));
+        Ok(())
+    };
+    for range in private {
+        add(range.clone(), "private", 3)?;
     }
-    VALUE
-        .replace_all(&output, "${1}${2}[redacted:value]")
-        .into_owned()
+    for (label, pattern) in TOKENS.iter() {
+        for found in pattern.find_iter(text) {
+            add(
+                found.range(),
+                label,
+                if *label == "private-key" { 2 } else { 0 },
+            )?;
+        }
+    }
+    for captures in VALUE.captures_iter(text) {
+        if let Some(value) = captures.get(3) {
+            add(value.range(), "value", 1)?;
+        }
+    }
+    ranges.sort_unstable_by_key(|(range, _, priority)| (range.start, range.end, *priority));
+    let mut merged: Vec<(Range<usize>, &str, u8)> = Vec::new();
+    for (range, label, priority) in ranges {
+        if let Some((previous, previous_label, previous_priority)) = merged.last_mut()
+            && range.start < previous.end
+        {
+            previous.end = previous.end.max(range.end);
+            if priority > *previous_priority {
+                *previous_label = label;
+                *previous_priority = priority;
+            }
+        } else {
+            merged.push((range, label, priority));
+        }
+    }
+    let mut output = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for (range, label, _) in merged {
+        output.push_str(&text[cursor..range.start]);
+        output.push_str("[redacted:");
+        output.push_str(label);
+        output.push(']');
+        cursor = range.end;
+    }
+    output.push_str(&text[cursor..]);
+    Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replacement_labels_and_value_prefixes_remain_stable() {
+        for (text, expected) in [
+            (
+                "token ghp_abcdefghijklmnopqrstuv1234567890 done",
+                "token [redacted:github-token] done",
+            ),
+            (
+                "export API_KEY=ghp_abcdefghijklmnopqrstuv1234567890",
+                "export API_KEY=[redacted:value]",
+            ),
+            (
+                "-----BEGIN RSA PRIVATE KEY-----\nghp_abcdefghijklmnopqrstuv1234567890\n-----END RSA PRIVATE KEY-----",
+                "[redacted:private-key]",
+            ),
+        ] {
+            assert_eq!(redact_with_private(text, &[]).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn private_spans_merge_with_patterns_and_keep_adjacent_plaintext() {
+        let text = "x ghp_abcdefghijklmnopqrstuv1234567890 tail y";
+        let private_start = text.find("qrst").unwrap();
+        let private_end = text.find(" y").unwrap();
+        assert_eq!(
+            redact_with_private(text, std::slice::from_ref(&(private_start..private_end))).unwrap(),
+            "x [redacted:private] y"
+        );
+        assert_eq!(
+            redact_with_private("password=private-fixture", std::slice::from_ref(&(9..24)))
+                .unwrap(),
+            "password=[redacted:private]"
+        );
+    }
+
+    #[test]
+    fn excessive_and_invalid_spans_fail_closed() {
+        let text = "ghp_abcdefghijklmnopqrstuv1234567890 ".repeat(MAX_REDACTION_MATCHES + 1);
+        assert!(
+            redact_with_private(&text, &[])
+                .unwrap_err()
+                .contains("too many")
+        );
+        assert!(redact_with_private("İ", std::slice::from_ref(&(1..2))).is_err());
+        assert!(redact_with_private("fixture", std::slice::from_ref(&(0..8))).is_err());
+    }
 }

@@ -39,22 +39,9 @@ def secret(tool, env, *args):
     return tool("dotfile", "secret", *args, env=env)
 
 
-@pytest.fixture
-def formatter(tmp_path):
-    def build(env, script):
-        directory = tmp_path / "formatter"
-        directory.mkdir(exist_ok=True)
-        stub = directory / "dotfmt"
-        stub.write_text(f"#!/bin/sh\n{script}\n")
-        stub.chmod(0o755)
-        return dict(env, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}")
-
-    return build
-
-
-def test_enroll_writes_both_files(tool, repo, formatter):
+def test_enroll_writes_both_files(tool, repo):
     root, _home, env = repo
-    assert secret(tool, formatter(env, "cat"), "enroll", "archie", KEY_A).returncode == 0
+    assert secret(tool, env, "enroll", "archie", KEY_A).returncode == 0
     assert (
         root / "config" / "keys.dotfile"
     ).read_text() == f"recipients {{\n  archie = {KEY_A}\n}}\n"
@@ -85,12 +72,11 @@ def test_enroll_refuses_to_replace_a_label(tool, repo):
     assert "revoke it first" in result.stderr
 
 
-def test_revoke_removes_and_regenerates(tool, repo, formatter):
+def test_revoke_removes_and_regenerates(tool, repo):
     root, _home, env = repo
-    plain = formatter(env, "cat")
-    secret(tool, plain, "enroll", "archie", KEY_A)
-    secret(tool, plain, "enroll", "recovery", KEY_B)
-    assert secret(tool, plain, "revoke", "archie").returncode == 0
+    secret(tool, env, "enroll", "archie", KEY_A)
+    secret(tool, env, "enroll", "recovery", KEY_B)
+    assert secret(tool, env, "revoke", "archie").returncode == 0
     assert (
         root / "config" / "keys.dotfile"
     ).read_text() == f"recipients {{\n  recovery = {KEY_B}\n}}\n"
@@ -130,11 +116,10 @@ def test_sync_leaves_a_formatted_file_byte_for_byte(tool, repo):
     assert KEY_A in (root / ".sops.yaml").read_text()
 
 
-def test_a_changed_recipient_uses_stable_native_formatting(tool, repo, formatter):
+def test_a_changed_recipient_uses_stable_formatting(tool, repo):
     root, _home, env = repo
     write_keys(root, ALIGNED)
-    marked = formatter(env, "tr 'a-z' 'A-Z'")
-    assert secret(tool, marked, "revoke", "recovery").returncode == 0
+    assert secret(tool, env, "revoke", "recovery").returncode == 0
     assert (root / "config" / "keys.dotfile").read_text() == (
         f"recipients {{\n  archie = {KEY_A}\n}}\n"
     )

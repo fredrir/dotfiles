@@ -1,10 +1,16 @@
+mod approvals;
+mod inspect;
+mod review;
+
 use super::{canaries, patterns, recipients, sops, vault};
 use crate::context::Context;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
+use std::sync::Arc;
 
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_LIST: usize = 32 * 1024 * 1024;
@@ -55,7 +61,7 @@ struct Blob {
     inside: Option<bool>,
 }
 
-fn index(context: &Context) -> Result<Vec<Blob>, String> {
+fn index(context: &Context) -> Result<(Vec<Blob>, Vec<u8>), String> {
     let data = git(context, &["ls-files", "--stage", "-z"])?;
     let mut found = Vec::new();
     for entry in data.split(|b| *b == 0).filter(|b| !b.is_empty()) {
@@ -75,7 +81,7 @@ fn index(context: &Context) -> Result<Vec<Blob>, String> {
             inside: None,
         });
     }
-    Ok(found)
+    Ok((found, data))
 }
 
 fn history(context: &Context, revisions: &str) -> Result<Vec<Blob>, String> {
@@ -254,8 +260,19 @@ fn batch(
 struct Finding {
     tier: u8,
     label: String,
-    path: PathBuf,
+    source: Arc<Source>,
     line: usize,
+}
+
+#[derive(Debug)]
+struct Source {
+    path: PathBuf,
+    oid: Option<String>,
+    sha256: String,
+}
+
+fn fingerprint(data: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(data))
 }
 
 fn encrypted(text: &str) -> bool {
@@ -330,6 +347,7 @@ fn looks_like_key(path: &Path) -> bool {
 struct Scanner {
     directories: BTreeSet<PathBuf>,
     allowed: Vec<(globset::GlobMatcher, String)>,
+    approvals: approvals::Store,
     canaries: Vec<canaries::Canary>,
     matcher: Option<aho_corasick::AhoCorasick>,
     findings: Vec<Finding>,
@@ -340,9 +358,12 @@ struct Scanner {
 }
 
 impl Scanner {
-    fn add(&mut self, tier: u8, label: &str, path: &Path, line: usize) {
+    fn add(&mut self, tier: u8, label: &str, source: &Arc<Source>, line: usize) {
         self.total_findings = self.total_findings.saturating_add(1);
-        let bytes = label.len().saturating_add(path.as_os_str().len());
+        let bytes = label
+            .len()
+            .saturating_add(source.path.as_os_str().len())
+            .saturating_add(128);
         if self.findings.len() >= MAX_FINDINGS
             || self.finding_bytes.saturating_add(bytes) > MAX_FINDING_BYTES
         {
@@ -352,21 +373,28 @@ impl Scanner {
         self.findings.push(Finding {
             tier,
             label: label.to_string(),
-            path: path.to_path_buf(),
+            source: Arc::clone(source),
             line,
         });
     }
-    fn allowed(&self, path: &Path, label: &str) -> bool {
+    fn allowed(&self, source: &Source, label: &str) -> bool {
         self.allowed
             .iter()
-            .any(|(glob, only)| (only.is_empty() || only == label) && glob.is_match(path))
+            .any(|(glob, only)| (only.is_empty() || only == label) && glob.is_match(&source.path))
+            || self.approvals.contains(&source.path, &source.sha256, label)
     }
     fn scan(
         &mut self,
         path: &Path,
         data: Option<Vec<u8>>,
         inside: Option<bool>,
+        oid: Option<&str>,
     ) -> Result<(), String> {
+        let source = Arc::new(Source {
+            path: path.to_path_buf(),
+            oid: oid.map(str::to_owned),
+            sha256: data.as_deref().map(fingerprint).unwrap_or_default(),
+        });
         let text = data
             .as_ref()
             .filter(|v| v.len() <= MAX_BYTES && !v.iter().take(8192).any(|b| *b == 0))
@@ -378,15 +406,15 @@ impl Scanner {
                 .as_ref()
                 .is_some_and(|t| t.contains("ENC[AES256_GCM,") && encrypted(t));
         if vault::kind_of(path) == vault::SecretKind::Encrypted && !is_encrypted {
-            self.add(1, "not-encrypted", path, 0);
+            self.add(1, "not-encrypted", &source, 0);
         } else if inside
             && path.file_name().is_none_or(|n| n != ".secret")
             && !is_encrypted
             && vault::kind_of(path) != vault::SecretKind::Template
         {
-            self.add(1, "plaintext", path, 0);
+            self.add(1, "plaintext", &source, 0);
         } else if looks_like_key(path) && !inside {
-            self.add(1, "key-file", path, 0);
+            self.add(1, "key-file", &source, 0);
         }
         let Some(text) = text else {
             self.skipped += 1;
@@ -403,19 +431,19 @@ impl Scanner {
         // Even genuine SOPS files may contain unencrypted fields. Scan all text;
         // envelope recognition only satisfies the encrypted-file invariant.
         for (label, regex) in patterns::TOKENS.iter() {
-            if self.allowed(path, label) {
+            if self.allowed(&source, label) {
                 continue;
             }
             for matched in regex.find_iter(&text) {
                 self.add(
                     2,
                     label,
-                    path,
+                    &source,
                     lines.partition_point(|offset| *offset <= matched.start()),
                 );
             }
         }
-        if !self.allowed(path, "value") {
+        if !self.allowed(&source, "value") {
             for matched in patterns::VALUE.captures_iter(&text) {
                 let value = &matched[3];
                 if value
@@ -427,7 +455,7 @@ impl Scanner {
                 self.add(
                     2,
                     "value",
-                    path,
+                    &source,
                     lines.partition_point(|offset| *offset <= matched.get(0).unwrap().start()),
                 );
             }
@@ -447,7 +475,7 @@ impl Scanner {
                     });
             }
             for (index, line) in found {
-                self.add(0, &self.canaries[index].label.clone(), path, line);
+                self.add(0, &self.canaries[index].label.clone(), &source, line);
             }
         }
         Ok(())
@@ -458,11 +486,12 @@ pub fn run(
     context: &Context,
     paths: &[PathBuf],
     staged: bool,
-    commits: Option<&str>,
+    commits: &[String],
     use_canaries: bool,
     all: bool,
+    review_requested: bool,
 ) -> Result<ExitCode, String> {
-    if staged && commits.is_some() {
+    if staged && !commits.is_empty() {
         return Err("--staged and --commits cannot be combined".into());
     }
     let tracked = tracked_paths(context)?;
@@ -497,6 +526,7 @@ pub fn run(
             .filter_map(|p| p.parent().map(Path::to_path_buf))
             .collect(),
         allowed,
+        approvals: approvals::Store::load(context)?,
         canaries: values,
         matcher,
         findings: Vec::new(),
@@ -508,11 +538,23 @@ pub fn run(
     for note in notes {
         println!("! {note}");
     }
-    if staged || commits.is_some() {
-        let mut objects = if let Some(revisions) = commits {
-            history(context, revisions)?
+    let mut index_snapshot = None;
+    if staged || !commits.is_empty() {
+        let mut objects = if !commits.is_empty() {
+            let mut objects = Vec::new();
+            let mut seen = BTreeSet::new();
+            for revisions in commits {
+                for object in history(context, revisions)? {
+                    if seen.insert((object.path.clone(), object.oid.clone(), object.inside)) {
+                        objects.push(object);
+                    }
+                }
+            }
+            objects
         } else {
-            index(context)?
+            let (objects, snapshot) = index(context)?;
+            index_snapshot = Some(snapshot);
+            objects
         };
         for object in &objects {
             if object.path.file_name().is_some_and(|n| n == ".secret")
@@ -539,7 +581,7 @@ pub fn run(
             objects.retain(|b| changed.contains(&b.path));
         }
         batch(context, &objects, |object, data| {
-            scanner.scan(&object.path, data, object.inside)
+            scanner.scan(&object.path, data, object.inside, Some(&object.oid))
         })?;
     } else {
         for path in if paths.is_empty() { &tracked } else { paths } {
@@ -558,42 +600,12 @@ pub fn run(
             {
                 return Err("scan path is outside the repository".into());
             }
-            let metadata = fs::symlink_metadata(&absolute)
-                .map_err(|e| format!("inspect {}: {e}", path.display()))?;
-            if metadata.file_type().is_symlink() {
-                let target = fs::read_link(&absolute).map_err(|e| e.to_string())?;
-                scanner.scan(
-                    relative,
-                    Some(target.to_string_lossy().as_bytes().to_vec()),
-                    None,
-                )?;
-            } else if metadata.is_file() {
-                let mut options = fs::OpenOptions::new();
-                options.read(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                }
-                let mut file = options
-                    .open(&absolute)
-                    .map_err(|e| format!("read {}: {e}", path.display()))?;
-                if !file.metadata().map_err(|e| e.to_string())?.is_file() {
-                    return Err(format!("not a regular scan source: {}", path.display()));
-                }
-                let mut data = Vec::new();
-                (&mut file)
-                    .take((MAX_BYTES + 1) as u64)
-                    .read_to_end(&mut data)
-                    .map_err(|e| e.to_string())?;
-                scanner.scan(relative, Some(data), None)?;
-            } else {
-                scanner.scan(relative, None, None)?;
-            }
+            scanner.scan(relative, read_worktree(&absolute)?, None, None)?;
         }
     }
+    verify_index(context, index_snapshot.as_deref())?;
     scanner.findings.sort_by(|a, b| {
-        (a.tier, &a.path, a.line, &a.label).cmp(&(b.tier, &b.path, b.line, &b.label))
+        (a.tier, &a.source.path, a.line, &a.label).cmp(&(b.tier, &b.source.path, b.line, &b.label))
     });
     if scanner.total_findings == 0 {
         println!(
@@ -612,13 +624,13 @@ pub fn run(
         let tier = ["canary", "invariant", "pattern"][finding.tier as usize];
         eprintln!(
             "✗ {tier:<9} {}{}  {}",
-            finding.path.display(),
+            crate::ui::sanitize_text(&finding.source.path.to_string_lossy()),
             if finding.line == 0 {
                 String::new()
             } else {
                 format!(":{}", finding.line)
             },
-            finding.label
+            crate::ui::sanitize_text(&finding.label)
         );
     }
     if !all && scanner.findings.len() > 12 {
@@ -630,9 +642,205 @@ pub fn run(
             scanner.total_findings - scanner.findings.len()
         );
     }
+    let affected = scanner
+        .findings
+        .iter()
+        .map(|f| &f.source.path)
+        .collect::<BTreeSet<_>>()
+        .len();
     eprintln!(
-        "{} findings in {} files; a canary is never allowed",
-        scanner.total_findings, scanner.scanned
+        "{} finding{} in {affected} file{} ({} scanned)",
+        scanner.total_findings,
+        if scanner.total_findings == 1 { "" } else { "s" },
+        if affected == 1 { "" } else { "s" },
+        scanner.scanned
     );
+    if scanner.findings.iter().any(|f| f.tier < 2) {
+        eprintln!("Canaries and encryption violations must be fixed before continuing.");
+    }
+    if review_requested {
+        return review_findings(
+            context,
+            &scanner,
+            staged,
+            !commits.is_empty(),
+            index_snapshot.as_deref(),
+        );
+    }
+    eprintln!("Review with --review to inspect findings, accept false positives, or abort.");
     Ok(ExitCode::FAILURE)
+}
+
+fn read_worktree(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("inspect {}: {error}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        let target = fs::read_link(path).map_err(|error| error.to_string())?;
+        return Ok(Some(target.to_string_lossy().as_bytes().to_vec()));
+    }
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| format!("read {}: {error}", path.display()))?;
+    if !file
+        .metadata()
+        .map_err(|error| error.to_string())?
+        .is_file()
+    {
+        return Err(format!("not a regular scan source: {}", path.display()));
+    }
+    let mut data = Vec::new();
+    (&mut file)
+        .take((MAX_BYTES + 1) as u64)
+        .read_to_end(&mut data)
+        .map_err(|error| error.to_string())?;
+    Ok(Some(data))
+}
+
+fn verify_index(context: &Context, snapshot: Option<&[u8]>) -> Result<(), String> {
+    if let Some(snapshot) = snapshot
+        && git(context, &["ls-files", "--stage", "-z"])? != snapshot
+    {
+        return Err("staged files changed during scan; retry before accepting".into());
+    }
+    Ok(())
+}
+
+fn source_bytes(context: &Context, source: &Source) -> Result<Vec<u8>, String> {
+    let bytes = if let Some(oid) = &source.oid {
+        git(context, &["cat-file", "blob", oid])?
+    } else {
+        read_worktree(&context.root.join(&source.path))?.ok_or("scan source is not text")?
+    };
+    if fingerprint(&bytes) != source.sha256 {
+        return Err(format!(
+            "{} changed during review; scan again",
+            crate::ui::sanitize_text(&source.path.to_string_lossy())
+        ));
+    }
+    Ok(bytes)
+}
+
+fn review_findings(
+    context: &Context,
+    scanner: &Scanner,
+    staged: bool,
+    history: bool,
+    index_snapshot: Option<&[u8]>,
+) -> Result<ExitCode, String> {
+    if scanner.total_findings != scanner.findings.len() {
+        return Err("report limit reached; narrow the scan before reviewing".into());
+    }
+    let Some(mut session) = review::Session::open()? else {
+        eprintln!(
+            "Review needs an interactive terminal; unresolved findings still block this operation."
+        );
+        eprintln!(
+            "{}",
+            if history {
+                "Repeat this --commits scan with --review in an interactive terminal."
+            } else if staged {
+                "Run dotfile secret scan --staged --review in a terminal, then retry."
+            } else {
+                "Run dotfile secret scan --review in a terminal, then retry."
+            }
+        );
+        return Ok(ExitCode::FAILURE);
+    };
+    let mut groups = BTreeMap::<(&Path, &str), Vec<&Finding>>::new();
+    for finding in &scanner.findings {
+        groups
+            .entry((&finding.source.path, &finding.source.sha256))
+            .or_default()
+            .push(finding);
+    }
+    let mut pending = Vec::new();
+    for (index, findings) in groups.values().enumerate() {
+        crate::cancel::check()?;
+        let source = &findings[0].source;
+        let labels = findings
+            .iter()
+            .map(|f| f.label.clone())
+            .collect::<BTreeSet<_>>();
+        let can_accept = findings.iter().all(|finding| finding.tier == 2);
+        let origin = if staged {
+            "staged"
+        } else if history {
+            "commit"
+        } else {
+            "working tree"
+        };
+        let title = format!(
+            "{} ({origin}, {}{})\n{} findings: {}\n{}",
+            crate::ui::sanitize_text(&source.path.to_string_lossy()),
+            if source.oid.is_some() {
+                "blob "
+            } else {
+                "sha256 "
+            },
+            source
+                .oid
+                .as_deref()
+                .unwrap_or(&source.sha256)
+                .chars()
+                .take(12)
+                .collect::<String>(),
+            findings.len(),
+            labels
+                .iter()
+                .map(|label| crate::ui::sanitize_text(label))
+                .collect::<Vec<_>>()
+                .join(", "),
+            if can_accept {
+                "Accept remembers this exact file content locally."
+            } else {
+                "Canaries and encryption violations cannot be accepted."
+            }
+        );
+        let mut page = 0;
+        let choice = session.choose(&title, index + 1, groups.len(), can_accept, || {
+            let context = inspect::render(context, source, findings, &scanner.canaries, page)?;
+            page += 1;
+            Ok(context)
+        })?;
+        if choice == review::Decision::Abort {
+            eprintln!("Aborted; no approvals saved.");
+            return Ok(ExitCode::FAILURE);
+        }
+        if !can_accept {
+            return Err("this finding cannot be accepted".into());
+        }
+        pending.push(approvals::Approval {
+            path: source.path.clone(),
+            sha256: source.sha256.clone(),
+            labels,
+        });
+    }
+    let verify = || {
+        crate::cancel::check()?;
+        verify_index(context, index_snapshot)?;
+        if !staged && !history {
+            for findings in groups.values() {
+                source_bytes(context, &findings[0].source)?;
+            }
+        }
+        Ok(())
+    };
+    verify()?;
+    scanner.approvals.save(context, &pending, verify)?;
+    verify()?;
+    eprintln!(
+        "Accepted {} file contents locally; changes require review again.",
+        pending.len()
+    );
+    Ok(ExitCode::SUCCESS)
 }

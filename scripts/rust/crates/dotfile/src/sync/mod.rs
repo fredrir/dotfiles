@@ -58,9 +58,9 @@ pub fn run(cli: &SyncCli, events: &dyn EventSink, decisions: &Client) -> Result<
     summary.generated += generated;
     summary.changed = changed.changed();
     if let Some(plan) = push_plan {
-        summary.remote_changed = crate::push::run_preflighted_with_decisions_summary(
+        summary.remote_changed = Some(crate::push::run_preflighted_with_decisions_summary(
             &context, cli, plan, events, decisions,
-        )?;
+        )?);
         summary.peer = peer;
     }
     summary.elapsed = started.elapsed();
@@ -72,4 +72,3 @@ pub mod engine;
 pub mod integrations;
 pub mod links;
 pub mod merge;
-pub mod secrets;

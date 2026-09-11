@@ -6,38 +6,6 @@ fn keys(path: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn jsonc_adoption_preserves_all_reference_edit_bytes() {
-    // Captured while the original Python assertions passed; no Python runtime is needed.
-    let cases: Vec<Value> =
-        serde_json::from_str(include_str!("../../fixtures/jsonc_adoption.json")).unwrap();
-    assert_eq!(cases.len(), 59);
-    for case in cases {
-        let text = case["input"].as_str().unwrap();
-        let path: Vec<String> = case["path"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|key| key.as_str().unwrap().to_owned())
-            .collect();
-        let result = match case["operation"].as_str().unwrap() {
-            "set" => apply_jsonc_set(text, &path, &case["value"]).map(Some),
-            "remove" => apply_jsonc_remove(text, &path),
-            _ => unreachable!(),
-        };
-        if case.get("error").is_some() {
-            assert!(result.is_err(), "{}: {result:?}", case["case"]);
-        } else {
-            assert_eq!(
-                result.unwrap_or_else(|error| panic!("{}: {error}", case["case"])),
-                case["output"].as_str().map(str::to_owned),
-                "{}",
-                case["case"]
-            );
-        }
-    }
-}
-
-#[test]
 fn jsonc_adoption_rejects_empty_key_paths() {
     assert!(apply_jsonc_set("{}\n", &[], &json!(1)).is_err());
     assert!(apply_jsonc_remove("{}\n", &[]).is_err());

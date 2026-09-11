@@ -36,7 +36,7 @@ workstation.workspace       = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-nix = { workspace = true, features = ["signal", "process", "fs", "term", "user"] }
+nix = { workspace = true, features = ["signal", "process", "fs", "term", "user", "poll"] }
 
 [dev-dependencies]
 tempfile.workspace = true

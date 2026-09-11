@@ -36,11 +36,11 @@ fn force_and_resolution_are_exclusive() {
 
 #[cfg(unix)]
 #[test]
-fn commands_execute_natively_when_the_python_backend_is_missing() {
+fn command_help_needs_no_external_programs() {
     use testkit::Bin;
     let ran = Bin::new(env!("CARGO_BIN_EXE_dotfile"))
         .args(["secret", "--help"])
-        .env("DOTFILE_PYTHON", "/missing/dotfile-py")
+        .env("PATH", "")
         .run();
     assert!(ran.success(), "{}", ran.stderr);
     assert!(ran.stdout.contains("rekey"));

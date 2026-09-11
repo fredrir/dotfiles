@@ -55,17 +55,11 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
             paths,
             staged,
             commits,
+            review,
             no_canaries,
             all,
         } => {
-            return scan::run(
-                context,
-                &paths,
-                staged,
-                commits.as_deref(),
-                !no_canaries,
-                all,
-            );
+            return scan::run(context, &paths, staged, &commits, !no_canaries, all, review);
         }
         Command::Redact => canaries::stream(context)?,
         Command::Init => {

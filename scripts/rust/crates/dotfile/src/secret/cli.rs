@@ -16,7 +16,10 @@ pub enum Command {
         #[arg(long, conflicts_with = "commits")]
         staged: bool,
         #[arg(long)]
-        commits: Option<String>,
+        commits: Vec<String>,
+        /// Inspect findings and remember accepted file contents locally.
+        #[arg(long)]
+        review: bool,
         #[arg(long)]
         no_canaries: bool,
         #[arg(long)]

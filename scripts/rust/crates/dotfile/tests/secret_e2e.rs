@@ -23,9 +23,7 @@ impl Repository {
         fs::write(root.join("config/targets.dotfile"), "").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
         fs::write(home.join(".config/dotfile/profile"), "test\n").unwrap();
-        let binary = std::env::var_os("DOTFILE_SECRET_TEST_BINARY")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_dotfile")));
+        let binary = PathBuf::from(env!("CARGO_BIN_EXE_dotfile"));
         let repository = Self {
             _temporary: temporary,
             root,
@@ -470,15 +468,20 @@ fn cancellation_stops_sops_child_group_promptly() {
 fn assert_cancelled_child_group(mut child: std::process::Child, marker: &Path) {
     use std::time::{Duration, Instant};
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !marker.exists() && Instant::now() < deadline {
+    let pid = loop {
+        if let Some(pid) = fs::read_to_string(marker)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            break pid;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("subprocess fixture did not start");
+        }
         std::thread::sleep(Duration::from_millis(10));
-    }
-    if !marker.exists() {
-        let _ = child.kill();
-        let _ = child.wait();
-        panic!("subprocess fixture did not start");
-    }
-    let pid: i32 = fs::read_to_string(marker).unwrap().trim().parse().unwrap();
+    };
     nix::sys::signal::kill(
         nix::unistd::Pid::from_raw(child.id() as i32),
         nix::sys::signal::Signal::SIGTERM,

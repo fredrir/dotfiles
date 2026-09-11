@@ -21,22 +21,6 @@ pub fn synchronize(
     dry_run: bool,
     events: &dyn EventSink,
 ) -> Result<IntegrationOutcome, String> {
-    synchronize_with_systemd(
-        context,
-        configuration,
-        dry_run,
-        command_exists("systemctl"),
-        events,
-    )
-}
-
-fn synchronize_with_systemd(
-    context: &Context,
-    configuration: &Configuration,
-    dry_run: bool,
-    systemd_available: bool,
-    events: &dyn EventSink,
-) -> Result<IntegrationOutcome, String> {
     events.emit(Event::PhaseStarted {
         phase: Phase::Integrations,
         total: None,
@@ -50,10 +34,7 @@ fn synchronize_with_systemd(
     {
         tmux_plugins(context, dry_run, events, &mut outcome, &mut warnings)?;
     }
-    if systemd_available {
-        systemd_legacy_cleanup(context, dry_run, events, &mut outcome)?;
-    }
-    if systemd_available
+    if command_exists("systemctl")
         && configuration
             .groups
             .iter()
@@ -211,40 +192,6 @@ fn systemd_theme_watch(
         .to_string(),
         changed,
     });
-    Ok(())
-}
-
-fn systemd_legacy_cleanup(
-    context: &Context,
-    dry_run: bool,
-    events: &dyn EventSink,
-    outcome: &mut IntegrationOutcome,
-) -> Result<(), String> {
-    crate::cancel::check()?;
-    let unit_directory = context.home.join(".config/systemd/user");
-    let old_path = unit_directory.join("generate-theme.path");
-    let old_wants = unit_directory.join("default.target.wants/generate-theme.path");
-    outcome.checked += 1;
-    if symlink_exists(&old_path)? || symlink_exists(&old_wants)? {
-        if !dry_run {
-            let _ = systemctl(&["disable", "generate-theme.path"]);
-            for path in [
-                old_path.clone(),
-                unit_directory.join("generate-theme.service"),
-                old_wants,
-            ] {
-                remove_file_if_present(&path)?;
-            }
-            let _ = systemctl(&["daemon-reload"]);
-        }
-        outcome.changed += 1;
-        events.emit(Event::Item {
-            action: Action::Prune,
-            path: old_path,
-            detail: "legacy theme watcher".to_string(),
-            changed: true,
-        });
-    }
     Ok(())
 }
 
@@ -603,14 +550,6 @@ fn symlink_exists(path: &Path) -> Result<bool, String> {
     }
 }
 
-fn remove_file_if_present(path: &Path) -> Result<(), String> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("remove {}: {error}", path.display())),
-    }
-}
-
 #[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -635,7 +574,3 @@ fn mode_of(path: &Path) -> Option<u32> {
 fn mode_of(_path: &Path) -> Option<u32> {
     None
 }
-
-#[cfg(all(test, unix))]
-#[path = "../../tests/unit/sync/integrations_tests.rs"]
-mod tests;

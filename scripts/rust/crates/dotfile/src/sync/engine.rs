@@ -22,8 +22,13 @@ pub fn reconcile(
     let links =
         super::links::synchronize(context, &configuration, &merge_paths, cli.dry_run, &changed)?;
     crate::cancel::check()?;
-    let secrets =
-        super::secrets::synchronize(context, &configuration, cli.dry_run, cli.force, &changed)?;
+    let secrets = crate::secret::vault::synchronize(
+        context,
+        &configuration,
+        cli.dry_run,
+        cli.force,
+        &changed,
+    )?;
     crate::cancel::check()?;
     let merges = super::merge::synchronize(
         context,

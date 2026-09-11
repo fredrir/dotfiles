@@ -49,42 +49,43 @@
 ## Flags
 
 <!-- cli:flags:start -->
-| Flag                          | Description                                                                       |
-| ----------------------------- | --------------------------------------------------------------------------------- |
-| `-n`, `--dry-run`             | Plans without changing files or contacting the peer.                              |
-| `--override <GROUP=NAME>`     | Selects a machine override with `<group>=<name\|none>`.                           |
-| `--force`                     | Resolves local edits from the repository and discards remote edits with `--push`. |
-| `--resolve <RESOLVE>`         | Chooses `skip`, `repo`, or `live` for locally edited merged configs.              |
-| `-p`, `--push`                | Pushes commits, then pulls and syncs the peer.                                    |
-| `--to <HOST>`                 | Selects the peer and implies `--push`.                                            |
-| `-v`, `--verbose`             | Shows detailed sync actions or live development commands, output, and timings.    |
-| `-p`, `--pkg <TARGET>`        | Selects development targets or names an added config, secret, or system package.  |
-| `-l`, `--lang <LANGUAGE>`     | Selects languages; repeat or comma-separate.                                      |
-| `--changed <REF>`             | Selects affected packages and dependents from working changes or --changed=REF.   |
-| `--python-workers <N>`        | Caps Python workers within the total worker budget; defaults to four.             |
-| `-j`, `--jobs <N>`            | Limits the total worker budget; defaults to CPU count.                            |
-| `--concurrency <N>`           | Limits simultaneous development tasks; defaults to two.                           |
-| `--staged`                    | Scans the content staged for commit.                                              |
-| `--commits <COMMITS>`         | Scans blobs added within a revision-list range.                                   |
-| `--no-canaries`               | Skips the private-value tier of secret scanning.                                  |
-| `--all`                       | Shows every finding or file location instead of summarized output.                |
-| `--using <USING>`             | Uses the selected identity file for recipient and re-encryption operations.       |
-| `--rewrap`                    | Updates the recipients on every encrypted file during secret sync.                |
-| `--shared`                    | Places an added file in the shared package group.                                 |
-| `--linux`                     | Places an added file in the `linux/common` package group.                         |
-| `--arch`                      | Places an added file in the `linux/arch` package group.                           |
-| `--ubuntu`                    | Places an added file in the `linux/ubuntu` package group.                         |
-| `--kde`                       | Places an added file in the `linux/kde` package group.                            |
-| `--hyprland`                  | Places an added file in the `linux/hyprland` package group.                       |
-| `--macos`                     | Places an added file in the `macos` package group.                                |
-| `--marker`                    | Forces the `.secret` package marker on or off.                                    |
-| `--no-marker`                 | Prevents creating the .secret package marker.                                     |
-| `--unused`                    | Lists only variable names that no secret template references.                     |
-| `--yes`                       | Installs system files without asking for confirmation.                            |
-| `--group <GROUP>`             | Selects the package group for an added system file.                               |
-| `--server`                    | Places an added config in the `linux/server` package group.                       |
-| `--description <DESCRIPTION>` | Adds a package description to `PACKAGES.md`.                                      |
-| `-h`, `--help`                | Shows help for the selected command and exits.                                    |
-| `--completions <SHELL>`       | Prints a shell completion script for the named shell and exits.                   |
-| `-V`, `--version`             | Prints the version and exits.                                                     |
+| Flag                          | Description                                                                                         |
+| ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `-n`, `--dry-run`             | Plans without changing files or contacting the peer.                                                |
+| `--override <GROUP=NAME>`     | Selects a machine override with `<group>=<name\|none>`.                                             |
+| `--force`                     | Resolves local edits from the repository and discards remote edits with `--push`.                   |
+| `--resolve <RESOLVE>`         | Chooses `skip`, `repo`, or `live` for locally edited merged configs.                                |
+| `-p`, `--push`                | Pushes commits, then pulls and syncs the peer.                                                      |
+| `--to <HOST>`                 | Selects the peer and implies `--push`.                                                              |
+| `-v`, `--verbose`             | Shows detailed sync actions or live development commands, output, and timings.                      |
+| `-p`, `--pkg <TARGET>`        | Selects development targets or names an added config, secret, or system package.                    |
+| `-l`, `--lang <LANGUAGE>`     | Selects languages; repeat or comma-separate.                                                        |
+| `--changed <REF>`             | Selects affected packages and dependents from working changes or --changed=REF.                     |
+| `--python-workers <N>`        | Caps Python workers within the total worker budget; defaults to four.                               |
+| `-j`, `--jobs <N>`            | Limits the total worker budget; defaults to CPU count.                                              |
+| `--concurrency <N>`           | Limits simultaneous development tasks; defaults to two.                                             |
+| `--staged`                    | Scans the content staged for commit.                                                                |
+| `--commits <COMMITS>`         | Scans blobs added within revision-list ranges; repeat to combine ranges into one review.            |
+| `--review`                    | Inspects findings and remembers accepted file contents locally; changed contents need review again. |
+| `--no-canaries`               | Skips the private-value tier of secret scanning.                                                    |
+| `--all`                       | Shows every finding or file location instead of summarized output.                                  |
+| `--using <USING>`             | Uses the selected identity file for recipient and re-encryption operations.                         |
+| `--rewrap`                    | Updates the recipients on every encrypted file during secret sync.                                  |
+| `--shared`                    | Places an added file in the shared package group.                                                   |
+| `--linux`                     | Places an added file in the `linux/common` package group.                                           |
+| `--arch`                      | Places an added file in the `linux/arch` package group.                                             |
+| `--ubuntu`                    | Places an added file in the `linux/ubuntu` package group.                                           |
+| `--kde`                       | Places an added file in the `linux/kde` package group.                                              |
+| `--hyprland`                  | Places an added file in the `linux/hyprland` package group.                                         |
+| `--macos`                     | Places an added file in the `macos` package group.                                                  |
+| `--marker`                    | Forces the `.secret` package marker on or off.                                                      |
+| `--no-marker`                 | Prevents creating the .secret package marker.                                                       |
+| `--unused`                    | Lists only variable names that no secret template references.                                       |
+| `--yes`                       | Installs system files without asking for confirmation.                                              |
+| `--group <GROUP>`             | Selects the package group for an added system file.                                                 |
+| `--server`                    | Places an added config in the `linux/server` package group.                                         |
+| `--description <DESCRIPTION>` | Adds a package description to `PACKAGES.md`.                                                        |
+| `-h`, `--help`                | Shows help for the selected command and exits.                                                      |
+| `--completions <SHELL>`       | Prints a shell completion script for the named shell and exits.                                     |
+| `-V`, `--version`             | Prints the version and exits.                                                                       |
 <!-- cli:flags:end -->

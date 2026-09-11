@@ -42,7 +42,6 @@ impl Sandbox {
             .env("DOTFILE_REEXECED", "1")
             .env("HOME", &self.home)
             .env("XDG_CONFIG_HOME", self.home.join(".config"))
-            .env("DOTFILE_PYTHON", "/missing/python")
             .env("CI", "1")
             .env("TERM", "dumb")
             .env_remove("NO_COLOR");

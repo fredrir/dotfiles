@@ -1,7 +1,11 @@
 from datetime import UTC, datetime
 
-from tools.transcript import redact, vault
+from tools.transcript import vault
 from tools.transcript.model import Round, Session, Turn
+
+
+def unchanged(text):
+    return text
 
 
 def make_session(tmp_path):
@@ -48,7 +52,7 @@ def test_project_of_home_directory():
 def test_save_creates_note_with_frontmatter(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     session = make_session(tmp_path)
-    path, existed = vault.save_session(session, "import", redact.redact)
+    path, existed = vault.save_session(session, "import", unchanged)
     assert not existed
     assert path.name == "09-fix-the-sync-script.md"
     assert path.parent.name == "claude"
@@ -65,10 +69,10 @@ def test_save_creates_note_with_frontmatter(tmp_path, monkeypatch):
 def test_filename_conflicts_get_suffix(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     first = make_session(tmp_path)
-    path1, _ = vault.save_session(first, "import", redact.redact)
+    path1, _ = vault.save_session(first, "import", unchanged)
     second = make_session(tmp_path)
     second.session_id = "def-456"
-    path2, _ = vault.save_session(second, "import", redact.redact)
+    path2, _ = vault.save_session(second, "import", unchanged)
     assert path1.name == "09-fix-the-sync-script.md"
     assert path2.name == "09-fix-the-sync-script (1).md"
 
@@ -133,7 +137,7 @@ def test_nested_group_note_path(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
     session = make_session(tmp_path)
     session.cwd = "/Users/fredrir/llunde-new/backend"
-    path, _ = vault.save_session(session, "sync", redact.redact)
+    path, _ = vault.save_session(session, "sync", unchanged)
     relative = path.relative_to(tmp_path / "vault" / "Transcripts")
     assert str(relative) == "llunde/backend/2026-08/claude/09-fix-the-sync-script.md"
     assert "project: llunde-backend" in path.read_text()
@@ -145,7 +149,7 @@ def test_groups_nest_projects(tmp_path, monkeypatch):
     config_file.write_text('[groups]\nRice = ["dotfiles", "theme"]\n')
     monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
     session = make_session(tmp_path)
-    path, _ = vault.save_session(session, "import", redact.redact)
+    path, _ = vault.save_session(session, "import", unchanged)
     assert path.parent.parent.parent.name == "Rice"
     assert "project: dotfiles" in path.read_text()
 
@@ -158,12 +162,12 @@ def test_group_destination_replaces_transcripts_group_root(tmp_path, monkeypatch
     )
     monkeypatch.setenv("TRANSCRIPT_CONFIG", str(config_file))
     session = make_session(tmp_path)
-    path, existed = vault.save_session(session, "sync", redact.redact)
+    path, existed = vault.save_session(session, "sync", unchanged)
     assert not existed
     relative = path.relative_to(tmp_path / "vault")
     assert str(relative) == "Dotfiles/Agents/2026-08/claude/09-fix-the-sync-script.md"
 
-    path_again, existed = vault.save_session(session, "sync", redact.redact)
+    path_again, existed = vault.save_session(session, "sync", unchanged)
     assert existed
     assert path_again == path
 
@@ -184,11 +188,11 @@ def test_group_destination_must_stay_inside_vault(tmp_path, monkeypatch):
 def test_resave_updates_in_place_and_preserves_edits(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
     session = make_session(tmp_path)
-    path, _ = vault.save_session(session, "sync", redact.redact)
+    path, _ = vault.save_session(session, "sync", unchanged)
     edited = path.read_text().replace("status: inbox", "status: kept\nrating: 5")
     path.write_text(edited)
     session.rounds[0].turns[1].body = "done differently"
-    path2, existed = vault.save_session(session, "sync", redact.redact)
+    path2, existed = vault.save_session(session, "sync", unchanged)
     assert existed
     assert path2 == path
     text = path.read_text()
@@ -199,7 +203,7 @@ def test_resave_updates_in_place_and_preserves_edits(tmp_path, monkeypatch):
 
 def test_capture_and_daily_link(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIPT_VAULT", str(tmp_path / "vault"))
-    path = vault.save_capture("claude", "hello from the terminal", redact.redact)
+    path = vault.save_capture("claude", "hello from the terminal", unchanged)
     assert path.parent.name == "claude"
     assert "Captures" in path.parts
     vault.add_daily_link(path, "test capture")

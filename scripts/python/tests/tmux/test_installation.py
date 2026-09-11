@@ -45,7 +45,7 @@ def test_sync_provisions_plugins_only_when_needed(dotfile_binary, environment, t
             "--verbose",
             *(["--dry-run"] if mode == "dry-run" else []),
         ],
-        env=environment | {"DOTFILE_ROOT": str(root), "DOTFILE_PYTHON": "/usr/bin/true"},
+        env=environment | {"DOTFILE_ROOT": str(root)},
         cwd=root,
         text=True,
         capture_output=True,
