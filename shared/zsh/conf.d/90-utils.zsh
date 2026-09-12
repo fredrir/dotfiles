@@ -26,7 +26,7 @@ y() {
   command yazi "$@" --cwd-file="$cwd_file"
   yazi_status=$?
 
-  IFS= read -r -d '' cwd < "$cwd_file"
+  IFS= read -r -d '' cwd <"$cwd_file"
   command rm -f -- "$cwd_file"
 
   if [[ -n "$cwd" && "$cwd" != "$PWD" && -d "$cwd" ]]; then
@@ -43,7 +43,7 @@ ycd() {
   command yazi "$@" --chooser-file="$target_file"
   yazi_status=$?
 
-  IFS= read -r -d '' target < "$target_file"
+  IFS= read -r -d '' target <"$target_file"
   command rm -f -- "$target_file"
 
   if [[ -n "$target" && -d "$target" ]]; then
@@ -63,7 +63,7 @@ cd() {
   setopt localoptions extendedglob
 
   local pattern="(#i)${(b)1}"
-  local -a matches=( ${~pattern}(N-/) )
+  local -a matches=(${~pattern}(N-/))
 
   case $#matches in
   1)
@@ -80,3 +80,95 @@ cd() {
 }
 
 alias cd='nocorrect cd'
+
+ipp() {
+  local include_ipv4=1
+  local include_ipv6=1
+  local os=$(uname -s)
+
+  while (($#)); do
+    case "$1" in
+    -4)
+      include_ipv4=1
+      include_ipv6=0
+      ;;
+    -6)
+      include_ipv4=0
+      include_ipv6=1
+      ;;
+    esac
+    shift
+  done
+
+  if [[ $os == "Darwin" ]]; then
+    local i ipv4 ipv6_raw
+    local -a ipv6
+
+    for i in $(ifconfig -l); do
+      ipv4=""
+      ipv6_raw=""
+      ipv6=()
+
+      if ((include_ipv4)); then
+        ipv4=$(ipconfig getifaddr "$i" 2>/dev/null)
+      fi
+
+      if ((include_ipv6)); then
+        ipv6_raw=$(ifconfig "$i" 2>/dev/null |
+          awk '/inet6 / {print $2}')
+
+        if [[ -n $ipv6_raw ]]; then
+          ipv6=("${(@f)ipv6_raw}")
+        fi
+      fi
+
+      if [[ -n $ipv4 ]]; then
+        printf "%-10s IPv4  %s\n" "$i" "$ipv4"
+      fi
+
+      if (($#ipv6)); then
+        printf "%-10s IPv6  %s\n" "$i" "${(j: | :)ipv6}"
+      fi
+    done
+
+  elif [[ $os == "Linux" ]]; then
+    local i ipv4_raw ipv6_raw
+    local -a interfaces ipv4 ipv6
+
+    interfaces=("${(@f)$(ip -o link show |
+      awk -F': ' '{sub(/@.*/, "", $2); print $2}')}")
+
+    for i in "${interfaces[@]}"; do
+      ipv4_raw=""
+      ipv6_raw=""
+      ipv4=()
+      ipv6=()
+
+      if ((include_ipv4)); then
+        ipv4_raw=$(ip -o -4 addr show dev "$i" 2>/dev/null |
+          awk '{sub(/\/.*/, "", $4); print $4}')
+
+        if [[ -n $ipv4_raw ]]; then
+          ipv4=("${(@f)ipv4_raw}")
+        fi
+      fi
+
+      if ((include_ipv6)); then
+        ipv6_raw=$(ip -o -6 addr show dev "$i" 2>/dev/null |
+          awk '{sub(/\/.*/, "", $4); print $4}')
+
+        if [[ -n $ipv6_raw ]]; then
+          ipv6=("${(@f)ipv6_raw}")
+        fi
+      fi
+
+      if (($#ipv4)); then
+        printf "%-10s IPv4  %s\n" "$i" "${(j: | :)ipv4}"
+      fi
+
+      if (($#ipv6)); then
+        printf "%-10s IPv6  %s\n" "$i" "${(j: | :)ipv6}"
+      fi
+    done
+  fi
+}

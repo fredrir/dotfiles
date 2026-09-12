@@ -46,6 +46,7 @@ pub enum Drift {
 }
 
 const QUIET_RUST_LOG: &[(&str, &str)] = &[("RUST_LOG", "warn")];
+const SHUCK_FORMAT: &[(&str, &str)] = &[("SHUCK_EXPERIMENTAL", "1")];
 
 const ALLOW_COMMENTS: &str = "--json-parse-allow-comments=true";
 
@@ -59,7 +60,7 @@ pub struct Step {
 }
 
 impl Step {
-    fn quiet(mut self, env: &'static [(&'static str, &'static str)]) -> Step {
+    fn with_env(mut self, env: &'static [(&'static str, &'static str)]) -> Step {
         self.env = env;
         self
     }
@@ -123,20 +124,20 @@ impl Lang {
             Lang::Toml => &["toml"],
             Lang::Yaml => &["yaml", "yml"],
             Lang::Sql => &["sql"],
-            // zsh is deliberately absent. shfmt 3.14.0 does read it, and picks
-            // the dialect from the extension, but its zsh parser drops the `#`
-            // from `$#` inside double quotes: `case "$1:$#" in` in
-            // shared/zsh/conf.d/90-utils.zsh comes back as `case "$1:$" in`,
-            // which breaks the lazygit wrapper. Reading the same files as bash
-            // is not the way out either -- 9 of the 37 here fail to parse on
-            // parameter expansion flags and `${name:#arg}`. So zsh goes
-            // unformatted rather than wrong.
-            Lang::Shell => &["sh", "bash"],
+            Lang::Shell => &["sh", "bash", "zsh"],
             Lang::Go => &["go"],
         }
     }
 
     pub fn of(path: &Path) -> Option<Lang> {
+        if is_zsh(path)
+            || matches!(
+                path.file_name()?.to_str()?,
+                ".bashrc" | ".bash_profile" | ".bash_login" | ".bash_logout" | ".profile"
+            )
+        {
+            return Some(Lang::Shell);
+        }
         let extension = path.extension()?.to_str()?.to_ascii_lowercase();
         LANGS
             .into_iter()
@@ -176,10 +177,10 @@ impl Lang {
                 vec![on_manifests("cargo", &["fmt", "--all", "--check"])]
             }
 
-            (Lang::Toml, Mode::Write) => vec![on_files("taplo", &["fmt"]).quiet(QUIET_RUST_LOG)],
+            (Lang::Toml, Mode::Write) => vec![on_files("taplo", &["fmt"]).with_env(QUIET_RUST_LOG)],
             (Lang::Toml, Mode::Check) => vec![
-                on_files("taplo", &["fmt", "--check"]).quiet(QUIET_RUST_LOG),
-                on_files("taplo", &["lint"]).quiet(QUIET_RUST_LOG),
+                on_files("taplo", &["fmt", "--check"]).with_env(QUIET_RUST_LOG),
+                on_files("taplo", &["lint"]).with_env(QUIET_RUST_LOG),
             ],
 
             // yamlfmt writes in place with no flag at all. `-w` is not one
@@ -195,8 +196,13 @@ impl Lang {
             (Lang::Sql, Mode::Write) => vec![on_files("sqlfluff", &["format"])],
             (Lang::Sql, Mode::Check) => vec![on_files("sqlfluff", &["lint"])],
 
-            (Lang::Shell, Mode::Write) => vec![on_files("shfmt", &["-w"])],
-            (Lang::Shell, Mode::Check) => vec![on_files("shfmt", &["-d"])],
+            (Lang::Shell, Mode::Write) => {
+                vec![on_files("shuck", &["format"]).with_env(SHUCK_FORMAT)]
+            }
+            (Lang::Shell, Mode::Check) => vec![
+                on_files("shuck", &["format", "--check"]).with_env(SHUCK_FORMAT),
+                on_files("shuck", &["check", "--output-format", "concise"]),
+            ],
 
             (Lang::Go, Mode::Write) => {
                 vec![on_files("goimports", &["-w"]), on_files("gofmt", &["-w"])]
@@ -220,7 +226,7 @@ impl Lang {
             Lang::Toml => Some((".taplo.toml", ".taplo.toml")),
             Lang::Yaml => Some((".yamllint.yaml", ".yamllint.yaml")),
             Lang::Sql => Some((".sqlfluff", ".sqlfluff")),
-            Lang::Shell => Some((".editorconfig", ".editorconfig")),
+            Lang::Shell => Some(("shuck.toml", "shuck.toml")),
             // Nothing here configures gofmt; it has no configuration.
             Lang::Go => None,
         }
@@ -236,6 +242,15 @@ impl Lang {
             _ => &[],
         }
     }
+}
+
+pub fn is_zsh(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zsh"))
+        || matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(".zshrc" | ".zshenv" | ".zprofile" | ".zlogin" | ".zlogout")
+        )
 }
 
 #[cfg(test)]
@@ -274,10 +289,7 @@ pub fn configured(program: &str) -> Option<Configured> {
         "dotfmt" => Configured::Found("resolves per file and owns that rule"),
         "ruff" => Configured::Found("reads ~/.config/ruff/ruff.toml, which this repository links"),
         "sqlfluff" => Configured::Found("reads ~/.sqlfluff, which this repository links"),
-        // shfmt reads `.editorconfig` from the file's own directory upward,
-        // and this repository links one into `$HOME`, which is above any
-        // target under it.
-        "shfmt" => Configured::Found("reads .editorconfig upward, and one is linked into $HOME"),
+        "shuck" => Configured::Found("reads project config or ~/.config/shuck/shuck.toml"),
 
         // rustfmt does take `--config-path`, but only after the manifest and
         // behind a `--`, which is a different argument position from every

@@ -41,8 +41,7 @@ shared {
   ?portview
   ?kondo
   openssl
-  ?shfmt
-  ?shellcheck
+  ?shuck = shuck-cli
   ?biome
   ?ruff
   ?stylua

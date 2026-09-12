@@ -8,6 +8,8 @@ alias f='find . -type f -name'
 
 alias port="portview"
 
+alias exz="exec zsh"
+
 alias disk="ncdu"
 
 alias n="nvim"

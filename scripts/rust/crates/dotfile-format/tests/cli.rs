@@ -80,7 +80,7 @@ fn checkout() -> TempDir {
         ".taplo.toml",
         ".yamllint.yaml",
         ".sqlfluff",
-        ".editorconfig",
+        "shuck.toml",
     ] {
         fs::write(tools.join(name), format!("live {name}\n")).unwrap();
     }
@@ -936,6 +936,60 @@ fn yamlfmt_is_run_the_way_yamlfmt_writes_in_place() {
 // --------------------------------------------------------------- the report
 
 #[test]
+fn shell_startup_files_use_shuck_and_check_mode_also_lints_without_writing() {
+    let root = tree(&[
+        ".zshrc=case \"$1:$#\" in *) echo ok ;; esac\n",
+        "conf/helper.zsh=echo ok\n",
+        ".bashrc=echo ok\n",
+    ]);
+    let bin = only(&["shuck"]);
+    stub(
+        bin.path(),
+        "shuck",
+        r#"printf '%s|%s\n' "$SHUCK_EXPERIMENTAL" "$*" >> "$DFF_LOG""#,
+    );
+    let logged = root.path().join("log");
+    for check in [false, true] {
+        fs::write(&logged, "").unwrap();
+        let path = at(&root, "");
+        let args = if check {
+            vec!["--check", &path]
+        } else {
+            vec![&*path]
+        };
+        let output = format(
+            &args,
+            "",
+            &[
+                ("PATH", &bin.path().display().to_string()),
+                ("DFF_LOG", &logged.display().to_string()),
+                ("SHUCK_EXPERIMENTAL", ""),
+            ],
+        );
+        assert!(output.status.success(), "{}", stderr(&output));
+        let calls = log(&logged);
+        assert_eq!(calls.len(), if check { 2 } else { 1 }, "{calls:?}");
+        assert!(calls[0].starts_with(if check {
+            "1|format --check "
+        } else {
+            "1|format "
+        }));
+        if check {
+            assert!(calls[1].starts_with("|check --output-format concise "));
+        }
+        for call in &calls {
+            for file in [".zshrc", "conf/helper.zsh", ".bashrc"] {
+                assert!(call.contains(file), "{call}");
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(root.path().join(".bashrc")).unwrap(),
+            "echo ok\n"
+        );
+    }
+}
+
+#[test]
 fn a_run_with_nothing_to_report_is_one_line() {
     let root = tree(&["a.py=x\n", "b.lua=x\n"]);
     let bin = only(&["ruff", "stylua"]);
@@ -958,7 +1012,7 @@ fn a_provider_that_fell_over_on_one_file_names_that_file() {
     let bin = tree(&[]);
     stub(
         bin.path(),
-        "shfmt",
+        "shuck",
         "echo 'deep/odd.bash:376:24: not a valid parameter expansion operator: `~`' >&2; exit 1",
     );
     let output = format(

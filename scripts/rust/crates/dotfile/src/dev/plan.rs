@@ -252,6 +252,16 @@ pub(super) fn tasks(
                     1,
                 ));
             }
+            let nvim = "shared/nvim/tests/shell.lua";
+            if selected(Language::Lua) && selected_package("nvim") && root.join(nvim).is_file() {
+                tasks.push(Task::new(
+                    "lua test nvim",
+                    root.to_path_buf(),
+                    "nvim",
+                    &["--headless", "-u", "NONE", "-i", "NONE", "-n", "-l", nvim],
+                    1,
+                ));
+            }
             let script = "shared/wezterm/tests/tmux-workspace.lua";
             if selected(Language::Lua) && selected_package("wezterm") && root.join(script).is_file()
             {
@@ -453,7 +463,7 @@ fn add_linters(
                 ],
             ),
             Language::Lua => ("luacheck", &[]),
-            Language::Shell => ("shellcheck", &[]),
+            Language::Shell => ("shuck", &["check", "--output-format", "concise"]),
             Language::Toml => ("taplo", &["lint", "--config", "shared/tools/.taplo.toml"]),
             Language::Yaml => ("yamllint", &["-c", "shared/tools/.yamllint.yaml"]),
             _ => unreachable!(),
@@ -466,19 +476,7 @@ fn add_linters(
             workers,
         );
         for file in files {
-            if lang == Language::Shell && catalog::is_zsh(file) {
-                let mut syntax = Task::new(
-                    format!("shell lint {}", file.display()),
-                    root.to_path_buf(),
-                    "zsh",
-                    &["-n"],
-                    1,
-                );
-                syntax.arguments.push(file.as_os_str().to_owned());
-                tasks.push(syntax);
-            } else {
-                task.arguments.push(file.as_os_str().to_owned());
-            }
+            task.arguments.push(file.as_os_str().to_owned());
         }
         if task.arguments.len() > arguments.len() {
             tasks.push(task);

@@ -1,5 +1,6 @@
 return {
   "mrjones2014/smart-splits.nvim",
+  branch = "master",
   commit = "0c7abbf2f4e64e56519cb036f01e62e83e2cdcf1",
   -- The pane-local @pane-is-vim marker must exist before the first navigation
   -- key. Upstream clears it on exit and suspend, and restores it on resume.

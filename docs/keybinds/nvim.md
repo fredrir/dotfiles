@@ -10,7 +10,7 @@
 
 ## Shared Keybinds
 
-[<code>M.blink = { preset = "default" }</code>](../../shared/nvim/lua/core/keymap.lua#L327) · [<code>vim.g.mapleader = Space</code>](../../shared/nvim/lua/core/options.lua#L1) · [<code>vim.g.maplocalleader = Space</code>](../../shared/nvim/lua/core/options.lua#L2)
+[<code>M.blink = { preset = "default", &lt;CR&gt; = { 1 = "accept", 2 = "fallback" }, &lt;Tab&gt; = { 1 = "select_next", 2 = "snippet_forward", 3 = require("languages.shell").show_completion, 4 = "fallback" }, &lt;S-Tab&gt; = { 1 = "select_prev", 2 = "snippet_backward", 3 = "fallback" } }</code>](../../shared/nvim/lua/core/keymap.lua#L327) · [<code>vim.g.mapleader = Space</code>](../../shared/nvim/lua/core/options.lua#L1) · [<code>vim.g.maplocalleader = Space</code>](../../shared/nvim/lua/core/options.lua#L2)
 
 | Key | Action | Description |
 | --- | --- | --- |
@@ -29,16 +29,16 @@
 | <code>&lt;C-g&gt;</code> | [<code>switch_to(opts.search_grep)</code>](../../shared/nvim/lua/core/keymap.lua#L135) | Switch to: opts.search_grep<br><code>M.telescope_picker; mode=n; Telescope picker</code> |
 | <code>&lt;C-h&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;h</code>](../../shared/nvim/lua/core/keymap.lua#L32) | Move to left window<br><code>mode=t</code> |
 | <code>&lt;C-h&gt;</code> | [<code>&lt;C-w&gt;&lt;C-h&gt;</code>](../../shared/nvim/lua/core/keymap.lua#L28) | Move focus to the left window<br><code>mode=n</code> |
-| <code>&lt;C-h&gt;</code> | [<code>splits&#91;"move_cursor_left"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L22) | Move to left split or tmux pane<br><code>smart-splits; mode=n,t</code> |
+| <code>&lt;C-h&gt;</code> | [<code>splits&#91;"move_cursor_left"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L23) | Move to left split or tmux pane<br><code>smart-splits; mode=n,t</code> |
 | <code>&lt;C-j&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;j</code>](../../shared/nvim/lua/core/keymap.lua#L33) | Move to lower window<br><code>mode=t</code> |
 | <code>&lt;C-j&gt;</code> | [<code>&lt;C-w&gt;&lt;C-j&gt;</code>](../../shared/nvim/lua/core/keymap.lua#L30) | Move focus to the lower window<br><code>mode=n</code> |
-| <code>&lt;C-j&gt;</code> | [<code>splits&#91;"move_cursor_down"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L22) | Move to down split or tmux pane<br><code>smart-splits; mode=n,t</code> |
+| <code>&lt;C-j&gt;</code> | [<code>splits&#91;"move_cursor_down"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L23) | Move to down split or tmux pane<br><code>smart-splits; mode=n,t</code> |
 | <code>&lt;C-k&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;k</code>](../../shared/nvim/lua/core/keymap.lua#L34) | Move to upper window<br><code>mode=t</code> |
 | <code>&lt;C-k&gt;</code> | [<code>&lt;C-w&gt;&lt;C-k&gt;</code>](../../shared/nvim/lua/core/keymap.lua#L31) | Move focus to the upper window<br><code>mode=n</code> |
-| <code>&lt;C-k&gt;</code> | [<code>splits&#91;"move_cursor_up"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L22) | Move to up split or tmux pane<br><code>smart-splits; mode=n,t</code> |
+| <code>&lt;C-k&gt;</code> | [<code>splits&#91;"move_cursor_up"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L23) | Move to up split or tmux pane<br><code>smart-splits; mode=n,t</code> |
 | <code>&lt;C-l&gt;</code> | [<code>&lt;C-\&gt;&lt;C-n&gt;&lt;C-w&gt;l</code>](../../shared/nvim/lua/core/keymap.lua#L35) | Move to right window<br><code>mode=t</code> |
 | <code>&lt;C-l&gt;</code> | [<code>&lt;C-w&gt;&lt;C-l&gt;</code>](../../shared/nvim/lua/core/keymap.lua#L29) | Move focus to the right window<br><code>mode=n</code> |
-| <code>&lt;C-l&gt;</code> | [<code>splits&#91;"move_cursor_right"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L22) | Move to right split or tmux pane<br><code>smart-splits; mode=n,t</code> |
+| <code>&lt;C-l&gt;</code> | [<code>splits&#91;"move_cursor_right"&#93;</code>](../../shared/nvim/lua/plugins/smart-splits.lua#L23) | Move to right split or tmux pane<br><code>smart-splits; mode=n,t</code> |
 | <code>&lt;Esc&gt;</code> | [<code>&lt;cmd&gt;nohlsearch&lt;CR&gt;</code>](../../shared/nvim/lua/core/keymap.lua#L8) | &lt;cmd&gt;nohlsearch&lt;CR&gt;<br><code>mode=n</code> |
 | <code>&lt;Esc&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/core/keymap.lua#L148) | Quit<br><code>M.telescope_picker; opts.terminal; bufnr and vim.api.nvim_buf_is_valid(bufnr); mode=i,n; buffer=picker.preview_bufnr; nowait=true</code> |
 | <code>&lt;Esc&gt;</code> | [<code>quit</code>](../../shared/nvim/lua/core/keymap.lua#L148) | Quit<br><code>M.telescope_picker; opts.terminal; bufnr and vim.api.nvim_buf_is_valid(bufnr); mode=i,n; buffer=picker.prompt_bufnr; nowait=true</code> |

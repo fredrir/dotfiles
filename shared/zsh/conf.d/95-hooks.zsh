@@ -114,7 +114,6 @@ _sync_git_repo_commands() {
   if _in_git_repo; then
     alias cdg=_cdg_to_root
     alias gs='_git_from_root status -u'
-    alias ga='_git_from_root add .'
     alias gc='_git_from_root commit -m'
     alias gcm='_git_from_root commit -m'
     alias gp='_git_from_root pull'
@@ -133,3 +132,52 @@ unfunction _sync_cdg_command 2>/dev/null
 add-zsh-hook -d chpwd _sync_git_repo_commands 2>/dev/null
 add-zsh-hook chpwd _sync_git_repo_commands
 _sync_git_repo_commands
+
+# ga -<option> <target>
+
+ga() {
+  local exclude_targets=0
+  local -a targets=()
+
+  while (($#)); do
+    case "$1" in
+    -x)
+      exclude_targets=1
+      ;;
+    --)
+      shift
+      targets+=("$@")
+      break
+      ;;
+    *)
+      targets+=("$1")
+      ;;
+    esac
+    shift
+  done
+
+  if ((exclude_targets)); then
+    local -a excludes=()
+    local target
+
+    for target in "${targets[@]}"; do
+      excludes+=(":(exclude)$target")
+    done
+
+    _git_from_root add -- . "${excludes[@]}"
+  else
+    if (($#targets)); then
+      _git_from_root add -- "${targets[@]}"
+    else
+      _git_from_root add -- .
+    fi
+  fi
+}
+
+_ga() {
+  _arguments \
+    '-x[exclude target(s) from git add]' \
+    '*:target:_files'
+}
+
+compdef _ga ga

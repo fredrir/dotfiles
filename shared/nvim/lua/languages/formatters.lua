@@ -3,11 +3,17 @@ local tooling = require "languages.tooling"
 ---@module 'conform'
 ---@type conform.setupOpts
 return {
-  notify_on_error = false,
+  notify_on_error = true,
   format_on_save = function(bufnr)
     local disable_filetypes = { c = true, cpp = true }
     if disable_filetypes[vim.bo[bufnr].filetype] then
       return nil
+    end
+    local shell = require "languages.shell"
+    if shell.filetypes[vim.bo[bufnr].filetype] then
+      return { timeout_ms = 1000, lsp_format = "prefer", name = "shuck" }, function(err)
+        shell.format_result(bufnr, err)
+      end
     end
     return { timeout_ms = 500, lsp_format = "fallback" }
   end,
@@ -26,9 +32,6 @@ return {
     yaml = { "yamlfmt" },
     sql = { "sqlfluff" },
     toml = { "taplo" },
-    sh = { "shfmt" },
-    bash = { "shfmt" },
-    zsh = { "shfmt" },
     conf = { "dotfmt" },
     dotfile = { "dotfmt" },
   },

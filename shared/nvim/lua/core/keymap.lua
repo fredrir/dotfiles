@@ -69,7 +69,7 @@ map("n", "<leader>dd", "<cmd>Trouble diagnostics toggle<CR>", { desc = "Diagnost
 
 if not profile.minimal then
   map("", "<leader>f", function()
-    require("conform").format { async = true, lsp_format = "fallback" }
+    require("languages.shell").format { async = true, lsp_format = "fallback" }
   end, { desc = "[F]ormat buffer" })
 end
 
@@ -324,7 +324,12 @@ end
 
 -- Completion --
 
-M.blink = { preset = "default" }
+M.blink = {
+  preset = "default",
+  ["<CR>"] = { "accept", "fallback" },
+  ["<Tab>"] = { "select_next", "snippet_forward", require("languages.shell").show_completion, "fallback" },
+  ["<S-Tab>"] = { "select_prev", "snippet_backward", "fallback" },
+}
 
 -- Which Key --
 M.which_key_groups = {

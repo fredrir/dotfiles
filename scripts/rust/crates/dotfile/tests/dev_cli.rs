@@ -105,6 +105,28 @@ impl Sandbox {
 }
 
 #[test]
+fn neovim_tests_run_in_an_isolated_headless_editor() {
+    let sandbox = Sandbox::new();
+    let tests = sandbox.root.path().join("shared/nvim/tests");
+    fs::create_dir_all(&tests).unwrap();
+    fs::write(tests.join("shell.lua"), "").unwrap();
+    let ran = sandbox.preview(&["test", "--pkg", "nvim"]);
+    assert!(ran.success(), "{}", ran.stderr);
+    assert!(ran.stdout.contains("lua test nvim:"), "{}", ran.stdout);
+    assert!(
+        ran.stdout.contains("'--headless' '-u' 'NONE'"),
+        "{}",
+        ran.stdout
+    );
+    assert!(
+        ran.stdout.contains("'shared/nvim/tests/shell.lua'"),
+        "{}",
+        ran.stdout
+    );
+    assert!(!ran.stdout.contains("wezterm"), "{}", ran.stdout);
+}
+
+#[test]
 fn default_test_covers_every_suite_without_python_routing() {
     let sandbox = Sandbox::new();
     let ran = sandbox.preview(&["test"]);
@@ -177,8 +199,13 @@ fn dry_run_renders_worker_limits_and_linter_selection() {
     ));
     let shell = sandbox.preview(&["lint", "--lang", "shell"]);
     assert!(shell.success(), "{}", shell.stderr);
-    assert!(shell.stdout.contains("zsh '-n' 'shared/zsh/check.zsh'"));
-    assert!(shell.stdout.contains("shellcheck 'setup.sh'"));
+    assert!(
+        shell
+            .stdout
+            .contains("shuck 'check' '--output-format' 'concise'")
+    );
+    assert!(shell.stdout.contains("'shared/zsh/check.zsh'"));
+    assert!(shell.stdout.contains("'setup.sh'"));
 }
 
 #[test]

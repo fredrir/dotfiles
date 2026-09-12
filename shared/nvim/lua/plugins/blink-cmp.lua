@@ -32,18 +32,20 @@ return {
       documentation = { auto_show = false, auto_show_delay_ms = 500 },
       list = {
         selection = {
-          preselect = function(ctx)
-            return vim.bo[ctx.bufnr].filetype ~= "markdown"
-          end,
-          auto_insert = function(ctx)
-            return vim.bo[ctx.bufnr].filetype ~= "markdown"
-          end,
+          preselect = false,
+          auto_insert = false,
         },
       },
     },
     sources = {
       default = { "lsp", "path", "snippets" },
+      min_keyword_length = function(ctx)
+        return vim.bo[ctx.bufnr].filetype == "markdown" and 3 or 0
+      end,
       per_filetype = {
+        sh = { "lsp", "path", "snippets", "buffer" },
+        bash = { "lsp", "path", "snippets", "buffer" },
+        zsh = { "lsp", "path", "snippets", "buffer" },
         markdown = { "lsp", "path", "buffer" },
       },
     },

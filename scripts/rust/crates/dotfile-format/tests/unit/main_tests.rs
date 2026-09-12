@@ -65,22 +65,19 @@ fn every_extension_belongs_to_exactly_one_language() {
 }
 
 #[test]
-fn zsh_stays_unformatted_because_shfmt_drops_hash_from_quoted_dollar_hash() {
-    assert!(!Lang::Shell.extensions().contains(&"zsh"));
-    assert_eq!(Lang::of(Path::new("conf.d/90-utils.zsh")), None);
-}
-
-#[test]
-fn the_shell_steps_leave_shfmt_on_the_dialect_it_picks_itself() {
-    for mode in [Mode::Write, Mode::Check] {
-        for step in Lang::Shell.steps(mode) {
-            assert_eq!(step.program, "shfmt");
-            let dialect = step
-                .args
-                .iter()
-                .find(|arg| arg.starts_with("-ln") || arg.starts_with("--language-dialect"));
-            assert_eq!(dialect, None, "{:?}", step.args);
-        }
+fn shell_scripts_and_startup_files_are_formatted() {
+    for file in [
+        "conf.d/90-utils.zsh",
+        ".zshrc",
+        ".zshenv",
+        ".zprofile",
+        ".zlogin",
+        ".zlogout",
+        ".bashrc",
+        ".bash_profile",
+        ".profile",
+    ] {
+        assert_eq!(Lang::of(Path::new(file)), Some(Lang::Shell), "{file}");
     }
 }
 
@@ -166,7 +163,7 @@ fn taplo_is_the_one_row_whose_logging_is_turned_down() {
         for mode in [Mode::Write, Mode::Check] {
             for step in lang.steps(mode) {
                 assert_eq!(
-                    step.env.is_empty(),
+                    !step.env.iter().any(|(name, _)| *name == "RUST_LOG"),
                     step.program != "taplo",
                     "{} sets the wrong environment for {}",
                     lang.name(),
@@ -185,8 +182,7 @@ fn no_row_is_turned_down_below_the_level_its_findings_are_written_at() {
     for lang in LANGS {
         for mode in [Mode::Write, Mode::Check] {
             for step in lang.steps(mode) {
-                for (name, level) in step.env {
-                    assert_eq!(*name, "RUST_LOG");
+                for (_, level) in step.env.iter().filter(|(name, _)| *name == "RUST_LOG") {
                     assert_eq!(
                         *level,
                         "warn",

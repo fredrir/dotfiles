@@ -13,7 +13,6 @@ _tma() {
 
 compdef _tma tma
 
-
 _tmux_session_exists() {
   tmux list-sessions -F '#S' 2>/dev/null |
     command grep -Fxq -- "$1"
@@ -43,7 +42,6 @@ _tmk() {
 
 compdef _tmk tmk
 
-
 tmn() {
   local name="$1"
 
@@ -51,7 +49,7 @@ tmn() {
     local i=1
 
     while _tmux_session_exists "sesh-$i"; do
-      (( i++ ))
+      ((i++))
     done
 
     name="sesh-$i"
@@ -92,3 +90,5 @@ tmc() {
 
   tmux new-session -d -s "$name" 'exec codex agents'
 }
+
+tmc

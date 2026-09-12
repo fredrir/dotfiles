@@ -2,12 +2,53 @@ local tooling = require "languages.tooling"
 
 local M = {}
 
+local function shell_root(bufnr, on_dir)
+  local name = vim.api.nvim_buf_get_name(bufnr)
+  name = vim.uv.fs_realpath(name) or name
+  on_dir(vim.fs.root(name, { ".shuck.toml", "shuck.toml", ".git" }) or vim.fs.dirname(name))
+end
+
 ---@return table<string, vim.lsp.Config>
 function M.configs()
   ---@type table<string, vim.lsp.Config>
   local servers = {
-    bashls = {
+    shuck = {
+      cmd = { "shuck", "server" },
       filetypes = { "bash", "sh", "zsh" },
+      init_options = { showSyntaxErrors = true },
+      root_dir = shell_root,
+      on_init = function(client)
+        client.server_capabilities.completionProvider = nil
+      end,
+    },
+    bashls = {
+      cmd = { "bash-language-server", "start" },
+      filetypes = { "bash", "sh", "zsh" },
+      root_dir = shell_root,
+      settings = {
+        bashIde = {
+          shellcheckPath = "",
+          shfmt = { path = "" },
+          enableSourceErrorDiagnostics = false,
+        },
+      },
+      before_init = function(_, config)
+        local root = config.root_dir
+        local project = root and root ~= vim.uv.os_homedir() and vim.uv.fs_stat(root .. "/.git")
+        local pattern = "{*.sh,*.inc,*.bash,*.zsh,*.command,.bash*,.zsh*,.zprofile,.zlogin,.zlogout,.profile}"
+        config.settings.bashIde.globPattern = vim.env.GLOB_PATTERN or ((project and "**/" or "") .. pattern)
+        config.settings.bashIde.includeAllWorkspaceSymbols = project ~= nil and project ~= false
+      end,
+      -- Bash parsing is useful for completion, but must not diagnose Zsh or replace Shuck's other features.
+      handlers = { ["textDocument/publishDiagnostics"] = function() end },
+      on_init = function(client)
+        local caps = client.server_capabilities
+        client.server_capabilities = {
+          completionProvider = caps.completionProvider,
+          textDocumentSync = caps.textDocumentSync,
+          positionEncoding = caps.positionEncoding,
+        }
+      end,
     },
     rust_analyzer = {},
     ts_ls = {
@@ -95,7 +136,7 @@ end
 ---@param servers table<string, vim.lsp.Config>
 ---@return string[]
 function M.mason_tools(servers)
-  local machine_tools = { biome = true, taplo = true }
+  local machine_tools = { biome = true, taplo = true, shuck = true }
   local ensure_installed = vim.tbl_filter(function(name)
     return not machine_tools[name]
   end, vim.tbl_keys(servers))

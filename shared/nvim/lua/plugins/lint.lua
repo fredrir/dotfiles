@@ -24,9 +24,11 @@ return {
     local lint_augroup = vim.api.nvim_create_augroup("lint", { clear = true })
     vim.api.nvim_create_autocmd({ "BufEnter", "BufWritePost", "InsertLeave" }, {
       group = lint_augroup,
-      callback = function()
-        if vim.bo.modifiable then
-          lint.try_lint(nil, { wrap_linter = wrap, filter = not_already_served })
+      callback = function(args)
+        if vim.bo[args.buf].modifiable and vim.bo[args.buf].buftype == "" then
+          vim.api.nvim_buf_call(args.buf, function()
+            lint.try_lint(nil, { wrap_linter = wrap, filter = not_already_served })
+          end)
         end
       end,
     })
