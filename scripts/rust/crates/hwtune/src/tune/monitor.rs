@@ -47,7 +47,22 @@ fn temperature(path: &Path) -> Result<f64, String> {
     Ok(value)
 }
 
-fn sensors(sys: &Sysfs, requested_limit: Option<f64>) -> Result<Vec<Sensor>, String> {
+pub fn model_limit() -> Option<f64> {
+    let text = fs::read_to_string("/proc/cpuinfo").ok()?;
+    let model = text
+        .lines()
+        .find_map(|line| line.strip_prefix("model name"))?
+        .split_once(':')?
+        .1
+        .trim();
+    sysinfo::health::cpu_temperature_limit(model)
+}
+
+fn sensors(
+    sys: &Sysfs,
+    requested_limit: Option<f64>,
+    model_limit: Option<f64>,
+) -> Result<Vec<Sensor>, String> {
     if requested_limit.is_some_and(|value| !value.is_finite() || !(40.0..=110.0).contains(&value)) {
         return Err("maximum CPU temperature must be between 40 and 110 C".into());
     }
@@ -88,6 +103,7 @@ fn sensors(sys: &Sysfs, requested_limit: Option<f64>) -> Result<Vec<Sensor>, Str
                     }
                 }
             }
+            let hardware_limit = hardware_limit.or(model_limit.map(|limit| limit - 5.0));
             let limit = match (requested_limit, hardware_limit) {
                 (Some(requested), Some(hardware)) => requested.min(hardware),
                 (Some(requested), None) => requested,
@@ -161,7 +177,7 @@ fn entries(text: &str, previous: Option<&str>) -> Result<Vec<Entry>, String> {
 fn journal(previous: Option<&str>, stopped: &AtomicBool) -> Result<Vec<Entry>, String> {
     let mut command = Command::new("journalctl");
     command.args([
-        "--kernel",
+        "--dmesg",
         "--boot",
         "--no-pager",
         "--output=json",
@@ -215,7 +231,7 @@ pub struct Monitor {
 
 impl Monitor {
     pub fn start(sys: &Sysfs, max_temp: Option<f64>) -> Result<Self, String> {
-        let sensors = sensors(sys, max_temp)?;
+        let sensors = sensors(sys, max_temp, model_limit())?;
         let mut evidence = Evidence {
             passed: true,
             reason: None,

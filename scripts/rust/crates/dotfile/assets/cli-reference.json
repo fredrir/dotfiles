@@ -460,7 +460,7 @@
       "--min-improvement": "Sets the required improvement percentage in addition to the measured noise band.",
       "--guard": "Selects families measured alongside the objective; any regression there rejects a candidate.",
       "--caps": "Lists the power caps in watts to sweep, within the range LACT reports.",
-      "--settle": "Sets the seconds to wait after applying a power cap before measuring.",
+      "--settle": "Sets the longest wait for the machine to settle before measuring: after a power cap change, or after each stress in a tuning trial.",
       "--iterations": "Sets the per-core workload iterations for the throughput sample."
     }
   }

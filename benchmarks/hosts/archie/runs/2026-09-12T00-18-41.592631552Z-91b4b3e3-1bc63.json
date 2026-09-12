@@ -1,0 +1,386 @@
+{
+  "bytes_written": 0,
+  "conditions": {
+    "cpu_count": 16,
+    "filesystem": {
+      "fstype": "ext4",
+      "source": "/dev/nvme0n1p6",
+      "target": "/home"
+    },
+    "free_disk_bytes": 372430028800,
+    "free_disk_ratio": 0.42168990401873213,
+    "free_ram_bytes": 30368690176,
+    "governor": "powersave",
+    "idle_temp_c": 36.75,
+    "loadavg_1": 0.06,
+    "on_battery": false,
+    "platform": "linux",
+    "throttled_at_start": false,
+    "tuning_monitor": {
+      "elapsed_seconds": 77.134356444,
+      "max_temp_c": 90.0,
+      "passed": true,
+      "peak_temp_c": 85.875,
+      "reason": null,
+      "samples": 307
+    },
+    "virtualized": false
+  },
+  "context": {
+    "bios": {
+      "content_sha256": "a48c7487004a3938ba437a11020ee86249441732bcd3401dba3325a0a1559972",
+      "kind": "imported-bios-export",
+      "path": "/home/fredrir/dotfiles/config/bios/exports/archie-1681-20260911.txt",
+      "settings_sha256": "1c5de78948cf6bb27095f2be4e6bc369ca8d52d7aa7cb057f1a62256aeaaf1fb"
+    },
+    "lact": {
+      "content_sha256": "2f4be07cdc53dd9ed937df0b9708e7ed8b5c30b912777c0dc326b3afb7cc356b",
+      "kind": "lact-config-file",
+      "path": "/etc/lact/config.yaml",
+      "settings_sha256": "6291896241c7e6e23a1ec971e68b7346b995138ef11cf348ea5d98452a61f833"
+    },
+    "observed": {
+      "cpu.boost": "1",
+      "cpu.policy0.energy_performance_preference": "balance_performance",
+      "cpu.policy0.scaling_driver": "amd-pstate-epp",
+      "cpu.policy0.scaling_governor": "powersave",
+      "cpu.policy0.scaling_max_freq": "5455945",
+      "cpu.policy0.scaling_min_freq": "624476",
+      "cpu.policy1.energy_performance_preference": "balance_performance",
+      "cpu.policy1.scaling_driver": "amd-pstate-epp",
+      "cpu.policy1.scaling_governor": "powersave",
+      "cpu.policy1.scaling_max_freq": "5455945",
+      "cpu.policy1.scaling_min_freq": "624476",
+      "cpu.policy10.energy_performance_preference": "balance_performance",
+      "cpu.policy10.scaling_driver": "amd-pstate-epp",
+      "cpu.policy10.scaling_governor": "powersave",
+      "cpu.policy10.scaling_max_freq": "5455945",
+      "cpu.policy10.scaling_min_freq": "624476",
+      "cpu.policy11.energy_performance_preference": "balance_performance",
+      "cpu.policy11.scaling_driver": "amd-pstate-epp",
+      "cpu.policy11.scaling_governor": "powersave",
+      "cpu.policy11.scaling_max_freq": "5455945",
+      "cpu.policy11.scaling_min_freq": "624476",
+      "cpu.policy12.energy_performance_preference": "balance_performance",
+      "cpu.policy12.scaling_driver": "amd-pstate-epp",
+      "cpu.policy12.scaling_governor": "powersave",
+      "cpu.policy12.scaling_max_freq": "5455945",
+      "cpu.policy12.scaling_min_freq": "624476",
+      "cpu.policy13.energy_performance_preference": "balance_performance",
+      "cpu.policy13.scaling_driver": "amd-pstate-epp",
+      "cpu.policy13.scaling_governor": "powersave",
+      "cpu.policy13.scaling_max_freq": "5455945",
+      "cpu.policy13.scaling_min_freq": "624476",
+      "cpu.policy14.energy_performance_preference": "balance_performance",
+      "cpu.policy14.scaling_driver": "amd-pstate-epp",
+      "cpu.policy14.scaling_governor": "powersave",
+      "cpu.policy14.scaling_max_freq": "5455945",
+      "cpu.policy14.scaling_min_freq": "624476",
+      "cpu.policy15.energy_performance_preference": "balance_performance",
+      "cpu.policy15.scaling_driver": "amd-pstate-epp",
+      "cpu.policy15.scaling_governor": "powersave",
+      "cpu.policy15.scaling_max_freq": "5455945",
+      "cpu.policy15.scaling_min_freq": "624476",
+      "cpu.policy2.energy_performance_preference": "balance_performance",
+      "cpu.policy2.scaling_driver": "amd-pstate-epp",
+      "cpu.policy2.scaling_governor": "powersave",
+      "cpu.policy2.scaling_max_freq": "5455945",
+      "cpu.policy2.scaling_min_freq": "624476",
+      "cpu.policy3.energy_performance_preference": "balance_performance",
+      "cpu.policy3.scaling_driver": "amd-pstate-epp",
+      "cpu.policy3.scaling_governor": "powersave",
+      "cpu.policy3.scaling_max_freq": "5455945",
+      "cpu.policy3.scaling_min_freq": "624476",
+      "cpu.policy4.energy_performance_preference": "balance_performance",
+      "cpu.policy4.scaling_driver": "amd-pstate-epp",
+      "cpu.policy4.scaling_governor": "powersave",
+      "cpu.policy4.scaling_max_freq": "5455945",
+      "cpu.policy4.scaling_min_freq": "624476",
+      "cpu.policy5.energy_performance_preference": "balance_performance",
+      "cpu.policy5.scaling_driver": "amd-pstate-epp",
+      "cpu.policy5.scaling_governor": "powersave",
+      "cpu.policy5.scaling_max_freq": "5455945",
+      "cpu.policy5.scaling_min_freq": "624476",
+      "cpu.policy6.energy_performance_preference": "balance_performance",
+      "cpu.policy6.scaling_driver": "amd-pstate-epp",
+      "cpu.policy6.scaling_governor": "powersave",
+      "cpu.policy6.scaling_max_freq": "5455945",
+      "cpu.policy6.scaling_min_freq": "624476",
+      "cpu.policy7.energy_performance_preference": "balance_performance",
+      "cpu.policy7.scaling_driver": "amd-pstate-epp",
+      "cpu.policy7.scaling_governor": "powersave",
+      "cpu.policy7.scaling_max_freq": "5455945",
+      "cpu.policy7.scaling_min_freq": "624476",
+      "cpu.policy8.energy_performance_preference": "balance_performance",
+      "cpu.policy8.scaling_driver": "amd-pstate-epp",
+      "cpu.policy8.scaling_governor": "powersave",
+      "cpu.policy8.scaling_max_freq": "5455945",
+      "cpu.policy8.scaling_min_freq": "624476",
+      "cpu.policy9.energy_performance_preference": "balance_performance",
+      "cpu.policy9.scaling_driver": "amd-pstate-epp",
+      "cpu.policy9.scaling_governor": "powersave",
+      "cpu.policy9.scaling_max_freq": "5455945",
+      "cpu.policy9.scaling_min_freq": "624476",
+      "gpu.power_cap_w": "350"
+    },
+    "tuning_session": "tune-20260912T001841.022220868Z-113763"
+  },
+  "dotfiles_sha": "686bf5d5-dirty",
+  "epoch": "91b4b3e3",
+  "gate_reasons": [],
+  "grade": "clean",
+  "host": "archie",
+  "install": {
+    "arch": "x86_64",
+    "driver": "610.57.04",
+    "kernel": "7.2.4-arch1-2",
+    "name": "Arch Linux",
+    "os": "arch",
+    "version": "rolling"
+  },
+  "metrics": [
+    {
+      "comparable": "host",
+      "detail": {
+        "interval_s": 1,
+        "samples": 9,
+        "window_s": 8
+      },
+      "key": "idle.package_w",
+      "mad": 0.19883130506930158,
+      "median": 21.24316596796735,
+      "method": "idle/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 3.2739293629453754,
+      "samples": [
+        22.887875267584135,
+        21.057294572730086,
+        21.27906326645826,
+        21.508135516601865,
+        21.207268669476445,
+        21.03137475306601
+      ],
+      "scale": "W",
+      "times_to_run": 6,
+      "tool": "hwtune",
+      "tool_version": "0.1.0"
+    },
+    {
+      "comparable": "host",
+      "detail": {
+        "interval_s": 1,
+        "samples": 9,
+        "window_s": 8
+      },
+      "key": "idle.gpu_w",
+      "mad": 0.20833333333333304,
+      "median": 7.691666666666666,
+      "method": "idle/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 31.345476568920567,
+      "samples": [
+        14.434444444444445,
+        8.114444444444445,
+        7.831111111111111,
+        7.547777777777778,
+        7.418888888888889,
+        7.552222222222222
+      ],
+      "scale": "W",
+      "times_to_run": 6,
+      "tool": "hwtune",
+      "tool_version": "0.1.0"
+    },
+    {
+      "comparable": "host",
+      "detail": {
+        "interval_s": 1,
+        "samples": 9,
+        "window_s": 8
+      },
+      "key": "idle.fan_rpm",
+      "mad": 0.8333333333334849,
+      "median": 3073.7777777777774,
+      "method": "idle/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 0.09888362860876086,
+      "samples": [
+        3073.6666666666665,
+        3079.5555555555557,
+        3073.4444444444443,
+        3070.222222222222,
+        3073.8888888888887,
+        3075.1111111111113
+      ],
+      "scale": "rpm",
+      "times_to_run": 6,
+      "tool": "hwtune",
+      "tool_version": "0.1.0"
+    },
+    {
+      "comparable": "host",
+      "detail": {
+        "interval_s": 1,
+        "samples": 9,
+        "window_s": 8
+      },
+      "key": "idle.tctl_c",
+      "mad": 0.08333333333333215,
+      "median": 36.513888888888886,
+      "method": "idle/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 2.059162413661439,
+      "samples": [
+        38.361111111111114,
+        36.736111111111114,
+        36.47222222222222,
+        36.55555555555556,
+        36.44444444444444,
+        36.416666666666664
+      ],
+      "scale": "C",
+      "times_to_run": 6,
+      "tool": "hwtune",
+      "tool_version": "0.1.0"
+    },
+    {
+      "comparable": "world",
+      "detail": {
+        "jobs": 16,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "packages": 162,
+        "profiles": [
+          "dev",
+          "release"
+        ]
+      },
+      "key": "compile.dev",
+      "mad": 22.926449000000048,
+      "median": 3827.263325,
+      "method": "compile.pinned/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 1.1876679028558024,
+      "samples": [
+        3804.336876,
+        3892.284324,
+        3827.263325
+      ],
+      "scale": "ms",
+      "times_to_run": 3,
+      "tool": "rustc",
+      "tool_version": "1.98.0"
+    },
+    {
+      "comparable": "world",
+      "detail": {
+        "jobs": 16,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "packages": 162,
+        "profiles": [
+          "dev",
+          "release"
+        ]
+      },
+      "key": "compile.release",
+      "mad": 48.174261000000115,
+      "median": 5582.519223,
+      "method": "compile.pinned/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 1.3012799895022964,
+      "samples": [
+        5582.519223,
+        5488.267946999999,
+        5630.693484
+      ],
+      "scale": "ms",
+      "times_to_run": 3,
+      "tool": "rustc",
+      "tool_version": "1.98.0"
+    },
+    {
+      "comparable": "host",
+      "detail": {
+        "jobs": 16,
+        "lockfile_sha256": "5b97304b2e1481c28ab022e0b58d040a399eb76e1d742c83eca7809d18951130",
+        "packages": 162,
+        "profiles": [
+          "dev",
+          "release"
+        ]
+      },
+      "key": "compile.package_j",
+      "mad": 0.8566919999999527,
+      "median": 940.2848690000001,
+      "method": "compile.pinned/1.0.0",
+      "proportion": "LIB",
+      "rsd_pct": 1.4919638666164166,
+      "samples": [
+        916.622641,
+        941.141561,
+        940.2848690000001
+      ],
+      "scale": "J",
+      "times_to_run": 3,
+      "tool": "rustc",
+      "tool_version": "1.98.0"
+    }
+  ],
+  "note": "tune-20260912T001841.022220868Z-113763: baseline",
+  "run_id": "2026-09-12T00-18-41.592631552Z-91b4b3e3-1bc63",
+  "schema": 1,
+  "snapshot": {
+    "board": {
+      "name": "TUF GAMING B850-PLUS WIFI",
+      "vendor": "ASUSTeK COMPUTER INC."
+    },
+    "configured": {
+      "case": "Antec FLUX Pro Full Tower",
+      "cpu": "AMD Ryzen 7 9800X3D",
+      "cpu_cooler": "ARCTIC Liquid Freezer III 420",
+      "gpu": "Gigabyte GAMING OC GeForce RTX 5070 Ti 16 GB",
+      "memory": "Corsair CMK32GX5M2B6000Z30 32 GB (2×16 GB) DDR5-6000 CL30",
+      "motherboard": "ASUS TUF GAMING B850-PLUS WIFI",
+      "power_supply": "Corsair RM1000e (2025) 1000 W"
+    },
+    "cpu": {
+      "cores_logical": 16,
+      "cores_physical": 8,
+      "frequency_max": 5455,
+      "march": "x86_64-v4",
+      "model": "AMD Ryzen 7 9800X3D",
+      "vendor": "AuthenticAMD"
+    },
+    "disks": [
+      {
+        "interconnect": "NVMe",
+        "kind": "SSD",
+        "name": "KINGSTON SNVS2000G",
+        "size": 2000398934016
+      }
+    ],
+    "gpu": [
+      {
+        "driver": "amdgpu",
+        "memory_total": 536870912.0,
+        "name": "AMD Radeon Graphics",
+        "type": "Integrated",
+        "vendor": "AMD"
+      },
+      {
+        "driver": "nvidia (open source) 610.57.04",
+        "memory_total": 17094934528.0,
+        "name": "NVIDIA GeForce RTX 5070 Ti",
+        "type": "Discrete",
+        "vendor": "NVIDIA"
+      }
+    ],
+    "memory": {
+      "modules": 0,
+      "total": 32783527936
+    },
+    "virtualized": false
+  },
+  "started": "2026-09-12T00:18:41Z",
+  "tags": [],
+  "tier": "quick"
+}

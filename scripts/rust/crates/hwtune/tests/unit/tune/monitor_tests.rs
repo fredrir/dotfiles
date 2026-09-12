@@ -50,9 +50,29 @@ fn evidence() -> Evidence {
 fn cpu_limits_use_hardware_margin_and_never_raise_a_requested_limit() {
     let fixture = Fixture::new();
     fixture.cpu("coretemp", "45000", Some("100000"));
-    assert_eq!(sensors(&fixture.sys(), None).unwrap()[0].limit, 95.0);
-    assert_eq!(sensors(&fixture.sys(), Some(85.0)).unwrap()[0].limit, 85.0);
-    assert_eq!(sensors(&fixture.sys(), Some(105.0)).unwrap()[0].limit, 95.0);
+    assert_eq!(sensors(&fixture.sys(), None, None).unwrap()[0].limit, 95.0);
+    assert_eq!(
+        sensors(&fixture.sys(), Some(85.0), None).unwrap()[0].limit,
+        85.0
+    );
+    assert_eq!(
+        sensors(&fixture.sys(), Some(105.0), None).unwrap()[0].limit,
+        95.0
+    );
+}
+
+#[test]
+fn model_limit_covers_sensors_without_hardware_limits() {
+    let fixture = Fixture::new();
+    fixture.cpu("k10temp", "45000", None);
+    assert_eq!(
+        sensors(&fixture.sys(), None, Some(95.0)).unwrap()[0].limit,
+        90.0
+    );
+    assert_eq!(
+        sensors(&fixture.sys(), Some(85.0), Some(95.0)).unwrap()[0].limit,
+        85.0
+    );
 }
 
 #[test]
@@ -60,11 +80,11 @@ fn missing_cpu_limit_requires_an_explicit_limit() {
     let fixture = Fixture::new();
     fixture.cpu("k10temp", "45000", None);
     assert!(
-        sensors(&fixture.sys(), None)
+        sensors(&fixture.sys(), None, None)
             .unwrap_err()
             .contains("--max-temp")
     );
-    assert_eq!(sensors(&fixture.sys(), Some(85.0)).unwrap().len(), 1);
+    assert_eq!(sensors(&fixture.sys(), Some(85.0), None).unwrap().len(), 1);
 }
 
 #[test]
@@ -72,7 +92,7 @@ fn gpu_temperature_does_not_substitute_for_cpu_telemetry() {
     let fixture = Fixture::new();
     fixture.cpu("amdgpu", "45000", Some("100000"));
     assert!(
-        sensors(&fixture.sys(), None)
+        sensors(&fixture.sys(), None, None)
             .unwrap_err()
             .contains("CPU temperature")
     );
@@ -84,7 +104,7 @@ fn every_cpu_sensor_must_remain_readable_and_below_its_limit() {
     fixture.cpu("coretemp", "45000", Some("100000"));
     fixture.write("class/hwmon/hwmon0/temp2_input", "50000");
     fixture.write("class/hwmon/hwmon0/temp2_crit", "90000");
-    let sensors = sensors(&fixture.sys(), None).unwrap();
+    let sensors = sensors(&fixture.sys(), None, None).unwrap();
     let mut evidence = evidence();
     sample(&sensors, &mut evidence).unwrap();
     assert_eq!(evidence.peak_temp_c, 50.0);
@@ -103,11 +123,11 @@ fn every_cpu_sensor_must_remain_readable_and_below_its_limit() {
 fn invalid_temperature_values_cannot_pass_a_trial() {
     let fixture = Fixture::new();
     fixture.cpu("k10temp", "NaN", Some("100000"));
-    let sensors = sensors(&fixture.sys(), None).unwrap();
+    let sensors = sensors(&fixture.sys(), None, None).unwrap();
     assert!(sample(&sensors, &mut evidence()).is_err());
     fixture.write("class/hwmon/hwmon0/temp1_input", "250000");
     assert!(sample(&sensors, &mut evidence()).is_err());
-    assert!(super::sensors(&fixture.sys(), Some(f64::NAN)).is_err());
+    assert!(super::sensors(&fixture.sys(), Some(f64::NAN), None).is_err());
 }
 
 #[test]

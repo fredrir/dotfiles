@@ -21,7 +21,7 @@ hwtune tune plan --json
 hwtune tune auto --metric compile.dev --guard idle
 hwtune tune auto --apply
 hwtune tune apply
-sudo hwtune run --profile performance -- cargo build --release
+hwtune run --profile performance -- cargo build --release
 hwtune curve status
 hwtune curve bench
 hwtune gpu sweep --caps 250,275,300,325,350
@@ -96,7 +96,8 @@ dotfile dev check --pkg hwtune --lang rust,python
 | Idle job | 8 s windows: package W, GPU W, fan rpm, Tctl; lower is better |
 | AI job | `llama-cli` prompt and generation t/s on the configured model; GPU W sampled |
 | Guards | Default `idle`; `evaluate` rejects any candidate with a regression outside noise |
-| Scoped run | Root only; child runs as `SUDO_UID`; original controls restored on exit or signal |
+| OS control writes | Direct as root; otherwise `sudo tee` after one `sudo -v` prompt kept alive for the session |
+| Scoped run | Child runs as the invoking user, through setpriv under sudo; original controls restored on exit or signal |
 | GPU sweep | Caps within the LACT range; original cap restored, also on error |
 | Disk budget | Standard: 30 GiB; heavy: 70 GiB; failed attempts consume reserved writes |
 | Plan | Reports dependencies and predicted writes without running measurement workloads |

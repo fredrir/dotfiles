@@ -1,0 +1,648 @@
+{
+  "schema": 1,
+  "kind": "os-tuning",
+  "session": "tune-20260912T001841.022220868Z-113763",
+  "host": "archie",
+  "started": "2026-09-12T00:18:41.022Z",
+  "finished": "2026-09-12T00:22:03.940Z",
+  "objective": "compile.dev",
+  "guards": [
+    "idle"
+  ],
+  "minimum_improvement_pct": 3.0,
+  "original": {
+    "name": "original",
+    "values": {
+      "devices/system/cpu/cpufreq/policy0/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy0/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy1/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy1/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy10/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy10/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy11/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy11/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy12/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy12/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy13/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy13/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy14/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy14/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy15/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy15/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy2/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy2/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy3/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy3/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy4/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy4/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy5/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy5/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy6/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy6/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy7/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy7/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy8/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy8/scaling_governor": "powersave",
+      "devices/system/cpu/cpufreq/policy9/energy_performance_preference": "balance_performance",
+      "devices/system/cpu/cpufreq/policy9/scaling_governor": "powersave",
+      "devices/system/cpu/cpuidle/current_governor": "teo"
+    }
+  },
+  "controls": [
+    {
+      "path": "devices/system/cpu/cpufreq/policy0/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy1/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy10/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy11/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy12/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy13/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy14/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy15/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy2/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy3/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy4/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy5/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy6/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy7/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy8/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy9/scaling_governor",
+      "original": "powersave",
+      "choices": [
+        "performance",
+        "powersave"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy0/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy1/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy10/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy11/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy12/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy13/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy14/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy15/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy2/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy3/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy4/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy5/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy6/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy7/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy8/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpufreq/policy9/energy_performance_preference",
+      "original": "balance_performance",
+      "choices": [
+        "default",
+        "performance",
+        "balance_performance",
+        "balance_power",
+        "power",
+        "custom"
+      ],
+      "driver": "amd-pstate-epp"
+    },
+    {
+      "path": "devices/system/cpu/cpuidle/current_governor",
+      "original": "teo",
+      "choices": [
+        "ladder",
+        "menu",
+        "teo"
+      ],
+      "driver": null
+    }
+  ],
+  "trials": [
+    {
+      "grade": "clean",
+      "monitor": {
+        "elapsed_seconds": 77.134356444,
+        "max_temp_c": 90.0,
+        "passed": true,
+        "peak_temp_c": 85.875,
+        "reason": null,
+        "samples": 307
+      },
+      "phase": "baseline",
+      "run_id": "2026-09-12T00-18-41.592631552Z-91b4b3e3-1bc63",
+      "run_path": "/home/fredrir/dotfiles/benchmarks/hosts/archie/runs/2026-09-12T00-18-41.592631552Z-91b4b3e3-1bc63.json"
+    },
+    {
+      "phase": "performance-stability",
+      "stability": {
+        "elapsed_seconds": 30.020753576,
+        "max_temp_c": 90.0,
+        "passed": true,
+        "peak_temp_c": 81.125,
+        "reason": null,
+        "samples": 121
+      }
+    },
+    {
+      "profile": {
+        "name": "performance",
+        "values": {
+          "devices/system/cpu/cpufreq/policy0/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy0/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy1/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy1/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy10/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy10/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy11/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy11/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy12/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy12/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy13/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy13/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy14/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy14/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy15/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy15/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy2/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy2/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy3/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy3/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy4/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy4/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy5/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy5/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy6/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy6/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy7/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy7/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy8/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy8/scaling_governor": "performance",
+          "devices/system/cpu/cpufreq/policy9/energy_performance_preference": "performance",
+          "devices/system/cpu/cpufreq/policy9/scaling_governor": "performance",
+          "devices/system/cpu/cpuidle/current_governor": "teo"
+        }
+      },
+      "reason": "load average is 8.30 across 16 logical cores\nconditions are not suitable; pass --force to measure anyway",
+      "status": "rejected"
+    },
+    {
+      "phase": "efficient-stability",
+      "stability": {
+        "elapsed_seconds": 30.022435628,
+        "max_temp_c": 90.0,
+        "passed": true,
+        "peak_temp_c": 81.125,
+        "reason": null,
+        "samples": 120
+      }
+    },
+    {
+      "profile": {
+        "name": "efficient",
+        "values": {
+          "devices/system/cpu/cpufreq/policy0/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy0/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy1/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy1/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy10/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy10/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy11/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy11/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy12/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy12/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy13/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy13/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy14/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy14/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy15/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy15/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy2/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy2/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy3/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy3/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy4/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy4/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy5/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy5/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy6/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy6/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy7/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy7/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy8/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy8/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy9/energy_performance_preference": "power",
+          "devices/system/cpu/cpufreq/policy9/scaling_governor": "powersave",
+          "devices/system/cpu/cpuidle/current_governor": "teo"
+        }
+      },
+      "reason": "load average is 10.88 across 16 logical cores\nconditions are not suitable; pass --force to measure anyway",
+      "status": "rejected"
+    },
+    {
+      "phase": "cpuidle-ladder-stability",
+      "stability": {
+        "elapsed_seconds": 30.019061982,
+        "max_temp_c": 90.0,
+        "passed": true,
+        "peak_temp_c": 81.625,
+        "reason": null,
+        "samples": 121
+      }
+    },
+    {
+      "profile": {
+        "name": "cpuidle-ladder",
+        "values": {
+          "devices/system/cpu/cpufreq/policy0/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy0/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy1/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy1/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy10/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy10/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy11/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy11/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy12/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy12/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy13/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy13/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy14/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy14/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy15/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy15/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy2/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy2/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy3/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy3/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy4/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy4/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy5/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy5/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy6/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy6/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy7/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy7/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy8/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy8/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy9/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy9/scaling_governor": "powersave",
+          "devices/system/cpu/cpuidle/current_governor": "ladder"
+        }
+      },
+      "reason": "load average is 12.90 across 16 logical cores\nconditions are not suitable; pass --force to measure anyway",
+      "status": "rejected"
+    },
+    {
+      "phase": "cpuidle-menu-stability",
+      "stability": {
+        "elapsed_seconds": 30.019257523,
+        "max_temp_c": 90.0,
+        "passed": true,
+        "peak_temp_c": 80.75,
+        "reason": null,
+        "samples": 121
+      }
+    },
+    {
+      "profile": {
+        "name": "cpuidle-menu",
+        "values": {
+          "devices/system/cpu/cpufreq/policy0/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy0/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy1/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy1/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy10/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy10/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy11/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy11/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy12/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy12/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy13/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy13/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy14/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy14/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy15/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy15/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy2/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy2/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy3/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy3/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy4/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy4/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy5/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy5/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy6/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy6/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy7/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy7/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy8/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy8/scaling_governor": "powersave",
+          "devices/system/cpu/cpufreq/policy9/energy_performance_preference": "balance_performance",
+          "devices/system/cpu/cpufreq/policy9/scaling_governor": "powersave",
+          "devices/system/cpu/cpuidle/current_governor": "menu"
+        }
+      },
+      "reason": "load average is 14.12 across 16 logical cores\nconditions are not suitable; pass --force to measure anyway",
+      "status": "rejected"
+    }
+  ],
+  "recommendation": null,
+  "status": "failed",
+  "error": "no candidate produced a validated improvement; original settings were restored",
+  "retained": false,
+  "restored": true
+}

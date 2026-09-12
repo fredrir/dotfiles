@@ -527,13 +527,18 @@ fn stress_refuses_to_start_while_measurement_lock_is_held() {
 }
 
 #[test]
-fn scoped_run_refuses_without_root_before_touching_controls() {
+fn scoped_run_needs_sudo_credentials_before_touching_controls() {
     let fixture = Fixture::new();
     fixture.stub("true", "printf started > \"$CAPTURE\"; exit 0");
-    let output = fixture.output(&["run", "--profile", "performance", "--", "true"]);
+    let output = fixture
+        .command()
+        .env_remove("HWTUNE_HOST")
+        .args(["run", "--profile", "performance", "--", "true"])
+        .output()
+        .unwrap();
     assert_eq!(output.status.code(), Some(1), "{}", text(&output));
     assert!(
-        text(&output).contains("run under sudo"),
+        text(&output).contains("sudo credentials required"),
         "{}",
         text(&output)
     );

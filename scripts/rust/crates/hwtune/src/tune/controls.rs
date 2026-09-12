@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
 
@@ -309,13 +310,47 @@ pub(crate) fn write(root: &Path, path: &Path, value: &str) -> Result<(), String>
         return Err("invalid tuning control value".into());
     }
     let resolved = checked_path(root, path)?;
-    let mut file = OpenOptions::new()
+    match OpenOptions::new()
         .write(true)
         .truncate(true)
         .open(&resolved)
-        .map_err(|error| format!("{}: {error}", resolved.display()))?;
-    file.write_all(format!("{value}\n").as_bytes())
-        .map_err(|error| format!("{}: {error}", resolved.display()))
+    {
+        Ok(mut file) => file
+            .write_all(format!("{value}\n").as_bytes())
+            .map_err(|error| format!("{}: {error}", resolved.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            privileged_write(&resolved, value)
+        }
+        Err(error) => Err(format!("{}: {error}", resolved.display())),
+    }
+}
+
+fn privileged_write(resolved: &Path, value: &str) -> Result<(), String> {
+    let mut child = Command::new("sudo")
+        .args(["-n", "tee"])
+        .arg(resolved)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("sudo: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(format!("{value}\n").as_bytes())
+            .map_err(|error| format!("{}: {error}", resolved.display()))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("sudo: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{}: sudo tee: {}",
+            resolved.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
 #[cfg(test)]

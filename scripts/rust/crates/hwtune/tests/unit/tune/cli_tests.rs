@@ -29,6 +29,7 @@ fn invalid_limits_are_rejected_without_collecting_or_writing() {
         guard: vec!["idle".into()],
         max_temp: Some(f64::NAN),
         stress_seconds: 30,
+        settle: 300,
         json: false,
     };
     assert!(validate_options(&options).is_err());
@@ -37,6 +38,7 @@ fn invalid_limits_are_rejected_without_collecting_or_writing() {
         guard: Vec::new(),
         max_temp: None,
         stress_seconds: 30,
+        settle: 300,
         json: false,
     };
     assert!(validate_options(&options).is_err());
@@ -112,6 +114,7 @@ fn options(metric: &str, guard: &[&str]) -> ValidationOptions {
         guard: guard.iter().map(|g| g.to_string()).collect(),
         max_temp: None,
         stress_seconds: 30,
+        settle: 300,
         json: false,
     }
 }
@@ -218,4 +221,20 @@ fn scoped_profiles_resolve_original_or_a_named_candidate() {
         Some("/home/fredrir".into())
     );
     assert_eq!(passwd_home("root:x:0:0::/root:/bin/bash\n", "nobody"), None);
+}
+
+#[test]
+fn trials_settle_on_load_and_a_flat_tctl() {
+    assert!(settled(0.1, Some(0.4)));
+    assert!(settled(0.25, None));
+    assert!(!settled(0.5, Some(0.0)));
+    assert!(!settled(0.1, Some(-2.0)));
+    let cli = crate::cli::Cli::try_parse_from(["hwtune", "tune", "auto", "--settle", "0"]).unwrap();
+    let Some(crate::cli::Command::Tune {
+        command: Command::Auto(options),
+    }) = cli.command
+    else {
+        panic!("tune auto expected")
+    };
+    assert_eq!(options.validation.settle, 0);
 }

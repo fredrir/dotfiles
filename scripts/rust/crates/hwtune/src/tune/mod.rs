@@ -58,6 +58,9 @@ pub struct ValidationOptions {
     /// Duration of each monitored CPU stability test.
     #[arg(long, default_value = "30", value_parser = clap::value_parser!(u64).range(1..=3600))]
     pub stress_seconds: u64,
+    /// Longest wait for load average and Tctl to recover after a stress before measuring; 0 skips it.
+    #[arg(long, default_value = "300", value_parser = clap::value_parser!(u64).range(0..=3600))]
+    pub settle: u64,
     #[arg(long)]
     pub json: bool,
 }
@@ -266,6 +269,7 @@ impl Measurements for Experiment<'_> {
         if runner::cancelled() {
             return Err("tuning was interrupted".into());
         }
+        settle(self.sys, self.options.settle, self.options.json)?;
         let monitor = monitor::Monitor::start(self.sys, self.options.max_temp)?;
         let mut context = provenance::current(&self.session.host);
         context.tuning_session = Some(self.session.session.clone());
@@ -333,6 +337,45 @@ impl Measurements for Experiment<'_> {
     }
 }
 
+pub fn settled(load_per_core: f64, tctl_delta: Option<f64>) -> bool {
+    load_per_core <= 0.25 && tctl_delta.is_none_or(|delta| delta.abs() < 1.0)
+}
+
+pub fn settle(sys: &Sysfs, max_seconds: u64, quiet: bool) -> Result<(), String> {
+    let cores = std::thread::available_parallelism().map_or(1.0, |count| count.get() as f64);
+    let sensor = crate::hwmon::Hwmon::find(sys, crate::hwmon::CPU_SENSOR).ok();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(max_seconds);
+    let mut previous: Option<f64> = None;
+    loop {
+        if runner::cancelled() {
+            return Err("tuning was interrupted".into());
+        }
+        let load = sysinfo_backend::System::load_average().one / cores;
+        let tctl = sensor.as_ref().and_then(|sensor| sensor.temp_c(1).ok());
+        let delta = previous.zip(tctl).map(|(before, now)| now - before);
+        if max_seconds == 0 || (previous.is_some() && settled(load, delta)) {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        if !quiet {
+            eprintln!(
+                "settling: load {:.2} per core, tctl {}",
+                load,
+                tctl.map_or("n/a".into(), |value| format!("{value:.1}°C"))
+            );
+        }
+        previous = tctl.or(Some(0.0));
+        for _ in 0..20 {
+            if runner::cancelled() {
+                return Err("tuning was interrupted".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+    }
+}
+
 fn desired_from(
     host: &str,
     profile: Profile,
@@ -387,6 +430,7 @@ fn execute(
     validate_options(options)?;
     let _signals = ui_terminal::SignalGuard::new().map_err(|error| error.to_string())?;
     let _measurement = store::measurement_lock()?;
+    let _credentials = Credentials::acquire()?;
     let plan = controls::discover(sys)?;
     if plan.controls.is_empty() {
         return Err(plan.unavailable.join("; "));
@@ -568,6 +612,58 @@ fn execute(
     Ok(ExitCode::SUCCESS)
 }
 
+struct Credentials {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Credentials {
+    fn acquire() -> Result<Option<Self>, String> {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        if effective_uid()? == 0 {
+            return Ok(None);
+        }
+        let status = std::process::Command::new("sudo")
+            .args(["-v", "-p", "sudo password for OS controls: "])
+            .status()
+            .map_err(|error| format!("sudo: {error}"))?;
+        if !status.success() {
+            return Err("sudo credentials required for OS controls".into());
+        }
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let worker = std::thread::spawn(move || {
+            loop {
+                for _ in 0..60 {
+                    if flag.load(Ordering::Acquire) {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+                let _ = std::process::Command::new("sudo")
+                    .args(["-n", "-v"])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+        });
+        Ok(Some(Self {
+            stop,
+            worker: Some(worker),
+        }))
+    }
+}
+
+impl Drop for Credentials {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
 fn effective_uid() -> Result<u32, String> {
     use std::os::unix::fs::MetadataExt;
     fs::metadata("/proc/self")
@@ -636,10 +732,8 @@ pub(crate) fn select_profile(plan: &controls::Plan, name: &str) -> Result<Profil
 }
 
 pub fn scoped(options: ScopedOptions, host: Option<&str>, sys: &Sysfs) -> Result<ExitCode, String> {
-    if effective_uid()? != 0 {
-        return Err("run under sudo".into());
-    }
     local_host(host)?;
+    let _credentials = Credentials::acquire()?;
     let plan = controls::discover(sys)?;
     if plan.controls.is_empty() {
         return Err(plan.unavailable.join("; "));
