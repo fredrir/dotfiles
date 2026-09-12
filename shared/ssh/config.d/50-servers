@@ -1,27 +1,46 @@
-Host llunde
-    HostName llunde-01
+# fredrir-01 = macie
+# fredrir-02 = archie
+# fredrir-03 = TBA
+
+# Hetzner CCX23
+Host fredrir-04
+    HostName fredrir-04
     User root
-    IdentityFile ~/.ssh/llunde_hetzner_root
+    IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
 
-Host llunde-deploy
-    HostName llunde-01
-    User deploy
-    IdentityFile ~/.ssh/llunde_hetzner_deploy
-    IdentitiesOnly yes
-
-Host pyparser
-    HostName llunde-parser
+# Hetzner CPX22
+Host fredrir-05
+    HostName fredrir-05
     User root
-
-Host pyparser-deploy
-    HostName llunde-parser
-    User leploy
-    IdentityFile ~/.ssh/pyparser_hetzner_deploy
+    IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
 
-Host openclaw
-    HostName 46.62.214.182
-    User openclaw
-    IdentityFile ~/.ssh/openclaw
+# Linode Nanode 1GB
+Host fredrir-06
+    HostName fredrir-06
+    User root
+    IdentityFile ~/.ssh/id_ed25519
     IdentitiesOnly yes
+
+# Hetzner CX33
+Host fredrir-07
+    HostName fredrir-07
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
+# Hetzner CX33
+Host fredrir-08
+    HostName fredrir-08
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
+# one.com Cloud Server XXL
+Host fredrir-09
+    HostName fredrir-09
+    User administrator
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
