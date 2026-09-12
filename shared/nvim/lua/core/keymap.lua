@@ -1,15 +1,18 @@
 local M = {}
 local map = vim.keymap.set
-local profile = require "core.profile"
-local commands = require "core.commands"
+local utils = require "utils"
 
 -- General --
 
 map("n", "<Esc>", "<cmd>nohlsearch<CR>")
 
--- Neovim --
+-- [N]eovim / Editor --
 
-map("n", "<leader>rr", commands.restart, { desc = "Restart Neovim" })
+map("n", "<leader>nr", utils.restart.neovim, { desc = "Neovim Restart" })
+map("n", "<leader>nq", utils.close.neovim, { desc = "Neovim Close" })
+map("n", "<leader>ns", "<cmd>Lazy sync<CR>", { desc = "Neovim Sync" })
+map("n", "<leader>rr", utils.restart.neovim, { desc = "Restart Neovim" })
+map("n", "<leader>nl", "<cmd>Lazy<CR>", { desc = "Lazy Open" })
 
 -- Editing --
 
@@ -39,39 +42,27 @@ map("t", "<C-l>", "<C-\\><C-n><C-w>l", { desc = "Move to right window" })
 map("n", "<leader>e", "<cmd>Neotree toggle<CR>", { desc = "File [E]xplorer" })
 map("n", "'", "<cmd>Neotree focus<CR>", { desc = "Focus NeoTree" })
 
-M.neo_tree_window = {
-  ["\\"] = "close_window",
+-- Window Navigation --
 
-  ["'"] = function()
-    vim.cmd "wincmd p"
-  end,
-}
+map("n", "<leader>w<Left>", "<cmd>leftabove vnew<CR>")
+map("n", "<leader>w<Right>", "<cmd>rightbelow vnew<CR>")
+map("n", "<leader>w<Up>", "<cmd>leftabove new<CR>")
+map("n", "<leader>w<Down>", "<cmd>rightbelow new<CR>")
 
-map("n", "§", "<cmd>Neotree focus<CR>", { desc = "Toggle NeoTree focus" })
-
--- Navigation --
-
-map("n", "<leader>n<Left>", "<cmd>leftabove vnew<CR>")
-map("n", "<leader>n<Right>", "<cmd>rightbelow vnew<CR>")
-map("n", "<leader>n<Up>", "<cmd>leftabove new<CR>")
-map("n", "<leader>n<Down>", "<cmd>rightbelow new<CR>")
-
-map("n", "<leader>nq", "<cmd>close<CR>", { desc = "Close current window" })
+map("n", "<leader>wq", "<cmd>close<CR>", { desc = "Close current window" })
 
 map("n", "-", "<cmd>Oil<CR>", { desc = "Open parent directory" })
 
 -- Diagnostics --
 
 map("n", "<leader>q", vim.diagnostic.setloclist, { desc = "Open diagnostic [Q]uickfix list" })
-map("n", "<leader>dd", "<cmd>Trouble diagnostics toggle<CR>", { desc = "Diagnostics (Trouble)" })
+map("n", "<leader>d", "<cmd>Trouble diagnostics toggle<CR>", { desc = "Diagnostics (Trouble)" })
 
 -- Formatting --
 
-if not profile.minimal then
-  map("", "<leader>f", function()
-    require("languages.shell").format { async = true, lsp_format = "fallback" }
-  end, { desc = "[F]ormat buffer" })
-end
+map("", "<leader>f", function()
+  require("languages.shell").format { async = true, lsp_format = "fallback" }
+end, { desc = "[F]ormat buffer" })
 
 -- Search --
 
@@ -229,15 +220,15 @@ function M.gitsigns(bufnr)
   buffer_map("v", "<leader>hr", function()
     gitsigns.reset_hunk { vim.fn.line ".", vim.fn.line "v" }
   end, { desc = "git [r]eset hunk" })
-  buffer_map("n", "<leader>hs", gitsigns.stage_hunk, { desc = "git [s]tage hunk" })
-  buffer_map("n", "<leader>hr", gitsigns.reset_hunk, { desc = "git [r]eset hunk" })
-  buffer_map("n", "<leader>hS", gitsigns.stage_buffer, { desc = "git [S]tage buffer" })
-  buffer_map("n", "<leader>hu", gitsigns.stage_hunk, { desc = "git [u]ndo stage hunk" })
-  buffer_map("n", "<leader>hR", gitsigns.reset_buffer, { desc = "git [R]eset buffer" })
-  buffer_map("n", "<leader>hp", gitsigns.preview_hunk, { desc = "git [p]review hunk" })
-  buffer_map("n", "<leader>hb", gitsigns.blame_line, { desc = "git [b]lame line" })
-  buffer_map("n", "<leader>hd", gitsigns.diffthis, { desc = "git [d]iff against index" })
-  buffer_map("n", "<leader>hD", function()
+  buffer_map("n", "<leader>gs", gitsigns.stage_hunk, { desc = "git [s]tage hunk" })
+  buffer_map("n", "<leader>gr", gitsigns.reset_hunk, { desc = "git [r]eset hunk" })
+  buffer_map("n", "<leader>gS", gitsigns.stage_buffer, { desc = "git [S]tage buffer" })
+  buffer_map("n", "<leader>gu", gitsigns.stage_hunk, { desc = "git [u]ndo stage hunk" })
+  buffer_map("n", "<leader>gR", gitsigns.reset_buffer, { desc = "git [R]eset buffer" })
+  buffer_map("n", "<leader>gp", gitsigns.preview_hunk, { desc = "git [p]review hunk" })
+  buffer_map("n", "<leader>gb", gitsigns.blame_line, { desc = "git [b]lame line" })
+  buffer_map("n", "<leader>gd", gitsigns.diffthis, { desc = "git [d]iff against index" })
+  buffer_map("n", "<leader>gD", function()
     gitsigns.diffthis "@"
   end, { desc = "git [D]iff against last commit" })
   buffer_map("n", "<leader>tb", gitsigns.toggle_current_line_blame, { desc = "[T]oggle git show [b]lame line" })
@@ -285,42 +276,34 @@ end
 
 -- Debugging --
 
-if not profile.minimal then
-  map("n", "<F5>", function()
-    require("dap").continue()
-  end, { desc = "Debug: Start/Continue" })
-  map("n", "<F1>", function()
-    require("dap").step_into()
-  end, { desc = "Debug: Step Into" })
-  map("n", "<F2>", function()
-    require("dap").step_over()
-  end, { desc = "Debug: Step Over" })
-  map("n", "<F3>", function()
-    require("dap").step_out()
-  end, { desc = "Debug: Step Out" })
-  map("n", "<leader>b", function()
-    require("dap").toggle_breakpoint()
-  end, { desc = "Debug: Toggle Breakpoint" })
-  map("n", "<leader>B", function()
-    require("dap").set_breakpoint(vim.fn.input "Breakpoint condition: ")
-  end, { desc = "Debug: Set Breakpoint" })
-  map("n", "<F7>", function()
-    require "dap"
-    require("dapui").toggle()
-  end, { desc = "Debug: See last session result." })
-end
+map("n", "<F5>", function()
+  require("dap").continue()
+end, { desc = "Debug: Start/Continue" })
+map("n", "<F1>", function()
+  require("dap").step_into()
+end, { desc = "Debug: Step Into" })
+map("n", "<F2>", function()
+  require("dap").step_over()
+end, { desc = "Debug: Step Over" })
+map("n", "<F3>", function()
+  require("dap").step_out()
+end, { desc = "Debug: Step Out" })
+map("n", "<leader>b", function()
+  require("dap").toggle_breakpoint()
+end, { desc = "Debug: Toggle Breakpoint" })
+map("n", "<leader>B", function()
+  require("dap").set_breakpoint(vim.fn.input "Breakpoint condition: ")
+end, { desc = "Debug: Set Breakpoint" })
+map("n", "<F7>", function()
+  require "dap"
+  require("dapui").toggle()
+end, { desc = "Debug: See last session result." })
 
 -- Terminal --
 
 map("n", "<C-\\>", "<cmd>ToggleTerm<CR>", { desc = "Toggle terminal" })
 map("t", "<C-\\>", "<cmd>ToggleTerm<CR>", { desc = "Toggle terminal" })
 map("t", "<Esc><Esc>", "<C-\\><C-n>", { desc = "Exit terminal mode" })
-
--- Database --
-
-if not profile.minimal then
-  map("n", "<leader>db", "<cmd>DBUIToggle<CR>", { desc = "Toggle DB UI" })
-end
 
 -- Completion --
 
@@ -336,9 +319,9 @@ M.which_key_groups = {
   { "<leader>s", group = "[S]earch", mode = { "n", "v" } },
   { "<leader>t", group = "[T]oggle" },
   { "<leader>g", group = "[G]it" },
-  { "<leader>h", group = "Git [H]unk", mode = { "n", "v" } },
   { "<leader>r", group = "[R]efactor / Restart" },
-  { "<leader>n", group = "Window [N]avigation" },
+  { "<leader>l", group = "[L]azy" },
+  { "<leader>w", group = "[W]indow Navigation" },
   { "gr", group = "LSP Actions", mode = { "n" } },
 }
 

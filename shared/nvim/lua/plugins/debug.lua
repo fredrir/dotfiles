@@ -1,8 +1,3 @@
-local profile = require "core.profile"
-
-if profile.minimal then
-  return {}
-end
 return {
   "mfussenegger/nvim-dap",
   lazy = true,

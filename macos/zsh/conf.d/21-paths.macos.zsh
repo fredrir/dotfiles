@@ -1,4 +1,9 @@
+export BREW_PATH="$(brew --prefix)"
+export BUN_INSTALL="$HOME/.bun"
+export PNPM_HOME="$HOME/Library/pnpm"
+
 typeset -U path PATH
+
 path=("${(@)path:#$HOME/dotfiles/scripts/.venv/bin}")
 
 path=(
@@ -10,7 +15,6 @@ path=(
 export PATH
 
 # Bun
-export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
@@ -20,7 +24,6 @@ export PATH="$PATH:/Applications/PyCharm.app/Contents/MacOS"
 export PATH="/opt/homebrew/lib/ruby/gems/4.0.0/bin:$PATH"
 
 # pnpm
-export PNPM_HOME="/Users/fredrir/Library/pnpm"
 case ":$PATH:" in
 *":$PNPM_HOME/bin:"*) ;;
 *) export PATH="$PNPM_HOME/bin:$PATH" ;;

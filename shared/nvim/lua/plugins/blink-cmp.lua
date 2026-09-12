@@ -29,7 +29,7 @@ return {
     keymap = require("core.keymap").blink,
     appearance = { nerd_font_variant = "mono" },
     completion = {
-      documentation = { auto_show = false, auto_show_delay_ms = 500 },
+      documentation = { auto_show = false, auto_show_delay_ms = 250 },
       list = {
         selection = {
           preselect = false,

@@ -1,9 +1,3 @@
-local profile = require "core.profile"
-
-if profile.minimal then
-  return {}
-end
-
 local language_servers = require "languages.servers"
 local keymaps = require "core.keymap"
 

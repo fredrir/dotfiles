@@ -1,9 +1,3 @@
-local profile = require "core.profile"
-
-if profile.minimal then
-  return {}
-end
-
 local linters = require "languages.linters"
 
 return {

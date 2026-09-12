@@ -11,6 +11,9 @@ alias port="portview"
 alias exz="exec zsh"
 
 alias disk="ncdu"
+alias u="uname -mrs"
+
+alias cleanup="kondo" # Cleanup build output
 
 alias n="nvim"
 alias nn="nvim ."
@@ -38,9 +41,13 @@ alias cd...="cd ../.."
 
 alias cdh="cd $HOME"
 alias cdc="cd $CONFIG"
-alias cdd="cd $HOME/dotfiles"
-alias cdn="cd $NVIM"
-alias cdw="cd $CONFIG/wezterm"
+
+# Dotfiles
+alias cdd="cd $DOTFILES"
+alias cdn="cd $DOTFILES/shared/nvim"
+alias cdw="cd $DOTFILES/shared/wezterm"
+
+# TODO set to dotfiles directory, blocked by current folder layout hiarchy
 alias cdz="cd $CONFIG/zsh/conf.d"
 alias cds="cd $HOME/.ssh/config.d"
 
@@ -55,12 +62,3 @@ alias cdb="cd ../backend"
 alias cdo="cd $HOME/Documents/main/.obsidian"
 
 alias cdj='cd "$OLDPWD"' # cd jump to last directory
-
-# Other
-
-alias u="uname -mrs"
-
-alias cleanup="kondo" # Cleanup build output
-
-# Git
-alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'

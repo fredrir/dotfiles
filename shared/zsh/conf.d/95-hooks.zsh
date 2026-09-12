@@ -115,6 +115,7 @@ _sync_git_repo_commands() {
     alias cdg=_cdg_to_root
     alias gs='_git_from_root status -u'
     alias gc='_git_from_root commit -m'
+    alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
     alias gcm='_git_from_root commit -m'
     alias gp='_git_from_root pull'
     alias gpp="_git_from_root push"

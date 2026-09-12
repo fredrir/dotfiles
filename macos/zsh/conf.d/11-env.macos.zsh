@@ -12,3 +12,6 @@ export PATH="$(brew --prefix python)/libexec/bin:$PATH"
 
 # GNU Make
 export PATH="/opt/homebrew/opt/make/libexec/gnubin:$PATH"
+
+# Nix
+export PATH="$HOME/.nix-profile/bin:$PATH"

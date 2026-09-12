@@ -25,14 +25,14 @@ local check_external_reqs = function()
   return true
 end
 
-return {
-  check = function()
-    vim.health.start "nvim config"
+local function check()
+  vim.health.start "nvim config"
 
-    local uv = vim.uv or vim.loop
-    vim.health.info("System Information: " .. vim.inspect(uv.os_uname()))
+  local uv = vim.uv or vim.loop
+  vim.health.info("System Information: " .. vim.inspect(uv.os_uname()))
 
-    check_version()
-    check_external_reqs()
-  end,
-}
+  check_version()
+  check_external_reqs()
+end
+
+return check

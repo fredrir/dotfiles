@@ -1,5 +1,4 @@
 local catalog = require "languages.catalog"
-local profile = require "core.profile"
 
 return {
   "nvim-treesitter/nvim-treesitter",
@@ -9,11 +8,10 @@ return {
   config = function()
     local ts = require "nvim-treesitter"
 
-    local ensure = catalog.parsers_for(profile)
     local installed = ts.get_installed()
     local missing = vim.tbl_filter(function(lang)
       return not vim.tbl_contains(installed, lang)
-    end, ensure)
+    end, catalog)
     if #missing > 0 then
       ts.install(missing)
     end

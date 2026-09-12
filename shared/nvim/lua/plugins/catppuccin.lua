@@ -39,7 +39,7 @@ return {
       integrations = {
         gitsigns = true,
         treesitter = true,
-        telescope = { enabled = true },
+        telescope = true,
         which_key = true,
         mini = { enabled = true },
         indent_blankline = { enabled = true },

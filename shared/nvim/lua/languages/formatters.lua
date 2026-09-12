@@ -1,5 +1,4 @@
 local tooling = require "languages.tooling"
-
 ---@module 'conform'
 ---@type conform.setupOpts
 return {

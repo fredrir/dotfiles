@@ -18,14 +18,9 @@ min_rounds = 1
 
 nested_groups = ["llunde"]
 
-[aliases]
-"llunde-new/infra"    = "llunde-infra"
-"llunde-new/backend"  = "llunde-backend"
-"llunde-new/frontend" = "llunde-frontend"
-"llunde-new/pyparser" = "llunde-pyparser"
-
 [groups]
-llunde     = ["llunde-infra", "llunde-backend", "llunde-frontend", "llunde-pyparser"]
+llunde     = ["llunde-backend", "llunde-frontend", "llunde-pyparser"]
+infra      = ["llunde-infra"]
 other      = ["sndbx"]
 dotfiles   = ["dotfiles"]
 wezterm    = ["wez-vertical-tabs", "vertical-tabs", "wezterm-vertical-tabs"]
@@ -36,6 +31,7 @@ elvfast    = ["Elvfast"]
 [destinations]
 dotfiles   = "Dotfiles/_Agents"
 distro-lab = "Dotfiles/Distro Lab/_Agents"
+infra      = "Infra/_Agents"
 ArchTeX    = "ArchTeX/_Agents"
 llunde     = "llunde/_Agents"
 rif        = "rif/_Agents"

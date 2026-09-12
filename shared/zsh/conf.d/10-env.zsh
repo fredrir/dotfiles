@@ -10,3 +10,5 @@ export NVIM="$CONFIG/nvim"
 export EDITOR=nvim
 
 export SOPS_AGE_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/age/keys.txt"
+
+export DOTFILES="$HOME/dotfiles"

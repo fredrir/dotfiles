@@ -10,13 +10,12 @@ shared {
   bash
   python3
   tmux
-  ssh   = openssh
+  ssh     = openssh
   zsh
   uv
   age
   sops
-  nvim  = neovim
-  kitty
+  nvim    = neovim
   ?wezterm
   yazi
   starship
@@ -26,22 +25,22 @@ shared {
   eza
   bat
   fd
-  rg    = ripgrep
+  rg      = ripgrep
   rsync
   zoxide
   direnv
   ?ncdu
-  ?gh   = github-cli
+  ?gh     = github-cli
   ?docker
   ?fio
   ?sysbench
   ?hyperfine
   ?stress-ng
-  ?7z   = 7zip
+  ?7z     = 7zip
   ?portview
   ?kondo
   openssl
-  ?shuck = shuck-cli
+  ?shuck  = shuck-cli
   ?biome
   ?ruff
   ?stylua
