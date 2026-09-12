@@ -1,5 +1,44 @@
 local M = {}
 
+---@param register "+"|"*"
+---@param cache_path string
+---@return fun(lines: string[])
+local function copy(register, cache_path)
+  local send = require("vim.ui.clipboard.osc52").copy(register)
+  return function(lines)
+    pcall(vim.fn.writefile, lines, cache_path)
+    send(lines)
+  end
+end
+
+---@param cache_path string
+---@return fun(): string[]
+local function paste(cache_path)
+  return function()
+    if vim.fn.filereadable(cache_path) == 0 then
+      return {}
+    end
+    return vim.fn.readfile(cache_path)
+  end
+end
+
+function M.setup()
+  local is_ssh = vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_TTY ~= nil
+  local has_native_clipboard = vim.fn.has "mac" == 1 or vim.env.WAYLAND_DISPLAY ~= nil or vim.env.DISPLAY ~= nil
+  if not is_ssh and has_native_clipboard then
+    return
+  end
+
+  local cache_path = vim.fn.stdpath "cache" .. "/osc52-clipboard"
+  local paste_last_copy = paste(cache_path)
+  vim.g.clipboard = {
+    name = "osc52",
+    copy = { ["+"] = copy("+", cache_path), ["*"] = copy("*", cache_path) },
+    paste = { ["+"] = paste_last_copy, ["*"] = paste_last_copy },
+    cache_enabled = true,
+  }
+end
+
 function M.file_context()
   local bufnr = vim.api.nvim_get_current_buf()
 

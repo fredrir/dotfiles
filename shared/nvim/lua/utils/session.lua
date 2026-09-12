@@ -1,5 +1,120 @@
 local M = {}
 
+---@type { show: boolean }
+local sync_options
+
+---@param opts { show: boolean }
+function M.setup(opts)
+  sync_options = opts
+end
+
+local function is_file_window(window)
+  if not window or not vim.api.nvim_win_is_valid(window) then
+    return false
+  end
+
+  local buffer = vim.api.nvim_win_get_buf(window)
+  return vim.bo[buffer].buftype == "" and vim.api.nvim_buf_get_name(buffer) ~= ""
+end
+
+local function get_modified_buffers()
+  local modified = {}
+
+  for _, buffer in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buffer) and vim.bo[buffer].modified then
+      local name = vim.api.nvim_buf_get_name(buffer)
+      modified[#modified + 1] = name == "" and "[No Name]" or vim.fn.fnamemodify(name, ":~:.")
+    end
+  end
+
+  table.sort(modified)
+  return modified
+end
+
+local function get_editor_state()
+  local tabpage = vim.api.nvim_get_current_tabpage()
+  local current_window = vim.api.nvim_get_current_win()
+  local editor_window
+
+  if is_file_window(current_window) then
+    editor_window = current_window
+  else
+    local alternate_window = vim.fn.win_getid(vim.fn.winnr "#")
+    if is_file_window(alternate_window) and vim.api.nvim_win_get_tabpage(alternate_window) == tabpage then
+      editor_window = alternate_window
+    else
+      for _, window in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
+        if is_file_window(window) then
+          editor_window = window
+          break
+        end
+      end
+    end
+  end
+
+  if not editor_window then
+    return
+  end
+
+  local buffer = vim.api.nvim_win_get_buf(editor_window)
+  return {
+    path = vim.api.nvim_buf_get_name(buffer),
+    view = vim.api.nvim_win_call(editor_window, vim.fn.winsaveview),
+  }
+end
+
+local function get_neo_tree_state()
+  local tabpage = vim.api.nvim_get_current_tabpage()
+  local current_window = vim.api.nvim_get_current_win()
+
+  for _, window in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
+    local buffer = vim.api.nvim_win_get_buf(window)
+    if vim.bo[buffer].filetype == "neo-tree" then
+      local source = vim.b[buffer].neo_tree_source or "filesystem"
+      local position = vim.b[buffer].neo_tree_position
+      local restart_state = {
+        focused = window == current_window,
+        position = position,
+        source = source,
+      }
+
+      if source == "filesystem" then
+        local ok, manager = pcall(require, "neo-tree.sources.manager")
+        if ok then
+          local state = manager.get_state(source, tabpage)
+          local node = state.tree and state.tree:get_node()
+          restart_state.node = node and node:get_id() or nil
+          restart_state.root = state.path
+        end
+      end
+
+      return restart_state
+    end
+  end
+end
+
+function M.restart()
+  local modified = get_modified_buffers()
+  if #modified > 0 then
+    vim.notify(
+      ("Restart cancelled: save or discard modified buffers first:\n%s"):format(table.concat(modified, "\n")),
+      vim.log.levels.WARN
+    )
+    return
+  end
+
+  local state = {
+    editor = get_editor_state(),
+    neo_tree = get_neo_tree_state(),
+  }
+  local payload = vim.base64.encode(vim.json.encode(state))
+
+  -- Native session restoration serializes plugin and placeholder buffers.
+  -- Skip it and restore only the real editor and Neo-tree state captured above.
+  local command = ("restart! lua require('utils.session').restore(%q)"):format(payload)
+  vim.cmd(command)
+end
+
 local function restore_editor(state)
   if type(state) ~= "table" or type(state.path) ~= "string" or state.path == "" then
     return
@@ -71,7 +186,7 @@ local function restore_neo_tree(state, editor_window)
 end
 
 ---@param payload string
-function M.restart(payload)
+function M.restore(payload)
   local decoded, state = pcall(function()
     return vim.json.decode(vim.base64.decode(payload))
   end)
@@ -135,7 +250,7 @@ function M.restart(payload)
 
   event_handler = {
     event = events.NEO_TREE_WINDOW_AFTER_OPEN,
-    id = "core_restart_restore",
+    id = "session_restart_restore",
     handler = function(args)
       if args.source == "filesystem" then
         -- The hijack queues its directory-buffer cleanup after opening the
@@ -147,6 +262,33 @@ function M.restart(payload)
     end,
   }
   events.subscribe(event_handler)
+end
+
+function M.sync()
+  local ok, lazy = pcall(require, "lazy")
+
+  if not ok then
+    vim.notify("Could not load lazy.nvim: " .. tostring(lazy), vim.log.levels.ERROR)
+    return
+  end
+
+  local synced, err = pcall(function()
+    lazy.sync {
+      wait = true,
+      show = sync_options.show,
+    }
+  end)
+
+  if not synced then
+    vim.notify("Lazy sync failed: " .. tostring(err), vim.log.levels.ERROR)
+    return
+  end
+
+  M.restart()
+end
+
+function M.close()
+  vim.cmd "wqa"
 end
 
 return M
