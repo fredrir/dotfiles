@@ -46,6 +46,7 @@
 | <code>cmd+7</code> | [<code>workbench.action.openEditorAtIndex7</code>](../../shared/vscode/keybindings.json#L66) | Open Editor At Index7 |
 | <code>cmd+7</code> | [<code>workbench.action.openEditorAtIndex8</code>](../../shared/vscode/keybindings.json#L74) | Open Editor At Index8 |
 | <code>cmd+9</code> | [<code>workbench.action.openEditorAtIndex9</code>](../../shared/vscode/keybindings.json#L82) | Open Editor At Index9 |
+| <code>cmd+b</code> | [<code>-markdown.extension.editing.toggleBold</code>](../../shared/vscode/keybindings.json#L181) | Markdown extension editing toggle Bold<br><code>editorTextFocus &amp;&amp; !editorReadonly &amp;&amp; editorLangId =~ /^markdown$&#124;^rmd$&#124;^quarto$/; remove binding</code> |
 | <code>cmd+k shift+alt+cmd+c</code> | [<code>-copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L115) | Copy Relative File Path<br><code>editorFocus; remove binding</code> |
 | <code>ctrl+alt+cmd+k</code> | [<code>copyRelativeFilePath</code>](../../shared/vscode/keybindings.json#L110) | Copy Relative File Path<br><code>editorFocus</code> |
 | <code>ctrl+shift+alt+cmd+k</code> | [<code>copyFilePath</code>](../../shared/vscode/keybindings.json#L90) | Copy File Path<br><code>editorFocus</code> |
