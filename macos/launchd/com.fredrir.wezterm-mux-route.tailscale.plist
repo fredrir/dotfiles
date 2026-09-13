@@ -6,10 +6,9 @@
   <string>com.fredrir.wezterm-mux-route.tailscale</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-route</string>
-    <string>100.75.71.79</string>
-    <string>8443</string>
-    <string>8445</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-route" 100.75.71.79 8443 8445</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

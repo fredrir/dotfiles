@@ -44,5 +44,5 @@ up    tailscale  100.126.231.24:8443 archie-tailscale
 Columns are state, route, peer socket, and the domain to attach over. A route
 that is down carries no domain. The `lan` peer address is resolved per probe by
 `home-lan-connect`, so it moves with the DHCP lease. `attach_mux` in
-`shared/zsh/conf.d/49-wezterm.zsh` is the caller: see
+`shared/zsh/49-wezterm.zsh` is the caller: see
 [wezterm-mux.md](../wezterm-mux.md).

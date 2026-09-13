@@ -10,49 +10,9 @@
 
 ## Shared Keybinds
 
-[<code>keymap = motion-select</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L119)
+[<code>keymap = fredrir</code>](../../shared/zsh/60-keybinds.zsh#L1) [2](../../shared/zsh/60-keybinds.zsh#L2)
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code> -~</code> | [<code>motion-replace-selection</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L170) | Motion replace selection<br><code>motion-select; key range; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/conf.d/50-fzf.zsh#L70) | Previous completion group<br><code>:fzf-tab:*; command -v fzf &gt;/dev/null</code> |
-| <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/conf.d/50-fzf.zsh#L70) | Next completion group<br><code>:fzf-tab:*; command -v fzf &gt;/dev/null</code> |
-| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L97) | Wezterm open yazi<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L98) | Wezterm open yazi<br><code>vicmd; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;115;9u</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L99) | Wezterm open yazi<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;13;2u</code> | [<code>wezterm-insert-newline</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L72) | Wezterm insert newline<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;13;2u</code> | [<code>wezterm-insert-newline</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L73) | Wezterm insert newline<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;1;2A</code> | [<code>motion-select-backward-char</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L184) | Motion select backward char<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;2B</code> | [<code>motion-select-forward-char</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L185) | Motion select forward char<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;2C</code> | [<code>motion-select-forward-char</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L183) | Motion select forward char<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;2D</code> | [<code>motion-select-backward-char</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L182) | Motion select backward char<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;2F</code> | [<code>motion-select-end-of-line</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L189) | Motion select end of line<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;2H</code> | [<code>motion-select-beginning-of-line</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L188) | Motion select beginning of line<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;4C</code> | [<code>motion-select-forward-word</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L187) | Motion select forward word<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;4D</code> | [<code>motion-select-backward-word</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L186) | Motion select backward word<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;5F</code> | [<code>motion-document-end</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L178) | Motion document end<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;5H</code> | [<code>motion-document-start</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L177) | Motion document start<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;6F</code> | [<code>motion-select-buffer-end</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L191) | Motion select buffer end<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;1;6H</code> | [<code>motion-select-buffer-start</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L190) | Motion select buffer start<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;3~</code> | [<code>motion-kill-selection</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L173) | Motion kill selection<br><code>motion-select; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L102) | Wezterm open yazi<br><code>emacs; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L103) | Wezterm open yazi<br><code>vicmd; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>\e&#91;5;30012~</code> | [<code>wezterm-open-yazi</code>](../../shared/zsh/conf.d/49-wezterm.zsh#L104) | Wezterm open yazi<br><code>viins; &#91;&#91; -o interactive &#93;&#93;</code> |
-| <code>^?</code> | [<code>motion-kill-selection</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L171) | Motion kill selection<br><code>motion-select; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>^@-\M-^?</code> | [<code>motion-deselect</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L169) | Motion deselect<br><code>motion-select; key range; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>^F</code> | [<code>fzf-file-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L57) | Fzf file widget<br><code>emacs; command -v fzf &gt;/dev/null; ! command -v nvim &gt;/dev/null</code> |
-| <code>^F</code> | [<code>fzf-file-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L58) | Fzf file widget<br><code>vicmd; command -v fzf &gt;/dev/null; ! command -v nvim &gt;/dev/null</code> |
-| <code>^F</code> | [<code>fzf-file-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L59) | Fzf file widget<br><code>viins; command -v fzf &gt;/dev/null; ! command -v nvim &gt;/dev/null</code> |
-| <code>^F</code> | [<code>terminal-telescope-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L9) | Terminal telescope widget<br><code>emacs; command -v nvim &gt;/dev/null</code> |
-| <code>^F</code> | [<code>terminal-telescope-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L10) | Terminal telescope widget<br><code>vicmd; command -v nvim &gt;/dev/null</code> |
-| <code>^F</code> | [<code>terminal-telescope-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L11) | Terminal telescope widget<br><code>viins; command -v nvim &gt;/dev/null</code> |
-| <code>^G</code> | [<code>terminal-telescope-grep-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L26) | Terminal telescope grep widget<br><code>emacs; command -v nvim &gt;/dev/null</code> |
-| <code>^G</code> | [<code>terminal-telescope-grep-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L27) | Terminal telescope grep widget<br><code>vicmd; command -v nvim &gt;/dev/null</code> |
-| <code>^G</code> | [<code>terminal-telescope-grep-widget</code>](../../shared/zsh/conf.d/50-fzf.zsh#L28) | Terminal telescope grep widget<br><code>viins; command -v nvim &gt;/dev/null</code> |
-| <code>^H</code> | [<code>atuin-search</code>](../../shared/zsh/conf.d/50-fzf.zsh#L35) | Atuin search<br><code>emacs; command -v atuin &gt;/dev/null</code> |
-| <code>^H</code> | [<code>atuin-search-vicmd</code>](../../shared/zsh/conf.d/50-fzf.zsh#L37) | Atuin search vicmd<br><code>vicmd; command -v atuin &gt;/dev/null</code> |
-| <code>^H</code> | [<code>atuin-search-viins:q</code>](../../shared/zsh/conf.d/50-fzf.zsh#L36) | Atuin search viins:q<br><code>viins; command -v atuin &gt;/dev/null</code> |
-| <code>^H</code> | [<code>motion-kill-selection</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L172) | Motion kill selection<br><code>motion-select; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>^U</code> | [<code>motion-kill-to-line-start</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L75) | Motion kill to line start<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>^W</code> | [<code>motion-backward-kill-shell-word</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L74) | Motion backward kill shell word<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
-| <code>^&#91;^?</code> | [<code>motion-backward-kill-word</code>](../../shared/zsh/conf.d/48-motion-keys.zsh#L76) | Motion backward kill word<br><code>$keymap; &#91;&#91; -o interactive &#93;&#93;; ((index)); &#91;&#91; -n $LBUFFER &#93;&#93;</code> |
+| <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/50-fzf.zsh#L21) | Previous completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
+| <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/50-fzf.zsh#L21) | Next completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |

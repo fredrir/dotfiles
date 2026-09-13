@@ -154,7 +154,7 @@ fn resolver(context: &Context) -> workstation::native::Resolver {
         root: context.root.clone(),
         home: context.home.clone(),
         current_exe: std::env::current_exe().ok().filter(|path| {
-            path.starts_with(&context.root) || path.starts_with(context.home.join(".local/bin"))
+            path.starts_with(&context.root) || path.starts_with(context.home.join("dotfiles/.bin"))
         }),
         manifest: context.env("DOTFILE_DEV_BUILD_MANIFEST").map(PathBuf::from),
     }

@@ -15,16 +15,16 @@ reached through `socat`.
 
 ## Host switching
 
-| Name | Value |
-| --- | --- |
-| `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain |
-| `attach_mux`, attach shortcut | Fresh shell on the GUI computer's peer |
-| Request | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID |
-| TLS layouts | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are not imported |
-| Return to GUI computer | Fresh shell in localmux's `local` domain |
-| Failure | Source pane stays open; GUI reports the error |
-| Prerequisite | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
-| Restart | Restarting localmux terminates its active sessions; save work first |
+| Name                                    | Value                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------ |
+| `attach_mux archie`, `attach_mux macie` | Fresh shell replaces the invoking split; sibling panes and existing sessions remain  |
+| `attach_mux`, attach shortcut           | Fresh shell on the GUI computer's peer                                               |
+| Request                                 | Shell emits `ATTACH_MUX`; GUI resolves its localmux pane ID                          |
+| TLS layouts                             | `local_pane_layout=true`; localmux owns tabs/splits, remote tabs are not imported    |
+| Return to GUI computer                  | Fresh shell in localmux's `local` domain                                             |
+| Failure                                 | Source pane stays open; GUI reports the error                                        |
+| Prerequisite                            | Updated vertical-tabs WezTerm GUI, CLI and localmux server; reload shell definitions |
+| Restart                                 | Restarting localmux terminates its active sessions; save work first                  |
 
 
 | Route     | macie `tls_servers` | macie peer-facing  | archie `tls_servers` | archie peer-facing  |
@@ -130,7 +130,7 @@ shared/wezterm/domain/unix.lua         localmux, default_domain, no_serve_automa
 shared/wezterm/bin/wezterm-mtls        CA, CSR, issue, install, doctor
 shared/wezterm/keymap/init.lua         the attach chord: CMD+. on macie, ALT+. on archie
 shared/wezterm/utils/hwire-session.lua propagates TLS metadata to tabs and splits
-shared/zsh/conf.d/49-wezterm.zsh       `mux`, the `archie`/`macie` aliases, and TLS metadata
+shared/zsh/49-wezterm.zsh              `mux`, the `archie`/`macie` aliases, and TLS metadata
 scripts/rust/crates/mux-route/         which route answers, and the domain to attach over it
 scripts/rust/crates/hostkit/           the addresses those two read, and the guard on hosts.lua
 

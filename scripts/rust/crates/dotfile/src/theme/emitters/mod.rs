@@ -97,7 +97,7 @@ pub fn targets(repo: &Repository) -> Result<Vec<Target>> {
     }
     for (path, kind) in [
         ("shared/starship/starship.toml", Kind::Starship),
-        ("shared/zsh/conf.d/03-theme.zsh", Kind::Zsh),
+        ("shared/zsh/20-theme.zsh", Kind::Zsh),
         ("shared/obsidian/themes/Fredrir/theme.css", Kind::Obsidian),
         ("shared/nvim/lua/ui/theme.lua", Kind::Nvim),
         ("shared/yazi/theme.toml", Kind::Yazi),

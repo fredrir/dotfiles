@@ -1,4 +1,3 @@
-# Install: brew bundle --file macos/Brewfile
 brew "bash"
 brew "cargo-nextest"
 brew "fzf"
@@ -22,4 +21,3 @@ brew "yamllint"
 brew "sqlfluff"
 brew "ewhauser/tap/shuck-cli"
 cask "hammerspoon"
-# cask "raycast"

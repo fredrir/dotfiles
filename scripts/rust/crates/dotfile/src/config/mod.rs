@@ -155,13 +155,8 @@ impl Configuration {
         write_atomic(&context.overrides_file, content.as_bytes())
     }
 
-    pub fn map_destination(
-        &self,
-        context: &Context,
-        full: &str,
-        package: &str,
-        relative: &Path,
-    ) -> PathBuf {
+    /// `None` when no rule covers the path: undeclared packages stay in the repository.
+    pub fn map_destination(&self, full: &str) -> Option<PathBuf> {
         let best = self
             .targets
             .keys()
@@ -171,17 +166,11 @@ impl Configuration {
                         .strip_prefix(key.as_str())
                         .is_some_and(|rest| rest.starts_with('/'))
             })
-            .max_by_key(|key| key.len());
-        match best {
-            None => {
-                let mut destination = context.home.join(".config").join(package);
-                if !relative.as_os_str().is_empty() {
-                    destination.push(relative);
-                }
-                destination
-            }
-            Some(key) if full == key => self.targets[key].clone(),
-            Some(key) => self.targets[key].join(&full[key.len() + 1..]),
+            .max_by_key(|key| key.len())?;
+        if full == best {
+            Some(self.targets[best].clone())
+        } else {
+            Some(self.targets[best].join(&full[best.len() + 1..]))
         }
     }
 
@@ -200,6 +189,7 @@ pub fn never_fold(context: &Context, path: &Path) -> bool {
         context.home.join(".local"),
         context.home.join(".local/share"),
         context.home.join(".local/bin"),
+        context.home.join("dotfiles/.bin"),
         context.home.join(".config/systemd"),
         context.home.join(".config/systemd/user"),
     ]

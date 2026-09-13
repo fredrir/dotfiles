@@ -5,7 +5,7 @@
   "bios": "a48c7487",
   "iterations": 200000000,
   "worker": "a10b07e7",
-  "worker_path": "/home/fredrir/.local/bin/bench-workloads",
+  "worker_path": "/home/fredrir/dotfiles/.bin/bench-workloads",
   "cores": {
     "0": {
       "mops": 895.857,

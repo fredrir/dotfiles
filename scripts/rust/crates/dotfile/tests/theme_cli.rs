@@ -216,11 +216,11 @@ fn scoped_nvim_switch_updates_palette_without_rewriting_plugin_spec() {
 fn scoped_switch_changes_only_assigned_package_and_global_clears_overrides() {
     let s = Sandbox::new();
     let before = s.read("shared/tmux/theme.conf");
-    let zsh = s.read("shared/zsh/conf.d/03-theme.zsh");
+    let zsh = s.read("shared/zsh/20-theme.zsh");
     s.assert_success(&["switch", "latte", "shared/zsh"]);
-    let changed_zsh = s.read("shared/zsh/conf.d/03-theme.zsh");
+    let changed_zsh = s.read("shared/zsh/20-theme.zsh");
     assert_ne!(changed_zsh, zsh);
-    assert!(changed_zsh.starts_with("# Generated from theme/profiles/latte.toml\n"));
+    assert!(changed_zsh.starts_with("# latte\n"));
     assert_eq!(s.read("shared/tmux/theme.conf"), before);
     assert!(s.read("config/profiles.dotfile").contains("zsh = latte"));
     s.assert_success(&["switch", "mocha", "linux/kde"]);
@@ -548,8 +548,8 @@ fn stalled_formatter_times_out_and_keeps_switch_usable() {
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert!(
         sandbox
-            .read("shared/zsh/conf.d/03-theme.zsh")
-            .starts_with("# Generated from theme/profiles/latte.toml\n")
+            .read("shared/zsh/20-theme.zsh")
+            .starts_with("# latte\n")
     );
     sandbox.assert_success(&["dry"]);
 }

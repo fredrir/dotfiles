@@ -88,7 +88,7 @@ fn values(context: &Context, source: &str, arguments: &[String]) -> Result<Vec<S
         "secrets" => {
             let configuration = all_configuration(context)?;
             let mut rows = vec![row("vars", "the shared variables file")];
-            for e in crate::secret::vault::plan(context, &configuration)? {
+            for e in crate::secret::vault::plan(&configuration)? {
                 rows.push(row(
                     &e.source
                         .strip_prefix(&context.root)
@@ -111,7 +111,7 @@ fn values(context: &Context, source: &str, arguments: &[String]) -> Result<Vec<S
                 .iter()
                 .filter(|p| p.kind == PackageKind::System)
             {
-                for e in crate::secret::vault::package_entries(context, &configuration, p, true)? {
+                for e in crate::secret::vault::package_entries(&configuration, p, true)? {
                     rows.push(row(
                         &e.destination.to_string_lossy(),
                         &e.source

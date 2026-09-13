@@ -222,7 +222,7 @@ pub fn host(
         return Ok(0);
     }
     let remote = format!(
-        "unset HWIRE_SESSION TMUX TMUX_PANE TMUX_WORKSPACE_SOCKET; export PATH=\"$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; exec tmux-workspace enter --from {} --session {}",
+        "unset HWIRE_SESSION TMUX TMUX_PANE TMUX_WORKSPACE_SOCKET; export PATH=\"$DOTFILES_COMPILED/:/opt/homebrew/bin:/usr/local/bin:$PATH\"; exec tmux-workspace enter --from {} --session {}",
         process::quote(&config::hostname()),
         process::quote(session)
     );

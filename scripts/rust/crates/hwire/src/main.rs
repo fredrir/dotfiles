@@ -26,7 +26,7 @@ const PROGRAM: &str = "hwire";
 
 const LATENCY_BUDGET: Duration = Duration::from_millis(500);
 
-const REMOTE_PATH: &str = r#"PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH" "#;
+const REMOTE_PATH: &str = r#"PATH="$DOTFILES_COMPILED/:/opt/homebrew/bin:/usr/local/bin:$PATH" "#;
 
 #[derive(Parser)]
 #[command(

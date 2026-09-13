@@ -6,11 +6,9 @@
   <string>com.fredrir.wezterm-mux-dial.lan</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-route</string>
-    <string>--lan-client</string>
-    <string>archie.local</string>
-    <string>8447</string>
-    <string>8443</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-route" --lan-client archie.local 8447 8443</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

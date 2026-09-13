@@ -27,7 +27,7 @@ impl Fixture {
         ] {
             fs::create_dir_all(path).unwrap();
         }
-        fs::write(root.join("config/targets.dotfile"), "").unwrap();
+        fs::write(root.join("config/targets.dotfile"), "shared = ~/.config\n").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
         fs::write(home.join(".config/dotfile/profile"), "test\n").unwrap();
         assert!(
@@ -238,7 +238,7 @@ fn add_rollback_restores_original_config_and_git_index_on_staging_failure() {
     assert_eq!(fs::read(fixture.root.join(".git/index")).unwrap(), index);
     assert_eq!(
         fs::read_to_string(fixture.root.join("config/targets.dotfile")).unwrap(),
-        ""
+        "shared = ~/.config\n"
     );
     assert!(!fixture.root.join("config/packages.dotfile").exists());
 }

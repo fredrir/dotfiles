@@ -568,7 +568,7 @@ pub(crate) fn machine_script(arguments: &[String]) -> String {
         .map(|argument| quote(argument))
         .collect::<Vec<_>>()
         .join(" ");
-    format!("export PATH=\"$HOME/.local/bin:$PATH\"; exec agent-hop {command}")
+    format!("export PATH=\"DOTFILES_COMPILED:$PATH\"; exec agent-hop {command}")
 }
 
 pub(crate) fn machine_ssh_session(peer: Host, script: &str) -> Session {

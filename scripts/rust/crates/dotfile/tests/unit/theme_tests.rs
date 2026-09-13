@@ -164,7 +164,7 @@ fn selection_edit_keeps_comments_and_removes_only_requested_overrides() {
     assert!(package.contains("  obsidian = latte\n  zsh = latte\n}"));
     assert!(package.contains("theme = mocha  # base"));
     assert_eq!(selected.for_path("shared/obsidian/theme.css"), "latte");
-    assert_eq!(selected.for_path("shared/zsh/theme.zsh"), "mocha");
+    assert_eq!(selected.for_path("shared/zsh/20-theme.zsh"), "mocha");
     assert_eq!(selected.for_path("linux/kde/plasma/kdeglobals"), "latte");
     assert_eq!(
         selected.for_path("linux/arch/fastfetch/config.jsonc"),

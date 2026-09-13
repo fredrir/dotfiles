@@ -20,7 +20,7 @@ impl Repository {
         fs::create_dir_all(root.join("shared")).unwrap();
         fs::create_dir_all(home.join(".config/dotfile")).unwrap();
         fs::create_dir_all(home.join(".ssh")).unwrap();
-        fs::write(root.join("config/targets.dotfile"), "").unwrap();
+        fs::write(root.join("config/targets.dotfile"), "shared = ~/.config\n").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
         fs::write(home.join(".config/dotfile/profile"), "test\n").unwrap();
         let binary = PathBuf::from(env!("CARGO_BIN_EXE_dotfile"));

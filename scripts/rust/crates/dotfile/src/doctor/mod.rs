@@ -281,12 +281,12 @@ fn environment_rows(
             .and_then(toml::Value::as_table)
             .map(|scripts| scripts.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
-        let bin = context.home.join(".local/bin");
+        let bin = context.home.join("dotfiles/.bin");
         let path_has_bin = std::env::split_paths(&context.env("PATH").unwrap_or_default())
             .any(|path| crate::fs::resolved(&path).ok() == crate::fs::resolved(&bin).ok());
         let mut details = Vec::new();
         if !path_has_bin {
-            details.push(("~/.local/bin is not on PATH".into(), String::new()));
+            details.push(("~/dotfiles/.bin is not on PATH".into(), String::new()));
         }
         let data = context
             .env("XDG_DATA_HOME")
@@ -299,7 +299,7 @@ fn environment_rows(
         for name in commands {
             let installed = bin.join(&name);
             if !installed.is_file() {
-                details.push((name, "missing from ~/.local/bin".into()));
+                details.push((name, "missing from ~/dotfiles/.bin".into()));
             } else if !crate::fs::resolved(&installed).is_ok_and(|path| {
                 path.starts_with(crate::fs::resolved(&uv).unwrap_or_else(|_| uv.clone()))
             }) {

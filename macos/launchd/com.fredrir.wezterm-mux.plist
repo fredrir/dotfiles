@@ -6,7 +6,9 @@
   <string>com.fredrir.wezterm-mux</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-serve</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-serve"</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

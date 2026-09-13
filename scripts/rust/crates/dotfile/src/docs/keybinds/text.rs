@@ -306,6 +306,32 @@ pub fn zsh(source: &str, body: &str, package: &mut Package) -> Result<(), String
         let mut declared = false;
         while let Some(word) = words.get(i) {
             match word.value.as_str() {
+                "-A" => {
+                    let old = words
+                        .get(i + 1)
+                        .ok_or_else(|| format!("{line}: missing old keymap"))?
+                        .value
+                        .clone();
+                    let new = words
+                        .get(i + 2)
+                        .ok_or_else(|| format!("{line}: missing new keymap"))?
+                        .value
+                        .clone();
+
+                    if new == "main" {
+                        package.settings.push(row(
+                            source,
+                            line,
+                            "keymap".into(),
+                            old,
+                            String::new(),
+                            String::new(),
+                        ));
+                    }
+
+                    declared = true;
+                    break;
+                }
                 "-N" => {
                     let name = words
                         .get(i + 1)
@@ -342,6 +368,7 @@ pub fn zsh(source: &str, body: &str, package: &mut Package) -> Result<(), String
                         String::new(),
                     ));
                 }
+
                 "-r" => remove = true,
                 "-s" => string = true,
                 "--" => {

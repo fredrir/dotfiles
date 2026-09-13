@@ -21,6 +21,6 @@
     }
   ],
   "env": {
-    "PATH": "$(PATH):$(HOME)/.local/bin"
+    "PATH": "$(PATH):$(DOTFILES_COMPILED)."
   }
 }

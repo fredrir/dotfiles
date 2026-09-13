@@ -277,7 +277,7 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         let home = temporary.path().join("home");
-        let context = Context::new(root, home.clone(), home.join(".config/dotfile")).unwrap();
+        let context = Context::new(root, home.clone(), home.join("dotfiles/config")).unwrap();
         (temporary, context)
     }
 

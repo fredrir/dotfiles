@@ -22,17 +22,6 @@ def test_wezterm_routing(system, environment):
     )
 
 
-def test_zsh_integration(environment):
-    assert shutil.which("zsh"), "zsh required"
-    subprocess.run(
-        ["zsh", "-dfi", "shared/zsh/tests/tmux.zsh"],
-        cwd=ROOT,
-        env=environment,
-        check=True,
-        timeout=15,
-    )
-
-
 @pytest.mark.parametrize(
     "name, args", [("tmux-workspace", ["--version"]), ("tmux-plugins", ["status", "--json"])]
 )

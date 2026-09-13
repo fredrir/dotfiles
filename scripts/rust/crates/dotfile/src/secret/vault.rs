@@ -41,7 +41,7 @@ pub fn synchronize(
     force: bool,
     events: &dyn EventSink,
 ) -> Result<SecretOutcome, String> {
-    let entries = plan(context, configuration)?;
+    let entries = plan(configuration)?;
     events.emit(Event::PhaseStarted {
         phase: Phase::Secrets,
         total: Some(entries.len()),
@@ -256,15 +256,15 @@ pub fn materialize(
     })
 }
 
-pub fn plan(context: &Context, configuration: &Configuration) -> Result<Vec<SecretEntry>, String> {
+pub fn plan(configuration: &Configuration) -> Result<Vec<SecretEntry>, String> {
     let mut entries = Vec::new();
     for package in &configuration.packages {
         match package.kind {
             PackageKind::Secret => {
-                collect_entries(context, configuration, package, true, &mut entries)?
+                collect_entries(configuration, package, true, &mut entries)?
             }
             PackageKind::Link => {
-                collect_entries(context, configuration, package, false, &mut entries)?
+                collect_entries(configuration, package, false, &mut entries)?
             }
             PackageKind::NoLink | PackageKind::System => {}
         }
@@ -274,7 +274,6 @@ pub fn plan(context: &Context, configuration: &Configuration) -> Result<Vec<Secr
 }
 
 pub fn collect_entries(
-    context: &Context,
     configuration: &Configuration,
     package: &Package,
     whole_package: bool,
@@ -305,7 +304,9 @@ pub fn collect_entries(
             .to_str()
             .ok_or_else(|| format!("secret path is not valid UTF-8: {}", source.display()))?;
         let full = format!("{}/{}", package.name, relative_text);
-        let mapped = configuration.map_destination(context, &full, &package.package, relative);
+        let mapped = configuration.map_destination(&full).ok_or_else(|| {
+            format!("no target declared for {full}; add a rule to config/targets.dotfile")
+        })?;
         let plain = plain_name(
             mapped
                 .file_name()
@@ -391,8 +392,9 @@ pub fn secure_package_directories(
         .iter()
         .filter(|package| package.kind == PackageKind::Secret)
     {
-        let destination =
-            configuration.map_destination(context, &package.name, &package.package, Path::new(""));
+        let Some(destination) = configuration.map_destination(&package.name) else {
+            continue;
+        };
         if never_fold(context, &destination) {
             continue;
         }
@@ -479,13 +481,12 @@ pub fn set_mode(_path: &Path, _mode: u32) -> Result<(), String> {
 mod tests;
 
 pub fn package_entries(
-    context: &Context,
     configuration: &Configuration,
     package: &Package,
     whole_package: bool,
 ) -> Result<Vec<SecretEntry>, String> {
     let mut entries = Vec::new();
-    collect_entries(context, configuration, package, whole_package, &mut entries)?;
+    collect_entries(configuration, package, whole_package, &mut entries)?;
     Ok(entries)
 }
 

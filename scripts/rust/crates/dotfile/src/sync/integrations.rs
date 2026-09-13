@@ -78,7 +78,7 @@ fn tmux_plugins(
     if !config.join("plugins.lock.json").is_file() {
         return Ok(());
     }
-    let binary = context.home.join(".local/bin/tmux-workspace");
+    let binary = context.home.join("dotfiles/.bin/tmux-workspace");
     outcome.checked += 1;
     let mut ready = false;
     let mut changed = false;
@@ -404,7 +404,7 @@ fn secret_health(
         );
     }
     for stray in [
-        context.home.join(".config/sops/age/keys.txt"),
+        context.home.join("dotfiles/config/sops/age/keys.txt"),
         context
             .home
             .join("Library/Application Support/sops/age/keys.txt"),

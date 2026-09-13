@@ -102,7 +102,7 @@ pub(crate) fn native_current() -> Result<bool, String> {
 }
 
 fn is_installed(home: &Path, executable: &Path) -> bool {
-    executable == home.join(".local/bin/dotfile")
+    executable == home.join("dotfiles/.bin")
 }
 
 fn stale(root: &Path, executable: &Path) -> Result<bool, String> {

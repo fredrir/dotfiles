@@ -432,7 +432,7 @@ fn sync_ui_remote_decision_shows_host_count_and_safe_cancel() {
         prompt: Prompt::RemoteChanges {
             host: "archie".to_string(),
             changes: vec![
-                "shared/zsh/.zshrc".to_string(),
+                "shared/zsh/01-init.zsh".to_string(),
                 "macos/git/.gitconfig".to_string(),
                 "PACKAGES.md".to_string(),
             ],

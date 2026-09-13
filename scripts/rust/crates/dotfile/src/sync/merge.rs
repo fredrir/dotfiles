@@ -144,7 +144,9 @@ pub fn discover(
             .map(|(group, _)| group)
             .unwrap_or_default();
         let full = format!("{base_group}/{package}/{}", base_relative.to_string_lossy());
-        let destination = configuration.map_destination(context, &full, &package, &base_relative);
+        let Some(destination) = configuration.map_destination(&full) else {
+            continue;
+        };
         let package_directories = operations
             .iter()
             .map(|record| record.package_directory.clone())

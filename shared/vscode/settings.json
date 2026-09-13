@@ -83,7 +83,7 @@
       "languages": ["sql"]
     },
     {
-      "command": "$HOME/.local/bin/dotfmt --stdin \"${file}\"",
+      "command": "$DOTFILES_COMPILED/dotfmt --stdin \"${file}\"",
       "languages": ["properties"]
     }
   ],

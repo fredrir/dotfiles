@@ -2,12 +2,13 @@
 set -euo pipefail
 shopt -s nullglob
 
-DOTFILES="$(cd "$(dirname "$0")" && pwd)"
-STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile"
-TOOL_BIN_DIR="$HOME/.local/bin"
-TOOL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uv/tools"
+DOTFILES="$HOME/dotfiles"
+CONFIG_DIR="$DOTFILES/config"
+TOOL_BIN_DIR="$DOTFILES/.bin"
+UV_TOOL_DIR="$DOTFILES/.uv"
 DOTFILE_BIN="$TOOL_BIN_DIR/dotfile"
 PYTHON_TOOL_BIN="$TOOL_BIN_DIR/transcript"
+
 COMMANDS_ONLY=0
 NATIVE_ONLY=0
 SYNC=0
@@ -33,8 +34,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-STAMP_DIR="$STATE_DIR/sync"
-SETUP_LOCK_DIR="$STATE_DIR/setup.lock.d"
+STAMP_DIR="$CONFIG_DIR/sync"
+SETUP_LOCK_DIR="$CONFIG_DIR/setup.lock.d"
 SETUP_LOCK_KIND=""
 SETUP_STAGE=""
 SETUP_NATIVE_TRANSACTION=0
@@ -131,7 +132,7 @@ cleanup_setup() {
 }
 
 acquire_setup_lock() {
-  mkdir -p "$STATE_DIR"
+  mkdir -p "$CONFIG_DIR"
   local owner stale announced=0 missing=0
   while ! mkdir "$SETUP_LOCK_DIR" 2>/dev/null; do
     owner="$(cat "$SETUP_LOCK_DIR/pid" 2>/dev/null || true)"
@@ -193,13 +194,13 @@ PICKED=""
 interactive() { [ -t 0 ] && [ -t 1 ]; }
 
 saved_profile() {
-  if [ -f "$STATE_DIR/profile" ]; then
-    cat "$STATE_DIR/profile"
+  if [ -f "$CONFIG_DIR/profile" ]; then
+    cat "$CONFIG_DIR/profile"
   fi
 }
 
 saved_override() {
-  [ -f "$STATE_DIR/overrides" ] || return 0
+  [ -f "$CONFIG_DIR/overrides" ] || return 0
   local line
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
@@ -208,7 +209,7 @@ saved_override() {
       return 0
       ;;
     esac
-  done <"$STATE_DIR/overrides"
+  done <"$CONFIG_DIR/overrides"
 }
 
 pick() {
@@ -262,7 +263,7 @@ pick() {
 
 git -C "$DOTFILES" config core.hooksPath "$DOTFILES/.githooks" 2>/dev/null || true
 
-AGE_KEY_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/dotfile/age/keys.txt"
+AGE_KEY_FILE="$CONFIG_DIR/age/keys.txt"
 git -C "$DOTFILES" config diff.sops.textconv \
   "SOPS_AGE_KEY_FILE=$AGE_KEY_FILE sops -d" 2>/dev/null || true
 git -C "$DOTFILES" config diff.sops.cachetextconv false 2>/dev/null || true
@@ -293,8 +294,8 @@ if [ "$NATIVE_ONLY" = 0 ]; then
       echo "syncing workstation tools (scripts/python/.venv)"
       uv sync --project "$DOTFILES/scripts/python" --locked --compile-bytecode --quiet
     fi
-    echo "installing workstation commands (~/.local/bin)"
-    UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$TOOL_DIR" \
+    echo "installing workstation commands (~/dotfiles/.bin)"
+    UV_TOOL_BIN_DIR="$TOOL_BIN_DIR" UV_TOOL_DIR="$UV_TOOL_DIR" \
       uv tool install \
       --compile-bytecode \
       --constraints <(

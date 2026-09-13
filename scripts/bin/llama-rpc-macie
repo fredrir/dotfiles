@@ -1,0 +1,13 @@
+#!/bin/zsh
+set -euo pipefail
+
+[[ -n "$LLAMA" ]] && echo "LLAMA: Not Found" && return
+
+cd "$LLAMA"
+
+exec caffeinate -i \
+	./build/bin/ggml-rpc-server \
+	--host 10.77.77.1 \
+	--port 50052 \
+	--device MTL0 \
+	--cache

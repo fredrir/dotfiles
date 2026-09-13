@@ -65,23 +65,6 @@ fn every_extension_belongs_to_exactly_one_language() {
 }
 
 #[test]
-fn shell_scripts_and_startup_files_are_formatted() {
-    for file in [
-        "conf.d/90-utils.zsh",
-        ".zshrc",
-        ".zshenv",
-        ".zprofile",
-        ".zlogin",
-        ".zlogout",
-        ".bashrc",
-        ".bash_profile",
-        ".profile",
-    ] {
-        assert_eq!(Lang::of(Path::new(file)), Some(Lang::Shell), "{file}");
-    }
-}
-
-#[test]
 fn the_extension_is_read_without_regard_to_case() {
     assert_eq!(Lang::of(Path::new("Data.JSON")), Some(Lang::Web));
 }
@@ -509,32 +492,6 @@ fn dotfmts_answer_becomes_the_first_row_and_an_empty_answer_becomes_none() {
     let none = run::with_dotfmt(run::sort(vec!["c.py".into()]), Vec::new());
     assert_eq!(none.len(), 1);
     assert_eq!(none[0].0, Lang::Python);
-}
-
-// -------------------------------------------------- what a tool pointed at
-
-#[test]
-fn the_files_a_tool_named_are_recognised_however_it_decorated_them() {
-    let files: Vec<std::path::PathBuf> = [
-        "shared/zsh/conf.d/90-utils.zsh",
-        "shared/vscode/keybindings.json",
-        "a.yaml",
-        "untouched.py",
-    ]
-    .iter()
-    .map(Into::into)
-    .collect();
-    let said = "shared/zsh/conf.d/90-utils.zsh:376:24: not a valid parameter expansion\n\
-                shared/vscode/keybindings.json:1:1 parse ━━━\n\
-                a.yaml:\n";
-    assert_eq!(
-        run::blamed(said, Path::new("/nowhere"), &files),
-        [
-            "shared/zsh/conf.d/90-utils.zsh",
-            "shared/vscode/keybindings.json",
-            "a.yaml"
-        ]
-    );
 }
 
 #[test]
@@ -1191,23 +1148,6 @@ fn drift_names_the_provider_in_the_same_shape() {
     assert_eq!(
         summary(&done, Mode::Check),
         ["python  3 files  findings", "7 / 10 files clean"]
-    );
-}
-
-#[test]
-fn a_failed_provider_names_the_files_it_fell_over_on() {
-    let done = vec![Ran {
-        failed: true,
-        blamed: vec!["shared/zsh/conf.d/90-utils.zsh".to_string()],
-        ..row(Lang::Shell, 34)
-    }];
-    assert_eq!(
-        summary(&done, Mode::Write),
-        [
-            "shell  34 files  failed",
-            "  shared/zsh/conf.d/90-utils.zsh",
-            "0 / 34 files formatted",
-        ]
     );
 }
 

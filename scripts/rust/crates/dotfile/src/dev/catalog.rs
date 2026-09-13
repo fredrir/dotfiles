@@ -147,9 +147,6 @@ impl Catalog {
             || (accepts(Language::Lua)
                 && target == "nvim"
                 && root.join("shared/nvim/tests/shell.lua").is_file())
-            || (accepts(Language::Shell)
-                && target == "zsh"
-                && root.join("shared/zsh/tests").is_dir())
             || self
                 .files
                 .iter()

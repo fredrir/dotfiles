@@ -6,10 +6,9 @@
   <string>com.fredrir.wezterm-mux-route.cable</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-route</string>
-    <string>10.77.77.1</string>
-    <string>8443</string>
-    <string>8443</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-route" 10.77.77.1 8443 8443</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

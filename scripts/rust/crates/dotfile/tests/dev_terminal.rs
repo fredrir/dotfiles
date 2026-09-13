@@ -74,47 +74,6 @@ impl Drop for TerminalRun {
 }
 
 #[test]
-fn direct_and_nested_interactive_shells_finish_without_claiming_the_terminal() {
-    let root = tree_pairs(&[
-        ("config/targets.dotfile", ""),
-        ("scripts/rust/Cargo.toml", "[workspace]\nmembers = []\n"),
-        ("scripts/python/tests/demo/", ""),
-        (
-            "shared/zsh/tests/tmux.zsh",
-            "[[ -o interactive ]] || exit 3\nprint 'interactive shell passed'\n",
-        ),
-        ("bin/", ""),
-    ]);
-    executable(
-        &root.path().join("bin/uv"),
-        "#!/bin/sh\nexec zsh -dfi \"$DOTFILE_ROOT/shared/zsh/tests/tmux.zsh\"\n",
-    );
-    let mut command = Command::new(env!("CARGO_BIN_EXE_dotfile"));
-    command
-        .args(["dev", "test", "-v", "--lang", "python,shell", "--jobs", "2"])
-        .env("DOTFILE_ROOT", root.path())
-        .env(
-            "PATH",
-            format!(
-                "{}:{}",
-                root.path().join("bin").display(),
-                std::env::var("PATH").unwrap_or_default()
-            ),
-        );
-    let mut run = TerminalRun::start(&mut command);
-    let before = terminal_state(&run.master);
-    let status = run.finish();
-    let text = String::from_utf8_lossy(&run.output);
-    assert!(status.success(), "{text}");
-    assert_eq!(text.matches("interactive shell passed").count(), 2);
-    assert!(text.contains("2 passed"), "{text}");
-    let after = terminal_state(&run.master);
-    assert_eq!(before.c_lflag, after.c_lflag);
-    assert_eq!(before.c_iflag, after.c_iflag);
-    assert_eq!(before.c_oflag, after.c_oflag);
-}
-
-#[test]
 fn task_output_is_visible_before_the_task_can_finish_and_is_not_replayed() {
     let root = tree_pairs(&[
         ("config/targets.dotfile", ""),

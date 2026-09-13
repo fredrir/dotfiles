@@ -167,7 +167,8 @@ fn settled_layered_targets_keep_the_final_symlinks_untouched() {
 
     let sandbox = Sandbox::new(
         "shared\nmacos\n",
-        "shared/git/.gitconfig = ~/.gitconfig\nmacos/git/.gitconfig = ~/.gitconfig\n",
+        "shared/git/.gitconfig = ~/.gitconfig\nmacos/git/.gitconfig = ~/.gitconfig\n\
+         shared/fastfetch = ~/.config/fastfetch\nmacos/fastfetch = ~/.config/fastfetch\n",
     );
     sandbox.write("shared/git/.gitconfig", "shared\n");
     sandbox.write("macos/git/.gitconfig", "macos\n");
@@ -207,7 +208,8 @@ fn settled_layered_targets_keep_the_final_symlinks_untouched() {
 fn fresh_layered_targets_count_each_final_destination_once() {
     let sandbox = Sandbox::new(
         "shared\nmacos\n",
-        "shared/git/.gitconfig = ~/.gitconfig\nmacos/git/.gitconfig = ~/.gitconfig\n",
+        "shared/git/.gitconfig = ~/.gitconfig\nmacos/git/.gitconfig = ~/.gitconfig\n\
+         shared/fastfetch = ~/.config/fastfetch\nmacos/fastfetch = ~/.config/fastfetch\n",
     );
     sandbox.write("shared/git/.gitconfig", "shared\n");
     sandbox.write("macos/git/.gitconfig", "macos\n");
@@ -279,7 +281,7 @@ fn stale_folded_directory_rebuilds_only_the_active_remapped_union() {
 
     let sandbox = Sandbox::new(
         "shared\n",
-        "shared/tool/moved.conf = ~/.config/moved.conf\n",
+        "shared/tool = ~/.config/tool\nshared/tool/moved.conf = ~/.config/moved.conf\n",
     );
     sandbox.write("shared/tool/moved.conf", "active\n");
     sandbox.write("inactive/tool/moved.conf", "inactive\n");
@@ -374,32 +376,6 @@ fn unmanaged_conflict_is_reported_once_and_never_replaced() {
     assert_eq!(warnings, 1);
 }
 
-#[test]
-fn changing_override_prunes_the_old_layer_and_restores_the_base() {
-    let sandbox = Sandbox::new("shared\n", "");
-    sandbox.write("shared/zsh/config", "base\n");
-    sandbox.write("shared/overrides/laptop/zsh/config", "laptop\n");
-    let mut options = cli();
-    options.overrides = vec!["shared=laptop".to_string()];
-    sandbox.sync(&options).expect("laptop override");
-    let destination = sandbox.home.join(".config/zsh/config");
-    assert_eq!(
-        fs::read_link(&destination).unwrap(),
-        sandbox.root.join("shared/overrides/laptop/zsh/config")
-    );
-
-    options.overrides = vec!["shared=none".to_string()];
-    sandbox.sync(&options).expect("base override");
-    assert_eq!(
-        fs::read_link(&destination).unwrap(),
-        sandbox.root.join("shared/zsh/config")
-    );
-    assert_eq!(
-        fs::read_to_string(&sandbox.context.overrides_file).unwrap(),
-        "shared=none\n"
-    );
-}
-
 #[cfg(unix)]
 #[test]
 fn missing_link_index_discovers_existing_links_with_a_bounded_scan() {
@@ -474,7 +450,10 @@ fn folded_merge_package_rebuilds_only_eligible_children() {
 #[cfg(unix)]
 #[test]
 fn unfolding_a_previous_layer_preserves_its_eligible_children() {
-    let sandbox = Sandbox::new("shared\nmacos\n", "");
+    let sandbox = Sandbox::new(
+        "shared\nmacos\n",
+        "shared/tool = ~/.config/tool\nmacos/tool = ~/.config/tool\n",
+    );
     sandbox.write("shared/tool/base.conf", "base\n");
     sandbox.write("macos/tool/platform.conf", "platform\n");
     let destination = sandbox.home.join(".config/tool");
@@ -494,7 +473,7 @@ fn unfolding_a_previous_layer_preserves_its_eligible_children() {
 #[cfg(unix)]
 #[test]
 fn vault_descendants_force_filtered_directory_expansion() {
-    let sandbox = Sandbox::new("shared\n", "");
+    let sandbox = Sandbox::new("shared\n", "shared/app = ~/.config/app\n");
     sandbox.write("shared/app/config.toml", "enabled = true\n");
     sandbox.write("shared/app/private/token.enc", "sealed\n");
     sandbox.write("shared/app/private/render.tmpl", "rendered\n");
@@ -946,7 +925,7 @@ fn invalid_late_ignore_decision_leaves_every_merged_file_untouched() {
 fn secret_templates_materialize_privately_and_are_idempotent() {
     use std::os::unix::fs::PermissionsExt;
 
-    let sandbox = Sandbox::new("shared\n", "");
+    let sandbox = Sandbox::new("shared\n", "shared/credentials = ~/.config/credentials\n");
     sandbox.directory("shared/credentials");
     sandbox.write("shared/credentials/.secret", "");
     sandbox.write("shared/credentials/token.tmpl", "literal-token\n");

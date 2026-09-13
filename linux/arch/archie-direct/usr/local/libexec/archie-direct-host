@@ -1,7 +1,6 @@
 #!/bin/sh
-# Root-owned lifecycle helper for the shared direct Wi-Fi AP.
-# The public controller lives on Macie; this side owns network mutation and
-# makes every failure converge on a clean network state.
+
+[[hostname != "macie"]] && return
 
 set -eu
 umask 077

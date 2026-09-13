@@ -394,28 +394,10 @@ pub fn remove(args: RemoveArgs, context: &Context) -> Result<ExitCode, String> {
         return Err(format!("not found in dotfiles: {}", relative.display()));
     }
     let configuration = config(context)?;
-    let node_relative = source
-        .strip_prefix(&package_root)
-        .map_err(|error| error.to_string())?;
-    validate_remove(
-        context,
-        &configuration,
-        &source,
-        &relative,
-        package,
-        node_relative,
-    )?;
+    validate_remove(context, &configuration, &source, &relative)?;
     let metadata = packages::load_metadata(&context.packages_config)?;
     let mut transaction = Transaction::new(context)?;
-    materialize(
-        context,
-        &configuration,
-        &mut transaction,
-        &source,
-        &relative,
-        package,
-        node_relative,
-    )?;
+    materialize(context, &configuration, &mut transaction, &source, &relative)?;
     let mut parent = source.parent();
     while let Some(directory) = parent {
         if !directory.starts_with(&package_root) {
@@ -471,15 +453,11 @@ fn mapped(
     context: &Context,
     configuration: &Configuration,
     full: &Path,
-    package: &str,
-    relative: &Path,
 ) -> Result<PathBuf, String> {
-    let destination = configuration.map_destination(
-        context,
-        full.to_str().ok_or("package path is not UTF-8")?,
-        package,
-        relative,
-    );
+    let full = full.to_str().ok_or("package path is not UTF-8")?;
+    let destination = configuration.map_destination(full).ok_or_else(|| {
+        format!("no target declared for {full}; add a rule to config/targets.dotfile")
+    })?;
     if !destination.is_absolute()
         || destination.parent().is_none()
         || destination.starts_with(&context.root)
@@ -488,8 +466,7 @@ fn mapped(
             .any(|part| matches!(part, Component::ParentDir))
     {
         return Err(format!(
-            "unsafe target for {}: {}",
-            full.display(),
+            "unsafe target for {full}: {}",
             destination.display()
         ));
     }
@@ -501,21 +478,12 @@ fn validate_remove(
     configuration: &Configuration,
     source: &Path,
     full: &Path,
-    package: &str,
-    relative: &Path,
 ) -> Result<(), String> {
-    mapped(context, configuration, full, package, relative)?;
+    mapped(context, configuration, full)?;
     if source.is_dir() && !source.is_symlink() {
         for child in entries(source)? {
             let name = child.file_name().ok_or("source has no name")?;
-            validate_remove(
-                context,
-                configuration,
-                &child,
-                &full.join(name),
-                package,
-                &relative.join(name),
-            )?;
+            validate_remove(context, configuration, &child, &full.join(name))?;
         }
     }
     Ok(())
@@ -539,10 +507,8 @@ fn materialize(
     transaction: &mut Transaction,
     source: &Path,
     full: &Path,
-    package: &str,
-    relative: &Path,
 ) -> Result<(), String> {
-    let destination = mapped(context, configuration, full, package, relative)?;
+    let destination = mapped(context, configuration, full)?;
     let mut ancestor = PathBuf::new();
     if let Some(parent) = destination.parent() {
         for component in parent.components() {
@@ -604,15 +570,7 @@ fn materialize(
     transaction.mkdir(&destination)?;
     for child in entries(source)? {
         let name = child.file_name().ok_or("source has no name")?;
-        materialize(
-            context,
-            configuration,
-            transaction,
-            &child,
-            &full.join(name),
-            package,
-            &relative.join(name),
-        )?;
+        materialize(context, configuration, transaction, &child, &full.join(name))?;
     }
     transaction.remove_empty(source)
 }

@@ -1222,7 +1222,7 @@ fn protocol_script(
         "  emit_lines pull \"$pull\"".to_string(),
         "  if [ \"$code\" -ne 0 ]; then emit_error pull \"$pull\" \"$code\"; exit \"$code\"; fi".to_string(),
         "fi".to_string(),
-        "export PATH=\"$HOME/.local/bin:$PATH\"".to_string(),
+        "export PATH=\"$DOTFILES_COMPILED/:$PATH\"".to_string(),
         format!("if ! {probe} >/dev/null 2>&1; then"),
         "  printf '{\"message\":\"phase\",\"operation\":\"update\"}\\n'".to_string(),
         "  update=$(./setup.sh --commands-only 2>&1)".to_string(),

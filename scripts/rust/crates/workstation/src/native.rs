@@ -87,7 +87,7 @@ impl Resolver {
         }
         directories.push(self.root.join("scripts/rust/target/release"));
         if !self.home.as_os_str().is_empty() {
-            directories.push(self.home.join(".local/bin"));
+            directories.push(self.home.join("dotfiles/.bin"));
         }
         directories.push(self.root.join("scripts/rust/target/debug"));
         let mut paths = Vec::new();

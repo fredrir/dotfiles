@@ -96,7 +96,7 @@ pub fn add(context: &Context, args: AddArgs) -> Result<(), String> {
 
 pub fn status(context: &Context, clean: bool, dry: bool) -> Result<ExitCode, String> {
     let configuration = super::configuration(context)?;
-    let entries = vault::plan(context, &configuration)?;
+    let entries = vault::plan(&configuration)?;
     let variables = vault::load_variables(context);
     let mut blocked = false;
     if entries.is_empty() {
@@ -144,15 +144,10 @@ pub fn vars(context: &Context, unused: bool) -> Result<ExitCode, String> {
         return Err(variables.note.clone());
     }
     let configuration = super::configuration(context)?;
-    let mut entries = vault::plan(context, &configuration)?;
+    let mut entries = vault::plan(&configuration)?;
     for package in &configuration.packages {
         if package.kind == crate::config::PackageKind::System {
-            entries.extend(vault::package_entries(
-                context,
-                &configuration,
-                package,
-                true,
-            )?);
+            entries.extend(vault::package_entries(&configuration, package, true)?);
         }
     }
     let mut used: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -210,7 +205,7 @@ pub fn edit(context: &Context, path: &Path) -> Result<ExitCode, String> {
             kind: vault::SecretKind::Encrypted,
         }]
     } else {
-        vault::plan(context, &super::configuration(context)?)?
+        vault::plan(&super::configuration(context)?)?
             .into_iter()
             .filter(|entry| {
                 entry.source == expanded

@@ -1,0 +1,15 @@
+add_path \
+  "$DOTFILES/.bin" \
+  "$DOTFILES/scripts/bin" \
+  "$HOME/.cargo/bin" \
+  "/Applications/PyCharm.app/Contents/MacOS" \
+  "/opt/IntelliJ/bin" \
+  "/opt/pycharm/bin" \
+  "/nix/var/nix/profiles/default/bin" \
+  "/opt/homebrew/bin" \
+  "/opt/homebrew/opt/make/libexec/gnubin" \
+  "/opt/homebrew/lib/ruby/gems/4.0.0/bin" \
+  "$HOME/.bun/bin" \
+  "$HOME/Library/pnpm" \
+  "$HOME/.nix-profile/bin" \
+  "$HOME/.local/share/npm-global/bin"

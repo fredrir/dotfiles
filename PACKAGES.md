@@ -2,7 +2,6 @@
 ## `shared`
 
 - `atuin`
-- `bin`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
 - `gh`
 - `git` — Git configuration and global ignore rules
@@ -29,7 +28,6 @@
 - `systemd`
 - `theme-watch` — Automatic theme generation service
 - `xremap` — Keyboard remapping configuration
-- `zsh` — Linux-specific Z shell configuration
 
 ## `linux/arch`
 
@@ -50,7 +48,6 @@
 - `wezterm-mux` — Mutual-TLS mux server for the link to macie
 - `wezterm-mux-sysctl` — Non-local bind, so the mux server holds all three peer addresses whether or not their interfaces are up
 - `wifi-powersave` — Disable Wi-Fi power saving on the station link to cut receive-path latency to macie
-- `zsh`
 
 ## `linux/ubuntu`
 
@@ -78,10 +75,6 @@
 - `wofi` — Application launcher configuration
 - `zsh` — Hyprland-specific Z shell configuration
 
-## `linux/server`
-
-- `zsh` — Server-specific Z shell configuration
-
 ## `macos`
 
 - `fastfetch` — macOS-specific fastfetch configuration
@@ -91,4 +84,3 @@
 - `ssh`
 - `sunshine`
 - `vscode` — macOS-specific settings overlay merged into the shared VS Code settings
-- `zsh` — macOS-specific Z shell configuration

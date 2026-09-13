@@ -242,28 +242,6 @@ pub(super) fn tasks(
                     tasks.push(task);
                 }
             }
-            let shell = root.join("shared/zsh/tests");
-            if selected(Language::Shell) && selected_package("zsh") && shell.is_dir() {
-                let mut scripts = std::fs::read_dir(&shell)
-                    .map_err(|error| error.to_string())?
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|error| error.to_string())?
-                    .into_iter()
-                    .map(|entry| entry.file_name())
-                    .filter(|name| name.to_string_lossy().ends_with(".zsh"))
-                    .collect::<Vec<_>>();
-                scripts.sort();
-                for script in scripts {
-                    let path = format!("shared/zsh/tests/{}", script.to_string_lossy());
-                    tasks.push(Task::new(
-                        "shell test",
-                        root.to_path_buf(),
-                        "zsh",
-                        &["-dfi", &path],
-                        1,
-                    ));
-                }
-            }
             let nvim = "shared/nvim/tests/shell.lua";
             if selected(Language::Lua) && selected_package("nvim") && root.join(nvim).is_file() {
                 tasks.push(Task::new(

@@ -107,12 +107,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode, String> {
     let mut entries = Vec::new();
     for package in &configuration.packages {
         if package.kind == PackageKind::System {
-            entries.extend(vault::package_entries(
-                context,
-                &configuration,
-                package,
-                true,
-            )?);
+            entries.extend(vault::package_entries(&configuration, package, true)?);
         }
     }
     entries.sort_by(|left, right| left.destination.cmp(&right.destination));

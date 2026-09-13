@@ -1,132 +1,126 @@
-version = 1
-host = "archie"
-state_dir = "~/.local/state/dcloud"
-password_file = "~/.config/dcloud/repository.key"
-identity_file = "~/.config/dcloud/identity.txt"
-secrets_file = "recovery.sops.json"
+version             = 1
+host                = "archie"
+state_dir           = "~/.local/state/dcloud"
+password_file       = "~/.config/dcloud/repository.key"
+identity_file       = "~/.config/dcloud/identity.txt"
+secrets_file        = "recovery.sops.json"
 rclone_secrets_file = "rclone.sops.json"
-recipients = ["age1ly7s0h9wcexsy8mvpp3v69dwyfgfqdl6df40yct6nppakjez4emsapu3a8"]
+recipients          = ["age1ly7s0h9wcexsy8mvpp3v69dwyfgfqdl6df40yct6nppakjez4emsapu3a8"]
 
 [tools]
-restic = "/home/fredrir/.local/bin/restic"
-rclone = "/usr/bin/rclone"
+restic          = "/home/fredrir/.local/bin/restic"
+rclone          = "/usr/bin/rclone"
 timeout_seconds = 21600
 
 [uploads]
-spool_limit_bytes = 107374182400
-max_download_bytes = 107374182400
-max_restore_bytes = 1099511627776
-compression_level = 3
+spool_limit_bytes   = 107374182400
+max_download_bytes  = 107374182400
+max_restore_bytes   = 1099511627776
+compression_level   = 3
 compression_threads = 2
 
 [hosts.archie]
-ssh = "archie"
-binary = "/home/fredrir/.local/bin/dcloud"
+ssh    = "archie"
+binary = "/home/fredrir/dotfiles/.bin/dcloud"
 config = "/home/fredrir/.config/dcloud/config.toml"
 
 [hosts.macie]
-ssh = "macie"
-binary = "/Users/fredrir/.local/bin/dcloud"
+ssh    = "macie"
+binary = "/Users/fredrir/dotfiles/.bin/dcloud"
 config = "/Users/fredrir/.config/dcloud/config.toml"
 
 [destinations.drive]
-kind = "drive"
-location = "dcloud-drive:dcloud"
-offsite = true
-encrypted = false
+kind        = "drive"
+location    = "dcloud-drive:dcloud"
+offsite     = true
+encrypted   = false
 append_only = false
 
 [destinations.vps]
-kind = "sftp"
-location = "root@100.92.219.50:/srv/dcloud"
-offsite = true
-encrypted = true
+kind        = "sftp"
+location    = "root@100.92.219.50:/srv/dcloud"
+offsite     = true
+encrypted   = true
 append_only = false
 
 [jobs.Documents]
-destinations = ["drive"]
-required = ["drive"]
-min_copies = 1
-require_offsite = false
-exclude = []
-category = "documents"
-labels = ["personal"]
-bandwidth_kib = 0
-read_concurrency = 2
-spool_limit_bytes = 107374182400
-min_free_bytes = 1073741824
-retries = 3
-retry_delay_seconds = 5
-overdue_hours = 192
+destinations         = ["drive"]
+required             = ["drive"]
+min_copies           = 1
+require_offsite      = false
+exclude              = []
+category             = "documents"
+labels               = ["personal"]
+bandwidth_kib        = 0
+read_concurrency     = 2
+spool_limit_bytes    = 107374182400
+min_free_bytes       = 1073741824
+retries              = 3
+retry_delay_seconds  = 5
+overdue_hours        = 192
 pending_max_age_days = 30
-ac_only = false
-before = []
-after = []
-alert = []
+ac_only              = false
+before               = []
+after                = []
+alert                = []
 
 [jobs.Documents.sources]
 archie = ["~/Documents"]
-macie = ["~/Documents"]
+macie  = ["~/Documents"]
 
 [jobs.Documents.schedule]
-enabled = true
+enabled  = true
 weekdays = [7]
-hour = 3
-minute = 0
+hour     = 3
+minute   = 0
 timezone = "Europe/Oslo"
 catch_up = true
 
 [jobs.Documents.retention]
-last = 3
-weekly = 8
+last    = 3
+weekly  = 8
 monthly = 12
-yearly = 0
-auto = true
+yearly  = 0
+auto    = true
 
 [jobs.Pictures]
-destinations = [
-    "drive",
-    "vps",
-]
-required = [
-    "drive",
-    "vps",
-]
-min_copies = 2
-require_offsite = true
-exclude = []
-category = "photos"
-labels = []
-bandwidth_kib = 0
-read_concurrency = 2
-spool_limit_bytes = 107374182400
-min_free_bytes = 1073741824
-retries = 3
-retry_delay_seconds = 5
-overdue_hours = 192
+destinations         = ["drive", "vps"]
+required             = ["drive", "vps"]
+min_copies           = 2
+require_offsite      = true
+exclude              = []
+category             = "photos"
+labels               = []
+bandwidth_kib        = 0
+read_concurrency     = 2
+spool_limit_bytes    = 107374182400
+min_free_bytes       = 1073741824
+retries              = 3
+retry_delay_seconds  = 5
+overdue_hours        = 192
 pending_max_age_days = 30
-ac_only = false
-before = []
-after = []
-alert = []
+ac_only              = false
+before               = []
+after                = []
+alert                = []
 
 [jobs.Pictures.sources]
 archie = ["~/Pictures"]
 
 [jobs.Pictures.schedule]
-enabled = true
+enabled  = true
 weekdays = [7]
-hour = 3
-minute = 0
+hour     = 3
+minute   = 0
 timezone = "Europe/Oslo"
 catch_up = true
 
 [jobs.Pictures.retention]
-last = 3
-weekly = 8
+last    = 3
+weekly  = 8
 monthly = 12
-yearly = 0
-auto = true
+yearly  = 0
+auto    = true
 
 [sync]
 

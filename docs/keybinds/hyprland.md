@@ -44,7 +44,7 @@
 | <code>SUPER+CTRL+right</code> | [<code>resizeactive, 40 0</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L32) | Resizeactive: 40 0<br><code>global; bind</code> |
 | <code>SUPER+CTRL+up</code> | [<code>resizeactive, 0 -40</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L33) | Resizeactive: 0 -40<br><code>global; bind</code> |
 | <code>SUPER+D</code> | [<code>layoutmsg, preselect</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L87) | Layoutmsg: preselect<br><code>global; bind</code> |
-| <code>SUPER+Delete</code> | [<code>exec, ~/.local/bin/power-menu</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L10) | Exec: ~/.local/bin/power-menu<br><code>global; bind</code> |
+| <code>SUPER+Delete</code> | [<code>exec, ~/dotfiles/.bin/power-menu</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L10) | Exec: ~/dotfiles/.bin/power-menu<br><code>global; bind</code> |
 | <code>SUPER+E</code> | [<code>exec, kitty -o confirm_os_window_close=0 --class yazi-overlay -e yazi</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L7) | Exec: kitty -o confirm_os_window_close=0 --class yazi-overlay -e yazi<br><code>global; bind</code> |
 | <code>SUPER+F</code> | [<code>fullscreen, 0</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L79) | Fullscreen: 0<br><code>global; bind</code> |
 | <code>SUPER+F10</code> | [<code>exec, pkill hyprsunset</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L111) | Exec: pkill hyprsunset<br><code>global; bind</code> |
@@ -52,7 +52,7 @@
 | <code>SUPER+G</code> | [<code>togglegroup</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L90) | Togglegroup<br><code>global; bind</code> |
 | <code>SUPER+J</code> | [<code>layoutmsg, togglesplit</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L83) | Layoutmsg: togglesplit<br><code>global; bind</code> |
 | <code>SUPER+L</code> | [<code>exec, hyprlock</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L13) | Exec: hyprlock<br><code>global; bind</code> |
-| <code>SUPER+M</code> | [<code>exec, ~/.local/bin/confirm-exit</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L6) | Exec: ~/.local/bin/confirm-exit<br><code>global; bind</code> |
+| <code>SUPER+M</code> | [<code>exec, ~/dotfiles/.bin/confirm-exit</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L6) | Exec: ~/dotfiles/.bin/confirm-exit<br><code>global; bind</code> |
 | <code>SUPER+O</code> | [<code>exec, torbrowser-launcher</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L15) | Exec: torbrowser-launcher<br><code>global; bind</code> |
 | <code>SUPER+P</code> | [<code>pseudo</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L82) | Pseudo<br><code>global; bind</code> |
 | <code>SUPER+Print</code> | [<code>exec, grimblast save area ~/Pictures/$(date +%Y-%m-%d_%H-%M-%S).png</code>](../../linux/hyprland/hypr/conf.d/keybinds.conf#L76) | Exec: grimblast save area ~/Pictures/$(date +%Y-%m-%d_%H-%M-%S).png<br><code>global; bind</code> |

@@ -6,7 +6,9 @@
   <string>com.fredrir.wezterm-mux-gc</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/fredrir/.config/wezterm/bin/wezterm-mux-gc</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/dotfiles/scripts/bin/wezterm-mux-gc"</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>

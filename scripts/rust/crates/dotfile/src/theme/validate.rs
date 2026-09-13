@@ -202,7 +202,7 @@ pub fn matrix(t: &Theme) -> Result<String> {
         }
     }
     let mut out = format!(
-        "# Contrast matrix: {}\n\nGenerated from `theme/profiles/{}.toml`.\nRequired text pairs target 4.5:1; graphical and inactive pairs target 3:1.\nRaw ANSI rows are reported but are not enforced.\n\n| Area | State | Foreground | Background | Ratio | Floor | Result |\n|---|---|---:|---:|---:|---:|---|\n",
+        "# Contrast matrix: {}\n\n`{}`.\nRequired text pairs target 4.5:1; graphical and inactive pairs target 3:1.\nRaw ANSI rows are reported but are not enforced.\n\n| Area | State | Foreground | Background | Ratio | Floor | Result |\n|---|---|---:|---:|---:|---:|---|\n",
         t.name, t.profile
     );
     use std::fmt::Write;

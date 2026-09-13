@@ -1,56 +1,100 @@
-shared/starship = ~/.config
-shared/tmux/.tmux.conf = ~/.tmux.conf
-shared/zsh/.zshrc = ~/.zshrc
-shared/zsh/.zshenv = ~/.zshenv
-linux/common/gtk = ~/.config
-shared/obsidian = ~/Documents/main/.obsidian
-linux/common/theme-watch = ~/.config/systemd/user
-linux/arch/wezterm-mux = ~/.config/systemd/user
-linux/kde/plasma = ~/.config
-linux/kde/krunnerrc = ~/.config
-linux/kde/kvitals = ~/.local/share/plasma/plasmoids/org.kde.plasma.kvitals
+# shared
+shared/atuin = ~/.config/atuin
+shared/fastfetch = ~/.config/fastfetch
+shared/gh = ~/.config/gh
+shared/git = ~/.config/git
 shared/git/.gitconfig = ~/.gitconfig
-macos/git/.gitconfig = ~/.gitconfig
-linux/arch/git/.gitconfig = ~/.gitconfig
-linux/ubuntu/git/.gitconfig = ~/.gitconfig
-linux/arch/macie-usb/etc = /etc
-linux/arch/archie-direct/etc = /etc
-linux/arch/wezterm-mux-sysctl/etc = /etc
-linux/arch/wifi-powersave/etc = /etc
-linux/arch/fan2go/etc = /etc
-linux/arch/lact/etc = /etc
-linux/arch/cpu-power/etc = /etc
-linux/arch/tuning-sysctl/etc = /etc
-linux/arch/rapl/etc = /etc
-linux/arch/archie-direct/usr/local/libexec = /usr/local/libexec
-macos/hammerspoon = ~/.hammerspoon
-macos/ssh = ~/.ssh
-linux/arch/ssh = ~/.ssh
-macos/launchd = ~/Library/LaunchAgents
-shared/ssh = ~/.ssh
+shared/nvim = ~/.config/nvim
+shared/obsidian = ~/Documents/main/.obsidian
 shared/obsidian/plugins/agent-transcripts = ~/Documents/main/.obsidian/plugins/agent-transcripts
-macos:shared/vscode/settings.json = ~/Library/Application Support/Code/User/settings.json
-macos:shared/vscode/keybindings.json = ~/Library/Application Support/Code/User/keybindings.json
-macos/vscode = ~/Library/Application Support/Code/User
-linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
-linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
-linux/arch/vscode = ~/.config/Code/User
-
-shared/bin = ~/.local/bin
+shared/rsync = ~/.config/rsync
+shared/ssh = ~/.ssh
+shared/starship = ~/.config
+shared/tmux = ~/.config/tmux
+shared/tmux/.tmux.conf = ~/.tmux.conf
+shared/transcript = ~/.config/transcript
 shared/ui = ~/.config/dotfile/ui
+shared/wezterm = ~/.config/wezterm
+shared/yazi = ~/.config/yazi
+shared/zsh/00-global.zsh = ~/.zshenv
+shared/zsh/01-init.zsh = ~/.zshrc
 
-shared/tools/biome.global.json = ~/biome.json
+# shared/tools
 shared/tools/.editorconfig = ~/.editorconfig
 shared/tools/.sqlfluff = ~/.sqlfluff
-shared/tools/.yamllint.yaml = ~/.config/yamllint/config
-
-shared/tools/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
-shared/tools/stylua.toml = ~/.config/stylua/stylua.toml
-shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
 shared/tools/.taplo.toml = ~/.config/taplo/taplo.toml
-shared/tools/shuck.toml = ~/.config/shuck/shuck.toml
+shared/tools/.yamllint.yaml = ~/.config/yamllint/config
+shared/tools/biome.global.json = ~/biome.json
 shared/tools/dotfmt.dotfile = ~/.config/dotfmt/dotfmt.dotfile
+shared/tools/ruff.toml = ~/.config/ruff/ruff.toml
+shared/tools/rustfmt.toml = ~/.config/rustfmt/rustfmt.toml
+shared/tools/shuck.toml = ~/.config/shuck/shuck.toml
+shared/tools/stylua.toml = ~/.config/stylua/stylua.toml
+
+# shared/vscode
+macos:shared/vscode/keybindings.json = ~/Library/Application Support/Code/User/keybindings.json
+macos:shared/vscode/settings.json = ~/Library/Application Support/Code/User/settings.json
+linux:shared/vscode/keybindings.json = ~/.config/Code/User/keybindings.json
+linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
+
+# macos
+macos/fastfetch = ~/.config/fastfetch
+macos/git/.gitconfig = ~/.gitconfig
+macos/hammerspoon = ~/.hammerspoon
+macos/launchd = ~/Library/LaunchAgents
+macos/ssh = ~/.ssh
+macos/sunshine = ~/.config/sunshine
+macos/vscode = ~/Library/Application Support/Code/User
 macos/vscode/tasks.json = ~/Library/Application Support/Code/User/tasks.json
-linux/arch/kernel/etc = /etc
-linux/arch/nvidia/etc = /etc
+
+# linux/common
+linux/common/flameshot = ~/.config/flameshot
+linux/common/fontconfig = ~/.config/fontconfig
+linux/common/gtk = ~/.config
+linux/common/quicklaunch = ~/.config/quicklaunch
+linux/common/systemd = ~/.config/systemd
+linux/common/theme-watch = ~/.config/systemd/user
+linux/common/xremap = ~/.config/xremap
+
+# linux/arch
+linux/arch/archie-direct/etc = /etc
+linux/arch/archie-direct/usr/local/libexec = /usr/local/libexec
 linux/arch/cargo/config.toml = ~/.cargo/config.toml
+linux/arch/cpu-power/etc = /etc
+linux/arch/fan2go/etc = /etc
+linux/arch/fastfetch = ~/.config/fastfetch
+linux/arch/git/.gitconfig = ~/.gitconfig
+linux/arch/kernel/etc = /etc
+linux/arch/lact/etc = /etc
+linux/arch/macie-usb/etc = /etc
+linux/arch/nvidia/etc = /etc
+linux/arch/rapl/etc = /etc
+linux/arch/ssh = ~/.ssh
+linux/arch/tuning-sysctl/etc = /etc
+linux/arch/vscode = ~/.config/Code/User
+linux/arch/wezterm-mux = ~/.config/systemd/user
+linux/arch/wezterm-mux-sysctl/etc = /etc
+linux/arch/wifi-powersave/etc = /etc
+
+# linux/ubuntu
+linux/ubuntu/fastfetch = ~/.config/fastfetch
+linux/ubuntu/git/.gitconfig = ~/.gitconfig
+
+# linux/hyprland
+linux/hyprland/dunst = ~/.config/dunst
+linux/hyprland/hypr = ~/.config/hypr
+linux/hyprland/overrides/desktop/hypr = ~/.config/hypr
+linux/hyprland/overrides/laptop/hypr = ~/.config/hypr
+linux/hyprland/qt5ct = ~/.config/qt5ct
+linux/hyprland/qt6ct = ~/.config/qt6ct
+linux/hyprland/waybar = ~/.config/waybar
+linux/hyprland/wlogout = ~/.config/wlogout
+linux/hyprland/wofi = ~/.config/wofi
+
+# linux/kde
+linux/kde/kate = ~/.config/kate
+linux/kde/krunnerrc = ~/.config
+linux/kde/kvitals = ~/.local/share/plasma/plasmoids/org.kde.plasma.kvitals
+linux/kde/my-panel = ~/.config/my-panel
+linux/kde/panel-colorizer = ~/.config/panel-colorizer
+linux/kde/plasma = ~/.config

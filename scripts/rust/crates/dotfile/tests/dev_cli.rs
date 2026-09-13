@@ -39,7 +39,6 @@ impl Sandbox {
                 "",
             ),
             ("shared/wezterm/tests/tmux-workspace.lua", ""),
-            ("shared/zsh/check.zsh", ""),
             ("setup.sh", "#!/bin/sh\n"),
             ("bin/", ""),
         ]);
@@ -204,7 +203,6 @@ fn dry_run_renders_worker_limits_and_linter_selection() {
             .stdout
             .contains("shuck 'check' '--output-format' 'concise'")
     );
-    assert!(shell.stdout.contains("'shared/zsh/check.zsh'"));
     assert!(shell.stdout.contains("'setup.sh'"));
 }
 

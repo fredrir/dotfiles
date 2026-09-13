@@ -1,8 +1,9 @@
 local wezterm = require "wezterm" ---@type Wezterm
+local dotfile = require "utils.dotfile"
 local hwire_session = require "utils.hwire-session"
 local host = require "domain.hosts"
 
-local MUX_ROUTE = wezterm.home_dir .. "/.local/bin/mux-route"
+local MUX_ROUTE = dotfile.compiled_dir .. "/mux-route"
 local SOCKET = wezterm.home_dir .. "/.local/share/wezterm/localmux.sock"
 local CLI = wezterm.executable_dir .. "/wezterm"
 local TOAST_MS = 4000

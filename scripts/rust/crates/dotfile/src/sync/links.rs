@@ -328,16 +328,32 @@ fn collect_desired(
     if source_is_filtered(scan.context, scan.merge_paths, source)? {
         return Ok(());
     }
-    let destination =
-        scan.configuration
-            .map_destination(scan.context, full, &package.package, relative);
     let metadata = fs::symlink_metadata(source)
         .map_err(|error| format!("read {}: {error}", source.display()))?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    let is_directory = metadata.is_dir() && !metadata.file_type().is_symlink();
+    let Some(destination) = scan.configuration.map_destination(full) else {
+        // Undeclared, but a descendant may be declared: descend without recording this node.
+        if is_directory && scan.configuration.has_target_under(full) {
+            collect_children(scan, package, relative, source, full, desired)?;
+        }
+        return Ok(());
+    };
+    if !is_directory {
         desired.record_file(destination, source.to_path_buf());
         return Ok(());
     }
     desired.record_directory(destination, source.to_path_buf());
+    collect_children(scan, package, relative, source, full, desired)
+}
+
+fn collect_children(
+    scan: &DesiredScan<'_>,
+    package: &Package,
+    relative: &Path,
+    source: &Path,
+    full: &str,
+    desired: &mut DesiredLayout,
+) -> Result<(), String> {
     for child in sorted_entries(source)? {
         let name = child
             .file_name()
@@ -410,12 +426,17 @@ impl Planner<'_> {
         if self.source_is_filtered(source)? {
             return Ok(());
         }
-        let destination =
-            self.configuration
-                .map_destination(self.context, full, &package.package, relative);
         let metadata = fs::symlink_metadata(source)
             .map_err(|error| format!("read {}: {error}", source.display()))?;
-        if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        let is_directory = metadata.is_dir() && !metadata.file_type().is_symlink();
+        let Some(destination) = self.configuration.map_destination(full) else {
+            // Undeclared, but a descendant may be declared: descend without linking this node.
+            if is_directory && self.configuration.has_target_under(full) {
+                self.walk_children(package, relative, source, full)?;
+            }
+            return Ok(());
+        };
+        if is_directory {
             self.link_directory(package, relative, source, full, &destination)?;
         } else {
             self.link_file(source, &destination)?;
@@ -574,6 +595,16 @@ impl Planner<'_> {
             }
             Node::Directory => {}
         }
+        self.walk_children(package, relative, source, full)
+    }
+
+    fn walk_children(
+        &mut self,
+        package: &Package,
+        relative: &Path,
+        source: &Path,
+        full: &str,
+    ) -> Result<(), String> {
         for child in sorted_entries(source)? {
             let name = child
                 .file_name()

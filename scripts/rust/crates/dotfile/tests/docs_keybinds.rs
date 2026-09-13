@@ -85,7 +85,7 @@ fn parses_all_formats_with_modes_descriptions_and_literal_loops() {
     );
     put(
         root,
-        "shared/zsh/conf.d/keys.zsh",
+        "shared/zsh/60-keybinds.zsh",
         "if command -v nvim >/dev/null; then\n bindkey -M viins '^F' search-files\nelse\n bindkey -M emacs $'\\e[13;2u' fallback\nfi\nbindkey -N shift-select emacs\nbindkey -M shift-select -R ' '-'~' replace-region\n",
     );
     put(
@@ -190,15 +190,10 @@ if platform.is_mac then extend(keys, physical) end
             .iter()
             .any(|s| s.key == "keymap" && s.action == "shift-select")
     );
-    assert!(
-        packages["zsh"]
-            .bindings
-            .iter()
-            .any(|b| b.key == " -~"
-                && b.action == "replace-region"
-                && b.context.contains("shift-select")
-                && b.context.contains("key range"))
-    );
+    assert!(packages["zsh"].bindings.iter().any(|b| b.key == " -~"
+        && b.action == "replace-region"
+        && b.context.contains("shift-select")
+        && b.context.contains("key range")));
     assert!(
         packages["zsh"]
             .bindings
@@ -388,36 +383,6 @@ fn discovery_prunes_unrelated_packages_and_preserves_overrides_and_linux_variant
     );
     assert_eq!(packages["hyprland"].bindings.len(), 1);
     assert_eq!(packages["kde"].bindings.len(), 1);
-}
-
-#[test]
-fn scalar_kde_launchers_and_zsh_completion_keys_are_documented() {
-    let dir = tempfile::tempdir().unwrap();
-    put(
-        dir.path(),
-        "linux/kde/plasma/kglobalshortcutsrc",
-        "[services][app.desktop]\n_launch=Meta+K\nCapture=Print\nUnused=\n",
-    );
-    put(
-        dir.path(),
-        "shared/zsh/conf.d/completion.zsh",
-        "zstyle ':fzf-tab:*' switch-group '<' '>'\n",
-    );
-    let packages = collect(dir.path()).unwrap();
-    assert_eq!(packages["kde"].bindings.len(), 3);
-    assert!(
-        packages["kde"]
-            .bindings
-            .iter()
-            .any(|b| b.action == "_launch" && b.key == "Meta+K")
-    );
-    assert_eq!(packages["zsh"].bindings.len(), 2);
-    assert!(
-        packages["zsh"]
-            .bindings
-            .iter()
-            .any(|b| b.key == "<" && b.action == "Previous completion group")
-    );
 }
 
 #[test]

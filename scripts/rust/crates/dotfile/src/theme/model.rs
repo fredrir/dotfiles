@@ -301,7 +301,7 @@ impl Theme {
         }
     }
     pub fn header(&self) -> String {
-        format!("Generated from theme/profiles/{}.toml", self.profile)
+        format!("{}", self.profile)
     }
     pub fn icons(&self) -> &str {
         if self.dark {
