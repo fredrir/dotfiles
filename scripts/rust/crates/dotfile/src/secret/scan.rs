@@ -502,7 +502,7 @@ pub fn run(
     };
     let matcher = canaries::matcher(&values)?;
     let mut allowed = Vec::new();
-    for (number, line) in recipients::block(&context.root.join("config/scan.dotfile"), "allow")? {
+    for (number, line) in recipients::block(&context.root_config.join("scan.dotfile"), "allow")? {
         let fields: Vec<_> = line.split_whitespace().collect();
         if fields.is_empty() || fields.len() > 2 {
             return Err(format!(

@@ -84,7 +84,7 @@ impl MutationLock {
         };
         let lock = Self {
             _repository: repository,
-            _state: SyncLock::acquire(&context.state)?,
+            _state: SyncLock::acquire(&context.root_config)?,
         };
         crate::fs::transaction::recover(context)?;
         Ok(lock)

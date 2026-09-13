@@ -38,7 +38,7 @@ pub fn inventory(targets: &[Target]) -> BTreeMap<String, Vec<String>> {
 }
 impl Selection {
     pub fn load(repo: &Repository, targets: &[Target]) -> Result<Self> {
-        let source = fs::read_to_string(repo.root.join("config/profiles.dotfile"))
+        let source = fs::read_to_string(repo.root_config.join("profiles.dotfile"))
             .map_err(|e| format!("config/profiles.dotfile: {e}"))?;
         Self::parse(repo, targets, &source)
     }

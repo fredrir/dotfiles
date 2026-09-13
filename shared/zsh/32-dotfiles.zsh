@@ -13,7 +13,6 @@ alias dpp="dotfile sync -p"
 
 alias pp="hwire -i"
 
-# Directory scoped ~/dotfiles environment
-if [[ $PWD == "$DOTFILES"* ]]; then
+if [[ $PWD == "$DOTFILES" ]]; then
   export SOPS_AGE_KEY_FILE="$DOTFILES/config/age/keys.txt"
 fi

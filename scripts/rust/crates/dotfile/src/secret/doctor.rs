@@ -232,7 +232,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     );
     let strays = [
         context
-            .state
+            .root_config
             .parent()
             .unwrap_or(&context.home)
             .join("sops/age/keys.txt"),
@@ -271,7 +271,7 @@ pub fn run(context: &Context, all: bool) -> Result<ExitCode, String> {
     if all {
         println!(
             "keys   {}\nsops   {}",
-            context.root.join("config/keys.dotfile").display(),
+            context.root_config.join("keys.dotfile").display(),
             context.root.join(".sops.yaml").display()
         );
     }

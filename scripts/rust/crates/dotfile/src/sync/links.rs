@@ -215,7 +215,7 @@ pub fn save_index(context: &Context, managed: &[PathBuf], dry_run: bool) -> Resu
         .iter()
         .map(|path| format!("{}\n", path.display()))
         .collect::<String>();
-    crate::context::write_atomic(&context.state.join("links"), content.as_bytes())
+    crate::context::write_atomic(&context.root_config.join("links"), content.as_bytes())
 }
 
 #[derive(Default)]
@@ -912,7 +912,7 @@ fn generated_locally(context: &Context, path: &Path) -> Result<bool, String> {
 }
 
 fn prune_candidates(context: &Context) -> Result<Vec<PathBuf>, String> {
-    let index_path = context.state.join("links");
+    let index_path = context.root_config.join("links");
     match fs::read_to_string(&index_path) {
         Ok(index) => {
             return Ok(index
@@ -930,7 +930,7 @@ fn prune_candidates(context: &Context) -> Result<Vec<PathBuf>, String> {
             found.insert(path);
         }
     }
-    for start in [context.home.join(".config"), context.home.join(".local")] {
+    for start in [context.external_config.clone(), context.home.join(".local")] {
         collect_repo_links(&start, 0, &context.root, &mut found)?;
     }
     Ok(found.into_iter().collect())

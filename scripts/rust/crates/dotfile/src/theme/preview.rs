@@ -331,7 +331,7 @@ pub fn choose(
     .map_err(|e| e.to_string())?;
     let mut surface = ui_terminal::Alternate::new(ui_terminal::MouseCapture::Disabled)
         .map_err(|e| e.to_string())?;
-    let mut theme = ThemeHandle::from_path(repo.root.join("shared/ui/theme.json"));
+    let mut theme = ThemeHandle::from_path(repo.root.join("config/theme/theme.json"));
     let mode = if ColorMode::Auto.enabled(true) {
         ColorMode::Always
     } else {

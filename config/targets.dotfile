@@ -13,7 +13,6 @@ shared/starship = ~/.config
 shared/tmux = ~/.config/tmux
 shared/tmux/.tmux.conf = ~/.tmux.conf
 shared/transcript = ~/.config/transcript
-shared/ui = ~/.config/dotfile/ui
 shared/wezterm = ~/.config/wezterm
 shared/yazi = ~/.config/yazi
 shared/zsh/00-global.zsh = ~/.zshenv

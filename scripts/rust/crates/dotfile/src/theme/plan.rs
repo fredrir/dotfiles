@@ -50,7 +50,7 @@ pub fn apply(
     if let Some(selection) = selection {
         crate::cancel::check()?;
         transaction.write(
-            &context.root.join("config/profiles.dotfile"),
+            &context.root_config.join("profiles.dotfile"),
             selection.as_bytes(),
         )?;
     }

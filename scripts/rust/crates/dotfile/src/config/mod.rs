@@ -185,13 +185,13 @@ impl Configuration {
 pub fn never_fold(context: &Context, path: &Path) -> bool {
     [
         context.home.clone(),
-        context.home.join(".config"),
+        context.external_config.clone(),
         context.home.join(".local"),
         context.home.join(".local/share"),
         context.home.join(".local/bin"),
         context.home.join("dotfiles/.bin"),
-        context.home.join(".config/systemd"),
-        context.home.join(".config/systemd/user"),
+        context.external_config.join("systemd"),
+        context.external_config.join("systemd/user"),
     ]
     .iter()
     .any(|protected| protected == path)

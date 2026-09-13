@@ -7,14 +7,15 @@ fn context() -> (tempfile::TempDir, Context) {
     let root = temporary.path().join("repo");
     std::fs::create_dir_all(root.join("config")).unwrap();
     let home = temporary.path().join("home");
-    let context = Context::new(root, home.clone(), home.join(".config/dotfile")).unwrap();
+    let context =
+        Context::new(root.clone(), home.clone(), root.join("config"), home.join(".config")).unwrap();
     (temporary, context)
 }
 
 #[test]
 fn recipients_parse_validate_and_format_stably() {
     let (_temporary, context) = context();
-    let path = context.root.join("config/keys.dotfile");
+    let path = context.root_config.join("keys.dotfile");
     assert!(recipients::load(&context).unwrap().is_empty());
     let key = format!("age1{}", "q".repeat(58));
     std::fs::write(&path, format!("recipients {{\n  alpha = {key}\n}}\n")).unwrap();
@@ -137,8 +138,8 @@ fn identity_diagnostics_distinguish_duplicates_recovery_and_unrelated_keys() {
 #[test]
 fn failed_second_install_restores_originals_and_cleans_journal() {
     let (_temporary, context) = context();
-    let first = context.root.join("config/first");
-    let second = context.root.join("config/second");
+    let first = context.root_config.join("first");
+    let second = context.root_config.join("second");
     std::fs::write(&first, b"first original").unwrap();
     std::fs::write(&second, b"second original").unwrap();
     let result = recipients::commit_inner(
@@ -159,5 +160,5 @@ fn failed_second_install_restores_originals_and_cleans_journal() {
     assert!(result.unwrap_err().contains("injected"));
     assert_eq!(std::fs::read(first).unwrap(), b"first original");
     assert_eq!(std::fs::read(second).unwrap(), b"second original");
-    assert!(!context.state.join("secret-transaction").exists());
+    assert!(!context.root_config.join("secret-transaction").exists());
 }

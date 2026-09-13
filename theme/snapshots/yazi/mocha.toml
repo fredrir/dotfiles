@@ -1,6 +1,6 @@
 # Yazi theme contract: 26.8.15+
 
-# Generated from theme/profiles/mocha.toml
+# mocha
 
 [app]
 overall = { bg = "#1e1e2e" }

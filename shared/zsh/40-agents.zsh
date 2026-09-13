@@ -5,24 +5,26 @@ _run_agent() {
     "$@"
 }
 
-claude() {
-  _run_agent claude --dangerously-skip-permissions "$@"
-}
+if has_cmd claude; then
+  claude() {
+    _run_agent claude --dangerously-skip-permissions "$@"
+  }
+fi
 
-codex() {
-  _run_agent codex --yolo "$@"
-}
+if has_cmd codex; then
+  codex() {
+    _run_agent codex --yolo "$@"
+  }
+fi
 
-opencode-max() {
-  _run_agent OMO_PROFILE=hybrid-max opencode "$@" --auto
-}
+if has_cmd pi; then
+  pi() {
+    _run_agent pi "$@"
+  }
+fi
 
-opencode-light() {
-  _run_agent OMO_PROFILE=hybrid-light opencode "$@" --auto
-}
-
-pi() {
-  _run_agent pi "$@"
-}
-
-has_cmd opencode && alias opencode-stats="opencode stats --days 7 --models 10 --tools 20"
+if has_cmd agy; then
+  agy() {
+    _run_agent agy --dangerously-skip-permissions "$@"
+  }
+fi

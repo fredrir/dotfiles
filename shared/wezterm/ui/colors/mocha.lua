@@ -1,4 +1,4 @@
--- Generated from theme/profiles/mocha.toml
+-- mocha
 
 ---@type ColorProfile
 return {

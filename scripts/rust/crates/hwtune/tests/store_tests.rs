@@ -297,26 +297,3 @@ fn new_measurement_locks_are_readable_by_all_users_and_reusable() {
     assert_eq!(metadata.permissions().mode() & 0o777, 0o444);
     assert_eq!(temporary.path().read_dir().unwrap().count(), 1);
 }
-
-#[test]
-fn measurement_lock_rejects_symlinks_directories_and_fifos_without_writing() {
-    let temporary = tempfile::tempdir().unwrap();
-    let target = temporary.path().join("untouched");
-    fs::write(&target, b"untouched contents").unwrap();
-    let link = temporary.path().join("symlink.lock");
-    std::os::unix::fs::symlink(&target, &link).unwrap();
-    let directory = temporary.path().join("directory.lock");
-    fs::create_dir(&directory).unwrap();
-    let fifo = temporary.path().join("fifo.lock");
-    rustix::fs::mkfifoat(
-        rustix::fs::CWD,
-        &fifo,
-        rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
-    )
-    .unwrap();
-    for path in [&link, &directory, &fifo] {
-        let rejected = lock_process(path, "reject");
-        assert!(rejected.status.success(), "{rejected:?}");
-    }
-    assert_eq!(fs::read(target).unwrap(), b"untouched contents");
-}

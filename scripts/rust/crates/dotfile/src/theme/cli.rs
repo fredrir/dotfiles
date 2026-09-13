@@ -72,7 +72,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode> {
     } else {
         None
     };
-    let repo = Repository::load(&context.root)?;
+    let repo = Repository::load(&context.root, &context.root_config)?;
     if let Some(Command::Check) = args.command {
         super::validate::all(&repo)?;
         println!("  {} profiles valid", repo.themes.len());
@@ -190,7 +190,7 @@ pub fn run(args: Args, context: &Context) -> Result<ExitCode> {
                     return Ok(ExitCode::SUCCESS);
                 }
             }
-            let path = repo.root.join("config/profiles.dotfile");
+            let path = repo.root_config.join("profiles.dotfile");
             let source = fs::read_to_string(&path).map_err(|e| e.to_string())?;
             let candidate =
                 selection::switched(&source, &selection, &group, &key, global, &profile);

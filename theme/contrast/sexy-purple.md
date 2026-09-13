@@ -1,6 +1,6 @@
 # Contrast matrix: Sexy Purple
 
-Generated from `theme/profiles/sexy-purple.toml`.
+`sexy-purple`.
 Required text pairs target 4.5:1; graphical and inactive pairs target 3:1.
 Raw ANSI rows are reported but are not enforced.
 

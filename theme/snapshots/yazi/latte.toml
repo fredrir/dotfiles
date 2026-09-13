@@ -1,6 +1,6 @@
 # Yazi theme contract: 26.8.15+
 
-# Generated from theme/profiles/latte.toml
+# latte
 
 [app]
 overall = { bg = "#eff1f5" }

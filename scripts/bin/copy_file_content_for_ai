@@ -1,0 +1,36 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+copy_file_content() {
+  local relative_path="$1"
+  local file_path="$2"
+
+  if [[ -z "$relative_path" || ! -f "$file_path" ]]; then
+    print -u2 "copy_file_content: expected <relative-path> <file-path>"
+    return 1
+  fi
+
+  {
+    printf -- '---\n'
+    printf -- '%s:\n\n' "$relative_path"
+    printf -- '"""\n'
+
+    cat "$file_path"
+
+    # Ensure closing """ starts on its own line if the file
+    # doesn't already end with a newline.
+    if [[ -s "$file_path" ]]; then
+      local last_byte
+      last_byte="$(
+        tail -c 1 "$file_path" |
+          od -An -tu1 |
+          tr -d '[:space:]'
+      )"
+
+      [[ "$last_byte" == 10 ]] || printf '\n'
+    fi
+
+    printf -- '"""\n\n---\n'
+  } | pbcopy
+}

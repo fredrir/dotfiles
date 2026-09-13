@@ -1,6 +1,6 @@
 # Yazi theme contract: 26.8.15+
 
-# Generated from theme/profiles/sexy-purple.toml
+# sexy-purple
 
 [app]
 overall = { bg = "#15152b" }

@@ -19,7 +19,7 @@ impl Drop for Canary {
 pub fn load(context: &Context) -> Result<(Vec<Canary>, Vec<String>), String> {
     let mut values = Vec::new();
     let mut notes = Vec::new();
-    let path = context.state.join("canaries");
+    let path = context.root_config.join("canaries");
     if path.is_file() {
         if vault::mode_of(&path)? & 0o077 != 0 {
             notes.push(format!(

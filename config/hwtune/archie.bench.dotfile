@@ -1,4 +1,4 @@
 ai {
-  model   = ~/models/phi/Phi-4-mini-instruct-Q6_K.gguf
-  predict = 128
+  model    = ~/models/phi/Phi-4-mini-instruct-Q6_K.gguf
+  predict  = 128
 }

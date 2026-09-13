@@ -119,11 +119,11 @@ impl Machine {
         let bin = temporary.path().join("bin");
         fs::create_dir_all(root.join("config")).unwrap();
         fs::create_dir_all(root.join("shared/alpha")).unwrap();
-        fs::create_dir_all(remote_home.join(".local/bin")).unwrap();
         fs::create_dir_all(&bin).unwrap();
         fs::write(root.join("config/targets.dotfile"), "").unwrap();
         fs::write(root.join("config/hosts.dotfile"), HOSTS).unwrap();
         fs::write(root.join("shared/alpha/value"), "alpha\n").unwrap();
+        fs::write(root.join(".gitignore"), ".bin/\n").unwrap();
         executable(&root.join("setup.sh"), SETUP_STUB);
 
         git(
@@ -145,9 +145,15 @@ impl Machine {
         let ssh_log = temporary.path().join("ssh.log");
         let sync_log = temporary.path().join("sync.log");
         executable(&bin.join("ssh"), SSH_STUB);
-        executable(&remote_home.join(".local/bin/dotfile"), WIRE_STUB);
-        let state = home.join(".config/dotfile");
-        let context = Context::new(root.clone(), home, state).unwrap();
+        fs::create_dir_all(remote.join(".bin")).unwrap();
+        executable(&remote.join(".bin/dotfile"), WIRE_STUB);
+        let context = Context::new(
+            root.clone(),
+            home.clone(),
+            root.join("config"),
+            home.join(".config"),
+        )
+        .unwrap();
         Self {
             _temporary: temporary,
             context,
@@ -177,6 +183,14 @@ impl Machine {
                 (
                     "PUSH_REMOTE_HOME",
                     self.remote.parent().unwrap().as_os_str().to_os_string(),
+                ),
+                (
+                    "DOTFILES_COMPILED",
+                    self.remote
+                        .parent()
+                        .unwrap()
+                        .join("dotfiles/.bin")
+                        .into_os_string(),
                 ),
                 ("PUSH_SSH_LOG", self.ssh_log.as_os_str().to_os_string()),
                 ("PUSH_SYNC_LOG", self.sync_log.as_os_str().to_os_string()),

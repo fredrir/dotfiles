@@ -1,6 +1,3 @@
-# Cable runs at ~1.7 ms with ±0.13 ms of jitter, so ten seconds of silence means it is gone
-# and the session should say so rather than hang.
-
 Host cabled-archie 10.77.77.2
     HostName 10.77.77.2
     User fredrir

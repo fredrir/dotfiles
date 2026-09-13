@@ -33,7 +33,7 @@ success_symbol = '[\$](prompt_char)'
 error_symbol   = '[\$](prompt_char)'
 
 # theme:palette
-# Generated from theme/profiles/sexy-purple.toml
+# sexy-purple
 [palettes.theme]
 background     = '#15152b'
 primary        = '#380d6a'

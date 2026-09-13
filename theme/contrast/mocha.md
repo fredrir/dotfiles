@@ -1,6 +1,6 @@
 # Contrast matrix: Catppuccin Mocha
 
-Generated from `theme/profiles/mocha.toml`.
+`mocha`.
 Required text pairs target 4.5:1; graphical and inactive pairs target 3:1.
 Raw ANSI rows are reported but are not enforced.
 

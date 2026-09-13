@@ -1,4 +1,4 @@
-# Generated from theme/profiles/sexy-purple.toml
+# sexy-purple
 export THEME_RESET=$'\e[0m'
 export THEME_SUDO=$'\e[38;2;194;99;108m'
 export THEME_GIT=$'\e[38;2;163;190;140m'

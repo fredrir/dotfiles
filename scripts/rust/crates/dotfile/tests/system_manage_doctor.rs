@@ -22,14 +22,14 @@ impl Fixture {
             root.join("config"),
             root.join("environment/test"),
             root.join("shared"),
-            home.join(".config/dotfile"),
+            home.join(".config"),
             bin.clone(),
         ] {
             fs::create_dir_all(path).unwrap();
         }
         fs::write(root.join("config/targets.dotfile"), "shared = ~/.config\n").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
-        fs::write(home.join(".config/dotfile/profile"), "test\n").unwrap();
+        fs::write(root.join("config/profile"), "test\n").unwrap();
         assert!(
             Command::new("git")
                 .arg("init")
@@ -105,7 +105,7 @@ fn system_dry_run_does_not_write_destinations_or_plaintext_staging_files() {
     assert!(result.stdout.contains("sudo install -D -o root -g root"));
     assert!(!target.join("service.conf").exists());
     assert_eq!(fs::read_dir(temp).unwrap().count(), 0);
-    assert!(!fixture.home.join(".config/dotfile/mutation.lock").exists());
+    assert!(!fixture.root.join("config/mutation.lock").exists());
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn doctor_caches_package_inventory_and_preserves_section_order() {
 #[test]
 fn doctor_reads_saved_benchmark_host_without_python() {
     let fixture = Fixture::new();
-    fs::write(fixture.home.join(".config/dotfile/host"), "fixture-host\n").unwrap();
+    fs::write(fixture.root.join("config/host"), "fixture-host\n").unwrap();
     hwtune::bench::store::Store::new(fixture.temporary.path().join("benchmarks"))
         .save_run(&hwtune::bench::record::Run {
             host: "fixture-host".into(),
@@ -377,7 +377,8 @@ fn profile_relevance_uses_manifest_desktop_requirements() {
     let context = dotfile_cli::context::Context::new(
         fixture.root.clone(),
         fixture.home.clone(),
-        fixture.home.join(".config/dotfile"),
+        fixture.root.join("config"),
+        fixture.home.join(".config"),
     )
     .unwrap();
     let profiles = dotfile_cli::config::profiles::filter(

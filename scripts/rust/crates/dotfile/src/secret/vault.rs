@@ -379,7 +379,7 @@ pub fn decrypt(context: &Context, source: &Path) -> Result<Vec<u8>, String> {
 }
 
 pub fn identity_path(context: &Context) -> PathBuf {
-    context.state.join("age/keys.txt")
+    context.root_config.join("age/keys.txt")
 }
 
 pub fn secure_package_directories(

@@ -29,7 +29,7 @@ impl Fixture {
             root.join("config"),
             root.join("environment/test"),
             root.join("shared/service/etc"),
-            home.join(".config/dotfile"),
+            home.join(".config"),
             bin.clone(),
             destination.clone(),
             temp.path().join("staging"),
@@ -40,7 +40,7 @@ impl Fixture {
         fs::write(root.join("shared/service/etc/first.conf"), "first\n").unwrap();
         fs::write(root.join("shared/service/etc/second.conf"), "second\n").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
-        fs::write(home.join(".config/dotfile/profile"), "test\n").unwrap();
+        fs::write(root.join("config/profile"), "test\n").unwrap();
         fs::write(
             root.join("config/targets.dotfile"),
             format!("shared/service/etc = {}\n", destination.display()),

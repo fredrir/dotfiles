@@ -18,11 +18,11 @@ impl Repository {
         fs::create_dir_all(root.join("config")).unwrap();
         fs::create_dir_all(root.join("environment/test")).unwrap();
         fs::create_dir_all(root.join("shared")).unwrap();
-        fs::create_dir_all(home.join(".config/dotfile")).unwrap();
+        fs::create_dir_all(home.join(".config")).unwrap();
         fs::create_dir_all(home.join(".ssh")).unwrap();
         fs::write(root.join("config/targets.dotfile"), "shared = ~/.config\n").unwrap();
         fs::write(root.join("environment/test/manifest"), "shared\n").unwrap();
-        fs::write(home.join(".config/dotfile/profile"), "test\n").unwrap();
+        fs::write(root.join("config/profile"), "test\n").unwrap();
         let binary = PathBuf::from(env!("CARGO_BIN_EXE_dotfile"));
         let repository = Self {
             _temporary: temporary,
@@ -79,7 +79,7 @@ impl Repository {
         self.ok(&["enroll", "machine"]);
     }
     fn identity(&self) -> PathBuf {
-        self.home.join(".config/dotfile/age/keys.txt")
+        self.root.join("config/age/keys.txt")
     }
     fn recovery(&self) -> PathBuf {
         let path = self._temporary.path().join("recovery.txt");
@@ -180,10 +180,7 @@ fn real_sops_rotation_rekeys_and_revocation_excludes_old_key() {
     assert!(!repo.decrypts(&encrypted, &recovery));
     assert!(repo.decrypts(&encrypted, &repo.identity()));
     assert!(
-        !repo
-            .home
-            .join(".config/dotfile/secret-transaction")
-            .exists()
+        !repo.root.join("config/secret-transaction").exists()
     );
 }
 
@@ -281,7 +278,7 @@ fn redaction_protocol_streams_without_exporting_private_values() {
     let repo = Repository::new();
     let secret = "violet-private-fixture-value";
     fs::write(
-        repo.home.join(".config/dotfile/canaries"),
+        repo.root.join("config/canaries"),
         format!("fixture={secret}\n"),
     )
     .unwrap();
@@ -380,7 +377,7 @@ fn interrupted_secret_transaction_restores_configuration_and_identity() {
         repo.identity(),
     ];
     let originals: Vec<_> = paths.iter().map(|path| fs::read(path).unwrap()).collect();
-    let journal = repo.home.join(".config/dotfile/secret-transaction");
+    let journal = repo.root.join("config/secret-transaction");
     fs::create_dir(&journal).unwrap();
     let mut manifest = Vec::new();
     for (index, path) in paths.iter().enumerate() {
@@ -409,7 +406,8 @@ fn recipient_commit_preflights_all_destination_types() {
     let context = dotfile_cli::context::Context::new(
         repo.root.clone(),
         repo.home.clone(),
-        repo.home.join(".config/dotfile"),
+        repo.root.join("config"),
+        repo.home.join(".config"),
     )
     .unwrap();
     let first = repo.root.join("config/keys.dotfile");
@@ -425,7 +423,7 @@ fn recipient_commit_preflights_all_destination_types() {
     );
     assert!(result.is_err());
     assert_eq!(fs::read(&first).unwrap(), original);
-    assert!(!context.state.join("secret-transaction").exists());
+    assert!(!context.root_config.join("secret-transaction").exists());
 }
 
 #[cfg(unix)]
@@ -433,7 +431,7 @@ fn recipient_commit_preflights_all_destination_types() {
 fn cancellation_stops_sops_child_group_promptly() {
     use std::os::unix::fs::PermissionsExt;
     let repo = Repository::new();
-    fs::create_dir_all(repo.home.join(".config/dotfile/age")).unwrap();
+    fs::create_dir_all(repo.root.join("config/age")).unwrap();
     fs::write(repo.identity(), "test identity placeholder").unwrap();
     fs::create_dir_all(repo.root.join("shared/test")).unwrap();
     fs::write(
@@ -609,7 +607,7 @@ fn malformed_recovery_destinations_cannot_write_outside_repository() {
         repo.root.join("../outside/victim"),
         repo.root.join("escape/victim"),
     ] {
-        let journal = repo.home.join(".config/dotfile/secret-transaction");
+        let journal = repo.root.join("config/secret-transaction");
         fs::create_dir(&journal).unwrap();
         fs::write(journal.join("0"), b"malformed replacement").unwrap();
         let manifest = serde_json::json!([{"path":destination,"existed":true,"mode":420}]);

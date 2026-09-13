@@ -27,8 +27,13 @@ impl Sandbox {
         ]);
         let root = temporary.path().join("repo");
         let home = temporary.path().join("home");
-        let context = Context::new(root.clone(), home.clone(), home.join(".config/dotfile"))
-            .expect("context");
+        let context = Context::new(
+            root.clone(),
+            home.clone(),
+            root.join("config"),
+            home.join(".config"),
+        )
+        .expect("context");
         Self {
             _temporary: temporary,
             root,
@@ -114,7 +119,7 @@ fn atomic_writes_preserve_modes_use_sane_defaults_and_skip_identical_content() {
 fn invalid_saved_override_aborts_before_any_link_mutation() {
     let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");
     sandbox.write("shared/git/.gitconfig", "repo\n");
-    fs::create_dir_all(&sandbox.context.state).unwrap();
+    fs::create_dir_all(&sandbox.context.root_config).unwrap();
     fs::write(&sandbox.context.overrides_file, [0xff]).unwrap();
     assert!(sandbox.sync(&cli()).is_err());
     assert!(!sandbox.home.join(".gitconfig").exists());
@@ -125,8 +130,8 @@ fn invalid_saved_override_aborts_before_any_link_mutation() {
 fn invalid_link_index_aborts_instead_of_falling_back_to_a_false_clean_scan() {
     let sandbox = Sandbox::new("shared\n", "shared/git/.gitconfig = ~/.gitconfig\n");
     sandbox.write("shared/git/.gitconfig", "repo\n");
-    fs::create_dir_all(&sandbox.context.state).unwrap();
-    fs::write(sandbox.context.state.join("links"), [0xff]).unwrap();
+    fs::create_dir_all(&sandbox.context.root_config).unwrap();
+    fs::write(sandbox.context.root_config.join("links"), [0xff]).unwrap();
     assert!(sandbox.sync(&cli()).is_err());
     assert!(!sandbox.home.join(".gitconfig").exists());
 }
@@ -141,7 +146,7 @@ fn dry_run_and_reconcile_share_a_deterministic_link_plan() {
     assert_eq!(planned.changed, 1);
     assert_eq!(planned.links, 1);
     assert!(!sandbox.home.join(".gitconfig").exists());
-    assert!(!sandbox.context.state.join("profile").exists());
+    assert!(!sandbox.context.root_config.join("profile").exists());
 
     options.dry_run = false;
     let applied = sandbox.sync(&options).expect("apply plan");
@@ -151,7 +156,7 @@ fn dry_run_and_reconcile_share_a_deterministic_link_plan() {
         sandbox.root.join("shared/git/.gitconfig")
     );
     assert_eq!(
-        fs::read_to_string(sandbox.context.state.join("profile")).unwrap(),
+        fs::read_to_string(sandbox.context.root_config.join("profile")).unwrap(),
         "test\n"
     );
 
@@ -314,9 +319,9 @@ fn later_file_replaces_only_a_fully_managed_expanded_directory() {
     let child = destination.join("child.conf");
     fs::create_dir_all(&destination).unwrap();
     symlink(sandbox.root.join("shared/lower/item/child.conf"), &child).unwrap();
-    fs::create_dir_all(&sandbox.context.state).unwrap();
+    fs::create_dir_all(&sandbox.context.root_config).unwrap();
     fs::write(
-        sandbox.context.state.join("links"),
+        sandbox.context.root_config.join("links"),
         format!("{}\n", child.display()),
     )
     .unwrap();
@@ -383,10 +388,10 @@ fn missing_link_index_discovers_existing_links_with_a_bounded_scan() {
     sandbox.write("shared/git/.gitconfig", "repo\n");
     let stale = sandbox.home.join(".config/stale-link");
     std::os::unix::fs::symlink(sandbox.root.join("shared/removed"), &stale).unwrap();
-    assert!(!sandbox.context.state.join("links").exists());
+    assert!(!sandbox.context.root_config.join("links").exists());
     sandbox.sync(&cli()).expect("initial sync");
     assert!(fs::symlink_metadata(stale).is_err());
-    let index = fs::read_to_string(sandbox.context.state.join("links")).unwrap();
+    let index = fs::read_to_string(sandbox.context.root_config.join("links")).unwrap();
     assert!(index.contains(".gitconfig"));
 }
 
@@ -544,12 +549,12 @@ fn overlays_materialize_and_live_adoption_preserves_jsonc_comments() {
     assert!(overlay.contains("\"shellformat.path\": \"/usr/bin/shfmt\""));
     assert!(!overlay.contains("\"editor.fontSize\": 14"));
     let mut state_files = vec![
-        sandbox.context.state.join("profile"),
-        sandbox.context.state.join("overrides"),
-        sandbox.context.state.join("links"),
+        sandbox.context.root_config.join("profile"),
+        sandbox.context.root_config.join("overrides"),
+        sandbox.context.root_config.join("links"),
     ];
     state_files.extend(
-        fs::read_dir(sandbox.context.state.join("merge"))
+        fs::read_dir(sandbox.context.root_config.join("merge"))
             .unwrap()
             .flatten()
             .map(|entry| entry.path()),
@@ -949,7 +954,7 @@ fn blocked_plaintext_secret_fails_the_sync_before_success_state_is_saved() {
     let result = sandbox.sync(&cli());
     assert!(result.is_err());
     assert!(!sandbox.home.join(".config/credentials/password").exists());
-    assert!(!sandbox.context.state.join("links").exists());
+    assert!(!sandbox.context.root_config.join("links").exists());
 }
 
 #[cfg(target_os = "linux")]
@@ -1075,10 +1080,12 @@ fn checked_in_package_artifacts_match_the_native_renderer() {
         .expect("repository root")
         .to_path_buf();
     let temporary = TempDir::new().expect("temporary home");
+    let root_config = root.join("config");
     let context = Context::new(
         root,
         temporary.path().to_path_buf(),
-        temporary.path().join(".config/dotfile"),
+        root_config,
+        temporary.path().join(".config"),
     )
     .expect("repository context");
     let groups = packages::package_groups(&context).unwrap();

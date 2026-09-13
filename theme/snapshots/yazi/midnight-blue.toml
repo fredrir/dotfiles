@@ -1,6 +1,6 @@
 # Yazi theme contract: 26.8.15+
 
-# Generated from theme/profiles/midnight-blue.toml
+# midnight-blue
 
 [app]
 overall = { bg = "#15152b" }

@@ -277,7 +277,9 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         let home = temporary.path().join("home");
-        let context = Context::new(root, home.clone(), home.join("dotfiles/config")).unwrap();
+        let context =
+            Context::new(root.clone(), home.clone(), root.join("config"), home.join(".config"))
+                .unwrap();
         (temporary, context)
     }
 
@@ -298,7 +300,7 @@ mod tests {
             "value"
         ));
         assert!(!context.root.join(".git/dotfile").exists());
-        assert!(!context.state.exists());
+        assert!(!context.root_config.exists());
     }
 
     #[cfg(unix)]
@@ -340,7 +342,7 @@ mod tests {
             0o600
         );
         assert_eq!(fs::read(context.root.join(".git/index")).unwrap(), index);
-        assert!(!context.root.join("config/scan.dotfile").exists());
+        assert!(!context.root_config.join("scan.dotfile").exists());
     }
 
     #[cfg(unix)]
@@ -374,7 +376,13 @@ mod tests {
             ],
         )
         .unwrap();
-        let linked = Context::new(worktree, context.home.clone(), context.state.clone()).unwrap();
+        let linked = Context::new(
+            worktree,
+            context.home.clone(),
+            context.root_config.clone(),
+            context.external_config.clone(),
+        )
+        .unwrap();
         assert!(linked.root.join(".git").is_file());
         Store::default()
             .save(&linked, &[approval("fixture", "value")], || Ok(()))

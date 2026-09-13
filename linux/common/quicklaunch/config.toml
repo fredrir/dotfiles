@@ -14,7 +14,7 @@ frequency_ranking      = true
 [theme]
 source = "custom"
 # theme:quicklaunch
-# Generated from theme/profiles/sexy-purple.toml
+# sexy-purple
 accent     = "#380d6a"
 background = "#15152b"
 text       = "#ffffff"

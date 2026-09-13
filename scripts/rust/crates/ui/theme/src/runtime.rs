@@ -16,18 +16,18 @@ pub fn discover_paths() -> Vec<PathBuf> {
         return vec![PathBuf::from(path)];
     }
     if let Some(root) = std::env::var_os("DOTFILE_ROOT").filter(|value| !value.is_empty()) {
-        return vec![PathBuf::from(root).join("shared/ui/theme.json")];
+        return vec![PathBuf::from(root).join("config/theme/theme.json")];
     }
-    let config = std::env::var_os("XDG_CONFIG_HOME")
+    let config = std::env::var_os("DOTFILE_CONFIG")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
     let mut paths = Vec::with_capacity(2);
     if let Some(config) = config {
-        paths.push(config.join("dotfile/ui/theme.json"));
+        paths.push(config.join("dotfile/theme/theme.json"));
     }
     if let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(5) {
-        paths.push(root.join("shared/ui/theme.json"));
+        paths.push(root.join("config/theme/theme.json"));
     }
     paths
 }

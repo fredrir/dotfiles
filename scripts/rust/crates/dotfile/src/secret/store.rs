@@ -65,7 +65,7 @@ pub fn add(context: &Context, args: AddArgs) -> Result<(), String> {
         changes.push((marker, Vec::new()));
     }
     let parent = source.parent().ok_or("source has no parent")?;
-    if parent != context.home.join(".config").join(&args.pkg) {
+    if parent != context.external_config.join(&args.pkg) {
         let target = parent
             .strip_prefix(&context.home)
             .map(|p| format!("~/{}", p.display()))

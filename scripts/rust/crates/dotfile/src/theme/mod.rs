@@ -12,7 +12,7 @@ mod validate;
 pub use cli::{Args, run};
 type Result<T> = std::result::Result<T, String>;
 pub fn scopes(context: &crate::context::Context) -> Result<Vec<String>> {
-    let repo = model::Repository::load(&context.root)?;
+    let repo = model::Repository::load(&context.root, &context.root_config)?;
     let targets = emitters::targets(&repo)?;
     let inventory = selection::inventory(&targets);
     let mut values = vec!["global".into()];

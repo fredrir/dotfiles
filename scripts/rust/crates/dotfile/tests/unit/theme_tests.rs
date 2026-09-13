@@ -5,7 +5,7 @@ mod support;
 #[test]
 fn every_profile_renders_an_idempotent_output_set() {
     let directory = support::repository();
-    let repo = model::Repository::load(directory.path()).unwrap();
+    let repo = model::Repository::load(directory.path(), &directory.path().join("config")).unwrap();
     let targets = emitters::targets(&repo).unwrap();
     for theme in repo.themes.values() {
         for target in &targets {
@@ -30,7 +30,7 @@ fn every_profile_renders_an_idempotent_output_set() {
 #[test]
 fn ui_palettes_preserve_legacy_exports_and_readable_component_states() {
     let directory = support::repository();
-    let repo = model::Repository::load(directory.path()).unwrap();
+    let repo = model::Repository::load(directory.path(), &directory.path().join("config")).unwrap();
     for theme in repo.themes.values() {
         let document = emitters::ui::document(theme).unwrap();
         let palette = ui_theme::Palette::from_json(&emitters::ui::render(theme).unwrap()).unwrap();
@@ -175,7 +175,7 @@ fn selection_edit_keeps_comments_and_removes_only_requested_overrides() {
 #[test]
 fn schema_rejects_unknown_missing_and_wrong_types_and_normalizes_colors() {
     let root = support::repository();
-    let repo = model::Repository::load(root.path()).unwrap();
+    let repo = model::Repository::load(root.path(), &root.path().join("config")).unwrap();
     let raw = repo.theme("latte").unwrap().raw.clone();
     type Mutation = fn(&mut serde_json::Value);
     let cases: [(Mutation, &str); 7] = [
@@ -217,7 +217,7 @@ fn schema_rejects_unknown_missing_and_wrong_types_and_normalizes_colors() {
 #[test]
 fn all_contrast_pairs_have_unique_states_and_tmux_indexed_colors_remain_readable() {
     let root = support::repository();
-    let repo = model::Repository::load(root.path()).unwrap();
+    let repo = model::Repository::load(root.path(), &root.path().join("config")).unwrap();
     for t in repo.themes.values() {
         let pairs = validate::pairs(t).unwrap();
         let mut states = std::collections::HashSet::new();
@@ -276,7 +276,7 @@ fn marker_ini_and_lua_edits_preserve_surroundings_and_escaping() {
 #[test]
 fn cascade_routes_group_package_and_profile_defaults() {
     let root = support::repository();
-    let repo = model::Repository::load(root.path()).unwrap();
+    let repo = model::Repository::load(root.path(), &root.path().join("config")).unwrap();
     let selection = selection::Selection {
         groups: std::collections::BTreeMap::from([
             (

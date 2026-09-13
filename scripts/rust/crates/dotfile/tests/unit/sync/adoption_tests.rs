@@ -241,7 +241,8 @@ fn baseline_records_are_hashed_distinct_plain_json_and_preserve_empty_objects() 
     let context = Context::new(
         temp.path().join("repo"),
         temp.path().join("home"),
-        temp.path().join("state"),
+        temp.path().join("repo/config"),
+        temp.path().join("home/.config"),
     )
     .unwrap();
     let first = Path::new("/x/settings.json");
@@ -249,7 +250,7 @@ fn baseline_records_are_hashed_distinct_plain_json_and_preserve_empty_objects() 
     let digest = format!("{:x}", Sha256::digest(first.as_os_str().as_encoded_bytes()));
     assert_eq!(
         baseline_path(&context, first),
-        context.state.join("merge").join(format!("{digest}.json"))
+        context.root_config.join("merge").join(format!("{digest}.json"))
     );
     assert_eq!(load_baseline(&context, first).unwrap(), None);
     let document = json!({"git.autofetch":true,"[lua]":{"editor.tabSize":2}});
@@ -279,7 +280,8 @@ fn offered_targets_derive_nested_group_names_and_exclude_override_directories() 
     let context = Context::new(
         temp.path().to_owned(),
         temp.path().join("home"),
-        temp.path().join("state"),
+        temp.path().join("config"),
+        temp.path().join("home/.config"),
     )
     .unwrap();
     let configuration = Configuration {
@@ -329,7 +331,8 @@ fn merge_dry_runs_leave_materialization_adoption_and_baseline_bytes_untouched() 
     let context = Context::new(
         temp.path().to_owned(),
         temp.path().join("home"),
-        temp.path().join("state"),
+        temp.path().join("config"),
+        temp.path().join("home/.config"),
     )
     .unwrap();
     let entry = entry(temp.path());
@@ -340,7 +343,7 @@ fn merge_dry_runs_leave_materialization_adoption_and_baseline_bytes_untouched() 
             .changed
     );
     assert!(!entry.destination.exists());
-    assert!(!context.state.exists());
+    assert!(!context.root_config.join("merge").exists());
     settle(&context, &entry, false, false, Resolution::Skip, &choices).unwrap();
     let baseline = baseline_path(&context, &entry.destination);
     let before = fs::read(&baseline).unwrap();

@@ -21,7 +21,6 @@ impl Fixture {
         let root = temp.path().join("repo");
         let home = temp.path().join("home");
         fs::create_dir_all(root.join("config")).unwrap();
-        fs::create_dir_all(home.join(".config/dotfile")).unwrap();
         fs::create_dir_all(temp.path().join("staging")).unwrap();
         fs::write(root.join("config/targets.dotfile"), "").unwrap();
         assert!(

@@ -1,4 +1,4 @@
--- Generated from theme/profiles/latte.toml
+-- latte
 
 ---@type ColorProfile
 return {

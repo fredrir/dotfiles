@@ -3,7 +3,13 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 fn context(root: &Path) -> Context {
-    Context::new(root.join("repo"), root.join("home"), root.join("state")).unwrap()
+    Context::new(
+        root.join("repo"),
+        root.join("home"),
+        root.join("repo/config"),
+        root.join("home/.config"),
+    )
+    .unwrap()
 }
 fn fixture() -> tempfile::TempDir {
     let temp = tempfile::tempdir().unwrap();

@@ -82,7 +82,7 @@ pub struct DeclaredSurface {
 }
 
 pub fn declared(context: &Context) -> Result<DeclaredSurface, String> {
-    let path = context.root.join("config/command-surface.json");
+    let path = context.root_config.join("/cli/command-surface.json");
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(DeclaredSurface::default()),

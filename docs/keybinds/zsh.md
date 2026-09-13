@@ -10,9 +10,9 @@
 
 ## Shared Keybinds
 
-[<code>keymap = fredrir</code>](../../shared/zsh/60-keybinds.zsh#L1) [2](../../shared/zsh/60-keybinds.zsh#L2)
+[<code>keymap = fredrir</code>](../../shared/zsh/81-keybinds.zsh#L2) [2](../../shared/zsh/81-keybinds.zsh#L52) · [<code>keymap = motion-select</code>](../../shared/zsh/81-keybinds.zsh#L3)
 
 | Key | Action | Description |
 | --- | --- | --- |
-| <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/50-fzf.zsh#L21) | Previous completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
-| <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/50-fzf.zsh#L21) | Next completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
+| <code>&lt;</code> | [<code>Previous completion group</code>](../../shared/zsh/50-fzf.zsh#L22) | Previous completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |
+| <code>&gt;</code> | [<code>Next completion group</code>](../../shared/zsh/50-fzf.zsh#L22) | Next completion group<br><code>:fzf-tab:*; has_cmd fzf</code> |

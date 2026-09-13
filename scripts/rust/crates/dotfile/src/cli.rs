@@ -327,15 +327,7 @@ fn external(arguments: Vec<OsString>) -> std::process::ExitCode {
     let Some(name) = arguments.first() else {
         return ExitCode::SUCCESS;
     };
-    let special = match name.to_str() {
-        Some("status") => {
-            Some("'status' is included in 'dotfile doctor'; run that instead.".to_string())
-        }
-        Some(name @ "packages") => Some(format!(
-            "'{name}' is included in 'dotfile sync'; run that instead."
-        )),
-        _ => None,
-    };
+
     let mut program = OsString::from("dotfile-");
     program.push(name);
     let mut command = Command::new(&program);
@@ -353,14 +345,9 @@ fn external(arguments: Vec<OsString>) -> std::process::ExitCode {
     if let Ok(status) = command.status() {
         return workstation::exit_code(status.code().unwrap_or(1));
     }
-    if let Some(message) = special {
-        eprintln!("dotfile: {message}");
-    } else {
-        eprintln!(
-            "dotfile: No such command '{}'. Run ./setup.sh",
-            name.to_string_lossy()
-        );
-    }
+
+    eprintln!("dotfile: command not found: {}", name.to_string_lossy());
+
     ExitCode::from(2)
 }
 

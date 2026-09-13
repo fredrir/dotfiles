@@ -37,6 +37,7 @@ pub struct Data {
 }
 pub struct Repository {
     pub root: PathBuf,
+    pub root_config: PathBuf,
     pub data: Rc<Data>,
     pub themes: BTreeMap<String, Theme>,
 }
@@ -59,7 +60,7 @@ pub struct Theme {
     many: RefCell<HashMap<ContrastKey, Color>>,
 }
 impl Repository {
-    pub fn load(root: &Path) -> Result<Self> {
+    pub fn load(root: &Path, root_config: &Path) -> Result<Self> {
         let directory = root.join("theme");
         let mut maps = BTreeMap::new();
         for entry in fs::read_dir(directory.join("maps")).map_err(|e| format!("theme/maps: {e}"))? {
@@ -90,6 +91,7 @@ impl Repository {
         }
         Ok(Self {
             root: root.into(),
+            root_config: root_config.into(),
             data,
             themes,
         })

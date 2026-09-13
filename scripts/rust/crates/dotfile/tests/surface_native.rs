@@ -13,7 +13,8 @@ fn sandbox() -> (tempfile::TempDir, Context) {
     let home = temp.path().join("home");
     fs::create_dir_all(root.join("config")).unwrap();
     fs::create_dir_all(&home).unwrap();
-    let context = Context::new(root, home, temp.path().join("state")).unwrap();
+    let context = Context::new(root.clone(), home.clone(), root.join("config"), home.join(".config"))
+        .unwrap();
     (temp, context)
 }
 
@@ -118,7 +119,7 @@ fn repository_lock_spans_state_directories_and_worktrees() {
     fs::create_dir(context.root.join(".git")).unwrap();
     let held = MutationLock::acquire(&context).unwrap();
     let mut other = context.clone();
-    other.state = temp.path().join("other-state");
+    other.root_config = temp.path().join("other-state");
     assert!(MutationLock::acquire(&other).is_err());
     let worktree = temp.path().join("worktree");
     fs::create_dir(&worktree).unwrap();

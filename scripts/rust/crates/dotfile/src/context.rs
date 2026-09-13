@@ -8,7 +8,8 @@ use std::process::Command;
 pub struct Context {
     pub root: PathBuf,
     pub home: PathBuf,
-    pub state: PathBuf,
+    pub root_config: PathBuf,
+    pub external_config: PathBuf,
     pub targets_file: PathBuf,
     pub packages_config: PathBuf,
     pub packages_doc: PathBuf,
@@ -26,29 +27,36 @@ impl Context {
             Some(path) => PathBuf::from(path),
             None => compiled_root(),
         };
-        let config = std::env::var_os("XDG_CONFIG_HOME")
+        let root_config = root.join("config");
+        let external_config = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"));
-        Self::new(root, home, config.join("dotfile"))
+        Self::new(root, home, root_config, external_config)
     }
 
-    pub fn new(root: PathBuf, home: PathBuf, state: PathBuf) -> Result<Self, String> {
-        if !root.join("config").is_dir() && !root.join(".git").exists() {
+    pub fn new(
+        root: PathBuf,
+        home: PathBuf,
+        root_config: PathBuf,
+        external_config: PathBuf,
+    ) -> Result<Self, String> {
+        if !root_config.is_dir() && !root.join(".git").exists() {
             return Err(format!(
                 "dotfiles repository not found at {}",
                 root.display()
             ));
         }
         Ok(Self {
-            targets_file: root.join("config/targets.dotfile"),
-            packages_config: root.join("config/packages.dotfile"),
+            targets_file: root_config.join("targets.dotfile"),
+            packages_config: root_config.join("packages.dotfile"),
             packages_doc: root.join("PACKAGES.md"),
-            overrides_file: state.join("overrides"),
+            overrides_file: root_config.join("overrides"),
             environment_dir: root.join("environment"),
             process_env: BTreeMap::new(),
             root,
             home,
-            state,
+            root_config,
+            external_config,
         })
     }
 
@@ -73,7 +81,7 @@ impl Context {
                 .map(|value| value.to_string_lossy().trim().to_string())
                 .filter(|value| !value.is_empty()),
             config: self.env("SYSINFO_CONFIG").map(PathBuf::from),
-            state_file: self.state.join("host"),
+            state_file: self.root_config.join("host"),
         }
     }
 
@@ -81,7 +89,7 @@ impl Context {
         if let Some(profile) = requested.filter(|profile| !profile.is_empty()) {
             return self.require_profile(profile);
         }
-        let profile_path = self.state.join("profile");
+        let profile_path = self.root_config.join("profile");
         let saved = match fs::read_to_string(&profile_path) {
             Ok(saved) => saved,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -114,7 +122,7 @@ impl Context {
             return Ok(());
         }
         write_atomic(
-            &self.state.join("profile"),
+            &self.root_config.join("profile"),
             format!("{profile}\n").as_bytes(),
         )
     }

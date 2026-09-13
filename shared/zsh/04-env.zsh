@@ -14,7 +14,5 @@ has_cmd nvim &&
   export MANWIDTH=999
 has_cmd nvim &&
   export NVIM="$DOTFILES/shared/nvim" &&
-  export EDITOR=nvim
-
-has_cmd nvim &&
+  export EDITOR=nvim &&
   export SUDO_EDITOR="$(command -v nvim)"

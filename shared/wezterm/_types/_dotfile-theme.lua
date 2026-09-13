@@ -1,4 +1,4 @@
--- Generated from theme/profiles/sexy-purple.toml
+-- sexy-purple
 
 ---@class DotfileThemeColors
 ---@field background string

@@ -376,7 +376,7 @@ fn login_shell(context: &Context, probes: &Probes<'_>) -> String {
 }
 
 fn grouped(context: &Context, file: &str, groups: &[String]) -> Result<Vec<blocks::Entry>, String> {
-    let path = context.root.join("config").join(file);
+    let path = context.root_config.join(file);
     let entries = blocks::read(&path)?;
     for entry in &entries {
         if entry.opens && !context.root.join(&entry.block).is_dir() {

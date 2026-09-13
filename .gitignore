@@ -1,6 +1,17 @@
 config/age/keys.txt
 .bin/
 
+config/sync
+config/profile
+config/host
+config/overrides
+config/links
+config/sync.lock
+config/mutation.lock
+config/canaries
+config/merge/
+config/secret-transaction/
+
 linux/hyprland/hypr/.config/hypr/wallpaper.png
 **/.config/OpenRGB/logs/
 linux/hyprland/hypr/conf.d/local.conf

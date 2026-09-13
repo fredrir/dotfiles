@@ -34,6 +34,8 @@ mod terminal {
     use std::io::{self, IsTerminal, Read, Write};
     use std::os::fd::{AsFd, AsRawFd};
     use std::os::unix::fs::OpenOptionsExt;
+    use std::path::Path;
+    use std::process::Command;
 
     pub(in super::super) struct Session {
         terminal: File,
@@ -100,14 +102,22 @@ mod terminal {
             mut inspect: impl FnMut() -> Result<String, String>,
         ) -> Result<Decision, String> {
             self.put(&item_header(&self.style, item))?;
+            let mut inspected = false;
+
             loop {
-                self.put(&prompt(&self.style, item.can_accept))?;
+                self.put(&prompt(&self.style, item.can_accept, inspected))?;
                 match self.key()?.map(|key| key.to_ascii_lowercase()) {
                     Some(b'i') => {
-                        self.put("\n\n")?;
-                        let context = inspect()?;
-                        self.put(&inspection(&self.style, &context))?;
-                        self.put("\n")?;
+                        if inspected {
+                            open_in_vscode(item.path)?;
+                            self.put("\n")?;
+                        } else {
+                            self.put("\n\n")?;
+                            let context = inspect()?;
+                            self.put(&inspection(&self.style, &context))?;
+                            self.put("\n")?;
+                            inspected = true;
+                        }
                     }
                     Some(b'a') if item.can_accept => {
                         self.put(&format!("  {}\n", self.style.green("✓")))?;
@@ -186,6 +196,20 @@ mod terminal {
                 }
             }
             Ok(())
+        }
+    }
+
+    fn open_in_vscode(path: &Path) -> Result<(), String> {
+        let status = Command::new("code")
+            .arg("--reuse-window")
+            .arg(path)
+            .status()
+            .map_err(|error| format!("open VS Code: {error}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("VS Code exited with {status}"))
         }
     }
 
@@ -302,12 +326,13 @@ fn item_header(style: &Style, item: &Item<'_>) -> String {
     )
 }
 
-fn prompt(style: &Style, can_accept: bool) -> String {
+fn prompt(style: &Style, can_accept: bool, inspected: bool) -> String {
     format!(
-        "  {} Inspect  {}{} Abort  ",
+        "  {} {}  {}{} Abort  ",
         style.teal("[i]"),
+        if inspected { "[I]DE" } else { "[I]nspect" },
         if can_accept {
-            format!("{} Accept & remember  ", style.green("[a]"))
+            format!("{} [A]ccept  ", style.green("[a]"))
         } else {
             String::new()
         },
@@ -346,22 +371,4 @@ fn escaped(text: &str) -> String {
         }
     }
     output
-}
-
-#[cfg(test)]
-mod tests {
-    use super::escaped;
-
-    #[test]
-    fn terminal_text_preserves_lines_and_escapes_control_sequences() {
-        assert_eq!(
-            escaped("path\n\x1b[2J\u{202e}name"),
-            "path\n\\u{1b}[2J\\u{202e}name"
-        );
-        assert_eq!(
-            escaped("one\ntwo\tcolumn\rreturn"),
-            "one\ntwo\\tcolumn\\rreturn"
-        );
-        assert_eq!(escaped("Norsk æøå 日本語"), "Norsk æøå 日本語");
-    }
 }

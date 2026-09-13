@@ -76,7 +76,7 @@ pub fn targets(repo: &Repository) -> Result<Vec<Target>> {
         add(path.into(), Kind::Wezterm, true);
     }
     add("shared/tmux/theme.conf".into(), Kind::Tmux, true);
-    add("shared/ui/theme.json".into(), Kind::Ui, true);
+    add("config/theme/theme.json".into(), Kind::Ui, true);
     for group in ["shared", "linux/arch", "linux/ubuntu", "macos"] {
         add(
             format!("{group}/fastfetch/config.jsonc"),

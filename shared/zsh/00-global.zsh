@@ -1,5 +1,6 @@
 # ~/.zshenv
 export DOTFILES="$HOME/dotfiles"
+export DOTFILES_CONFIG="$DOTFILES/config"
 export DOTFILES_BIN="$DOTFILES/scripts/bin"
 export DOTFILES_COMPILED="$DOTFILES/.bin"
 

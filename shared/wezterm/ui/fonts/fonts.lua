@@ -1,4 +1,4 @@
--- Generated from theme/profiles/sexy-purple.toml
+-- sexy-purple
 ---@type DotfileFonts
 return {
   font_size = 13,

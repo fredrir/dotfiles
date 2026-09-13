@@ -1,4 +1,4 @@
--- Generated from theme/profiles/midnight-blue.toml
+-- midnight-blue
 
 ---@type ColorProfile
 return {

@@ -21,8 +21,11 @@ pub(super) fn render(
         return Ok("Unavailable\nBinary content or over 2 MiB.".into());
     }
     let text = zeroize::Zeroizing::new(String::from_utf8_lossy(&bytes).into_owned());
-    let redacted = redact(&text, canaries)?;
-    let lines = redacted.lines().collect::<Vec<_>>();
+    let masked = zeroize::Zeroizing::new(patterns::redact_with_private(
+        &text,
+        &canaries::ranges(&text, canaries)?,
+    )?);
+    let lines = masked.lines().collect::<Vec<_>>();
     let mut selected = BTreeSet::new();
     let mut matched = BTreeSet::new();
     for finding in findings {
@@ -55,91 +58,4 @@ pub(super) fn render(
         output.push_str("i next page\n");
     }
     Ok(output)
-}
-
-fn redact(text: &str, canaries: &[canaries::Canary]) -> Result<String, String> {
-    let mut ranges = Vec::new();
-    let mut add = |range| {
-        if ranges.len() == patterns::MAX_REDACTION_MATCHES {
-            return Err(
-                "inspection match limit reached; narrow the source before reviewing".to_string(),
-            );
-        }
-        ranges.push(range);
-        Ok(())
-    };
-    for (_, pattern) in patterns::TOKENS.iter() {
-        for matched in pattern.find_iter(text) {
-            add(matched.range())?;
-        }
-    }
-    for matched in patterns::VALUE.captures_iter(text) {
-        if let Some(value) = matched.get(3) {
-            add(value.range())?;
-        }
-    }
-    for range in canaries::ranges(text, canaries)? {
-        add(range)?;
-    }
-    ranges.sort_by_key(|range| (range.start, range.end));
-    let mut merged = Vec::<std::ops::Range<usize>>::new();
-    for range in ranges {
-        if let Some(previous) = merged.last_mut()
-            && range.start <= previous.end
-        {
-            previous.end = previous.end.max(range.end);
-        } else {
-            merged.push(range);
-        }
-    }
-    let mut output = String::new();
-    let mut cursor = 0;
-    for range in merged {
-        output.push_str(&text[cursor..range.start]);
-        output.push_str("[redacted]");
-        // Preserve source line numbers even when a private-key block spans lines.
-        output.extend(
-            text[range.clone()]
-                .bytes()
-                .filter(|byte| *byte == b'\n')
-                .map(|_| '\n'),
-        );
-        cursor = range.end;
-    }
-    output.push_str(&text[cursor..]);
-    Ok(output)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn masking_preserves_lines_and_covers_overlapping_and_unicode_private_values() {
-        let token = format!("ghp_{}", "x".repeat(24));
-        let key = [
-            "-----BEGIN RSA PRIVATE KEY-----",
-            "private material",
-            "-----END RSA PRIVATE KEY-----",
-        ]
-        .join("\n");
-        let text = format!("API_KEY=\"{token}\"\n{key}\nHOST=PrIvAtE-Æ.Example\nend\n");
-        let canaries = vec![canaries::Canary {
-            label: "host".into(),
-            needle: "private-æ.example".into(),
-        }];
-        let redacted = redact(&text, &canaries).unwrap();
-        assert!(!redacted.contains(&token));
-        assert!(!redacted.contains("private material"));
-        assert!(!redacted.contains("PrIvAtE-Æ.Example"));
-        assert_eq!(redacted.lines().count(), text.lines().count());
-        assert_eq!(redacted.lines().last(), Some("end"));
-        assert!(redacted.starts_with("API_KEY=[redacted]\n"));
-    }
-    #[test]
-    fn masking_bounds_match_metadata_before_collecting_unlimited_occurrences() {
-        let token = format!("ghp_{}\n", "x".repeat(24));
-        let text = token.repeat(32_769);
-        assert!(redact(&text, &[]).unwrap_err().contains("match limit"));
-    }
 }

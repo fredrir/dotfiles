@@ -1,6 +1,6 @@
 # Contrast matrix: Midnight Blue
 
-Generated from `theme/profiles/midnight-blue.toml`.
+`midnight-blue`.
 Required text pairs target 4.5:1; graphical and inactive pairs target 3:1.
 Raw ANSI rows are reported but are not enforced.
 

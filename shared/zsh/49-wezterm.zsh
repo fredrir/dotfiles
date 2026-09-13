@@ -45,13 +45,43 @@ attach_mux() {
 [[ $HOST == "archie" ]] && alias macie='attach_mux macie'
 
 if [[ -n $WEZTERM_PANE ]]; then
-  WEZTERM_SHELL_SKIP_SEMANTIC_ZONES=1
-  WEZTERM_SHELL_SKIP_CWD=1
+  export WEZTERM_SHELL_SKIP_SEMANTIC_ZONES=1
+  export WEZTERM_SHELL_SKIP_CWD=1
 
   : ${WEZTERM_HOSTNAME:=$HOST}
 
-  [[ -n $MACOS ]] && source "/Applications/WezTerm.app/Contents/Resources/wezterm.sh"
-  [[ -n $LINUX ]] && source "/etc/profile.d/wezterm.sh"
-
+  for _wezterm_sh in \
+    /Applications/WezTerm.app/Contents/Resources/wezterm.sh \
+    /etc/profile.d/wezterm.sh \
+    /usr/share/wezterm/shell-integration/wezterm.sh; do
+    [[ -r $_wezterm_sh ]] || continue
+    source "$_wezterm_sh"
+    break
+  done
   unset _wezterm_sh
 fi
+
+[[ -o interactive ]] || return 0
+
+_wezterm_open_yazi() {
+  local cwd cwd_file yazi_status
+  zle -I
+  if [[ -n $TMUX ]] && has_cmd tmux-workspace; then
+    cwd_file=$(mktemp -t 'tmux-yazi-cwd.XXXXXX') || return
+    {
+      tmux-workspace yazi --pane "$TMUX_PANE" --cwd-file "$cwd_file"
+      yazi_status=$?
+      IFS= read -r -d '' cwd <"$cwd_file"
+      [[ -n $cwd && -d "$cwd" && "$cwd" != "$PWD" ]] && builtin cd -- "$cwd"
+    } always {
+      command rm -f -- "$cwd_file"
+    }
+  else
+    ycd
+    yazi_status=$?
+  fi
+  zle reset-prompt
+  return "$yazi_status"
+}
+
+zle -N wezterm-open-yazi _wezterm_open_yazi

@@ -152,7 +152,7 @@ fn systemd_theme_watch(
     warnings: &mut Vec<(String, Option<String>)>,
 ) -> Result<(), String> {
     crate::cancel::check()?;
-    let unit_directory = context.home.join(".config/systemd/user");
+    let unit_directory = context.external_config.join("systemd/user");
     let watcher = unit_directory.join("theme-watch.path");
     if !file_exists(&watcher)? {
         return Ok(());
@@ -209,7 +209,7 @@ fn hyprland(
         let template = fs::read_to_string(&elephant_source)
             .map_err(|error| format!("read {}: {error}", elephant_source.display()))?;
         let rendered = template.replace("$HOME", &context.home.to_string_lossy());
-        let destination = context.home.join(".config/elephant/files.toml");
+        let destination = context.external_config.join("elephant/files.toml");
         let differs = fs::read_to_string(&destination).map_or(true, |current| current != rendered);
         if differs && !dry_run {
             write_atomic(&destination, rendered.as_bytes())?;
@@ -240,7 +240,7 @@ fn hyprland(
             changed: true,
         });
     }
-    let wallpaper = context.home.join(".config/hypr/wallpaper.png");
+    let wallpaper = context.external_config.join("hypr/wallpaper.png");
     outcome.checked += 1;
     if !file_exists(&wallpaper)? {
         warnings.push((
@@ -286,7 +286,7 @@ fn secret_health(
             Some("install sops before applying secrets".to_string()),
         );
     }
-    let identity = context.state.join("age/keys.txt");
+    let identity = context.root_config.join("age/keys.txt");
     outcome.checked += 1;
     if !identity.is_file() {
         health_issue(
@@ -308,13 +308,13 @@ fn secret_health(
             Some(format!("chmod 600 {}", identity.display())),
         );
     }
-    let recipients = load_recipients(&context.root.join("config/keys.dotfile"));
+    let recipients = load_recipients(&context.root_config.join("keys.dotfile"));
     outcome.checked += 1;
     if recipients.is_empty() {
         health_issue(
             events,
             warnings,
-            context.root.join("config/keys.dotfile"),
+            context.root_config.join("keys.dotfile"),
             "no age recipients are enrolled".to_string(),
             Some("run dotfile secret enroll <label>".to_string()),
         );
@@ -325,7 +325,7 @@ fn secret_health(
         health_issue(
             events,
             warnings,
-            context.root.join("config/keys.dotfile"),
+            context.root_config.join("keys.dotfile"),
             "no recovery recipient is enrolled".to_string(),
             Some("enroll an offline recipient named recovery*".to_string()),
         );
@@ -392,7 +392,7 @@ fn secret_health(
             Some("git config diff.sops.cachetextconv false".to_string()),
         );
     }
-    let canaries = context.state.join("canaries");
+    let canaries = context.root_config.join("canaries");
     outcome.checked += 1;
     if canaries.is_file() && mode_of(&canaries).is_some_and(|mode| mode & 0o077 != 0) {
         health_issue(

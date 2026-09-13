@@ -28,7 +28,6 @@ impl Fixture {
         let root = temporary.path().join("repo");
         let home = temporary.path().join("home");
         fs::create_dir_all(root.join("config")).unwrap();
-        fs::create_dir_all(home.join(".config/dotfile")).unwrap();
         fs::write(root.join("config/targets.dotfile"), "").unwrap();
         let fixture = Self {
             temporary,
@@ -128,7 +127,7 @@ impl Fixture {
     }
 
     fn canary(&self, value: &str) {
-        let path = self.home.join(".config/dotfile/canaries");
+        let path = self.root.join("config/canaries");
         fs::write(&path, format!("private-fixture = {value}\n")).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
     }

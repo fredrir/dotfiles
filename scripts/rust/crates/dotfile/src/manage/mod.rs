@@ -122,7 +122,7 @@ fn locate_source(context: &Context, path: &Path) -> Result<PathBuf, String> {
     if fs::symlink_metadata(&full).is_ok() {
         return Ok(full);
     }
-    let fallback = context.home.join(".config").join(path);
+    let fallback = context.external_config.join(path);
     if fs::symlink_metadata(&fallback).is_ok() {
         return Ok(fallback);
     }
@@ -271,7 +271,7 @@ fn destination(
     group: &str,
     package: Option<&str>,
 ) -> Result<(String, PathBuf, Option<String>), String> {
-    if let Ok(relative) = source.strip_prefix(context.home.join(".config")) {
+    if let Ok(relative) = source.strip_prefix(context.external_config.clone()) {
         let components = relative.components().collect::<Vec<_>>();
         let first = components
             .first()

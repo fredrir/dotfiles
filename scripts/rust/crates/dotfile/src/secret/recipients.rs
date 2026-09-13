@@ -53,7 +53,7 @@ pub fn block(path: &Path, expected: &str) -> Result<Vec<(usize, String)>, String
 
 pub fn load(context: &Context) -> Result<Recipients, String> {
     let mut recipients = Recipients::new();
-    for (number, line) in block(&context.root.join("config/keys.dotfile"), "recipients")? {
+    for (number, line) in block(&context.root_config.join("keys.dotfile"), "recipients")? {
         let (label, key) = line.split_once('=').ok_or_else(|| {
             format!("config/keys.dotfile:{number}: expected <label> = <age public key>")
         })?;
@@ -103,7 +103,7 @@ pub fn save(context: &Context, recipients: &Recipients) -> Result<bool, String> 
     let mut changes = Vec::new();
     if load(context)? != *recipients {
         changes.push((
-            context.root.join("config/keys.dotfile"),
+            context.root_config.join("keys.dotfile"),
             document(recipients).into_bytes(),
         ));
     }
@@ -124,7 +124,7 @@ struct Backup {
 /// Restores an interrupted transaction before another writer can proceed.
 /// The journal contains only originals, so recovery always rolls back safely.
 pub fn recover(context: &Context) -> Result<(), String> {
-    let directory = context.state.join("secret-transaction");
+    let directory = context.root_config.join("secret-transaction");
     let manifest = directory.join("manifest.json");
     match directory.symlink_metadata() {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -195,7 +195,7 @@ pub(super) fn commit_inner(
         .into_iter()
         .map(|(path, data)| (path, zeroize::Zeroizing::new(data)))
         .collect();
-    let directory = context.state.join("secret-transaction");
+    let directory = context.root_config.join("secret-transaction");
     if directory.exists() {
         return Err("unfinished secret transaction; run a secret mutation to recover first".into());
     }
@@ -236,7 +236,7 @@ pub(super) fn commit_inner(
         &serde_json::to_vec(&backups).map_err(|e| e.to_string())?,
     )?;
     sync_directory(&directory)?;
-    sync_directory(&context.state)?;
+    sync_directory(&context.root_config)?;
     for (index, ((path, data), backup)) in changes.iter().zip(&backups).enumerate() {
         if let Err(error) = crate::cancel::check()
             .and_then(|()| before_install(index))
@@ -348,7 +348,7 @@ pub fn rewrite(
     }
     let mut staged_paths: Vec<_> = changes.iter().map(|(path, _)| path.clone()).collect();
     if load(context)? != *recipients {
-        let path = context.root.join("config/keys.dotfile");
+        let path = context.root_config.join("keys.dotfile");
         changes.push((path.clone(), document(recipients).into_bytes()));
         staged_paths.push(path);
     }
@@ -384,7 +384,7 @@ pub fn caveat() {
 
 fn validate_destination(context: &Context, path: &Path) -> Result<(), String> {
     let anchor = if path == vault::identity_path(context) {
-        &context.state
+        &context.root_config
     } else if path.starts_with(&context.root) {
         &context.root
     } else {
