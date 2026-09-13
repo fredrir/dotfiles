@@ -37,6 +37,18 @@ if command -v atuin >/dev/null; then
   bindkey -M vicmd '^H' atuin-search-vicmd
 fi
 
+if [[ -n ${EZA_COLORS:-} ]]; then
+  typeset -a _completion_colors
+  _completion_colors=("${(@s.:.)EZA_COLORS}")
+  _completion_colors=("${(@)_completion_colors:#reset}")
+
+  zstyle ':completion:*' list-colors "${_completion_colors[@]}"
+
+  unset _completion_colors
+fi
+
+zstyle ':completion:*:*:ga:*:ga-targets' list-colors '=*=31'
+
 command -v fzf >/dev/null || return 0
 
 export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"

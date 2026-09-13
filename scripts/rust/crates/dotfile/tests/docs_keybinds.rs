@@ -37,6 +37,44 @@ fn generate(root: &Path, check: bool) -> Result<Vec<PathBuf>, String> {
 }
 
 #[test]
+fn parses_declarative_neovim_settings_and_picker_mappings() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    put(
+        root,
+        "shared/nvim/editor.lua",
+        "return { globals = { mapleader = ' ', maplocalleader = ',' } }\n",
+    );
+    put(
+        root,
+        "shared/nvim/keymap.lua",
+        "return {\n  files = { mode = {'i', 'n'}, lhs = '<C-f>', desc = 'Search files' },\n  close = { mode = 'n', lhs = 'q', rhs = 'quit', desc = 'Close search' },\n}\n",
+    );
+    let packages = collect(root).unwrap();
+    let nvim = &packages["nvim"];
+    assert_eq!(nvim.settings.len(), 2);
+    assert!(
+        nvim.settings
+            .iter()
+            .any(|s| s.key == "mapleader" && s.action == " ")
+    );
+    assert!(
+        nvim.settings
+            .iter()
+            .any(|s| s.key == "maplocalleader" && s.action == ",")
+    );
+    assert_eq!(nvim.bindings.len(), 2);
+    let files = nvim.bindings.iter().find(|b| b.key == "<C-f>").unwrap();
+    assert_eq!(files.action, "Search files");
+    assert_eq!(files.description, "Search files");
+    assert!(files.context.contains("mode=i,n"));
+    assert_eq!(files.line, 2);
+    let close = nvim.bindings.iter().find(|b| b.key == "q").unwrap();
+    assert_eq!(close.action, "quit");
+    assert!(close.context.contains("mode=n"));
+}
+
+#[test]
 fn parses_all_formats_with_modes_descriptions_and_literal_loops() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -48,7 +86,7 @@ fn parses_all_formats_with_modes_descriptions_and_literal_loops() {
     put(
         root,
         "shared/zsh/conf.d/keys.zsh",
-        "if command -v nvim >/dev/null; then\n bindkey -M viins '^F' search-files\nelse\n bindkey -M emacs $'\\e[13;2u' fallback\nfi\n",
+        "if command -v nvim >/dev/null; then\n bindkey -M viins '^F' search-files\nelse\n bindkey -M emacs $'\\e[13;2u' fallback\nfi\nbindkey -N shift-select emacs\nbindkey -M shift-select -R ' '-'~' replace-region\n",
     );
     put(
         root,
@@ -145,7 +183,22 @@ if platform.is_mac then extend(keys, physical) end
                 && b.action.contains("literal # string")
                 && b.line == 5)
     );
-    assert_eq!(packages["zsh"].bindings.len(), 2);
+    assert_eq!(packages["zsh"].bindings.len(), 3);
+    assert!(
+        packages["zsh"]
+            .settings
+            .iter()
+            .any(|s| s.key == "keymap" && s.action == "shift-select")
+    );
+    assert!(
+        packages["zsh"]
+            .bindings
+            .iter()
+            .any(|b| b.key == " -~"
+                && b.action == "replace-region"
+                && b.context.contains("shift-select")
+                && b.context.contains("key range"))
+    );
     assert!(
         packages["zsh"]
             .bindings

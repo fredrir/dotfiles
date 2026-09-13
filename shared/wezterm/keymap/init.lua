@@ -14,6 +14,7 @@ local hwire_session = require "utils.hwire-session"
 local attach_remote = require "utils.attach-remote"
 local MOD = require "keymap.modifiers"
 local open_vscode = require "utils.open-vscode"
+require "utils.scrollback"
 local tmux = require "utils.tmux-workspace"
 
 local act = wezterm.action

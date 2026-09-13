@@ -24,9 +24,9 @@
 | --- | ---: | ---: |
 | [hyprland](./hyprland.md) | 83 | 0 |
 | [kde](./kde.md) | 266 | 0 |
-| [nvim](./nvim.md) | 105 | 3 |
+| [nvim](./nvim.md) | 96 | 2 |
 | [tmux](./tmux.md) | 96 | 6 |
 | [vscode](./vscode.md) | 38 | 0 |
-| [wezterm](./wezterm.md) | 129 | 1 |
+| [wezterm](./wezterm.md) | 139 | 1 |
 | [yazi](./yazi.md) | 8 | 0 |
-| [zsh](./zsh.md) | 22 | 0 |
+| [zsh](./zsh.md) | 42 | 1 |

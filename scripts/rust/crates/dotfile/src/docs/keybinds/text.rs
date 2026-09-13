@@ -302,8 +302,28 @@ pub fn zsh(source: &str, body: &str, package: &mut Package) -> Result<(), String
         let mut i = 1;
         let mut remove = false;
         let mut string = false;
+        let mut range = false;
+        let mut declared = false;
         while let Some(word) = words.get(i) {
             match word.value.as_str() {
+                "-N" => {
+                    let name = words
+                        .get(i + 1)
+                        .ok_or_else(|| format!("{line}: missing keymap"))?
+                        .value
+                        .clone();
+                    package.settings.push(row(
+                        source,
+                        line,
+                        "keymap".into(),
+                        name,
+                        String::new(),
+                        String::new(),
+                    ));
+                    declared = true;
+                    break;
+                }
+                "-R" => range = true,
                 "-M" => {
                     i += 1;
                     mode = words
@@ -335,7 +355,7 @@ pub fn zsh(source: &str, body: &str, package: &mut Package) -> Result<(), String
             }
             i += 1;
         }
-        if i == words.len() {
+        if declared || i == words.len() {
             continue;
         }
         let key = words[i]
@@ -355,6 +375,9 @@ pub fn zsh(source: &str, body: &str, package: &mut Package) -> Result<(), String
         let mut context = vec![mode];
         if string {
             context.push("send string".into());
+        }
+        if range {
+            context.push("key range".into());
         }
         context.extend(guards.clone());
         context.extend(conditions.clone());

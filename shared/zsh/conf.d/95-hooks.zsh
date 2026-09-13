@@ -175,10 +175,31 @@ ga() {
   fi
 }
 
+_ga_changed_files() {
+  _git_root || return 1
+  local root=$REPLY
+  local output
+  local -a files
+
+  output=$(command git -C "$root" ls-files \
+    --modified \
+    --deleted \
+    --others \
+    --exclude-standard \
+    --deduplicate \
+    -z 2>/dev/null)
+
+  files=("${(@0)output}")
+  ((${#files})) || return 1
+
+  _wanted ga-targets expl 'changed file' \
+    compadd -f -W "$root/" -- "${files[@]}"
+}
+
 _ga() {
   _arguments \
     '-x[exclude target(s) from git add]' \
-    '*:target:_files'
+    '*:target:_ga_changed_files'
 }
 
 compdef _ga ga

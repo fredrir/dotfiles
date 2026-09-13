@@ -9,6 +9,13 @@ local ctrl_e = "\x05"
 local ctrl_u = "\x15"
 local ctrl_k = "\x0b"
 
+local ctrl_home = "\x1b[1;5H"
+local ctrl_end = "\x1b[1;5F"
+local shift_home = "\x1b[1;2H"
+local shift_end = "\x1b[1;2F"
+local ctrl_shift_home = "\x1b[1;6H"
+local ctrl_shift_end = "\x1b[1;6F"
+
 local shift_enter_sequence = "\x1b[13;2u"
 local shift_enter = act.SendString(shift_enter_sequence)
 
@@ -29,9 +36,19 @@ local motion_keys = {
   { key = "RightArrow", mods = MOD.UNIQUE, action = act.SendKey { key = "f", mods = "ALT" } },
   { key = "LeftArrow", mods = MOD.PRIMARY, action = act.SendKey { key = "a", mods = "CTRL" } },
   { key = "RightArrow", mods = MOD.PRIMARY, action = act.SendKey { key = "e", mods = "CTRL" } },
-  { key = "UpArrow", mods = MOD.PRIMARY, action = tmux.dispatch("UpArrow", act.ScrollToPrompt(-1)) },
-  { key = "DownArrow", mods = MOD.PRIMARY, action = tmux.dispatch("DownArrow", act.ScrollToPrompt(1)) },
-  { key = "UpArrow", mods = MOD.SUPER_REV, action = tmux.dispatch("O", act.ActivateCopyMode) },
+
+  -- Document and selection motions travel as the sequences an editor already
+  -- understands, so Neovim keeps working while ZLE gains the macOS gestures.
+  { key = "UpArrow", mods = MOD.PRIMARY, action = act.SendString(ctrl_home) },
+  { key = "DownArrow", mods = MOD.PRIMARY, action = act.SendString(ctrl_end) },
+  { key = "LeftArrow", mods = MOD.SUPER_REV, action = act.SendString(shift_home) },
+  { key = "RightArrow", mods = MOD.SUPER_REV, action = act.SendString(shift_end) },
+  { key = "UpArrow", mods = MOD.SUPER_REV, action = act.SendString(ctrl_shift_home) },
+  { key = "DownArrow", mods = MOD.SUPER_REV, action = act.SendString(ctrl_shift_end) },
+
+  -- Prompt jumping moves off Cmd, which the document motions now own.
+  { key = "UpArrow", mods = MOD.UNIQUE, action = tmux.dispatch("Up", act.ScrollToPrompt(-1)) },
+  { key = "DownArrow", mods = MOD.UNIQUE, action = tmux.dispatch("Down", act.ScrollToPrompt(1)) },
   {
     key = "Enter",
     mods = "SHIFT",

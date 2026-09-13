@@ -465,6 +465,33 @@ impl Scan<'_> {
                     return Ok(());
                 }
             }
+            "table_constructor" if self.package == "nvim" => {
+                let value = eval(node, self.body, env);
+                for name in ["mapleader", "maplocalleader"] {
+                    if let Some(setting) = value.get(name) {
+                        self.rows.settings.push(Binding {
+                            key: name.into(),
+                            action: setting.text(),
+                            context: context(scope),
+                            source: self.source.into(),
+                            line: name_line(node),
+                            ..Binding::default()
+                        });
+                    }
+                }
+                if let Some(key @ Value::String(_)) = value.get("lhs")
+                    && let Some(mode) = value.get("mode")
+                {
+                    let description = value.get("desc").map(|v| v.text()).unwrap_or_default();
+                    let action = value
+                        .get("rhs")
+                        .unwrap_or_else(|| Value::String(description.clone()));
+                    let mut local = scope.to_vec();
+                    local.push(format!("mode={}", mode.alternatives().join(",")));
+                    self.emit(node, key, action, description, &local);
+                    return Ok(());
+                }
+            }
             "table_constructor" if self.package == "wezterm" => {
                 let value = eval(node, self.body, env);
                 if let Some(action) = value.get("action")

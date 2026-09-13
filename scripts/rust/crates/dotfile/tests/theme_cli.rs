@@ -198,6 +198,21 @@ fn dry_reports_drift_sync_repairs_it_and_noop_preserves_mtime_and_permissions() 
     }
 }
 #[test]
+fn scoped_nvim_switch_updates_palette_without_rewriting_plugin_spec() {
+    let s = Sandbox::new();
+    let plugin = s.read("shared/nvim/plugins.lua");
+    let palette = s.read("shared/nvim/lua/ui/theme.lua");
+
+    s.assert_success(&["switch", "latte", "shared/nvim"]);
+
+    let updated = s.read("shared/nvim/lua/ui/theme.lua");
+    assert_ne!(updated, palette);
+    assert!(updated.contains("flavour = \"latte\""));
+    assert_eq!(s.read("shared/nvim/plugins.lua"), plugin);
+    s.assert_success(&["dry"]);
+}
+
+#[test]
 fn scoped_switch_changes_only_assigned_package_and_global_clears_overrides() {
     let s = Sandbox::new();
     let before = s.read("shared/tmux/theme.conf");

@@ -20,8 +20,16 @@ package.preload.wezterm = function()
     action_callback = function(callback)
       return { callback = callback }
     end,
+    -- WezTerm runs every registered handler; a single slot would let the last
+    -- module to subscribe silently unsubscribe the others.
     on = function(name, callback)
-      events[name] = callback
+      local previous = events[name]
+      events[name] = previous
+          and function(...)
+            previous(...)
+            return callback(...)
+          end
+        or callback
     end,
   }
 end
@@ -81,6 +89,7 @@ local function binding(key, mods)
   return by_key[table.concat(modifiers, "|") .. ":" .. key]
 end
 local primary = is_mac and "CMD" or "CTRL"
+local unique = is_mac and "OPT" or "ALT"
 local vars = {}
 local pane = {
   pane_id = function()
@@ -130,6 +139,17 @@ binding("y", primary).callback(window, pane)
 assert(performed.args == "\x1b[5;30012~", "tmux requires the reserved widget transport")
 assert(binding("Backspace", primary).args == "\x15")
 assert(binding("Backspace", primary .. "|SHIFT").args == "\x0b")
+
+-- Document and selection motions reach the shell verbatim, so they survive
+-- tmux and still mean the same thing to an editor running in the pane.
+assert(binding("UpArrow", primary).args == "\x1b[1;5H")
+assert(binding("DownArrow", primary).args == "\x1b[1;5F")
+assert(binding("LeftArrow", primary .. "|SHIFT").args == "\x1b[1;2H")
+assert(binding("RightArrow", primary .. "|SHIFT").args == "\x1b[1;2F")
+assert(binding("UpArrow", primary .. "|SHIFT").args == "\x1b[1;6H")
+assert(binding("DownArrow", primary .. "|SHIFT").args == "\x1b[1;6F")
+binding("UpArrow", unique).callback(window, pane)
+assert(performed.args[2].args.key == "Up", "prompt jumping moved to the unique modifier")
 assert(not binding("h", "CTRL"), "Atuin owns Ctrl-h in the shell")
 if is_mac then
   assert(binding("phys:8", "OPT").args == "[")
