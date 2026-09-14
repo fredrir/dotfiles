@@ -1,0 +1,48 @@
+use_doppler() {
+	if ! has doppler; then
+		log_error "doppler CLI not installed; falling back to .env"
+		dotenv_if_exists .env
+		return 0
+	fi
+
+	watch_file doppler.yaml
+
+	local project config
+	project="$(doppler configure get project --plain 2>/dev/null)"
+	config="$(doppler configure get config --plain 2>/dev/null)"
+
+	if [[ -z $project || -z $config ]]; then
+		log_error "doppler: no project/config here; run 'doppler setup' (falling back to .env)"
+		dotenv_if_exists .env
+		return 0
+	fi
+
+	local cache
+	cache="$(direnv_layout_dir)/doppler.${project}.${config}.enc.json"
+	mkdir -p "${cache%/*}"
+
+	local -a cmd=(
+		doppler secrets download --no-file --format env
+		--silent --no-check-version
+		--project "$project" --config "$config"
+		--fallback "$cache"
+	)
+	if [[ -r $cache ]]; then
+		cmd+=(--fallback-only)
+	else
+		cmd+=(--timeout 5s --attempts 2)
+	fi
+
+	local secrets
+	if ! secrets="$("${cmd[@]}" 2>/dev/null)" || [[ -z $secrets ]]; then
+		log_error "doppler: ${project}/${config} unavailable; run 'doppler login' then 'doppler-refresh'"
+		dotenv_if_exists .env
+		return 0
+	fi
+
+	watch_file "$cache"
+
+	set -a
+	eval "$secrets"
+	set +a
+}

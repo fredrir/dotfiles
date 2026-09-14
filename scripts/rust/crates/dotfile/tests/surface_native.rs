@@ -11,7 +11,7 @@ fn sandbox() -> (tempfile::TempDir, Context) {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repo");
     let home = temp.path().join("home");
-    fs::create_dir_all(root.join("config")).unwrap();
+    fs::create_dir_all(root.join("config/cli")).unwrap();
     fs::create_dir_all(&home).unwrap();
     let context = Context::new(root.clone(), home.clone(), root.join("config"), home.join(".config"))
         .unwrap();
@@ -23,7 +23,7 @@ fn declarative_metadata_generates_scripts_without_python_sources() {
     let (_temp, context) = sandbox();
     let destination = context.home.join("completions");
     let surface = json!({"version":2,"commands":{"example":{"path":["example"],"help":"example","hidden":false,"params":[],"children":[{"path":["example","show"],"help":"show","hidden":false,"params":[{"kind":"argument","name":"target","opts":[],"metavar":"TARGET","help":"target","multiple":false,"required":false,"hidden":false,"completion":{"kind":"call","source":"items"}}],"children":[]}]}}});
-    let metadata_path = context.root.join("config/command-surface.json");
+    let metadata_path = context.root.join("config/cli/command-surface.json");
     fs::write(&metadata_path, serde_json::to_vec(&surface).unwrap()).unwrap();
     completions::write_all(&context, &destination).unwrap();
     let script = destination.join("tools-completion.zsh");

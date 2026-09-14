@@ -2,11 +2,13 @@
 ## `shared`
 
 - `atuin`
+- `direnv`
 - `fastfetch` — System information display, and the fallback for unstyled platforms
 - `gh`
 - `git` — Git configuration and global ignore rules
 - `nvim` — Neovim editor configuration
 - `obsidian` — Obsidian theme generated from the active theme profile
+- `oh-my-zsh`
 - `rsync` — Shared exclusion rules for home-directory transfers
 - `ssh` — OpenSSH entry point, shared servers and defaults; host routing lives in the platform groups
 - `starship` — Cross-shell prompt configuration
@@ -79,7 +81,6 @@
 
 - `fastfetch` — macOS-specific fastfetch configuration
 - `git` — macOS-specific Git configuration
-- `hammerspoon`
 - `launchd`
 - `ssh`
 - `sunshine`

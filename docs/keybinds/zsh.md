@@ -10,7 +10,7 @@
 
 ## Shared Keybinds
 
-[<code>keymap = fredrir</code>](../../shared/zsh/81-keybinds.zsh#L2) [2](../../shared/zsh/81-keybinds.zsh#L52) · [<code>keymap = motion-select</code>](../../shared/zsh/81-keybinds.zsh#L3)
+[<code>keymap = fredrir</code>](../../shared/zsh/81-keybinds.zsh#L1) [2](../../shared/zsh/81-keybinds.zsh#L43) · [<code>keymap = motion-select</code>](../../shared/zsh/81-keybinds.zsh#L2)
 
 | Key | Action | Description |
 | --- | --- | --- |

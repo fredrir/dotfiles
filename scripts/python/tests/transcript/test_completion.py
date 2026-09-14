@@ -7,7 +7,7 @@ from tools.transcript import cli, completion
 
 
 def test_declarative_commands_match_the_python_parser():
-    tree = json.loads((ROOT / "config/command-surface.json").read_text())["commands"]["transcript"]
+    tree = json.loads((ROOT / "config/cli/command-surface.json").read_text())["commands"]["transcript"]
 
     def check(command, declared):
         params = {param.name: param for param in command.params}

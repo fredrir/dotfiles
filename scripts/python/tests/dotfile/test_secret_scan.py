@@ -38,8 +38,9 @@ def stage(root, path, text):
     run_git(root, "add", "-A")
 
 
-def canaries(home, text):
-    (home / ".config" / "dotfile" / "canaries").write_text(text)
+def canaries(root, text):
+    (root / "config").mkdir(exist_ok=True)
+    (root / "config" / "canaries").write_text(text)
 
 
 def scan(tool, env, *args):
@@ -109,8 +110,8 @@ def test_allowlist_label_does_not_cover_other_labels(tool, repo):
 
 
 def test_canary_is_reported_by_label_only(tool, repo):
-    root, home, env = repo
-    canaries(home, f"parser-origin = {PRIVATE_VALUE}\n")
+    root, _home, env = repo
+    canaries(root, f"parser-origin = {PRIVATE_VALUE}\n")
     stage(root, "shared/notes/infra.md", f"the box lives at {PRIVATE_VALUE}\n")
     result = scan(tool, env)
     assert result.returncode == 1
@@ -119,8 +120,8 @@ def test_canary_is_reported_by_label_only(tool, repo):
 
 
 def test_canary_ignores_the_allowlist(tool, repo):
-    root, home, env = repo
-    canaries(home, f"parser-origin = {PRIVATE_VALUE}\n")
+    root, _home, env = repo
+    canaries(root, f"parser-origin = {PRIVATE_VALUE}\n")
     write(root, "config/scan.dotfile", "allow {\n  vendor/**\n}\n")
     stage(root, "vendor/lib.js", f"host = {PRIVATE_VALUE}\n")
     result = scan(tool, env)
@@ -129,15 +130,15 @@ def test_canary_ignores_the_allowlist(tool, repo):
 
 
 def test_no_canaries_skips_the_tier(tool, repo):
-    root, home, env = repo
-    canaries(home, f"parser-origin = {PRIVATE_VALUE}\n")
+    root, _home, env = repo
+    canaries(root, f"parser-origin = {PRIVATE_VALUE}\n")
     stage(root, "shared/notes/infra.md", f"host {PRIVATE_VALUE}\n")
     assert scan(tool, env, "--no-canaries").returncode == 0
 
 
 def test_short_canary_is_rejected(tool, repo):
-    root, home, env = repo
-    canaries(home, "tiny = abc\n")
+    root, _home, env = repo
+    canaries(root, "tiny = abc\n")
     stage(root, "shared/notes/plain.md", "abc appears everywhere\n")
     result = scan(tool, env)
     assert result.returncode == 0

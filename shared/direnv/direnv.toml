@@ -1,0 +1,4 @@
+[global]
+log_filter    = "error"
+hide_env_diff = true
+warn_timeout  = "20s"

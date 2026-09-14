@@ -13,7 +13,7 @@ def sandbox(tmp_path):
     (repo / "environment" / "test").mkdir(parents=True)
     (repo / "environment" / "test" / "manifest").write_text("shared\n")
     (repo / "config").mkdir()
-    (repo / "config" / "targets.dotfile").write_text("")
+    (repo / "config" / "targets.dotfile").write_text("shared/alpha = ~/.config/alpha\n")
     env = {
         "DOTFILE_ROOT": str(repo),
         "HOME": str(home),
@@ -47,13 +47,6 @@ def test_all_help_works_with_an_empty_path(tool, sandbox):
         assert "Usage" in result.stdout
 
 
-def test_packages_command_points_to_sync(tool, sandbox):
-    _repo, _home, env = sandbox
-    result = tool("dotfile", "packages", env=env)
-    assert result.returncode == 2
-    assert "'packages' is included in 'dotfile sync'" in result.stderr
-
-
 def test_docs_can_preview_keybinds_without_writing(tool, sandbox):
     repo, _home, env = sandbox
     before = sorted(path.relative_to(repo) for path in repo.rglob("*") if path.is_file())
@@ -63,34 +56,9 @@ def test_docs_can_preview_keybinds_without_writing(tool, sandbox):
     assert after == before
 
 
-def test_link_folds_a_package(tool, sandbox):
-    repo, home, env = sandbox
-    result = tool("dotfile", "link", "test", env=env)
-    assert result.returncode == 0
-    link = home / ".config" / "alpha"
-    assert os.readlink(link) == str(repo / "shared" / "alpha")
-
-
-def test_link_reports_conflicts_and_fails(tool, sandbox):
-    _repo, home, env = sandbox
-    (home / ".config" / "alpha").write_text("mine\n")
-    result = tool("dotfile", "link", "test", env=env)
-    assert result.returncode == 1
-    assert "conflicts" in result.stdout
-    assert (home / ".config" / "alpha").read_text() == "mine\n"
-
-
-def test_dry_run_changes_nothing(tool, sandbox):
-    _repo, home, env = sandbox
-    result = tool("dotfile", "link", "test", "-n", env=env)
-    assert result.returncode == 0
-    assert "would:" in result.stdout
-    assert not (home / ".config" / "alpha").exists()
-
-
 def test_doctor_reports_link_health(tool, sandbox):
     _repo, _home, env = sandbox
-    tool("dotfile", "link", "test", env=env)
+    tool("dotfile", "sync", "test", env=env)
     result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 0
     assert "1 linked, 0 missing, 0 differing" in result.stdout
@@ -101,13 +69,6 @@ def test_doctor_fails_when_a_profile_link_is_missing(tool, sandbox):
     result = tool("dotfile", "doctor", "test", env=env)
     assert result.returncode == 1
     assert "0 linked, 1 missing, 0 differing" in result.stdout
-
-
-def test_status_is_no_longer_a_command(tool, sandbox):
-    _repo, _home, env = sandbox
-    result = tool("dotfile", "status", env=dict(env, PATH=""))
-    assert result.returncode == 2
-    assert "'status' is included in 'dotfile doctor'; run that instead." in result.stderr
 
 
 def test_an_unregistered_name_runs_the_binary_behind_it(tool, tmp_path):
@@ -129,8 +90,8 @@ def test_an_unregistered_name_runs_the_binary_behind_it(tool, tmp_path):
 def test_a_name_with_no_binary_behind_it_is_still_an_error(tool, tmp_path):
     result = tool("dotfile", "nonesuch", env={"PATH": str(tmp_path), "COLUMNS": "200"})
     assert result.returncode == 2
-    assert "No such command 'nonesuch'." in result.stderr
-    assert "setup.sh" in result.stderr
+    assert "command not found: nonesuch" in result.stderr
+    
 
 
 def test_profiles_lists_every_manifest(tool, sandbox):

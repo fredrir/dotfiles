@@ -16,18 +16,18 @@
 | --- | --- | --- |
 | <code>"</code> | [<code>Unbind</code>](../../shared/tmux/10-keys.conf#L6) | Unbind<br><code>prefix</code> |
 | <code>%</code> | [<code>Unbind</code>](../../shared/tmux/10-keys.conf#L7) | Unbind<br><code>prefix</code> |
-| <code>&amp;</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" close-window --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L26) | Close window with running-job protection<br><code>prefix</code> |
+| <code>&amp;</code> | [<code>run-shell -b 'tmux-workspace close-window --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L26) | Close window with running-job protection<br><code>prefix</code> |
 | <code>'</code> | [<code>split-window -v -c '#{pane_current_path}'</code>](../../shared/tmux/10-keys.conf#L10) | Split below in the current directory<br><code>prefix</code> |
-| <code>*</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" scratch --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L62) | Open a native floating scratch pane when supported<br><code>prefix</code> |
+| <code>*</code> | [<code>run-shell -b 'tmux-workspace scratch --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L62) | Open a native floating scratch pane when supported<br><code>prefix</code> |
 | <code>-</code> | [<code>split-window -v -c '#{pane_current_path}'</code>](../../shared/tmux/10-keys.conf#L11) | Split below in the current directory<br><code>prefix</code> |
-| <code>.</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" shelf --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L60) | Retrieve a pane from the shelf<br><code>prefix</code> |
+| <code>.</code> | [<code>run-shell -b 'tmux-workspace shelf --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L60) | Retrieve a pane from the shelf<br><code>prefix</code> |
 | <code>/</code> | [<code>command-prompt -i -p 'Find' 'send-keys -X search-forward-incremental "%%"'</code>](../../shared/tmux/20-copy.conf#L22) | Search forward incrementally<br><code>copy-mode-vi</code> |
 | <code>0</code> | [<code>select-window -t ':$'</code>](../../shared/tmux/10-keys.conf#L54) | Last numbered window<br><code>prefix</code> |
 | <code>;</code> | [<code>last-pane</code>](../../shared/tmux/10-keys.conf#L18) | Focus previous pane<br><code>prefix</code> |
 | <code>=</code> | [<code>select-layout -E \; switch-client -T workspace-resize</code>](../../shared/tmux/10-keys.conf#L43) | Balance pane sizes<br><code>workspace-resize</code> |
 | <code>?</code> | [<code>command-prompt -i -p 'Find backward' 'send-keys -X search-backward-incremental "%%"'</code>](../../shared/tmux/20-copy.conf#L23) | Search backward incrementally<br><code>copy-mode-vi</code> |
-| <code>?</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" help --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L58) | Search bindings and their descriptions<br><code>prefix</code> |
-| <code>A</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" handoff --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L66) | Move agent execution to another machine<br><code>prefix</code> |
+| <code>?</code> | [<code>run-shell -b 'tmux-workspace help --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L58) | Search bindings and their descriptions<br><code>prefix</code> |
+| <code>A</code> | [<code>run-shell -b 'tmux-workspace handoff --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L66) | Move agent execution to another machine<br><code>prefix</code> |
 | <code>Any</code> | [<code>send-keys \; switch-client -T workspace-nested</code>](../../shared/tmux/10-keys.conf#L78) | Send keys<br><code>workspace-nested</code> |
 | <code>Any</code> | [<code>send-prefix \; send-keys \; switch-client -T workspace-nested</code>](../../shared/tmux/10-keys.conf#L80) | Send prefix<br><code>workspace-nested-prefix</code> |
 | <code>Any</code> | [<code>switch-client -T root \; send-keys</code>](../../shared/tmux/10-keys.conf#L47) | Switch client<br><code>workspace-resize</code> |
@@ -36,8 +36,8 @@
 | <code>C-b</code> | [<code>send-prefix</code>](../../shared/tmux/10-keys.conf#L2) | Forward prefix to the application or nested tmux<br><code>prefix</code> |
 | <code>C-b</code> | [<code>switch-client -T workspace-nested-prefix</code>](../../shared/tmux/10-keys.conf#L77) | Switch client<br><code>workspace-nested</code> |
 | <code>C-e</code> | [<code>send-keys -X end-of-line</code>](../../shared/tmux/20-copy.conf#L19) | Jump to end of line<br><code>copy-mode-vi</code> |
-| <code>C-r</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" restore --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L72) | Restore workspace recovery snapshot<br><code>prefix</code> |
-| <code>C-s</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" save --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L71) | Save workspace recovery snapshot<br><code>prefix</code> |
+| <code>C-r</code> | [<code>run-shell -b 'tmux-workspace restore --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L72) | Restore workspace recovery snapshot<br><code>prefix</code> |
+| <code>C-s</code> | [<code>run-shell -b 'tmux-workspace save --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L71) | Save workspace recovery snapshot<br><code>prefix</code> |
 | <code>C-v</code> | [<code>send-keys -X rectangle-toggle</code>](../../shared/tmux/20-copy.conf#L10) | Toggle rectangular selection<br><code>copy-mode-vi</code> |
 | <code>D</code> | [<code>detach-client</code>](../../shared/tmux/10-keys.conf#L4) | Detach this client; keep work running<br><code>prefix</code> |
 | <code>DoubleClick1Pane</code> | [<code>select-pane \; send-keys -X select-word \; run-shell -d 0.3 \; send-keys -X copy-selection-no-clear</code>](../../shared/tmux/20-copy.conf#L16) | Copy word and keep it highlighted<br><code>copy-mode-vi</code> |
@@ -48,10 +48,10 @@
 | <code>Escape</code> | [<code>send-keys -X cancel</code>](../../shared/tmux/20-copy.conf#L13) | Leave copy mode<br><code>copy-mode-vi</code> |
 | <code>Escape</code> | [<code>switch-client -T root</code>](../../shared/tmux/10-keys.conf#L45) | Finish resizing<br><code>workspace-resize</code> |
 | <code>Escape</code> | [<code>switch-client -T root</code>](../../shared/tmux/10-keys.conf#L79) | Switch client<br><code>workspace-nested-prefix</code> |
-| <code>F7</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" host --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L67) | Switch to a workspace on another host<br><code>prefix</code> |
+| <code>F7</code> | [<code>run-shell -b 'tmux-workspace host --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L67) | Switch to a workspace on another host<br><code>prefix</code> |
 | <code>H</code> | [<code>resize-pane -L 3</code>](../../shared/tmux/10-keys.conf#L31) | Resize pane left<br><code>prefix; repeat</code> |
 | <code>H</code> | [<code>resize-pane -L 8 \; switch-client -T workspace-resize</code>](../../shared/tmux/10-keys.conf#L39) | Resize left quickly<br><code>workspace-resize</code> |
-| <code>I</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" inspect --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L70) | Inspect key routing and terminal capabilities<br><code>prefix</code> |
+| <code>I</code> | [<code>run-shell -b 'tmux-workspace inspect --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L70) | Inspect key routing and terminal capabilities<br><code>prefix</code> |
 | <code>J</code> | [<code>resize-pane -D 3</code>](../../shared/tmux/10-keys.conf#L32) | Resize pane down<br><code>prefix; repeat</code> |
 | <code>J</code> | [<code>resize-pane -D 8 \; switch-client -T workspace-resize</code>](../../shared/tmux/10-keys.conf#L40) | Resize down quickly<br><code>workspace-resize</code> |
 | <code>K</code> | [<code>resize-pane -U 3</code>](../../shared/tmux/10-keys.conf#L33) | Resize pane up<br><code>prefix; repeat</code> |
@@ -62,11 +62,11 @@
 | <code>M-b</code> | [<code>send-keys -X previous-word</code>](../../shared/tmux/20-copy.conf#L20) | Move backward a word<br><code>copy-mode-vi</code> |
 | <code>M-f</code> | [<code>send-keys -X next-word-end</code>](../../shared/tmux/20-copy.conf#L21) | Move forward a word<br><code>copy-mode-vi</code> |
 | <code>MouseDragEnd1Pane</code> | [<code>send-keys -X copy-selection-no-clear</code>](../../shared/tmux/20-copy.conf#L15) | Copy mouse selection and keep it highlighted<br><code>copy-mode-vi</code> |
-| <code>O</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" output --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L69) | Search command output and deeper scrollback<br><code>prefix</code> |
+| <code>O</code> | [<code>run-shell -b 'tmux-workspace output --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L69) | Search command output and deeper scrollback<br><code>prefix</code> |
 | <code>R</code> | [<code>switch-client -T workspace-resize</code>](../../shared/tmux/10-keys.conf#L30) | Enter resize mode: hjkl adjust, Escape finishes<br><code>prefix</code> |
-| <code>S</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" shelf-park --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L59) | Park current pane on the shelf<br><code>prefix</code> |
+| <code>S</code> | [<code>run-shell -b 'tmux-workspace shelf-park --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L59) | Park current pane on the shelf<br><code>prefix</code> |
 | <code>Space</code> | [<code>next-layout \; switch-client -T workspace-resize</code>](../../shared/tmux/10-keys.conf#L44) | Cycle layout<br><code>workspace-resize</code> |
-| <code>Space</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" palette --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L57) | Search workspace actions<br><code>prefix</code> |
+| <code>Space</code> | [<code>run-shell -b 'tmux-workspace palette --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L57) | Search workspace actions<br><code>prefix</code> |
 | <code>Tab</code> | [<code>last-window</code>](../../shared/tmux/10-keys.conf#L53) | Last active window<br><code>prefix</code> |
 | <code>TripleClick1Pane</code> | [<code>select-pane \; send-keys -X select-line \; run-shell -d 0.3 \; send-keys -X copy-selection-no-clear</code>](../../shared/tmux/20-copy.conf#L17) | Copy line and keep it highlighted<br><code>copy-mode-vi</code> |
 | <code>Up</code> | [<code>copy-mode \; send-keys -X previous-prompt</code>](../../shared/tmux/20-copy.conf#L25) | Jump to previous command prompt<br><code>prefix</code> |
@@ -77,14 +77,14 @@
 | <code>&#91;</code> | [<code>send-keys -X previous-prompt</code>](../../shared/tmux/20-copy.conf#L27) | Previous command prompt<br><code>copy-mode-vi</code> |
 | <code>&#93;</code> | [<code>paste-buffer -p</code>](../../shared/tmux/20-copy.conf#L5) | Paste the latest tmux buffer<br><code>prefix</code> |
 | <code>&#93;</code> | [<code>send-keys -X next-prompt</code>](../../shared/tmux/20-copy.conf#L28) | Next command prompt<br><code>copy-mode-vi</code> |
-| <code>&#96;</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" scratch --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L61) | Toggle persistent scratch drawer<br><code>prefix</code> |
-| <code>a</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" agent --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L65) | Choose or resume an agent conversation<br><code>prefix</code> |
+| <code>&#96;</code> | [<code>run-shell -b 'tmux-workspace scratch --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L61) | Toggle persistent scratch drawer<br><code>prefix</code> |
+| <code>a</code> | [<code>run-shell -b 'tmux-workspace agent --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L65) | Choose or resume an agent conversation<br><code>prefix</code> |
 | <code>b</code> | [<code>choose-buffer -Z</code>](../../shared/tmux/20-copy.conf#L6) | Choose a saved clipboard buffer<br><code>prefix</code> |
 | <code>c</code> | [<code>new-window -c '#{pane_current_path}'</code>](../../shared/tmux/10-keys.conf#L50) | New window in the current directory<br><code>prefix</code> |
 | <code>d</code> | [<code>split-window -h -c '#{pane_current_path}'</code>](../../shared/tmux/10-keys.conf#L8) | Split right in the current directory<br><code>prefix</code> |
 | <code>e</code> | [<code>display-panes</code>](../../shared/tmux/10-keys.conf#L19) | Choose a pane<br><code>prefix</code> |
-| <code>f</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" quick-select --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L68) | Quick-select a path, URL or token<br><code>prefix</code> |
-| <code>g</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" lazygit --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L63) | Open Lazygit for the current project<br><code>prefix</code> |
+| <code>f</code> | [<code>run-shell -b 'tmux-workspace quick-select --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L68) | Quick-select a path, URL or token<br><code>prefix</code> |
+| <code>g</code> | [<code>run-shell -b 'tmux-workspace lazygit --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L63) | Open Lazygit for the current project<br><code>prefix</code> |
 | <code>h</code> | [<code>if-shell -F '#{@pane-is-vim}' 'send-keys C-h' 'select-pane -L'</code>](../../shared/tmux/10-keys.conf#L14) | Focus left through editor splits and tmux panes<br><code>prefix</code> |
 | <code>h</code> | [<code>resize-pane -L 2 \; switch-client -T workspace-resize</code>](../../shared/tmux/10-keys.conf#L35) | Resize left<br><code>workspace-resize</code> |
 | <code>j</code> | [<code>if-shell -F '#{@pane-is-vim}' 'send-keys C-j' 'select-pane -D'</code>](../../shared/tmux/10-keys.conf#L15) | Focus below through editor splits and tmux panes<br><code>prefix</code> |
@@ -96,15 +96,15 @@
 | <code>m</code> | [<code>display-panes 'swap-pane -s "%%" -t "{top-left}"'</code>](../../shared/tmux/10-keys.conf#L21) | Promote a chosen pane to the first position<br><code>prefix</code> |
 | <code>n</code> | [<code>next-window</code>](../../shared/tmux/10-keys.conf#L51) | Next window<br><code>prefix</code> |
 | <code>p</code> | [<code>previous-window</code>](../../shared/tmux/10-keys.conf#L52) | Previous window<br><code>prefix</code> |
-| <code>q</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" close-pane --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L23) | Close pane with running-job protection<br><code>prefix</code> |
+| <code>q</code> | [<code>run-shell -b 'tmux-workspace close-pane --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L23) | Close pane with running-job protection<br><code>prefix</code> |
 | <code>q</code> | [<code>send-keys -X cancel</code>](../../shared/tmux/20-copy.conf#L14) | Leave copy mode<br><code>copy-mode-vi</code> |
-| <code>r</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" reload --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L3) | Reload and validate workspace configuration<br><code>prefix</code> |
-| <code>s</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" projects --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L56) | Find projects, worktrees and running sessions<br><code>prefix</code> |
+| <code>r</code> | [<code>run-shell -b 'tmux-workspace reload --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L3) | Reload and validate workspace configuration<br><code>prefix</code> |
+| <code>s</code> | [<code>run-shell -b 'tmux-workspace projects --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L56) | Find projects, worktrees and running sessions<br><code>prefix</code> |
 | <code>t</code> | [<code>new-window -c '#{pane_current_path}'</code>](../../shared/tmux/10-keys.conf#L49) | New window in the current directory<br><code>prefix</code> |
 | <code>v</code> | [<code>send-keys -X begin-selection</code>](../../shared/tmux/20-copy.conf#L8) | Begin selection<br><code>copy-mode-vi</code> |
-| <code>w</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" close-window --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L24) | Close window with running-job protection<br><code>prefix</code> |
-| <code>x</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" close-pane --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L25) | Close pane with running-job protection<br><code>prefix</code> |
-| <code>y</code> | [<code>run-shell -b '"#{@workspace_config}/bin/tmux-workspace" yazi --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L64) | Open Yazi for the current directory<br><code>prefix</code> |
+| <code>w</code> | [<code>run-shell -b 'tmux-workspace close-window --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L24) | Close window with running-job protection<br><code>prefix</code> |
+| <code>x</code> | [<code>run-shell -b 'tmux-workspace close-pane --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L25) | Close pane with running-job protection<br><code>prefix</code> |
+| <code>y</code> | [<code>run-shell -b 'tmux-workspace yazi --pane #{q:pane_id} --client #{q:client_name}'</code>](../../shared/tmux/10-keys.conf#L64) | Open Yazi for the current directory<br><code>prefix</code> |
 | <code>y</code> | [<code>send-keys -X copy-selection-and-cancel</code>](../../shared/tmux/20-copy.conf#L11) | Copy selection and return to work<br><code>copy-mode-vi</code> |
 | <code>z</code> | [<code>resize-pane -Z</code>](../../shared/tmux/10-keys.conf#L20) | Zoom or unzoom current pane<br><code>prefix</code> |
 | <code>{</code> | [<code>send-keys -X previous-prompt -o</code>](../../shared/tmux/20-copy.conf#L29) | Beginning of previous command output<br><code>copy-mode-vi</code> |

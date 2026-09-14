@@ -303,7 +303,7 @@ impl Theme {
         }
     }
     pub fn header(&self) -> String {
-        format!("{}", self.profile)
+        self.profile.to_string()
     }
     pub fn icons(&self) -> &str {
         if self.dark {

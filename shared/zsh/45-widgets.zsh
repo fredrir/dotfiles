@@ -20,7 +20,7 @@ fi
 
 if has_cmd atuin; then
   export ATUIN_NOBIND=true
-  eval "$(atuin init zsh)"
+  cached_eval atuin-init atuin init zsh
 
   zle -A atuin-search search_history
 fi

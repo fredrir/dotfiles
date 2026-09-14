@@ -24,7 +24,7 @@ def test_sync_provisions_plugins_only_when_needed(dotfile_binary, environment, t
     (root / "environment/test/manifest").write_text("shared\n")
     (root / "shared/tmux/plugins.lock.json").write_text("{}\n")
     log = tmp_path / "plugins.jsonl"
-    binary = Path(environment["HOME"]) / ".local/bin/tmux-workspace"
+    binary = Path(environment["HOME"]) / "dotfiles/.bin/tmux-workspace"
     binary.parent.mkdir(parents=True)
     binary.write_text(
         f"#!{sys.executable}\n"

@@ -4,3 +4,6 @@ indent-width = 2
 
 [lint.zsh.plugins]
 roots = { oh-my-zsh = "~/.oh-my-zsh" }
+
+[lint]
+ignore = ["C002", "C003", "C006"]

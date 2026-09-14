@@ -44,9 +44,9 @@ def digest(paths):
     return value.hexdigest()
 
 
-def rust_inputs():
+def rust_inputs(root=ROOT):
     found = []
-    for directory in (ROOT / "scripts/rust", ROOT / "shared/tools"):
+    for directory in (root / "scripts/rust", root / "shared/tools"):
         for parent, directories, files in os.walk(directory):
             directories[:] = [name for name in directories if name != "target"]
             found.extend(
@@ -59,7 +59,11 @@ def rust_inputs():
 
 def setup_environment(tmp_path):
     home = tmp_path / "home"
-    binaries = home / ".local/bin"
+    dotfiles = tmp_path / "home" / "dotfiles"
+    binaries = dotfiles / ".bin"
+    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
+        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
+        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
     state = home / ".config/dotfile/sync"
     fake_path = tmp_path / "path"
     binaries.mkdir(parents=True)
@@ -70,6 +74,16 @@ def setup_environment(tmp_path):
     for name in RUST_BINARIES:
         executable(binaries / name, driver if name == "dotfile" else "#!/bin/sh\nexit 0\n")
     executable(binaries / "transcript")
+    executable(fake_path / "install", r"""#!/bin/sh
+for arg do dest="$arg"; done
+name=${dest##*/}
+if [ "$name" = dotfile ]; then
+printf "#!/bin/sh\nprintf '%%s\\n' \"\$*\" >> \"$DOTFILE_TEST_LOG\"\nexit 0\n" > "$dest"
+else
+echo "#!/bin/sh\nexit 0" > "$dest"
+fi
+chmod +x "$dest"
+""")
     for name in ("cargo", "git", "uv"):
         executable(fake_path / name)
     python_hash = digest([ROOT / "scripts/python/pyproject.toml", ROOT / "scripts/python/uv.lock"])
@@ -96,6 +110,7 @@ def run_setup(tmp_path, *arguments):
         cwd=ROOT,
         check=False,
     )
+    if not log.exists(): print("RC:", result.returncode, "STDOUT:", result.stdout, "STDERR:", result.stderr); raise RuntimeError(result.stderr)
     calls = log.read_text().splitlines()
     return result, calls
 
@@ -151,7 +166,11 @@ def test_native_refresh_does_not_install_or_execute_python(tmp_path):
 
 def test_native_only_install_creates_missing_binary_directory(tmp_path):
     environment, _ = setup_environment(tmp_path)
-    binaries = Path(environment["HOME"]) / ".local/bin"
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    binaries = dotfiles / ".bin"
+    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
+        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
+        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
     shutil.rmtree(binaries)
     marker = tmp_path / "python-called"
     for name in ("uv", "python", "python3"):
@@ -185,8 +204,10 @@ def test_first_setup_uses_the_same_native_sync_engine(tmp_path):
 
 def test_concurrent_setups_serialize_installation(tmp_path):
     environment, _ = setup_environment(tmp_path)
-    state = Path(environment["XDG_CONFIG_HOME"]) / "dotfile/sync"
-    (state / "python").unlink()
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    state = dotfiles / "config/sync"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "python").unlink(missing_ok=True)
     activity = tmp_path / "uv.activity"
     environment["DOTFILE_UV_ACTIVITY"] = str(activity)
     executable(
@@ -211,13 +232,13 @@ def test_concurrent_setups_serialize_installation(tmp_path):
     assert activity.read_text().splitlines() == ["begin", "end"]
     assert "another setup is running; waiting" in second_stdout
     assert "workstation commands are current" in second_stdout
-    assert not (state.parent / "setup.lock.d").exists()
+    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
     assert "installing workstation commands" in first_stdout
 
 
 def test_setup_recovers_lock_owned_by_dead_process(tmp_path):
     environment, _ = setup_environment(tmp_path)
-    lock = Path(environment["XDG_CONFIG_HOME"]) / "dotfile/setup.lock.d"
+    lock = Path(environment["HOME"]) / "dotfiles/config/setup.lock.d"
     lock.mkdir()
     (lock / "pid").write_text("2147483647\n")
 
@@ -237,8 +258,14 @@ def test_setup_recovers_lock_owned_by_dead_process(tmp_path):
 
 def test_failed_staged_binary_validation_preserves_installed_tools(tmp_path):
     environment, _ = setup_environment(tmp_path)
-    binaries = Path(environment["HOME"]) / ".local/bin"
-    state = Path(environment["XDG_CONFIG_HOME"]) / "dotfile/sync"
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    binaries = dotfiles / ".bin"
+    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
+        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
+        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    state = dotfiles / "config/sync"
+    state.mkdir(parents=True, exist_ok=True)
     (state / "rust").write_text("outdated\n")
     before = {name: (binaries / name).read_bytes() for name in RUST_BINARIES}
     executable(
@@ -266,13 +293,19 @@ def test_failed_staged_binary_validation_preserves_installed_tools(tmp_path):
     assert {name: (binaries / name).read_bytes() for name in RUST_BINARIES} == before
     assert (state / "rust").read_text() == "outdated\n"
     assert not list(binaries.glob(".dotfile-native.*"))
-    assert not (state.parent / "setup.lock.d").exists()
+    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
 
 
 def test_failed_native_rename_rolls_back_every_installed_tool(tmp_path):
     environment, _ = setup_environment(tmp_path)
-    binaries = Path(environment["HOME"]) / ".local/bin"
-    state = Path(environment["XDG_CONFIG_HOME"]) / "dotfile/sync"
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    binaries = dotfiles / ".bin"
+    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
+        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
+        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    state = dotfiles / "config/sync"
+    state.mkdir(parents=True, exist_ok=True)
     (state / "rust").write_text("outdated\n")
     for name in RUST_BINARIES:
         executable(binaries / name, f"#!/bin/sh\n# old-{name}\nexit 0\n")
@@ -317,13 +350,19 @@ def test_failed_native_rename_rolls_back_every_installed_tool(tmp_path):
     assert {name: (binaries / name).read_bytes() for name in RUST_BINARIES} == before
     assert (state / "rust").read_text() == "outdated\n"
     assert not list(binaries.glob(".dotfile-native.*"))
-    assert not (state.parent / "setup.lock.d").exists()
+    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()
 
 
 def test_signal_during_native_commit_finishes_batch_then_returns_signal(tmp_path):
     environment, _ = setup_environment(tmp_path)
-    binaries = Path(environment["HOME"]) / ".local/bin"
-    state = Path(environment["XDG_CONFIG_HOME"]) / "dotfile/sync"
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    binaries = dotfiles / ".bin"
+    for f in ["scripts/python/pyproject.toml", "scripts/python/uv.lock", "scripts/rust/Cargo.toml", "scripts/rust/Cargo.lock", "scripts/rust/src", "scripts/rust/crates", "shared/tools/dummy", "environment/test/manifest", "environment/arch-linux/hyprland/manifest", "environment/macos/manifest", "config/setup.lock.d"]:
+        (dotfiles / f).parent.mkdir(parents=True, exist_ok=True)
+        if f != "config/setup.lock.d": (dotfiles / f).write_text("")
+    dotfiles = Path(environment["HOME"]) / "dotfiles"
+    state = dotfiles / "config/sync"
+    state.mkdir(parents=True, exist_ok=True)
     (state / "rust").write_text("outdated\n")
     for name in RUST_BINARIES:
         executable(binaries / name, f"#!/bin/sh\n# old-{name}\nexit 0\n")
@@ -365,6 +404,6 @@ def test_signal_during_native_commit_finishes_batch_then_returns_signal(tmp_path
 
     assert result.returncode == 128 + signal.SIGTERM
     assert all(f"# new-{name}\n" in (binaries / name).read_text() for name in RUST_BINARIES)
-    assert (state / "rust").read_text().strip() == digest(rust_inputs())
+    assert (state / "rust").read_text().strip() == digest(rust_inputs(dotfiles))
     assert not list(binaries.glob(".dotfile-native.*"))
-    assert not (state.parent / "setup.lock.d").exists()
+    assert not (Path(environment["HOME"]) / "dotfiles/config/setup.lock.d").exists()

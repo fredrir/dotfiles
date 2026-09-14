@@ -90,7 +90,7 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
     );
     let outputs = s.outputs();
     assert!(outputs.iter().any(|p| p == "shared/tmux/theme.conf"));
-    assert!(outputs.iter().any(|p| p == "shared/ui/theme.json"));
+    assert!(outputs.iter().any(|p| p == "config/theme/theme.json"));
     assert_eq!(
         outputs.len(),
         outputs
@@ -118,7 +118,7 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
     assert_eq!(palette["profile"], "mocha");
     assert_eq!(
         palette,
-        serde_json::from_str::<Value>(&s.read("shared/ui/theme.json")).unwrap()
+        serde_json::from_str::<Value>(&s.read("config/theme/theme.json")).unwrap()
     );
     assert!(
         palette["roles"]["section_system"]
@@ -140,8 +140,8 @@ fn readonly_commands_leave_outputs_untouched_and_export_the_active_palette() {
 fn ui_scope_switch_updates_runtime_palette_without_changing_other_applications() {
     let s = Sandbox::new();
     let terminal = s.read("shared/tmux/theme.conf");
-    s.assert_success(&["switch", "latte", "shared/ui"]);
-    let runtime = ui_theme::Palette::from_path(&s.path("shared/ui/theme.json")).unwrap();
+    s.assert_success(&["switch", "latte", "theme"]);
+    let runtime = ui_theme::Palette::from_path(&s.path("config/theme/theme.json")).unwrap();
     assert_eq!(runtime.profile, "latte");
     assert!(!runtime.dark);
     assert_eq!(s.read("shared/tmux/theme.conf"), terminal);
@@ -153,13 +153,13 @@ fn ui_scope_switch_updates_runtime_palette_without_changing_other_applications()
     assert!(gallery.contains("latte"));
     assert!(gallery.contains("Comparison"));
     assert!(!gallery.contains('\x1b'));
-    fs::write(s.path("shared/ui/theme.json"), "drift").unwrap();
+    fs::write(s.path("config/theme/theme.json"), "drift").unwrap();
     let dry = s.run(&["dry"]);
     assert_eq!(dry.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&dry.stdout).contains("shared/ui/theme.json"));
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("config/theme/theme.json"));
     s.assert_success(&["sync"]);
     assert_eq!(
-        ui_theme::Palette::from_path(&s.path("shared/ui/theme.json"))
+        ui_theme::Palette::from_path(&s.path("config/theme/theme.json"))
             .unwrap()
             .profile,
         "latte"

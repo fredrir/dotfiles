@@ -20,6 +20,8 @@ def seed(secret, writer, body=DECLARED):
 def test_a_template_renders_from_vars(vault, writer):
     root, home, _env, secret = vault
     (root / "shared" / "ssh").mkdir()
+    with open(root / "config" / "targets.dotfile", "a") as f:
+        f.write("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / ".secret").write_text("")
     (root / "config" / "targets.dotfile").write_text("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / "config.tmpl").write_text(
@@ -45,6 +47,8 @@ def test_the_ciphertext_keeps_the_keys_readable(vault, writer):
 def test_an_unknown_var_blocks_and_names_itself(vault, writer):
     root, _home, _env, secret = vault
     (root / "shared" / "ssh").mkdir()
+    with open(root / "config" / "targets.dotfile", "a") as f:
+        f.write("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / ".secret").write_text("")
     (root / "config" / "targets.dotfile").write_text("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / "config.tmpl").write_text("X {{ hosts.nope }}\n")
@@ -59,6 +63,8 @@ def test_an_unknown_var_blocks_and_names_itself(vault, writer):
 def test_a_template_is_allowed_inside_a_secret_package(vault, writer, tool):
     root, _home, env, secret = vault
     (root / "shared" / "ssh").mkdir()
+    with open(root / "config" / "targets.dotfile", "a") as f:
+        f.write("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / ".secret").write_text("")
     (root / "shared" / "ssh" / "config.tmpl").write_text("Host x\n")
     seed(secret, writer)
@@ -91,6 +97,8 @@ def test_open_values_are_not_canaries(vault, writer, tool):
 def test_vars_lists_names_and_never_values(vault, writer):
     root, _home, _env, secret = vault
     (root / "shared" / "ssh").mkdir()
+    with open(root / "config" / "targets.dotfile", "a") as f:
+        f.write("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / ".secret").write_text("")
     (root / "config" / "targets.dotfile").write_text("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / "config.tmpl").write_text("H {{ hosts.parser.origin }}\n")
@@ -112,13 +120,15 @@ def test_vars_can_list_only_the_unreferenced(vault, writer):
 
 @needs_sops
 def test_a_template_without_a_key_is_sealed_not_broken(vault, writer, tool):
-    root, home, env, secret = vault
+    root, _home, env, secret = vault
     (root / "shared" / "ssh").mkdir()
+    with open(root / "config" / "targets.dotfile", "a") as f:
+        f.write("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / ".secret").write_text("")
     (root / "config" / "targets.dotfile").write_text("shared/ssh = ~/.ssh\n")
     (root / "shared" / "ssh" / "config.tmpl").write_text("H {{ hosts.parser.origin }}\n")
     seed(secret, writer)
-    shutil.rmtree(home / ".config" / "dotfile" / "age")
+    shutil.rmtree(root / "config" / "age")
     result = tool("dotfile", "link", "test", env=env)
     assert result.returncode == 0
     assert "sealed" in result.stdout
@@ -128,8 +138,10 @@ def test_a_template_without_a_key_is_sealed_not_broken(vault, writer, tool):
 def test_a_template_with_no_placeholders_needs_no_key(vault, tool):
     root, home, env, _secret = vault
     (root / "shared" / "kitty").mkdir()
+    with open(root / "config" / "targets.dotfile", "a") as f:
+        f.write("shared/kitty = ~/.config/kitty\n")
     (root / "shared" / "kitty" / "extra.conf.tmpl").write_text("font_size 12\n")
-    shutil.rmtree(home / ".config" / "dotfile" / "age")
+    shutil.rmtree(root / "config" / "age")
     assert tool("dotfile", "link", "test", env=env).returncode == 0
     assert (home / ".config" / "kitty" / "extra.conf").read_text() == "font_size 12\n"
 

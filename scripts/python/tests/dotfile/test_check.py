@@ -16,7 +16,7 @@ def ctx(tmp_path, tool):
         path.mkdir(parents=True)
     (root / "config/targets.dotfile").write_text("")
     (root / "environment/test/manifest").write_text("shared\n")
-    (home / ".config/dotfile/profile").write_text("test\n")
+    (root / "config" / "profile").write_text("test\n")
     env = {
         "DOTFILE_ROOT": str(root),
         "HOME": str(home),
@@ -48,7 +48,7 @@ def write_project(ctx, *commands):
 
 
 def install_commands(ctx, *commands):
-    bindir = ctx[1] / ".local/bin"
+    bindir = ctx[1] / "dotfiles/.bin"
     tool_bindir = ctx[1] / ".local/share/uv/tools/tools/bin"
     bindir.mkdir(parents=True, exist_ok=True)
     tool_bindir.mkdir(parents=True, exist_ok=True)
@@ -111,12 +111,12 @@ def test_reports_a_missing_public_command(ctx):
     bindir = install_commands(ctx, "count")
     result = ctx[2](PATH=bindir + os.pathsep + "/usr/bin")
     assert result.returncode == 1
-    assert "size" in result.stdout and "missing from ~/.local/bin" in result.stdout
+    assert "size" in result.stdout and "missing from ~/dotfiles/.bin" in result.stdout
 
 
 def test_rejects_a_public_command_outside_the_uv_tool_directory(ctx):
     write_project(ctx, "count")
-    bindir = ctx[1] / ".local/bin"
+    bindir = ctx[1] / "dotfiles/.bin"
     bindir.mkdir(parents=True)
     command = bindir / "count"
     command.write_text("#!/bin/sh\nexit 0\n")

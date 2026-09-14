@@ -665,10 +665,7 @@ impl Drop for Credentials {
 }
 
 fn effective_uid() -> Result<u32, String> {
-    use std::os::unix::fs::MetadataExt;
-    fs::metadata("/proc/self")
-        .map(|metadata| metadata.uid())
-        .map_err(|error| format!("/proc/self: {error}"))
+    Ok(rustix::process::geteuid().as_raw())
 }
 
 pub(crate) fn passwd_home(passwd: &str, user: &str) -> Option<String> {

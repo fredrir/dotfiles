@@ -172,7 +172,7 @@ fn missing_native_metadata_fails_check_without_launching_interpreters() {
 #[test]
 fn declared_tool_completion_needs_only_data_and_does_not_execute_the_tool() {
     let repo = Repository::new();
-    repo.put("config/command-surface.json", r#"{"version":2,"commands":{"transcript":{"path":["transcript"],"help":"Archive","hidden":false,"params":[],"children":[{"path":["transcript","capture"],"help":"Capture","hidden":false,"params":[{"kind":"option","name":"provider","opts":["--provider"],"metavar":"PROVIDER","help":"Provider","multiple":false,"required":false,"hidden":false,"completion":{"kind":"call","source":"providers"}}],"children":[]}]}}}"#);
+    repo.put("config/cli/command-surface.json", r#"{"version":2,"commands":{"transcript":{"path":["transcript"],"help":"Archive","hidden":false,"params":[],"children":[{"path":["transcript","capture"],"help":"Capture","hidden":false,"params":[{"kind":"option","name":"provider","opts":["--provider"],"metavar":"PROVIDER","help":"Provider","multiple":false,"required":false,"hidden":false,"completion":{"kind":"call","source":"providers"}}],"children":[]}]}}}"#);
     let result = repo.run(&["completions", "--program", "transcript", "--shell", "zsh"]);
     assert!(
         result.status.success(),

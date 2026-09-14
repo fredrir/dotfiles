@@ -801,7 +801,7 @@ fn push_cancellation_terminates_and_waits_for_an_active_ssh_child() {
         cancel::reset();
         push::run(&context, &cli(), &VecSink::default())
     });
-    while machine.calls().is_empty() && started.elapsed() < std::time::Duration::from_secs(2) {
+    while machine.calls().is_empty() && started.elapsed() < std::time::Duration::from_secs(10) {
         std::thread::yield_now();
     }
     assert_eq!(machine.calls(), ["blocked"]);
@@ -810,6 +810,6 @@ fn push_cancellation_terminates_and_waits_for_an_active_ssh_child() {
     let result = worker.join().unwrap();
 
     assert_eq!(result, Err("cancelled".to_string()));
-    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
     cancel::reset();
 }

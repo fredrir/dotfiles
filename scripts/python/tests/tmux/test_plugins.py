@@ -57,7 +57,10 @@ def test_reload_never_downloads_missing_plugins(server, environment):
             f"#!/bin/sh\ntouch '{called}'\nexit 1\n",
         )
     server.load()
-    wait_for(lambda: server.tm("show-options", "-gqv", "@workspace-plugins-state") == "error")
+    try:
+        wait_for(lambda: server.tm("show-options", "-gqv", "@workspace-plugins-state") == "error")
+    except AssertionError:
+        raise AssertionError(f"State was: {server.tm('show-options', '-gqv', '@workspace-plugins-state')}")
     assert not called.exists()
     assert not Path(environment["DOTFILES_TMUX_PLUGIN_HOME"]).exists()
 

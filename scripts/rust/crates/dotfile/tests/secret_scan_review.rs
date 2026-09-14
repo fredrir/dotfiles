@@ -372,7 +372,7 @@ fn compact_review_uses_one_counted_summary_and_honors_terminal_color_policy() {
         );
         assert!(display.contains("1/2  first.txt"), "{policy}: {display}");
         assert!(display.contains("github-token ×16"), "{policy}: {display}");
-        assert!(display.contains("[a] Accept & remember"), "{display}");
+        assert!(display.contains("[a] [A]ccept"), "{display}");
         assert!(display.contains(PROMPT), "{display}");
         for once in ["Secret review", "first.txt", "github-token"] {
             assert_eq!(display.matches(once).count(), 1, "{policy}: {display}");
@@ -401,7 +401,7 @@ fn compact_review_uses_one_counted_summary_and_honors_terminal_color_policy() {
             inspection.contains("Inspection 1/1 masked"),
             "{policy}: {inspection}"
         );
-        assert!(inspection.contains("[redacted]"), "{inspection}");
+        assert!(inspection.contains("[redacted:"), "{inspection}");
         assert!(!inspection.contains(&secret));
         terminal.send(b"q");
         assert!(!terminal.finish().success());
@@ -430,7 +430,7 @@ fn short_assigned_secrets_block_the_commit_hook_and_are_masked_during_review() {
     let mut terminal = Terminal::spawn(fixture.git_command(&["commit", "-m", "short secret"]));
     terminal.wait_for(PROMPT, 0);
     let after = terminal.send(b"i");
-    terminal.wait_for("API_KEY=[redacted]", after);
+    terminal.wait_for("API_KEY=[redacted:value]", after);
     terminal.wait_for(PROMPT, after);
     terminal.send(b"q");
     assert!(!terminal.finish().success());

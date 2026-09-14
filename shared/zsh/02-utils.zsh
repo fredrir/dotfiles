@@ -39,6 +39,48 @@ add_plugins() {
 
 has_cmd() { (($+commands[$1])); }
 
+cached_eval() {
+  local cache="$HOME/.cache/zsh/$1.zsh"
+  shift
+  has_cmd $1 || return 0
+
+  if [[ ! -f $cache || $commands[$1] -nt $cache ]]; then
+    mkdir -p "${cache:h}"
+    "$@" >"$cache" 2>/dev/null || return 0
+  fi
+
+  source "$cache"
+}
+
+typeset -ga _defer_queue
+
+defer() {
+  (( $#_defer_queue )) || _defer_schedule
+  _defer_queue+=("$*")
+}
+
+_defer_schedule() {
+  local fd
+  exec {fd}< /dev/null
+  zle -F $fd _defer_flush
+}
+
+_defer_flush() {
+  local fd=$1
+  zle -F $fd
+  exec {fd}<&-
+
+  while (( $#_defer_queue )); do
+    eval $_defer_queue[1]
+    shift _defer_queue
+    (( KEYS_QUEUED_COUNT || PENDING )) && { _defer_schedule; return }
+  done
+
+  (( $+functions[_zsh_autosuggest_start] )) && _zsh_autosuggest_start
+  zle reset-prompt
+}
+zle -N _defer_flush
+
 [[ $OSTYPE == linux* ]] && LINUX=1
 [[ -e /etc/arch-release ]] && ARCHLINUX=1
 [[ $OSTYPE == darwin* ]] && MACOS=1

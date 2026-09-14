@@ -29,7 +29,7 @@ path = "tests/store_tests.rs"
 sysinfo = { package = "workstation-sysinfo", path = "../sysinfo" }
 blake2 = "0.10"
 fs2 = "0.4"
-rustix = { workspace = true, features = ["fs"] }
+rustix = { workspace = true, features = ["fs", "process"] }
 regex = "1"
 sysinfo_backend = { package = "sysinfo", version = "0.37", default-features = false, features = ["system"] }
 tempfile.workspace = true

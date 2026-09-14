@@ -19,6 +19,6 @@ fn anything_else_on_stdout_is_not_a_banner() {
 #[test]
 fn the_remote_command_survives_a_minimal_login_path() {
     let command = format!("{REMOTE_PATH}hwire serve");
-    assert!(command.starts_with("PATH=\"$HOME/.local/bin:"));
+    assert!(command.starts_with("PATH=\"$DOTFILES_COMPILED"));
     assert!(command.ends_with("hwire serve"));
 }

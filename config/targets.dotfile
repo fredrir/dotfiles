@@ -1,5 +1,6 @@
 # shared
 shared/atuin = ~/.config/atuin
+shared/direnv = ~/.config/direnv
 shared/fastfetch = ~/.config/fastfetch
 shared/gh = ~/.config/gh
 shared/git = ~/.config/git
@@ -39,7 +40,6 @@ linux:shared/vscode/settings.json = ~/.config/Code/User/settings.json
 # macos
 macos/fastfetch = ~/.config/fastfetch
 macos/git/.gitconfig = ~/.gitconfig
-macos/hammerspoon = ~/.hammerspoon
 macos/launchd = ~/Library/LaunchAgents
 macos/ssh = ~/.ssh
 macos/sunshine = ~/.config/sunshine

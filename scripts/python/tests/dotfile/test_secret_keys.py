@@ -195,12 +195,12 @@ def test_a_machine_that_is_a_recipient_says_so(tool, repo):
     not (shutil.which("sops") and shutil.which("age-keygen")), reason="needs age and sops"
 )
 def test_a_stranded_machine_enrols_itself_with_the_recovery_key(tool, repo, tmp_path):
-    root, home, env = repo
+    root, _home, env = repo
     (root / "environment" / "test").mkdir(parents=True)
     (root / "environment" / "test" / "manifest").write_text("shared\n")
     (root / "shared").mkdir()
     (root / "config" / "targets.dotfile").write_text("")
-    (home / ".config" / "dotfile" / "profile").write_text("test\n")
+    (root / "config" / "profile").write_text("test\n")
 
     recovery = tmp_path / "recovery.txt"
     subprocess.run(["age-keygen", "-o", str(recovery)], check=True, capture_output=True)
@@ -273,7 +273,7 @@ def sealed_repo(tool, repo, tmp_path):
     (root / "environment" / "test" / "manifest").write_text("shared\n")
     (root / "shared").mkdir()
     (root / "config" / "targets.dotfile").write_text("")
-    (home / ".config" / "dotfile" / "profile").write_text("test\n")
+    (root / "config" / "profile").write_text("test\n")
     assert secret(tool, env, "init").returncode == 0
     assert secret(tool, env, "enroll", "archie").returncode == 0
     recovery = tmp_path / "recovery.txt"
@@ -322,8 +322,8 @@ def test_revoke_gives_a_new_data_key(tool, repo, tmp_path):
 
 @needs_both
 def test_rolling_this_machine_swaps_the_identity_and_keeps_the_label(tool, repo, tmp_path):
-    root, home, env, _recovery = sealed_repo(tool, repo, tmp_path)
-    identity = home / ".config" / "dotfile" / "age" / "keys.txt"
+    root, _home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    identity = root / "config" / "age" / "keys.txt"
     kept = tmp_path / "old-identity.txt"
     shutil.copy(identity, kept)
     before = ciphertext(root)
@@ -365,8 +365,8 @@ def test_rekey_changes_the_data_key_and_keeps_recipients(tool, repo, tmp_path):
 
 @needs_both
 def test_an_unreadable_file_aborts_the_roll_before_anything_changes(tool, repo, tmp_path):
-    root, home, env, _recovery = sealed_repo(tool, repo, tmp_path)
-    identity = home / ".config" / "dotfile" / "age" / "keys.txt"
+    root, _home, env, _recovery = sealed_repo(tool, repo, tmp_path)
+    identity = root / "config" / "age" / "keys.txt"
     before_identity = identity.read_bytes()
     before_keys = (root / "config" / "keys.dotfile").read_text()
 

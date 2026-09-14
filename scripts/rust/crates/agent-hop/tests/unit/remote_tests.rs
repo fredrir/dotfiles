@@ -96,7 +96,7 @@ fn machine_requests_have_no_tty_and_cannot_prompt_or_inject_shell_words() {
     ]);
     assert_eq!(
         script,
-        "export PATH=\"$HOME/.local/bin:$PATH\"; exec agent-hop '__machine' 'preview' '--session' 'id'\\''; touch /tmp/nope; '\\'''"
+        "export PATH=\"DOTFILES_COMPILED:$PATH\"; exec agent-hop '__machine' 'preview' '--session' 'id'\\''; touch /tmp/nope; '\\'''"
     );
     let arguments = machine_ssh_session(Host::Archie, &script).args();
     assert_eq!(arguments[0], "-T");

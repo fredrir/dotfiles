@@ -1,8 +1,8 @@
 for _plugin_file in $zsh_plugin_sources; do
-  source "$_plugin_file"
+  defer source "$_plugin_file"
 done
 unset _plugin_file
 
-(($+commands[starship])) && eval "$(starship init zsh)"
+cached_eval starship-init starship init zsh
 
-(($+commands[direnv])) && eval "$(direnv hook zsh)"
+cached_eval direnv-hook direnv hook zsh

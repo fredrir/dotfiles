@@ -42,7 +42,7 @@ alias exz="exec zsh"
 
 alias disk="ncdu"
 
-alias cleanup="kondo" # Cleanup build output
+alias cleanup="kondo"
 
 alias untar="tar -xzf"
 

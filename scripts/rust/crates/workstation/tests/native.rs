@@ -25,12 +25,12 @@ fn executable_sibling_wins_and_fallbacks_ignore_modification_times() {
     };
     let debug = resolver.root.join("scripts/rust/target/debug/tool");
     let release = resolver.root.join("scripts/rust/target/release/tool");
-    let installed = resolver.home.join(".local/bin/tool");
+    let installed = resolver.home.join("dotfiles/.bin/tool");
     for path in [&release, &installed, &debug] {
         native(path);
     }
     assert_eq!(resolver.resolve("tool").unwrap(), Some(release.clone()));
-    resolver.current_exe = Some(resolver.home.join(".local/bin/dotfile"));
+    resolver.current_exe = Some(resolver.home.join("dotfiles/.bin/dotfile"));
     assert_eq!(resolver.resolve("tool").unwrap(), Some(installed.clone()));
     resolver.current_exe = Some(
         resolver

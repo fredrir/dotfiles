@@ -172,3 +172,15 @@ ipp() {
     done
   fi
 }
+
+doppler-refresh() {
+  local root=${DIRENV_DIR#-}
+
+  if [[ -z $root ]]; then
+    print -ru2 -- "doppler-refresh: no direnv environment loaded here"
+    return 1
+  fi
+
+  command rm -f -- "$root"/.direnv/doppler.*.enc.json(N)
+  direnv reload
+}

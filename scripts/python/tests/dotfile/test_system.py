@@ -25,7 +25,7 @@ def systemd(tool, tmp_path):
     run_git(tmp_path, "init", "-q", str(root))
     run_git(root, "config", "user.email", "test@example.com")
     run_git(root, "config", "user.name", "test")
-    (home / ".config" / "dotfile" / "profile").write_text("test\n")
+    (root / "config" / "profile").write_text("test\n")
 
     pkg = root / "shared" / "netgear"
     pkg.mkdir(parents=True)

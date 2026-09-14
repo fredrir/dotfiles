@@ -92,8 +92,6 @@ tmc() {
   tmux new-session -d -s "$name" 'exec codex agents'
 }
 
-tmc
-
 # Open Vscode Fix
 _tmux_report_cwd() {
   (($+commands[wezterm] || $+functions[wezterm])) || return 0

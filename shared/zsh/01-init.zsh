@@ -9,7 +9,3 @@ for _zsh_module in "$ZCONF"/{0[2-9],[1-9][0-9]}-*.zsh(N); do
   source "$_zsh_module"
 done
 unset _zsh_module
-
-
-# Added by Antigravity CLI installer
-export PATH="/Users/fredrir/.local/bin:$PATH"
