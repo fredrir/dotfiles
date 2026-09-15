@@ -117,7 +117,7 @@ _sync_git_repo_commands() {
     alias gc='_git_from_root commit -m'
     alias gca='git add -A && git commit --amend --no-edit && git push --force-with-lease --force-if-includes'
     alias gcm='_git_from_root commit -m'
-    alias gp='_git_from_root pull'
+    alias gp='_git_from_root pull --autostash --rebase'
     alias gpp="_git_from_root push"
     alias gl='_git_from_root log'
     alias gd='_git_from_root diff'

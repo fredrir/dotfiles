@@ -22,7 +22,7 @@
       "label": "Copy active file content",
       "type": "shell",
       "command": "copy-file-pretty",
-      "args": ["${fileBasename}"],
+      "args": ["${file}"],
       "options": {
         "shell": {
           "executable": "/bin/zsh",

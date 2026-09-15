@@ -11,30 +11,26 @@ import (
 )
 
 func CopyFilePretty(target string) error {
-	dir, err := os.Getwd()
+	absPath, err := filepath.Abs(target)
 	if err != nil {
-		return fmt.Errorf("Error read dir: %w", err)
+		return fmt.Errorf("resolve path: %w", err)
 	}
 
-	givenTarget := filepath.Join(dir, target)
-	relativePath, err := filepath.Rel(dir, givenTarget)
+	fileBytes, err := os.ReadFile(absPath)
 	if err != nil {
-		return fmt.Errorf("Error: %w", err)
-	}
-
-	fileExtension := strings.Trim(filepath.Ext(givenTarget), ".")
-	fileBytes, err := os.ReadFile(givenTarget)
-	if err != nil {
-		return fmt.Errorf("Error reading file: %w", err)
+		return fmt.Errorf("read file: %w", err)
 	}
 
 	if err := clipboard.Init(); err != nil {
-		return fmt.Errorf("Clipboard error: %w", err)
+		return fmt.Errorf("init clipboard: %w", err)
 	}
 
-	prettyContent := strings.TrimRight(fmt.Sprintf("---\n**%s:**\n```%s\n%s```\n---", relativePath, fileExtension, string(fileBytes)), "\r\n")
+	ext := strings.TrimPrefix(filepath.Ext(absPath), ".")
+	content := fmt.Sprintf("---\n**%s:**\n```%s\n%s```\n---\n", absPath, ext, string(fileBytes))
 
-	clipboard.Write(context.Background(), clipboard.FmtText, []byte(prettyContent))
+	if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte(content)); err != nil {
+		return fmt.Errorf("write to clipboard: %w", err)
+	}
 
 	return nil
 }
