@@ -68,4 +68,5 @@ if [[ -n $LINUX ]]; then
   alias pacS="sudo pacman -S --needed"
   alias pacnew='pacdiff -s'
   alias paclog="paclog | tail -50"
+  alias yay="paru"
 fi
